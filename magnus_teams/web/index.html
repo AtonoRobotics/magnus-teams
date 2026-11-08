@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <p class="eyebrow">Team workspace</p>
+  <h1>Workspace</h1>
+  <p class="lede">See who is doing what, and what needs your choice.</p>
+  <p id="status-line" class="status-line" role="status">Loading…</p>
+</header>
+<main class="page">
+  <section class="block" aria-labelledby="rooms-heading">
+    <h2 id="rooms-heading">Rooms</h2>
+    <ul id="rooms-list" class="rooms-list"></ul>
+    <p id="rooms-empty" class="empty" hidden>No rooms yet.</p>
+  </section>
+
+  <section class="block" aria-labelledby="work-heading">
+    <h2 id="work-heading">Work</h2>
+    <div id="work-list" class="card-list"></div>
+    <p id="work-empty" class="empty" hidden>No work yet.</p>
+  </section>
+
+  <section class="block" aria-labelledby="decisions-heading">
+    <h2 id="decisions-heading">Needs your choice</h2>
+    <div id="decision-list" class="card-list"></div>
+    <p id="decision-empty" class="empty">Nothing needs your choice right now.</p>
+  </section>
+
+  <section class="block" aria-labelledby="timeline-heading">
+    <h2 id="timeline-heading">Recent activity</h2>
+    <ol id="timeline-list" class="timeline-list"></ol>
+    <p id="timeline-empty" class="empty" hidden>Nothing has happened yet.</p>
+  </section>
+</main>
+<footer class="site-footer">
+  <p>Workspace</p>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
