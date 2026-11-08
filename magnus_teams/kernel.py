@@ -3,9 +3,21 @@
 Same inputs, same result. Claims, expiry, conflicts and handoffs are
 computed here and nowhere else. Orchestrators (if any) only propose.
 """
-import json, os, time
+import fcntl, json, os, time
 
 TYPES = ("claim", "plan", "touch", "heartbeat", "handoff", "release")
+
+def _validate(ev):
+    if not isinstance(ev, dict):
+        raise ValueError("event must be a dict")
+    if not ev.get("type"):
+        raise ValueError("missing type")
+    if ev["type"] not in TYPES:
+        raise ValueError(f"unknown type: {ev['type']!r}")
+    if not ev.get("actor"):
+        raise ValueError("missing actor")
+    if ev.get("issue") is None or ev.get("issue") == "":
+        raise ValueError("missing issue")
 
 class Store:
     def __init__(self, path):
@@ -13,17 +25,29 @@ class Store:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
     def append(self, ev):
+        _validate(ev)
         ev = dict(ev)
         ev.setdefault("ts", time.time())
+        line = json.dumps(ev, sort_keys=True) + "\n"
         with open(self.path, "a") as f:
-            f.write(json.dumps(ev, sort_keys=True) + "\n")
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         return ev
 
     def events(self):
         if not os.path.exists(self.path):
             return []
         with open(self.path) as f:
-            return [json.loads(l) for l in f if l.strip()]
+            fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+            try:
+                return [json.loads(l) for l in f if l.strip()]
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 def project(events, now=None):
     now = time.time() if now is None else now
