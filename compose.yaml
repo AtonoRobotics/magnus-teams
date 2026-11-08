@@ -4,5 +4,11 @@ services:
     ports: ["8080:8080"]
     volumes: ["magnus-teams-data:/data"]
     restart: unless-stopped
+  worker:
+    build: .
+    command: ["python", "-m", "magnus_teams.worker"]
+    environment: ["MAGNUS_TEAMS_STORE=/data/events.jsonl"]
+    volumes: ["magnus-teams-data:/data"]
+    restart: unless-stopped
 volumes:
   magnus-teams-data:
