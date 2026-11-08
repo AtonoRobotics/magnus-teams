@@ -5,7 +5,7 @@ computed here and nowhere else. Orchestrators (if any) only propose.
 """
 import fcntl, json, os, time
 
-TYPES = ("claim", "plan", "touch", "heartbeat", "handoff", "release")
+TYPES = ("claim", "plan", "touch", "heartbeat", "handoff", "release", "decision")
 
 def _validate(ev):
     if not isinstance(ev, dict):
