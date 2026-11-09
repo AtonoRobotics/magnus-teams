@@ -23,6 +23,8 @@ pub struct Config {
     #[serde(default)]
     pub auto_review: crate::auto_review::Settings,
     #[serde(default)]
+    pub safety: crate::safety::Settings,
+    #[serde(default)]
     pub backup: Backup,
     #[serde(default)]
     pub trash: Trash,
@@ -841,6 +843,9 @@ pub struct Person {
 
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Connector {
+    /// Takes login codes and sign-in links out of what this app returns.
+    #[serde(default)]
+    pub filter_login_codes: bool,
     pub name: String,
     #[serde(default = "mcp_http")]
     pub transport: String,

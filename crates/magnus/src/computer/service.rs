@@ -272,6 +272,17 @@ impl Kernel {
         Ok(json!({ "revoked": revoked }))
     }
 
+    /// The monitor's kill switch: a pause and every grant revoked, one step.
+    pub(crate) async fn pause_computer_from_monitor(&self, id: &str) -> Result<()> {
+        let socket = self.computer_socket().map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let Some(c) = self.read(|s| s.computers.get(id).cloned()) else { return Ok(()) };
+        let mut evs: Vec<(&str, Ev)> = c.grants.iter().filter(|g| !g.revoked).map(|g| ("monitor", Ev::Computer(Change::Revoked { id: id.into(), grant: g.id.clone() }))).collect();
+        evs.push(("monitor", Ev::Computer(Change::Killed { id: id.into(), mode: KillMode::Pause, delete_volume: false })));
+        self.emit_all(evs).await?;
+        client::ask(&socket, json!({ "op": "pause", "id": id })).await?;
+        Ok(())
+    }
+
     pub async fn write_computer_file(&self, who: &Person, id: &str, path: &str, data_b64: &str) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         let path = user_path(path)?;

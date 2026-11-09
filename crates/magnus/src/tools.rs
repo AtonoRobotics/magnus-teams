@@ -165,6 +165,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "browser_as_type", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
     Builtin { name: "browser_as_select", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
     Builtin { name: "browser_sign_in", app: "browser", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
+    Builtin { name: "start_sub_agent", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "open_attachment", app: "sandbox", risk: Risk::Sandbox, label: Label::UNTRUSTED, audience: Audience::Private },
     Builtin { name: "deliver_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_screenshot", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
@@ -640,6 +641,7 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
             input_schema: obj(json!({ "name": { "type": "string" }, "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"]),
         });
     }
+    v.push(crate::tools_identity::sub_agent_spec(&d));
     if browser {
         let target = json!({ "type": "string", "description": "an element ref like e12 from the latest snapshot, or visible text" });
         v.push(ToolSpec { name: "browser_navigate".into(), description: d("browser_navigate"), input_schema: obj(json!({ "url": { "type": "string" } }), &["url"]) });

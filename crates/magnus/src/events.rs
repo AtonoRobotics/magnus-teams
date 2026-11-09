@@ -185,6 +185,7 @@ pub enum Ev {
     /// A computer changed (`computer::Change`).
     Computer(crate::computer::Change),
     Rule(crate::rules::Change),
+    SubAgent(crate::sub_agents::SubAgent),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {
         run: String,

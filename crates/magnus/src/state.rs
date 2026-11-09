@@ -860,6 +860,7 @@ pub struct ConnectorSetting {
 pub struct State {
     pub computers: crate::computer::Ledger,
     pub rules: crate::rules::Ledger,
+    pub sub_agents: crate::sub_agents::Ledger,
     /// Trashed items by id.
     pub trash: BTreeMap<String, Trashed>,
     /// Conversations removed from the trash: their tasks stay, the thread is gone.
@@ -1124,47 +1125,6 @@ impl State {
         ends.iter().take_while(|(_, failed)| *failed).count() as u32
     }
 
-    /// Whether `person` (`owner` or not) may put `item` in the trash now.
-    pub fn may_trash(&self, person: &str, owner: bool, item: &str) -> Result<(), NotTrashable> {
-        use NotTrashable::*;
-        let ended = |run: &str| self.runs.get(run).is_none_or(|r| r.ended_at.is_some());
-        let mine = match item.split_once(':') {
-            Some(("m" | "a", task)) => {
-                let t = self.tasks.get(task).filter(|t| t.person == person && t.is_chat_turn()).ok_or(NotFound)?;
-                return if ended(&t.run_id) { Ok(()) } else { Err(Running) };
-            }
-            _ if item.starts_with("task_") => {
-                let t = self.tasks.get(item).filter(|t| t.person == person && !t.is_chat_turn()).ok_or(NotFound)?;
-                return if ended(&t.run_id) { Ok(()) } else { Err(Running) };
-            }
-            _ if item.starts_with("thread_") => {
-                let turns: Vec<&Task> = self.tasks.values().filter(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).collect();
-                if turns.is_empty() && !self.branches.get(item).is_some_and(|b| b.person == person) {
-                    return Err(NotFound);
-                }
-                return if turns.iter().all(|t| ended(&t.run_id)) { Ok(()) } else { Err(Running) };
-            }
-            _ => match () {
-                _ if self.files.get(item).is_some_and(|f| f.person == person) => true,
-                _ if self.projects.get(item).is_some_and(|p| p.person == person) => true,
-                _ if self.memory.iter().any(|m| m.id == item && m.person == person) => {
-                    // Deleting a memory deletes where it was written in its
-                    // run, so the run must have ended (invariant 3).
-                    let run = self.memory.iter().find(|m| m.id == item).map(|m| m.run.clone()).unwrap_or_default();
-                    return if ended(&run) { Ok(()) } else { Err(Running) };
-                }
-                _ => self.knowledge.get(item).is_some_and(|k| {
-                    owner || k.author == format!("person:{person}") || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)
-                }),
-            },
-        };
-        if mine {
-            Ok(())
-        } else {
-            Err(NotFound)
-        }
-    }
-
     /// A model call's cost, charged to the grant the run's task runs
     /// under, if any (#280).
     fn charge_grant(&mut self, run: &str, at: DateTime<Utc>, usd: f64) {
@@ -1405,6 +1365,7 @@ impl State {
             },
             Ev::Computer(c) => self.computers.apply(c),
             Ev::Rule(c) => self.rules.apply(c),
+            Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;

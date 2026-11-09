@@ -115,8 +115,8 @@ fn review_tool() -> ToolSpec {
     }
 }
 
-fn document(a: &Action, destination: &Value, asked: &str, rules: &[String], standing: &str) -> String {
-    json!({ "action": { "tool": a.tool, "destination": destination, "content": a.input }, "what_the_person_asked": asked, "their_rules": rules, "standing": standing }).to_string()
+fn document(a: &Action, destination: &Value, asked: &str, rules: &[String], standing: &str, finding: Option<&str>) -> String {
+    json!({ "action": { "tool": a.tool, "destination": destination, "content": a.input }, "outgoing_classifier_finding": finding, "what_the_person_asked": asked, "their_rules": rules, "standing": standing }).to_string()
 }
 
 fn cache_key(person: &str, tool: &str, destination: &Value, content_hash: &str, taint: (bool, bool), rule_version: &str, standing: &str) -> String {
@@ -287,7 +287,13 @@ impl Kernel {
             return Ok(hit);
         }
         let asked = self.asked(run).await.unwrap_or_default();
-        let doc = document(a, &destination, &asked, &rules, standing);
+        let Some(finding) = self.outgoing_finding(a, run).await else {
+            return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
+        };
+        if let Some(verdict) = self.monitor(a, run).await {
+            return Ok(verdict);
+        }
+        let doc = document(a, &destination, &asked, &rules, standing, finding.as_deref());
         if doc.len() > MAX_DOCUMENT_BYTES {
             return Ok(Verdict::Ask("the action is too large for Auto Review to read".to_string()));
         }

@@ -1098,12 +1098,12 @@ impl Kernel {
             Err(e) => return Err(refusal(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
         };
         // A server that asks for no sign-in is called without a credential.
-        let credential = oauth.then(|| credential_name(&name));
         let c = Connector {
+            filter_login_codes: false,
             name: name.clone(),
             transport: "mcp_http".into(),
             url,
-            credential,
+            credential: oauth.then(|| credential_name(&name)),
             audience,
             label,
             access_groups: b["access_groups"].as_array().into_iter().flatten().filter_map(|g| g.as_str().map(String::from)).collect(),

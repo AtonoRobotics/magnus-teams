@@ -10,6 +10,7 @@ use base64::Engine;
 use magnus_adapter_proto::Block;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 /// On an attachment that came from outside, such as an inbound email.
 const OUTSIDE: &str = "email";
@@ -57,9 +58,10 @@ pub fn prompt_blocks(attachments: &[Value]) -> Vec<Block> {
 
 impl Kernel {
     /// The tools answered without a person's computer or sandbox of the run's.
-    pub(crate) async fn side_tool(&self, a: &Action) -> Result<(String, bool, Option<Value>)> {
+    pub(crate) async fn side_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
         match a.tool.as_str() {
             "open_attachment" => self.open_attachment(a).await,
+            "start_sub_agent" => self.start_sub_agent(a).await,
             _ => self.add_destination_tool(a).await,
         }
     }

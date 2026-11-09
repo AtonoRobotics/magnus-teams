@@ -382,6 +382,7 @@ impl Kernel {
         sources: Vec<String>,
         data: Option<Value>,
     ) -> Result<Verdict> {
+        let text = crate::safety::screened(text, label.untrusted);
         // What the verifier reads taints the run like the model's own reads:
         // its words go back to the model.
         self.emit(
@@ -633,7 +634,7 @@ impl Kernel {
         };
         let (label, sources) = if let Some(taint) = memory {
             taint
-        } else if a.tool == "knowledge_search" || a.tool == "bundle_read" || a.tool == "bundle_search" {
+        } else if a.tool == "knowledge_search" || a.tool == "bundle_read" || a.tool == "bundle_search" || a.tool == "start_sub_agent" {
             // What the search returned decides; a result that says nothing is untrusted and private.
             let d = out.as_ref().ok().and_then(|(_, _, d)| d.clone()).unwrap_or_default();
             (Label { untrusted: d["untrusted"] != false, private: d["private"] != false }, vec![f.app.clone()])
@@ -661,8 +662,9 @@ impl Kernel {
                         }
                     }
                 }
-                let text = clean(&text);
-                let data = data.map(|d| serde_json::from_str(&clean(&d.to_string())).unwrap_or(Value::Null));
+                let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filter_login_codes) { crate::login_codes::strip(&t) } else { t };
+                let text = filter(clean(&text));
+                let data = data.map(|d| serde_json::from_str(&filter(clean(&d.to_string()))).unwrap_or(Value::Null));
                 self.record_from(a, Some(key), if is_error { "failed" } else { "done" }, text, is_error, label, sources, data).await
             }
             Err(CallFailure::NotDone(m)) => self.record(a, Some(key), "failed", err_text(&format!("{} failed: {}.", a.tool, clean(&m)), true), true, f.label, None).await,
@@ -760,7 +762,7 @@ impl Kernel {
         if f.risk == Risk::Prohibited {
             return Ok(Err(self.deny(a, "policy", &format!("{} is prohibited on this appliance", a.tool), false, None).await?));
         }
-        if let Some(why) = self.hard_denial(a, run) {
+        if let Some(why) = self.read(|s| s.sub_agents.refusal(&a.run, &a.tool)).or_else(|| self.hard_denial(a, run)) {
             return Ok(Err(self.deny(a, "policy", &why, false, Some("hard_denial".into())).await?));
         }
         if !has_rights(person, f) {
@@ -1662,7 +1664,7 @@ impl Kernel {
                     }
                 }
                 t if t.starts_with("browser_") => self.browser_tool(a).await,
-                "add_computer_destination" | "open_attachment" => self.side_tool(a).await,
+                "add_computer_destination" | "open_attachment" | "start_sub_agent" => self.side_tool(a).await,
                 t if t.starts_with("computer_") => {
                     let person = self.read(|st| st.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
                     if let Some(done) = self.computer_tool(&person, t, &a.input).await? {

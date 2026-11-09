@@ -236,3 +236,46 @@ async fn empty(State(k): K, h: HeaderMap) -> Response {
     k.scrub_after_removal().await;
     Json(json!({ "removed": items.len() })).into_response()
 }
+
+impl crate::state::State {
+    /// Whether `person` (`owner` or not) may put `item` in the trash now.
+    pub fn may_trash(&self, person: &str, owner: bool, item: &str) -> Result<(), NotTrashable> {
+        use NotTrashable::*;
+        let ended = |run: &str| self.runs.get(run).is_none_or(|r| r.ended_at.is_some());
+        let mine = match item.split_once(':') {
+            Some(("m" | "a", task)) => {
+                let t = self.tasks.get(task).filter(|t| t.person == person && t.is_chat_turn()).ok_or(NotFound)?;
+                return if ended(&t.run_id) { Ok(()) } else { Err(Running) };
+            }
+            _ if item.starts_with("task_") => {
+                let t = self.tasks.get(item).filter(|t| t.person == person && !t.is_chat_turn()).ok_or(NotFound)?;
+                return if ended(&t.run_id) { Ok(()) } else { Err(Running) };
+            }
+            _ if item.starts_with("thread_") => {
+                let turns: Vec<&crate::state::Task> = self.tasks.values().filter(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).collect();
+                if turns.is_empty() && !self.branches.get(item).is_some_and(|b| b.person == person) {
+                    return Err(NotFound);
+                }
+                return if turns.iter().all(|t| ended(&t.run_id)) { Ok(()) } else { Err(Running) };
+            }
+            _ => match () {
+                _ if self.files.get(item).is_some_and(|f| f.person == person) => true,
+                _ if self.projects.get(item).is_some_and(|p| p.person == person) => true,
+                _ if self.memory.iter().any(|m| m.id == item && m.person == person) => {
+                    // Deleting a memory deletes where it was written in its
+                    // run, so the run must have ended (invariant 3).
+                    let run = self.memory.iter().find(|m| m.id == item).map(|m| m.run.clone()).unwrap_or_default();
+                    return if ended(&run) { Ok(()) } else { Err(Running) };
+                }
+                _ => self.knowledge.get(item).is_some_and(|k| {
+                    owner || k.author == format!("person:{person}") || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)
+                }),
+            },
+        };
+        if mine {
+            Ok(())
+        } else {
+            Err(NotFound)
+        }
+    }
+}

@@ -30,3 +30,14 @@ pub(crate) fn specs(d: &dyn Fn(&str) -> String) -> Vec<ToolSpec> {
     });
     v
 }
+
+pub(crate) fn sub_agent_spec(d: &dyn Fn(&str) -> String) -> ToolSpec {
+    ToolSpec {
+        name: "start_sub_agent".into(),
+        description: d("start_sub_agent"),
+        input_schema: obj(
+            json!({ "goal": { "type": "string" }, "tools": { "type": "array", "items": { "type": "string" } }, "grant": { "type": "string" }, "budget_share": { "type": "number" } }),
+            &["goal"],
+        ),
+    }
+}
