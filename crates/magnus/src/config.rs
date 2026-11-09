@@ -724,17 +724,7 @@ pub struct Web {
     pub search_url: Option<String>,
 }
 
-/// The browser sidecar: Chromium on the host, behind the boundary.
-#[derive(Deserialize, Clone, Debug)]
-pub struct Browser {
-    pub command: Vec<String>,
-    pub chromium: PathBuf,
-    /// Internal sites the browser may open: a name or address, with or
-    /// without `:port`, or a range (`10.1.0.0/16`). Every other loopback,
-    /// link-local, private or reserved address is refused (#185).
-    #[serde(default)]
-    pub allow: Vec<String>,
-}
+pub use crate::browser::Settings as Browser;
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Speech {

@@ -1,8 +1,8 @@
-//! The browser: Chromium on the host in a sidecar process, one isolated
-//! context per run. Only the boundary calls it; its output is untrusted.
+//! The browser: Chromium in a jail on the host (`browser/jail.sh`), driven
+//! by a sidecar process, one isolated context per run. Only the boundary calls it; its output is untrusted.
 
-use crate::config::Browser as Cfg;
 use anyhow::{anyhow, Context, Result};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -10,15 +10,34 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+/// The browser sidecar's settings (`[browser]`).
+#[derive(Deserialize, Clone, Debug)]
+pub struct Settings {
+    pub command: Vec<String>,
+    pub chromium: PathBuf,
+    /// The jail's bubblewrap, from `config/install-browser-jail.sh`.
+    #[serde(default = "default_bwrap")]
+    pub bwrap: PathBuf,
+    /// Internal sites the browser may open: a name or address, with or
+    /// without `:port`, or a range (`10.1.0.0/16`). Every other loopback,
+    /// link-local, private or reserved address is refused (#185).
+    #[serde(default)]
+    pub allow: Vec<String>,
+}
+
+fn default_bwrap() -> PathBuf {
+    PathBuf::from("/usr/local/lib/magnus/bwrap")
+}
+
 pub struct Browser {
-    cfg: Option<Cfg>,
+    cfg: Option<Settings>,
     socket: PathBuf,
     child: Mutex<Option<Child>>,
     start: tokio::sync::Mutex<()>,
 }
 
 impl Browser {
-    pub fn new(cfg: Option<Cfg>, state_dir: &std::path::Path) -> Browser {
+    pub fn new(cfg: Option<Settings>, state_dir: &std::path::Path) -> Browser {
         Browser { cfg, socket: state_dir.join("browser.sock"), child: Mutex::new(None), start: tokio::sync::Mutex::new(()) }
     }
 
@@ -39,7 +58,7 @@ impl Browser {
         for site in &cfg.allow {
             cmd.arg("--allow").arg(site);
         }
-        cmd.env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("MAGNUS_CHROMIUM", &cfg.chromium);
+        cmd.env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("MAGNUS_CHROMIUM", &cfg.chromium).env("MAGNUS_BWRAP", &cfg.bwrap);
         if let Ok(h) = std::env::var("HOME") {
             cmd.env("HOME", h);
         }

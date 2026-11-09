@@ -29,7 +29,12 @@ async fn browser_navigates_clicks_types_and_screenshots() {
         .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/ms-playwright/chromium-1234/chrome-linux64/chrome"));
     let dir = tempfile::tempdir().unwrap();
     let b = Browser::new(
-        Some(config::Browser { command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()], chromium, allow: vec!["127.0.0.1".into()] }),
+        Some(config::Browser {
+            bwrap: "/usr/local/lib/magnus/bwrap".into(),
+            command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()],
+            chromium,
+            allow: vec!["127.0.0.1".into()],
+        }),
         dir.path(),
     );
     let url = page_server().await;
@@ -57,7 +62,12 @@ async fn browser_snapshot_never_shows_a_secret_field_value() {
         .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/ms-playwright/chromium-1234/chrome-linux64/chrome"));
     let dir = tempfile::tempdir().unwrap();
     let b = Browser::new(
-        Some(config::Browser { command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()], chromium, allow: vec!["127.0.0.1".into()] }),
+        Some(config::Browser {
+            bwrap: "/usr/local/lib/magnus/bwrap".into(),
+            command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()],
+            chromium,
+            allow: vec!["127.0.0.1".into()],
+        }),
         dir.path(),
     );
     let url = page_server().await;
@@ -98,7 +108,12 @@ async fn browser_cannot_read_the_appliances_files_or_execute_a_navigation_script
     let canary = dir.path().join("private.txt");
     std::fs::write(&canary, "PRIVATE-HOST-FILE-CANARY").unwrap();
     let b = Browser::new(
-        Some(config::Browser { command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()], chromium, allow: vec!["127.0.0.1".into()] }),
+        Some(config::Browser {
+            bwrap: "/usr/local/lib/magnus/bwrap".into(),
+            command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()],
+            chromium,
+            allow: vec!["127.0.0.1".into()],
+        }),
         dir.path(),
     );
     let url = page_server().await;
@@ -186,7 +201,12 @@ async fn closing_the_browser_closes_every_runs_pages_and_a_later_request_starts_
         .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/ms-playwright/chromium-1234/chrome-linux64/chrome"));
     let dir = tempfile::tempdir().unwrap();
     let b = Browser::new(
-        Some(config::Browser { command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()], chromium, allow: vec!["127.0.0.1".into()] }),
+        Some(config::Browser {
+            bwrap: "/usr/local/lib/magnus/bwrap".into(),
+            command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()],
+            chromium,
+            allow: vec!["127.0.0.1".into()],
+        }),
         dir.path(),
     );
     let url = page_server().await;
@@ -210,7 +230,12 @@ fn sidecar(allow: &[String]) -> config::Browser {
     let chromium = std::env::var("MAGNUS_CHROMIUM")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/ms-playwright/chromium-1234/chrome-linux64/chrome"));
-    config::Browser { command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()], chromium, allow: allow.to_vec() }
+    config::Browser {
+        bwrap: "/usr/local/lib/magnus/bwrap".into(),
+        command: vec!["node".into(), root().join("browser/sidecar.js").to_string_lossy().into()],
+        chromium,
+        allow: allow.to_vec(),
+    }
 }
 
 /// A site on every address of this machine, IPv4 and IPv6, that counts

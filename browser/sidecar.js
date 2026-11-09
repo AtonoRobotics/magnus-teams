@@ -1,20 +1,32 @@
-// Browser sidecar for the Magnus kernel. Chromium runs here, on the host and
-// outside the code sandbox, and is reached only through the kernel's boundary.
+// Browser sidecar for the Magnus kernel. It runs on the host, outside the code
+// sandbox, and is reached only through the kernel's boundary. Chromium itself
+// runs in the jail that jail.sh sets up.
 // Protocol: one JSON request per connection on --socket, one JSON reply.
 // Requests: { op, run, ... }. Each run gets its own isolated browser context.
 'use strict';
 const net = require('net');
 const fs = require('fs');
+const path = require('path');
 const { chromium } = require('playwright-core');
 const { policy } = require('./destinations');
 
 const arg = n => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : undefined; };
 const socket = arg('--socket');
 const executablePath = process.env.MAGNUS_CHROMIUM;
-if (!socket || !executablePath) { console.error('usage: MAGNUS_CHROMIUM=<chrome> node sidecar.js --socket <path> [--allow <site>]...'); process.exit(2); }
+const bwrap = process.env.MAGNUS_BWRAP;
+if (!socket || !executablePath || !bwrap) { console.error('usage: MAGNUS_CHROMIUM=<chrome> MAGNUS_BWRAP=<bwrap> node sidecar.js --socket <path> [--allow <site>]...'); process.exit(2); }
 // Internal sites the owner allows (`[browser] allow`); see destinations.js.
 const destinations = policy(process.argv.flatMap((a, i) => a === '--allow' ? [process.argv[i + 1]] : []));
 const egress = destinations.proxy();
+// The only directory Chromium shares with the host: its profile, and the
+// socket to the egress proxy. Made empty each start.
+const work = `${socket}.d`;
+fs.rmSync(work, { recursive: true, force: true });
+fs.mkdirSync(work, { mode: 0o700 });
+process.env.TMPDIR = work;
+const proxySocket = path.join(work, 'p');
+// A port on the jail's own loopback, where nothing else listens.
+const JAIL_PROXY_PORT = 3128;
 
 let browser; // a promise of the launched browser, while one is open
 const runs = new Map(); // run -> { context, page }
@@ -47,11 +59,20 @@ async function page(run) {
     // A launch that fails is tried again on the next request.
     // Every connection Chromium makes goes through the egress proxy, loopback
     // included (Playwright adds `<-loopback>` to the bypass list); WebRTC may
-    // not send UDP around it.
+    // not send UDP around it. Chromium's own sandbox stays on inside the jail.
+    try { fs.accessSync(bwrap, fs.constants.X_OK); } catch {
+      throw new Error(`This user cannot run the browser jail (${bwrap}): run config/install-browser-jail.sh with sudo, then restart so the magnus group applies.`);
+    }
     const launching = chromium.launch({
-      executablePath,
-      args: ['--no-sandbox', '--disable-dev-shm-usage', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
-      proxy: { server: `http://127.0.0.1:${egress.address().port}` },
+      executablePath: path.join(__dirname, 'jail.sh'),
+      chromiumSandbox: true,
+      args: ['--disable-dev-shm-usage', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
+      proxy: { server: `http://127.0.0.1:${JAIL_PROXY_PORT}` },
+      env: {
+        MAGNUS_BWRAP: bwrap, MAGNUS_CHROME: fs.realpathSync(executablePath), MAGNUS_NODE: process.execPath, MAGNUS_WORK: work,
+        MAGNUS_RELAY: path.join(__dirname, 'relay.js'), MAGNUS_PROXY_SOCK: proxySocket, MAGNUS_PROXY_PORT: String(JAIL_PROXY_PORT),
+        PATH: process.env.PATH,
+      },
     });
     browser = launching;
     launching.catch(() => { if (browser === launching) browser = undefined; });
@@ -152,7 +173,7 @@ async function handle(req) {
 }
 
 try { fs.unlinkSync(socket); } catch {}
-egress.listen(0, '127.0.0.1', () => net.createServer(conn => {
+egress.listen(proxySocket, () => net.createServer(conn => {
   let buf = '';
   conn.on('data', async d => {
     buf += d.toString();
