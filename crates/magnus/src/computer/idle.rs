@@ -1,5 +1,5 @@
 //! A computer no one is using hibernates to a snapshot.
-use super::{client, Change, Role, Status};
+use super::{Change, Role, Status};
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use std::collections::HashMap;
@@ -71,8 +71,9 @@ pub(super) fn schedule(k: Arc<Kernel>) {
             let over = if run_limit > Duration::ZERO { over_run_limit(&ids, &held, run_limit, Instant::now()) } else { vec![] };
             let due = candidates.into_iter().filter(|id| idle_for(id) >= limit && !over.contains(id)).chain(over.iter().cloned()).collect::<Vec<_>>();
             for id in due {
-                match client::ask(&socket, serde_json::json!({ "op": "hibernate", "id": id })).await {
-                    Ok(_) => {
+                let Some(c) = k.read(|s| s.computers.get(&id).cloned()) else { continue };
+                match k.zero_and_hibernate(&socket, &c).await {
+                    Ok(()) => {
                         if let Err(e) = k.emit("kernel", Ev::Computer(Change::Hibernated { id: id.clone() })).await {
                             tracing::warn!("computer {id} hibernated but could not be recorded: {e:#}");
                         }

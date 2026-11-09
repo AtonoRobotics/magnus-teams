@@ -184,6 +184,11 @@ pub enum Change {
         path: String,
         at: DateTime<Utc>,
     },
+    /// Free space was zeroed, so earlier versions of deleted files are gone.
+    FreeSpaceZeroed {
+        id: String,
+        at: DateTime<Utc>,
+    },
     /// The volume was put back from a backup taken at `at`.
     Restored {
         id: String,
@@ -285,6 +290,8 @@ pub struct Computer {
     pub apps: Vec<App>,
     pub replay_error: Option<String>,
     pub deleted_files: Vec<DeletedFile>,
+    #[serde(skip)]
+    pub free_space_zeroed: Option<DateTime<Utc>>,
     /// Reachable because a person or the boundary said so.
     pub destinations: Vec<String>,
     pub pages: Vec<OpenPage>,
@@ -382,6 +389,7 @@ impl Ledger {
                 apps: vec![],
                 replay_error: None,
                 deleted_files: vec![],
+                free_space_zeroed: None,
                 destinations: vec![],
                 pages: vec![],
                 queued: None,
@@ -477,6 +485,11 @@ impl Ledger {
                     c.deleted_files.push(DeletedFile { path: path.clone(), at: *at });
                     let over = c.deleted_files.len().saturating_sub(MAX_DELETED_FILES);
                     c.deleted_files.drain(..over);
+                }
+            }
+            Change::FreeSpaceZeroed { id, at } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.free_space_zeroed = Some(*at);
                 }
             }
             Change::Restored { .. } => {}

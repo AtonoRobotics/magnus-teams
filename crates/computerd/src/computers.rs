@@ -20,6 +20,7 @@ mod guest;
 pub mod network;
 mod sealed;
 mod snapshot;
+mod sparse;
 pub use snapshot::Wake;
 
 pub const CGROUP_ROOT: &str = "/sys/fs/cgroup/magnus-computers";
@@ -27,6 +28,9 @@ const PARENT_CGROUP: &str = "magnus-computers";
 const MKFS: &str = "/usr/sbin/mkfs.ext4";
 /// Firecracker's own memory, on top of the guest's.
 const VMM_OVERHEAD_MIB: u64 = 256;
+/// The host's cache of this VM's writes is charged to the VM. Above this mark
+/// the writer is slowed while it drains; at the hard limit the VM is killed.
+const MEMORY_HIGH_BELOW_MAX_MIB: u64 = 128;
 const CPU_PERIOD_US: u64 = 100_000;
 const MAX_OPEN_FILES: u32 = 4096;
 const BYTES_PER_MIB: u64 = 1 << 20;
@@ -40,6 +44,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(20);
 const VM_CONFIG: &str = "vm.json";
 const BASE_ID: &str = "base.id";
 const VOLUME: &str = "volume.ext4";
+/// A guest's sync reaches the host's disk. Firecracker otherwise drops it, and
+/// the dirty pages count against the VM's memory limit until the VM is killed.
+const WRITABLE_DRIVE_CACHE: &str = "Writeback";
 const OVERLAY: &str = "overlay.ext4";
 /// The guest's existing name for its writable data drive.
 const VOLUME_LABEL: &str = "workspace";
@@ -445,10 +452,10 @@ fn make_drive(path: &Path, gib: u32, uid: u32, label: &str) -> Result<()> {
 fn vm_config(cfg: &Config, purpose: Purpose) -> serde_json::Value {
     let mut drives = vec![
         json!({ "drive_id": "rootfs", "path_on_host": BASE_IMAGE, "is_root_device": true, "is_read_only": true }),
-        json!({ "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": purpose == Purpose::ReadHelper }),
+        json!({ "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": purpose == Purpose::ReadHelper, "cache_type": WRITABLE_DRIVE_CACHE }),
     ];
     if purpose == Purpose::Computer {
-        drives.push(json!({ "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false }));
+        drives.push(json!({ "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false, "cache_type": WRITABLE_DRIVE_CACHE }));
     }
     let boot_args = if purpose == Purpose::Browser { format!("{BOOT_ARGS} {BROWSER_BOOT_ARG}") } else { BOOT_ARGS.to_string() };
     let mut v = json!({
@@ -480,6 +487,7 @@ fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32, configured: bool, netns:
     pair("--chroot-base-dir", cfg.state_dir.join("jail").display().to_string());
     pair("--cgroup-version", "2".to_string());
     pair("--parent-cgroup", PARENT_CGROUP.to_string());
+    pair("--cgroup", format!("memory.high={}", memory_max - MEMORY_HIGH_BELOW_MAX_MIB * BYTES_PER_MIB));
     pair("--cgroup", format!("memory.max={memory_max}"));
     pair("--cgroup", "memory.swap.max=0".to_string());
     pair("--cgroup", format!("cpu.max={cpu_quota} {CPU_PERIOD_US}"));
@@ -560,5 +568,6 @@ mod tests {
         let text = v.to_string();
         assert!(!text.contains("/var/lib"), "{text}");
         assert_eq!(v["drives"][0]["is_read_only"], true);
+        assert_eq!(v["drives"][1]["cache_type"], "Writeback", "a guest's sync would stop at the host's page cache");
     }
 }

@@ -42,6 +42,10 @@ const FITHAW: u64 = 0xC004_5878;
 const MAX_FREEZE: Duration = Duration::from_secs(120);
 const OVERLAY_DRIVE: &str = "/dev/vdc";
 const ERASE_BUFFER_BYTES: usize = 1 << 20;
+const FREE_SPACE_FILE: &str = "/workspace/.magnus-free-space";
+const ZERO_FLUSH_BYTES: u64 = 64 * 1024 * 1024;
+const ZERO_LAST_WRITE_BYTES: usize = 4096;
+const VOLUME_RESERVE_FILE: &str = "/sys/fs/ext4/vdb/reserved_clusters";
 /// `_IOW('R', 0x03, int[2])` and `_IO('R', 0x07)` from linux/random.h.
 const RNDADDENTROPY: u64 = 0x4008_5203;
 const RNDRESEEDCRNG: u64 = 0x5207;
@@ -184,6 +188,52 @@ fn erase(path: &std::path::Path) -> Value {
     match run() {
         Ok(()) => json!({ "ok": true, "path": path }),
         Err(e) => json!({ "error": format!("{}: {e}", path.display()) }),
+    }
+}
+
+/// Writes zeros until the disk is full, flushing as it goes because the
+/// host's unflushed pages count against this VM's memory. The last writes are
+/// small, so the tail of the free space is reached too.
+fn fill_with_zeros(file: &mut std::fs::File) -> std::io::Result<u64> {
+    let zeros = vec![0u8; ERASE_BUFFER_BYTES];
+    let (mut written, mut flushed, mut size) = (0u64, 0u64, ERASE_BUFFER_BYTES);
+    loop {
+        match file.write(&zeros[..size]) {
+            Ok(0) => break,
+            Ok(n) => {
+                written += n as u64;
+                if written - flushed >= ZERO_FLUSH_BYTES {
+                    file.sync_data()?;
+                    flushed = written;
+                }
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ENOSPC) && size > ZERO_LAST_WRITE_BYTES => {
+                file.sync_data()?;
+                size = ZERO_LAST_WRITE_BYTES;
+            }
+            Err(e) if e.raw_os_error() == Some(libc::ENOSPC) => break,
+            Err(e) => return Err(e),
+        }
+    }
+    file.sync_data()?;
+    Ok(written)
+}
+
+/// Overwrites the volume's free blocks with zeros, then lets them go. ext4
+/// holds back a reserve even from root, so that is opened for the fill.
+fn zero_free() -> Value {
+    let path = std::path::Path::new(FREE_SPACE_FILE);
+    let reserve = std::fs::read_to_string(VOLUME_RESERVE_FILE);
+    let opened = std::fs::write(VOLUME_RESERVE_FILE, "0");
+    let filled = std::fs::File::create(path).and_then(|mut file| fill_with_zeros(&mut file));
+    let removed = std::fs::remove_file(path);
+    unsafe { libc::sync() };
+    if let Ok(value) = &reserve {
+        let _ = std::fs::write(VOLUME_RESERVE_FILE, value.trim());
+    }
+    match (filled, removed, opened) {
+        (Ok(bytes), Ok(()), Ok(())) => json!({ "ok": true, "bytes": bytes }),
+        (Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => json!({ "error": format!("zeroing free space: {e}") }),
     }
 }
 
@@ -453,6 +503,7 @@ fn handle(req: Value) -> Value {
                 Err(e) => json!({ "error": format!("{}: {e}", p.display()) }),
             }
         }
+        "zero_free" => zero_free(),
         "list" => list_dir(&resolve(req["path"].as_str().unwrap_or_default())),
         "sync" => {
             unsafe { libc::sync() };

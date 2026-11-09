@@ -60,6 +60,14 @@ pub enum Request {
     StartBrowser {
         id: String,
     },
+    /// Whether the host can hold this volume with every block written.
+    ZeroRoom {
+        id: String,
+    },
+    /// Gives a stopped computer's zeroed blocks back to the host.
+    DigHoles {
+        id: String,
+    },
     /// Encrypts a stopped browser's profile with a key the vault holds.
     SealVolume {
         id: String,
@@ -151,6 +159,8 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
             c.resume(&id(&raw)?)?;
             json!({})
         }
+        Request::ZeroRoom { id: raw } => json!({ "room": c.room_to_zero(&id(&raw)?)? }),
+        Request::DigHoles { id: raw } => json!({ "dug_bytes": c.dig_holes(&id(&raw)?)? }),
         Request::Stop { id: raw } => {
             c.stop(&id(&raw)?)?;
             json!({})

@@ -23,6 +23,8 @@ const MAX_HOST_CHARS: usize = 253;
 /// Where the guest looks for certificate authorities to trust.
 const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.crt";
 /// A stopped computer's files are reached one helper VM at a time.
+/// As long as filling a whole volume can take.
+const ZERO_FREE_WAIT: Duration = Duration::from_secs(30 * 60);
 static HELPER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
@@ -208,7 +210,7 @@ impl Kernel {
         if c.status != Status::Running {
             return Err(Refused::Conflict("only a running computer can hibernate".into()));
         }
-        client::ask(&socket, json!({ "op": "hibernate", "id": id })).await.map_err(failed)?;
+        self.zero_and_hibernate(&socket, &c).await.map_err(failed)?;
         self.record_computer(who, Change::Hibernated { id: id.into() }).await?;
         Ok(json!({ "status": "hibernated" }))
     }
@@ -313,6 +315,54 @@ impl Kernel {
     async fn on_computer(&self, who: &Person, id: &str, req: Value) -> Result<Value, Refused> {
         let c = self.controlled_computer(who, id)?;
         self.computer_file_for(&c, req).await
+    }
+
+    /// A deleted file's earlier versions linger in free blocks, so free space
+    /// is zeroed once the computer goes idle, where filling it harms no one.
+    /// The host gets those blocks back as soon as the VM has stopped.
+    pub(super) async fn zero_and_hibernate(&self, socket: &Path, c: &Computer) -> anyhow::Result<()> {
+        let zeroed = self.zero_deleted_blocks(socket, c).await;
+        client::ask(socket, json!({ "op": "hibernate", "id": c.id })).await?;
+        if zeroed {
+            if let Err(e) = client::ask(socket, json!({ "op": "dig_holes", "id": c.id })).await {
+                tracing::warn!("computer {}: the host did not get its blocks back: {e:#}", c.id);
+            }
+        }
+        Ok(())
+    }
+
+    async fn zero_deleted_blocks(&self, socket: &Path, c: &Computer) -> bool {
+        if c.deleted_files.last().is_none_or(|d| c.free_space_zeroed.is_some_and(|at| at >= d.at)) {
+            return false;
+        }
+        match client::ask(socket, json!({ "op": "zero_room", "id": c.id })).await {
+            Ok(v) if v["room"] == true => {}
+            Ok(_) => {
+                tracing::warn!("computer {}: the host has no room to zero its free space, so deleted files may linger there", c.id);
+                return false;
+            }
+            Err(e) => {
+                tracing::warn!("computer {}: free space was not zeroed: {e:#}", c.id);
+                return false;
+            }
+        }
+        match client::guest_for(socket, &c.id, json!({ "op": "zero_free" }), ZERO_FREE_WAIT).await {
+            Ok(v) if v["error"].is_null() => {
+                let change = Change::FreeSpaceZeroed { id: c.id.clone(), at: chrono::Utc::now() };
+                if let Err(e) = self.emit("kernel", Ev::Computer(change)).await {
+                    tracing::warn!("computer {}'s zeroing could not be recorded: {e:#}", c.id);
+                }
+                true
+            }
+            Ok(v) => {
+                tracing::warn!("computer {}: free space was not zeroed: {}", c.id, v["error"]);
+                false
+            }
+            Err(e) => {
+                tracing::warn!("computer {}: free space was not zeroed: {e:#}", c.id);
+                false
+            }
+        }
     }
 
     /// A file request on a computer the caller may already reach.
