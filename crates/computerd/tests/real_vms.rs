@@ -15,7 +15,6 @@ mod real_vms {
     const STATE: &str = "/var/lib/magnus-computerd-test";
     const CGROUPS: &str = "/sys/fs/cgroup/magnus-computers";
     const FIRST_UID: u32 = 210_000;
-    const GUEST_PORT: u32 = 52;
     const BOOT_WAIT: Duration = Duration::from_secs(30);
     const SOCKET_WAIT: Duration = Duration::from_secs(5);
     const MEMORY_MIB: u64 = 256;
@@ -88,19 +87,17 @@ mod real_vms {
         std::fs::read_to_string(cgroup(id).join("cgroup.procs")).unwrap_or_default().split_whitespace().map(|p| p.parse().unwrap()).collect()
     }
 
-    fn vsock(id: &str) -> PathBuf {
-        Path::new(STATE).join("jail/firecracker").join(id).join("root/v.sock")
-    }
-
+    /// Through computerd, the way Magnus reaches a guest.
     fn try_guest(id: &str, req: &Value) -> std::io::Result<Value> {
-        let mut s = UnixStream::connect(vsock(id))?;
+        let mut s = UnixStream::connect(socket())?;
         s.set_read_timeout(Some(Duration::from_secs(5)))?;
-        writeln!(s, "CONNECT {GUEST_PORT}")?;
+        writeln!(s, "{}", json!({"op":"connect","id":id}))?;
         let mut r = BufReader::new(s.try_clone()?);
         let mut ack = String::new();
         r.read_line(&mut ack)?;
-        if !ack.starts_with("OK") {
-            return Err(std::io::Error::other("the guest is not listening"));
+        let ack: Value = serde_json::from_str(&ack)?;
+        if ack["ok"] != true {
+            return Err(std::io::Error::other(ack.to_string()));
         }
         writeln!(s, "{req}")?;
         let mut line = String::new();
@@ -221,6 +218,14 @@ mod real_vms {
         guest("a", json!({"op":"write","path":"/workspace/note","data_b64":"a2VlcCBtZQ=="}));
         guest("a", json!({"op":"sync"}));
         assert!(read_note("a").contains("keep me"));
+
+        // A VM's user owns its jail. A link planted there must not make root
+        // reach anything outside it: the service's own socket stands in.
+        let planted = Path::new(STATE).join("jail/firecracker/b/root/v.sock");
+        std::fs::remove_file(&planted).unwrap();
+        std::os::unix::fs::symlink(socket(), &planted).unwrap();
+        let reached = try_guest("b", &json!({"op":"list"}));
+        assert!(reached.is_err(), "a planted link reached the service's socket: {reached:?}");
 
         // The VMs do not depend on the service.
         drop(daemon);

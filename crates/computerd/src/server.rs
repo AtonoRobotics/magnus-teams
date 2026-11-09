@@ -3,12 +3,14 @@
 use crate::computers::Computers;
 use crate::config::Config;
 use crate::id::ComputerId;
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::{chown, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,6 +51,10 @@ pub enum Request {
         id: String,
     },
     List,
+    /// Turns this connection into a stream to the guest agent.
+    Connect {
+        id: String,
+    },
 }
 
 pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
@@ -77,13 +83,40 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
         }
         Request::Status { id: raw } => json!({ "state": c.status(&id(&raw)?)? }),
         Request::List => json!({ "computers": c.list()?.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>() }),
+        Request::Connect { .. } => anyhow::bail!("connect is handled by the connection itself"),
     })
 }
 
-fn answer(c: &Computers, conn: &UnixStream) -> Value {
+fn relay(c: &Computers, conn: UnixStream, raw: &str) -> Result<()> {
+    let (root, uid) = c.relay_target(&ComputerId::parse(raw)?)?;
+    conn.set_read_timeout(None)?;
+    let out = conn.try_clone()?;
+    // Its own process, because it gives up root and this one cannot.
+    let status = Command::new(std::env::current_exe().context("find this program")?)
+        .env_clear()
+        .arg("relay")
+        .arg(root)
+        .arg(uid.to_string())
+        .stdin(Stdio::from(OwnedFd::from(conn)))
+        .stdout(Stdio::from(OwnedFd::from(out)))
+        .stderr(Stdio::null())
+        .status()
+        .context("run the relay")?;
+    ensure!(status.success(), "the relay could not enter the computer's jail");
+    Ok(())
+}
+
+/// A client sends one request and waits for the reply, so nothing past the
+/// newline is lost to the buffer.
+fn read_request(conn: &UnixStream) -> Result<Request> {
     let mut line = String::new();
-    let read = conn.set_read_timeout(Some(READ_TIMEOUT)).and_then(|_| BufReader::new((&*conn).take(MAX_REQUEST_BYTES)).read_line(&mut line));
-    let result = read.map_err(anyhow::Error::from).and_then(|_| serde_json::from_str::<Request>(&line).context("bad request")).and_then(|req| dispatch(c, req));
+    conn.set_read_timeout(Some(READ_TIMEOUT))?;
+    BufReader::new(conn.take(MAX_REQUEST_BYTES)).read_line(&mut line)?;
+    serde_json::from_str(&line).context("bad request")
+}
+
+fn answer(c: &Computers, req: Result<Request>) -> Value {
+    let result = req.and_then(|req| dispatch(c, req));
     match result {
         Ok(mut v) => {
             v["ok"] = json!(true);
@@ -115,8 +148,18 @@ pub fn serve(cfg: Config) -> Result<()> {
         let computers = computers.clone();
         let open = open.clone();
         std::thread::spawn(move || {
-            let reply = answer(&computers, &conn);
-            let _ = writeln!(conn, "{reply}");
+            match read_request(&conn) {
+                Ok(Request::Connect { id }) => {
+                    let reply_on = conn.try_clone();
+                    if let (Err(e), Ok(mut c)) = (relay(&computers, conn, &id), reply_on) {
+                        let _ = writeln!(c, "{}", json!({ "ok": false, "error": format!("{e:#}") }));
+                    }
+                }
+                req => {
+                    let reply = answer(&computers, req);
+                    let _ = writeln!(conn, "{reply}");
+                }
+            }
             open.fetch_sub(1, Ordering::SeqCst);
         });
     }

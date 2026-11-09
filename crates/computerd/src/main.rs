@@ -28,6 +28,11 @@ fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("serve") => magnus_computerd::server::serve(Config::load(&config)?),
         Some("kill-all") => kill_all(&config),
+        // Started by the service for one connection; see `relay`.
+        Some("relay") => match (args.get(1), args.get(2).map(|u| u.parse::<u32>())) {
+            (Some(root), Some(Ok(uid))) => magnus_computerd::relay::run(Path::new(root), uid),
+            _ => bail!("usage: magnus-computerd relay ROOT UID"),
+        },
         Some("release") => {
             Computers::new(Config::parse(&config)?).release()?;
             println!("computers may start again; none was started");

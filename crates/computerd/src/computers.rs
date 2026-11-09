@@ -4,6 +4,7 @@
 
 use crate::config::{Config, BASE_IMAGE, FIRECRACKER_NAME, KERNEL_IMAGE};
 use crate::id::ComputerId;
+use crate::relay::VSOCK_IN_JAIL;
 use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -29,7 +30,6 @@ const KILL_WAIT: Duration = Duration::from_secs(10);
 const LOCK_WAIT: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 const VM_CONFIG: &str = "vm.json";
-const VSOCK: &str = "v.sock";
 const VOLUME: &str = "volume.ext4";
 const OVERLAY: &str = "overlay.ext4";
 /// The guest's existing name for its writable data drive.
@@ -78,8 +78,11 @@ impl Computers {
         self.jail(id).join("root")
     }
 
-    pub fn vsock(&self, id: &ComputerId) -> PathBuf {
-        self.jail_root(id).join(VSOCK)
+    /// Where a relay for this computer locks itself in, and as whom.
+    pub fn relay_target(&self, id: &ComputerId) -> Result<(PathBuf, u32)> {
+        let Meta { uid } = self.meta(id)?;
+        ensure!(self.is_live(id), "computer {} is not running", id.as_str());
+        Ok((self.jail_root(id), uid))
     }
 
     fn cgroup(&self, id: &ComputerId) -> PathBuf {
@@ -342,7 +345,7 @@ fn vm_config(cfg: &Config) -> serde_json::Value {
             { "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false },
         ],
         "machine-config": { "vcpu_count": cfg.vm.vcpus, "mem_size_mib": cfg.vm.memory_mib },
-        "vsock": { "guest_cid": GUEST_CID, "uds_path": VSOCK },
+        "vsock": { "guest_cid": GUEST_CID, "uds_path": VSOCK_IN_JAIL.trim_start_matches('/') },
     })
 }
 
