@@ -39,7 +39,7 @@ impl Kernel {
     /// One reviewer call, recorded with its cost. None when the budget is
     /// spent, its worst case does not fit what is left, or the provider
     /// failed: the reviewer then says nothing.
-    async fn reviewer_call(&self, run: &Run, purpose: &str, system: &str, messages: Vec<Message>, tools: Vec<ToolSpec>) -> Result<Option<Vec<Block>>> {
+    pub(crate) async fn reviewer_call(&self, run: &Run, purpose: &str, system: &str, messages: Vec<Message>, tools: Vec<ToolSpec>) -> Result<Option<Vec<Block>>> {
         let calls = self.read(|s| s.runs.get(&run.id).map(|r| r.model_calls)).unwrap_or(0);
         // Nor once its grant's budget for the period is spent (#286).
         if calls >= run.config.budget.max_model_calls || self.grant_spent(&run.id).is_some() {

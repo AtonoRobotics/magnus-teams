@@ -7,8 +7,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config {
     pub appliance: Appliance,
-    /// The admin console (`magnus-admin`), reachable only from the
-    /// organisation's network or VPN.
+    /// The admin console (`magnus-admin`), reachable only from the organisation's network or VPN.
     #[serde(default)]
     pub admin: Option<Admin>,
     pub database: Database,
@@ -21,6 +20,8 @@ pub struct Config {
     pub verifier: Verifier,
     #[serde(default)]
     pub reviewer: Reviewer,
+    #[serde(default)]
+    pub auto_review: crate::auto_review::Settings,
     #[serde(default)]
     pub backup: Backup,
     #[serde(default)]
@@ -408,8 +409,7 @@ impl Default for Budget {
 /// Backups of the event log and the vault (K10).
 #[derive(Deserialize, Clone, Debug)]
 pub struct Backup {
-    /// Where backups are written; `<state_dir>/backups` unless set. Set it
-    /// to another disk: a backup on the appliance's own disk is lost with it.
+    /// Where backups are written; `<state_dir>/backups` unless set. Set it to another disk: a backup on the appliance's own disk is lost with it.
     #[serde(default)]
     pub dir: Option<std::path::PathBuf>,
     /// The key backups are encrypted with; `<state_dir>/backup.key` unless

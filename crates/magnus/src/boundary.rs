@@ -179,7 +179,11 @@ fn is_chat_tool(f: &Facts) -> bool {
 /// A send the reviewer judges: the model's own action, changing the world
 /// outside Magnus. Its own memory, a chat message, and a local write are
 /// not sends.
-fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
+pub(crate) fn shown_hash(a: &Action, shown: Option<&Shown>) -> String {
+    shown.map_or_else(|| input_hash(&a.tool, &a.input), |s| s.hash(&a.tool, &a.input))
+}
+
+pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if a.issuer != Issuer::Model || is_chat_tool(f) || f.reaches_self || !f.risk.changes_state() {
         return false;
     }
@@ -310,7 +314,7 @@ fn err_text(what: &str, retry: bool) -> String {
     }
 }
 
-enum Gate {
+pub(crate) enum Gate {
     Pass,
     Stop(Verdict),
 }
@@ -399,7 +403,7 @@ impl Kernel {
         Ok(Verdict::Done { text, is_error, data })
     }
 
-    async fn decision(&self, a: &Action, outcome: &str, stage: &str, reason: &str, rule: Option<String>) -> Result<()> {
+    pub(crate) async fn decision(&self, a: &Action, outcome: &str, stage: &str, reason: &str, rule: Option<String>) -> Result<()> {
         self.emit(
             "kernel",
             Ev::Decision { run: a.run.clone(), call_id: a.call_id.clone(), tool: a.tool.clone(), outcome: outcome.into(), stage: stage.into(), reason: reason.into(), rule },
@@ -408,7 +412,7 @@ impl Kernel {
         Ok(())
     }
 
-    async fn deny(&self, a: &Action, stage: &str, reason: &str, retry: bool, rule: Option<String>) -> Result<Verdict> {
+    pub(crate) async fn deny(&self, a: &Action, stage: &str, reason: &str, retry: bool, rule: Option<String>) -> Result<Verdict> {
         self.decision(a, "deny", stage, reason, rule).await?;
         let text = err_text(&format!("Denied ({stage}): {reason}."), retry);
         self.record(a, None, "denied", text, true, Label::PRINCIPAL, None).await
@@ -486,8 +490,7 @@ impl Kernel {
             return Ok(Verdict::Suspended);
         }
 
-        // Where it goes, read from what it acts on before anything is decided
-        // about it. Nothing read here reaches the model.
+        // Where it goes, read before anything is decided; none of it reaches the model.
         let shown = match self.destinations(a, &f, &run, &person).await {
             Ok(s) => s,
             Err(why) => return self.deny(a, "destinations", &why, true, None).await,
@@ -500,16 +503,22 @@ impl Kernel {
             Err(v) => return Ok(v),
         };
 
-        // 4b. Review: an enabled reviewer judges each send the kernel does
-        // not ask about. One the kernel asks about is reviewed by the
-        // person instead, who outranks it (#179).
+        // 4b. An enabled reviewer judges each send the kernel does not ask about (#179).
         if ask.is_none() && run.config.module("reviewer") && is_reviewed_send(a, &f) {
             if let Gate::Stop(v) = self.reviewer_stage(a, &run, &f, shown.as_ref()).await? {
                 return Ok(v);
             }
         }
 
-        // 5. Approval.
+        // 5. Approval, after Auto Review of what the policy permits.
+        let ask = match ask {
+            Some(x) => Some(x),
+            None => match self.review_permitted(a, &run, &f, shown.as_ref()).await? {
+                crate::auto_review::Permitted::Pass => None,
+                crate::auto_review::Permitted::Stop(v) => return Ok(v),
+                crate::auto_review::Permitted::Ask(why) => Some((why, Some(crate::auto_review::ASKED.to_string()))),
+            },
+        };
         if let Some((why, rule)) = ask {
             if let Gate::Stop(v) = self.approval_stage(a, &run, &f, &why, rule, shown.as_ref()).await? {
                 return Ok(v);
@@ -751,12 +760,14 @@ impl Kernel {
         if f.risk == Risk::Prohibited {
             return Ok(Err(self.deny(a, "policy", &format!("{} is prohibited on this appliance", a.tool), false, None).await?));
         }
+        if let Some(why) = self.hard_denial(a, run) {
+            return Ok(Err(self.deny(a, "policy", &why, false, Some("hard_denial".into())).await?));
+        }
         if !has_rights(person, f) {
             let why = format!("{} does not have access to {} (identity-provider groups)", person.id, f.app);
             return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
         }
-        // A chat turn may only read, and start a task or propose a schedule;
-        // those two belong to chat alone.
+        // A chat turn may only read, and start a task or propose a schedule.
         let chat_turn = self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.is_chat_turn()));
         if is_chat_tool(f) && !chat_turn {
             return Ok(Err(self.deny(a, "policy", &format!("{} is for chat; in a task, do the work, or propose a schedule with propose_schedule", a.tool), false, None).await?));
@@ -764,9 +775,8 @@ impl Kernel {
         if a.issuer == Issuer::Memory && f.name != "memory_write" {
             return Ok(Err(self.deny(a, "policy", "the memory pass may only write memory", false, None).await?));
         }
-        // The person's own memory is not the world: writing it changes
-        // nothing outside the appliance and keeps the run's taint (M1), so
-        // chat may write it and it needs no contract.
+        // The person's own memory is not the world: writing it changes nothing
+        // outside the appliance (M1), so chat may write it and it needs no contract.
         let own_memory = f.connector.is_none() && f.app == "memory";
         if chat_turn && f.risk != Risk::Read && !is_chat_tool(f) && !own_memory {
             let why = format!("in chat you may only read; {} changes something, so start a task with create_task to do it", a.tool);
@@ -890,7 +900,7 @@ impl Kernel {
 
     /// The approval covering this exact action, if one holds and its
     /// approver may still give it.
-    fn covering_approval(&self, run: &Run, a: &Action, f: &Facts, hash: &str, kernel_ask: bool, lookup: bool) -> Option<crate::state::Approval> {
+    pub(crate) fn covering_approval(&self, run: &Run, a: &Action, f: &Facts, hash: &str, kernel_ask: bool, lookup: bool) -> Option<crate::state::Approval> {
         let now = chrono::Utc::now();
         let found = self.read(|s| {
             // The person allowed this task's web lookups, or, in chat, this
@@ -939,35 +949,12 @@ impl Kernel {
         if a.issuer.reads_only() {
             return Ok(Gate::Stop(self.deny(a, "approval", "a contract check or the verifier cannot wait for approval", false, rule).await?));
         }
-        let hash = shown.map_or_else(|| input_hash(&a.tool, &a.input), |s| s.hash(&a.tool, &a.input));
+        let hash = shown_hash(a, shown);
         // A taint ask (Rule of Two, audience) is satisfied only by an approval
         // of this exact action; broader scopes cover policy asks only.
         let kernel_ask = rule.as_deref().is_some_and(|r| r.starts_with("kernel:"));
         let lookup = rule.as_deref() == Some(WEB_LOOKUPS);
         let found = self.covering_approval(run, a, f, &hash, kernel_ask, lookup);
-        // A confirmed schedule was approved once for all its runs (owner,
-        // 2026-11-02: "The schedule should be approved once and run until
-        // completion or it's stopped"): its confirmation covers the policy's
-        // asks in its runs, for actions its person could approve themselves,
-        // except moving money. The kernel's own asks (the Rule of Two, the
-        // audience rule) still ask each time (owner, the same day).
-        if found.is_none() && !kernel_ask && f.risk != Risk::Financial {
-            let schedule = self.read(|s| s.tasks.get(&run.task).and_then(|t| t.schedule.clone()).filter(|id| s.schedules.get(id).is_some_and(|sc| sc.person == run.person)));
-            let may = self.person(&run.person).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())) || f.risk == Risk::ReversibleWrite);
-            if let (Some(id), true) = (schedule, may) {
-                self.decision(a, "allow", "approval", &format!("covered by the confirmed schedule {id}"), rule).await?;
-                return Ok(Gate::Pass);
-            }
-            // A grant the person set covers the policy's asks in the tasks
-            // started under it, for actions they could approve themselves,
-            // as its policy and budget allow (#235; owner's ruling,
-            // 2026-11-02). The kernel's own asks are never covered.
-            if let Some(g) = self.covering_grant(run, f).filter(|_| may) {
-                self.decision(a, "allow", "approval", &format!("covered by the grant {g}"), rule).await?;
-                self.emit("kernel", Ev::GrantUsed { grant: g, task: run.task.clone(), run: a.run.clone(), call_id: a.call_id.clone(), tool: a.tool.clone() }).await?;
-                return Ok(Gate::Pass);
-            }
-        }
         if let Some(ap) = found {
             self.decision(a, "allow", "approval", &format!("approved by {} ({})", ap.by, ap.scope), rule).await?;
             if ap.scope == "once" {
@@ -975,6 +962,11 @@ impl Kernel {
             }
             return Ok(Gate::Pass);
         }
+        let person_only = lookup || rule.as_deref() == Some(crate::auto_review::ASKED);
+        let why = match self.clear_ask(a, run, f, &rule, shown, &hash, kernel_ask, person_only).await? {
+            crate::auto_review::Cleared::Gate(g) => return Ok(g),
+            crate::auto_review::Cleared::Ask(reason) => reason.unwrap_or_else(|| why.to_string()),
+        };
         // Background work asks no one (owner, 2026-11-07): what would need
         // the person's approval goes back to the model, which can put it in
         // front of them as a suggestion instead.
@@ -982,7 +974,7 @@ impl Kernel {
             let reason = format!("{why}. This is background work, so no one is asked to approve it; if it is worth doing, suggest it to the person (observe, or propose_schedule for recurring work) and finish");
             return Ok(Gate::Stop(self.deny(a, "approval", &reason, false, rule).await?));
         }
-        self.decision(a, "ask", "approval", why, rule.clone()).await?;
+        self.decision(a, "ask", "approval", &why, rule.clone()).await?;
         let open = self.read(|s| {
             s.items
                 .values()
@@ -1202,7 +1194,7 @@ impl Kernel {
     /// its task was started under, its person's, not revoked, with budget
     /// left in its period, whose policy permits the action. An error in
     /// evaluating it covers nothing, so the action asks.
-    fn covering_grant(&self, run: &Run, f: &Facts) -> Option<String> {
+    pub(crate) fn covering_grant(&self, run: &Run, f: &Facts) -> Option<String> {
         let now = chrono::Utc::now();
         let (g, spent) = self.read(|s| {
             let g = s.tasks.get(&run.task).and_then(|t| t.grant.as_ref()).and_then(|id| s.grants.get(id)).filter(|g| g.person == run.person && g.revoked.is_none())?;

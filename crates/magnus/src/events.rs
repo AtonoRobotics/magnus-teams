@@ -184,6 +184,7 @@ pub enum Ev {
     },
     /// A computer changed (`computer::Change`).
     Computer(crate::computer::Change),
+    Rule(crate::rules::Change),
     /// Something done in the admin console (admin console spec, Authority
     /// and audit): who (the admin's `sub` and name), what, to what, from
     /// where, and for a change, what it was before and after. Written by the

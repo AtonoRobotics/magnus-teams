@@ -858,6 +858,7 @@ pub struct ConnectorSetting {
 #[derive(Default)]
 pub struct State {
     pub computers: crate::computer::Ledger,
+    pub rules: crate::rules::Ledger,
     /// Trashed items by id.
     pub trash: BTreeMap<String, Trashed>,
     /// Conversations removed from the trash: their tasks stay, the thread is gone.
@@ -1402,6 +1403,7 @@ impl State {
                 }
             },
             Ev::Computer(c) => self.computers.apply(c),
+            Ev::Rule(c) => self.rules.apply(c),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;
                 self.kill_switch_by = Some((e.actor.clone(), e.at));

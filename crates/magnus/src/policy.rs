@@ -454,6 +454,15 @@ pub fn grant_covers(cedar: &str, person: &Person, tool: &ToolFacts) -> Result<bo
     Ok(eval(cedar, "grant", &req, &ents)?.0)
 }
 
+/// Whether an accepted rule's own text permits this action to this one
+/// destination. Nothing but this match covers it.
+pub fn rule_covers(cedar: &str, person: &Person, tool: &ToolFacts, destination: &str) -> Result<bool> {
+    let ents = entities(person, tool)?;
+    let context = Context::from_pairs([("destination".to_string(), RestrictedExpression::new_string(destination.to_string()))]).map_err(|e| anyhow!("{e}"))?;
+    let req = Request::new(uid("Person", &person.id)?, uid("Action", "execute")?, uid("Tool", tool.name)?, context, None).map_err(|e| anyhow!("{e}"))?;
+    Ok(eval(cedar, "rule", &req, &ents)?.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

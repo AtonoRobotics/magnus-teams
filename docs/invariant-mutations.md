@@ -830,3 +830,13 @@ Each test needs KVM, passwordless sudo, the guest images (`MAGNUS_GUEST_KERNEL`,
 | 1 | killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume | The kill revokes no grants | computer/service.rs, `kill_computer` | KILLED: "a grant survived the kill" |
 | 1 | killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume | A destroy always deletes the volume | computer/service.rs, `kill_computer` | KILLED: "the kill lost the user volume" |
 | 1 | killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume | The kill is recorded and the VM is left running | computer/service.rs, `kill_computer` | KILLED: "a VM process survived the kill" |
+| 1 | each_restore_gets_a_new_clock_machine_id_entropy_and_network_identity | The guest resets are not sent on wake | computers/snapshot.rs, `wake` | KILLED: machine id could not be read |
+| 2 | a_snapshot_holds_no_vault_material_and_is_stored_encrypted | A snapshot is stored unsealed | computers/snapshot.rs, `hibernate` | KILLED: Error: a snapshot does not match its key |
+| 3 | destroying_a_computer_loses_no_user_work | The manifest is not replayed onto a new overlay | computer/service.rs, `after_boot` | KILLED: the app was not replayed from the manifest |
+| 3 | a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window | The purge deletes nothing | computers/backup.rs, `purge` | KILLED: assertion `left == right` failed: a backup outlived the purge window |
+| 3 | a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window | A deleted file is unlinked without being overwritten | guest, `erase` | KILLED: the deleted file is still stored: on the volume |
+| 1 | root_in_a_computer_has_no_way_out_but_the_proxy | The forwarder listens on another port | forward.rs | KILLED: the guest reached an address around the proxy: REACHED 10.200.0.1:80 |
+| 1 | egress_is_not_forwarded_when_its_intent_cannot_be_recorded | A request goes out when its intent row failed | egress/http.rs | KILLED: assertion `left == right` failed |
+| 1 | a_name_or_redirect_to_private_infrastructure_is_refused | A name resolving to a private address is allowed | egress/mod.rs | KILLED: assertion `left == right` failed |
+| 1 | a_computer_reaches_only_declared_destinations_even_as_root | Every destination is allowed | egress/policy.rs, `classify` | KILLED: assertion `left == right` failed: a computer reached undeclared undeclared.test |
+| 8 | one_persons_computer_cannot_reach_anothers | All computers share one CA | egress/ca.rs | KILLED: assertion `left != right` failed: Alice's computer shares a CA with Bob's |

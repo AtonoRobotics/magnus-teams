@@ -458,7 +458,7 @@ impl Kernel {
     }
 
     /// A run waiting on a person goes on, unless the kill switch holds it.
-    fn resume(&self, run: &str) -> Option<(&'static str, Ev)> {
+    pub(crate) fn resume(&self, run: &str) -> Option<(&'static str, Ev)> {
         if run.is_empty() {
             return None;
         }
@@ -468,7 +468,7 @@ impl Kernel {
 }
 
 /// What the tool call waiting on the card is told of the decision.
-fn reply(run: &str, call_id: &str, text: impl Into<String>, is_error: bool, label: Label) -> Option<(&'static str, Ev)> {
+pub(crate) fn reply(run: &str, call_id: &str, text: impl Into<String>, is_error: bool, label: Label) -> Option<(&'static str, Ev)> {
     if run.is_empty() || call_id.is_empty() {
         return None;
     }
