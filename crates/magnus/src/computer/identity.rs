@@ -353,6 +353,20 @@ impl Kernel {
         ))
     }
 
+    /// The address open in a person's own browser for this site.
+    pub(crate) async fn checkout_page(&self, person: &str, identity: &str) -> Result<String> {
+        let c = self.own_identity(person, identity).map_err(|e| anyhow!("{e:?}"))?;
+        self.running_browser(&c).await?;
+        let shot = self.broker(identity, json!({ "op": "snapshot" })).await?;
+        crate::payments::page_address(shot["text"].as_str().unwrap_or_default()).context("the browser did not say where it is")
+    }
+
+    /// One card field. `quiet` leaves short values out of what is masked on
+    /// every page, while the field itself still never shows in a snapshot.
+    pub(crate) async fn fill_checkout_field(&self, identity: &str, target: &str, value: &str, quiet: bool, submit: bool) -> Result<()> {
+        self.broker(identity, json!({ "op": "fill_secret", "target": target, "value": value, "quiet": quiet, "submit": submit })).await.map(|_| ())
+    }
+
     /// From a person's own form: the value goes to the page, and to the
     /// vault if they say so, and is never logged or returned.
     pub async fn fill_secure_form(self: &Arc<Self>, who: &Person, id: &str, form: &SecureForm) -> Result<Value, Refused> {

@@ -906,7 +906,7 @@ impl Kernel {
         {
             ask = Some((format!("this task has read private data and {} reaches a {} audience", f.app, f.audience.as_str()), Some("kernel:audience".into())));
         }
-        Ok(Ok(ask))
+        Ok(Ok(self.saved_card_ask(a).or(ask)))
     }
 
     /// The approval covering this exact action, if one holds and its

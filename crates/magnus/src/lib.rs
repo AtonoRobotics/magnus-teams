@@ -49,6 +49,7 @@ pub mod measured;
 pub mod oidc;
 pub mod openers;
 pub mod ops_admin;
+pub mod payments;
 pub mod person_admin;
 pub mod policy;
 pub mod policy_admin;

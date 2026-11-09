@@ -160,7 +160,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/schedules/{id}/resume", post(resume_schedule))
         .route("/v1/schedules/{id}/pause", post(pause_schedule))
         .merge(crate::dev::router())
-        .merge(crate::connectors::router().merge(crate::generated::router()))
+        .merge(crate::connectors::router().merge(crate::generated::router()).merge(crate::payments::router()))
         .merge(crate::library::router())
         .merge(crate::update::router())
         .merge(crate::settings::router())

@@ -57,6 +57,8 @@ pub struct Config {
     pub browser: Option<Browser>,
     #[serde(default)]
     pub computer: Option<crate::computer::Settings>,
+    #[serde(default)]
+    pub payments: Option<crate::payments::Settings>,
     /// Local speech to text for voice input (`config/install-whisper.sh`).
     #[serde(default)]
     pub speech: Option<Speech>,
@@ -71,14 +73,12 @@ pub struct Config {
     pub connectors: Vec<Connector>,
     #[serde(default)]
     pub sign_in: SignIn,
-    /// Client certificates for the public hostname. None: the appliance
-    /// does not pair devices, and the tunnel is not asked to present one.
+    /// Client certificates for the public hostname. None: no device pairing.
     #[serde(default)]
     pub client_certs: Option<ClientCerts>,
     #[serde(default)]
     pub observability: Observability,
-    /// How the appliance sends email (password recovery, invitations).
-    /// None: account emails are not sent.
+    /// How account emails are sent (recovery, invitations). None: they are not.
     #[serde(default)]
     pub mail: Option<Mail>,
 }

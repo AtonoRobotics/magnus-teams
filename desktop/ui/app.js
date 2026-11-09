@@ -332,7 +332,7 @@ const WAITING = {
   approval: "waiting for an approval", review: "waiting for your review", question: "waiting for your answer", budget: "paused: budget reached",
   contract_change: "waiting for you to decide on a change to its done-criteria",
   provider: "paused: the model provider is unavailable", usage_limit: "paused: model usage limit", auth: "paused: sign in to the model again",
-  monitor: "waiting for you: the safety monitor held an action", secure_form: "waiting for you to sign in", takeover: "paused: you have control of the computer",
+  monitor: "waiting for you: the safety monitor held an action", secure_form: "waiting for you to sign in", payment: "waiting for you to approve a purchase", takeover: "paused: you have control of the computer",
   kill_switch: "stopped by the kill switch", timer: "waiting until a set time", invalid_request: "paused: the model rejected the request",
 };
 const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class="chip ${c}">${esc(l)}</span>`; };
@@ -343,7 +343,7 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","approval","question","contract_change","review","policy_proposal","schedule_proposal","task_proposal","tool_change","deletion_request","endorsement","tool_review"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","payment","approval","question","contract_change","review","policy_proposal","schedule_proposal","task_proposal","tool_change","deletion_request","endorsement","tool_review"]);
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -2031,7 +2031,7 @@ route(/^#\/chat\/([^/]+)$/, async (main, thread) => {
 const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
   policy_proposal: "Policy proposal", schedule_proposal: "Recurring task proposal", task_proposal: "Task proposal", tool_change: "Changed tool", tool_review: "New app's tools",
-  monitor: "Safety monitor", secure_form: "Secure sign-in", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
+  monitor: "Safety monitor", secure_form: "Secure sign-in", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
 const AUDIENCE = { private: "only you", org: "people in your organization", public: "anyone" };
@@ -2229,6 +2229,9 @@ function card(i, composed) {
       break;
     case "secure_form":
       body = secureFormCard(i);
+      break;
+    case "payment":
+      body = paymentCard(i);
       break;
     case "tool_review":
       body = `<div class="what">${(d.tools || []).map(t => `<div class="field"><span class="mono">${esc(t.tool)}</span>${fieldValue(t.description)}</div>`).join("")}</div>
@@ -3245,7 +3248,7 @@ async function connectorsSection(main) {
 // Everything a person can set, in one place; developer views stay in their
 // own group. Sections that need the owner role are shown only to owners.
 const SETTINGS = [
-  ["models", "Models", modelsSection, true], ["connectors", "Connectors", connectorsSection, true], ["account", "Account", accountSection],
+  ["models", "Models", modelsSection, true], ["connectors", "Connectors", connectorsSection, true], ["account", "Account", accountSection], ["payments", "Payments", (el) => paymentsSection(el)],
   ["appearance", "Appearance", appearanceSection], ["notifications", "Notifications", notificationsSection], ["updates", "Updates", updatesSection], ["data", "Data and privacy", dataSection],
   ["safety", "Kill switch", killSwitchSection, true],
 ];

@@ -861,6 +861,7 @@ pub struct ConnectorSetting {
 #[derive(Default)]
 pub struct State {
     pub computers: crate::computer::Ledger,
+    pub payments: crate::payments::Ledger,
     pub rules: crate::rules::Ledger,
     pub sub_agents: crate::sub_agents::Ledger,
     pub local: crate::local::Ledger,
@@ -1370,6 +1371,7 @@ impl State {
                 }
             },
             Ev::Computer(c) => self.computers.apply(c),
+            Ev::Payment(c) => self.payments.apply(c),
             Ev::Rule(c) => self.rules.apply(c),
             Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::LocalComputer(c) => self.local.apply(c),

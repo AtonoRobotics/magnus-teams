@@ -233,7 +233,8 @@ async function handle(req) {
     case 'fill_secret': {
       const l = locate(p, req.target);
       await l.evaluate(el => el.setAttribute('data-magnus-secret', ''), undefined, { timeout: ACTION_MS });
-      filled.add(req.value);
+      // A code of three digits would blank every page that has those digits.
+      if (!req.quiet) filled.add(req.value);
       await l.fill(req.value, { timeout: ACTION_MS });
       if (req.submit) { await l.press('Enter'); await p.waitForLoadState('domcontentloaded').catch(() => {}); await p.waitForTimeout(500); }
       return { filled: true };

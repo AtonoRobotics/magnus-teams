@@ -45,7 +45,7 @@ const BOTH: Label = Label { untrusted: true, private: true };
 
 /// A tool the kernel carries out away from the run's own computer.
 pub(crate) fn is_far_tool(tool: &str) -> bool {
-    ["local_", "team_", "image_", "connector_"].iter().any(|prefix| tool.starts_with(prefix))
+    ["local_", "team_", "image_", "connector_", "purchase_"].iter().any(|prefix| tool.starts_with(prefix))
 }
 
 pub const BUILTINS: &[Builtin] = &[
@@ -224,6 +224,9 @@ impl Kernel {
         if a.tool.starts_with("connector_") {
             return self.connector_tool(a).await;
         }
+        if a.tool.starts_with("purchase_") {
+            return self.purchase_tool(a).await;
+        }
         self.local_tool(a).await
     }
 
@@ -271,6 +274,12 @@ impl Kernel {
             None if never_ran => (format!("{} was in use, so nothing ran. The person can tell you to go ahead.", computer.name), true, None),
             None => (format!("{} did not answer, so this may or may not have happened", computer.name), true, None),
         })
+    }
+
+    /// The tools offered beside the built-in list, for this person.
+    pub(crate) fn far_specs(&self, person: &str) -> Vec<ToolSpec> {
+        let payments = self.cfg.payments.iter().flat_map(|_| crate::payments::specs());
+        self.local_specs(person).into_iter().chain(crate::tools_ui::specs()).chain(crate::generated::specs()).chain(payments).collect()
     }
 
     pub(crate) fn local_specs(&self, person: &str) -> Vec<ToolSpec> {

@@ -182,8 +182,8 @@ pub enum Ev {
     KillSwitch {
         engaged: bool,
     },
-    /// A computer changed (`computer::Change`).
     Computer(crate::computer::Change),
+    Payment(crate::payments::Change),
     Rule(crate::rules::Change),
     SubAgent(crate::sub_agents::SubAgent),
     LocalComputer(crate::local::Computer),
