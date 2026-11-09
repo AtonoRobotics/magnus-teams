@@ -44,6 +44,7 @@ pub mod local;
 pub mod log;
 pub mod login_codes;
 pub mod mailer;
+pub mod measured;
 pub mod oidc;
 pub mod openers;
 pub mod ops_admin;

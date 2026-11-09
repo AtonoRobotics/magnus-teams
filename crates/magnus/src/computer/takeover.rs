@@ -63,10 +63,19 @@ pub(super) fn redeem(raw: &str, computer: &str) -> Option<String> {
     (t.computer == computer && t.issued.elapsed() < TICKET_LIFETIME).then_some(t.person)
 }
 
+/// The runs that use a computer with this owner.
+fn runs_on<'a>(s: &'a crate::state::State, owner: &'a Owner) -> impl Iterator<Item = &'a crate::state::Run> {
+    s.runs.values().filter(move |r| match owner {
+        Owner::Person(p) => r.person == *p && s.team.run_of(&r.task).is_none(),
+        Owner::Workspace(w) => s.team.run_of(&r.task).is_some_and(|t| t.workspace == *w),
+    })
+}
+
 pub(super) fn apply(l: &mut Ledger, change: &Change) {
     let note = |what: String, who: &str, at| Activity { what, who: who.to_string(), at };
     match change {
-        Change::TakeoverStarted { id, by, at } => {
+        Change::TakeoverStarted { id, by, at, cause, runs } => {
+            l.takeovers.push((cause.clone(), runs.clone()));
             if let Some(c) = l.computers.get_mut(id) {
                 c.controller = Some(by.clone());
                 c.activity.push(note("took control".into(), by, *at));
@@ -212,7 +221,18 @@ impl Kernel {
         }
         // The user always wins: a new holder simply replaces the last.
         if c.controller.as_deref() != Some(who.id.as_str()) {
-            self.record_computer(who, Change::TakeoverStarted { id: id.into(), by: who.id.clone(), at: Utc::now() }).await?;
+            let (cause, runs) = self.read(|s| {
+                let on_it = runs_on(s, &c.owner).filter(|r| !r.status.terminal());
+                let (waiting, active): (Vec<_>, Vec<_>) = on_it.partition(|r| r.status == crate::state::Status::Suspended);
+                let asked = waiting.iter().find_map(|r| s.items.values().find(|i| i.run.as_deref() == Some(r.id.as_str()) && i.resolution.is_none()));
+                let cause = match (asked, waiting.is_empty() && active.is_empty()) {
+                    (Some(item), _) => format!("the agent was waiting on {}", item.kind),
+                    (None, true) => "nothing was running".to_string(),
+                    (None, false) => "the person stepped in".to_string(),
+                };
+                (cause, waiting.iter().chain(&active).map(|r| r.id.clone()).collect())
+            });
+            self.record_computer(who, Change::TakeoverStarted { id: id.into(), by: who.id.clone(), at: Utc::now(), cause: Some(cause), runs }).await?;
         }
         super::idle::touch(id);
         Ok(json!({ "ticket": issue(id, &who.id), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME.as_secs() }))
@@ -227,15 +247,8 @@ impl Kernel {
         let socket = self.computer_socket()?;
         let frame = self.capture(&socket, id).await.ok();
         let runs: Vec<(String, u32)> = self.read(|s| {
-            s.runs
-                .values()
-                .filter(|r| {
-                    let on_it = match &c.owner {
-                        Owner::Person(p) => r.person == *p && s.team.run_of(&r.task).is_none(),
-                        Owner::Workspace(w) => s.team.run_of(&r.task).is_some_and(|t| t.workspace == *w),
-                    };
-                    on_it && r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("takeover")
-                })
+            runs_on(s, &c.owner)
+                .filter(|r| r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("takeover"))
                 .map(|r| (r.id.clone(), r.replies.len() as u32))
                 .collect()
         });

@@ -194,6 +194,13 @@ pub enum Change {
         id: String,
         by: String,
         at: DateTime<Utc>,
+        /// Why, as far as the log can tell: what the agent was waiting on,
+        /// or that the person stepped in. Absent from logs before it.
+        #[serde(default)]
+        cause: Option<String>,
+        /// The runs using the computer then.
+        #[serde(default)]
+        runs: Vec<String>,
     },
     TakeoverEnded {
         id: String,
@@ -322,9 +329,15 @@ pub struct Activity {
 pub struct Ledger {
     computers: BTreeMap<String, Computer>,
     next_in_queue: u64,
+    /// Each time a person took control: its cause and the runs it stopped.
+    takeovers: Vec<(Option<String>, Vec<String>)>,
 }
 
 impl Ledger {
+    pub fn takeovers(&self) -> &[(Option<String>, Vec<String>)] {
+        &self.takeovers
+    }
+
     pub fn get(&self, id: &str) -> Option<&Computer> {
         self.computers.get(id)
     }

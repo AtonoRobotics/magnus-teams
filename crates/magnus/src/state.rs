@@ -290,7 +290,7 @@ pub struct Revoked {
     pub detail: Option<String>,
 }
 
-pub const VERDICTS: [&str; 3] = ["right", "partly", "wrong"];
+pub const VERDICTS: [&str; 4] = ["right", "partly", "wrong", "undone"];
 
 /// A file in a person's library: one they uploaded, or one a task delivered.
 #[derive(Clone, Debug)]
@@ -973,6 +973,8 @@ pub struct State {
     /// card id: with the cards in their turns' results, the suggestion
     /// ledger (`suggestions::ledger`).
     pub cards: HashMap<String, CardState>,
+    /// Runs a person stopped, as against the system.
+    pub stopped_by_person: HashSet<String>,
     /// Drafts written by scoped steps, by draft id: the threads whose
     /// content they may hold and who is entitled to it (#178).
     pub draft_sources: HashMap<String, DraftSources>,
@@ -2243,6 +2245,9 @@ impl State {
             Ev::Cancelled { run, .. } => {
                 self.review_runs.remove(run);
                 if let Some(r) = self.runs.get_mut(run).filter(|r| !r.status.terminal()) {
+                    if e.actor.starts_with("person:") {
+                        self.stopped_by_person.insert(run.clone());
+                    }
                     r.status = Status::Cancelled;
                     r.reason = None;
                     r.ended_at = Some(e.at);

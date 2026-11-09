@@ -1093,9 +1093,7 @@ async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
                 { "label": "appends since boot", "value": capture.appends, "runs": [] }
             ] }));
 
-        let not_built = |id: &str, title: &str, why: &str| json!({ "id": id, "title": title, "value": null, "unit": "", "unavailable": why, "runs": [], "breakdown": [] });
-        panels.push(not_built("ontology", "Ontology check failures", "There is no ontology on this appliance yet (O1-O4), so nothing is checked against one."));
-        panels.push(not_built("ablations", "Per-module ablation results", "No removable module has an ablation run yet; the verifier is not built (A4, A10)."));
+        panels.extend(crate::measured::panels(s));
         json!({ "panels": panels, "runs": all.len(), "at": chrono::Utc::now() })
     });
     Json(v).into_response()

@@ -862,7 +862,7 @@ function fileChip(f) {
   return `<span class="fchip"><a href="#/file/${enc(f.id)}" data-open="file:${esc(f.id)}">${esc(f.name)}</a> <span class="small faint">${esc(kb(f.size))}</span> <button class="link small" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span>`;
 }
 // One tap records the person's verdict on an outcome; a note is optional.
-const VERDICTS = [["right", "Right"], ["partly", "Partly"], ["wrong", "Wrong"]];
+const VERDICTS = [["right", "Right"], ["partly", "Partly"], ["wrong", "Wrong"], ["undone", "I had to undo it"]];
 const ENDED = ["completed", "failed", "cancelled"];
 function verdictBar(taskId, v) {
   return `<div class="verdict" data-verdict-for="${esc(taskId)}"><span class="vq">How did Magnus do?</span>
