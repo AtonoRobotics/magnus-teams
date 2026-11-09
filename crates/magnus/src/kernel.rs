@@ -436,7 +436,7 @@ impl Kernel {
     /// the library files it was given, recalled for its person.
     async fn set_inputs(&self, run: &str) -> Result<()> {
         let task = self.read(|s| s.runs.get(run).map(|r| r.task.clone()).unwrap_or_default());
-        let mut files = self.read(|s| s.attachments.get(&task).cloned().unwrap_or_default());
+        let mut files: Vec<_> = self.read(|s| s.attachments.get(&task).cloned().unwrap_or_default()).into_iter().filter(|a| !crate::attachment::is_outside(a)).collect();
         files.extend(self.given_files(&task).await?);
         if !files.is_empty() {
             use base64::Engine;
@@ -801,7 +801,7 @@ impl Kernel {
     pub async fn on_stop(&self, run: &str, terminal: bool) {
         self.leases.lock().unwrap().retain(|_, holder| holder != run);
         if terminal {
-            self.browser.close(run).await;
+            self.close_run_browsers(run).await;
             self.sandboxes.destroy(run).await;
         } else {
             self.sandboxes.stop(run).await;

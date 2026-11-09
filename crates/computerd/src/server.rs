@@ -56,6 +56,19 @@ pub enum Request {
     RestoreBackup {
         id: String,
     },
+    /// A browser VM: the volume is its profile, and there is no shell.
+    StartBrowser {
+        id: String,
+    },
+    /// Encrypts a stopped browser's profile with a key the vault holds.
+    SealVolume {
+        id: String,
+        key_b64: String,
+    },
+    UnsealVolume {
+        id: String,
+        key_b64: String,
+    },
     /// A VM with only the volume, to reach a stopped computer's files.
     StartHelper {
         id: String,
@@ -90,6 +103,12 @@ pub enum Request {
     },
 }
 
+fn key(b64: &str) -> Result<[u8; crate::seal::KEY_BYTES]> {
+    use base64::Engine;
+    let raw = base64::engine::general_purpose::STANDARD.decode(b64).context("a sealing key that is not base64")?;
+    raw.try_into().map_err(|_| anyhow::anyhow!("a sealing key of the wrong length"))
+}
+
 pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
     let id = |raw: &str| ComputerId::parse(raw);
     Ok(match req {
@@ -108,6 +127,18 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
         Request::EgressSocket => json!({ "socket": c.proxy_socket() }),
         Request::Whose { uid } => json!({ "id": c.whose_uid(uid)?.map(|i| i.as_str().to_string()) }),
         Request::RestoreBackup { id: raw } => c.restore_backup(&id(&raw)?)?,
+        Request::StartBrowser { id: raw } => {
+            c.start(&id(&raw)?, Purpose::Browser)?;
+            json!({})
+        }
+        Request::SealVolume { id: raw, key_b64 } => {
+            c.seal_volume(&id(&raw)?, &key(&key_b64)?)?;
+            json!({})
+        }
+        Request::UnsealVolume { id: raw, key_b64 } => {
+            c.unseal_volume(&id(&raw)?, &key(&key_b64)?)?;
+            json!({})
+        }
         Request::StartHelper { id: raw, read_only } => {
             c.start(&id(&raw)?, if read_only { Purpose::ReadHelper } else { Purpose::Helper })?;
             json!({})

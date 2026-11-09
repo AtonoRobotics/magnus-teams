@@ -1,5 +1,5 @@
 //! A computer no one is using hibernates to a snapshot.
-use super::{client, Change, Status};
+use super::{client, Change, Role, Status};
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use std::collections::HashMap;
@@ -20,19 +20,28 @@ fn idle_for(id: &str) -> Duration {
     slot.get_or_insert_with(HashMap::new).entry(id.to_string()).or_insert_with(Instant::now).elapsed()
 }
 
+/// Whether a browser VM has gone unused long enough to stop.
+pub(super) fn idle_browser(id: &str, role: &Role, limit: Duration) -> bool {
+    !matches!(role, Role::Computer) && idle_for(id) >= limit
+}
+
 pub(super) fn schedule(k: Arc<Kernel>) {
-    let Some(minutes) = k.cfg.computer.as_ref().map(|c| c.idle_hibernate_minutes).filter(|m| *m > 0) else { return };
-    let limit = Duration::from_secs(minutes * SECONDS_PER_MINUTE);
+    let minutes = k.cfg.computer.as_ref().map(|c| c.idle_hibernate_minutes).unwrap_or(0);
+    // Zero keeps computers running; the browsers are still tended.
+    let limit = if minutes > 0 { Duration::from_secs(minutes * SECONDS_PER_MINUTE) } else { Duration::MAX };
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(IDLE_POLL);
         loop {
             tick.tick().await;
+            k.tend_browsers(&socket).await;
             let busy = |s: &crate::state::State, person: &str| s.runs.values().any(|r| r.person == person && r.status == crate::state::Status::Running);
             let candidates: Vec<String> = k.read(|s| {
                 s.computers
                     .all()
-                    .filter(|c| c.status == Status::Running && c.controller.is_none() && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p)))
+                    .filter(|c| {
+                        c.role == super::Role::Computer && c.status == Status::Running && c.controller.is_none() && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p))
+                    })
                     .map(|c| c.id.clone())
                     .collect()
             });

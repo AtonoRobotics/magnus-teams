@@ -3,7 +3,7 @@
 //! then sent, on a new upstream connection pinned to the address checked.
 
 use super::audit::Row;
-use super::{ca, policy, Proxy};
+use super::{ca, policy, surrogate, Proxy};
 use anyhow::{bail, Context, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -19,10 +19,10 @@ const MAX_PAGE_BYTES: usize = 2 << 20;
 const COPY_BUFFER_BYTES: usize = 64 << 10;
 const HOP_BY_HOP: [&str; 8] = ["connection", "proxy-connection", "proxy-authorization", "keep-alive", "te", "trailer", "transfer-encoding", "upgrade"];
 
-struct Head {
-    method: String,
-    target: String,
-    headers: Vec<(String, String)>,
+pub(super) struct Head {
+    pub(super) method: String,
+    pub(super) target: String,
+    pub(super) headers: Vec<(String, String)>,
 }
 
 impl Head {
@@ -93,8 +93,19 @@ pub(super) async fn serve_connection(proxy: Arc<Proxy>, computer: String, conn: 
     request(&proxy, &computer, &mut stream, Head { target: url[url::Position::BeforePath..].to_string(), ..first }, &host, port, false).await
 }
 
+fn audited_path(k: &crate::kernel::Kernel, computer: &str, target: &str) -> String {
+    let identity = k.read(|s| s.computers.get(computer).is_some_and(|c| matches!(c.role, crate::computer::Role::Identity { .. })));
+    if identity {
+        target.split('?').next().unwrap_or_default().to_string()
+    } else {
+        target.to_string()
+    }
+}
+
 async fn request<S: AsyncRead + AsyncWrite + Unpin>(proxy: &Proxy, computer: &str, stream: &mut BufReader<S>, head: Head, host: &str, port: u16, tls: bool) -> Result<()> {
-    let row = |phase, address, detail| Row { computer, phase, host, port, method: &head.method, path: &head.target, address, detail };
+    // A form can put a secret in a URL. An identity's browser logs the path only.
+    let audited = audited_path(&proxy.kernel, computer, &head.target);
+    let row = |phase, address, detail| Row { computer, phase, host, port, method: &head.method, path: &audited, address, detail };
     let decided = proxy.kernel.read(|s| match s.computers.get(computer) {
         Some(c) => {
             let learned = proxy.learned.lock().unwrap_or_else(|e| e.into_inner());
@@ -107,6 +118,14 @@ async fn request<S: AsyncRead + AsyncWrite + Unpin>(proxy: &Proxy, computer: &st
         Ok(why) => why,
         Err(reason) => return refuse(proxy, stream.get_mut(), row("refused", None, &reason), &reason).await,
     };
+    let head = match surrogate::swapped(&proxy.kernel, computer, head, host).await {
+        Ok(h) => h,
+        Err((head, reason)) => {
+            let row = Row { computer, phase: "refused", host, port, method: &head.method, path: &audited, address: None, detail: &reason };
+            return refuse(proxy, stream.get_mut(), row, &reason).await;
+        }
+    };
+    let row = |phase, address, detail| Row { computer, phase, host, port, method: &head.method, path: &audited, address, detail };
     let address = match proxy.resolve(host, port).await {
         Ok(a) => a,
         Err(reason) => return refuse(proxy, stream.get_mut(), row("refused", None, &reason), &reason).await,

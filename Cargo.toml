@@ -11,3 +11,9 @@ publish = false
 [workspace.lints.clippy]
 unwrap_used = "warn"
 expect_used = "warn"
+
+# A volume is sealed in debug builds too, and tests wait on it.
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3

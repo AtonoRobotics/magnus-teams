@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 pub mod backup;
 mod guest;
 pub mod network;
+mod sealed;
 mod snapshot;
 pub use snapshot::Wake;
 
@@ -45,6 +46,7 @@ const VOLUME_LABEL: &str = "workspace";
 const OVERLAY_LABEL: &str = "overlay";
 const GUEST_CID: u32 = 3;
 const BOOT_ARGS: &str = "console=ttyS0 reboot=k panic=1 pci=off quiet loglevel=3 init=/sbin/magnus-guest";
+const BROWSER_BOOT_ARG: &str = "magnus.role=browser";
 
 #[derive(Serialize, Deserialize)]
 struct Meta {
@@ -72,18 +74,23 @@ pub enum Purpose {
     /// For reading a hibernated computer: leaves its volume as the memory
     /// snapshot expects it.
     ReadHelper,
+    /// One identity's browser: its volume holds only the profile, and the
+    /// guest serves page commands and no shell.
+    Browser,
 }
 
 pub struct Computers {
     cfg: Config,
     cgroups: PathBuf,
+    /// One volume sealed or opened at a time.
+    sealing: std::sync::Mutex<()>,
     /// One backup at a time, and without the lock that a kill needs.
     backing_up: std::sync::Mutex<()>,
 }
 
 impl Computers {
     pub fn new(cfg: Config) -> Computers {
-        Computers { cfg, cgroups: PathBuf::from(CGROUP_ROOT), backing_up: std::sync::Mutex::new(()) }
+        Computers { cfg, cgroups: PathBuf::from(CGROUP_ROOT), sealing: std::sync::Mutex::new(()), backing_up: std::sync::Mutex::new(()) }
     }
 
     fn state(&self, rest: &str) -> PathBuf {
@@ -253,7 +260,7 @@ impl Computers {
             self.write_meta(id, &meta)?;
         }
         self.prepare_jail(id, meta.uid, purpose)?;
-        self.launch(id, meta.uid, true, purpose == Purpose::Computer)?;
+        self.launch(id, meta.uid, true, matches!(purpose, Purpose::Computer | Purpose::Browser))?;
         Ok(fresh)
     }
 
@@ -443,13 +450,14 @@ fn vm_config(cfg: &Config, purpose: Purpose) -> serde_json::Value {
     if purpose == Purpose::Computer {
         drives.push(json!({ "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false }));
     }
+    let boot_args = if purpose == Purpose::Browser { format!("{BOOT_ARGS} {BROWSER_BOOT_ARG}") } else { BOOT_ARGS.to_string() };
     let mut v = json!({
-        "boot-source": { "kernel_image_path": KERNEL_IMAGE, "boot_args": BOOT_ARGS },
+        "boot-source": { "kernel_image_path": KERNEL_IMAGE, "boot_args": boot_args },
         "drives": drives,
         "machine-config": { "vcpu_count": cfg.vm.vcpus, "mem_size_mib": cfg.vm.memory_mib },
         "vsock": { "guest_cid": GUEST_CID, "uds_path": VSOCK_IN_JAIL.trim_start_matches('/') },
     });
-    if purpose == Purpose::Computer {
+    if matches!(purpose, Purpose::Computer | Purpose::Browser) {
         v["network-interfaces"] = json!([{ "iface_id": "eth0", "host_dev_name": network::TAP, "guest_mac": network::GUEST_MAC }]);
     }
     v

@@ -1,6 +1,6 @@
 //! The operations on a computer: who may, what the log says, what computerd does.
 
-use super::{apps, client, Change, Computer, KillMode, Owner, Status};
+use super::{apps, client, Change, Computer, KillMode, Owner, Role, Status};
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const BOOT_WAIT: Duration = Duration::from_secs(30);
+const BOOT_WAIT: Duration = Duration::from_secs(60);
 const BOOT_POLL: Duration = Duration::from_millis(200);
 const QUEUE_POLL: Duration = Duration::from_secs(5);
 const ID_BYTES: usize = 16;
@@ -35,7 +35,7 @@ pub(super) fn failed(e: anyhow::Error) -> Refused {
 }
 
 /// A host name, or `*.` and a host name.
-fn checked_host(raw: &str) -> Result<String, Refused> {
+pub(super) fn checked_host(raw: &str) -> Result<String, Refused> {
     let host = raw.trim().to_ascii_lowercase();
     let bare = host.strip_prefix("*.").unwrap_or(&host);
     if bare.is_empty() || bare.len() > MAX_HOST_CHARS || !bare.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') {
@@ -44,7 +44,7 @@ fn checked_host(raw: &str) -> Result<String, Refused> {
     Ok(host)
 }
 
-fn new_id() -> String {
+pub(super) fn new_id() -> String {
     use rand::RngCore;
     let mut raw = [0u8; ID_BYTES];
     rand::rngs::OsRng.fill_bytes(&mut raw);
@@ -66,7 +66,7 @@ impl Kernel {
 
     /// The person sees "no such computer" for one that is not theirs.
     pub(super) fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).cloned()).filter(|c| may_control(who, &c.owner)).ok_or(Refused::NotFound("computer"))
+        self.read(|s| s.computers.get(id).cloned()).filter(|c| c.role == Role::Computer && may_control(who, &c.owner)).ok_or(Refused::NotFound("computer"))
     }
 
     pub(super) async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
@@ -96,7 +96,7 @@ impl Kernel {
                 }
                 v
             };
-            json!({ "computers": s.computers.all().filter(|c| may_control(who, &c.owner)).map(shown).collect::<Vec<_>>() })
+            json!({ "computers": s.computers.all().filter(|c| c.role == Role::Computer && may_control(who, &c.owner)).map(shown).collect::<Vec<_>>() })
         })
     }
 
@@ -315,7 +315,7 @@ impl Kernel {
     }
 }
 
-async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
+pub(super) async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
     let started = Instant::now();
     loop {
         match client::guest(socket, id, json!({ "op": "ping" })).await {

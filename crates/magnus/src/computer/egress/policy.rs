@@ -1,6 +1,7 @@
 //! Which destinations a computer may reach. A guest with root says nothing
 //! here: every input is the request itself and what the log holds.
 
+use crate::computer::Role;
 use crate::computer::{Computer, Status};
 use std::collections::{BTreeSet, HashMap};
 
@@ -24,6 +25,9 @@ pub fn classify(registries: &[String], c: &Computer, learned: &Learned, host: &s
     }
     if !WEB_PORTS.contains(&port) {
         return Err(format!("port {port} is not a web port"));
+    }
+    if matches!(c.role, Role::Throwaway { .. }) {
+        return Ok("a throwaway browser");
     }
     let read = READ_METHODS.contains(&method);
     if c.apps.iter().flat_map(|a| &a.hosts).any(|h| matches(h, host)) {

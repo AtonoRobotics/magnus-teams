@@ -9,6 +9,8 @@
 //! outside the image after the image's own (`sitecustomize.py` in the image),
 //! so the checking tool is the image's, never one the work put there.
 
+mod browser;
+
 use base64::Engine;
 use serde_json::{json, Value};
 use std::ffi::CString;
@@ -477,6 +479,9 @@ fn serve_display() {
 }
 
 fn serve() {
+    if browser::is_browser_vm() {
+        return browser::serve();
+    }
     std::thread::spawn(serve_display);
     let lfd = listen(PORT);
     loop {

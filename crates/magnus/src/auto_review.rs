@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 /// The approval's rule when Auto Review itself asked: only a person answers.
 pub const ASKED: &str = "auto_review";
+const CREDENTIAL_REVIEW_MAX_TOKENS: u32 = 1024;
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
 const DEFAULT_ASK_EXPIRY_SECONDS: u64 = 30 * 60;
@@ -106,6 +107,14 @@ fn verdict_of(blocks: &[Block]) -> Option<Verdict> {
 }
 
 /// The action, and the person's own words, as one quoted JSON document.
+fn review_tool() -> ToolSpec {
+    ToolSpec {
+        name: "review".into(),
+        description: "Your decision.".into(),
+        input_schema: json!({ "type": "object", "required": ["decision", "reason"], "properties": { "decision": { "enum": ["allow", "deny", "ask"] }, "reason": { "type": "string" } } }),
+    }
+}
+
 fn document(a: &Action, destination: &Value, asked: &str, rules: &[String], standing: &str) -> String {
     json!({ "action": { "tool": a.tool, "destination": destination, "content": a.input }, "what_the_person_asked": asked, "their_rules": rules, "standing": standing }).to_string()
 }
@@ -242,6 +251,31 @@ impl Kernel {
         })
     }
 
+    /// A credential leaving through the proxy, which no run may have asked
+    /// for. Anything but a clear allow keeps the credential home.
+    pub(crate) async fn review_credential_use(&self, person: &str, computer: &str, method: &str, host: &str, path: &str) -> Verdict {
+        let standing = "covered by a credential the person issued for this host";
+        let rules: Vec<String> = self.read(|s| s.policies.values().cloned().collect());
+        let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
+        let destination = json!({ "host": host, "method": method, "path": path, "computer": computer });
+        let key = cache_key(person, "credential_use", &destination, "", (false, false), &version, standing);
+        if let Some(hit) = cached(&key) {
+            return hit;
+        }
+        let doc =
+            json!({ "action": { "tool": "credential_use", "destination": destination, "content": null }, "what_the_person_asked": "", "their_rules": rules, "standing": standing })
+                .to_string();
+        let (adapter, model) = self.default_model();
+        let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
+        let reply =
+            tokio::time::timeout(REVIEW_TIMEOUT, self.adapters.complete(&adapter, &model, SYSTEM, messages, vec![review_tool()], CREDENTIAL_REVIEW_MAX_TOKENS, |_| {})).await;
+        let Some(verdict) = reply.ok().and_then(|r| r.ok()).and_then(|out| verdict_of(&out.blocks)) else {
+            return Verdict::Ask("Auto Review could not be reached".to_string());
+        };
+        remember(key, &verdict);
+        verdict
+    }
+
     /// What Auto Review says about one boundary action. Anything but a
     /// clear answer is an ask.
     async fn auto_review(&self, a: &Action, run: &Run, shown: Option<&Shown>, content_hash: &str, standing: &str) -> Result<Verdict> {
@@ -257,11 +291,7 @@ impl Kernel {
         if doc.len() > MAX_DOCUMENT_BYTES {
             return Ok(Verdict::Ask("the action is too large for Auto Review to read".to_string()));
         }
-        let tool = ToolSpec {
-            name: "review".into(),
-            description: "Your decision.".into(),
-            input_schema: json!({ "type": "object", "required": ["decision", "reason"], "properties": { "decision": { "enum": ["allow", "deny", "ask"] }, "reason": { "type": "string" } } }),
-        };
+        let tool = review_tool();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
         let reply = tokio::time::timeout(REVIEW_TIMEOUT, self.reviewer_call(run, "auto_review", SYSTEM, messages, vec![tool])).await;
         let Some(verdict) = reply.ok().and_then(|r| r.ok()).flatten().and_then(|blocks| verdict_of(&blocks)) else {

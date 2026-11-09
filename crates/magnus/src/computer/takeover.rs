@@ -127,12 +127,14 @@ pub(super) fn is_capture(tool: &str) -> bool {
 
 impl Kernel {
     pub(super) fn opened_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).cloned()).filter(|c| may_open(who, &c.owner)).ok_or(Refused::NotFound("computer"))
+        self.read(|s| s.computers.get(id).cloned()).filter(|c| c.role == super::Role::Computer && may_open(who, &c.owner)).ok_or(Refused::NotFound("computer"))
     }
 
     /// The running computer a person's run acts on, if they have one.
     pub(crate) fn run_computer(&self, person: &str) -> Option<String> {
-        self.read(|s| s.computers.all().find(|c| c.status == Status::Running && c.owner == Owner::Person(person.to_string())).map(|c| c.id.clone()))
+        self.read(|s| {
+            s.computers.all().find(|c| c.role == super::Role::Computer && c.status == Status::Running && c.owner == Owner::Person(person.to_string())).map(|c| c.id.clone())
+        })
     }
 
     /// Whether a person holds the screen of the computer this run is using.

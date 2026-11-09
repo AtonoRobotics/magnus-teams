@@ -816,13 +816,16 @@ impl Kernel {
         // A tool that stays in the person's own account sends nothing out.
         // Nor does a read through the person's own sign-in: its query goes
         // only to the provider that holds their data already, and it reaches
-        // no one there (#175). A read through the organisation's key, the web
-        // and the browser keep the rule.
+        // no one there (#175). So does an identity's page, read at its own site.
+        // A read through the organisation's key, the web and the browser keep it.
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
         let transmits = !is_chat_tool(f)
             && !own_memory
             && !f.reaches_self
-            && (f.risk.changes_state() || f.app == "web" || f.app == "browser" || (f.connector.is_some() && f.audience > Audience::Private && !own_account_read));
+            && (f.risk.changes_state()
+                || f.app == "web"
+                || (f.app == "browser" && !(f.risk == Risk::Read && a.tool.starts_with("browser_as_")))
+                || (f.connector.is_some() && f.audience > Audience::Private && !own_account_read));
         // These override a policy ask: the approval must then cover this exact
         // action, not a broader scope granted for policy reasons.
         // A send whose every recipient the person wrote themselves, has
@@ -1658,16 +1661,8 @@ impl Kernel {
                         }
                     }
                 }
-                t if t.starts_with("browser_") => {
-                    let op = t.trim_start_matches("browser_");
-                    let mut req = a.input.clone();
-                    req["op"] = json!(op);
-                    let v = self.browser.request(&a.run, req).await?;
-                    let text = v["text"].as_str().unwrap_or_default().to_string();
-                    let data = v["image_b64"].as_str().map(|i| json!({ "image_b64": i }));
-                    Ok((text, false, data))
-                }
-                "add_computer_destination" => self.add_destination_tool(a).await,
+                t if t.starts_with("browser_") => self.browser_tool(a).await,
+                "add_computer_destination" | "open_attachment" => self.side_tool(a).await,
                 t if t.starts_with("computer_") => {
                     let person = self.read(|st| st.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
                     if let Some(done) = self.computer_tool(&person, t, &a.input).await? {

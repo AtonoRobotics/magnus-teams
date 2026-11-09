@@ -157,6 +157,15 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "browser_click", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
     Builtin { name: "browser_type", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
     Builtin { name: "browser_select", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
+    Builtin { name: "browser_as_navigate", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_as_snapshot", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_as_screenshot", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_as_back", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_as_click", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_as_type", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_as_select", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
+    Builtin { name: "browser_sign_in", app: "browser", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
+    Builtin { name: "open_attachment", app: "sandbox", risk: Risk::Sandbox, label: Label::UNTRUSTED, audience: Audience::Private },
     Builtin { name: "deliver_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_screenshot", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "add_computer_destination", app: "computer", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Public },
@@ -251,7 +260,7 @@ pub fn builtin_apps() -> Vec<&'static str> {
     a
 }
 
-fn obj(props: Value, required: &[&str]) -> Value {
+pub(crate) fn obj(props: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": props, "required": required })
 }
 
@@ -624,6 +633,13 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
     if search {
         v.push(ToolSpec { name: "web_search".into(), description: d("web_search"), input_schema: obj(json!({ "query": { "type": "string" } }), &["query"]) });
     }
+    if sandbox {
+        v.push(ToolSpec {
+            name: "open_attachment".into(),
+            description: d("open_attachment"),
+            input_schema: obj(json!({ "name": { "type": "string" }, "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"]),
+        });
+    }
     if browser {
         let target = json!({ "type": "string", "description": "an element ref like e12 from the latest snapshot, or visible text" });
         v.push(ToolSpec { name: "browser_navigate".into(), description: d("browser_navigate"), input_schema: obj(json!({ "url": { "type": "string" } }), &["url"]) });
@@ -643,6 +659,7 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
         v.push(ToolSpec { name: "browser_screenshot".into(), description: d("browser_screenshot"), input_schema: obj(json!({}), &[]) });
     }
     if computer {
+        v.extend(crate::tools_identity::specs(&d));
         v.push(ToolSpec {
             name: "add_computer_destination".into(),
             description: d("add_computer_destination"),

@@ -8,7 +8,7 @@ use crate::kernel::Kernel;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -42,6 +42,11 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}/activity", get(activity))
         .route("/v1/computers/{id}/operator-sessions", post(grant_operator))
         .route("/v1/computers/{id}/operator-sessions/{session}", delete(end_operator))
+        .route("/v1/identities", get(identities).post(new_identity))
+        .route("/v1/identities/{id}", delete(delete_identity))
+        .route("/v1/identities/{id}/secure-form", post(secure_form))
+        .route("/v1/computers/{id}/surrogates", post(new_surrogate))
+        .route("/v1/tasks/{task}/attachments/{name}/save", post(save_attachment))
         .route("/v1/operator/computers/{id}/files", get(operator_file))
         .route("/v1/operator/computers/{id}/screen", get(operator_screen))
 }
@@ -53,6 +58,44 @@ macro_rules! person {
             Err(r) => return r,
         }
     };
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewIdentity {
+    site: String,
+}
+async fn new_identity(State(k): K, h: HeaderMap, Json(b): Json<NewIdentity>) -> Response {
+    let p = person!(k, h);
+    answered(k.create_identity(&p, &b.site).await)
+}
+async fn identities(State(k): K, h: HeaderMap) -> Response {
+    let p = person!(k, h);
+    Json(k.identities_of(&p)).into_response()
+}
+async fn delete_identity(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
+    let p = person!(k, h);
+    answered(k.delete_identity(&p, &id).await)
+}
+async fn secure_form(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<super::identity::SecureForm>) -> Response {
+    let p = person!(k, h);
+    answered(k.fill_secure_form(&p, &id, &b).await)
+}
+/// `Debug` is deliberately not derived: this holds the secret itself.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewSurrogate {
+    name: String,
+    value: String,
+    host: String,
+}
+async fn save_attachment(State(k): K, h: HeaderMap, Path((task, name)): Path<(String, String)>) -> Response {
+    let p = person!(k, h);
+    answered(k.save_attachment(&p, &task, &name).await)
+}
+async fn new_surrogate(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewSurrogate>) -> Response {
+    let p = person!(k, h);
+    answered(k.issue_surrogate(&p, &id, &b.name, &b.value, &b.host).await)
 }
 
 #[derive(Deserialize, Default)]

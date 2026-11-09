@@ -5,12 +5,14 @@
 mod apps;
 mod client;
 mod egress;
+mod identity;
 mod idle;
 mod routes;
 mod service;
 mod takeover;
 
 pub use egress::migrate_sql;
+use egress::surrogate as egress_surrogate;
 pub use routes::router;
 pub use service::schedule;
 
@@ -61,6 +63,18 @@ pub enum Owner {
     Workspace(String),
 }
 
+/// What a VM is for. A browser VM is reached only through the broker.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Role {
+    #[default]
+    Computer,
+    /// One account at one site, with its own profile.
+    Identity { site: String },
+    /// A run's browser for untrusted reading: no profile to speak of.
+    Throwaway { run: String },
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum KillMode {
@@ -86,6 +100,29 @@ pub enum Change {
     },
     Started {
         id: String,
+    },
+    BrowserCreated {
+        id: String,
+        owner: Owner,
+        role: Role,
+    },
+    /// The VM stopped, and an identity's profile is being sealed.
+    BrowserStopped {
+        id: String,
+    },
+    /// A secure form filled a page. The value is never written anywhere.
+    SecureFormFilled {
+        id: String,
+        by: String,
+        saved: bool,
+        at: DateTime<Utc>,
+    },
+    /// The hash only: the token itself is held by the computer.
+    SurrogateIssued {
+        id: String,
+        hash: String,
+        name: String,
+        host: String,
     },
     /// One step with the `Revoked` of each of its grants, in the same write.
     Killed {
@@ -240,6 +277,17 @@ pub struct Computer {
     pub operators: Vec<OperatorSession>,
     /// What only its user reads: takeovers and operator sessions.
     pub activity: Vec<Activity>,
+    pub role: Role,
+    pub surrogates: Vec<Surrogate>,
+}
+
+/// Stands in for a credential the vault holds, at one host only.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct Surrogate {
+    #[serde(skip)]
+    pub hash: String,
+    pub name: String,
+    pub host: String,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -298,30 +346,51 @@ impl Ledger {
         format!("\n\nThese files were deleted from the person's computer. They are gone: do not rely on them or recreate them.\n{}", gone.concat())
     }
 
+    fn add(&mut self, id: &str, owner: &Owner, role: Role) {
+        self.computers.insert(
+            id.to_string(),
+            Computer {
+                id: id.to_string(),
+                owner: owner.clone(),
+                status: Status::Stopped,
+                grants: vec![],
+                apps: vec![],
+                replay_error: None,
+                deleted_files: vec![],
+                destinations: vec![],
+                pages: vec![],
+                queued: None,
+                controller: None,
+                operators: vec![],
+                activity: vec![],
+                role,
+                surrogates: vec![],
+            },
+        );
+    }
+
     pub fn apply(&mut self, change: &Change) {
         match change {
             Change::TakeoverStarted { .. } | Change::TakeoverEnded { .. } | Change::OperatorGranted { .. } | Change::OperatorEnded { .. } | Change::OperatorLooked { .. } => {
                 takeover::apply(self, change)
             }
-            Change::Created { id, owner } => {
-                self.computers.insert(
-                    id.clone(),
-                    Computer {
-                        id: id.clone(),
-                        owner: owner.clone(),
-                        status: Status::Stopped,
-                        grants: vec![],
-                        apps: vec![],
-                        replay_error: None,
-                        deleted_files: vec![],
-                        destinations: vec![],
-                        pages: vec![],
-                        queued: None,
-                        controller: None,
-                        operators: vec![],
-                        activity: vec![],
-                    },
-                );
+            Change::Created { id, owner } => self.add(id, owner, Role::Computer),
+            Change::BrowserCreated { id, owner, role } => self.add(id, owner, role.clone()),
+            Change::BrowserStopped { id } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.status = Status::Stopped;
+                }
+            }
+            Change::SecureFormFilled { id, by, saved, at } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    let what = if *saved { "filled a secure form and saved it to the vault" } else { "filled a secure form" };
+                    c.activity.push(Activity { what: what.to_string(), who: by.clone(), at: *at });
+                }
+            }
+            Change::SurrogateIssued { id, hash, name, host } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.surrogates.push(Surrogate { hash: hash.clone(), name: name.clone(), host: host.clone() });
+                }
             }
             Change::Granted { id, grant, label } => {
                 if let Some(c) = self.computers.get_mut(id) {

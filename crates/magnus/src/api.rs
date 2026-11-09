@@ -1128,7 +1128,7 @@ async fn submit(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
         }
     }
     let o = crate::kernel::NewRun { model, files, project, ..Default::default() };
-    match k.create_run(&format!("person:{}", p.id), &p.id, text, vec![], o).await {
+    match k.create_run(&format!("person:{}", p.id), &p.id, text, crate::attachment::from_request(&b), o).await {
         Ok((task, run)) => (StatusCode::CREATED, Json(json!({ "task_id": task, "run_id": run }))).into_response(),
         Err(e) => internal(e),
     }

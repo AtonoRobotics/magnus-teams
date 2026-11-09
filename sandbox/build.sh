@@ -22,5 +22,7 @@ cp "$root/target/x86_64-unknown-linux-musl/release/magnus-guest" "$cache/magnus-
 cp "$here/Dockerfile" "$cache/Dockerfile"
 cp "$here/sitecustomize.py" "$cache/sitecustomize.py"
 cp "$here/check_tools.py" "$cache/check_tools.py"
+rm -rf "$cache/browser"; mkdir -p "$cache/browser"
+cp "$root"/browser/*.js "$cache/browser/"; cp -r "$root/browser/node_modules" "$cache/browser/node_modules"
 DOCKER_BUILDKIT=1 docker build --target export --output "type=local,dest=$out" "$cache"
 ls -la "$out"
