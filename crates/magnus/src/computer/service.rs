@@ -1,0 +1,272 @@
+//! The operations on a computer: who may, what the log says, what computerd does.
+
+use super::{client, Change, Computer, KillMode, Owner, Status};
+use crate::config::Person;
+use crate::controls::Refused;
+use crate::events::Ev;
+use crate::kernel::Kernel;
+use anyhow::Result;
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+const BOOT_WAIT: Duration = Duration::from_secs(30);
+const BOOT_POLL: Duration = Duration::from_millis(200);
+const QUEUE_POLL: Duration = Duration::from_secs(5);
+const ID_BYTES: usize = 16;
+const MAX_LABEL_CHARS: usize = 200;
+const USER_FILES: &str = "/workspace/";
+/// A stopped computer's files are reached one helper VM at a time.
+static HELPER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn may_control(who: &Person, owner: &Owner) -> bool {
+    match owner {
+        Owner::Person(p) => who.id == *p || who.is_owner() || who.has_role("admin"),
+        Owner::Workspace(_) => who.is_owner() || who.has_role("admin"),
+    }
+}
+
+fn failed(e: anyhow::Error) -> Refused {
+    Refused::Failed(format!("{e:#}"))
+}
+
+fn new_id() -> String {
+    use rand::RngCore;
+    let mut raw = [0u8; ID_BYTES];
+    rand::rngs::OsRng.fill_bytes(&mut raw);
+    raw.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Only under the volume's mount point, and no way back out of it.
+fn user_path(path: &str) -> Result<&str, Refused> {
+    if !path.starts_with(USER_FILES) || path.len() == USER_FILES.len() || path.split('/').any(|p| p == "..") {
+        return Err(Refused::Invalid(format!("a file on a computer is under {USER_FILES}")));
+    }
+    Ok(path)
+}
+
+impl Kernel {
+    fn computer_socket(&self) -> Result<PathBuf, Refused> {
+        self.cfg.computer.as_ref().map(|c| c.socket.clone()).ok_or_else(|| Refused::Conflict("this appliance has no computers".into()))
+    }
+
+    /// The person sees "no such computer" for one that is not theirs.
+    fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
+        self.read(|s| s.computers.get(id).cloned()).filter(|c| may_control(who, &c.owner)).ok_or(Refused::NotFound("computer"))
+    }
+
+    async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
+        self.emit(&format!("person:{}", who.id), Ev::Computer(change)).await.map(|_| ()).map_err(failed)
+    }
+
+    pub async fn create_computer(&self, who: &Person, workspace: Option<&str>) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let owner = match workspace {
+            Some(w) if who.is_owner() || who.has_role("admin") => Owner::Workspace(w.to_string()),
+            Some(_) => return Err(Refused::Denied("only an admin creates a workspace's computer".into())),
+            None => Owner::Person(who.id.clone()),
+        };
+        let id = new_id();
+        client::ask(&socket, json!({ "op": "create", "id": id })).await.map_err(failed)?;
+        self.record_computer(who, Change::Created { id: id.clone(), owner }).await?;
+        Ok(json!({ "id": id }))
+    }
+
+    pub fn computers_of(&self, who: &Person) -> Value {
+        self.read(|s| {
+            let queue: Vec<&str> = s.computers.queue().iter().map(|c| c.id.as_str()).collect();
+            let shown = |c: &Computer| {
+                let mut v = json!(c);
+                if let Some(i) = queue.iter().position(|q| *q == c.id) {
+                    v["queue_position"] = json!(i + 1);
+                }
+                v
+            };
+            json!({ "computers": s.computers.all().filter(|c| may_control(who, &c.owner)).map(shown).collect::<Vec<_>>() })
+        })
+    }
+
+    pub fn computer_json(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let c = self.controlled_computer(who, id)?;
+        let position = self.read(|s| s.computers.queue().iter().position(|q| q.id == id));
+        let mut v = json!(c);
+        if let Some(i) = position {
+            v["queue_position"] = json!(i + 1);
+        }
+        Ok(v)
+    }
+
+    /// Wakes or rebuilds a computer, or puts it in the queue at the limit.
+    pub async fn start_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let c = self.controlled_computer(who, id)?;
+        match c.status {
+            Status::Running => return Err(Refused::Conflict("the computer is already running".into())),
+            Status::Queued => return Err(Refused::Conflict("the computer is already waiting to start".into())),
+            Status::Paused => {
+                client::ask(&socket, json!({ "op": "resume", "id": id })).await.map_err(failed)?;
+                self.record_computer(who, Change::Started { id: id.into() }).await?;
+                return Ok(json!({ "status": "running" }));
+            }
+            Status::Stopped | Status::Killed => {}
+        }
+        match client::ask(&socket, json!({ "op": "start", "id": id })).await {
+            Ok(_) => {}
+            Err(e) if client::at_capacity(&e) => {
+                self.record_computer(who, Change::Queued { id: id.into() }).await?;
+                let position = self.read(|s| s.computers.queue().len());
+                return Ok(json!({ "status": "queued", "queue_position": position }));
+            }
+            Err(e) => return Err(failed(e)),
+        }
+        self.record_computer(who, Change::Started { id: id.into() }).await?;
+        wait_for_guest(&socket, id).await.map_err(failed)?;
+        Ok(json!({ "status": "running" }))
+    }
+
+    pub async fn grant_computer(&self, who: &Person, id: &str, label: &str) -> Result<Value, Refused> {
+        let c = self.controlled_computer(who, id)?;
+        if c.status == Status::Killed {
+            return Err(Refused::Conflict("the computer has been killed".into()));
+        }
+        let label = label.trim();
+        if label.is_empty() || label.chars().count() > MAX_LABEL_CHARS {
+            return Err(Refused::Invalid(format!("a grant has a label of 1 to {MAX_LABEL_CHARS} characters")));
+        }
+        let grant = new_id();
+        self.record_computer(who, Change::Granted { id: id.into(), grant: grant.clone(), label: label.into() }).await?;
+        Ok(json!({ "grant": grant }))
+    }
+
+    /// One step: the log first, so nothing can act on it from here on, then the VM.
+    pub async fn kill_computer(&self, who: &Person, id: &str, mode: KillMode, delete_volume: bool) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let c = self.controlled_computer(who, id)?;
+        if delete_volume && mode != KillMode::Destroy {
+            return Err(Refused::Invalid("only destroying a computer can delete its volume".into()));
+        }
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![];
+        for g in c.grants.iter().filter(|g| !g.revoked) {
+            evs.push((actor.as_str(), Ev::Computer(Change::Revoked { id: id.into(), grant: g.id.clone() })));
+        }
+        let revoked = evs.len();
+        // Last, because deleting the volume forgets the computer.
+        evs.push((actor.as_str(), Ev::Computer(Change::Killed { id: id.into(), mode, delete_volume })));
+        self.emit_all(evs).await.map_err(failed)?;
+        let req = match mode {
+            KillMode::Pause if c.status == Status::Running => json!({ "op": "pause", "id": id }),
+            KillMode::Pause => return Ok(json!({ "revoked": revoked })),
+            KillMode::Destroy => json!({ "op": "destroy", "id": id, "delete_volume": delete_volume }),
+        };
+        client::ask(&socket, req).await.map_err(failed)?;
+        Ok(json!({ "revoked": revoked }))
+    }
+
+    pub async fn write_computer_file(&self, who: &Person, id: &str, path: &str, data_b64: &str) -> Result<Value, Refused> {
+        let path = user_path(path)?;
+        let v = self.on_computer(who, id, json!({ "op": "write", "path": path, "data_b64": data_b64 })).await?;
+        Ok(json!({ "written": path, "reply": v }))
+    }
+
+    pub async fn read_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
+        let path = user_path(path)?;
+        self.on_computer(who, id, json!({ "op": "read", "path": path })).await
+    }
+
+    /// A live computer's guest agent, or for a stopped one a helper VM with
+    /// its volume and no network: the host never mounts a volume.
+    async fn on_computer(&self, who: &Person, id: &str, req: Value) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let c = self.controlled_computer(who, id)?;
+        let reply = match c.status {
+            Status::Running => {
+                let reply = client::guest(&socket, id, req).await.map_err(failed)?;
+                client::guest(&socket, id, json!({ "op": "sync" })).await.map_err(failed)?;
+                reply
+            }
+            Status::Stopped => {
+                let _one_at_a_time = HELPER.lock().await;
+                in_helper(&socket, id, req).await.map_err(failed)?
+            }
+            Status::Queued | Status::Paused | Status::Killed => return Err(Refused::Denied(format!("the computer is {}", json!(c.status).as_str().unwrap_or("not running")))),
+        };
+        if let Some(e) = reply["error"].as_str() {
+            return Err(Refused::Failed(e.to_string()));
+        }
+        Ok(reply)
+    }
+}
+
+async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
+    let started = Instant::now();
+    loop {
+        match client::guest(socket, id, json!({ "op": "ping" })).await {
+            Ok(_) => return Ok(()),
+            Err(e) if started.elapsed() > BOOT_WAIT => return Err(e.context("the computer did not boot")),
+            Err(_) => tokio::time::sleep(BOOT_POLL).await,
+        }
+    }
+}
+
+async fn in_helper(socket: &Path, id: &str, req: Value) -> Result<Value> {
+    client::ask(socket, json!({ "op": "start_helper", "id": id })).await?;
+    let done = async {
+        wait_for_guest(socket, id).await?;
+        let reply = client::guest(socket, id, req).await?;
+        client::guest(socket, id, json!({ "op": "sync" })).await?;
+        Ok::<Value, anyhow::Error>(reply)
+    }
+    .await;
+    client::ask(socket, json!({ "op": "stop", "id": id })).await?;
+    done
+}
+
+/// A kill recorded just before a crash still happens, and waiting wakes start
+/// in their turn.
+pub fn schedule(k: Arc<Kernel>) {
+    let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
+    tokio::spawn(async move {
+        let killed: Vec<String> = k.read(|s| s.computers.all().filter(|c| c.status == Status::Killed).map(|c| c.id.clone()).collect());
+        for id in killed {
+            if let Err(e) = client::ask(&socket, json!({ "op": "stop", "id": id })).await {
+                tracing::warn!("could not finish killing computer {id}: {e:#}");
+            }
+        }
+        let mut tick = tokio::time::interval(QUEUE_POLL);
+        loop {
+            tick.tick().await;
+            let next = k.read(|s| s.computers.queue().first().map(|c| c.id.clone()));
+            let Some(id) = next else { continue };
+            match client::ask(&socket, json!({ "op": "start", "id": id })).await {
+                Ok(_) => {
+                    if let Err(e) = k.emit("kernel", Ev::Computer(Change::Started { id: id.clone() })).await {
+                        tracing::warn!("computer {id} started but could not be recorded: {e:#}");
+                    }
+                }
+                Err(e) if client::at_capacity(&e) => {}
+                Err(e) => tracing::warn!("computer {id} could not start from the queue: {e:#}"),
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_path_stays_on_the_volume() {
+        assert!(user_path("/workspace/a/b.txt").is_ok());
+        for bad in ["/etc/passwd", "/workspace/", "/workspace/../etc/passwd", "workspace/a", ""] {
+            assert!(user_path(bad).is_err(), "{bad} was allowed");
+        }
+    }
+
+    #[test]
+    fn a_new_id_is_one_computerd_accepts() {
+        let id = new_id();
+        assert!(id.len() <= 32 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()), "{id}");
+    }
+}

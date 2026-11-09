@@ -1,6 +1,6 @@
 //! The socket Magnus talks to: one JSON request, one JSON reply, per connection.
 
-use crate::computers::Computers;
+use crate::computers::{Computers, Purpose};
 use crate::config::Config;
 use crate::id::ComputerId;
 use anyhow::{ensure, Context, Result};
@@ -33,6 +33,10 @@ pub enum Request {
     Start {
         id: String,
     },
+    /// A VM with only the volume, to reach a stopped computer's files.
+    StartHelper {
+        id: String,
+    },
     Pause {
         id: String,
     },
@@ -62,7 +66,11 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
     Ok(match req {
         Request::Create { id: raw } => json!({ "uid": c.create(&id(&raw)?)? }),
         Request::Start { id: raw } => {
-            c.start(&id(&raw)?)?;
+            c.start(&id(&raw)?, Purpose::Computer)?;
+            json!({})
+        }
+        Request::StartHelper { id: raw } => {
+            c.start(&id(&raw)?, Purpose::Helper)?;
             json!({})
         }
         Request::Pause { id: raw } => {

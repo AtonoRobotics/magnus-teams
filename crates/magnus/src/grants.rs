@@ -394,7 +394,7 @@ async fn revoke(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<Strin
     answered(k.revoke_grant(&p, &id).await)
 }
 
-fn answered(r: Result<Value, Refused>) -> Response {
+pub(crate) fn answered(r: Result<Value, Refused>) -> Response {
     match r {
         Ok(v) => Json(v).into_response(),
         Err(e @ Refused::NotFound(_)) => err(StatusCode::NOT_FOUND, e.to_string()),
@@ -402,5 +402,12 @@ fn answered(r: Result<Value, Refused>) -> Response {
         Err(Refused::Conflict(m)) => err(StatusCode::CONFLICT, m),
         Err(Refused::Invalid(m)) => err(StatusCode::BAD_REQUEST, m),
         Err(Refused::Failed(m)) => err(StatusCode::INTERNAL_SERVER_ERROR, m),
+    }
+}
+
+impl Grant {
+    /// How many days a period runs back from now.
+    pub fn days(&self) -> i64 {
+        period_days(&self.period).unwrap_or(7)
     }
 }

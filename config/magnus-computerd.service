@@ -1,0 +1,13 @@
+[Unit]
+Description=Magnus computerd: starts and owns computer VMs
+After=local-fs.target
+
+[Service]
+ExecStart=/usr/local/lib/magnus/magnus-computerd serve
+Restart=always
+RestartSec=2
+# The VMs live in their own cgroup. Stopping this service must not touch them.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

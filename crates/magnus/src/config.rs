@@ -49,6 +49,8 @@ pub struct Config {
     pub brokered: Brokered,
     #[serde(default)]
     pub browser: Option<Browser>,
+    #[serde(default)]
+    pub computer: Option<crate::computer::Settings>,
     /// Local speech to text for voice input (`config/install-whisper.sh`).
     #[serde(default)]
     pub speech: Option<Speech>,

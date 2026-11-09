@@ -166,7 +166,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .merge(crate::settings::router())
         .merge(crate::relationship::router())
         .merge(crate::reactions::router())
-        .merge(crate::grants::router())
+        .merge(crate::grants::router().merge(crate::computer::router()))
         .merge(crate::commitments::router())
         .merge(crate::knowledge::router())
         .merge(crate::chat_actions::router())

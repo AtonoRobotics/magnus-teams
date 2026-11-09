@@ -51,6 +51,14 @@ pub enum State {
     Paused,
 }
 
+/// A helper VM reaches a stopped computer's files. It has the volume and
+/// nothing else of the computer, and will never get a network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Purpose {
+    Computer,
+    Helper,
+}
+
 pub struct Computers {
     cfg: Config,
     cgroups: PathBuf,
@@ -174,7 +182,7 @@ impl Computers {
         Ok(n)
     }
 
-    pub fn start(&self, id: &ComputerId) -> Result<()> {
+    pub fn start(&self, id: &ComputerId, purpose: Purpose) -> Result<()> {
         let _lock = self.lock()?;
         ensure!(!self.halted_marker().exists(), "the owner has halted every computer");
         let Meta { uid } = self.meta(id)?;
@@ -182,7 +190,7 @@ impl Computers {
         ensure!(self.live_count()? < self.cfg.max_live, "this machine is running as many computers as it may");
 
         let dir = self.computer(id);
-        if !dir.join(OVERLAY).exists() {
+        if purpose == Purpose::Computer && !dir.join(OVERLAY).exists() {
             make_drive(&dir.join(OVERLAY), self.cfg.vm.overlay_gib, uid, OVERLAY_LABEL)?;
         }
         let _ = std::fs::remove_dir(self.cgroup(id));
@@ -192,11 +200,15 @@ impl Computers {
         let images = self.state("images");
         // Hard links: one inode each, so the drives outlive the jail and a
         // base image is shared without being writable by anyone here.
-        for (from, name) in [(images.join(KERNEL_IMAGE), KERNEL_IMAGE), (images.join(BASE_IMAGE), BASE_IMAGE), (dir.join(VOLUME), VOLUME), (dir.join(OVERLAY), OVERLAY)] {
+        let mut links = vec![(images.join(KERNEL_IMAGE), KERNEL_IMAGE), (images.join(BASE_IMAGE), BASE_IMAGE), (dir.join(VOLUME), VOLUME)];
+        if purpose == Purpose::Computer {
+            links.push((dir.join(OVERLAY), OVERLAY));
+        }
+        for (from, name) in links {
             std::fs::hard_link(&from, root.join(name)).with_context(|| format!("link {name} into the jail"))?;
         }
         let config = root.join(VM_CONFIG);
-        std::fs::write(&config, serde_json::to_vec(&vm_config(&self.cfg))?).context("write the VM's config")?;
+        std::fs::write(&config, serde_json::to_vec(&vm_config(&self.cfg, purpose))?).context("write the VM's config")?;
         // Readable by the VM's own user whatever the umask.
         chown(&config, Some(uid), Some(uid)).context("give the VM its config")?;
 
@@ -336,14 +348,17 @@ fn make_drive(path: &Path, gib: u32, uid: u32, label: &str) -> Result<()> {
 }
 
 /// Paths are as Firecracker sees them, inside the chroot.
-fn vm_config(cfg: &Config) -> serde_json::Value {
+fn vm_config(cfg: &Config, purpose: Purpose) -> serde_json::Value {
+    let mut drives = vec![
+        json!({ "drive_id": "rootfs", "path_on_host": BASE_IMAGE, "is_root_device": true, "is_read_only": true }),
+        json!({ "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": false }),
+    ];
+    if purpose == Purpose::Computer {
+        drives.push(json!({ "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false }));
+    }
     json!({
         "boot-source": { "kernel_image_path": KERNEL_IMAGE, "boot_args": BOOT_ARGS },
-        "drives": [
-            { "drive_id": "rootfs", "path_on_host": BASE_IMAGE, "is_root_device": true, "is_read_only": true },
-            { "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": false },
-            { "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false },
-        ],
+        "drives": drives,
         "machine-config": { "vcpu_count": cfg.vm.vcpus, "mem_size_mib": cfg.vm.memory_mib },
         "vsock": { "guest_cid": GUEST_CID, "uds_path": VSOCK_IN_JAIL.trim_start_matches('/') },
     })
@@ -431,7 +446,10 @@ mod tests {
 
     #[test]
     fn the_vm_has_no_network_and_only_paths_inside_its_chroot() {
-        let v = vm_config(&config());
+        let helper = vm_config(&config(), Purpose::Helper);
+        assert!(helper.get("network-interfaces").is_none());
+        assert_eq!(helper["drives"].as_array().unwrap().len(), 2, "a helper VM got more than the volume");
+        let v = vm_config(&config(), Purpose::Computer);
         assert!(v.get("network-interfaces").is_none());
         let text = v.to_string();
         assert!(!text.contains("/var/lib"), "{text}");

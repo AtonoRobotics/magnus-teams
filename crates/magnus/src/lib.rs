@@ -22,6 +22,7 @@ pub mod chat_actions;
 pub mod cli;
 pub mod commitments;
 pub mod compose;
+pub mod computer;
 pub mod config;
 pub mod conformance;
 pub mod connectors;

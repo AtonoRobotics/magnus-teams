@@ -560,13 +560,6 @@ pub struct GrantAction {
     pub at: DateTime<Utc>,
 }
 
-impl Grant {
-    /// How many days a period runs back from now.
-    pub fn days(&self) -> i64 {
-        crate::grants::period_days(&self.period).unwrap_or(7)
-    }
-}
-
 /// Something the person or Magnus said they would do (#236). Its words
 /// (what, for whom, the quote, notes) are recalled from its events, by
 /// `steps`; the rest is here. Overdue is never stored: it is open with
@@ -864,6 +857,7 @@ pub struct ConnectorSetting {
 
 #[derive(Default)]
 pub struct State {
+    pub computers: crate::computer::Ledger,
     /// Trashed items by id.
     pub trash: BTreeMap<String, Trashed>,
     /// Conversations removed from the trash: their tasks stay, the thread is gone.
@@ -1407,6 +1401,7 @@ impl State {
                     self.policy_drafts.remove(layer);
                 }
             },
+            Ev::Computer(c) => self.computers.apply(c),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;
                 self.kill_switch_by = Some((e.actor.clone(), e.at));

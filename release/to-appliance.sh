@@ -84,7 +84,7 @@ if ! /usr/local/lib/magnus/bwrap --version > /dev/null 2>&1; then
     { echo "this machine has no browser jail: run config/install-browser-jail.sh with sudo" >&2; exit 1; }
 fi
 release/publish.sh appliance "$version" "$updates" "$notes" \
-  "${bins[@]}" browser config/install-browser-jail.sh "$images" \
+  "${bins[@]}" browser config/install-browser-jail.sh config/install-computerd.sh config/magnus-computerd.service "$images" \
   "$links/$(basename "$kernel")" "$links/$(basename "$rootfs")"
 published=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$updates/appliance/latest.json")
 [ "$published" = "$version" ] || exit 0
