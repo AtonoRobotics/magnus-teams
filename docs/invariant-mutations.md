@@ -840,3 +840,14 @@ Each test needs KVM, passwordless sudo, the guest images (`MAGNUS_GUEST_KERNEL`,
 | 1 | a_name_or_redirect_to_private_infrastructure_is_refused | A name resolving to a private address is allowed | egress/mod.rs | KILLED: assertion `left == right` failed |
 | 1 | a_computer_reaches_only_declared_destinations_even_as_root | Every destination is allowed | egress/policy.rs, `classify` | KILLED: assertion `left == right` failed: a computer reached undeclared undeclared.test |
 | 8 | one_persons_computer_cannot_reach_anothers | All computers share one CA | egress/ca.rs | KILLED: assertion `left != right` failed: Alice's computer shares a CA with Bob's |
+| 6 | auto_review_cannot_be_disabled_and_asks_when_it_is_down | An unreachable reviewer allows | auto_review.rs | KILLED: timed out after 90s waiting for: open approval item for task task b1cbe2a846f5424daec9739bcc992fe5 |
+| 6 | auto_review_cannot_be_disabled_and_asks_when_it_is_down | A policy permit skips the reviewer | auto_review.rs, `review_permitted` | KILLED: timed out after 90s waiting for: open approval item for task task 3b876142786140eb80e93f9a68670fc0 |
+| 4 | auto_review_alone_cannot_release_private_data_to_a_wider_audience | The reviewer alone clears a kernel ask | auto_review.rs, `clear_ask` | KILLED: timed out after 90s waiting for: open approval item for task task a35edf795d8b4460953195d93152699a |
+| 4 | auto_review_alone_cannot_release_private_data_to_a_wider_audience | A proposed rule covers before it is accepted | rules.rs | KILLED: timed out after 90s waiting for: open approval item for task task ab6bd6bc207d4bbcabc96c653aa1366b |
+| 4 | auto_review_alone_cannot_release_private_data_to_a_wider_audience | A "once" rule keeps covering | rules.rs | KILLED: timed out after 90s waiting for: open approval item for task task 10be1ab9a64f41e5955e87d038e3bfd1 |
+| 4 | page_text_reaches_auto_review_only_as_quoted_data | Page text joins the reviewer's system prompt | auto_review.rs | KILLED: page text reached the reviewer as instructions |
+| 6 | an_expired_background_ask_runs_nothing | An install expires into a draft | unattended.rs | KILLED: the install's ask did not wait |
+| 6 | an_expired_background_ask_runs_nothing | A routine's ask never expires | unattended.rs | KILLED: timed out after 90s waiting for: the expired ask's draft |
+| 6 | no_grant_unlocks_a_hard_denial | The hard denial is off | rules.rs | KILLED: a grant unlocked a hard denial |
+
+Each of the five step 5 tests was also run with no mutation, and all passed, so a timeout above is the mutation's effect and not a broken test.
