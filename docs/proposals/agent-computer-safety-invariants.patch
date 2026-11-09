@@ -1,0 +1,262 @@
+diff --git a/tests/invariants/src/model.rs b/tests/invariants/src/model.rs
+index 5a1aa34..7cc4378 100644
+--- a/tests/invariants/src/model.rs
++++ b/tests/invariants/src/model.rs
+@@ -130,6 +130,7 @@ struct Inner {
+     classifier: Mutex<Option<Script>>,
+     classified: Mutex<Vec<Conversation>>,
+     monitor: Mutex<Option<Script>>,
++    screener: Mutex<Option<Script>>,
+     reviews: Mutex<Vec<Conversation>>,
+ }
+ 
+@@ -139,6 +140,11 @@ pub fn classify(sensitive: bool, finding: &str) -> Reply {
+     tool("classify", json!({ "sensitive": sensitive, "finding": finding }))
+ }
+ 
++/// What the screen on incoming content says.
++pub fn screen(injection: bool, finding: &str) -> Reply {
++    tool("screen", json!({ "injection": injection, "finding": finding }))
++}
++
+ /// What the independent monitor says.
+ pub fn monitor(decision: &str, reason: &str) -> Reply {
+     tool("monitor", json!({ "decision": decision, "reason": reason }))
+@@ -168,7 +174,7 @@ pub struct FakeModel {
+ 
+ impl FakeModel {
+     pub async fn start(s: Script) -> Self {
+-        let inner = Arc::new(Inner { script: Mutex::new(s), requests: Mutex::new(vec![]), responses: Mutex::new(vec![]), reviewer: Mutex::new(None), classifier: Mutex::new(None), classified: Mutex::new(vec![]), monitor: Mutex::new(None), reviews: Mutex::new(vec![]) });
++        let inner = Arc::new(Inner { script: Mutex::new(s), requests: Mutex::new(vec![]), responses: Mutex::new(vec![]), reviewer: Mutex::new(None), classifier: Mutex::new(None), classified: Mutex::new(vec![]), monitor: Mutex::new(None), screener: Mutex::new(None), reviews: Mutex::new(vec![]) });
+         let app = Router::new().route("/v1/messages", post(messages)).with_state(inner.clone());
+         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+         let url = format!("http://{}", listener.local_addr().unwrap());
+@@ -191,6 +197,10 @@ impl FakeModel {
+         self.inner.classified.lock().unwrap().clone()
+     }
+ 
++    pub fn set_screener(&self, s: Script) {
++        *self.inner.screener.lock().unwrap() = Some(s);
++    }
++
+     pub fn set_monitor(&self, s: Script) {
+         *self.inner.monitor.lock().unwrap() = Some(s);
+     }
+@@ -234,6 +244,7 @@ async fn messages(State(inner): State<Arc<Inner>>, headers: HeaderMap, body: Str
+     let is_review = body["system"].to_string().contains("You are Auto Review");
+     let is_classifier = body["system"].to_string().contains("You scan outgoing content");
+     let is_monitor = body["system"].to_string().contains("independent safety monitor");
++    let is_screen = body["system"].to_string().contains("You screen content");
+     let reply = if is_classifier {
+         inner.classified.lock().unwrap().push(conv.clone());
+         let classifier = inner.classifier.lock().unwrap().clone();
+@@ -241,6 +252,12 @@ async fn messages(State(inner): State<Arc<Inner>>, headers: HeaderMap, body: Str
+             Some(c) => c(conv).await,
+             None => classify(false, ""),
+         }
++    } else if is_screen {
++        let screener = inner.screener.lock().unwrap().clone();
++        match screener {
++            Some(f) => f(conv).await,
++            None => screen(false, ""),
++        }
+     } else if is_monitor {
+         let watcher = inner.monitor.lock().unwrap().clone();
+         match watcher {
+diff --git a/tests/invariants/tests/inv4_taint.rs b/tests/invariants/tests/inv4_taint.rs
+index 24c2fd5..e41a173 100644
+--- a/tests/invariants/tests/inv4_taint.rs
++++ b/tests/invariants/tests/inv4_taint.rs
+@@ -535,3 +535,192 @@ async fn the_independent_monitor_can_block_an_action_and_ask_for_review() {
+     let result = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).find(|t| t.contains("safety monitor")).expect("the agent was not told");
+     assert!(result.contains("this looks wrong"), "{result}");
+ }
++
++#[tokio::test(flavor = "multi_thread")]
++async fn what_tries_to_steer_the_agent_is_held_back_before_the_model() {
++    use magnus_invariants::model::screen;
++    let steer_page = canary("STEER-page");
++    let steer_picture = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, canary("STEER-picture"));
++    let unjudged = canary("unjudged");
++    let (page, picture, lost) = (steer_page.clone(), steer_picture.clone(), unjudged.clone());
++    let web = FakeMcp::builder()
++        .tool("clean", "A page.", json!({ "type": "object", "properties": {} }), |_, _, _| mcp::ok(json!({ "text": "an ordinary page" })))
++        .tool("steer", "A page.", json!({ "type": "object", "properties": {} }), move |_, _, _| mcp::ok(json!({ "text": page })))
++        .tool("picture", "A picture.", json!({ "type": "object", "properties": {} }), move |_, _, _| mcp::ok(json!({ "image_b64": picture })))
++        .tool("unjudged", "A page.", json!({ "type": "object", "properties": {} }), move |_, _, _| mcp::ok(json!({ "text": lost })))
++        .start()
++        .await;
++    let model = FakeModel::start(steps(vec![
++        contract_unchecked("read", "read"),
++        tool("web__clean", json!({})),
++        tool("web__steer", json!({})),
++        tool("web__picture", json!({})),
++        tool("web__unjudged", json!({})),
++        tool("sandbox_exec", json!({ "command": "printf 'STEER-'; printf 'download'" })),
++        complete("done"),
++    ]))
++    .await;
++    let flagged_picture = steer_picture.clone();
++    let hold = unjudged.clone();
++    model.set_screener(script(move |c| {
++        let (text, picture, hold) = (c.text(), flagged_picture.clone(), hold.clone());
++        async move {
++            if text.contains(&hold) {
++                Reply::Text("no answer".into())
++            } else if text.contains("STEER") || text.contains(&picture) {
++                screen(true, "it tells the agent what to do")
++            } else {
++                screen(false, "")
++            }
++        }
++    }));
++    let spec = Spec::default().app("web", &web, "public", "untrusted", &[("clean", "read"), ("steer", "read"), ("picture", "read"), ("unjudged", "read")]).section("safety", json!({ "inbound_model": "anthropic/screen-model" }));
++    let app = Appliance::start(spec, &model).await;
++    let alice = app.api("alice");
++    let task = alice.submit("Read these.").await;
++    alice.wait_settled(&task).await;
++    let reqs = model.requests();
++    for bad in [steer_page.as_str(), steer_picture.as_str(), unjudged.as_str(), "STEER-download"] {
++        assert!(reqs.iter().all(|r| !r.text().contains(bad)), "{bad} reached the model");
++    }
++    let results: Vec<String> = reqs.iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("an ordinary page")), "an ordinary page was held back: {results:?}");
++    assert!(results.iter().filter(|t| t.contains("appeared to give you instructions")).count() >= 3, "{results:?}");
++    assert!(results.iter().any(|t| t.contains("could not be screened")), "content the screen could not judge went through: {results:?}");
++    assert!(alice.inbox().await.iter().any(|i| i["summary"].as_str().unwrap_or_default().contains("attempt to steer")), "the person was not told");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn the_monitor_watches_every_reply_and_a_person_settles_what_it_holds() {
++    use magnus_invariants::model::monitor;
++    use std::sync::atomic::{AtomicUsize, Ordering};
++    let crm = mcp::crm().start().await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().app("crm", &crm, "public", "private", &[("get_record", "read")]).section("safety", json!({ "monitor_model": "anthropic/monitor-model" }));
++    let app = Appliance::start(spec, &model).await;
++    let alice = app.api("alice");
++    let read = |id: &str| tool("crm__get_record", json!({ "id": id }));
++
++    // Two calls in one reply are watched once, and a block stops both.
++    let asked = std::sync::Arc::new(AtomicUsize::new(0));
++    let count = asked.clone();
++    model.set_monitor(script(move |c| {
++        let seen = c.text().contains("crm__get_record");
++        if seen {
++            count.fetch_add(1, Ordering::SeqCst);
++        }
++        async move {
++            if seen {
++                monitor("block", "not this")
++            } else {
++                monitor("allow", "fine")
++            }
++        }
++    }));
++    model.set_script(steps(vec![contract_unchecked("read", "read"), tools(vec![("crm__get_record", json!({ "id": "42" })), ("crm__get_record", json!({ "id": "43" }))]), complete("done")]));
++    let task = alice.submit("Read two records.").await;
++    alice.wait_settled(&task).await;
++    assert_eq!(crm.calls_to("get_record").len(), 0, "a read went through the monitor's block");
++    assert_eq!(asked.load(Ordering::SeqCst), 1, "the monitor was not asked once for the reply");
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("not this")), "{results:?}");
++
++    // Held: it waits, and the person's answer settles it either way.
++    model.set_monitor(script(|c| {
++        let seen = c.text().contains("crm__get_record");
++        async move {
++            if seen {
++                monitor("review", "a person should look")
++            } else {
++                monitor("allow", "fine")
++            }
++        }
++    }));
++    model.set_script(steps(vec![contract_unchecked("read", "read"), read("42"), complete("done")]));
++    let task = alice.submit("Read a record.").await;
++    let held = alice.wait_item(&task, "monitor").await;
++    assert_eq!(crm.calls_to("get_record").len(), 0, "a held call ran");
++    assert!(alice.respond(held["id"].as_str().unwrap(), json!({ "decision": "allow" })).await.is_success());
++    let review = alice.wait_item(&task, "review").await;
++    assert_eq!(crm.calls_to("get_record").len(), 1, "an allowed call did not run");
++    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
++
++    model.set_script(steps(vec![contract_unchecked("read", "read"), read("42"), complete("done")]));
++    let task = alice.submit("Read it again.").await;
++    let held = alice.wait_item(&task, "monitor").await;
++    assert!(alice.respond(held["id"].as_str().unwrap(), json!({ "decision": "reject" })).await.is_success());
++    alice.wait_item(&task, "review").await;
++    assert_eq!(crm.calls_to("get_record").len(), 1, "a refused call ran");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn the_monitor_can_pause_the_computer_and_revoke_its_grants() {
++    use magnus_invariants::model::monitor;
++    let computerd = Computerd::start();
++    let crm = mcp::crm().start().await;
++    let model = FakeModel::start(steps(vec![])).await;
++    model.set_monitor(script(|c| {
++        let seen = c.text().contains("crm__get_record");
++        async move {
++            if seen {
++                monitor("pause", "this looks like a runaway")
++            } else {
++                monitor("allow", "fine")
++            }
++        }
++    }));
++    let spec = Spec::default().app("crm", &crm, "public", "private", &[("get_record", "read")]).section("safety", json!({ "monitor_model": "anthropic/monitor-model" }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{id}/start"), json!({})).await.0, 200);
++    assert!(alice.post(&format!("/v1/computers/{id}/grants"), json!({ "label": "drive" })).await.0.is_success());
++    model.set_script(steps(vec![contract_unchecked("read", "read"), tool("crm__get_record", json!({ "id": "42" })), complete("done")]));
++    let task = alice.submit("Read a record.").await;
++    alice.wait_item(&task, "monitor").await;
++    assert_eq!(crm.calls_to("get_record").len(), 0, "the action ran although the monitor paused the computer");
++    let (_, listed) = alice.get("/v1/computers").await;
++    let computer = listed.as_array().or(listed["computers"].as_array()).unwrap().iter().find(|c| c["id"] == id.as_str()).unwrap().clone();
++    assert!(computer["grants"].as_array().unwrap().iter().all(|g| g["revoked"] == true), "a grant survived: {computer}");
++    assert_eq!(computerd.ask(json!({ "op": "status", "id": id }))["state"], "paused", "the computer was not paused");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_blocked_message_goes_out_only_revised_and_approved() {
++    let mail = mcp::mail().start().await;
++    let send = |body: &str| tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": body }));
++    let model = FakeModel::start(steps(vec![contract_unchecked("send", "sent"), send("card 4111"), send("card 4111"), send("no card now"), complete("done")])).await;
++    model.set_reviewer(script(|_| async { review("deny", "it has a card number") }));
++    let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
++    let alice = app.api("alice");
++    assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
++    let task = alice.submit("Send a note.").await;
++    let asked = alice.wait_item(&task, "approval").await;
++    assert_eq!(asked["details"]["input"]["body"], "no card now", "{asked}");
++    assert_eq!(mail.effects("send"), 0, "a blocked message went out");
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("revised version")), "the agent was not told it could revise: {results:?}");
++    assert!(results.iter().any(|t| t.contains("unchanged")), "the same message was not refused again: {results:?}");
++    assert!(alice.respond(asked["id"].as_str().unwrap(), json!({ "decision": "approve" })).await.is_success());
++    alice.wait_item(&task, "review").await;
++    assert_eq!(mail.effects("send"), 1, "the approved revision did not go out");
++    assert_eq!(mail.calls_to("send")[0].args["body"], "no card now");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn an_admin_cannot_delete_a_persons_volume() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let (alice, bob) = (app.api("alice"), app.api("bob"));
++    let (_, made) = bob.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    assert_eq!(bob.post(&format!("/v1/computers/{id}/start"), json!({})).await.0, 200);
++    let (code, said) = alice.post(&format!("/v1/computers/{id}/kill"), json!({ "mode": "destroy", "delete_volume": true })).await;
++    assert_eq!(code, 403, "{said}");
++    assert!(computerd.volume_exists(&id), "the volume went without its person asking");
++    let (code, said) = alice.post(&format!("/v1/computers/{id}/kill"), json!({ "mode": "destroy", "delete_volume": false })).await;
++    assert!(code.is_success(), "an admin could not stop the computer: {said}");
++    assert!(computerd.volume_exists(&id), "destroying a computer lost its volume");
++}
