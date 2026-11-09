@@ -106,6 +106,8 @@ impl Kernel {
         let granted = self.read(|s| s.team.workspace(&t.workspace).map(|w| w.connectors.clone())).unwrap_or_default();
         let allowed = |name: &str| match name.split_once("__") {
             Some((app, _)) => role.is_some_and(|r| granted.get(app).is_some_and(|roles| roles.contains(&r))),
+            // Offered only where the boundary would let it through.
+            None if name.starts_with("computer_") => !run.private && self.team_computer(&t.workspace).is_some() && in_team_run(name),
             None => in_team_run(name),
         };
         let mut kept: Vec<ToolSpec> = specs.into_iter().filter(|s| allowed(&s.name)).collect();
