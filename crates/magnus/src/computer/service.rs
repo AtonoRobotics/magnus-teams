@@ -5,6 +5,8 @@ use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::state::State;
+use crate::team::Role as WorkspaceRole;
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -23,10 +25,10 @@ const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.cr
 /// A stopped computer's files are reached one helper VM at a time.
 static HELPER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn may_control(who: &Person, owner: &Owner) -> bool {
+fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
     match owner {
         Owner::Person(p) => who.id == *p || who.is_owner() || who.has_role("admin"),
-        Owner::Workspace(_) => who.is_owner() || who.has_role("admin"),
+        Owner::Workspace(w) => who.is_owner() || who.has_role("admin") || s.team.role(w, &who.id).is_some_and(|r| r >= WorkspaceRole::Admin),
     }
 }
 
@@ -66,7 +68,7 @@ impl Kernel {
 
     /// The person sees "no such computer" for one that is not theirs.
     pub(super) fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).cloned()).filter(|c| c.role == Role::Computer && may_control(who, &c.owner)).ok_or(Refused::NotFound("computer"))
+        self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
     pub(super) async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
@@ -76,7 +78,7 @@ impl Kernel {
     pub async fn create_computer(&self, who: &Person, workspace: Option<&str>) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
         let owner = match workspace {
-            Some(w) if who.is_owner() || who.has_role("admin") => Owner::Workspace(w.to_string()),
+            Some(w) if self.read(|s| may_control(s, who, &Owner::Workspace(w.to_string()))) => Owner::Workspace(w.to_string()),
             Some(_) => return Err(Refused::Denied("only an admin creates a workspace's computer".into())),
             None => Owner::Person(who.id.clone()),
         };
@@ -96,7 +98,7 @@ impl Kernel {
                 }
                 v
             };
-            json!({ "computers": s.computers.all().filter(|c| c.role == Role::Computer && may_control(who, &c.owner)).map(shown).collect::<Vec<_>>() })
+            json!({ "computers": s.computers.all().filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).map(shown).collect::<Vec<_>>() })
         })
     }
 

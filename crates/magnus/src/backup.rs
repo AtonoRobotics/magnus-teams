@@ -208,11 +208,13 @@ impl Kernel {
         let databases = tokio::task::spawn_blocking(move || dump_databases(&cfg)).await??;
         let cfg = self.cfg.clone();
         let accounts = tokio::task::spawn_blocking(move || dump_accounts(&cfg)).await??;
+        let cfg = self.cfg.clone();
+        let team_files = tokio::task::spawn_blocking(move || crate::team::pack_files(&cfg)).await??;
         let made = chrono::Utc::now();
         let doc = json!({
             "format": FORMAT, "made_at": made, "through_seq": through, "scrubbed_through": scrubbed, "events": rows,
             "vault": { "key": B64.encode(vault_key), "secrets": secrets },
-            "databases": databases, "accounts": accounts,
+            "databases": databases, "accounts": accounts, "team_files": team_files,
         });
         let plain = serde_json::to_vec(&doc)?;
         let cipher = key(&self.cfg, true)?;
@@ -611,6 +613,8 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
     // restore can be run again (#296).
     let (c, w) = (cfg.clone(), v.clone());
     tokio::task::spawn_blocking(move || restore_databases(&c, &w)).await??;
+    let (c, w) = (cfg.clone(), v.clone());
+    tokio::task::spawn_blocking(move || crate::team::unpack_files(&c, &w)).await??;
     // The accounts tables likewise (#466): emptied first on their own
     // committed connection (a data load cannot run inside the log's
     // transaction, and must not meet rows a run before it left), then

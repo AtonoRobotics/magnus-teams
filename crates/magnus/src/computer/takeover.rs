@@ -113,10 +113,10 @@ impl State {
 
 /// Whose it is to use: the person it belongs to. An operator, admin or owner
 /// reaches its screen and files only through a session its user granted.
-fn may_open(who: &Person, owner: &Owner) -> bool {
+fn may_open(s: &crate::state::State, who: &Person, owner: &Owner) -> bool {
     match owner {
         Owner::Person(p) => who.id == *p,
-        Owner::Workspace(_) => who.is_owner() || who.has_role("admin"),
+        Owner::Workspace(w) => who.is_owner() || who.has_role("admin") || s.team.role(w, &who.id).is_some_and(|r| r >= crate::team::Role::Member),
     }
 }
 
@@ -127,7 +127,7 @@ pub(super) fn is_capture(tool: &str) -> bool {
 
 impl Kernel {
     pub(super) fn opened_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).cloned()).filter(|c| c.role == super::Role::Computer && may_open(who, &c.owner)).ok_or(Refused::NotFound("computer"))
+        self.read(|s| s.computers.get(id).filter(|c| c.role == super::Role::Computer && may_open(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
     /// The running computer a person's run acts on, if they have one.
@@ -137,10 +137,24 @@ impl Kernel {
         })
     }
 
+    pub(crate) fn team_computer(&self, workspace: &str) -> Option<String> {
+        let owner = Owner::Workspace(workspace.to_string());
+        self.read(|s| s.computers.all().find(|c| c.role == super::Role::Computer && c.status == Status::Running && c.owner == owner).map(|c| c.id.clone()))
+    }
+
+    /// The computer a run acts on: its team's on a team request, its person's otherwise.
+    pub(crate) fn computer_of_run(&self, run: &Run) -> Option<String> {
+        match self.team_of(&run.task) {
+            Some(t) => self.team_computer(&t.workspace),
+            None => self.run_computer(&run.person),
+        }
+    }
+
     /// Whether a person holds the screen of the computer this run is using.
     pub(crate) fn computer_held(&self, run: &Run) -> bool {
         let uses = run.replies.iter().any(|r| r.calls().iter().any(|(_, name, _)| is_capture(name)));
-        uses && self.read(|s| s.computers.all().any(|c| c.owner == Owner::Person(run.person.clone()) && c.controller.is_some()))
+        let mine = self.computer_of_run(run);
+        uses && self.read(|s| s.computers.all().any(|c| Some(&c.id) == mine.as_ref() && c.controller.is_some()))
     }
 
     async fn capture(&self, socket: &Path, id: &str) -> Result<String> {
@@ -159,8 +173,8 @@ impl Kernel {
 
     /// A desktop tool on the person's computer. `None`: they have none
     /// running, and it goes to the run's own sandbox.
-    pub(crate) async fn computer_tool(&self, person: &str, tool: &str, input: &Value) -> Result<Option<(String, bool, Option<Value>)>> {
-        let Some(id) = self.run_computer(person) else { return Ok(None) };
+    pub(crate) async fn computer_tool(&self, run: &str, tool: &str, input: &Value) -> Result<Option<(String, bool, Option<Value>)>> {
+        let Some(id) = self.read(|s| s.runs.get(run).cloned()).and_then(|r| self.computer_of_run(&r)) else { return Ok(None) };
         let held = self.read(|s| s.computers.get(&id).is_some_and(|c| c.controller.is_some()));
         if held {
             return Ok(Some(("A person has control of this computer, so this was refused. Wait until they hand it back.".to_string(), true, None)));
@@ -201,13 +215,18 @@ impl Kernel {
         if c.controller.is_none() {
             return Err(Refused::Conflict("no one holds this computer".into()));
         }
-        let Owner::Person(owner) = c.owner.clone() else { return Err(Refused::Denied("a workspace computer has no agent to hand back to yet".into())) };
         let socket = self.computer_socket()?;
         let frame = self.capture(&socket, id).await.ok();
         let runs: Vec<(String, u32)> = self.read(|s| {
             s.runs
                 .values()
-                .filter(|r| r.person == owner && r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("takeover"))
+                .filter(|r| {
+                    let on_it = match &c.owner {
+                        Owner::Person(p) => r.person == *p && s.team.run_of(&r.task).is_none(),
+                        Owner::Workspace(w) => s.team.run_of(&r.task).is_some_and(|t| t.workspace == *w),
+                    };
+                    on_it && r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("takeover")
+                })
                 .map(|r| (r.id.clone(), r.replies.len() as u32))
                 .collect()
         });
@@ -329,7 +348,8 @@ mod tests {
     fn only_a_person_opens_their_own_computer() {
         let p = |id: &str, roles: serde_json::Value| -> Person { serde_json::from_value(json!({ "id": id, "groups": [], "roles": roles })).unwrap() };
         let owner = Owner::Person("alice".into());
-        assert!(may_open(&p("alice", json!([])), &owner));
-        assert!(!may_open(&p("root", json!(["owner", "admin"])), &owner), "an admin opened a person's computer without a session");
+        let s = crate::state::State::default();
+        assert!(may_open(&s, &p("alice", json!([])), &owner));
+        assert!(!may_open(&s, &p("root", json!(["owner", "admin"])), &owner), "an admin opened a person's computer without a session");
     }
 }

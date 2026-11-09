@@ -1672,8 +1672,7 @@ impl Kernel {
                 t if t.starts_with("local_") || t.starts_with("team_") => self.far_tool(a).await,
                 "add_computer_destination" | "open_attachment" | "start_sub_agent" => self.side_tool(a).await,
                 t if t.starts_with("computer_") => {
-                    let person = self.read(|st| st.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
-                    if let Some(done) = self.computer_tool(&person, t, &a.input).await? {
+                    if let Some(done) = self.computer_tool(&a.run, t, &a.input).await? {
                         return Ok(done);
                     }
                     let cmd = computer_command(t, &a.input)?;

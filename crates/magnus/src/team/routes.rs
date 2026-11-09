@@ -13,15 +13,15 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 const MAX_UPLOAD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MESSAGE_CHARS: usize = 20_000;
 const MAX_NAME_CHARS: usize = 80;
 
-type K = State<Arc<Kernel>>;
-type Reply = Response;
+pub(super) type K = State<Arc<Kernel>>;
+pub(super) type Reply = Response;
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -32,37 +32,30 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/channels", post(add_channel))
         .route("/v1/workspaces/{ws}/channels/{channel}/messages", get(messages).post(post_message))
         .route("/v1/workspaces/{ws}/connectors", post(grant_connector))
-        .route("/v1/workspaces/{ws}/knowledge", post(add_fact))
-        .route("/v1/workspaces/{ws}/knowledge/{id}", delete(remove_fact))
         .route("/v1/workspaces/{ws}/files/{name}", get(read_file).put(write_file).delete(delete_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/v1/workspaces/{ws}/held/{name}/share", post(share_held))
+        .merge(super::kb_routes::router())
+        .merge(super::whisper::router())
+        .merge(super::routines::router())
+        .merge(super::upkeep::router())
 }
 
-fn new_id() -> String {
+pub(super) fn new_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
-async fn send(k: &Kernel, p: &Person, c: Change) -> Result<(), Box<Reply>> {
+pub(super) async fn send(k: &Kernel, p: &Person, c: Change) -> Result<(), Box<Reply>> {
     k.emit(&format!("person:{}", p.id), Ev::Team(c)).await.map(|_| ()).map_err(|e| Box::new(err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))
 }
 
 /// The caller and their role here, or a 404 that does not say the workspace exists.
-async fn member(k: &Kernel, h: &HeaderMap, ws: &str, at_least: Role) -> Result<(Person, Role), Box<Reply>> {
+pub(super) async fn member(k: &Kernel, h: &HeaderMap, ws: &str, at_least: Role) -> Result<(Person, Role), Box<Reply>> {
     let p = who(k, h).await.map_err(Box::new)?;
     let Some(role) = k.read(|s| s.team.role(ws, &p.id)) else { return Err(Box::new(err(StatusCode::NOT_FOUND, "no such workspace"))) };
     if role < at_least {
         return Err(Box::new(err(StatusCode::FORBIDDEN, format!("that takes the {at_least:?} role here"))));
     }
     Ok((p, role))
-}
-
-macro_rules! ok_or_return {
-    ($e:expr) => {
-        match $e {
-            Ok(v) => v,
-            Err(r) => return *r,
-        }
-    };
 }
 
 #[derive(Deserialize)]
@@ -94,25 +87,19 @@ async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
 }
 
 async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    let (_, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     let w = k.read(|s| s.team.workspace(&ws).cloned());
     let Some(w) = w else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     let channels: Vec<Value> = w.channels.iter().map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.facts })).into_response()
+    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "approvers": w.approvers, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>() })).into_response()
 }
 
 async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Owner).await);
-    ok_or_return!(send(&k, &p, Change::Deleted { workspace: ws.clone() }).await);
-    remove_tree(k.cfg.appliance.state_dir.join("team").join(&ws)).await;
-    Json(json!({ "ok": true })).into_response()
-}
-
-/// A workspace's directory may not exist yet; there is then nothing to do.
-async fn remove_tree(dir: std::path::PathBuf) {
-    if let Err(e) = tokio::fs::remove_dir_all(&dir).await {
-        tracing::debug!("{}: {e}", dir.display());
+    if let Err(e) = k.delete_workspace(&p, &ws).await {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
+    Json(json!({ "ok": true })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -137,14 +124,8 @@ async fn remove_member(State(k): K, h: HeaderMap, Path((ws, person)): Path<(Stri
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
     let running: Vec<String> = k.read(|s| s.team.runs_by(&ws, &person).into_iter().map(|r| r.task.clone()).collect());
     ok_or_return!(send(&k, &p, Change::Removed { workspace: ws.clone(), person: person.clone() }).await);
-    for task in running {
-        // A task already over cannot be cancelled, which is fine. One that
-        // survives this is refused at its next action: it has no member.
-        if let Err(e) = k.cancel_task(&p, &task, None).await {
-            tracing::debug!("{task}: {e:?}");
-        }
-    }
-    remove_tree(held_dir(&k, &ws, &person)).await;
+    k.end_team_tasks(&format!("person:{}", p.id), &running).await;
+    k.remove_held(&ws, &person).await;
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -189,6 +170,9 @@ struct NewMessage {
     /// Asks the team agent to act on this message.
     #[serde(default)]
     agent: bool,
+    /// For the sender's own agent only, and it does not reach the channel.
+    #[serde(default)]
+    whisper: bool,
 }
 
 async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> Reply {
@@ -199,8 +183,14 @@ async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(Stri
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
         return err(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
-    if b.agent && role == Role::Guest {
+    if (b.agent || b.whisper) && role == Role::Guest {
         return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
+    }
+    if b.whisper {
+        return match k.whisper(&ws, &channel, b.thread, &p.id, b.text).await {
+            Ok((task, run)) => Json(json!({ "task_id": task, "run_id": run })).into_response(),
+            Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+        };
     }
     let message = Message { id: new_id(), sender: p.id.clone(), text: b.text.clone(), thread: b.thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
@@ -226,24 +216,6 @@ async fn grant_connector(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json
         return err(StatusCode::NOT_FOUND, "no such app");
     }
     ok_or_return!(send(&k, &p, Change::Connector { workspace: ws, app: b.app, roles: b.roles }).await);
-    Json(json!({ "ok": true })).into_response()
-}
-
-#[derive(Deserialize)]
-struct NewFact {
-    text: String,
-}
-
-async fn add_fact(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewFact>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
-    let id = new_id();
-    ok_or_return!(send(&k, &p, Change::Fact { workspace: ws, id: id.clone(), text: b.text, by: p.id.clone() }).await);
-    Json(json!({ "id": id })).into_response()
-}
-
-async fn remove_fact(State(k): K, h: HeaderMap, Path((ws, id)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
-    ok_or_return!(send(&k, &p, Change::FactRemoved { workspace: ws, id }).await);
     Json(json!({ "ok": true })).into_response()
 }
 

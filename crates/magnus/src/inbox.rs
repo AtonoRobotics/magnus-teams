@@ -32,8 +32,10 @@ pub fn may_set_policy(p: &Person, layer: &str) -> bool {
     false
 }
 
-pub fn may_respond(p: &Person, i: &Item) -> bool {
+pub fn may_respond(s: &State, p: &Person, i: &Item) -> bool {
     match i.kind.as_str() {
+        // A workspace rule that names approvers for this resource decides who.
+        "approval" if named_approvers(s, i).is_some() => named_approvers(s, i).is_some_and(|named| named.contains(&p.id)),
         "approval" => p.is_owner() || p.has_role(&format!("approver:{}", i.details["risk"].as_str().unwrap_or_default())),
         "policy_proposal" => may_set_policy(p, i.details["layer"].as_str().unwrap_or_default()),
         "tool_change" | "tool_review" | "deletion_request" => p.is_owner(),
@@ -49,8 +51,12 @@ pub fn may_respond(p: &Person, i: &Item) -> bool {
     }
 }
 
-pub fn visible(p: &Person, i: &Item) -> bool {
-    i.person == p.id || may_respond(p, i)
+fn named_approvers(s: &State, i: &Item) -> Option<Vec<String>> {
+    s.team.approvers(i.task.as_deref()?, i.details["tool"].as_str()?)
+}
+
+pub fn visible(s: &State, p: &Person, i: &Item) -> bool {
+    i.person == p.id || may_respond(s, p, i)
 }
 
 /// What an approval's risk means for the person deciding (U6): the
@@ -98,7 +104,7 @@ pub fn render(s: &State, p: &Person, i: &Item) -> Value {
         "opened_at": s.items_opened.get(&i.id),
         "status": if i.resolution.is_some() { "resolved" } else { "open" },
         "resolution": i.resolution.as_ref().map(|(d, s, t, by)| json!({ "decision": d, "scope": s, "text": t, "by": by })),
-        "can_respond": i.resolution.is_none() && may_respond(p, i),
+        "can_respond": i.resolution.is_none() && may_respond(s, p, i),
         "blocking": blocking(s, i),
         "tier": tier,
         "consequence": consequence(i),
@@ -109,10 +115,10 @@ impl Kernel {
     pub async fn respond(self: &Arc<Self>, p: &Person, item_id: &str, body: &Value) -> Result<Answer> {
         let _decide = self.decide.lock().await;
         let Some(item) = self.read(|s| s.items.get(item_id).cloned()) else { return Ok(Answer::NotFound) };
-        if !visible(p, &item) {
+        if !self.read(|s| visible(s, p, &item)) {
             return Ok(Answer::NotFound);
         }
-        if !may_respond(p, &item) {
+        if !self.read(|s| may_respond(s, p, &item)) {
             return Ok(Answer::Forbidden("you do not hold the role this decision needs"));
         }
         if item.resolution.is_some() {

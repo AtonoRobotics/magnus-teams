@@ -1329,6 +1329,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("commitment_recorded", &["what", "to", "quote"]),
     ("commitment_changed", &["what", "to", "note"]),
     ("watched_seen", &["ids"]),
+    ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine"]),
 ];
 
 /// The content fields of one kind of event; none for most.

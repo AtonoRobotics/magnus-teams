@@ -988,7 +988,7 @@ pub(crate) fn title_of(task: &crate::state::Task, run: Option<&Run>, words: &cra
 
 /// Whether the task waits on an inbox item this person can answer.
 fn needs(s: &crate::state::State, p: &Person, run: &Run) -> bool {
-    run.status == Status::Suspended && s.items.values().any(|i| i.run.as_deref() == Some(run.id.as_str()) && i.resolution.is_none() && inbox::may_respond(p, i))
+    run.status == Status::Suspended && s.items.values().any(|i| i.run.as_deref() == Some(run.id.as_str()) && i.resolution.is_none() && inbox::may_respond(s, p, i))
 }
 
 /// A task in a list: what it is, where it stands, whether it needs this
@@ -1490,7 +1490,7 @@ async fn home_opened(State(k): K, h: HeaderMap) -> Response {
                 }
             }
         }
-        for i in s.items.values().filter(|i| inbox::visible(&p, i)) {
+        for i in s.items.values().filter(|i| inbox::visible(s, &p, i)) {
             let row = inbox::render(s, &p, i);
             if i.created_at > since {
                 arrived.push((i.created_at, row.clone()));
@@ -1534,7 +1534,7 @@ async fn inbox_opened(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respon
         let mut marked = vec![];
         let mut fresh = vec![];
         for id in b["ids"].as_array().cloned().unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(String::from)) {
-            if s.items.get(&id).is_some_and(|i| inbox::visible(&p, i)) {
+            if s.items.get(&id).is_some_and(|i| inbox::visible(s, &p, i)) {
                 marked.push(id.clone());
                 if !s.items_opened.contains_key(&id) {
                     fresh.push(id);
@@ -1558,7 +1558,7 @@ async fn inbox_list(State(k): K, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
-    let mut items: Vec<Value> = k.read(|s| s.items.values().filter(|i| inbox::visible(&p, i)).map(|i| inbox::render(s, &p, i)).collect());
+    let mut items: Vec<Value> = k.read(|s| s.items.values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
     // An approval for an app's action carries the app's card, as the person
     // whose task it is stands with it (connectors spec: the same card in the
     // Library, in chat, in a task and in approvals).

@@ -101,7 +101,10 @@ impl Kernel {
                 tools = ceiling;
             }
         }
+        // What the parent has read comes along in the goal it writes.
+        let taint = crate::tools::Label { untrusted: parent.untrusted, private: parent.private };
         let o = NewRun {
+            label: (taint.untrusted || taint.private).then_some(taint),
             budget: Some(child_budget(&parent.config.budget, a.input["budget_share"].as_f64())),
             grant,
             model: Some((parent.config.adapter.clone(), parent.config.model.clone())),
@@ -109,6 +112,19 @@ impl Kernel {
         };
         let (task, child) = self.create_run(&format!("run:{}", a.run), &parent.person, goal, vec![], o).await?;
         self.emit("kernel", crate::events::Ev::SubAgent(SubAgent { child: child.clone(), parent: a.run.clone(), tools })).await?;
+        if let Some(t) = self.team_of(&parent.task) {
+            let scope = crate::team::Change::Run {
+                workspace: t.workspace,
+                channel: t.channel,
+                thread: t.thread,
+                task: task.clone(),
+                requester: t.requester,
+                history: t.history,
+                sub: true,
+                outside: t.outside,
+            };
+            self.emit("kernel", crate::events::Ev::Team(scope)).await?;
+        }
         self.wake(&child);
         self.wait_for_child(&task, &child).await
     }

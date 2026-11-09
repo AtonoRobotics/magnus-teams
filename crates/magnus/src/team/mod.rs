@@ -1,11 +1,31 @@
 //! Team workspaces: channels, roles, a team volume and one team agent. The
 //! agent acts for whoever asked and never for the channel, so its authority
 //! is the workspace's grants cut down to what that member's role allows.
+macro_rules! ok_or_return {
+    ($e:expr) => {
+        match $e {
+            Ok(v) => v,
+            Err(r) => return *r,
+        }
+    };
+}
+
 mod agent;
+mod kb_routes;
+pub(crate) mod knowledge;
 mod routes;
+mod routines;
+mod upkeep;
+mod whisper;
 
 pub use agent::BUILTINS;
 pub use routes::router;
+pub use routines::schedule;
+pub use upkeep::{pack_files, unpack_files};
+
+use knowledge::{Entry, Project, Weight};
+use routines::Routine;
+use whisper::Whisper;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,6 +46,7 @@ pub enum Role {
 pub enum Change {
     Created {
         workspace: String,
+        #[serde(default)]
         name: String,
         owner: String,
     },
@@ -44,11 +65,13 @@ pub enum Change {
     Channel {
         workspace: String,
         channel: String,
+        #[serde(default)]
         name: String,
     },
     Message {
         workspace: String,
         channel: String,
+        #[serde(default)]
         message: Message,
     },
     /// An app granted to the workspace, for these roles. Empty takes it away.
@@ -64,31 +87,44 @@ pub enum Change {
         thread: Option<String>,
         task: String,
         requester: String,
+        #[serde(default)]
         history: String,
+        /// A sub-agent's: it works in the thread and does not answer there.
+        #[serde(default)]
+        sub: bool,
+        /// A guest's words are among what it was given.
+        #[serde(default)]
+        outside: bool,
     },
     File {
         workspace: String,
+        #[serde(default)]
         file: File,
     },
     FileRemoved {
         workspace: String,
+        #[serde(default)]
         name: String,
     },
     /// A file built from the requester's own data, kept back from the volume.
     Held {
         workspace: String,
         person: String,
+        #[serde(default)]
         file: File,
     },
     /// The person shared it, or threw it away.
     Released {
         workspace: String,
         person: String,
+        #[serde(default)]
         name: String,
     },
+    /// Retired for `Entry`; old ones read as workspace-level entries.
     Fact {
         workspace: String,
         id: String,
+        #[serde(default)]
         text: String,
         by: String,
     },
@@ -96,9 +132,87 @@ pub enum Change {
         workspace: String,
         id: String,
     },
+    /// The most any member's own computer may be set to while in this workspace.
+    LocalCeiling {
+        workspace: String,
+        mode: crate::local::Mode,
+    },
+    /// Who answers an ask that uses this workspace resource: an app's name,
+    /// `computer` or `team`. Empty sends it back to the requester.
+    Approvers {
+        workspace: String,
+        resource: String,
+        people: Vec<String>,
+    },
+    Note {
+        workspace: String,
+        task: String,
+        #[serde(default)]
+        note: Note,
+    },
+    Project {
+        workspace: String,
+        id: String,
+        #[serde(default)]
+        def: Project,
+    },
+    ChannelProject {
+        workspace: String,
+        channel: String,
+        project: Option<String>,
+    },
+    /// An entry as it now stands: written, corrected, flagged or retired.
+    Entry {
+        workspace: String,
+        id: String,
+        #[serde(default)]
+        entry: Entry,
+    },
+    EntryRemoved {
+        workspace: String,
+        id: String,
+    },
+    Whisper {
+        workspace: String,
+        channel: String,
+        thread: Option<String>,
+        task: String,
+        owner: String,
+        #[serde(default)]
+        history: String,
+    },
+    WhisperShared {
+        workspace: String,
+        task: String,
+    },
+    Routine {
+        workspace: String,
+        id: String,
+        #[serde(default)]
+        routine: Routine,
+    },
+    RoutineRemoved {
+        workspace: String,
+        id: String,
+    },
+    RoutineRan {
+        workspace: String,
+        id: String,
+        task: String,
+        at: chrono::DateTime<chrono::Utc>,
+    },
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// Scratch for one request: never a fact, and gone when the task is over.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Note {
+    pub id: String,
+    pub text: String,
+    pub by: String,
+    pub at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Message {
     pub id: String,
     pub sender: String,
@@ -108,7 +222,7 @@ pub struct Message {
     pub at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct File {
     pub name: String,
     pub size: u64,
@@ -124,6 +238,8 @@ pub struct TeamRun {
     pub task: String,
     pub requester: String,
     pub history: String,
+    pub sub: bool,
+    pub outside: bool,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -136,19 +252,30 @@ pub struct Workspace {
     pub files: BTreeMap<String, File>,
     /// Person, then file name.
     pub held: BTreeMap<String, BTreeMap<String, File>>,
-    pub facts: BTreeMap<String, String>,
+    /// Every entry, of the workspace's own base and of each project's.
+    pub knowledge: BTreeMap<String, Entry>,
+    pub projects: BTreeMap<String, Project>,
+    pub local_ceiling: Option<crate::local::Mode>,
+    /// A resource, then who answers asks that use it.
+    pub approvers: BTreeMap<String, Vec<String>>,
+    pub routines: BTreeMap<String, Routine>,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Channel {
     pub name: String,
     pub messages: Vec<Message>,
+    /// The project this channel's work belongs to.
+    pub project: Option<String>,
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct Ledger {
     workspaces: BTreeMap<String, Workspace>,
     runs: BTreeMap<String, TeamRun>,
+    /// A task, then its working notes.
+    notes: BTreeMap<String, Vec<Note>>,
+    whispers: BTreeMap<String, Whisper>,
 }
 
 impl Ledger {
@@ -158,7 +285,7 @@ impl Ledger {
             self.workspaces.insert(workspace.clone(), Workspace { id: workspace.clone(), name: name.clone(), members, ..Default::default() });
             return;
         }
-        if let Change::Run { workspace, channel, thread, task, requester, history } = c {
+        if let Change::Run { workspace, channel, thread, task, requester, history, sub, outside } = c {
             let run = TeamRun {
                 workspace: workspace.clone(),
                 channel: channel.clone(),
@@ -166,8 +293,33 @@ impl Ledger {
                 task: task.clone(),
                 requester: requester.clone(),
                 history: history.clone(),
+                sub: *sub,
+                outside: *outside,
             };
             self.runs.insert(task.clone(), run);
+            return;
+        }
+        if let Change::Note { task, note, .. } = c {
+            self.notes.entry(task.clone()).or_default().push(note.clone());
+            return;
+        }
+        if let Change::Whisper { workspace, channel, thread, task, owner, history } = c {
+            let w = Whisper {
+                workspace: workspace.clone(),
+                channel: channel.clone(),
+                thread: thread.clone(),
+                task: task.clone(),
+                owner: owner.clone(),
+                history: history.clone(),
+                shared: false,
+            };
+            self.whispers.insert(task.clone(), w);
+            return;
+        }
+        if let Change::WhisperShared { task, .. } = c {
+            if let Some(w) = self.whispers.get_mut(task) {
+                w.shared = true;
+            }
             return;
         }
         if let Change::Deleted { workspace } = c {
@@ -188,7 +340,7 @@ impl Ledger {
             }
             Change::Channel { workspace, channel, name } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
-                    w.channels.insert(channel.clone(), Channel { name: name.clone(), messages: vec![] });
+                    w.channels.insert(channel.clone(), Channel { name: name.clone(), ..Default::default() });
                 }
             }
             Change::Message { workspace, channel, message } => {
@@ -227,17 +379,71 @@ impl Ledger {
                     }
                 }
             }
-            Change::Fact { workspace, id, text, .. } => {
+            Change::Fact { workspace, id, text, by } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
-                    w.facts.insert(id.clone(), text.clone());
+                    let entry = Entry {
+                        id: id.clone(),
+                        kind: "fact".into(),
+                        statement: text.clone(),
+                        source: "a member".into(),
+                        weight: Weight::Member,
+                        author: by.clone(),
+                        owner: by.clone(),
+                        ..Default::default()
+                    };
+                    w.knowledge.insert(id.clone(), entry);
                 }
             }
-            Change::FactRemoved { workspace, id } => {
+            Change::FactRemoved { workspace, id } | Change::EntryRemoved { workspace, id } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
-                    w.facts.remove(id);
+                    w.knowledge.remove(id);
                 }
             }
-            Change::Created { .. } | Change::Deleted { .. } | Change::Run { .. } => {}
+            Change::Entry { workspace, id, entry } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.knowledge.insert(id.clone(), entry.clone());
+                }
+            }
+            Change::LocalCeiling { workspace, mode } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.local_ceiling = Some(*mode);
+                }
+            }
+            Change::Approvers { workspace, resource, people } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    if people.is_empty() {
+                        w.approvers.remove(resource);
+                    } else {
+                        w.approvers.insert(resource.clone(), people.clone());
+                    }
+                }
+            }
+            Change::Project { workspace, id, def } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.projects.insert(id.clone(), def.clone());
+                }
+            }
+            Change::ChannelProject { workspace, channel, project } => {
+                if let Some(ch) = self.workspaces.get_mut(workspace).and_then(|w| w.channels.get_mut(channel)) {
+                    ch.project = project.clone();
+                }
+            }
+            Change::Routine { workspace, id, routine } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.routines.insert(id.clone(), routine.clone());
+                }
+            }
+            Change::RoutineRemoved { workspace, id } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.routines.remove(id);
+                }
+            }
+            Change::RoutineRan { workspace, id, at, .. } => {
+                if let Some(r) = self.workspaces.get_mut(workspace).and_then(|w| w.routines.get_mut(id)) {
+                    r.last_at = Some(*at);
+                }
+            }
+            Change::Created { .. } | Change::Deleted { .. } | Change::Run { .. } | Change::Note { .. } | Change::Whisper { .. } | Change::WhisperShared { .. } => {}
         }
     }
 
@@ -258,8 +464,50 @@ impl Ledger {
         self.runs.get(task)
     }
 
+    /// The requests that answer in a channel. A sub-agent answers its parent.
     pub fn runs_in(&self, workspace: &str, channel: &str) -> Vec<&TeamRun> {
-        self.runs.values().filter(|r| r.workspace == workspace && r.channel == channel).collect()
+        self.runs.values().filter(|r| r.workspace == workspace && r.channel == channel && !r.sub).collect()
+    }
+
+    pub fn all(&self) -> impl Iterator<Item = &Workspace> {
+        self.workspaces.values()
+    }
+
+    /// Every request made in a workspace, sub-agents' too.
+    pub fn runs_of(&self, workspace: &str) -> Vec<&TeamRun> {
+        self.runs.values().filter(|r| r.workspace == workspace).collect()
+    }
+
+    /// The strictest ceiling any of this person's workspaces sets.
+    pub fn local_ceiling(&self, person: &str) -> Option<crate::local::Mode> {
+        self.of(person).into_iter().filter_map(|w| w.local_ceiling).min()
+    }
+
+    /// Who a workspace rule names to answer this tool's ask, if anyone does
+    /// and they are still members.
+    pub fn approvers(&self, task: &str, tool: &str) -> Option<Vec<String>> {
+        let run = self.runs.get(task)?;
+        let w = self.workspaces.get(&run.workspace)?;
+        let resource = match tool.split_once("__") {
+            Some((app, _)) => app,
+            None if tool.starts_with("computer_") => "computer",
+            None if tool.starts_with("team_") => "team",
+            None => return None,
+        };
+        let named: Vec<String> = w.approvers.get(resource)?.iter().filter(|p| w.members.contains_key(*p)).cloned().collect();
+        (!named.is_empty()).then_some(named)
+    }
+
+    pub fn notes(&self, task: &str) -> &[Note] {
+        self.notes.get(task).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn whisper_of(&self, task: &str) -> Option<&Whisper> {
+        self.whispers.get(task)
+    }
+
+    pub fn whispers_by(&self, workspace: &str, channel: &str, person: &str) -> Vec<&Whisper> {
+        self.whispers.values().filter(|w| w.workspace == workspace && w.channel == channel && w.owner == person).collect()
     }
 
     pub fn runs_by(&self, workspace: &str, person: &str) -> Vec<&TeamRun> {
@@ -312,6 +560,47 @@ mod tests {
         assert!(l.workspace("w").unwrap().connectors.contains_key("crm"));
         l.apply(&Change::Connector { workspace: "w".into(), app: "crm".into(), roles: vec![] });
         assert!(l.workspace("w").unwrap().connectors.is_empty());
+    }
+
+    #[test]
+    fn the_strictest_workspace_sets_the_ceiling() {
+        use crate::local::Mode;
+        let mut l = made();
+        l.apply(&Change::Created { workspace: "x".into(), name: "Other".into(), owner: "alice".into() });
+        l.apply(&Change::LocalCeiling { workspace: "w".into(), mode: Mode::Allow });
+        l.apply(&Change::LocalCeiling { workspace: "x".into(), mode: Mode::Ask });
+        assert_eq!(l.local_ceiling("alice"), Some(Mode::Ask));
+        assert_eq!(l.local_ceiling("bob"), None);
+    }
+
+    #[test]
+    fn an_approver_who_left_answers_nothing() {
+        let mut l = made();
+        l.apply(&Change::Run {
+            workspace: "w".into(),
+            channel: "c".into(),
+            thread: None,
+            task: "t".into(),
+            requester: "alice".into(),
+            history: String::new(),
+            sub: false,
+            outside: false,
+        });
+        l.apply(&Change::Member { workspace: "w".into(), person: "bob".into(), role: Role::Member });
+        l.apply(&Change::Approvers { workspace: "w".into(), resource: "crm".into(), people: vec!["bob".into()] });
+        assert_eq!(l.approvers("t", "crm__send"), Some(vec!["bob".to_string()]));
+        assert_eq!(l.approvers("t", "mail__send"), None, "a rule names one resource");
+        l.apply(&Change::Removed { workspace: "w".into(), person: "bob".into() });
+        assert_eq!(l.approvers("t", "crm__send"), None);
+    }
+
+    #[test]
+    fn a_retired_fact_reads_as_an_entry() {
+        let mut l = made();
+        l.apply(&Change::Fact { workspace: "w".into(), id: "f".into(), text: "We use Rust".into(), by: "alice".into() });
+        assert_eq!(l.workspace("w").unwrap().entries(None)[0].statement, "We use Rust");
+        l.apply(&Change::FactRemoved { workspace: "w".into(), id: "f".into() });
+        assert!(l.workspace("w").unwrap().entries(None).is_empty());
     }
 
     #[test]

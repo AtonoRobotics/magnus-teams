@@ -179,7 +179,8 @@ impl Kernel {
         if touched(a).is_some_and(|p| !within(&computer.folders, p)) {
             return Some(Err(format!("that path is outside the folders {} granted", computer.name)));
         }
-        match computer.mode.min(self.cfg.local.ceiling) {
+        let workspaces = self.read(|s| s.team.local_ceiling(&person.id)).unwrap_or(Mode::Allow);
+        match computer.mode.min(self.cfg.local.ceiling).min(workspaces) {
             Mode::Never => Some(Err(format!("{} is set to never", computer.name))),
             Mode::Ask => Some(Ok((format!("{} asks before every action", computer.name), Some(ASK_EVERY_TIME.to_string())))),
             Mode::Allow if policy_asked => Some(Ok((format!("this changes something already on {}, and no rule allows it", computer.name), Some(CHANGE_NEEDS_A_RULE.to_string())))),

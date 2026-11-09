@@ -112,6 +112,8 @@ pub struct Run {
     pub reviewed: u32,
     pub untrusted: bool,
     pub private: bool,
+    /// Something from outside the workspace reached it through a tool.
+    pub outside: bool,
     /// Apps whose private content this run has read.
     pub private_from: std::collections::BTreeSet<String>,
     pub model_calls: u32,
@@ -1956,6 +1958,7 @@ impl State {
                         // content from elsewhere: data, not instructions.
                         untrusted: uploads || pb.untrusted,
                         private: uploads || pb.private,
+                        outside: false,
                         // Privacy carried in from where the run started (a
                         // thread, a schedule's source) has no app to name:
                         // the unnamed source, as for a result without one,
@@ -2087,6 +2090,7 @@ impl State {
                     // taint limits authority, not reading.
                     if label.untrusted && !*check {
                         r.untrusted = true;
+                        r.outside = true;
                     }
                     if label.private && !*check {
                         r.private = true;

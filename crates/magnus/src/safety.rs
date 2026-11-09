@@ -111,7 +111,7 @@ impl Kernel {
     }
 
     async fn monitor_pause(&self, run: &Run) {
-        let Some(id) = self.run_computer(&run.person) else { return };
+        let Some(id) = self.computer_of_run(run) else { return };
         if let Err(e) = self.pause_computer_from_monitor(&id).await {
             tracing::warn!("the monitor could not pause computer {id}: {e:#}");
         }

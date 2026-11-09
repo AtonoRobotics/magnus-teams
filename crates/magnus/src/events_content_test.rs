@@ -5,7 +5,7 @@
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
     let src = &src[src.find("pub enum Ev {").unwrap()..src.find("pub const CONTENT").unwrap()];
-    for (kind, fields) in super::CONTENT {
+    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| *k != "team") {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
         let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
         let body = &src[start..start + src[start..].find("\n    },").unwrap()];
@@ -16,5 +16,19 @@ fn the_content_list_names_real_kinds_and_fields() {
                 assert!(body.contains(&format!("#[serde(default)]\n        {top}: ")), "{kind}.{top} has no default");
             }
         }
+    }
+}
+
+/// The team's events are one kind with many shapes: every use of a content
+/// field in any of them has a default.
+#[test]
+fn the_teams_content_fields_all_read_once_deleted() {
+    let src = include_str!("team/mod.rs");
+    let src = &src[src.find("pub enum Change {").unwrap()..src.find("/// Scratch for one request").unwrap()];
+    let (_, fields) = super::CONTENT.iter().find(|(k, _)| *k == "team").unwrap();
+    for f in *fields {
+        let field = format!("\n        {f}: ");
+        assert!(src.contains(&field), "no team event has {f}");
+        assert_eq!(src.matches(&field).count(), src.matches(&format!("#[serde(default)]{field}")).count(), "a team event's {f} has no default");
     }
 }
