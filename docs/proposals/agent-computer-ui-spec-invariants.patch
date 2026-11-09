@@ -1,0 +1,290 @@
+diff --git a/tests/invariants/src/mcp.rs b/tests/invariants/src/mcp.rs
+index fa1d3c2..8a452f4 100644
+--- a/tests/invariants/src/mcp.rs
++++ b/tests/invariants/src/mcp.rs
+@@ -61,6 +61,8 @@ struct ToolDef {
+     description: String,
+     schema: Value,
+     handler: Handler,
++    /// The view this tool ships (MCP Apps): its uri and page.
++    view: Option<(String, String)>,
+ }
+ 
+ struct Hold {
+@@ -89,7 +91,13 @@ impl Builder {
+     where
+         F: Fn(&mut World, &Value, &HashMap<String, String>) -> Out + Send + Sync + 'static,
+     {
+-        self.tools.push(ToolDef { name: name.into(), description: description.into(), schema, handler: Arc::new(f) });
++        self.tools.push(ToolDef { name: name.into(), description: description.into(), schema, handler: Arc::new(f), view: None });
++        self
++    }
++
++    /// Gives a tool already added a view at `uri`.
++    pub fn view(mut self, tool: &str, uri: &str, html: &str) -> Self {
++        self.tools.iter_mut().find(|t| t.name == tool).expect("that tool").view = Some((uri.into(), html.into()));
+         self
+     }
+ 
+@@ -206,9 +214,26 @@ async fn rpc(State(inner): State<Arc<Inner>>, headers: HeaderMap, body: String)
+         }),
+         "ping" => json!({}),
+         "tools/list" => {
+-            let tools: Vec<Value> = inner.tools.lock().unwrap().iter().map(|t| json!({ "name": t.name, "description": t.description, "inputSchema": t.schema })).collect();
++            let tools: Vec<Value> = inner
++                .tools
++                .lock()
++                .unwrap()
++                .iter()
++                .map(|t| {
++                    let mut v = json!({ "name": t.name, "description": t.description, "inputSchema": t.schema });
++                    if let Some((uri, _)) = &t.view {
++                        v["_meta"] = json!({ "ui": { "resourceUri": uri } });
++                    }
++                    v
++                })
++                .collect();
+             json!({ "tools": tools })
+         }
++        "resources/read" => {
++            let uri = req["params"]["uri"].as_str().unwrap_or_default();
++            let found = inner.tools.lock().unwrap().iter().filter_map(|t| t.view.clone()).find(|(u, _)| u == uri);
++            json!({ "contents": found.map(|(u, html)| vec![json!({ "uri": u, "mimeType": "text/html", "text": html })]).unwrap_or_default() })
++        }
+         "tools/call" => call(&inner, &req["params"], headers).await,
+         _ => {
+             return axum::Json(json!({
+diff --git a/tests/invariants/tests/inv6_policy.rs b/tests/invariants/tests/inv6_policy.rs
+index f6c250e..6edf85a 100644
+--- a/tests/invariants/tests/inv6_policy.rs
++++ b/tests/invariants/tests/inv6_policy.rs
+@@ -353,3 +353,229 @@ async fn a_button_in_rendered_ui_is_a_request_not_an_approval() {
+     let (code, _) = alice.post(&format!("/v1/tasks/{waiting}/actions/0"), json!({})).await;
+     assert_eq!(code, 404, "a task with no button took a press");
+ }
++
++/// Waits for a task to finish, accepting its deliverable if it asks.
++async fn settle_reviewed(who: &Api, task: &str) {
++    let t = who.wait_settled(task).await;
++    if t["status"] == "suspended" && t["waiting_on"] == "review" {
++        let review = who.wait_item(task, "review").await;
++        assert!(who.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
++        who.wait_status(task, &["completed"]).await;
++    } else {
++        assert_eq!(t["status"], "completed", "{t}");
++    }
++}
++
++fn fence(body: &str) -> String {
++    format!("Here it is.\n```magnus-ui\n{body}\n```")
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn an_element_not_in_the_catalog_is_refused_not_guessed() {
++    let model = FakeModel::start(steps(vec![contract_unchecked("show", "shown"), Reply::Text(fence("marquee Hello")), tool("task_complete", json!({ "summary": fence("marquee Hello") })), complete("done")])).await;
++    let app = Appliance::start(Spec::default(), &model).await;
++    let alice = app.api("alice");
++    let task = alice.submit("Show something.").await;
++    alice.wait_settled(&task).await;
++    let told = model.requests().iter().any(|r| r.text().contains("cannot be drawn") && r.text().contains("marquee"));
++    assert!(told, "an unknown element was not sent back");
++
++    let (code, catalog) = alice.get("/v1/ui/catalog").await;
++    assert_eq!(code, 200, "{catalog}");
++    let names: Vec<&str> = catalog["elements"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect();
++    assert!(names.contains(&"form") && !names.contains(&"marquee"), "{names:?}");
++    let csp = catalog["html_csp"].as_str().unwrap();
++    assert!(csp.starts_with("default-src 'none'") && !csp.contains("connect-src") && !csp.contains("http"), "agent HTML could reach the network: {csp}");
++    let (code, _) = alice.put("/v1/ui/catalog", json!({ "version": 999, "elements": ["text"] })).await;
++    assert_eq!(code, 409, "a client on another catalog was accepted");
++
++    // What the client says it can draw is all that may be written for it.
++    assert!(alice.put("/v1/ui/catalog", json!({ "version": catalog["version"], "elements": ["text"] })).await.0.is_success());
++    let before = model.requests().len();
++    model.set_script(steps(vec![contract_unchecked("show", "shown"), Reply::Text(fence("stat label=Revenue value=1")), complete("done")]));
++    let task = alice.submit("Show a number.").await;
++    alice.wait_settled(&task).await;
++    assert!(model.requests()[before..].iter().any(|r| r.text().contains("cannot be drawn")), "an element this client cannot draw was accepted");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_form_is_a_request_with_only_the_answers_it_asked_for() {
++    let mail = mcp::mail().start().await;
++    let send = || tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
++    let model = FakeModel::start(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")])).await;
++    let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
++    let alice = app.api("alice");
++    let waiting = alice.submit("Send a note.").await;
++    let item = alice.wait_item(&waiting, "approval").await;
++
++    let form = "form title=Details submit=Send request=\"Approve the waiting send\"\n  field name=email label=Email required";
++    let answer = serde_json::to_string(&fence(form)).unwrap();
++    let summary: serde_json::Value = serde_json::from_str(&answer).unwrap();
++    model.set_script(steps(vec![contract_unchecked("offer", "offered"), tool("task_complete", json!({ "summary": summary, "deliverable": [{ "type": "text", "text": "offered" }] }))]));
++    let offered = alice.submit("Offer a form.").await;
++    settle_reviewed(&alice, &offered).await;
++
++    let before = model.requests().len();
++    model.set_script(steps(vec![contract_unchecked("read", "read"), complete("done")]));
++    let extra = canary("not-asked-for");
++    let (code, made) = alice.post(&format!("/v1/tasks/{offered}/actions/0"), json!({ "fence": 0, "values": { "email": "ada@corp.example", "evil": extra } })).await;
++    assert_eq!(code, 200, "{made}");
++    let started = made["task_id"].as_str().unwrap().to_string();
++    alice.wait_settled(&started).await;
++    let first = &model.requests()[before];
++    assert!(first.text().contains("ada@corp.example"), "the form's answer did not arrive");
++    assert!(!first.text().contains(&extra), "a field the form never asked for arrived");
++    assert_eq!(alice.task(&started).await["taint"]["untrusted"], json!(true), "a form's answers were trusted");
++    assert_eq!(alice.open_items(&waiting, "approval").await[0]["id"], item["id"], "rendered UI approved an action");
++    assert_eq!(mail.effects("send"), 0, "rendered UI approved an action");
++    let (code, _) = alice.post(&format!("/v1/tasks/{offered}/actions/7"), json!({ "fence": 0, "values": {} })).await;
++    assert_eq!(code, 404, "an element that does not exist took a press");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn an_edit_is_a_search_and_replace_that_must_still_draw() {
++    let answer = "Here.\n```magnus-ui id=rev\nstat label=Revenue value=1\n```".to_string();
++    let model = FakeModel::start(steps(vec![Reply::Text(answer)])).await;
++    let app = Appliance::start(Spec::default(), &model).await;
++    let alice = app.api("alice");
++    let (st, first) = alice.post("/v1/chat", json!({ "text": "Show revenue." })).await;
++    assert_eq!(st.as_u16(), 201, "{first}");
++    alice.wait_settled(first["task_id"].as_str().unwrap()).await;
++    let thread = first["thread"].as_str().unwrap().to_string();
++    let (_, t) = alice.get(&format!("/v1/chat/{thread}")).await;
++    let shown = t["entries"].as_array().cloned().unwrap_or_default();
++    assert!(shown.iter().any(|e| e["text"].as_str().unwrap_or_default().contains("value=1")), "{shown:?}");
++
++    model.set_script(steps(vec![
++        tool("ui_edit", json!({ "id": "rev", "find": "value=1", "replace": "value=2" })),
++        tool("ui_edit", json!({ "id": "rev", "find": "not there", "replace": "x" })),
++        tool("ui_edit", json!({ "id": "rev", "find": "stat", "replace": "marquee" })),
++        Reply::Text("Changed.".into()),
++    ]));
++    chat_entries(&alice, "Make it two.").await;
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("Edited rev")), "{results:?}");
++    assert_eq!(results.iter().filter(|t| t.contains("Nothing was changed")).count(), 2, "{results:?}");
++    let (_, v) = alice.get(&format!("/v1/chat/{thread}")).await;
++    let seen = v.to_string();
++    assert!(seen.contains("value=2") && !seen.contains("value=1"), "the edit did not take: {seen}");
++    assert!(!seen.contains("marquee"), "an edit that cannot draw was kept: {seen}");
++}
++
++async fn bytes(who: &Api, path: &str, token: &str) -> (reqwest::StatusCode, Vec<u8>) {
++    let r = reqwest::Client::new().get(format!("{}{path}", who.base)).bearer_auth(token).send().await.unwrap();
++    (r.status(), r.bytes().await.unwrap().to_vec())
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_deck_exports_to_its_owner_alone() {
++    let answer = "Here.\n```magnus-ui id=pitch\ndeck title=Pitch\n  slide layout=title title=Hello subtitle=There\n  slide layout=bullets title=Wins items=One,Two\n```".to_string();
++    let model = FakeModel::start(steps(vec![Reply::Text(answer)])).await;
++    let spec = Spec::default();
++    let (alice_token, bob_token) = (spec.token("alice"), spec.token("bob"));
++    let app = Appliance::start(spec, &model).await;
++    let alice = app.api("alice");
++    chat_entries(&alice, "Make a deck.").await;
++    let (code, pptx) = bytes(&alice, "/v1/ui/docs/pitch/export/pptx", &alice_token).await;
++    assert_eq!(code, 200);
++    assert_eq!(&pptx[..2], b"PK", "not a zip");
++    let (code, pdf) = bytes(&alice, "/v1/ui/docs/pitch/export/pdf", &alice_token).await;
++    assert_eq!(code, 200);
++    assert_eq!(&pdf[..5], b"%PDF-");
++    assert_eq!(bytes(&alice, "/v1/ui/docs/pitch/export/pptx", &bob_token).await.0, 404, "another person read the deck");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn an_image_is_made_behind_a_placeholder_and_goes_with_its_run() {
++    let picture = "aGVsbG8tcGljdHVyZQ==";
++    let web = FakeWeb::start(&[("/images/generations", &format!("{{\"data\":[{{\"b64_json\":\"{picture}\"}}]}}"))]).await;
++    let model = FakeModel::start(steps(vec![
++        contract_unchecked("draw", "drawn"),
++        tool("image_generate", json!({ "prompt": "a red barn" })),
++        tool("image_generate", json!({ "prompt": "a blue barn", "quality": "premium" })),
++        complete("done"),
++    ]))
++    .await;
++    let mut spec = Spec::default().section("images", json!({ "url": web.url("/images"), "key": "images_key", "fast_model": "quick", "premium_model": "best" }));
++    let key = canary("image-key");
++    spec.secrets.push(("images_key".into(), key.clone()));
++    let (alice_token, bob_token) = (spec.token("alice"), spec.token("bob"));
++    let app = Appliance::start(spec, &model).await;
++    let alice = app.api("alice");
++    let task = alice.submit("Draw a barn.").await;
++    settle_reviewed(&alice, &task).await;
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    let told = results.iter().find(|t| t.contains("placeholder=")).unwrap_or_else(|| panic!("{results:?}"));
++    let id = told.split("placeholder=").nth(1).unwrap().split(['.', ' ']).take(2).collect::<Vec<_>>().join(".");
++
++    let path = format!("/v1/ui/images/{id}");
++    let got = eventually("the image", Duration::from_secs(10), || {
++        let (who, token, path) = (&alice, &alice_token, &path);
++        async move {
++            let (code, b) = bytes(who, path, token).await;
++            (code == 200).then_some(b)
++        }
++    })
++    .await;
++    assert_eq!(got, b"hello-picture");
++    assert_eq!(bytes(&alice, &path, &bob_token).await.0, 404, "another person read the image");
++
++    let made = web.seen();
++    assert!(made.iter().all(|r| r.authorization.as_deref() == Some(format!("Bearer {key}").as_str())), "the key did not come from the vault");
++    assert!(made.iter().any(|r| r.body.contains("quick") && r.body.contains("red barn")), "the fast model is not the default");
++    assert!(made.iter().any(|r| r.body.contains("best") && r.body.contains("blue barn")), "premium was not used when asked");
++
++    assert_eq!(alice.post("/v1/trash", json!({ "item": task })).await.0, 204);
++    assert_eq!(alice.send(reqwest::Method::DELETE, &format!("/v1/trash/{task}"), None).await.0, 204);
++    assert_ne!(bytes(&alice, &path, &alice_token).await.0, 200, "the image outlived its run");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_connectors_view_is_kept_for_its_person_and_can_only_ask() {
++    let crm = mcp::crm().view("get_record", "ui://crm/record", "<p>the record view</p>").start().await;
++    let model = FakeModel::start(steps(vec![contract_unchecked("look", "looked"), tool("crm__get_record", json!({ "id": "42" })), complete("done")])).await;
++    let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")]);
++    let bob_token = spec.token("bob");
++    let app = Appliance::start(spec, &model).await;
++    let alice = app.api("alice");
++    let task = alice.submit("Look at record 42.").await;
++    alice.wait_settled(&task).await;
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    let told = results.iter().find(|t| t.contains("app view=")).unwrap_or_else(|| panic!("the tool's view was not offered: {results:?}"));
++    let id = told.split("app view=").nth(1).unwrap().split('`').next().unwrap().to_string();
++
++    let (code, view) = alice.get(&format!("/v1/ui/apps/{id}")).await;
++    assert_eq!(code, 200, "{view}");
++    assert_eq!(view["html"], "<p>the record view</p>");
++    assert_eq!(view["input"]["id"], "42");
++    assert_eq!(bytes(&alice, &format!("/v1/ui/apps/{id}"), &bob_token).await.0, 404, "another person read the view");
++
++    let before = crm.effects("update_record");
++    let (code, made) = alice.post(&format!("/v1/ui/apps/{id}/request"), json!({ "tool": "update_record", "arguments": { "id": "42" } })).await;
++    assert_eq!(code, 200, "{made}");
++    model.set_script(steps(vec![contract_unchecked("read", "read"), complete("done")]));
++    let started = made["task_id"].as_str().unwrap();
++    alice.wait_settled(started).await;
++    assert_eq!(alice.task(started).await["taint"]["untrusted"], json!(true), "what a view asked for was trusted");
++    assert_eq!(crm.effects("update_record"), before, "a view ran a tool by itself");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn the_agent_screenshots_its_html_with_no_network() {
++    let computerd = Computerd::start();
++    let web = FakeWeb::start(&[("/asked", "x")]).await;
++    let html = format!("<h1>Made here</h1><img src=\"{0}\"><script>fetch(\"{0}\")</script>", web.url("/asked"));
++    let answer = format!("Here.\n```magnus-html id=page\n{html}\n```");
++    let model = FakeModel::start(steps(vec![Reply::Text(answer)])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let computer = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{computer}/start"), json!({})).await.0, 200);
++    chat_entries(&alice, "Make a page.").await;
++    model.set_script(steps(vec![tool("html_screenshot", json!({ "id": "page" })), Reply::Text("Looks right.".into())]));
++    chat_entries(&alice, "Check it.").await;
++    let last = model.requests().into_iter().find(|r| r.last_results().iter().any(|x| x.text.contains("Screenshot of page"))).unwrap_or_else(|| panic!("no screenshot: {:?}", model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect::<Vec<_>>()));
++    assert!(serde_json::to_string(&last.messages()).unwrap().contains("\"image\""), "the model was not shown the picture");
++    assert!(web.hits().is_empty(), "the page reached the network: {:?}", web.hits());
++}
