@@ -118,7 +118,7 @@ async fn request<S: AsyncRead + AsyncWrite + Unpin>(proxy: &Proxy, computer: &st
         Ok(why) => why,
         Err(reason) => return refuse(proxy, stream.get_mut(), row("refused", None, &reason), &reason).await,
     };
-    let head = match surrogate::swapped(&proxy.kernel, computer, head, host).await {
+    let (head, scrubber) = match surrogate::swapped(&proxy.kernel, computer, head, host).await {
         Ok(h) => h,
         Err((head, reason)) => {
             let row = Row { computer, phase: "refused", host, port, method: &head.method, path: &audited, address: None, detail: &reason };
@@ -136,7 +136,7 @@ async fn request<S: AsyncRead + AsyncWrite + Unpin>(proxy: &Proxy, computer: &st
         tracing::error!("egress of computer {computer} not sent, its record failed: {e:#}");
         return respond(stream.get_mut(), "502 Bad Gateway", "", "the request could not be recorded, so it was not sent\n").await;
     }
-    let result = forward(proxy, computer, stream, &head, host, address, tls).await;
+    let result = forward(proxy, computer, stream, &head, Upstream { host, address, tls }, scrubber).await;
     let detail = match &result {
         Ok(status) => status.clone(),
         Err(e) => format!("{e:#}"),
@@ -164,16 +164,22 @@ async fn refuse(proxy: &Proxy, to: &mut (impl AsyncWrite + Unpin), row: Row<'_>,
 trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Stream for T {}
 
+struct Upstream<'a> {
+    host: &'a str,
+    address: SocketAddr,
+    tls: bool,
+}
+
 /// Sends one request and streams back the answer. Says the status line.
 async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     proxy: &Proxy,
     computer: &str,
     stream: &mut BufReader<S>,
     head: &Head,
-    host: &str,
-    address: SocketAddr,
-    tls: bool,
+    to: Upstream<'_>,
+    mut scrubber: surrogate::Scrubber,
 ) -> Result<String> {
+    let Upstream { host, address, tls } = to;
     let length: u64 = head.header("content-length").map(str::parse).transpose().context("a bad Content-Length")?.unwrap_or(0);
     anyhow::ensure!(length <= MAX_BODY_BYTES, "a request body is too long");
     anyhow::ensure!(!head.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked")), "a chunked request body is not carried");
@@ -189,7 +195,8 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     for (name, value) in &head.headers {
         let lower = name.to_ascii_lowercase();
         // Plain text, so a page's markup can be read for what it loads.
-        if lower == "host" || HOP_BY_HOP.contains(&lower.as_str()) || (page.is_some() && lower == "accept-encoding") {
+        // A compressed answer could repeat a credential where it cannot be seen.
+        if lower == "host" || HOP_BY_HOP.contains(&lower.as_str()) || ((page.is_some() || scrubber.active()) && lower == "accept-encoding") {
             continue;
         }
         out.push_str(&format!("{name}: {value}\r\n"));
@@ -218,7 +225,9 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     let text = String::from_utf8_lossy(&response_head).into_owned();
     let status = text.lines().next().unwrap_or_default().to_string();
     let is_html = text.lines().any(|l| l.to_ascii_lowercase().starts_with("content-type:") && l.to_ascii_lowercase().contains("html"));
-    let without_connection: String = text.split_inclusive('\n').filter(|l| !l.to_ascii_lowercase().starts_with("connection:")).collect();
+    // Putting a surrogate back changes the length; the closing connection ends it.
+    let keep = |l: &&str| !l.to_ascii_lowercase().starts_with("connection:") && !(scrubber.active() && l.to_ascii_lowercase().starts_with("content-length:"));
+    let without_connection: String = scrubber.text(&text.split_inclusive('\n').filter(keep).collect::<String>());
     let header_end = without_connection.len().saturating_sub(2);
     stream.get_mut().write_all(format!("{}Connection: close\r\n\r\n", &without_connection[..header_end]).as_bytes()).await?;
 
@@ -232,8 +241,11 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
         if is_html && page.is_some() && seen.len() < MAX_PAGE_BYTES {
             seen.extend_from_slice(&buffer[..n]);
         }
-        stream.get_mut().write_all(&buffer[..n]).await?;
+        let clean = scrubber.push(&buffer[..n]);
+        stream.get_mut().write_all(&clean).await?;
     }
+    let rest = scrubber.finish();
+    stream.get_mut().write_all(&rest).await?;
     stream.get_mut().flush().await?;
     if let Some(page) = page {
         if !seen.is_empty() {

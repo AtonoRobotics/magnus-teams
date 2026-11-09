@@ -185,6 +185,16 @@ impl Kernel {
                 ));
                 evs.extend(self.resume(&run));
             }
+            // They would rather not sign in: the agent is told and goes on.
+            ("secure_form", "decline") => {
+                let steps = self.read(|st| st.runs.get(&run).map_or(0, |r| r.replies.len() as u32));
+                evs.push((&actor, resolve(None)));
+                evs.push((
+                    "kernel",
+                    Ev::Notice { run: run.clone(), step: steps, text: "The person chose not to sign in, so that site is not available to you for this task.".to_string() },
+                ));
+                evs.extend(self.resume(&run));
+            }
             ("approval", "reject") => {
                 evs.push((&actor, resolve(None)));
                 let unknown = item.details["reason"] == "unknown_outcome";

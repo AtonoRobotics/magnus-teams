@@ -157,6 +157,19 @@ async function snapshot(p) {
   return text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + '\n[page shortened]' : text;
 }
 
+// A picture cannot be masked the way text is, so a page showing a value that
+// was filled in is not photographed at all.
+async function refuseIfShown(p) {
+  if (!filled.size) return;
+  const values = [...filled];
+  const shown = await p.evaluate(vs => {
+    const seen = [document.body ? document.body.innerText : ''];
+    for (const i of document.querySelectorAll('input, textarea')) if (i.type !== 'password') seen.push(i.value);
+    return vs.some(v => seen.some(t => t.includes(v)));
+  }, values);
+  if (shown) throw new Error('this page shows a value that was filled in securely, so it was not captured');
+}
+
 function locate(p, target) {
   if (/^e\d+$/.test(target)) return p.locator(`[data-magnus-ref="${target}"]`).first();
   return p.getByText(target, { exact: false }).first();
@@ -204,7 +217,7 @@ async function handle(req) {
     }
     case 'select': { await locate(p, req.target).selectOption(req.value, { timeout: ACTION_MS }); return { text: await snapshot(p) }; }
     case 'back': { await p.goBack({ timeout: 15000 }).catch(() => {}); return { text: await snapshot(p) }; }
-    case 'screenshot': { visiblePage(p); const b = await p.screenshot({ type: 'png' }); return { image_b64: b.toString('base64'), text: `URL: ${p.url()}` }; }
+    case 'screenshot': { visiblePage(p); await refuseIfShown(p); const b = await p.screenshot({ type: 'png' }); return { image_b64: b.toString('base64'), text: `URL: ${p.url()}` }; }
     default: return { error: `unknown op ${op}` };
   }
 }

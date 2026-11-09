@@ -118,9 +118,9 @@ impl Kernel {
             self.suspend(run_id, "kill_switch", None).await?;
             return Ok(Flow::Stop);
         }
-        // A person holds the computer this run uses: nothing runs until they hand it back.
-        if self.computer_held(&run) {
-            self.suspend(run_id, "takeover", None).await?;
+        // A person holds the computer, or has been asked to sign in: wait for them.
+        if let Some(reason) = self.waits_on_person(&run) {
+            self.suspend(run_id, reason, None).await?;
             return Ok(Flow::Stop);
         }
         // An update is switching releases: wait for the new one.

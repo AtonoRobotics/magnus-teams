@@ -150,6 +150,15 @@ impl Kernel {
         }
     }
 
+    /// Why this run must wait for a person before going on, if it must.
+    pub(crate) fn waits_on_person(&self, run: &Run) -> Option<&'static str> {
+        if self.computer_held(run) {
+            return Some("takeover");
+        }
+        let form = |i: &crate::state::Item| i.kind == "secure_form" && i.resolution.is_none() && i.run.as_deref() == Some(run.id.as_str());
+        self.read(|s| s.items.values().any(form)).then_some("secure_form")
+    }
+
     /// Whether a person holds the screen of the computer this run is using.
     pub(crate) fn computer_held(&self, run: &Run) -> bool {
         let uses = run.replies.iter().any(|r| r.calls().iter().any(|(_, name, _)| is_capture(name)));

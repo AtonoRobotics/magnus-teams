@@ -14,6 +14,7 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A page can take this long: a slow site after a cold browser start.
@@ -22,6 +23,8 @@ const BROWSER_IDLE: Duration = Duration::from_secs(10 * 60);
 const SEAL_KEY_BYTES: usize = 32;
 const MAX_FORM_VALUE_BYTES: usize = 8 * 1024;
 const SURROGATE_RANDOM_BYTES: usize = 32;
+/// What a connected password manager answers to.
+const PASSWORD_MANAGER_TOOL: &str = "get_login";
 const THROWAWAY_PAGE_NOTE: &str = "(read in a throwaway browser with no login)";
 
 /// One VM boot at a time: two tool calls must not start the same VM twice.
@@ -267,19 +270,57 @@ impl Kernel {
         Ok(Some((text, false, data)))
     }
 
-    /// The vault first, then the person through a secure form. A password
-    /// manager connection would go between them; none exists yet.
+    /// The login a connected password manager holds for this site. Nothing
+    /// from it is logged or returned: the kernel fills it into the page.
+    async fn password_manager_login(&self, person: &str, site: &str) -> Option<(Option<String>, String)> {
+        let app = self.cfg.computer.as_ref()?.password_manager.clone()?;
+        let c = self.connectors().into_iter().find(|c| c.name == app)?;
+        let secret = match self.connector_secret(&c, person).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("the password manager's sign-in: {e:#}");
+                return None;
+            }
+        };
+        if c.credential.is_some() && secret.is_none() {
+            return None;
+        }
+        let out = self.connector_call(&c, person, &app, secret.as_ref().map(|s| s.expose()), PASSWORD_MANAGER_TOOL, &json!({ "site": site })).await.ok()?;
+        if out.is_error {
+            return None;
+        }
+        let v = out.structured.or_else(|| serde_json::from_str(&out.text).ok())?;
+        let password = v["password"].as_str().filter(|p| !p.is_empty())?.to_string();
+        Some((v["username"].as_str().map(String::from), password))
+    }
+
+    /// Fills a login in and signs in. The values go only to the browser VM.
+    async fn fill_login(&self, id: &str, username_field: Option<&str>, username: Option<&str>, password_field: &str, password: &str) -> Result<()> {
+        if let (Some(field), Some(user)) = (username_field, username) {
+            self.broker(id, json!({ "op": "fill_secret", "target": field, "value": user })).await?;
+        }
+        self.broker(id, json!({ "op": "fill_secret", "target": password_field, "value": password, "submit": true })).await?;
+        Ok(())
+    }
+
+    /// The vault first, then a connected password manager, then the person
+    /// through a secure form, which the run waits for.
     async fn sign_in(&self, run: &str, person: &str, input: &Value) -> Result<(String, bool, Option<Value>)> {
         let id = input["identity"].as_str().unwrap_or_default();
         let c = self.own_identity(person, id).map_err(|e| anyhow!("{e:?}"))?;
         let password_field = input["password_field"].as_str().context("password_field is required")?;
         self.running_browser(&c).await?;
         if let Some(password) = self.vault.get(&password_name(id))? {
-            if let (Some(field), Some(user)) = (input["username_field"].as_str(), self.vault.get(&username_name(id))?) {
-                self.broker(id, json!({ "op": "fill_secret", "target": field, "value": user.expose() })).await?;
-            }
-            self.broker(id, json!({ "op": "fill_secret", "target": password_field, "value": password.expose(), "submit": true })).await?;
+            let user = self.vault.get(&username_name(id))?;
+            self.fill_login(id, input["username_field"].as_str(), user.as_ref().map(|u| u.expose()), password_field, password.expose()).await?;
             return Ok(("Signed in with the saved login.".to_string(), false, None));
+        }
+        if let Some((user, password)) = self.password_manager_login(person, site_of(&c)).await {
+            self.fill_login(id, input["username_field"].as_str(), user.as_deref(), password_field, &password).await?;
+            return Ok(("Signed in from the password manager.".to_string(), false, None));
+        }
+        if self.is_background(run) {
+            return Ok(("Signing in here needs a person, and this work has no one to ask.".to_string(), true, None));
         }
         let task = self.read(|s| s.runs.get(run).map(|r| r.task.clone())).unwrap_or_default();
         let item = crate::kernel::new_id("item");
@@ -292,7 +333,7 @@ impl Kernel {
         .await?;
         Ok((
             format!(
-                "No saved login. The person has been asked to sign in through a secure form (item {item}); the agent never sees the value. Check the page again after they have."
+                "No saved login. The person has been asked to sign in through a secure form (item {item}), and this run waits for them. You never see the value. Check the page when you continue."
             ),
             false,
             None,
@@ -301,7 +342,7 @@ impl Kernel {
 
     /// From a person's own form: the value goes to the page, and to the
     /// vault if they say so, and is never logged or returned.
-    pub async fn fill_secure_form(&self, who: &Person, id: &str, form: &SecureForm) -> Result<Value, Refused> {
+    pub async fn fill_secure_form(self: &Arc<Self>, who: &Person, id: &str, form: &SecureForm) -> Result<Value, Refused> {
         let SecureForm { target, value, submit, save, username } = form;
         let (submit, save) = (*submit, *save);
         if value.len() > MAX_FORM_VALUE_BYTES {
@@ -320,7 +361,37 @@ impl Kernel {
                 self.vault.put(&username_name(id), u).map_err(failed)?;
             }
         }
+        self.finish_forms(who, id).await?;
         Ok(json!({ "filled": true }))
+    }
+
+    /// Every run waiting on this sign-in carries on.
+    async fn finish_forms(self: &Arc<Self>, who: &Person, id: &str) -> Result<(), Refused> {
+        let open: Vec<(String, Option<String>)> = self.read(|s| {
+            s.items
+                .values()
+                .filter(|i| i.kind == "secure_form" && i.resolution.is_none() && i.person == who.id && i.details["identity"] == json!(id))
+                .map(|i| (i.id.clone(), i.run.clone()))
+                .collect()
+        });
+        let actor = format!("person:{}", who.id);
+        let mut evs: Vec<(&str, Ev)> = vec![];
+        let mut woken = vec![];
+        for (item, run) in open {
+            evs.push((actor.as_str(), Ev::ItemResolved { id: item, decision: "filled".into(), scope: None, text: None }));
+            if let Some(run) = run {
+                evs.extend(self.resume(&run));
+                woken.push(run);
+            }
+        }
+        if evs.is_empty() {
+            return Ok(());
+        }
+        self.emit_all(evs).await.map_err(failed)?;
+        for run in woken {
+            self.wake(&run);
+        }
+        Ok(())
     }
 
     /// A credential for one host. The real value goes to the vault; the

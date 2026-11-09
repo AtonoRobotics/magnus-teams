@@ -31,6 +31,10 @@ const TELL_DAYS: i64 = 30;
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub socket: PathBuf,
+    /// The connected app that holds logins. It answers `get_login` with
+    /// `{ username, password }`, and the kernel fills them in itself.
+    #[serde(default)]
+    pub password_manager: Option<String>,
     /// Package registries, for downloads only. `*.name` is any subdomain.
     #[serde(default = "default_registries")]
     pub registries: Vec<String>,

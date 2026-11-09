@@ -88,9 +88,10 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
     let (app, remote) = tool.split_once("__")?;
     let c = k.connector(app)?;
     let class = c.tools.get(remote)?;
-    // Never the sandbox, which is the appliance's own: an older log may
-    // class an app's tool so, and it counts as unclassified.
+    // Never the sandbox, which is the appliance's own: an older log may class
+    // an app's tool so. A password manager's tools are the kernel's alone.
     let risk = Risk::parse(&class.risk).filter(|r| *r != Risk::Sandbox)?;
+    let risk = if k.cfg.computer.as_ref().is_some_and(|c| c.password_manager.as_deref() == Some(app)) { Risk::Prohibited } else { risk };
     Some(Facts {
         name: tool.into(),
         app: app.into(),
@@ -663,7 +664,7 @@ impl Kernel {
                     }
                 }
                 let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filter_login_codes) { crate::login_codes::strip(&t) } else { t };
-                let text = filter(clean(&text));
+                let (text, data) = crate::attachment::lift(f.connector.as_ref().is_some_and(|c| c.filter_login_codes), filter(clean(&text)), data);
                 let data = data.map(|d| serde_json::from_str(&filter(clean(&d.to_string()))).unwrap_or(Value::Null));
                 self.record_from(a, Some(key), if is_error { "failed" } else { "done" }, text, is_error, label, sources, data).await
             }
@@ -1434,7 +1435,7 @@ impl Kernel {
 
     /// Call a read tool of a connector through the person's own sign-in, as
     /// the gate reads a draft: over whatever transport it uses.
-    async fn connector_call(
+    pub(crate) async fn connector_call(
         &self,
         c: &Connector,
         person: &str,

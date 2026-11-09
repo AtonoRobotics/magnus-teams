@@ -417,7 +417,7 @@ impl Kernel {
                 if live.as_ref().is_some_and(|l| !l.iter().any(|t| &t.name == remote)) {
                     continue;
                 }
-                if Risk::parse(&class.risk) == Some(Risk::Prohibited) || !boundary::has_rights(&person, &f) || (chat && f.risk != Risk::Read) {
+                if f.risk == Risk::Prohibited || !boundary::has_rights(&person, &f) || (chat && f.risk != Risk::Read) {
                     continue;
                 }
                 if let Some(t) = live.as_ref().and_then(|l| l.iter().find(|t| &t.name == remote)) {

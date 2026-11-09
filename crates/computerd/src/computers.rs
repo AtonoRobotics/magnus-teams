@@ -500,7 +500,7 @@ fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32, configured: bool, netns:
 mod tests {
     use super::*;
 
-    fn config() -> Config {
+    pub(super) fn config() -> Config {
         toml::from_str(
             r#"
             state_dir = "/var/lib/c"

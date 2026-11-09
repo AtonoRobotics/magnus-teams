@@ -69,22 +69,33 @@ impl Computers {
     pub fn backup(&self, id: &ComputerId) -> Result<Value> {
         let _one_at_a_time = self.backing_up.lock().unwrap_or_else(|e| e.into_inner());
         let Meta { uid, .. } = self.meta(id)?;
-        let frozen = self.is_live(id) && !matches!(self.status(id)?, State::Paused);
+        let Some(source) = self.backup_source(id) else { return Ok(json!({ "skipped": "this profile is open, so it is not stored" })) };
+        let frozen = self.is_live(id) && !self.is_profile(id) && !matches!(self.status(id)?, State::Paused);
         if frozen {
             let reply = self.ask_guest(id, uid, &json!({ "op": "freeze" }))?;
             ensure!(reply["ok"] == true, "the volume could not be held still: {}", reply["error"].as_str().unwrap_or("no reason given"));
         }
-        let stored = self.store_volume(id);
+        let stored = self.store_volume(id, &source);
         if frozen {
             self.ask_guest(id, uid, &json!({ "op": "thaw" }))?;
         }
         Ok(json!({ "at": stored?, "bytes": self.backup_bytes(id)? }))
     }
 
-    fn store_volume(&self, id: &ComputerId) -> Result<u64> {
+    /// What a backup stores. A profile only ever under its own key: an open
+    /// one has live sessions in it, and this directory's key is on this disk.
+    fn backup_source(&self, id: &ComputerId) -> Option<PathBuf> {
+        let dir = self.computer(id);
+        if self.is_profile(id) {
+            return Some(dir.join(sealed::SEALED)).filter(|p| p.exists());
+        }
+        Some(dir.join(VOLUME))
+    }
+
+    fn store_volume(&self, id: &ComputerId, source: &Path) -> Result<u64> {
         let key = self.backup_key(id)?;
         let dir = self.backups(id);
-        let mut volume = File::open(self.computer(id).join(VOLUME)).context("open the volume")?;
+        let mut volume = File::open(source).context("open the volume")?;
         let size = volume.metadata()?.len();
         let mut buf = vec![0u8; BACKUP_CHUNK_BYTES];
         let mut chunks = BTreeMap::new();
@@ -131,8 +142,9 @@ impl Computers {
 
     /// Whether the volume has been written since its last backup.
     fn changed_since_backup(&self, id: &ComputerId) -> Result<bool> {
+        let Some(source) = self.backup_source(id) else { return Ok(false) };
         let Some((at, _)) = self.lists(id.as_str())?.pop() else { return Ok(true) };
-        let written = std::fs::metadata(self.computer(id).join(VOLUME))?.mtime();
+        let written = std::fs::metadata(source)?.mtime();
         Ok(u64::try_from(written).unwrap_or(0) >= at)
     }
 
@@ -167,7 +179,12 @@ impl Computers {
         }
         volume.sync_all()?;
         chown(&part, Some(uid), Some(uid)).context("give the VM its volume")?;
-        std::fs::rename(&part, dir.join(VOLUME)).context("put the volume in place")?;
+        let target = if self.is_profile(id) { sealed::SEALED } else { VOLUME };
+        std::fs::rename(&part, dir.join(target)).context("put the volume in place")?;
+        if target == sealed::SEALED {
+            // Opening a profile prefers an open volume, which is now out of date.
+            remove_file_if_there(&dir.join(VOLUME))?;
+        }
         self.discard_snapshot_locked(id)?;
         Ok(json!({ "restored": at }))
     }
@@ -235,4 +252,37 @@ pub fn open_all_chunks(dir: &Path, to: &mut impl Write) -> Result<()> {
 fn chunk_name(key: &[u8; KEY_BYTES], plain: &[u8]) -> String {
     let digest = Sha256::new().chain_update(key).chain_update(plain).finalize();
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_open_profile_is_not_stored_and_a_sealed_one_comes_back_sealed() {
+        let state = tempfile::tempdir().unwrap();
+        let mut cfg = super::super::tests::config();
+        cfg.state_dir = state.path().into();
+        let c = Computers::new(cfg);
+        let id = ComputerId::parse("abc").unwrap();
+        let dir = c.computer(&id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let uid = std::fs::metadata(state.path()).unwrap().uid();
+        std::fs::write(dir.join("meta.json"), json!({ "uid": uid }).to_string()).unwrap();
+        std::fs::write(dir.join(sealed::PROFILE_MARK), b"").unwrap();
+        std::fs::write(dir.join(VOLUME), b"open sessions").unwrap();
+
+        assert!(c.backup(&id).unwrap().get("skipped").is_some(), "an open profile was stored");
+        assert!(c.lists("abc").unwrap().is_empty(), "an open profile left a backup");
+        assert!(!c.changed_since_backup(&id).unwrap(), "an open profile would stop every other backup");
+
+        std::fs::remove_file(dir.join(VOLUME)).unwrap();
+        std::fs::write(dir.join(sealed::SEALED), b"sealed sessions").unwrap();
+        assert!(c.backup(&id).unwrap().get("at").is_some());
+        std::fs::write(dir.join(sealed::SEALED), b"later").unwrap();
+        std::fs::write(dir.join(VOLUME), b"out of date").unwrap();
+        c.restore_backup(&id).unwrap();
+        assert_eq!(std::fs::read(dir.join(sealed::SEALED)).unwrap(), b"sealed sessions");
+        assert!(!dir.join(VOLUME).exists(), "the restored profile would not be the one opened");
+    }
 }
