@@ -232,8 +232,7 @@ impl Kernel {
             first.push(Block::Text { text: t });
         }
         let mut msgs: Vec<Message> = vec![];
-        for (s, _, text) in run.notices.iter().filter(|(s, _, _)| *s == 0) {
-            let _ = s;
+        for (_, _, text) in run.notices.iter().filter(|(s, _, _)| *s == 0) {
             first.push(Block::Text { text: text.clone() });
         }
         // A reset (the lost-reset module) takes the replies it cut out of the
@@ -269,6 +268,7 @@ impl Kernel {
             for (_, _, text) in run.notices.iter().filter(|(s, _, _)| *s as usize == i + 1) {
                 user.push(Block::Text { text: text.clone() });
             }
+            user.extend(run.frames.iter().filter(|(s, _)| *s as usize == i + 1).map(|(_, b)| Block::Image { media_type: "image/png".into(), data_b64: b.clone() }));
             user.extend(notes(i + 1));
             if !user.is_empty() {
                 msgs.push(Message { role: Role::User, content: user, state: None });
@@ -331,7 +331,7 @@ impl Kernel {
 
     async fn offered(&self, run: &Run, every: bool) -> Vec<ToolSpec> {
         let chat = self.is_chat_turn(run);
-        let mut specs = tools::builtin_specs(self.sandboxes.available(), self.web.can_search(), self.browser.available());
+        let mut specs = tools::builtin_specs(self.sandboxes.available(), self.web.can_search(), self.browser.available(), self.cfg.computer.is_some());
         if chat {
             specs.retain(|t| tools::builtin(&t.name).is_some_and(|b| b.risk == Risk::Read || b.app == "memory"));
             specs.extend(tools::chat_specs());

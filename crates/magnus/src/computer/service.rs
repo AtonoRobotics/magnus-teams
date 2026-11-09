@@ -30,7 +30,7 @@ fn may_control(who: &Person, owner: &Owner) -> bool {
     }
 }
 
-fn failed(e: anyhow::Error) -> Refused {
+pub(super) fn failed(e: anyhow::Error) -> Refused {
     Refused::Failed(format!("{e:#}"))
 }
 
@@ -226,6 +226,7 @@ impl Kernel {
     }
 
     pub async fn delete_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
+        self.opened_computer(who, id)?;
         let path = user_path(path)?;
         self.on_computer(who, id, json!({ "op": "erase", "path": path })).await?;
         self.record_computer(who, Change::FileDeleted { id: id.into(), path: path.into(), at: chrono::Utc::now() }).await?;
@@ -272,12 +273,14 @@ impl Kernel {
     }
 
     pub async fn write_computer_file(&self, who: &Person, id: &str, path: &str, data_b64: &str) -> Result<Value, Refused> {
+        self.opened_computer(who, id)?;
         let path = user_path(path)?;
         let v = self.on_computer(who, id, json!({ "op": "write", "path": path, "data_b64": data_b64 })).await?;
         Ok(json!({ "written": path, "reply": v }))
     }
 
     pub async fn read_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
+        self.opened_computer(who, id)?;
         let path = user_path(path)?;
         self.on_computer(who, id, json!({ "op": "read", "path": path })).await
     }
@@ -285,8 +288,14 @@ impl Kernel {
     /// A live computer's guest agent, or for a stopped one a helper VM with
     /// its volume and no network: the host never mounts a volume.
     async fn on_computer(&self, who: &Person, id: &str, req: Value) -> Result<Value, Refused> {
-        let socket = self.computer_socket()?;
         let c = self.controlled_computer(who, id)?;
+        self.computer_file_for(&c, req).await
+    }
+
+    /// A file request on a computer the caller may already reach.
+    pub(super) async fn computer_file_for(&self, c: &Computer, req: Value) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let id = c.id.as_str();
         let reply = match c.status {
             Status::Running => {
                 let reply = client::guest(&socket, id, req).await.map_err(failed)?;
@@ -337,6 +346,7 @@ async fn in_helper(socket: &Path, id: &str, req: Value) -> Result<Value> {
 pub fn schedule(k: Arc<Kernel>) {
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(super::egress::serve(k.clone(), socket.clone()));
+    super::idle::schedule(k.clone());
     tokio::spawn(async move {
         let killed: Vec<String> = k.read(|s| s.computers.all().filter(|c| c.status == Status::Killed).map(|c| c.id.clone()).collect());
         for id in killed {

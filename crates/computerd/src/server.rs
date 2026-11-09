@@ -84,6 +84,10 @@ pub enum Request {
     Connect {
         id: String,
     },
+    /// The computer's desktop, as a raw stream to the guest.
+    Display {
+        id: String,
+    },
 }
 
 pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
@@ -126,11 +130,11 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
         }
         Request::Status { id: raw } => json!({ "state": c.status(&id(&raw)?)? }),
         Request::List => json!({ "computers": c.list()?.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>() }),
-        Request::Connect { .. } => anyhow::bail!("connect is handled by the connection itself"),
+        Request::Connect { .. } | Request::Display { .. } => anyhow::bail!("a connection is handled by the connection itself"),
     })
 }
 
-fn relay(c: &Computers, conn: UnixStream, raw: &str) -> Result<()> {
+fn relay(c: &Computers, conn: UnixStream, raw: &str, port: u32) -> Result<()> {
     let (root, uid) = c.relay_target(&ComputerId::parse(raw)?)?;
     conn.set_read_timeout(None)?;
     let out = conn.try_clone()?;
@@ -140,6 +144,7 @@ fn relay(c: &Computers, conn: UnixStream, raw: &str) -> Result<()> {
         .arg("relay")
         .arg(root)
         .arg(uid.to_string())
+        .arg(port.to_string())
         .stdin(Stdio::from(OwnedFd::from(conn)))
         .stdout(Stdio::from(OwnedFd::from(out)))
         .stderr(Stdio::null())
@@ -147,6 +152,13 @@ fn relay(c: &Computers, conn: UnixStream, raw: &str) -> Result<()> {
         .context("run the relay")?;
     ensure!(status.success(), "the relay could not enter the computer's jail");
     Ok(())
+}
+
+fn relay_or_say(computers: &Computers, conn: UnixStream, id: &str, port: u32) {
+    let reply_on = conn.try_clone();
+    if let (Err(e), Ok(mut c)) = (relay(computers, conn, id, port), reply_on) {
+        let _ = writeln!(c, "{}", json!({ "ok": false, "error": format!("{e:#}") }));
+    }
 }
 
 /// A client sends one request and waits for the reply, so nothing past the
@@ -212,12 +224,8 @@ pub fn serve(cfg: Config) -> Result<()> {
         let open = open.clone();
         std::thread::spawn(move || {
             match read_request(&conn) {
-                Ok(Request::Connect { id }) => {
-                    let reply_on = conn.try_clone();
-                    if let (Err(e), Ok(mut c)) = (relay(&computers, conn, &id), reply_on) {
-                        let _ = writeln!(c, "{}", json!({ "ok": false, "error": format!("{e:#}") }));
-                    }
-                }
+                Ok(Request::Connect { id }) => relay_or_say(&computers, conn, &id, crate::relay::GUEST_PORT),
+                Ok(Request::Display { id }) => relay_or_say(&computers, conn, &id, crate::relay::DISPLAY_PORT),
                 req => {
                     let reply = answer(&computers, req);
                     let _ = writeln!(conn, "{reply}");

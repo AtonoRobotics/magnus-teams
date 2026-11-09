@@ -25,7 +25,7 @@ magnus-brokered-kit = { path = "../../brokered/kit" }
 anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 cedar-policy = "4"
 # The places of a policy's problems, which Cedar reports as diagnostics.

@@ -118,6 +118,11 @@ impl Kernel {
             self.suspend(run_id, "kill_switch", None).await?;
             return Ok(Flow::Stop);
         }
+        // A person holds the computer this run uses: nothing runs until they hand it back.
+        if self.computer_held(&run) {
+            self.suspend(run_id, "takeover", None).await?;
+            return Ok(Flow::Stop);
+        }
         // An update is switching releases: wait for the new one.
         if self.read(|s| s.updating.is_some()) {
             self.suspend(run_id, "update", None).await?;

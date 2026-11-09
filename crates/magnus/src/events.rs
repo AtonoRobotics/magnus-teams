@@ -185,6 +185,14 @@ pub enum Ev {
     /// A computer changed (`computer::Change`).
     Computer(crate::computer::Change),
     Rule(crate::rules::Change),
+    /// A fresh screenshot for a run after a person handed its computer back.
+    Handback {
+        run: String,
+        step: u32,
+        /// Content; gone once its task is deleted.
+        #[serde(default)]
+        image_b64: String,
+    },
     /// Something done in the admin console (admin console spec, Authority
     /// and audit): who (the admin's `sub` and name), what, to what, from
     /// where, and for a change, what it was before and after. Written by the
@@ -1292,6 +1300,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("memory_pass", &["blocks"]),
     ("intent", &["input"]),
     ("tool_result", &["text", "data"]),
+    ("handback", &["image_b64"]),
     ("contract", &["contract"]),
     ("plan", &["plan"]),
     ("verification", &["criterion", "evidence"]),
@@ -1341,6 +1350,7 @@ impl Ev {
             | ModelReply { run, .. }
             | ModelError { run, .. }
             | Notice { run, .. }
+            | Handback { run, .. }
             | Intent { run, .. }
             | Decision { run, .. }
             | ToolResult { run, .. }

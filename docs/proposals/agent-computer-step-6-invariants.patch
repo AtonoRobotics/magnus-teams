@@ -1,0 +1,266 @@
+diff --git a/tests/invariants/src/appliance.rs b/tests/invariants/src/appliance.rs
+index 59b68b7..0dcc678 100644
+--- a/tests/invariants/src/appliance.rs
++++ b/tests/invariants/src/appliance.rs
+@@ -557,6 +557,9 @@ impl Api {
+         self.send(reqwest::Method::GET, path, None).await
+     }
+ 
++    pub async fn delete(&self, path: &str) -> (StatusCode, Value) {
++        self.send(reqwest::Method::DELETE, path, None).await
++    }
+     pub async fn post(&self, path: &str, body: Value) -> (StatusCode, Value) {
+         self.send(reqwest::Method::POST, path, Some(body)).await
+     }
+diff --git a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+index f6110c8..a3f0e89 100644
+--- a/tests/invariants/tests/inv1_boundary.rs
++++ b/tests/invariants/tests/inv1_boundary.rs
+@@ -596,3 +596,105 @@ async fn a_proxied_request_that_needs_an_ask_fails_at_once_with_its_id() {
+     assert_eq!(found.iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>(), vec!["refused".to_string()], "the id does not name the refusal");
+     assert!(site.hits().is_empty(), "a request needing a decision reached the site");
+ }
++
++/// One raw WebSocket handshake to the display, offering these subprotocols.
++/// The ticket is a subprotocol header, so a test can see it in no URL.
++async fn display_handshake(app: &Appliance, id: &str, protocols: &str, bearer: Option<String>) -> (u16, tokio::net::TcpStream) {
++    let host = app.base.trim_start_matches("http://").to_string();
++    let mut s = tokio::net::TcpStream::connect(&host).await.unwrap();
++    let auth = bearer.map(|t| format!("Authorization: Bearer {t}\r\n")).unwrap_or_default();
++    let req = format!("GET /v1/computers/{id}/display HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: {protocols}\r\n{auth}\r\n");
++    tokio::io::AsyncWriteExt::write_all(&mut s, req.as_bytes()).await.unwrap();
++    let mut head = Vec::new();
++    let mut byte = [0u8; 1];
++    while !head.ends_with(b"\r\n\r\n") {
++        if tokio::io::AsyncReadExt::read(&mut s, &mut byte).await.unwrap() == 0 {
++            break;
++        }
++        head.push(byte[0]);
++    }
++    let status = String::from_utf8_lossy(&head).split_whitespace().nth(1).unwrap_or("0").parse().unwrap_or(0);
++    (status, s)
++}
++
++/// The first WebSocket frame's payload.
++async fn first_frame(s: &mut tokio::net::TcpStream) -> Vec<u8> {
++    use tokio::io::AsyncReadExt;
++    let mut head = [0u8; 2];
++    s.read_exact(&mut head).await.unwrap();
++    let len = match head[1] & 0x7f {
++        126 => {
++            let mut n = [0u8; 2];
++            s.read_exact(&mut n).await.unwrap();
++            u16::from_be_bytes(n) as usize
++        }
++        n => n as usize,
++    };
++    let mut body = vec![0u8; len];
++    s.read_exact(&mut body).await.unwrap();
++    body
++}
++
++/// Test 19. A ticket works once, for one computer and one person, for a short
++/// time. It is in no URL or log, and no display port is on any host network.
++#[tokio::test(flavor = "multi_thread")]
++async fn a_takeover_ticket_works_once_and_never_appears_in_a_url() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let (app, id) = computer_with_network(Spec::default(), &computerd, &model).await;
++    let alice = app.api("alice");
++    let take = |who: Api, id: String| async move {
++        let (code, body) = who.post(&format!("/v1/computers/{id}/takeover"), json!({})).await;
++        assert_eq!(code, 200, "{body}");
++        body["ticket"].as_str().unwrap().to_string()
++    };
++    let protocols = |t: &str| format!("magnus.ticket.{t}, magnus.display");
++
++    let ticket = take(alice.clone(), id.clone()).await;
++    let (status, mut stream) = display_handshake(&app, &id, &protocols(&ticket), None).await;
++    assert_eq!(status, 101, "the ticket did not open the display");
++    let banner = first_frame(&mut stream).await;
++    assert!(banner.starts_with(b"RFB "), "the display did not answer: {banner:?}");
++    drop(stream);
++    assert_eq!(display_handshake(&app, &id, &protocols(&ticket), None).await.0, 403, "a takeover ticket worked twice");
++
++    let (_, made) = app.api("bob").post("/v1/computers", json!({})).await;
++    let bobs = made["id"].as_str().unwrap().to_string();
++    let (code, started) = app.api("bob").post(&format!("/v1/computers/{bobs}/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++    let bobs_ticket = take(app.api("bob"), bobs.clone()).await;
++    assert_eq!(display_handshake(&app, &id, &protocols(&bobs_ticket), None).await.0, 403, "another person's ticket opened this computer");
++    let alices = take(alice.clone(), id.clone()).await;
++    assert_eq!(display_handshake(&app, &id, &protocols(&alices), Some(app.spec.token("bob"))).await.0, 403, "another person used this person's ticket");
++
++    let old = take(alice.clone(), id.clone()).await;
++    tokio::time::sleep(Duration::from_secs(31)).await;
++    assert_eq!(display_handshake(&app, &id, &protocols(&old), None).await.0, 403, "an expired ticket worked");
++
++    let everything = format!(
++        "{}{}",
++        app.logs(),
++        app.db.admin().await.query("SELECT body::text FROM public.events", &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>().join("\n")
++    );
++    for t in [&ticket, &bobs_ticket, &alices, &old] {
++        assert!(!everything.contains(t.as_str()), "a ticket appeared in a log");
++    }
++    let open = String::from_utf8(std::process::Command::new("ss").arg("-ltnH").output().unwrap().stdout).unwrap();
++    assert!(!open.lines().any(|l| l.contains(":5900 ") || l.contains(":5901 ")), "the display port is reachable: {open}");
++}
++
++/// The agent adding a destination is a boundary action: Auto Review sees it.
++#[tokio::test(flavor = "multi_thread")]
++async fn adding_a_destination_goes_through_auto_review() {
++    let computerd = Computerd::start();
++    let model =
++        FakeModel::start(steps(vec![contract_unchecked("reach it", "reachable"), tool("add_computer_destination", json!({ "host": "new.example" })), complete("done")])).await;
++    model.set_reviewer(script(|_| async { review("deny", "not this one") }));
++    let (app, id) = computer_with_network(Spec::default(), &computerd, &model).await;
++    let alice = app.api("alice");
++    let task = alice.submit("Reach new.example from your computer.").await;
++    alice.wait_settled(&task).await;
++    assert!(!model.reviews().is_empty(), "the reviewer was not asked");
++    let (_, one) = alice.get(&format!("/v1/computers/{id}")).await;
++    assert!(!one.to_string().contains("new.example"), "a refused destination was added: {one}");
++}
+diff --git a/tests/invariants/tests/inv2_credentials.rs b/tests/invariants/tests/inv2_credentials.rs
+index a33251c..3442198 100644
+--- a/tests/invariants/tests/inv2_credentials.rs
++++ b/tests/invariants/tests/inv2_credentials.rs
+@@ -109,3 +109,59 @@ async fn a_snapshot_holds_no_vault_material_and_is_stored_encrypted() {
+         assert!(!stored && !plain, "a credential is in the snapshot");
+     }
+ }
++
++/// Test 18. While a person holds control the agent takes no step and captures
++/// nothing. Handback gives it a fresh screenshot and a log entry.
++#[tokio::test(flavor = "multi_thread")]
++async fn capture_stops_and_the_agent_pauses_while_a_person_holds_control() {
++    let computerd = Computerd::start();
++    let released = std::sync::Arc::new(tokio::sync::Notify::new());
++    let wait = released.clone();
++    let model = FakeModel::start(script(move |c| {
++        let wait = wait.clone();
++        async move {
++            match c.turn() {
++                0 => contract_unchecked("look", "seen"),
++                1 => tool("computer_screenshot", json!({})),
++                2 => {
++                    wait.notified().await;
++                    tool("computer_screenshot", json!({}))
++                }
++                3 => complete("done"),
++                _ => fail("script over"),
++            }
++        }
++    }))
++    .await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let (code, started) = alice.post(&format!("/v1/computers/{id}/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++    let task = alice.submit("Take a look at your screen.").await;
++    let frames = || async {
++        let admin = app.db.admin().await;
++        let n: i64 = admin.query_one("SELECT count(*) FROM public.events WHERE kind IN ('tool_result', 'handback')", &[]).await.unwrap().get(0);
++        n
++    };
++    eventually("the agent's first screenshot came back", PATIENCE, || async { model.at_turn(2).map(|_| ()) }).await;
++    let (code, body) = alice.post(&format!("/v1/computers/{id}/takeover"), json!({})).await;
++    assert_eq!(code, 200, "{body}");
++    released.notify_one();
++    eventually("the run paused for the person", PATIENCE, || async { (alice.task(&task).await["status"] == "suspended").then_some(()) }).await;
++    let (before_calls, before_frames) = (model.requests().len(), frames().await);
++    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
++    assert_eq!(model.requests().len(), before_calls, "the agent took a step during a takeover");
++    assert_eq!(frames().await, before_frames, "the agent captured the screen during a takeover");
++
++    let (code, body) = alice.post(&format!("/v1/computers/{id}/handback"), json!({})).await;
++    assert_eq!(code, 200, "{body}");
++    eventually("the agent resumed", PATIENCE, || async { model.at_turn(3).map(|_| ()) }).await;
++    let resumed = model.at_turn(3).unwrap();
++    assert!(resumed.text().contains("handed it back"), "the agent was not told about the takeover");
++    assert!(resumed.text().contains("\"type\":\"image\""), "the resumed request has no screenshot");
++    assert!(frames().await > before_frames, "no fresh screenshot was recorded");
++    let (_, activity) = alice.get(&format!("/v1/computers/{id}/activity")).await;
++    assert!(activity.to_string().contains("took control") && activity.to_string().contains("handed back"), "the log does not show the takeover: {activity}");
++}
+diff --git a/tests/invariants/tests/inv8_layers.rs b/tests/invariants/tests/inv8_layers.rs
+index 000f80d..afbd01e 100644
+--- a/tests/invariants/tests/inv8_layers.rs
++++ b/tests/invariants/tests/inv8_layers.rs
+@@ -175,3 +175,73 @@ async fn one_persons_computer_cannot_reach_anothers() {
+     assert!(alice_ca.contains("BEGIN CERTIFICATE") && bob_ca.contains("BEGIN CERTIFICATE"), "a computer has no CA");
+     assert_ne!(alice_ca, bob_ca, "Alice's computer shares a CA with Bob's");
+ }
++
++/// Test 29. An operator reads a computer only in a session its user granted,
++/// and the user sees that session.
++#[tokio::test(flavor = "multi_thread")]
++async fn operator_routes_reach_a_computer_only_in_a_session_its_user_granted() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let mut spec = Spec::default().computer(&computerd.socket);
++    spec.people[0].roles.push("developer".to_string());
++    let app = Appliance::start(spec, &model).await;
++    let (operator, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
++    let start = |who: Api| async move {
++        let (_, made) = who.post("/v1/computers", json!({})).await;
++        let id = made["id"].as_str().unwrap().to_string();
++        let (code, started) = who.post(&format!("/v1/computers/{id}/start"), json!({})).await;
++        assert_eq!(code, 200, "{started}");
++        id
++    };
++    let (id, other) = (start(bob.clone()).await, start(bob.clone()).await);
++    let secret = canary("bobs-file");
++    computerd.exec(&id, &format!("echo {secret} > /workspace/note"));
++    let file = format!("/v1/operator/computers/{id}/files?path=/workspace/note");
++    let screen = format!("/v1/operator/computers/{id}/screen");
++
++    let refused = |who: Api, path: String| async move {
++        let (code, body) = who.get(&path).await;
++        assert!(code.is_client_error(), "an operator read a computer without the user's grant: {path} {code} {body}");
++    };
++    // The ordinary routes refuse an owner of the appliance too.
++    refused(operator.clone(), format!("/v1/computers/{id}/files?path=/workspace/note")).await;
++    refused(operator.clone(), file.clone()).await;
++    refused(operator.clone(), screen.clone()).await;
++
++    // A grant to someone else opens nothing for this operator.
++    let (code, body) = bob.post(&format!("/v1/computers/{id}/operator-sessions"), json!({ "operator": "carol", "minutes": 30 })).await;
++    assert_eq!(code, 200, "{body}");
++    refused(operator.clone(), file.clone()).await;
++    // Nor can anyone but its user grant one.
++    let (code, _) = carol.post(&format!("/v1/computers/{id}/operator-sessions"), json!({ "operator": "alice", "minutes": 30 })).await;
++    assert!(code.is_client_error(), "someone else granted a session on this computer");
++
++    let (code, body) = bob.post(&format!("/v1/computers/{id}/operator-sessions"), json!({ "operator": "alice", "minutes": 30 })).await;
++    assert_eq!(code, 200, "{body}");
++    let session = body["session"].as_str().unwrap().to_string();
++    let (code, read) = operator.get(&file).await;
++    assert_eq!(code, 200, "{read}");
++    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, read["data_b64"].as_str().unwrap()).unwrap();
++    assert!(String::from_utf8_lossy(&bytes).contains(&secret), "the granted route did not serve the file");
++    let (code, _) = operator.get(&screen).await;
++    assert_eq!(code, 200, "the granted route did not serve the screen");
++    refused(operator.clone(), format!("/v1/operator/computers/{other}/files?path=/workspace/note")).await;
++
++    let (_, activity) = bob.get(&format!("/v1/computers/{id}/activity")).await;
++    let text = activity.to_string();
++    assert!(text.contains("alice") && text.contains("the file /workspace/note") && text.contains("\"at\""), "a granted session is missing from the user's log: {text}");
++
++    let (code, _) = bob.delete(&format!("/v1/computers/{id}/operator-sessions/{session}")).await;
++    assert!(code.is_success());
++    refused(operator.clone(), file.clone()).await;
++
++    let (code, body) = bob.post(&format!("/v1/computers/{id}/operator-sessions"), json!({ "operator": "alice", "minutes": 1 })).await;
++    assert_eq!(code, 200, "{body}");
++    assert_eq!(operator.get(&file).await.0, 200);
++    tokio::time::sleep(Duration::from_secs(61)).await;
++    refused(operator.clone(), file.clone()).await;
++
++    let (code, audit) = operator.get("/v1/dev/runs").await;
++    assert!(code.is_success(), "observability needs no grant");
++    assert!(!audit.to_string().contains(&secret), "an observability route carries file content");
++}

@@ -93,6 +93,7 @@ pub struct Run {
     pub replies: Vec<Reply>,
     pub results: HashMap<String, ResultRec>,
     pub notices: Vec<(u32, i64, String)>,
+    pub frames: Vec<(u32, String)>,
     pub contract: Option<Value>,
     pub contract_version: u32,
     /// The agent has started the work (its first action that changes anything).
@@ -1404,6 +1405,7 @@ impl State {
             },
             Ev::Computer(c) => self.computers.apply(c),
             Ev::Rule(c) => self.rules.apply(c),
+            Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;
                 self.kill_switch_by = Some((e.actor.clone(), e.at));
@@ -1976,6 +1978,7 @@ impl State {
                         replies: vec![],
                         results: HashMap::new(),
                         notices: vec![],
+                        frames: vec![],
                         contract: None,
                         contract_version: 0,
                         work_started: false,

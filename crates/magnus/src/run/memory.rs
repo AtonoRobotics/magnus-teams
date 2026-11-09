@@ -70,7 +70,7 @@ impl Kernel {
         let known: Vec<String> = self.remembered(&run.person, |m| m.label.join(label) == label).await?.into_iter().map(|r| format!("- {}", r.fact)).collect();
         let known = if known.is_empty() { "nothing yet".to_string() } else { known.join("\n") };
         let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{text}\n\nAlready remembered:\n{known}") }], state: None };
-        let tools: Vec<_> = crate::tools::builtin_specs(false, false, false).into_iter().filter(|t| t.name == "memory_write").collect();
+        let tools: Vec<_> = crate::tools::builtin_specs(false, false, false, false).into_iter().filter(|t| t.name == "memory_write").collect();
         let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
         let Some(allowance) = self.aux_max_tokens(&run.id, "memory pass", &adapter, &model, MEMORY, vec![msg.clone()], tools.clone(), run.config.max_tokens).await else {
             return Ok(());

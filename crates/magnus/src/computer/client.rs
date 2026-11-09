@@ -46,6 +46,23 @@ pub async fn ask(socket: &Path, req: Value) -> Result<Value> {
     checked(reply.await.map_err(|_| anyhow!("magnus-computerd did not answer in time"))??)
 }
 
+/// A raw stream to a computer's desktop, after computerd says it is open.
+pub async fn display(socket: &Path, id: &str) -> Result<UnixStream> {
+    let mut s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
+    s.write_all(format!("{}\n", json!({ "op": "display", "id": id })).as_bytes()).await?;
+    let mut ack = Vec::new();
+    loop {
+        let byte = s.read_u8().await?;
+        if byte == b'\n' {
+            break;
+        }
+        ack.push(byte);
+        anyhow::ensure!(ack.len() as u64 <= MAX_REPLY_BYTES, "the reply was too long");
+    }
+    checked(serde_json::from_slice(&ack)?)?;
+    Ok(s)
+}
+
 /// One request to a computer's guest agent.
 pub async fn guest(socket: &Path, id: &str, req: Value) -> Result<Value> {
     guest_for(socket, id, req, GUEST_WAIT).await

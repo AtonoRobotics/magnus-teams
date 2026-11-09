@@ -61,9 +61,9 @@ fn main() -> Result<()> {
             (Some(key), Some(from), Some(to)) => open_snapshot(key, from, to),
             _ => bail!("usage: magnus-computerd open-snapshot KEY FROM TO"),
         },
-        Some("relay") => match (args.get(1), args.get(2).map(|u| u.parse::<u32>())) {
-            (Some(root), Some(Ok(uid))) => magnus_computerd::relay::run(Path::new(root), uid),
-            _ => bail!("usage: magnus-computerd relay ROOT UID"),
+        Some("relay") => match (args.get(1), args.get(2).map(|u| u.parse::<u32>()), args.get(3).map_or(Ok(magnus_computerd::relay::GUEST_PORT), |p| p.parse::<u32>())) {
+            (Some(root), Some(Ok(uid)), Ok(port)) => magnus_computerd::relay::run(Path::new(root), uid, port),
+            _ => bail!("usage: magnus-computerd relay ROOT UID [PORT]"),
         },
         Some("release") => {
             Computers::new(Config::parse(&config)?).release()?;

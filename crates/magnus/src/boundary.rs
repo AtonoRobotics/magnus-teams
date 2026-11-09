@@ -190,7 +190,7 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if f.connector.is_none() && f.app == "memory" {
         return false;
     }
-    f.connector.is_some() || f.app == "web" || f.app == "browser"
+    f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer"
 }
 
 /// Whether a sent search found mail: what `found` points at is not empty.
@@ -1667,7 +1667,12 @@ impl Kernel {
                     let data = v["image_b64"].as_str().map(|i| json!({ "image_b64": i }));
                     Ok((text, false, data))
                 }
+                "add_computer_destination" => self.add_destination_tool(a).await,
                 t if t.starts_with("computer_") => {
+                    let person = self.read(|st| st.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
+                    if let Some(done) = self.computer_tool(&person, t, &a.input).await? {
+                        return Ok(done);
+                    }
                     let cmd = computer_command(t, &a.input)?;
                     let v = self.sandboxes.exec(&a.run, &cmd, 60).await?;
                     if v["exit_code"] != json!(0) {

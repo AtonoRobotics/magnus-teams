@@ -12,7 +12,9 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-const GUEST_PORT: u32 = 52;
+pub const GUEST_PORT: u32 = 52;
+/// The guest serves its desktop here, and only over vsock.
+pub const DISPLAY_PORT: u32 = 5900;
 /// Set by `computers`, inside the chroot.
 pub const VSOCK_IN_JAIL: &str = "/v.sock";
 const STDIN: i32 = 0;
@@ -39,9 +41,9 @@ fn confine(root: &Path, uid: u32) -> Result<()> {
     Ok(())
 }
 
-fn connect_guest() -> Result<(UnixStream, BufReader<UnixStream>)> {
+fn connect_guest(port: u32) -> Result<(UnixStream, BufReader<UnixStream>)> {
     let mut guest = UnixStream::connect(VSOCK_IN_JAIL).context("reach the computer")?;
-    writeln!(guest, "CONNECT {GUEST_PORT}")?;
+    writeln!(guest, "CONNECT {port}")?;
     let mut reader = BufReader::new(guest.try_clone()?);
     let mut ack = String::new();
     reader.read_line(&mut ack)?;
@@ -52,12 +54,12 @@ fn connect_guest() -> Result<(UnixStream, BufReader<UnixStream>)> {
 }
 
 /// Runs with the client's connection as stdin and stdout.
-pub fn run(root: &Path, uid: u32) -> Result<()> {
+pub fn run(root: &Path, uid: u32, port: u32) -> Result<()> {
     confine(root, uid)?;
     // Duplicates of the one client socket, as two owned handles.
     let client_in = UnixStream::from(unsafe { OwnedFd::from_raw_fd(STDIN) });
     let mut client_out = UnixStream::from(unsafe { OwnedFd::from_raw_fd(STDOUT) });
-    let (guest, mut from_guest) = match connect_guest() {
+    let (guest, mut from_guest) = match connect_guest(port) {
         Ok(pair) => pair,
         Err(e) => {
             writeln!(client_out, "{}", serde_json::json!({ "ok": false, "error": format!("{e:#}") }))?;

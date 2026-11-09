@@ -159,6 +159,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "browser_select", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
     Builtin { name: "deliver_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_screenshot", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
+    Builtin { name: "add_computer_destination", app: "computer", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Public },
     Builtin { name: "computer_click", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_type", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_key", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
@@ -427,7 +428,7 @@ pub fn find_tools_spec() -> ToolSpec {
     }
 }
 
-pub fn builtin_specs(sandbox: bool, search: bool, browser: bool) -> Vec<ToolSpec> {
+pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool) -> Vec<ToolSpec> {
     let desc: Value = serde_json::from_str(include_str!("../instructions/tools.json")).expect("tools.json");
     let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
     let criterion = json!({
@@ -640,6 +641,13 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool) -> Vec<ToolSpec
         });
         v.push(ToolSpec { name: "browser_back".into(), description: d("browser_back"), input_schema: obj(json!({}), &[]) });
         v.push(ToolSpec { name: "browser_screenshot".into(), description: d("browser_screenshot"), input_schema: obj(json!({}), &[]) });
+    }
+    if computer {
+        v.push(ToolSpec {
+            name: "add_computer_destination".into(),
+            description: d("add_computer_destination"),
+            input_schema: obj(json!({ "host": { "type": "string" } }), &["host"]),
+        });
     }
     if sandbox {
         let xy = json!({ "type": "integer" });

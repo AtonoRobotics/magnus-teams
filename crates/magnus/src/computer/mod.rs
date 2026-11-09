@@ -5,8 +5,10 @@
 mod apps;
 mod client;
 mod egress;
+mod idle;
 mod routes;
 mod service;
+mod takeover;
 
 pub use egress::migrate_sql;
 pub use routes::router;
@@ -37,6 +39,13 @@ pub struct Settings {
     /// The same, but the private-address check still applies.
     #[serde(default)]
     pub hosts: BTreeMap<String, Vec<String>>,
+    /// A computer unused this long hibernates; 0 keeps it running.
+    #[serde(default = "default_idle_hibernate_minutes")]
+    pub idle_hibernate_minutes: u64,
+}
+
+fn default_idle_hibernate_minutes() -> u64 {
+    30
 }
 
 fn default_registries() -> Vec<String> {
@@ -131,6 +140,38 @@ pub enum Change {
         id: String,
         at: u64,
     },
+    /// One person holds the screen; the agent is paused on it.
+    TakeoverStarted {
+        id: String,
+        by: String,
+        at: DateTime<Utc>,
+    },
+    TakeoverEnded {
+        id: String,
+        by: String,
+        at: DateTime<Utc>,
+    },
+    /// The computer's user let an operator look, until `until`.
+    OperatorGranted {
+        id: String,
+        session: String,
+        operator: String,
+        until: DateTime<Utc>,
+        at: DateTime<Utc>,
+    },
+    OperatorEnded {
+        id: String,
+        session: String,
+        at: DateTime<Utc>,
+    },
+    /// Written before an operator is shown anything.
+    OperatorLooked {
+        id: String,
+        session: String,
+        operator: String,
+        what: String,
+        at: DateTime<Utc>,
+    },
 }
 
 /// One installed app, enough to install it again on a fresh overlay.
@@ -194,6 +235,26 @@ pub struct Computer {
     /// Its place among waiting wakes, oldest first.
     #[serde(skip)]
     queued: Option<u64>,
+    /// Who holds the screen, if a person does.
+    pub controller: Option<String>,
+    pub operators: Vec<OperatorSession>,
+    /// What only its user reads: takeovers and operator sessions.
+    pub activity: Vec<Activity>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct OperatorSession {
+    pub session: String,
+    pub operator: String,
+    pub until: DateTime<Utc>,
+    pub ended: bool,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Activity {
+    pub what: String,
+    pub who: String,
+    pub at: DateTime<Utc>,
 }
 
 /// The log's computers, rebuilt by replay.
@@ -239,6 +300,9 @@ impl Ledger {
 
     pub fn apply(&mut self, change: &Change) {
         match change {
+            Change::TakeoverStarted { .. } | Change::TakeoverEnded { .. } | Change::OperatorGranted { .. } | Change::OperatorEnded { .. } | Change::OperatorLooked { .. } => {
+                takeover::apply(self, change)
+            }
             Change::Created { id, owner } => {
                 self.computers.insert(
                     id.clone(),
@@ -253,6 +317,9 @@ impl Ledger {
                         destinations: vec![],
                         pages: vec![],
                         queued: None,
+                        controller: None,
+                        operators: vec![],
+                        activity: vec![],
                     },
                 );
             }
@@ -281,6 +348,7 @@ impl Ledger {
                 } else if let Some(c) = self.computers.get_mut(id) {
                     c.status = if *mode == KillMode::Pause { Status::Paused } else { Status::Killed };
                     c.queued = None;
+                    c.controller = None;
                 }
             }
             Change::Revoked { id, grant } => {
@@ -291,6 +359,7 @@ impl Ledger {
             Change::Hibernated { id } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.status = Status::Hibernated;
+                    c.controller = None;
                 }
             }
             Change::AppInstalled { id, app } => {

@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       coreutils findutils grep sed gawk procps file less zip unzip xz-utils bzip2 \
       poppler-utils qpdf ghostscript imagemagick tesseract-ocr \
       libreoffice-writer libreoffice-calc libreoffice-impress fonts-dejavu fonts-liberation fonts-noto-core \
-      xvfb xdotool x11-utils x11-xserver-utils fluxbox xterm \
+      xvfb xdotool x11-utils x11-xserver-utils fluxbox xterm x11vnc \
       sqlite3 git jq ca-certificates curl iproute2 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \

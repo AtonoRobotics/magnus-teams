@@ -20,6 +20,11 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const PORT: u32 = 52;
+/// The desktop, for a takeover through the host's broker.
+const DISPLAY_PORT: u32 = 5900;
+const VNC_PORT: u16 = 5901;
+const VNC_CONNECT_TRIES: u32 = 50;
+const VNC_CONNECT_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_OUT: usize = 200_000;
 const MIN_ENTROPY_BYTES: usize = 32;
 const NET_DEVICE: &[u8] = b"eth0";
@@ -280,13 +285,13 @@ fn init() {
     let _ = std::fs::write("/proc/sys/kernel/hostname", "sandbox");
 }
 
-fn listen() -> RawFd {
+fn listen(port: u32) -> RawFd {
     unsafe {
         let fd = libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM, 0);
         assert!(fd >= 0, "vsock socket: {}", std::io::Error::last_os_error());
         let mut addr: libc::sockaddr_vm = std::mem::zeroed();
         addr.svm_family = libc::AF_VSOCK as libc::sa_family_t;
-        addr.svm_port = PORT;
+        addr.svm_port = port;
         addr.svm_cid = libc::VMADDR_CID_ANY;
         let rc = libc::bind(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<libc::sockaddr_vm>() as u32);
         assert!(rc == 0, "vsock bind: {}", std::io::Error::last_os_error());
@@ -433,8 +438,47 @@ fn handle(req: Value) -> Value {
     }
 }
 
+/// Starts the desktop and its VNC server, listening on loopback only, once.
+fn start_display() {
+    let script = "export DISPLAY=:0; if ! xdpyinfo >/dev/null 2>&1; then (Xvfb :0 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &); for i in $(seq 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done; (fluxbox >/tmp/fluxbox.log 2>&1 &); fi; pgrep -x x11vnc >/dev/null || x11vnc -display :0 -rfbport 5901 -localhost -nopw -forever -shared -noxdamage -bg -o /tmp/x11vnc.log >/dev/null 2>&1";
+    let _ = std::process::Command::new("sh").arg("-c").arg(script).status();
+}
+
+fn connect_vnc() -> Option<std::net::TcpStream> {
+    (0..VNC_CONNECT_TRIES).find_map(|_| {
+        std::net::TcpStream::connect(("127.0.0.1", VNC_PORT)).ok().or_else(|| {
+            std::thread::sleep(VNC_CONNECT_WAIT);
+            None
+        })
+    })
+}
+
+/// Carries a takeover's bytes to the desktop, which only the host's relay can reach.
+fn serve_display() {
+    let lfd = listen(DISPLAY_PORT);
+    loop {
+        let fd = unsafe { libc::accept(lfd, std::ptr::null_mut(), std::ptr::null_mut()) };
+        if fd < 0 {
+            continue;
+        }
+        std::thread::spawn(move || {
+            let host = unsafe { std::fs::File::from_raw_fd(fd) };
+            start_display();
+            let Some(vnc) = connect_vnc() else { return };
+            let (Ok(mut host_in), Ok(mut vnc_in)) = (host.try_clone(), vnc.try_clone()) else { return };
+            let (mut host_out, mut vnc_out) = (host, vnc);
+            let up = std::thread::spawn(move || {
+                let _ = std::io::copy(&mut host_in, &mut vnc_in);
+            });
+            let _ = std::io::copy(&mut vnc_out, &mut host_out);
+            let _ = up.join();
+        });
+    }
+}
+
 fn serve() {
-    let lfd = listen();
+    std::thread::spawn(serve_display);
+    let lfd = listen(PORT);
     loop {
         let fd = unsafe { libc::accept(lfd, std::ptr::null_mut(), std::ptr::null_mut()) };
         if fd < 0 {
