@@ -1,0 +1,253 @@
+diff --git a/tests/invariants/src/appliance.rs b/tests/invariants/src/appliance.rs
+index a181261..e32317f 100644
+--- a/tests/invariants/src/appliance.rs
++++ b/tests/invariants/src/appliance.rs
+@@ -83,6 +83,8 @@ pub struct Spec {
+     /// The `[mail]` config, when the test's appliance sends account email.
+     /// None: no mail section, and nothing is sent.
+     pub mail: Option<Value>,
++    /// Where `magnus-computerd` listens, when the test has computers.
++    pub computer: Option<PathBuf>,
+ }
+ 
+ fn person(id: &str, groups: &[&str], roles: &[&str]) -> Person {
+@@ -113,6 +115,7 @@ impl Default for Spec {
+             secrets: vec![],
+             proactive: json!({ "on": false }),
+             mail: None,
++            computer: None,
+         }
+     }
+ }
+@@ -203,6 +206,11 @@ impl Spec {
+         self
+     }
+ 
++    pub fn computer(mut self, socket: &std::path::Path) -> Self {
++        self.computer = Some(socket.to_path_buf());
++        self
++    }
++
+     pub fn mail(mut self, v: Value) -> Self {
+         self.mail = Some(v);
+         self
+@@ -321,6 +329,9 @@ impl Appliance {
+             "people": spec.people,
+             "connectors": spec.connectors,
+         });
++        if let Some(socket) = &spec.computer {
++            config["computer"] = json!({ "socket": socket });
++        }
+         if let Some(mail) = spec.mail.clone() {
+             config["mail"] = mail;
+         }
+diff --git a/tests/invariants/src/computerd.rs b/tests/invariants/src/computerd.rs
+new file mode 100644
+index 0000000..491fb59
+--- /dev/null
++++ b/tests/invariants/src/computerd.rs
+@@ -0,0 +1,100 @@
++//! A real `magnus-computerd` for one test, with its own state directory. Needs
++//! passwordless sudo, KVM, the guest images, and a test process in the
++//! `magnus` group, the way the appliance runs.
++
++use crate::appliance::{bin, sandbox_assets};
++use std::io::{BufRead, BufReader, Write};
++use std::os::unix::net::UnixStream;
++use std::path::{Path, PathBuf};
++use std::process::{Child, Command, Stdio};
++use std::time::{Duration, Instant};
++
++const SOCKET_WAIT: Duration = Duration::from_secs(10);
++const CGROUPS: &str = "/sys/fs/cgroup/magnus-computers";
++
++pub struct Computerd {
++    child: Child,
++    state: PathBuf,
++    pub socket: PathBuf,
++}
++
++fn sudo_sh(script: &str) {
++    let out = Command::new("sudo").args(["-n", "sh", "-c", script]).output().expect("run sudo");
++    assert!(out.status.success(), "{script}: {}", String::from_utf8_lossy(&out.stderr));
++}
++
++impl Computerd {
++    pub fn start() -> Computerd {
++        let (kernel, rootfs) = sandbox_assets();
++        let name = uuid::Uuid::new_v4().simple().to_string();
++        let state = PathBuf::from(format!("/var/lib/magnus-invariant-{}", &name[..8]));
++        let socket = state.join("s.sock");
++        let group = Command::new("getent").args(["group", "magnus"]).output().expect("getent");
++        let gid = String::from_utf8_lossy(&group.stdout).split(':').nth(2).expect("the magnus group exists").to_string();
++        let config = format!(
++            "state_dir = \"{s}\"\nsocket = \"{k}\"\nsocket_gid = {gid}\njailer = \"/usr/local/bin/jailer\"\nfirecracker = \"/usr/local/bin/firecracker\"\nfirst_uid = 220000\nmax_computers = 8\nmax_live = 4\n[vm]\nvcpus = 1\nmemory_mib = 256\ncpu_percent = 100\npids_max = 128\nvolume_gib = 1\noverlay_gib = 1\n",
++            s = state.display(),
++            k = socket.display(),
++        );
++        sudo_sh(&format!(
++            "umask 022; mkdir -p {s}/images {s}/computers {s}/jail; cp -L --sparse=always {k} {s}/images/vmlinux; cp -L --sparse=always {r} {s}/images/rootfs.ext4; cat > {s}/config.toml <<'EOF'\n{config}EOF\n",
++            s = state.display(),
++            k = kernel.display(),
++            r = rootfs.display(),
++        ));
++        // Started by path, so the test can stop exactly this one.
++        let child = Command::new("sudo")
++            .args(["-n"])
++            .arg(bin("magnus-computerd"))
++            .args(["serve", "--config"])
++            .arg(state.join("config.toml"))
++            .stdin(Stdio::null())
++            .stdout(Stdio::null())
++            .spawn()
++            .expect("start computerd");
++        let started = Instant::now();
++        while UnixStream::connect(&socket).is_err() {
++            assert!(started.elapsed() < SOCKET_WAIT, "computerd did not listen: is this test in the magnus group?");
++            std::thread::sleep(Duration::from_millis(50));
++        }
++        Computerd { child, state, socket }
++    }
++
++    /// The processes of a computer, from the kernel.
++    pub fn procs(&self, id: &str) -> Vec<String> {
++        // Root-only, and a read that fails must not look like no processes.
++        let file = Path::new(CGROUPS).join(id).join("cgroup.procs");
++        let out = Command::new("sudo").args(["-n", "sh", "-c", &format!("[ ! -e {f} ] || cat {f}", f = file.display())]).output().expect("run sudo");
++        assert!(out.status.success(), "could not read {}: {}", file.display(), String::from_utf8_lossy(&out.stderr));
++        String::from_utf8_lossy(&out.stdout).split_whitespace().map(String::from).collect()
++    }
++
++    pub fn volume_exists(&self, id: &str) -> bool {
++        Command::new("sudo").args(["-n", "test", "-f"]).arg(self.state.join("computers").join(id).join("volume.ext4")).status().is_ok_and(|s| s.success())
++    }
++
++    fn ids(&self) -> Vec<String> {
++        let out = Command::new("sudo").args(["-n", "ls"]).arg(self.state.join("computers")).output().expect("list computers");
++        String::from_utf8_lossy(&out.stdout).split_whitespace().map(String::from).collect()
++    }
++
++    fn stop(&self, id: &str) {
++        let Ok(mut conn) = UnixStream::connect(&self.socket) else { return };
++        if writeln!(conn, "{{\"op\":\"stop\",\"id\":\"{id}\"}}").is_ok() {
++            let mut line = String::new();
++            let _ = BufReader::new(conn).read_line(&mut line);
++        }
++    }
++}
++
++impl Drop for Computerd {
++    fn drop(&mut self) {
++        // Only this test's computers: others on the machine are left alone.
++        for id in self.ids() {
++            self.stop(&id);
++        }
++        let _ = Command::new("sudo").args(["-n", "pkill", "-f"]).arg(self.state.join("config.toml")).status();
++        let _ = self.child.wait();
++        let _ = Command::new("sudo").args(["-n", "rm", "-rf"]).arg(&self.state).status();
++    }
++}
+diff --git a/tests/invariants/src/lib.rs b/tests/invariants/src/lib.rs
+index f40e097..d633c95 100644
+--- a/tests/invariants/src/lib.rs
++++ b/tests/invariants/src/lib.rs
+@@ -9,6 +9,7 @@
+ //! whatever the model decides.
+ 
+ pub mod appliance;
++pub mod computerd;
+ pub mod mcp;
+ pub mod model;
+ pub mod pg;
+@@ -16,6 +17,7 @@ pub mod scan;
+ pub mod web;
+ 
+ pub use appliance::{Api, Appliance, Spec};
++pub use computerd::Computerd;
+ pub use mcp::FakeMcp;
+ pub use model::{script, steps, tool, tools, Conversation, FakeModel, Reply};
+ pub use web::FakeWeb;
+diff --git a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+index 99ec630..664977a 100644
+--- a/tests/invariants/tests/inv1_boundary.rs
++++ b/tests/invariants/tests/inv1_boundary.rs
+@@ -1,11 +1,12 @@
+ //! Invariant 1: every external action passes one boundary that fails closed,
+-//! and the sandbox has no network.
++//! the per-run sandbox has no network, and a computer's only way out is the
++//! proxy, to declared destinations.
+ //!
+ //! Prevents: injected instructions exfiltrating data, and agents destroying
+ //! production data.
+ 
+ use magnus_invariants::{mcp, *};
+-use serde_json::json;
++use serde_json::{json, Value};
+ use std::{
+     sync::{
+         atomic::{AtomicBool, Ordering},
+@@ -227,3 +228,64 @@ async fn a_changed_tool_definition_is_disabled_and_hidden() {
+     assert_eq!(mail.effects("send"), 1, "a tool ran after its definition changed");
+     assert!(model.requests()[before..].iter().all(|c| !c.text().contains("attacker@evil.example")), "a changed, unapproved tool description reached the model");
+ }
++
++/// The volume's file, as a computer's owner reads it back.
++fn note() -> Value {
++    json!({ "path": "/workspace/note", "data_b64": "a2VlcCBtZQ==" })
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let mut app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let (alice, carol) = (app.api("alice"), app.api("carol"));
++
++    let (code, made) = alice.post("/v1/computers", json!({})).await;
++    assert_eq!(code, 200, "{made}");
++    let id = made["id"].as_str().unwrap().to_string();
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++    let (code, started) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!((code.as_u16(), started["status"].as_str()), (200, Some("running")), "{started}");
++    let (code, wrote) = alice.put(&at("/files"), note()).await;
++    assert_eq!(code, 200, "{wrote}");
++    let (code, _) = alice.post(&at("/grants"), json!({ "label": "send invoices" })).await;
++    assert_eq!(code, 200);
++
++    // Someone without the right is refused, and nothing changes.
++    let (code, _) = carol.post(&at("/kill"), json!({ "mode": "destroy" })).await;
++    assert!(code == 403 || code == 404, "another member killed the computer: {code}");
++    assert!(!computerd.procs(&id).is_empty(), "the refused kill stopped the computer");
++
++    // One step.
++    let (code, killed) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
++    assert_eq!(code, 200, "{killed}");
++    assert!(computerd.procs(&id).is_empty(), "a VM process survived the kill");
++    let path = at("/files?path=/workspace/note");
++    let (code, _) = alice.get(&path).await;
++    assert_eq!(code, 403, "the next action on a killed computer was not denied");
++    let (_, seen) = alice.get(&at("")).await;
++    assert_eq!(seen["grants"][0]["revoked"], true, "a grant survived the kill");
++    assert!(computerd.volume_exists(&id), "the kill lost the user volume");
++
++    // Nothing resumes by itself, including across a restart: this is the log.
++    app.restart().await;
++    let alice = app.api("alice");
++    tokio::time::sleep(Duration::from_secs(7)).await;
++    assert!(computerd.procs(&id).is_empty(), "a killed computer came back by itself");
++    let (_, seen) = alice.get(&at("")).await;
++    assert_eq!(seen["status"], "killed");
++    assert_eq!(seen["grants"][0]["revoked"], true, "a grant survived the kill");
++
++    // A rebuild, which a person asks for, shows the file and no grant.
++    let (code, rebuilt) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{rebuilt}");
++    let (code, read) = alice.get(&path).await;
++    assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some("a2VlcCBtZQ==")), "the kill lost the user volume: {read}");
++    let (_, seen) = alice.get(&at("")).await;
++    assert_eq!(seen["grants"][0]["revoked"], true, "a rebuild gave a grant back");
++
++    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy", "delete_volume": true })).await;
++    assert_eq!(code, 200);
++    assert!(!computerd.volume_exists(&id), "asking to delete the volume did not delete it");
++}

@@ -249,6 +249,17 @@ mod real_vms {
         wait_for_boot("a");
         assert!(read_note("a").contains("keep me"), "the stop lost the volume");
 
+        // A stopped computer's files, through a helper VM with only the volume.
+        ok(json!({"op":"stop","id":"b"}));
+        ok(json!({"op":"start_helper","id":"c"}));
+        wait_for_boot("c");
+        guest("c", json!({"op":"write","path":"/workspace/note","data_b64":"aGVscGVy"}));
+        guest("c", json!({"op":"sync"}));
+        ok(json!({"op":"stop","id":"c"}));
+        assert!(!Path::new(STATE).join("computers/c/overlay.ext4").exists(), "a helper VM made an overlay");
+        ok(json!({"op":"start","id":"b"}));
+        wait_for_boot("b");
+
         // The owner's kill needs neither Magnus nor the service, and sticks.
         drop(daemon);
         let said = cli("kill-all");

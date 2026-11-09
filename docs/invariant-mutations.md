@@ -820,3 +820,13 @@ Each patch applies with `git apply` to commit 87d75e3.
 +            if calls > budget.max_model_calls {
                  self.suspend_with_notice(
 ```
+
+## Agent computer
+
+Each test needs KVM, passwordless sudo, the guest images (`MAGNUS_GUEST_KERNEL`, `MAGNUS_GUEST_ROOTFS`) and a test process in the `magnus` group.
+
+| Inv | Test | Mutation | Where | Result |
+|---|---|---|---|---|
+| 1 | killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume | The kill revokes no grants | computer/service.rs, `kill_computer` | KILLED: "a grant survived the kill" |
+| 1 | killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume | A destroy always deletes the volume | computer/service.rs, `kill_computer` | KILLED: "the kill lost the user volume" |
+| 1 | killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume | The kill is recorded and the VM is left running | computer/service.rs, `kill_computer` | KILLED: "a VM process survived the kill" |
