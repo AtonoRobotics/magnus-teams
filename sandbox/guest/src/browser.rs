@@ -100,6 +100,10 @@ fn answer(req: &Value) -> Value {
     match req["op"].as_str() {
         Some("ping") => return json!({ "ok": true }),
         Some("sync") => {
+            // Closing the browser is what writes its session cookies out.
+            if let Err(e) = sidecar(&json!({ "op": "close_all" })) {
+                eprintln!("closing the browser before a stop: {e}");
+            }
             unsafe { libc::sync() };
             return json!({ "ok": true });
         }

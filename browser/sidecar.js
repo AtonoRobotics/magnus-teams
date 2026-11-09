@@ -65,9 +65,19 @@ function visiblePage(p) {
 // its text, and the snapshot then must not.
 const filled = new Set();
 const hide = text => [...filled].reduce((t, v) => t.split(v).join('(hidden)'), text);
+// Chromium drops a cookie with no expiry when it stops, unless it is set to
+// continue where it left off. A login is often exactly such a cookie.
+function keepSessionCookies() {
+  const file = path.join(vmProfile, 'Default', 'Preferences');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  let prefs = {};
+  try { prefs = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+  fs.writeFileSync(file, JSON.stringify({ ...prefs, session: { ...prefs.session, restore_on_startup: 1 } }));
+}
 async function vmPage(run) {
   let r = runs.get(run);
   if (!r) {
+    keepSessionCookies();
     const context = await chromium.launchPersistentContext(vmProfile, {
       executablePath, chromiumSandbox: false, ignoreHTTPSErrors: true,
       args: ['--disable-dev-shm-usage', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp', '--disable-gpu'],
@@ -184,7 +194,10 @@ async function handle(req) {
     epoch++;
     const b = browser;
     browser = undefined;
+    const open = [...runs.values()];
     runs.clear();
+    // Closing a profile's context is what writes its cookies out.
+    await Promise.all(open.map(r => r.context.close().catch(() => {})));
     if (b) await b.then(x => x.close()).catch(() => {});
     return { ok: true };
   }
