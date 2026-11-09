@@ -1,0 +1,1 @@
+A decision on an inbox card is now one write to the log, with its grant, its result for the waiting call and the run's resumption (#194). A crash at any point leaves all of it or none, and after a restart the run goes on and acts once. `tests/scratch/tests/approval_crash.rs` crashes the debug appliance after each write and restarts it.

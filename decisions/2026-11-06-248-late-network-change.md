@@ -1,0 +1,4 @@
+# A network change reported late is loaded again (#248)
+
+- After a load is interrupted by Chrome's error page, `desktop/tests/goto.mjs` waits up to 2 s (`LATE_FAILURE_MS`) for the page request's failure before deciding. Reason: in master's run 42164847174, Playwright rejected `page.goto` before reporting the request's failure. The helper from #225 saw no cause and failed the test, while the screenshot of the failed step showed the console loaded, Chrome having reloaded its error page by itself.
+- An error page whose request names no failure in that time is loaded again, within the same three tries. The final error says no failure was named. Reason: the cause is unknown, Chrome itself treats it as worth reloading, and a page that never loads still fails after three tries. A failure that names another cause (refused, and so on) is still reported at once, even when it arrives late.

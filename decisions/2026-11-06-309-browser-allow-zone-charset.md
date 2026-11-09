@@ -1,0 +1,3 @@
+# Browser allow check restricts zone characters (2026-11-06)
+
+- The zone test also checks the zone's characters: one or more of letters, digits, `-.:` (`config.rs`, `is_ipv6`). Reason: review of PR #308 showed Node rejects zones with `_`, space, `@` and others (probed on Node 24.21), so those entries passed load and crashed the sidecar at startup — the failure #242 exists to prevent. The review's stated class missed `:` (`fe80::1%eth0:8080` parses on Node), which stays accepted. Test: the rejected-character cases in `config::tests::a_bad_browser_allow_entry_fails_at_load_naming_itself` (fail on the charset-blind check).

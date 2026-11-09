@@ -1,0 +1,13 @@
+# Unblock publication of the workspace and composer correction
+
+Issue #516 was claimed before changes because master failed during Linux AppImage packaging, before tests or publication. The actual packager replay failed with HTTP 504 while fetching its runtime.
+
+The installer workflow now resolves a pinned, checksum-verified runtime before invoking Tauri. The helper retries downloads, checks cached bytes, and installs valid downloads atomically. The actual AppImage output command succeeded against the same isolated staging directory when given the verified runtime; cached resolution also succeeded with a curl executable that refuses downloads.
+
+The new corrupt-runtime regression passes and rejects fresh/cached invalid bytes without returning a path or retaining temporary downloads. Full release CI and post-merge publication remain required. This does not establish interactive Windows acceptance: Zero remains offline and the previous read-only capture task still needs cleanup when it reconnects. Latest published desktop at this writing is test.1030, which includes the workspace but predates the composer correction.
+
+The first PR CI run 42466631953 verified both Linux bundles, then exposed the same HTTP 504 for Tauri’s NSIS helper DLL. Tauri 2.10.4 also checks the actual NSIS.exe hash on Linux; without that file it deletes the DLL cache on every build. Prepare the official NSIS 3.13 executable and v0.5.3 helper DLL through pinned release asset IDs and SHA-256 verification. The executable’s SHA-1 matches the bundler’s required 6d45d4e8ccf18fe1fdac9164058f356102a2ecf2; its SHA-256 is 78e17de55fa013be7620487e85b6676c204c6c51d7ebabb74ee8a9cfce6252a0. This uses the real tool, no placeholder executable or skipped integrity check. Linux still uses its existing makensis to build the Windows installer.
+
+Fresh verified NSIS resolution and cached resolution with downloads disabled pass. All 21 release regression tests pass, including rejection of invalid NSIS bytes without replacing a cached tool or leaving staging files. The next full CI must establish actual Windows packaging and all application suites; interactive Windows acceptance still needs Zero online.
+
+Tracing the two-version update test found a separate real packaging entrypoint: desktop/tests/update-builds.sh starts in a later workflow step and does not inherit Installers’ exported environment. It now resolves the same verified runtime itself before building either AppImage, including standalone invocation. Run 42467121204 passed both platform installers and the application suite, then spent its remaining time in these update builds; its successor must test the complete corrected path.

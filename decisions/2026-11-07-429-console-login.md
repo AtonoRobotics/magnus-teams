@@ -1,0 +1,6 @@
+# The console signs in locally at its own endpoint (2026-11-07)
+
+- #429 slice 4 serves local console sign-in at `/auth/local` (form, username/password/code) beside the untouched OIDC `/auth/login`, with local step-up, guard and logout to match. Reason: a separate endpoint keeps the live provider flow byte-identical — dual mode by URL, no flag day — and the cutover slice deletes one side or the other.
+- The console checks credentials through the kernel (`POST /v1/admin/console-sign-in`, `GET /v1/admin/console-standing/{person)` over the control socket, on a console lockout counter. Reason: the kernel owns the one `Accounts` — lockouts, TOTP consumption and role reads stay unified instead of split-braining across two processes.
+- The kernel answers ok only for an active admin, alike otherwise, with `needs_code` for the rest of a good sign-in; verdicts are 200 data. Reason: the console renders the outcome, so transport errors stay reserved for real failures.
+- Local sessions keep the same server-side session, CSRF token, audit actions and stepped-up mechanics; only the checking endpoint and provider logout differ. Reason: the spec's "same session" requirement, with the smallest possible fork in the flow.

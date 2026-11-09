@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(/tests/invariants/**)",
+      "Write(/tests/invariants/**)",
+      "NotebookEdit(/tests/invariants/**)",
+      "Edit(/.claude/**)",
+      "Write(/.claude/**)",
+      "NotebookEdit(/.claude/**)"
+    ]
+  }
+}

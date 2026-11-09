@@ -1,0 +1,9 @@
+# #505 console signs in only against the local store, slice A (2026-11-08)
+
+- Deleted the console's OIDC login/callback/step-up routes and handlers, `verify`/`check_claims`/roles/`Pending` in `admin/auth.rs` (incl. orphaned `unb64`/`set_cookie`), the IdP probe in `admin/ops.rs`; Sign in and the step-up popup now target `/auth/local*` (`index.html`, `admin.js`).
+- Added `sign_in_refused` audit to refused local sign-ins (parity with the provider flow); guard's standing check and `session_ended` action already kernel-side.
+- Rewrote `desktop/tests/admin-sign-in.mjs` for the console's own form (username+password fields, wrong-credentials refusal text, step-up at `/auth/local/step-up`, AGAIN asserts the password is asked anew).
+- Rewrote `admin_sign_in.rs` local-only (no Keycloak): full session-rules flow with `person-status` disable/enable, login-binding replay test, kill-switch flow, repurposed AGAIN step-up test; converted the other nine console suites to `local_user` + password sign-in (Keycloak fixtures kept for the directory).
+- Debugging notes: `Spec::default()` already holds alice/bob/carol, so `local_user` tolerates person-add's refusal and passes lowercase ids with `--name` (`person-role` wants the exact id); person-status refuses the last admin, so test 1 keeps Bob as second admin; the console binary embeds `index.html` — rebuild bins after touching it. Clippy `never actually loops` in untouched `adapters.rs` is pre-existing (proven on the clean tree).
+- Verified: `admin_sign_in` 9/9 (4 browser, 5 sync), `admin_shell` 1/1 with the realm attached (31s), lib builds warning-free, all scratch targets compile. Eight converted suites (origin, certificate, connectors, knowledge, operations, people, security, users) run in CI.
+- Next: slice B (Users directory off the realm) and the remaining #429 deletion; file after this lands.

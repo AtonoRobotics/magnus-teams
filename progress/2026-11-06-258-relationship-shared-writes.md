@@ -1,0 +1,1 @@
+What a run files to the knowledge base or writes into an org document, while its context carries its person's relationship memory, is now readable by that person only, so one person's notes, messages and commitments cannot reach a colleague through shared knowledge (#258, from the behavior spec review). Sharing such an entry is a follow-up: the person's say.

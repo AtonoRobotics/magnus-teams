@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+# Brokered connectors' server images are static musl programs (brokered/build.sh).
+targets = ["x86_64-unknown-linux-musl"]

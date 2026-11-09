@@ -1,0 +1,5 @@
+# Delete disables, erases, then removes (2026-11-08, #529)
+
+- `admin_delete` orders deletion as disable → erase → remove-person, instead of removing the account first (#529). Reason: the remove-first order left a vanished person with orphaned content when the erasure failed; the disable-first order holds the last-admin guard before anything is erased (a refused deletion still erases nothing), and any later failure leaves a listed, disabled account whose deletion retries cleanly — the erasure finds nothing new and the removal completes.
+- A disabled account is never the last enabled admin, so the trailing `remove_person` only fails on the store itself. The answer shape is unchanged (`erased` + `account_removed`); config people still end listed and disabled.
+- Test: `deleting_a_local_person_erases_then_removes_them` (`admin_users.rs`) — invite Dee, accept, sign in, add a schedule, delete: account removed, one schedule and one session ended, gone from the list, no sign-in, dead session, `user_deleted` audited.

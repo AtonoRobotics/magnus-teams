@@ -1,0 +1,7 @@
+# Workspace controls and Markdown (2026-11-07, #461)
+
+- Integrated menus, tooltips, compact action rows, Feedback dialog and safe shared Markdown on the existing frontend path. Added read-only speech capability metadata and native/browser completion semantics. Updated installed-app selectors to the actual accessible menu controls and custom tooltip metadata.
+- `workspace_controls` real-appliance Chromium and pure shared-Markdown checks: 2/2 passed. Covers required Markdown structures, raw HTML/unsafe URL rejection, Copy code, compact/discoverable actions, recorded feedback, menu keyboard/focus/outside click and tooltip timing/suppression/removal. Rebuilt UI rerun also passed the new assertion that a refresh redraw preserves the open menu and its focused item.
+- Existing `chat_actions_review`: 5/5 passed; `chat_results`: 1/1 passed; `read_aloud`: 1/1 passed. Native app library tests: 8/8 passed, including real child-process completion/cancellation and executable capability checks. These use fixed providers as UI/API fixtures, not proof of agent reasoning.
+- Broader local `outcome` tests failed before browser assertions (`script exhausted`). The isolated worktree has no sandbox images and this host has no `/dev/kvm`; those sandbox-dependent checks require the repo's full CI environment. Their result remains outstanding, not presented as a pass.
+- Full remaining baseline is tracked by #462–#464, with appearance review transitions in #472; no intermediate PR defines the user outcome as complete.

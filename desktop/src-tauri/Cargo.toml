@@ -1,0 +1,47 @@
+[package]
+name = "magnus-desktop"
+description = "Magnus desktop app: a client of the appliance."
+version = "0.7.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+# Its own workspace: the app is built for Linux and Windows, apart from the appliance.
+[workspace]
+
+[lib]
+name = "magnus_desktop"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rcgen = "0.13"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-manual-roots", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "net"] }
+futures-util = "0.3"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+url = "2"
+dirs = "5"
+keyring = { version = "3", features = ["windows-native", "sync-secret-service", "crypto-rust"] }
+tauri-plugin-updater = "2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+window-vibrancy = "0.8"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

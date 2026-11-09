@@ -1,0 +1,22 @@
+[package]
+name = "magnus-calendar"
+description = "Google Calendar, brokered: an MCP server over Calendar's REST API, run in a microVM of its own for each person on the appliance."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "magnus-calendar"
+path = "src/main.rs"
+
+[dependencies]
+magnus-brokered-kit = { path = "../kit" }
+magnus-brokered-google = { path = "../google" }
+serde_json = "1"
+
+[dev-dependencies]
+toml = "0.8"
+
+[lints]
+workspace = true

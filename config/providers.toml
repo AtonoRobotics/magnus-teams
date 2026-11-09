@@ -1,0 +1,81 @@
+# Model adapters for the five supported providers. Append the ones you use to
+# the appliance config; `credential` names the vault secret that sign-in fills.
+# Endpoints and prices: docs/research/providers-and-tac.md (2026-10-27).
+
+[[adapters]]
+id = "claude"
+command = ["/opt/magnus/bin/magnus-adapter-anthropic"]
+[adapters.settings]
+credential = "claude_api_key"
+anthropic_version = "2023-06-01"
+
+[[adapters]]
+id = "glm"
+command = ["/opt/magnus/bin/magnus-adapter-openai"]
+[adapters.settings]
+credential = "glm_api_key"
+api = "chat"
+base_url = "https://api.z.ai/api/paas/v4"
+key_url = "https://z.ai/manage-apikey/apikey-list"
+auth = { kind = "api_key" }
+send_reasoning = true
+prices = { "glm-5" = { input = 1.4, output = 4.4, cache_read = 0.26 } }
+
+[[adapters]]
+id = "muse"
+command = ["/opt/magnus/bin/magnus-adapter-openai"]
+[adapters.settings]
+credential = "muse_api_key"
+api = "responses"
+base_url = "https://api.meta.ai/v1"
+key_url = "https://developers.meta.ai/"
+auth = { kind = "api_key" }
+include = ["reasoning.encrypted_content"]
+prices = { "muse-spark" = { input = 1.25, output = 4.25, cache_read = 0.15 }, "muse-wonder" = { input = 4.0, output = 20.0, cache_read = 0.2 } }
+
+# ChatGPT device sign-in, as `codex login --device-auth` does it. Subscription usage; no per-token price.
+[[adapters]]
+id = "codex"
+command = ["/opt/magnus/bin/magnus-adapter-openai"]
+[adapters.settings]
+credential = "codex_oauth"
+api = "responses"
+base_url = "https://chatgpt.com/backend-api/codex"
+# The model list is filtered by client version: send the current Codex CLI release.
+client_version_url = "https://registry.npmjs.org/@openai/codex/latest"
+client_version_refresh_s = 21600
+models_path = "/models?client_version={client_version}"
+max_tokens_field = false
+headers = { originator = "codex_cli_rs", "OpenAI-Beta" = "responses=experimental" }
+[adapters.settings.auth]
+kind = "oauth_openai_device"
+device_url = "https://auth.openai.com/api/accounts/deviceauth/usercode"
+poll_url = "https://auth.openai.com/api/accounts/deviceauth/token"
+verification_url = "https://auth.openai.com/codex/device"
+token_url = "https://auth.openai.com/oauth/token"
+redirect_uri = "https://auth.openai.com/deviceauth/callback"
+client_id = "app_EMoamEEZ73f0CkXaXp7hrann"
+account_claim = "/https:~1~1api.openai.com~1auth/chatgpt_account_id"
+account_header = "chatgpt-account-id"
+
+# xAI device sign-in with the Grok CLI's client (as `grok login --device-auth`).
+[[adapters]]
+id = "grok"
+command = ["/opt/magnus/bin/magnus-adapter-openai"]
+[adapters.settings]
+credential = "grok_oauth"
+api = "chat"
+base_url = "https://cli-chat-proxy.grok.com/v1"
+# The proxy refuses old Grok CLI versions: send the current stable release.
+client_version_url = "https://x.ai/cli/stable"
+client_version_refresh_s = 21600
+headers = { "x-grok-client-version" = "{client_version}" }
+models_path = "/models-v2"
+fixed_models = ["grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning"]
+prices = { "grok-4" = { input = 2.0, output = 6.0, cache_read = 0.5 } }
+[adapters.settings.auth]
+kind = "oauth_device"
+device_url = "https://auth.x.ai/oauth2/device/code"
+token_url = "https://auth.x.ai/oauth2/token"
+client_id = "b1a00492-073a-47ea-816f-4c329264a828"
+scopes = "openid profile email offline_access grok-cli:access api:access"

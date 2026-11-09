@@ -1,0 +1,1 @@
+Once a grant's budget for the period is spent, no paid model call of a task under it goes out: the verifier, the memory pass and knowledge extraction now check it too, through one check shared with the agent loop (#286, from Codex's review of #284).

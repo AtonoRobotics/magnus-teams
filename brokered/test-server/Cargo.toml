@@ -1,0 +1,19 @@
+[package]
+name = "magnus-brokered-test"
+description = "The brokered runtime's test server: a connector that reaches what it is told to, and one that leaks its token, so the runtime's tests see the microVM, the proxy and the token handling hold."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "magnus-brokered-test"
+path = "src/main.rs"
+
+[dependencies]
+magnus-brokered-kit = { path = "../kit" }
+libc = "0.2"
+serde_json = "1"
+
+[lints]
+workspace = true

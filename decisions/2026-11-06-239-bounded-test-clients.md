@@ -1,0 +1,3 @@
+# The console and Keycloak test helpers never wait forever (2026-11-06)
+
+- The HTTP clients in `tests/scratch/src/keycloak.rs` and `admin.rs` give up after `HTTP_PATIENCE` (2 minutes). Master's run 42152977968 lost an admin-console test to nextest's 600 s kill with only the console's start line to show; the same test passed in 71 s twenty minutes earlier. A hung request now fails the test at once and names it. Two minutes is above every answer these servers give: the console's own Keycloak calls time out at 30 s, and its slowest request (an invitation) makes three of them. Test: `the_console_and_keycloak_helpers_never_wait_forever_on_an_answer`.

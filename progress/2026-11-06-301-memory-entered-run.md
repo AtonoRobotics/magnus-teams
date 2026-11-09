@@ -1,0 +1,1 @@
+Whether a run carried its person's relationship memory is now recorded with each model call as it was sent, so removing a note while a call is out no longer lets the reply file it for everyone (#301, from Codex's review of #298).

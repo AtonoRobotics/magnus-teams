@@ -1,0 +1,3 @@
+# A bad browser allow entry fails at load naming itself (2026-11-06)
+
+- `Config::load` checks every `[browser] allow` entry as the sidecar reads it (`browser/destinations.js`, `parseAllow`): a name or address with or without `:port`, or a range; a bad one fails load with the entry and what was expected (`config.rs`, `browser_allow_ok`). Reason: an invalid entry stopped the sidecar at start and the appliance reported only "the browser sidecar did not start". A port is 1-5 digits as there; a prefix length must be digits the address has bits for, which also refuses malformed lengths the sidecar's numeric conversion would silently take. Test: `config::tests::a_bad_browser_allow_entry_fails_at_load_naming_itself` (fails without the check: the bad entries load).

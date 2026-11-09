@@ -1,0 +1,1 @@
+Removing a commitment now records its removal and its leaving in one write, so a stop between them can no longer leave its words behind with nothing to finish them (#293, from Codex's review of #291).

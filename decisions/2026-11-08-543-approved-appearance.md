@@ -1,0 +1,7 @@
+# Appearance returns to the approved model (2026-11-08, #543)
+
+- The owner reviewed the workspace specification on 2026-11-08: what was discussed was icons, tooltips, a collapsible icon rail and the layout change. The four named presets (Light, Dark, Ember, Corporate) and the machinery around them were spec drift, so they are removed.
+- Appearance is again Mode (Light / Dark / Match computer) × Material (Solid / Glass) × Accent × Motion, as approved on 2026-11-01 (U7, amended), with the Magnus Workspace design's palette. No Follow computer checkbox, Custom mode, automatic contrast substitution, or separate chrome/content token scopes.
+- Glass stays on the navigation chrome. The work panel now holds the deliverable itself, so it is a reading surface and is solid in every look.
+- Kept from the workspace work: navigation (expanded / rail) and conversation width are stored with the look; choices apply at once to open composed frames; native material changes stay serialized (#485); a failed save keeps the choice for the session and says so; forced colors, reduced transparency and missing blur draw Solid without changing the choice. Storage stays per appliance and person.
+- A record saved by the four-preset build reads back as its nearest mode: Follow computer becomes Match computer, Light/Corporate become Light, Dark/Ember become Dark, and a custom combination keeps its mode and accent. Nobody's saved choice is lost and no migration step runs.

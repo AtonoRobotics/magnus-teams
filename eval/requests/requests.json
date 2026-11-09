@@ -1,0 +1,22 @@
+[
+  {"id": "1", "text": "What's the difference between an LLC and an S-corp for a small company?"},
+  {"id": "2", "text": "Is it going to rain in Burbank this weekend?"},
+  {"id": "3", "text": "Find me three bookkeepers near me who work with small businesses and put their prices in a sheet."},
+  {"id": "4", "text": "I need a one-page flyer for a garage sale on Saturday, make it look nice."},
+  {"id": "5", "text": "Every Monday morning, give me a summary of anything new about AI regulation in California."},
+  {"id": "6", "text": "Look through my email and tell me if I forgot to answer anyone important this week."},
+  {"id": "7", "text": "Draft a polite reply to the last email from my landlord about the repair."},
+  {"id": "8", "text": "Send that reply.", "after": "7"},
+  {"id": "9", "text": "Figure out which of my subscriptions I could cancel to save money."},
+  {"id": "10", "text": "Plan a 3-day trip to San Diego for two people under $1,000 and make me an itinerary."},
+  {"id": "11", "text": "Compare the top 3 project management tools for a team of 5 and recommend one."},
+  {"id": "12", "text": "Turn the attached receipts into an expense report spreadsheet."},
+  {"id": "13", "text": "Every Friday, check if any of my invoices are overdue and remind me."},
+  {"id": "14", "text": "Book a dentist appointment for next week."},
+  {"id": "15", "text": "Pay the electric bill."},
+  {"id": "16", "text": "What did we work on last Tuesday?"},
+  {"id": "17", "text": "Make me a slide deck explaining our pricing to a new customer."},
+  {"id": "18", "text": "Research whether I need a business license to sell online in Los Angeles."},
+  {"id": "19", "text": "Keep an eye on the price of a Sony FX3 and tell me if it drops below $3,500."},
+  {"id": "20", "text": "Clean up my downloads folder."}
+]

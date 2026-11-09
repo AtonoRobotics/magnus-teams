@@ -1,0 +1,7 @@
+# Password recovery via email (2026-11-08, #533)
+
+- Kernel reset tokens: random 16B, stored hashed, one live per person, one-hour expiry, re-ask inside a minute answers alike and sends nothing; only active people with a known email mint. The request endpoint always answers `{ok: true}` — unknown addresses, quiet people and mail failures are indistinguishable, so addresses cannot be probed (owner: reset before signup; email like the old admin invite).
+- Confirming sets the password permanently, clears any TOTP enrollment (the email is the recovery factor — a lost phone must not lock recovery out), and ends every session (recorded as sign-outs). Single-use via consuming delete; a short password never burns the token.
+- Link base precedence: `[mail].link_base` → public pairing hostname → request Host. A Host-built link in production would let anyone mail the holder a link elsewhere (reset poisoning); tests use the Host fallback.
+- Mailer: new `mailer.rs` on lettre (rustls, matching the tree), `[mail]` host/port/tls (`starttls` default, `tls`, `none` for sinks)/username+credential (vault-held, never config)/from. No `[mail]` → nothing sent, warned in the log. Credentials pair username with a vault secret, mirroring the old status client.
+- The recovery page is kernel-served minimal HTML (`/reset`), not a desktop app screen: no app changes, HTTP-testable. People with no email on record cannot be reached — they see the admin/CLI, same as before.

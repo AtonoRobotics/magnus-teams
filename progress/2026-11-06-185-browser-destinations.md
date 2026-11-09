@@ -1,0 +1,3 @@
+# The browser opens only public websites (2026-11-06)
+
+The browser opened the appliance's own loopback, its LAN and the cloud metadata address, directly, through a redirect or from a page's own images, fetches and WebSockets. Every connection Chromium makes now goes through an egress proxy in the sidecar that resolves each name once, refuses loopback, link-local, private and reserved addresses (also written as IPv6), and connects to the address it checked; an internal site opens only when the owner lists it in `[browser] allow`. Six new tests in `tools.rs`, with a real Chromium against sites on this machine, fail on master.

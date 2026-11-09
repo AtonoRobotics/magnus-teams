@@ -1,0 +1,3 @@
+# Schedule edits are authorized as edits (2026-11-07)
+
+- `edit_schedule` passes `"edit_schedule"` (not `"cancel_schedule"`) to the ownership gate (#347). Reason: review P1 on #343 — a blanket string replacement landed the cancel op on the edit path, so an org forbidding edits would not stop them and one forbidding cancels would wrongly stop them. The HTTP PATCH endpoint and the conversation tool share the gate, so one word fixes both; the conversation path pins it. Test: `chat_controls.rs` `an_org_policy_tells_schedule_edits_from_cancels` (fails without: the edit goes through under the edit-forbid).

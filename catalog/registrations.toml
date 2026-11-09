@@ -1,0 +1,42 @@
+# Alpha Vector's own client with each provider: its client ID, which is
+# public (it is in every sign-in address a browser sees). The owner's
+# answers (2026-11-01). Client secrets are never here and never typed by
+# anyone into Magnus: Alpha Vector provisions them to the appliance until
+# the relay holds them (connectors spec rev 46).
+#
+# kind: "desktop" (an installed-app client: a local address on any port,
+# PKCE, and a secret at the exchange), "confidential" (a secret at the
+# exchange), "public" (no secret at all).
+
+[google]
+client_id = "49379713533-dsn4smd6ln2bmempp2afv187ua7d96ei.apps.googleusercontent.com"
+name = "Magnus Desktop"
+kind = "desktop"
+
+[microsoft]
+client_id = "60d920e7-11d2-422c-bf02-f630fa667e6f"
+# Multi-tenant: people from any organisation sign in through "organizations".
+tenant = "f1524b07-679e-443c-838b-594fb9e8576a"
+authority = "organizations"
+kind = "public"
+
+[github]
+client_id = "Ov23li1N51zzH3xdWmnZ"
+kind = "confidential"
+name = "AtonoRobotics OAuth app"
+
+[vercel]
+client_id = "cl_EllegSL81aZuZvXopuGRac7tkgnzQF3a"
+# Vercel's authorization server takes no client secret.
+kind = "public"
+name = "Magnus by Alpha Vector"
+
+[slack]
+client_id = "11834120966001.12476293303073"
+kind = "confidential"
+name = "Magnus (Veyra workspace)"
+
+[sentry]
+client_id = "197a5cfaccce1a5380164b4262ebb5515220a718e95759a4297d47e9cf45ea3"
+kind = "confidential"
+name = "Magnus (Alpha Vector organisation, not yet published)"

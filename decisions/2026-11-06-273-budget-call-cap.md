@@ -1,0 +1,7 @@
+# Model calls are worst-case priced against the budget (2026-11-06)
+
+- The kernel prices each loop call before asking: a new adapter `quote` request returns the prompt's and full output's dollars from the adapter's own prices, and what is left bounds the call's `max_tokens`, or stops the run for budget when the prompt alone does not fit (#273). Reason: `may_ask_model` checked only spent money, so any run could end above its limit by a full call's cost.
+- Prices stay in the adapters (a local quote, no provider round trip, no credential); the kernel decides stop/shorten/proceed. Reason: the adapters already own the price lists including owner overrides, so quoting there cannot drift; the kernel owns budget stops. A quote an adapter cannot give falls back to the full allowance: a down adapter charges nothing and the call fails through retries anyway.
+- The prompt is estimated at four characters a token over the exact outbound bytes. Reason: the developer views estimate unreported usage the same way; output is bounded exactly by `max_tokens`, so the residual is only token-density estimation on unusual text. Cache effects are ignored on both sides (quotes assume none).
+- One quote per step; each retry re-derives the clamp from freshly read spend. Reason: the prompt is fixed within a step while a charged failure moves what is left.
+- Verifier, memory, knowledge and listening calls are not worst-case gated here. Reason: they do not go through `may_ask_model`; covering them is a separate concern with its own tests (follow-up issue).

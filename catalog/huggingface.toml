@@ -1,0 +1,53 @@
+id = "huggingface"
+version = "1.0.0"
+name = "Hugging Face"
+summary = "Magnus can search Hugging Face for models, datasets, Spaces and papers, and read their details, yours included."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Hugging Face"
+category = "code"
+abilities = ["Find a model, dataset or Space for a job you describe", "Read a repository's card, files and details", "Find papers and Hugging Face's documentation"]
+asks = ["Know which Hugging Face account you signed in with", "See your profile: your username and picture", "See which Hugging Face tools you chose for assistants", "Read your models, datasets and Spaces, private ones too"]
+can = "Search and read models, datasets, Spaces, papers and documentation, your private repositories too"
+cannot = "Change your repositories or run jobs on your account (it asks only to read), or use a Space's app without asking you each time"
+letters = "Hf"
+tint = "#8A5A00"
+kind = "remote"
+endpoint = "https://huggingface.co/mcp"
+# Its tools a person may turn on in their Hugging Face settings publish
+# repositories and send what they are given to anyone's Space: what reaches
+# it may reach anyone. What comes back is the Hub's content, written by
+# anyone, and the person's private repositories.
+audience = "public"
+label = "private+untrusted"
+registration = "dcr"
+# Where a person removes Magnus at Hugging Face when Disconnect could not
+# revoke it (its sign-in server names no revocation endpoint).
+remove_access = "https://huggingface.co/settings/connected-applications"
+# Reading only, of the seven its metadata offers: `openid` and `profile`
+# name the account on the card; `read-mcp` its tool settings; `read-repos`
+# its private repositories. `contribute-repos`, `jobs` and `inference-api`,
+# which its write, job and Space tools need, are not asked for.
+scopes = ["openid", "profile", "read-mcp", "read-repos"]
+
+# The tools huggingface.co/mcp can list (huggingface/hf-mcp-server at
+# 1d48f44, read 2026-11-03). The first four it lists to anyone (checked by
+# tests/scratch/tests/huggingface.rs); the rest only to a person who turned
+# them on in their Hugging Face settings. A Space's own tools (`gr1_...`),
+# named after the Space each person picks, are named by no manifest and so
+# stay hidden.
+[tools]
+hf_whoami = "read"
+hub_repo_search = "read"
+hub_repo_details = "read"
+hf_fs = "read"
+hf_fs_write = "irreversible"
+create_repo = "financial"
+hf_jobs = "financial"
+dynamic_space = "irreversible"
+hf_sandbox = "financial"
+hf_sandbox_exec = "irreversible"
+hf_sandbox_fs = "irreversible"

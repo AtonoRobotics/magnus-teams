@@ -1,0 +1,38 @@
+id = "google-drive"
+version = "1.0.0"
+name = "Google Drive"
+summary = "Magnus can find and read your files, and create or copy files for you."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Google"
+category = "files"
+abilities = ["Find a file when you describe it", "Read documents, sheets and other files", "Create new files, or copies of yours"]
+asks = ["See and download your files", "Create files, and change the ones it made"]
+can = "Find, read and download your files, and create new files or copies"
+cannot = "Change or delete files it did not make, or share them"
+letters = "Dr"
+tint = "#1E7F5C"
+kind = "remote"
+endpoint = "https://drivemcp.googleapis.com/mcp/v1"
+# Its tools create and copy files in the person's own Drive (it cannot share).
+audience = "private"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "google"
+# Where a person removes Magnus at Google when Disconnect could not revoke it.
+remove_access = "https://myaccount.google.com/connections"
+scopes = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/drive.file"]
+
+# Exactly the tools the live server lists (checked by tests/scratch/tests/google.rs).
+[tools]
+search_files = "read"
+list_recent_files = "read"
+get_file_metadata = "read"
+get_file_permissions = "read"
+read_file_content = "read"
+download_file_content = "read"
+create_file = "reversible_write"
+copy_file = "reversible_write"

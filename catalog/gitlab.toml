@@ -1,0 +1,81 @@
+id = "gitlab"
+version = "1.0.0"
+name = "GitLab"
+summary = "Magnus can read your GitLab projects, issues, merge requests, code and pipelines, and open, comment on, commit to or merge them with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "GitLab"
+category = "code"
+abilities = ["Find an issue, merge request or file when you ask about it", "Read a merge request's changes and how its pipelines went", "Open and update issues and merge requests, comment and review, when you allow it", "Commit, merge and run pipelines, when you allow each one"]
+asks = ["Work in GitLab as you: read your projects, and change them when you allow it"]
+can = "Read your projects, issues, merge requests, code and pipelines, and open, comment on, commit to, merge or run them when you allow each one"
+cannot = "Change anything without asking you first, or answer GitLab Duo when it asks for your approval"
+letters = "Gl"
+tint = "#B8401A"
+kind = "remote"
+endpoint = "https://gitlab.com/api/v4/mcp"
+# Issues, comments, merge requests and commits reach each project's
+# members and, in a public project, anyone. What comes back is the
+# person's projects, written by others.
+audience = "public"
+label = "private+untrusted"
+registration = "dcr"
+# Where a person removes Magnus at GitLab when Disconnect could not revoke it.
+remove_access = "https://gitlab.com/-/user_settings/applications"
+# The one scope its metadata offers, and the one its tools take.
+scopes = ["mcp"]
+
+# The tools gitlab.com/api/v4/mcp lists with its default toolsets (meta,
+# core, merge_requests, work_items, repository, ci, and duo_agent_platform
+# for those who have it), from GitLab's tool reference (read 2026-11-03;
+# it lists them only after a sign-in). The opt-in toolsets (wikis,
+# code_security, orbit) and the unlisted older names are named by no
+# manifest and so stay hidden.
+[tools]
+get_mcp_server_version = "read"
+get_project = "read"
+get_user = "read"
+list_groups = "read"
+list_projects = "read"
+list_project_members = "read"
+list_todos = "read"
+search = "read"
+search_labels = "read"
+semantic_search = "read"
+get_pages_content = "read"
+get_merge_request = "read"
+list_merge_requests = "read"
+get_work_item = "read"
+get_work_item_types = "read"
+get_saved_view_work_items = "read"
+list_work_items = "read"
+list_branches = "read"
+get_repository_file = "read"
+list_repository_tree = "read"
+get_commit = "read"
+list_commits = "read"
+list_releases = "read"
+list_tags = "read"
+get_pipeline = "read"
+get_job = "read"
+get_artifact_file = "read"
+list_pipelines = "read"
+list_duo_agents_and_flows = "read"
+list_duo_sessions = "read"
+get_duo_session = "read"
+save_project = "irreversible"
+save_note = "irreversible"
+save_merge_request = "irreversible"
+save_merge_request_review = "irreversible"
+accept_merge_request = "irreversible"
+save_work_item = "irreversible"
+link_work_items = "irreversible"
+add_branch = "irreversible"
+fork_repository = "irreversible"
+add_commit = "irreversible"
+save_pipeline = "irreversible"
+start_duo_session = "financial"
+send_duo_session_input = "prohibited"

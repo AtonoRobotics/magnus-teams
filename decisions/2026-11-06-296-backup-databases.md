@@ -1,0 +1,7 @@
+# Backups hold the databases the appliance depends on (2026-11-06, #296)
+
+- `[backup] databases` lists the other Postgres databases the appliance depends on, as connection URLs; the first is its identity provider's (#290). Each backup holds a `pg_dump` (custom format, no owners or grants) of each, inside the same encrypted file. Reason: on 2026-11-06 the realm with everyone's sign-in was lost because its only copy lived in a deployment that was removed; the owner's answer was to back it up (on strix-beta, #297).
+- The restore check made as each backup is written also proves each dump reads back (`pg_restore --list`), and says how many did. Reason: a backup is only known good once it has been read back (K10).
+- `magnus restore` puts each back into the database `[backup] databases` names with the same name (`pg_restore --clean --if-exists --single-transaction`), while the log's transaction is still open, so a database that cannot be restored leaves the log empty and the restore can be run again. A backup that holds a database the config does not name is refused before anything is written.
+- The password is taken out of the URL and given to the tools in the environment, not on the command line, which others on the machine can read.
+- Nothing about Keycloak is in the code: which databases, and where, come only from the configuration (owner, 2026-11-06: nothing hardcoded). Test: `backup.rs` `a_database_the_appliance_depends_on_comes_back_from_the_backup` (fails without the change).

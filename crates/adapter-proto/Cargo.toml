@@ -1,0 +1,16 @@
+[package]
+name = "magnus-adapter-proto"
+description = "The contract between the Magnus kernel and model adapter processes."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "io-util", "rt", "sync", "macros", "fs"] }
+
+[lints]
+workspace = true

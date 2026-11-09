@@ -1,0 +1,4 @@
+# Person ids are lowercase-canonical (2026-11-08)
+
+- Every accounts read and write canonicalizes the person id to lowercase, and the JSON import lowercases keys on the way in (#470). Reason: sign-in lowercases at entry (API and console), so an `Ada` created with case became unreachable while silently shadowing `ada`; canonicalizing (rather than rejecting, the issue's other option) also heals config people with uppercase ids using backup passwords, and makes `Ada` then `ada` correctly collide. Display names keep their case (`--name`, defaulting from the unlowered input). No data migration: the account tables are not yet deployed anywhere and the live box holds only lowercase `samuel`, so the store is canonical from birth.
+- Test: `person_ids_are_lowercase_canonical` (fails without: `Ada` unreachable as `ada`) plus an uppercase key in the import fixture asserting stored keys lowercase. Lib 145/145; local_people and backup e2e green.

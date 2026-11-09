@@ -1,0 +1,3 @@
+# Task-list reactions follow their answer, scheduled or not (2026-11-07)
+
+- A reaction on started tasks goes with the turn's own answer, and a scheduled run's task-keyed entry resolves to its run (#353). Reason: two P2s on #351, both verified — the thread hides a tasks entry with its originating answer (`origin_turn`) while the run context kept the reaction, and scheduled runs name their entry `t:{task}` (the `from_run: None` fallback) which the runs-only lookup dropped. The entry producer is the contract both sides mirror. Test: `reactions.rs` `task_list_reactions_follow_their_originating_answer` (fails without: the scheduled reaction drops; then the hidden answer keeps its reaction).

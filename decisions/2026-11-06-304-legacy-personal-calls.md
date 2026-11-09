@@ -1,0 +1,3 @@
+# A call with a notes version carried its person (2026-11-06)
+
+- A `model_call` whose `relationship` (the notes version) is set carried the person's notes, so it counts as personal (`ContextRef::carried_person`) whatever its `personal` says. A call logged before #302 has no `personal` and reads as false; after an upgrade, a run with a pending knowledge or org-document write would have replayed as not personal and filed it for everyone. A call logged before #302 that carried only other context (recent messages, reactions, commitments) without notes is not recognised: its run is mid-write only across an upgrade, and the next call records it. Reason: Codex's review of #302; #304. Test: `events::tests::a_call_logged_before_personal_with_notes_carried_its_person`.

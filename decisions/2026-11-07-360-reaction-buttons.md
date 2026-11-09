@@ -1,0 +1,3 @@
+# Reaction buttons on every reactable entry (2026-11-07)
+
+- The app's entry toolbar offers great/annoying on every kind the server takes reactions on: answers, turns, results, started tasks, the five card kinds, and openers (#360, needs #359's gate for the opener round trip). Reason: the toolbar's `said` gate still named only answers, turns and results after #267/#351 opened the server side, so a person could not react to a card or a started-tasks entry at all. Test: `app-chat-actions.mjs` "react to started tasks" (fails without: no button on the tasks entry), plus a gate-parity probe over all 11 kinds.

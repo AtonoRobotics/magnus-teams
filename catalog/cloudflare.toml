@@ -1,0 +1,41 @@
+id = "cloudflare"
+version = "1.0.0"
+name = "Cloudflare"
+summary = "Magnus can answer from Cloudflare's documentation, look into how your Cloudflare accounts are set up, and run requests in your account with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Cloudflare"
+category = "code"
+abilities = ["Answer questions from Cloudflare's documentation", "Find the right Cloudflare request for a job", "Look into your accounts and their settings", "Make a change in your account, when you allow it"]
+asks = ["See your Cloudflare profile", "Stay connected until you disconnect", "See your accounts and their settings"]
+can = "Search Cloudflare's documentation and its requests, and run requests in your account when you allow each one"
+cannot = "Run anything in your account without asking you first, or reach more than you allow on Cloudflare's own page when you sign in"
+letters = "Cf"
+tint = "#B4530A"
+kind = "remote"
+endpoint = "https://mcp.cloudflare.com/mcp"
+# `execute` can change DNS, Workers and sites that anyone reaches: what
+# reaches it may reach anyone. What comes back is the account's own
+# configuration and data, some of it written by others.
+audience = "public"
+label = "private+untrusted"
+registration = "dcr"
+# Where a person removes Magnus at Cloudflare when Disconnect could not
+# revoke it (Manage OAuth authorizations).
+remove_access = "https://dash.cloudflare.com/?to=/profile/access-management/authorization"
+# The server's required scopes (cloudflare/mcp `REQUIRED_SCOPES`; its 401
+# names `user:read account:read`), its least: asking for no more leaves
+# Cloudflare's page on its minimal set. Each further scope a request needs
+# Cloudflare asks for when it is first needed, and the person approves it
+# by signing in again.
+scopes = ["user:read", "offline_access", "account:read"]
+
+# The tools mcp.cloudflare.com lists (cloudflare/mcp at 4938f2f, Code Mode,
+# its default; read 2026-11-03; it lists them only after a sign-in).
+[tools]
+search = "read"
+docs = "read"
+execute = "irreversible"

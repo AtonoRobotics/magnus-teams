@@ -1,0 +1,39 @@
+# The fast tier: runs on every push, on a throwaway hosted runner, and must stay
+# under five minutes once the build cache is warm. Heavy suites run as acceptance
+# against a release candidate, not here (see AGENTS.md, "How work lands").
+name: fast
+on:
+  push:
+  workflow_dispatch:
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: magnus_dev
+        ports:
+          - 54340:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: ci/ratchet.sh size
+      - run: ci/ratchet.sh clippy
+      - run: cargo test --workspace --lib --bins

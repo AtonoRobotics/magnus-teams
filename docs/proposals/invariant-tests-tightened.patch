@@ -1,0 +1,277 @@
+diff -ru a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+--- a/tests/invariants/tests/inv1_boundary.rs	2026-10-28 10:01:20.623253200 -0700
++++ b/tests/invariants/tests/inv1_boundary.rs	2026-10-28 10:01:20.636761724 -0700
+@@ -68,39 +68,50 @@
+ #[tokio::test(flavor = "multi_thread")]
+ async fn action_is_not_executed_when_its_intent_cannot_be_recorded() {
+     let mail = mcp::mail().start().await;
+-    let db_admin: Arc<tokio::sync::Mutex<Option<(String, String)>>> = Arc::default();
+-    let revoked = Arc::new(AtomicBool::new(false));
+-    let (a, r) = (db_admin.clone(), revoked.clone());
+-    let model = FakeModel::start(script(move |c| {
+-        let (a, r) = (a.clone(), r.clone());
+-        async move {
+-            match c.turn() {
+-                0 => contract_unchecked("send a note", "note sent"),
+-                1 => {
+-                    if !r.swap(true, Ordering::SeqCst) {
+-                        let (url, role) = a.lock().await.clone().expect("db known");
+-                        let admin = magnus_invariants::pg::connect(&url).await;
+-                        admin
+-                            .batch_execute(&format!("REVOKE INSERT ON public.events FROM {role}"))
+-                            .await
+-                            .expect("revoke");
+-                    }
+-                    tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }))
+-                }
+-                _ => fail("stopping"),
+-            }
+-        }
+-    }))
++    let model = FakeModel::start(steps(vec![
++        contract_unchecked("send a note", "note sent"),
++        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
++        fail("stopping"),
++    ]))
+     .await;
+     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model)
+         .await;
+-    *db_admin.lock().await = Some((app.db.admin_url(), app.db.kernel_role.clone()));
++    // The log refuses exactly this action's intent; everything before it,
++    // the model's reply and the boundary's decision, is recorded.
++    app.db
++        .admin()
++        .await
++        .batch_execute(
++            "CREATE FUNCTION public.refuse_intent() RETURNS trigger LANGUAGE plpgsql AS
++               $$ BEGIN RAISE EXCEPTION 'the log refuses this intent'; END $$;
++             CREATE TRIGGER refuse_send_intent BEFORE INSERT ON public.events FOR EACH ROW
++               WHEN (NEW.kind = 'intent' AND NEW.body->>'tool' = 'mail__send')
++               EXECUTE FUNCTION public.refuse_intent();",
++        )
++        .await
++        .expect("install the trigger");
+     let alice = app.api("alice");
+     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
+ 
+     alice.submit("Email bob a hello.").await;
+-    eventually("the model asked for the send", PATIENCE, || async { revoked.load(Ordering::SeqCst).then_some(()) }).await;
+-    never("the send executed while the log refused writes", Duration::from_secs(10), || async {
++    let db = app.db.admin_url();
++    eventually("the boundary allowed the send", PATIENCE, || {
++        let db = db.clone();
++        async move {
++            let c = magnus_invariants::pg::connect(&db).await;
++            let n: i64 = c
++                .query_one(
++                    "SELECT count(*) FROM public.events WHERE kind = 'decision' AND body->>'tool' = 'mail__send' AND body->>'outcome' = 'allow'",
++                    &[],
++                )
++                .await
++                .unwrap()
++                .get(0);
++            (n > 0).then_some(())
++        }
++    })
++    .await;
++    never("the send executed without a recorded intent", Duration::from_secs(10), || async {
+         !mail.calls_to("send").is_empty()
+     })
+     .await;
+diff -ru a/tests/invariants/tests/inv3_event_log.rs b/tests/invariants/tests/inv3_event_log.rs
+--- a/tests/invariants/tests/inv3_event_log.rs	2026-10-28 10:01:20.624253207 -0700
++++ b/tests/invariants/tests/inv3_event_log.rs	2026-10-28 10:01:20.636813591 -0700
+@@ -7,11 +7,7 @@
+ use magnus_invariants::{mcp, *};
+ use serde_json::{json, Value};
+ use std::{
+-    collections::BTreeSet,
+-    sync::{
+-        atomic::{AtomicBool, Ordering},
+-        Arc,
+-    },
++    collections::{BTreeMap, BTreeSet},
+     time::Duration,
+ };
+ 
+@@ -192,11 +188,12 @@
+     assert_eq!(mail.effects("send"), 1);
+ }
+ 
++/// Every crash lands while a post is in flight: its effect has happened and
++/// its response is lost. The resend after each restart must be recognized.
+ #[tokio::test(flavor = "multi_thread")]
+ async fn repeated_crashes_never_repeat_an_effect() {
+     let chat = mcp::chat().start().await;
+     let model = FakeModel::start(script(|c| async move {
+-        tokio::time::sleep(Duration::from_millis(300)).await;
+         match c.turn() {
+             0 => contract_checked("post four updates", "chat__list_posts", json!({}), "/count", json!(4)),
+             n @ 1..=4 => tool("chat__post", json!({ "channel": "team", "text": format!("update {n}") })),
+@@ -211,24 +208,34 @@
+     .await;
+     let alice = app.api("alice");
+     assert!(alice.put_policy("org", &org_policy(&permit_execute("chat__post"))).await.is_success());
+-    let id = alice.submit("Post four updates to the team channel.").await;
+ 
+-    let stop = Arc::new(AtomicBool::new(false));
+-    for _ in 0..6 {
+-        let wait = 200 + (uuid::Uuid::new_v4().as_u128() % 1300) as u64;
+-        tokio::time::sleep(Duration::from_millis(wait)).await;
+-        if alice.task(&id).await["status"] == "completed" {
+-            stop.store(true, Ordering::SeqCst);
+-            break;
+-        }
++    // A held call is one that took effect; the app answers a recognized
++    // resend without holding it, so each hold catches the next new post.
++    let mut hold = chat.hold("post");
++    let id = alice.submit("Post four updates to the team channel.").await;
++    for n in 1..=4 {
++        tokio::time::timeout(PATIENCE, hold.received()).await.unwrap_or_else(|_| panic!("post {n} never reached the app"));
++        app.kill().await;
++        let next = (n < 4).then(|| chat.hold("post"));
++        hold.release();
+         app.restart().await;
++        if let Some(h) = next {
++            hold = h;
++        }
+     }
+     let t = alice.wait_settled(&id).await;
+     assert_eq!(t["status"], "completed", "{t}");
+-    let posts = chat.world()["posts"].as_array().unwrap().clone();
+-    let texts: Vec<_> = posts.iter().map(|p| p["text"].as_str().unwrap().to_string()).collect();
++    assert_eq!(app.starts(), 5);
++    let mut keys: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
++    for c in chat.calls_to("post") {
++        keys.entry(c.args["text"].as_str().unwrap().to_string()).or_default().push(c.idempotency_key().map(String::from));
++    }
+     for n in 1..=4 {
+-        let k = texts.iter().filter(|t| **t == format!("update {n}")).count();
+-        assert_eq!(k, 1, "update {n} was posted {k} times after {} starts: {texts:?}", app.starts());
++        let text = format!("update {n}");
++        let k = chat.world()["posts"].as_array().unwrap().iter().filter(|p| p["text"] == text.as_str()).count();
++        assert_eq!(k, 1, "{text} was posted {k} times across four crashes");
++        let sent = &keys[&text];
++        assert!(sent.len() >= 2, "{text} was not resent after its crash: {sent:?}");
++        assert!(sent.iter().all(|k| k.is_some() && *k == sent[0]), "the resends of {text} did not carry one idempotency key: {sent:?}");
+     }
+ }
+diff -ru a/tests/invariants/tests/inv6_policy.rs b/tests/invariants/tests/inv6_policy.rs
+--- a/tests/invariants/tests/inv6_policy.rs	2026-10-28 10:01:20.625253214 -0700
++++ b/tests/invariants/tests/inv6_policy.rs	2026-10-28 10:01:20.636847294 -0700
+@@ -75,15 +75,11 @@
+     assert!(alice.open_items(&next, "approval").await.is_empty(), "the accepted policy did not apply");
+ }
+ 
++/// The second send is identical to the first, so only the approval having
++/// been used stops it.
+ #[tokio::test(flavor = "multi_thread")]
+ async fn a_one_action_approval_covers_one_action() {
+-    let model = FakeModel::start(steps(vec![
+-        contract_unchecked("say hi twice", "said"),
+-        send("first"),
+-        send("second"),
+-        fail("done"),
+-    ]))
+-    .await;
++    let model = FakeModel::start(steps(vec![contract_unchecked("say hi twice", "said"), send("hello"), send("hello"), fail("done")])).await;
+     let (mail, app) = mail_app(&model).await;
+     let alice = app.api("alice");
+     let id = alice.submit("Email bob twice.").await;
+@@ -99,7 +95,7 @@
+         async move { me.open_items(&tid, "approval").await.into_iter().find(|i| i["id"] != fid.as_str()) }
+     })
+     .await;
+-    assert_eq!(mail.effects("send"), 1, "one approval covered two actions");
++    assert_eq!(mail.effects("send"), 1, "one approval covered two identical actions");
+ }
+ 
+ #[tokio::test(flavor = "multi_thread")]
+diff -ru a/tests/invariants/tests/inv7_verify.rs b/tests/invariants/tests/inv7_verify.rs
+--- a/tests/invariants/tests/inv7_verify.rs	2026-10-28 10:01:20.627253227 -0700
++++ b/tests/invariants/tests/inv7_verify.rs	2026-10-28 10:01:20.636879705 -0700
+@@ -4,7 +4,7 @@
+ //! Prevents: agents declaring completion early and marking work done untested.
+ 
+ use magnus_invariants::{mcp, *};
+-use serde_json::json;
++use serde_json::{json, Value};
+ 
+ fn crm_spec(crm: &FakeMcp) -> Spec {
+     Spec::default().app("crm", crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")])
+@@ -106,7 +106,11 @@
+         .await
+         .is_success());
+     let t = alice.wait_settled(&rejected).await;
+-    assert_eq!(t["status"], "failed", "a rejected review must go back to the agent, which decides: {t}");
++    assert_eq!(t["status"], "failed", "{t}");
++    // The rejection went back to the agent, and the agent ended the run.
++    let told = model.requests().into_iter().any(|c| c.last_results().iter().any(|r| r.text.contains("too short")));
++    assert!(told, "the rejection never reached the agent; the kernel ended the run itself");
++    assert_eq!(t["summary"], "review rejected", "the run did not end on the agent's own decision: {t}");
+ }
+ 
+ #[tokio::test(flavor = "multi_thread")]
+@@ -133,3 +137,62 @@
+     assert_eq!(crm.effects("update_record"), 0, "a check changed the world");
+     assert_ne!(t["status"], "completed");
+ }
++
++fn ids(c: &Value) -> Vec<String> {
++    c["criteria"].as_array().map(|a| a.iter().map(|x| x["id"].as_str().unwrap_or_default().to_string()).collect()).unwrap_or_default()
++}
++
++/// The agent starts the work, then swaps its failing criterion for one that
++/// already holds. The swap goes to the person, old and new side by side;
++/// kept, the task never reaches Done; approved, the new criterion counts.
++#[tokio::test(flavor = "multi_thread")]
++async fn criteria_changed_after_work_begins_need_an_approved_contract_change() {
++    for approve in [false, true] {
++        let crm = mcp::crm().start().await;
++        let trivial = tool(
++            "task_contract",
++            json!({
++                "goal": "look at record 42",
++                "assumptions": [],
++                "irreversible_actions": [],
++                "criteria": [{
++                    "id": "c2",
++                    "description": "record 42 exists",
++                    "check": { "tool": "crm__get_record", "input": { "id": "42" }, "expect": [{ "pointer": "/id", "equals": "42" }] }
++                }]
++            }),
++        );
++        let model = FakeModel::start(steps(vec![
++            closed_42_contract(),
++            // Work begins, but record 42 stays open.
++            tool("crm__update_record", json!({ "id": "42", "fields": { "note": "looked at it" } })),
++            trivial,
++            complete("done"),
++            fail("could not close it"),
++        ]))
++        .await;
++        let app = Appliance::start(crm_spec(&crm), &model).await;
++        let alice = app.api("alice");
++        let id = alice.submit("Close CRM record 42.").await;
++
++        let item = alice.wait_item(&id, "contract_change").await;
++        assert_eq!(ids(&item["details"]["old"]), ["c1"], "the card does not show the frozen criteria: {item}");
++        assert_eq!(ids(&item["details"]["new"]), ["c2"], "the card does not show the proposed criteria: {item}");
++        let t = alice.task(&id).await;
++        assert_ne!(t["status"], "completed", "the run reached Done before the person decided");
++        assert_eq!(ids(&t["contract"]), ["c1"], "the change took effect before the person decided");
++
++        let decision = if approve { "approve" } else { "reject" };
++        assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": decision })).await.is_success());
++        let t = alice.wait_settled(&id).await;
++        assert_eq!(crm.world()["records"]["42"]["status"], "open");
++        if approve {
++            assert_eq!(t["status"], "completed", "an approved change did not count: {t}");
++            assert_eq!(ids(&t["contract"]), ["c2"]);
++            assert_eq!(t["contract_approved_by"], "person:alice");
++        } else {
++            assert_ne!(t["status"], "completed", "the run reached Done on criteria nobody approved: {t}");
++            assert_eq!(ids(&t["contract"]), ["c1"], "a declined change took effect");
++        }
++    }
++}

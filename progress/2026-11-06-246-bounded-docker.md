@@ -1,0 +1,1 @@
+The invite test's mail container is started and removed with a three-minute limit on each docker command. A stalled container engine now fails the test and names the command, instead of holding it silently for 600 s (#246).

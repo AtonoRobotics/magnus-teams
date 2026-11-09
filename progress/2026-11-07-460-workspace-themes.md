@@ -1,0 +1,10 @@
+# Workspace appearance baseline (2026-11-07, #460)
+
+- Full owner-requested version 1.2 implementation is tracked by #460–#464; this PR handles the first integrated concern: appearance tokens, scoped preferences, Appearance controls, open-frame inheritance and host fallback. The remaining issues still govern required completion.
+- Added all four exact preset tables, chrome/content scopes, 92% chrome glass, accessible custom fallback, forced colors and shorter motion; preserved legacy migration input and accent choices. Appearance applies immediately, preserves focused choice and reports local persistence failures.
+- `node desktop/tests/theme-check.mjs`: green, including the new v2 checks for all preset/material pairs, extreme black/white glass backdrops, 72 legacy combinations, invalid-width clamping, identity isolation, custom contrast fallback and storage failure. Current master lacks the tested presets/v2 API.
+- Browser/installed appearance tests now cover the new preset choices. Real-appliance browser test is being run after rebuilding the binary that embeds the UI; the first local attempt used the preexisting stale binary. Installed-host results and CI remain pending until recorded below.
+
+- Rebuilt the embedded frontend with `cargo build -p magnus-invariants --bins`. Real-appliance Chromium `cargo test -p magnus-scratch --test looks -- --nocapture`: 2/2 passed, covering all eight preset/material combinations, Appearance controls, closed-panel behavior and live frame theme changes with unchanged body/scroll. Screenshots captured under `/tmp/magnus-ui-shots`; Corporate Glass inspected. `--test appearance`: 1/1 passed. Tests use the existing scripted provider as a UI fixture, not evidence of agent reasoning.
+
+- Full CI run 42427138935 passed 706/707 and failed the unrelated proactive quiet-hours fixture after it crossed midnight. The cause was read and fixed in merged #476 (#474); this synchronization records the prerequisite and requests a fresh combined checkout check without merging master into this branch. Appearance transition findings are separately tracked in #472 per the repository review-fix rule.

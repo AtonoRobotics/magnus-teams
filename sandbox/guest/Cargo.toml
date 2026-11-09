@@ -1,0 +1,19 @@
+[package]
+name = "magnus-guest"
+description = "PID 1 and command agent inside the sandbox microVM."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "magnus-guest"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+libc = "0.2"
+serde_json = "1"
+
+[lints]
+workspace = true

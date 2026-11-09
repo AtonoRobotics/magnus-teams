@@ -1,0 +1,4 @@
+# The code was written dense, with long lines. This keeps it close to that
+# so formatting changes little. Changing it reformats the tree in one commit.
+use_small_heuristics = "Max"
+max_width = 180

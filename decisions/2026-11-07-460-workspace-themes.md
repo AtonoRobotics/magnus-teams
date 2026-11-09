@@ -1,0 +1,7 @@
+# Four workspace presets with scoped compatibility (2026-11-07, #460)
+
+- Version 1.2 of the owner-approved workspace specification governs the UI. Add named Light, Dark, Ember and Corporate presets to the existing plain JavaScript theme engine; retain legacy mode/accent combinations as Custom. No framework or authorization change.
+- Store version:2 preferences at `magnus.ui.v2.<appliance>.<person>`, using the application's existing identity scope. Migrate the old `magnus.appearance` record without changing it. Resolve identity before applying that person's choice; a storage failure retains the new selection in memory and tells the person it was not saved.
+- Give chrome and content separate aliases so Corporate's white content does not inherit navy chrome's pale text. Glass applies to chrome at 92% opacity with 20px blur; content remains opaque. Reduced transparency, unsupported blur and forced colors select Solid without replacing the saved preference.
+- Update only CSS variables in existing composed frames. Their sandbox, document data, download bytes, scroll and selection remain intact. Ignore delayed native-material responses from older theme changes.
+- Preserve legacy custom values; derive accessible effective foregrounds or use the corresponding preset where the chosen contrast fails, and disclose adjustment. Follow computer explicitly selects Light/Dark; selecting a preset disables it.

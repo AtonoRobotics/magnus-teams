@@ -1,0 +1,8 @@
+# Unsent messages are kept for the session only (2026-11-08, #544)
+
+- The owner reviewed the workspace specification on 2026-11-08. The durable draft journal (UX-07) was spec drift, so it is removed: drafts are no longer written to the device. The "Draft saved / Draft not saved on this device" status, "Discard local draft", the "Draft: …" navigation entries, several independent drafts per conversation, frozen copies of sent messages with "Edit rejected message", and upload recovery after a restart are all removed. This supersedes the 2026-11-07 continuity decision (#463) on these points.
+- Kept: what is typed and attached stays with its conversation, in memory, while the person moves around the app. The app's periodic redraws used to wipe input, which was a real defect. There is one draft per conversation and one per project's new conversation, so returning to New conversation brings back what was typed there.
+- A send clears only what it sent. Text typed or files attached while the send was in flight stay. The first send of a new conversation carries anything left over into the new conversation.
+- A failed send leaves the message in the box. A lost reply says the outcome is not confirmed, refreshes the conversation and never sends again by itself (UX-08). A rejection shows the server's reason.
+- Also kept: IME-safe Enter, upload chips with retry and remove (removing never deletes the shared file), unavailable-file marking, the model pick held only under its default, reading anchors, and focus and history on opening and closing work.
+- Signing out forgets every unsent message, and another person signing in on the same computer starts with none. Old `#/draft/…` links open a new conversation.

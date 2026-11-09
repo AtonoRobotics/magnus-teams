@@ -1,0 +1,37 @@
+[package]
+name = "magnus-invariants"
+description = "The eight product invariants, tested from outside the appliance. Changes need the owner's approval."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The appliance under test, built from the kernel library so that tests can
+# start, kill and restart it as a real process.
+[[bin]]
+name = "magnus-appliance"
+path = "src/bin/appliance.rs"
+
+# The Anthropic model adapter, a separate process the kernel talks to.
+[[bin]]
+name = "magnus-adapter-anthropic"
+path = "src/bin/adapter_anthropic.rs"
+
+[dependencies]
+magnus = { path = "../../crates/magnus" }
+magnus-adapter-anthropic = { path = "../../crates/adapter-anthropic" }
+axum = "0.8"
+base64 = "0.22"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = "0.7"
+toml = "0.8"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[lints]
+workspace = true

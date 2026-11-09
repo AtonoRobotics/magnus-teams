@@ -1,0 +1,5 @@
+# The activity-updates test waits three minutes for its observation (2026-11-08, #512)
+
+- `activity_updates_record_only_presented_items_and_retry_failures` waits up to 180s (was 60s) for the proactive review's observation. Reason: master went red at 12c13e3 with three full-budget timeouts, all inside a window running 3-4 full desktop suites at once on the shared runners; the same test passes in 2.7s on a quiet box (#483's green run) and ~6s here idle and CPU-saturated, with and without #504. The review starts at the first sweep, so the wait is purely contention delay — the assertion is unchanged, only its budget fits CI reality.
+- Not #504: the tree delta green-to-red is only accounts.rs canonicalization, but the test passes on master with it whenever the box is quiet; not #445 (provider-key race outside working hours — green and red runs share the same hours).
+- A `needsMe()==2` and a missing Activity link seen mid-diagnosis were a stale `magnus-appliance` binary after a branch switch (the UI is embedded): rebuild bins, rerun, both green. No product change.

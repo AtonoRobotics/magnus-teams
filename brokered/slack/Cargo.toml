@@ -1,0 +1,21 @@
+[package]
+name = "magnus-slack"
+description = "Slack, brokered: an MCP server over Slack's Web API, run in a microVM of its own for each person on the appliance."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "magnus-slack"
+path = "src/main.rs"
+
+[dependencies]
+magnus-brokered-kit = { path = "../kit" }
+serde_json = "1"
+
+[dev-dependencies]
+toml = "0.8"
+
+[lints]
+workspace = true

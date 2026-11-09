@@ -1,0 +1,3 @@
+# Serialize the existing native appearance effect
+
+CSS tokens and preferences still apply immediately. Native setMaterial calls are serialized and pending choices coalesce to the latest concrete effect (glass, mode and tint). Completion metadata is accepted only for the currently desired effect. Changes to navigation/width do not repeat an unchanged native operation, avoiding expensive blur/material work during dragging. A return to an effect already in flight consumes its success without sending the same command again. Host failure retains the drawn fallback; a subsequent different choice remains operable. No bridge, permission or native material API is replaced.

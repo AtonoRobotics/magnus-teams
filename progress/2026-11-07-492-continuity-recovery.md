@@ -1,0 +1,11 @@
+# Continuity recovery and deliberate scrolling (#482, #492)
+
+The full #463 feature is carried from the failed #479 onto current master. Two review findings are corrected: late rejection updates a remounted composer before navigation can overwrite recovered text, and recovered thread drafts retain their entry when acknowledgement leaves newer edits/attachments.
+
+Real-appliance Chromium continuity suite: 2/2 passed. Added navigation/remount rejection, accepted secondary draft with newer text and an actual uploaded attachment, restart and named-entry reopening. A controlled observer-delivery test failed with the old animation-frame scroll suppression and passes when only the restored offset is ignored. Existing distinct drafts, uploads, IME, uncertain send/restart, work focus/history, anchor, unavailable storage and sign-out tests remain intact.
+
+Real installed Linux/WebKit: completed task links passed after accepting review under Needs you and after adding later conversation content. The test uses actual stored task/message state and real native clicks. It is an additional focused check; the original KVM-dependent release flow that failed in CI 42438300477 still must pass in full CI. Hit-test diagnostics preserve evidence if a native click remains blocked; no forced script click or retry masks the behavior.
+
+Merged the actual conflicting #495 controls dependency into this branch, retaining both reader-position logic and streamed safe Markdown, menu/focus behavior, tooltips, drafts, capabilities and bridge changes. The archived failed run identifies WebKit clicking a task link under the conversation header; the landed real-target scroll adapter is now present. Combined browser suites passed: chat_results plus continuity and controls (5 tests total). Combined real native message actions, composed-content/image/link/clipboard/security and completed-work navigation also passed. The lazy image fixture now deliberately reveals its actual reading target before asserting decode; it does not impose forced latest scrolling on a reader. The exact KVM-dependent original flow remains required in the new CI run.
+
+The additional after-acknowledgement secondary-draft timing finding remains tracked separately by #496, including exact failure text/selection recovery; it is not silently considered resolved by this merge.

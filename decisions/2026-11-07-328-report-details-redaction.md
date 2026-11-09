@@ -1,0 +1,3 @@
+# The outcome report's details redact with its summary (2026-11-07)
+
+- The raw-log redaction for disagreement report items now redacts `details.outcome` beside the summary. Reason: review of #327 (P1) — the item duplicates a clean run's free-text outcome into its details, which another developer could read through `/v1/dev/runs/{id}/log` past the `disagreement_outcome` redaction. The inspector never shows details, so only this view leaked. Test: `a_developer_reading_another_persons_run_sees_no_note_or_disagreement_words` now settles with a free-text outcome carrying a canary (fails without: the canary in the raw log).

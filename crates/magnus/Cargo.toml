@@ -1,0 +1,74 @@
+[package]
+name = "magnus"
+description = "The Magnus kernel: event log, execution boundary, run loop."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "magnus"
+path = "src/main.rs"
+
+# The admin console, its own process (admin console spec).
+[[bin]]
+name = "magnus-admin"
+path = "src/bin/magnus-admin.rs"
+
+[dependencies]
+magnus-adapter-proto = { path = "../adapter-proto" }
+# The schema check and vsock ports a brokered connector's server shares with the appliance.
+magnus-brokered-kit = { path = "../../brokered/kit" }
+anyhow = "1"
+argon2 = "0.5"
+async-trait = "0.1"
+axum = "0.8"
+base64 = "0.22"
+cedar-policy = "4"
+# The places of a policy's problems, which Cedar reports as diagnostics.
+miette = "7"
+chacha20poly1305 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
+hex = "0.4"
+html2text = "0.14"
+libc = "0.2"
+rand = "0.8"
+rcgen = "0.13"
+ring = "0.17"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+stacker = "0.1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4"] }
+toml = "0.8"
+# The org context bundle's OKF frontmatter (a maintained fork of serde_yaml).
+serde_yaml_ng = "0.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+percent-encoding = "2"
+uuid = { version = "1", features = ["v4"] }
+semver = "1"
+tar = "0.4"
+flate2 = "1"
+minisign-verify = "0.3"
+chrono-tz = "0.10"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "hostname"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

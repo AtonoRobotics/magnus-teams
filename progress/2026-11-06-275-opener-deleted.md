@@ -1,0 +1,1 @@
+Deleting the conversation Magnus opened at a cold start or a first app connection no longer starts it again at the next sign-in, and the trash lists it by its title instead of the appliance's instruction (#275, from Codex's review of #274).

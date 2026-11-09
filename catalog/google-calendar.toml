@@ -1,0 +1,53 @@
+id = "google-calendar"
+version = "1.0.0"
+name = "Google Calendar"
+summary = "Magnus can read your calendars and events, find times that work, and add or change events with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Google"
+category = "email"
+abilities = ["Tell you what is on your calendar", "Find a time that works", "Add, move or cancel events, and answer invitations, when you allow it"]
+asks = ["See and change your calendars and events, and when you are free"]
+can = "Read your calendars and events, find times when people are free, and add, change, cancel or answer events (it asks you before each)"
+cannot = "Share a calendar or change who can see it"
+letters = "Ca"
+tint = "#2F5BD3"
+# Brokered (Google's hosted Calendar server refuses Magnus with 403, as
+# Gmail's did): Alpha Vector's server over Calendar's API
+# (`brokered/calendar`), its image named by digest and built from this
+# commit by `brokered/build.sh`; each person's runs in a microVM of its own
+# that reaches only Google's API host, and people sign in at Google.
+kind = "brokered"
+endpoint = "sha256:46d5073c34cdf9388ccd361c1e34ac82e02bddafd55864182830a5ffe2588f3a"
+hosts = ["www.googleapis.com"]
+issuer = "https://accounts.google.com"
+# Events and replies reach their attendees, who may be anyone.
+audience = "public"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "google"
+# Where a person removes Magnus at Google when Disconnect could not revoke it.
+remove_access = "https://myaccount.google.com/connections"
+# `calendar` alone: the one Calendar scope on the project's consent screen
+# (AtonoRobotics/magnus-claude#117), and among the scopes of every method
+# the tools use (Calendar API reference, each method's Authorization
+# scopes: calendarList.list, events.*, freebusy.query). It can also share
+# a calendar (acl.insert); no tool does.
+scopes = ["https://www.googleapis.com/auth/calendar"]
+
+# Exactly the tools its image lists (`every_tool_is_classed_in_the_manifest`).
+[tools]
+list_calendars = "read"
+list_events = "read"
+search_events = "read"
+get_event = "read"
+suggest_time = "read"
+# Each change is sent to the people invited, unless the call says not, and
+# a sent invitation or cancellation cannot be called back.
+create_event = "irreversible"
+update_event = "irreversible"
+delete_event = "irreversible"
+respond_to_event = "irreversible"

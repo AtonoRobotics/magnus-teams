@@ -1,0 +1,38 @@
+[package]
+name = "magnus-scratch"
+description = "Debugging scenarios built on the invariant harness. Not a contract; free to change."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+magnus-invariants = { path = "../invariants" }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
+axum = "0.8"
+toml = "0.8"
+tempfile = "3"
+chrono = "0.4"
+base64 = "0.22"
+sha2 = "0.10"
+futures = "0.3"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+hmac = "0.12"
+sha1 = "0.10"
+rcgen = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+
+[dev-dependencies]
+# The kernel itself, for a test that drives one part of it alone (gmail_contract.rs).
+magnus = { path = "../../crates/magnus" }
+flate2 = "1"
+minisign = "0.7"
+tar = "0.4"
+tokio-postgres = "0.7"
+
+[lints]
+workspace = true

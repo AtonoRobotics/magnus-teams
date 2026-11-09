@@ -1,0 +1,7 @@
+{
+  "name": "magnus-browser",
+  "private": true,
+  "description": "Browser sidecar for the Magnus kernel: Chromium on the host, driven over a Unix socket.",
+  "main": "sidecar.js",
+  "dependencies": { "playwright-core": "1.48.2" }
+}

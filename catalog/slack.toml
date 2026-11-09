@@ -1,0 +1,54 @@
+id = "slack"
+version = "1.0.0"
+name = "Slack"
+summary = "Magnus can search and read your Slack messages, and send one as you when you allow it."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests). `letters` and `tint` draw its tile until Slack's own mark is
+# in its listing.
+publisher = "Slack"
+category = "email"
+abilities = ["Find a message when you ask about it", "Read a channel, a direct message or a thread", "Send a message as you, when you allow it"]
+asks = ["Search your messages", "Read messages in public channels you are in", "See the public channels you are in", "Read messages in private channels you are in", "See the private channels you are in", "Read your direct messages", "See who you message directly", "Read your group direct messages", "See your group direct messages", "Send messages as you", "See people's names"]
+can = "Search and read channels and direct messages you are in, and send a message as you when you allow it"
+cannot = "Delete a message, start a channel, or read a conversation you are not in"
+letters = "Sl"
+tint = "#4A154B"
+# Brokered, the same way as Gmail: Alpha Vector's server over Slack's Web
+# API (`brokered/slack`), its image named by digest. Each person's runs in
+# a microVM that reaches only slack.com. People sign in at Slack. The
+# authorization server that publishes its metadata is Slack's MCP issuer;
+# its token endpoint returns a user token for the Web API. The app has not
+# opted into PKCE (doing so is irreversible and would make the client
+# public), so the sign-in does not send a code challenge. Slack matches
+# the redirect exactly, and a distributed app's redirects are https, so
+# Slack is given the appliance's public callback. The browser is sent on
+# to the desktop, which is listening at `handoff`.
+kind = "brokered"
+endpoint = "sha256:5367476875fd8f3359cb5872c2777c27128d020e410a4e483dfd41c5679715bc"
+hosts = ["slack.com"]
+issuer = "https://mcp.slack.com"
+pkce = false
+redirect_uri = "https://magnus.pyrallon.ai/oauth/slack/callback"
+handoff = "http://127.0.0.1:17321/callback"
+# A message reaches everyone in the conversation. What comes back was
+# written by other people.
+audience = "public"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "slack"
+# Where a person removes Magnus at Slack when Disconnect could not revoke it.
+remove_access = "https://my.slack.com/apps"
+# User token only, the least the tools call (Slack Web API, each method's
+# scopes): search.messages, conversations.list, conversations.history,
+# conversations.replies, chat.postMessage, users.info. No bot scopes: a
+# bot token would post as the app, not as the person.
+scopes = ["search:read", "channels:history", "channels:read", "groups:history", "groups:read", "im:history", "im:read", "mpim:history", "mpim:read", "chat:write", "users:read"]
+
+[tools]
+search_messages = "read"
+list_conversations = "read"
+read_conversation = "read"
+read_thread = "read"
+# Sent where other people see it, and not taken back.
+post_message = "irreversible"
+lookup_user = "read"

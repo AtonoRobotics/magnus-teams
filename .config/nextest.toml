@@ -1,0 +1,26 @@
+# cargo-nextest (.github/workflows/desktop.yml, "Unit, invariant and scratch
+# tests"). Every test has a time limit: a test that hangs is killed and
+# fails by name, and the run goes on. Unbounded, one hung sign-in held the
+# shared runner until the job's 150 minutes ran out (runs 41877670131,
+# 41902140293) and every pull request behind it waited.
+[profile.default]
+# Eight tests at once, not thirty-two: each scratch test drives an
+# appliance with docker and sometimes a browser, and the 32-core build box
+# is shared by two CI jobs, the developers working on it, and the test
+# services. Uncapped, overlapping suites paged 16 GB to swap and held load
+# past 100 until sign-ins and clicks timed out (#294).
+test-threads = 8
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+# The admin console's browser suites and the microVM connector suites are
+# the long ones: they passed in up to 454 s and 290 s with two runs on the
+# build box at once.
+[[profile.default.overrides]]
+filter = 'binary_id(/^magnus-scratch::(admin_|brokered)/)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# CI's: every failure is reported, not only the first.
+[profile.ci]
+fail-fast = false
+test-threads = 8
+slow-timeout = { period = "60s", terminate-after = 5 }

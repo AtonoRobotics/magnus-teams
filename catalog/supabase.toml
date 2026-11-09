@@ -1,0 +1,60 @@
+id = "supabase"
+version = "1.0.0"
+name = "Supabase"
+summary = "Magnus can look into your Supabase projects, their tables, logs, advice and functions, and query your data with your approval, never changing it."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Supabase"
+category = "code"
+abilities = ["Describe a project's tables, migrations and extensions", "Read your logs and Supabase's security and performance advice", "Query your data, read only, when you allow each query", "Look up your edge functions and Supabase's documentation"]
+asks = ["See your organisations and who is in them", "See your projects and their settings", "See your databases' tables, migrations and advice", "Run queries on your databases, which Magnus runs read only", "Read your projects' logs", "See your projects' keys and secrets", "See your edge functions and their code", "See your projects' branches"]
+can = "Read your projects, tables, migrations, logs, advice and edge functions, and run read-only queries when you allow each one"
+cannot = "Change your databases, deploy functions, or create, pause or delete projects or branches"
+letters = "Sb"
+tint = "#1F7A4F"
+kind = "remote"
+# Read only (`read_only=true`): every query runs as Supabase's read-only
+# database user, and its tools that change anything are not listed.
+endpoint = "https://mcp.supabase.com/mcp?read_only=true"
+# Nothing it is sent is kept, but a query can call a database extension
+# that reaches any address: what reaches it may reach anyone. What comes
+# back is the organisation's own data, written by its apps' users.
+audience = "public"
+label = "private+untrusted"
+registration = "dcr"
+# Where a person removes Magnus at Supabase (its sign-in server names no
+# revocation endpoint): the organisation's apps, authorized ones among them.
+remove_access = "https://supabase.com/dashboard/org/_/apps"
+# What its read-only tools call (Supabase's Management API `x-oauth-scope`,
+# read 2026-11-03), of the thirteen its metadata offers. Every query, even
+# read only (and listing tables or extensions), goes through
+# `POST /database/query`, which takes `database:write`.
+scopes = ["organizations:read", "projects:read", "database:read", "database:write", "analytics:read", "secrets:read", "edge_functions:read", "environment:read"]
+
+# The tools mcp.supabase.com lists read only with its default feature groups
+# (Supabase's tool reference and supabase-community/supabase-mcp at f36f74a,
+# read 2026-11-03; it lists them only after a sign-in). Its tools that change
+# anything are not listed in read-only mode, and storage is off by default.
+[tools]
+search_docs = "read"
+list_organizations = "read"
+get_organization = "read"
+list_projects = "read"
+get_project = "read"
+get_cost = "read"
+confirm_cost = "read"
+list_tables = "read"
+list_extensions = "read"
+list_migrations = "read"
+execute_sql = "irreversible"
+query_logs = "read"
+get_advisors = "read"
+get_project_url = "read"
+get_publishable_keys = "read"
+generate_typescript_types = "read"
+list_edge_functions = "read"
+get_edge_function = "read"
+list_branches = "read"

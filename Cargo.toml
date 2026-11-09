@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/magnus", "crates/adapter-proto", "crates/adapter-anthropic", "crates/adapter-openai", "sandbox/guest", "brokered/*", "tests/invariants", "tests/scratch"]
+
+[workspace.package]
+edition = "2021"
+version = "0.2.5"
+license = "UNLICENSED"
+publish = false
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

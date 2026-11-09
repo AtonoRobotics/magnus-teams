@@ -1,0 +1,52 @@
+id = "sentry"
+version = "1.0.0"
+name = "Sentry"
+summary = "Magnus can look into your errors, traces, logs and replays in Sentry, and resolve or assign issues with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Sentry"
+category = "code"
+abilities = ["Find the errors behind a problem you describe", "Read an issue, its events, traces, logs and replays", "Ask Sentry's own debugger for the cause of an issue, when you allow it", "Resolve, assign or ignore issues, when you allow it"]
+asks = ["See your organisation's projects, issues, events, traces and logs", "Resolve, assign and comment on issues"]
+can = "Search and read your issues, events, traces, logs, replays and profiles, and update issues or run Sentry's other operations when you allow each one"
+cannot = "Change anything in Sentry without asking you first, or reach more than you allow on Sentry's own page when you sign in"
+letters = "Se"
+tint = "#362D59"
+kind = "remote"
+endpoint = "https://mcp.sentry.dev/mcp"
+# Issue changes reach the organisation's members, and `execute_sentry_tool`
+# can make alert rules that notify any address: what reaches it may reach
+# anyone. What comes back is the organisation's private error data, written
+# by its apps and their users.
+audience = "public"
+label = "private+untrusted"
+registration = "dcr"
+# Where a person removes Magnus at Sentry when Disconnect could not revoke it.
+remove_access = "https://sentry.io/settings/account/api/authorizations/"
+# What its tools need (sentry-mcp `toolDefinitions.json`): `org:read` for the
+# reads, `event:write` for `update_issue`. Sentry grants by the skills the
+# person ticks on its own page (Inspect and Seer by default), not by these.
+scopes = ["org:read", "event:write"]
+
+# The tools mcp.sentry.dev lists (getsentry/sentry-mcp `TOP_LEVEL_TOOL_NAMES`,
+# read 2026-11-03; it lists them only after a sign-in, each when a skill the
+# person granted covers it). Its other operations run through
+# `execute_sentry_tool`.
+[tools]
+find_organizations = "read"
+find_projects = "read"
+search_issues = "read"
+search_errors = "read"
+search_logs = "read"
+search_traces = "read"
+search_metrics = "read"
+search_profiles = "read"
+search_replays = "read"
+get_sentry_resource = "read"
+search_sentry_tools = "read"
+update_issue = "irreversible"
+analyze_issue_with_seer = "irreversible"
+execute_sentry_tool = "irreversible"

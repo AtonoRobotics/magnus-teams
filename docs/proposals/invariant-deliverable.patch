@@ -1,0 +1,16 @@
+diff --git a/tests/invariants/src/lib.rs b/tests/invariants/src/lib.rs
+index 4a46d3e..f40e097 100644
+--- a/tests/invariants/src/lib.rs
++++ b/tests/invariants/src/lib.rs
+@@ -83,8 +83,10 @@ pub fn contract_unchecked(goal: &str, criterion: &str) -> Reply {
+     )
+ }
+ 
++/// The example tasks' results are actions, so the deliverable is the record
++/// of what was done: the summary, as one text component.
+ pub fn complete(summary: &str) -> Reply {
+-    model::tool("task_complete", json!({ "summary": summary }))
++    model::tool("task_complete", json!({ "summary": summary, "deliverable": [{ "type": "text", "text": summary }] }))
+ }
+ 
+ pub fn fail(reason: &str) -> Reply {
