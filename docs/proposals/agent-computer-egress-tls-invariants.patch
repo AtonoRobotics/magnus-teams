@@ -1,0 +1,81 @@
+diff --git a/tests/invariants/tests/desktop_native.rs b/tests/invariants/tests/desktop_native.rs
+index fc6a8df..8c2a523 100644
+--- a/tests/invariants/tests/desktop_native.rs
++++ b/tests/invariants/tests/desktop_native.rs
+@@ -77,7 +77,7 @@ async fn the_installed_app_runs_frames_connects_this_computer_and_carries_a_take
+     let out = tokio::process::Command::new("node")
+         .arg(root().join("desktop/tests/app-native.mjs"))
+         .env("MAGNUS_WEBDRIVER", &wd)
+-        .env("MAGNUS_APP", "/home/samuel/magnus-teams/desktop/src-tauri/target/release/magnus-desktop")
++        .env("MAGNUS_APP", std::env::var_os("MAGNUS_DESKTOP_APP").unwrap_or_else(|| root().join("desktop/src-tauri/target/release/magnus-desktop").into()))
+         .env("MAGNUS_COMPUTER", &computer)
+         .env("MAGNUS_FOLDER", &folder)
+         .envs(std::env::var("MAGNUS_SHOTS").ok().map(|s| ("MAGNUS_SHOTS", s)))
+diff --git a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+index 8b9c108..ecb60ff 100644
+--- a/tests/invariants/tests/inv1_boundary.rs
++++ b/tests/invariants/tests/inv1_boundary.rs
+@@ -470,6 +470,63 @@ async fn a_name_or_redirect_to_private_infrastructure_is_refused() {
+     assert!(other.hits().is_empty(), "the proxy reached private infrastructure through a name that changed");
+ }
+ 
++/// A site behind TLS, with a certificate for `name` from a new authority.
++struct TlsSite {
++    dir: tempfile::TempDir,
++    address: String,
++    _server: tokio::process::Child,
++}
++
++fn openssl(dir: &std::path::Path, args: &[&str]) {
++    let out = std::process::Command::new("openssl").args(args).current_dir(dir).output().expect("run openssl");
++    assert!(out.status.success(), "openssl {args:?}: {}", String::from_utf8_lossy(&out.stderr));
++}
++
++async fn tls_site(name: &str, body: &str) -> TlsSite {
++    let dir = tempfile::tempdir().unwrap();
++    let d = dir.path();
++    openssl(d, &["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.pem", "-subj", "/CN=a test authority", "-days", "2"]);
++    openssl(d, &["req", "-newkey", "rsa:2048", "-nodes", "-keyout", "site.key", "-out", "site.csr", "-subj", &format!("/CN={name}")]);
++    std::fs::write(d.join("ext"), format!("subjectAltName=DNS:{name}\n")).unwrap();
++    openssl(d, &["x509", "-req", "-in", "site.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", "site.pem", "-days", "2", "-extfile", "ext"]);
++    std::fs::write(d.join("file"), body).unwrap();
++    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
++    let server = tokio::process::Command::new("openssl")
++        .args(["s_server", "-accept", &port.to_string(), "-cert", "site.pem", "-key", "site.key", "-WWW", "-quiet"])
++        .current_dir(d)
++        .stdout(std::process::Stdio::null())
++        .stderr(std::process::Stdio::null())
++        .kill_on_drop(true)
++        .spawn()
++        .unwrap();
++    let address = format!("127.0.0.1:{port}");
++    eventually("the TLS site to listen", std::time::Duration::from_secs(10), || {
++        let address = address.clone();
++        async move { tokio::net::TcpStream::connect(address).await.ok().map(|_| ()) }
++    })
++    .await;
++    TlsSite { dir, address, _server: server }
++}
++
++/// The proxy opens TLS to the real site itself, and checks who answered.
++#[tokio::test(flavor = "multi_thread")]
++async fn a_computers_https_goes_out_as_verified_tls_or_not_at_all() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let trusted = tls_site("registry.test", "a file over verified tls").await;
++    let stranger = tls_site("mirror.test", "a file from a stranger").await;
++    let public = json!({ "registry.test": [trusted.address], "mirror.test": [stranger.address] });
++    let upstream_ca = trusted.dir.path().join("ca.pem");
++    let spec = Spec::default().computer_options(json!({ "public_hosts": public, "registries": ["registry.test", "mirror.test"], "upstream_ca": upstream_ca }));
++    let (_app, id) = computer_with_network(spec, &computerd, &model).await;
++    let fetch = |host: &str| computerd.root_shell(&id, &format!("curl -s -m 20 -x {GUEST_PROXY} https://{host}/file; echo; echo rc=$?"));
++
++    let carried = fetch("registry.test");
++    assert!(carried.contains("a file over verified tls"), "the proxy did not carry TLS to a site it trusts: {carried}");
++    let refused = fetch("mirror.test");
++    assert!(!refused.contains("a file from a stranger"), "the proxy took an answer from a site it could not verify: {refused}");
++}
++
+ #[tokio::test(flavor = "multi_thread")]
+ async fn a_computer_reaches_only_declared_destinations_even_as_root() {
+     let computerd = Computerd::start();
