@@ -12,10 +12,14 @@ fn arg(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
+/// A run's nested tool calls are deep futures: the default 2 MiB overflowed and
+/// took the whole process with it.
+const WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
+
 pub fn main() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_env("MAGNUS_LOG").unwrap_or_else(|_| "info".into())).with_writer(std::io::stderr).init();
     let args: Vec<String> = std::env::args().collect();
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build().expect("tokio runtime");
     let r = rt.block_on(async {
         match args.get(1).map(String::as_str) {
             Some("migrate") => migrate(&args).await,
