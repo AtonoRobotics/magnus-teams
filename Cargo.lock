@@ -1676,6 +1676,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "magnus-computerd"
+version = "0.2.5"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "magnus-gmail"
 version = "0.2.5"
 dependencies = [

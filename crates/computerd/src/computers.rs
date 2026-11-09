@@ -1,0 +1,437 @@
+//! The computers themselves. Every path comes from the state directory and a
+//! validated id. What is running is read from the kernel's cgroups, never
+//! from a file inside a jail, which the VM's own user could change.
+
+use crate::config::{Config, BASE_IMAGE, FIRECRACKER_NAME, KERNEL_IMAGE};
+use crate::id::ComputerId;
+use anyhow::{bail, ensure, Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::fs::File;
+use std::os::unix::fs::{chown, DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+pub const CGROUP_ROOT: &str = "/sys/fs/cgroup/magnus-computers";
+const PARENT_CGROUP: &str = "magnus-computers";
+const MKFS: &str = "/usr/sbin/mkfs.ext4";
+/// Firecracker's own memory, on top of the guest's.
+const VMM_OVERHEAD_MIB: u64 = 256;
+const CPU_PERIOD_US: u64 = 100_000;
+const MAX_OPEN_FILES: u32 = 4096;
+const BYTES_PER_MIB: u64 = 1 << 20;
+const BYTES_PER_GIB: u64 = 1 << 30;
+const START_WAIT: Duration = Duration::from_secs(10);
+const START_SETTLE: Duration = Duration::from_millis(300);
+const KILL_WAIT: Duration = Duration::from_secs(10);
+/// A stuck start must not hold up a kill for long.
+const LOCK_WAIT: Duration = Duration::from_secs(5);
+const POLL_INTERVAL: Duration = Duration::from_millis(20);
+const VM_CONFIG: &str = "vm.json";
+const VSOCK: &str = "v.sock";
+const VOLUME: &str = "volume.ext4";
+const OVERLAY: &str = "overlay.ext4";
+/// The guest's existing name for its writable data drive.
+const VOLUME_LABEL: &str = "workspace";
+const OVERLAY_LABEL: &str = "overlay";
+const GUEST_CID: u32 = 3;
+const BOOT_ARGS: &str = "console=ttyS0 reboot=k panic=1 pci=off quiet loglevel=3 init=/sbin/magnus-guest";
+
+#[derive(Serialize, Deserialize)]
+struct Meta {
+    uid: u32,
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum State {
+    Stopped,
+    Running,
+    Paused,
+}
+
+pub struct Computers {
+    cfg: Config,
+    cgroups: PathBuf,
+}
+
+impl Computers {
+    pub fn new(cfg: Config) -> Computers {
+        Computers { cfg, cgroups: PathBuf::from(CGROUP_ROOT) }
+    }
+
+    fn state(&self, rest: &str) -> PathBuf {
+        self.cfg.state_dir.join(rest)
+    }
+
+    fn computer(&self, id: &ComputerId) -> PathBuf {
+        self.state("computers").join(id.as_str())
+    }
+
+    /// Where the jailer builds this computer's chroot.
+    fn jail(&self, id: &ComputerId) -> PathBuf {
+        self.state("jail").join(FIRECRACKER_NAME).join(id.as_str())
+    }
+
+    pub fn jail_root(&self, id: &ComputerId) -> PathBuf {
+        self.jail(id).join("root")
+    }
+
+    pub fn vsock(&self, id: &ComputerId) -> PathBuf {
+        self.jail_root(id).join(VSOCK)
+    }
+
+    fn cgroup(&self, id: &ComputerId) -> PathBuf {
+        self.cgroups.join(id.as_str())
+    }
+
+    fn halted_marker(&self) -> PathBuf {
+        self.state("halted")
+    }
+
+    /// One change at a time, across this service and the owner's kill switch.
+    fn lock(&self) -> Result<File> {
+        let file = File::options().create(true).write(true).truncate(false).mode(0o600).open(self.state("lock")).context("open the lock")?;
+        file.lock().context("take the lock")?;
+        Ok(file)
+    }
+
+    /// The lock if it can be had soon. A kill goes ahead without it.
+    fn lock_for_kill(&self) -> Option<File> {
+        let file = File::options().create(true).write(true).truncate(false).mode(0o600).open(self.state("lock")).ok()?;
+        let started = Instant::now();
+        while started.elapsed() < LOCK_WAIT {
+            if file.try_lock().is_ok() {
+                return Some(file);
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
+        None
+    }
+
+    fn meta(&self, id: &ComputerId) -> Result<Meta> {
+        let text = std::fs::read_to_string(self.computer(id).join("meta.json")).with_context(|| format!("no computer {}", id.as_str()))?;
+        Ok(serde_json::from_str(&text)?)
+    }
+
+    pub fn list(&self) -> Result<Vec<ComputerId>> {
+        let mut ids = vec![];
+        for e in std::fs::read_dir(self.state("computers")).context("list computers")? {
+            if let Some(id) = e?.file_name().to_str().and_then(|n| ComputerId::parse(n).ok()) {
+                ids.push(id);
+            }
+        }
+        Ok(ids)
+    }
+
+    fn free_uid(&self) -> Result<u32> {
+        let used = self.list()?.iter().filter_map(|id| self.meta(id).ok()).map(|m| m.uid).collect::<Vec<_>>();
+        (self.cfg.first_uid..self.cfg.first_uid + self.cfg.max_computers).find(|u| !used.contains(u)).context("this machine has no room for another computer")
+    }
+
+    pub fn create(&self, id: &ComputerId) -> Result<u32> {
+        let _lock = self.lock()?;
+        let dir = self.computer(id);
+        ensure!(!dir.exists(), "computer {} already exists", id.as_str());
+        let uid = self.free_uid()?;
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).context("make the computer's directory")?;
+        let made = std::fs::write(dir.join("meta.json"), serde_json::to_vec(&Meta { uid })?)
+            .map_err(anyhow::Error::from)
+            .and_then(|_| make_drive(&dir.join(VOLUME), self.cfg.vm.volume_gib, uid, VOLUME_LABEL));
+        if let Err(e) = made {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(e);
+        }
+        Ok(uid)
+    }
+
+    pub fn status(&self, id: &ComputerId) -> Result<State> {
+        self.meta(id)?;
+        if !self.is_live(id) {
+            return Ok(State::Stopped);
+        }
+        let frozen = std::fs::read_to_string(self.cgroup(id).join("cgroup.freeze")).unwrap_or_default();
+        Ok(if frozen.trim() == "1" { State::Paused } else { State::Running })
+    }
+
+    fn is_live(&self, id: &ComputerId) -> bool {
+        has_processes(&self.cgroup(id))
+    }
+
+    fn live_count(&self) -> Result<u32> {
+        let Ok(dir) = std::fs::read_dir(&self.cgroups) else { return Ok(0) };
+        let mut n = 0;
+        for e in dir {
+            let e = e?;
+            if e.file_type()?.is_dir() && has_processes(&e.path()) {
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    pub fn start(&self, id: &ComputerId) -> Result<()> {
+        let _lock = self.lock()?;
+        ensure!(!self.halted_marker().exists(), "the owner has halted every computer");
+        let Meta { uid } = self.meta(id)?;
+        ensure!(!self.is_live(id), "computer {} is already running", id.as_str());
+        ensure!(self.live_count()? < self.cfg.max_live, "this machine is running as many computers as it may");
+
+        let dir = self.computer(id);
+        if !dir.join(OVERLAY).exists() {
+            make_drive(&dir.join(OVERLAY), self.cfg.vm.overlay_gib, uid, OVERLAY_LABEL)?;
+        }
+        let _ = std::fs::remove_dir(self.cgroup(id));
+        remove_if_there(&self.jail(id))?;
+        let root = self.jail_root(id);
+        std::fs::create_dir_all(&root).context("make the jail")?;
+        let images = self.state("images");
+        // Hard links: one inode each, so the drives outlive the jail and a
+        // base image is shared without being writable by anyone here.
+        for (from, name) in [(images.join(KERNEL_IMAGE), KERNEL_IMAGE), (images.join(BASE_IMAGE), BASE_IMAGE), (dir.join(VOLUME), VOLUME), (dir.join(OVERLAY), OVERLAY)] {
+            std::fs::hard_link(&from, root.join(name)).with_context(|| format!("link {name} into the jail"))?;
+        }
+        let config = root.join(VM_CONFIG);
+        std::fs::write(&config, serde_json::to_vec(&vm_config(&self.cfg))?).context("write the VM's config")?;
+        // Readable by the VM's own user whatever the umask.
+        chown(&config, Some(uid), Some(uid)).context("give the VM its config")?;
+
+        let out = Command::new(&self.cfg.jailer).env_clear().args(jailer_args(&self.cfg, id, uid)).output().context("run the jailer")?;
+        if !out.status.success() {
+            bail!("the jailer failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+        let started = Instant::now();
+        while !self.is_live(id) {
+            ensure!(started.elapsed() < START_WAIT, "computer {} did not start", id.as_str());
+            std::thread::sleep(POLL_INTERVAL);
+        }
+        // A VM that cannot run exits at once, and nothing else would say so:
+        // a daemonized jailer has already reported success.
+        std::thread::sleep(START_SETTLE);
+        ensure!(self.is_live(id), "computer {} exited as it started", id.as_str());
+        Ok(())
+    }
+
+    fn freeze(&self, id: &ComputerId, frozen: bool) -> Result<()> {
+        let _lock = self.lock()?;
+        ensure!(self.is_live(id), "computer {} is not running", id.as_str());
+        std::fs::write(self.cgroup(id).join("cgroup.freeze"), if frozen { "1" } else { "0" }).context("change the computer's freeze state")
+    }
+
+    pub fn pause(&self, id: &ComputerId) -> Result<()> {
+        self.freeze(id, true)
+    }
+
+    pub fn resume(&self, id: &ComputerId) -> Result<()> {
+        self.freeze(id, false)
+    }
+
+    pub fn stop(&self, id: &ComputerId) -> Result<()> {
+        let _lock = self.lock_for_kill();
+        kill_cgroup(&self.cgroup(id))?;
+        remove_if_there(&self.jail(id))
+    }
+
+    /// Stops the computer and drops what can be rebuilt. The volume is the
+    /// person's work and goes only when they ask.
+    pub fn destroy(&self, id: &ComputerId, delete_volume: bool) -> Result<()> {
+        self.meta(id)?;
+        self.stop(id)?;
+        let _lock = self.lock()?;
+        let dir = self.computer(id);
+        if delete_volume {
+            std::fs::remove_dir_all(&dir).context("delete the computer")
+        } else {
+            match std::fs::remove_file(dir.join(OVERLAY)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+                _ => Ok(()),
+            }
+        }
+    }
+
+    /// Blocks new starts, then stops every computer.
+    pub fn kill_all(&self) -> Result<usize> {
+        std::fs::write(self.halted_marker(), "").context("mark the computers halted")?;
+        let _lock = self.lock_for_kill();
+        let killed = kill_every_computer(&self.cgroups)?;
+        let jails = self.state("jail").join(FIRECRACKER_NAME);
+        if jails.exists() {
+            remove_if_there(&jails)?;
+        }
+        Ok(killed)
+    }
+
+    /// Allows starts again. Nothing is started.
+    pub fn release(&self) -> Result<()> {
+        match std::fs::remove_file(self.halted_marker()) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Kills every VM on the machine. Needs nothing but the kernel's cgroups.
+pub fn kill_every_computer(cgroups: &Path) -> Result<usize> {
+    let Ok(dir) = std::fs::read_dir(cgroups) else { return Ok(0) };
+    let mut killed = 0;
+    for e in dir {
+        let e = e?;
+        if e.file_type()?.is_dir() {
+            if has_processes(&e.path()) {
+                killed += 1;
+            }
+            kill_cgroup(&e.path())?;
+        }
+    }
+    Ok(killed)
+}
+
+fn has_processes(cgroup: &Path) -> bool {
+    std::fs::read_to_string(cgroup.join("cgroup.procs")).is_ok_and(|p| !p.trim().is_empty())
+}
+
+fn kill_cgroup(cgroup: &Path) -> Result<()> {
+    if !cgroup.exists() {
+        return Ok(());
+    }
+    std::fs::write(cgroup.join("cgroup.kill"), "1").context("kill the computer")?;
+    let started = Instant::now();
+    loop {
+        // The directory goes only when the last process has.
+        match std::fs::remove_dir(cgroup) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => ensure!(started.elapsed() < KILL_WAIT, "a computer's processes did not exit: {e}"),
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+fn remove_if_there(dir: &Path) -> Result<()> {
+    match std::fs::remove_dir_all(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).with_context(|| format!("remove {}", dir.display())),
+        _ => Ok(()),
+    }
+}
+
+/// A new, empty, sparse filesystem. Root only ever runs mkfs on a file it has
+/// just made: a drive a guest has written to is never parsed on the host.
+fn make_drive(path: &Path, gib: u32, uid: u32, label: &str) -> Result<()> {
+    let part = path.with_extension("part");
+    let _ = std::fs::remove_file(&part);
+    let file = File::options().write(true).create_new(true).mode(0o600).open(&part).context("make a drive")?;
+    file.set_len(u64::from(gib) * BYTES_PER_GIB).context("size a drive")?;
+    drop(file);
+    let out = Command::new(MKFS).env_clear().args(["-q", "-F", "-L", label]).arg(&part).output().context("run mkfs")?;
+    if !out.status.success() {
+        let _ = std::fs::remove_file(&part);
+        bail!("mkfs failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    chown(&part, Some(uid), Some(uid)).context("give the drive to its computer")?;
+    std::fs::rename(&part, path).context("finish a drive")
+}
+
+/// Paths are as Firecracker sees them, inside the chroot.
+fn vm_config(cfg: &Config) -> serde_json::Value {
+    json!({
+        "boot-source": { "kernel_image_path": KERNEL_IMAGE, "boot_args": BOOT_ARGS },
+        "drives": [
+            { "drive_id": "rootfs", "path_on_host": BASE_IMAGE, "is_root_device": true, "is_read_only": true },
+            { "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": false },
+            { "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false },
+        ],
+        "machine-config": { "vcpu_count": cfg.vm.vcpus, "mem_size_mib": cfg.vm.memory_mib },
+        "vsock": { "guest_cid": GUEST_CID, "uds_path": VSOCK },
+    })
+}
+
+fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32) -> Vec<String> {
+    let v = &cfg.vm;
+    let memory_max = (u64::from(v.memory_mib) + VMM_OVERHEAD_MIB) * BYTES_PER_MIB;
+    let cpu_quota = CPU_PERIOD_US * u64::from(v.cpu_percent) / 100;
+    let largest_drive = u64::from(v.volume_gib.max(v.overlay_gib)) * BYTES_PER_GIB;
+    let mut args: Vec<String> = vec![];
+    let mut pair = |flag: &str, value: String| {
+        args.push(flag.to_string());
+        args.push(value);
+    };
+    pair("--id", id.as_str().to_string());
+    pair("--exec-file", cfg.firecracker.display().to_string());
+    pair("--uid", uid.to_string());
+    pair("--gid", uid.to_string());
+    pair("--chroot-base-dir", cfg.state_dir.join("jail").display().to_string());
+    pair("--cgroup-version", "2".to_string());
+    pair("--parent-cgroup", PARENT_CGROUP.to_string());
+    pair("--cgroup", format!("memory.max={memory_max}"));
+    pair("--cgroup", "memory.swap.max=0".to_string());
+    pair("--cgroup", format!("cpu.max={cpu_quota} {CPU_PERIOD_US}"));
+    pair("--cgroup", format!("pids.max={}", v.pids_max));
+    pair("--resource-limit", format!("fsize={largest_drive}"));
+    pair("--resource-limit", format!("no-file={MAX_OPEN_FILES}"));
+    args.extend(["--new-pid-ns", "--daemonize", "--", "--config-file", VM_CONFIG].map(String::from));
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> Config {
+        toml::from_str(
+            r#"
+            state_dir = "/var/lib/c"
+            socket = "/run/c.sock"
+            socket_gid = 984
+            jailer = "/usr/local/bin/jailer"
+            firecracker = "/usr/local/bin/firecracker"
+            first_uid = 200000
+            max_computers = 8
+            max_live = 2
+            [vm]
+            vcpus = 2
+            memory_mib = 1024
+            cpu_percent = 150
+            pids_max = 128
+            volume_gib = 20
+            overlay_gib = 10
+            "#,
+        )
+        .unwrap()
+    }
+
+    fn after<'a>(args: &'a [String], flag: &str) -> Vec<&'a str> {
+        args.windows(2).filter(|w| w[0] == flag).map(|w| w[1].as_str()).collect()
+    }
+
+    #[test]
+    fn a_vm_runs_as_its_own_user_with_limits_from_the_config() {
+        let id = ComputerId::parse("abc").unwrap();
+        let args = jailer_args(&config(), &id, 200003);
+        assert_eq!(after(&args, "--uid"), ["200003"]);
+        assert_eq!(after(&args, "--gid"), ["200003"]);
+        assert_eq!(after(&args, "--id"), ["abc"]);
+        let cgroups = after(&args, "--cgroup");
+        assert!(cgroups.contains(&"memory.max=1342177280"), "{cgroups:?}");
+        assert!(cgroups.contains(&"cpu.max=150000 100000"), "{cgroups:?}");
+        assert!(cgroups.contains(&"pids.max=128"), "{cgroups:?}");
+        assert!(after(&args, "--resource-limit").contains(&"fsize=21474836480"));
+    }
+
+    #[test]
+    fn every_path_comes_from_the_state_directory_and_the_id() {
+        let c = Computers::new(config());
+        let id = ComputerId::parse("abc").unwrap();
+        assert_eq!(c.computer(&id), Path::new("/var/lib/c/computers/abc"));
+        assert_eq!(c.jail_root(&id), Path::new("/var/lib/c/jail/firecracker/abc/root"));
+    }
+
+    #[test]
+    fn the_vm_has_no_network_and_only_paths_inside_its_chroot() {
+        let v = vm_config(&config());
+        assert!(v.get("network-interfaces").is_none());
+        let text = v.to_string();
+        assert!(!text.contains("/var/lib"), "{text}");
+        assert_eq!(v["drives"][0]["is_read_only"], true);
+    }
+}
