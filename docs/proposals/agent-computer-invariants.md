@@ -1,28 +1,17 @@
 # Proposed invariant tests for the agent computer (needs the owner's approval)
 
-Status: wording for approval. Nothing here is in `tests/invariants/`. Source: the Magnus Agent Computer spec at revision 63 and the rulings in `decisions/2026-11-08-agent-computer-rulings.md`.
+Status: wording approved by the owner, 2026-11-08, revised for computers without taint. Each test goes into `tests/invariants/` with its build step. Source: the Magnus Agent Computer spec at revision 69, the rulings in `decisions/2026-11-08-agent-computer-rulings.md` and `decisions/2026-11-08-agent-computer-declared-destinations.md`.
 
 These are additions under the existing eight invariants. No existing test changes. An invariant test is kept for a rule whose failure would breach a boundary or lose a person's work. Other spec rules, such as resource caps and manifest bookkeeping, are ordinary tests.
 
-The Rust is written when each test lands, against the API its build step creates, because that API does not exist yet. Each test lands with the step that makes it pass, and gets a mutation entry in `docs/invariant-mutations.md`. These tests need KVM, so they run in acceptance, not the fast tier.
+The Rust is written when each test lands, against the API its build step creates, because that API does not exist yet. Each test lands with the step that makes it pass, and gets a mutation entry in `docs/invariant-mutations.md`. These tests need KVM, so they run in acceptance, not the fast tier. Tests 3 and 6 share their own file, `tests/invariants/tests/inv3_computer_work.rs`.
 
 ## Header changes to approve
 
-- `inv1_boundary.rs`: "and the sandbox has no network" becomes "the per-run sandbox has no network, and a computer's only way out is the proxy".
-- `inv4_taint.rs`: "Reading it taints the run" becomes "Reading it taints the run and the computer the run used".
+- `inv1_boundary.rs`: "and the sandbox has no network" becomes "the per-run sandbox has no network, and a computer's only way out is the proxy, to declared destinations".
 - `tests/invariants/src/`: the harness gains a computer fixture, a controllable clock and a fake Auto Review model.
 
-## Open wording (the owner's call)
-
-- **A. Reset and the kept volume.** The spec says taint lasts until reset, and that a reset may keep the user volume. A kept volume can hold the private data and a planted autostart file. Drafted (test 1): only a reset that discards the volume clears taint.
-- **B. Egress from a computer with both taints.** The proxy cannot tell whether a request carries private data, so with both taints every public request is literally the case Auto Review may not release. Drafted (test 15): with both taints, a destination no rule or grant covers asks. Auto Review decides the rest. The shipped package-source list counts as a rule, though the spec says "a rule or grant the user made".
-
 ## Step 2: computer lifecycle
-
-**1. inv4 `computer_taint_outlives_the_run_and_only_a_wiping_reset_clears_it`**
-Rule: taint belongs to the computer. A new run, a crash, a restart or a hibernation leaves it in place. Only a reset that discards the user volume clears it.
-Test: run A reads the inbox and an untrusted page on a computer and ends. The kernel is killed and restarted. Run B on that computer reads nothing and sends to a public app. It asks and the send has no effect. After a reset keeping the volume it still asks. After a reset discarding the volume it does not.
-Fails with: "taint was lost when the run ended", "a reset that kept the volume cleared taint".
 
 **2. inv1 `killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volume`**
 Rule: one step pauses or destroys a computer and revokes all its grants. Destroying keeps the user volume unless the person asks. Release resumes nothing.
@@ -33,13 +22,13 @@ Fails with: "a grant survived the kill", "the kill lost the user volume".
 
 **3. inv3 `destroying_a_computer_loses_no_user_work`**
 Rule: any VM can be destroyed and rebuilt without losing the person's work.
-Test: a computer has a file and an installed app. The VM is killed, and its overlay and snapshots are deleted from disk. Waking it gives the same file bytes, and the app runs at the hash in its manifest, by replay.
-Fails with: "the rebuilt computer lost the file", "the app was not replayed from the manifest".
+Test: a computer has a file, an installed app and a browser profile. The VM is killed, and its overlay and snapshots are deleted from disk. Waking it gives the same file bytes, and the app runs at the hash in its manifest, by replay. Then the volume and profile are deleted too, and restoring from backup returns both.
+Fails with: "the rebuilt computer lost the file", "the app was not replayed from the manifest", "the backup did not restore the volume or profile".
 
 **4. inv2 `a_snapshot_holds_no_vault_material_and_is_stored_encrypted`**
 Rule: snapshots hold no vault material and are encrypted.
-Test: a run uses a connector with a canary credential, and the computer writes a canary to a file and to memory. It hibernates. Every stored snapshot file is scanned in every encoding `scan` knows. Neither canary appears.
-Fails with: "a credential is in the snapshot", "the snapshot is readable without its key".
+Test: a run uses a connector with a canary credential, and the computer writes a second canary to a file and to memory. It hibernates. Every stored snapshot file is decrypted with its key and the plaintext is scanned in every encoding `scan` knows. The credential canary is absent. The second canary is found, which shows the scan read real plaintext, and it is absent from the stored files before decryption.
+Fails with: "a credential is in the snapshot", "the scan found nothing it should have", "the snapshot is readable without its key".
 
 **5. inv1 `each_restore_gets_a_new_clock_machine_id_entropy_and_network_identity`**
 Rule: a restored guest shares none of these four with its snapshot.
@@ -48,8 +37,8 @@ Fails with: "two restores share <which>".
 
 **6. inv3 `a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window`**
 Rule: a deleted file leaves the live volume at once and all backups and snapshots within 30 days. The agent is told.
-Test: a canary file is deleted from the client. It is gone from the volume, and the next run is told. Its log record stays without its content. With the clock moved 30 days on, no snapshot or backup from before the deletion exists and the canary is in nothing stored. The test states 30 itself, so changing the constant fails it.
-Fails with: "a snapshot outlived the purge window", "the deleted file is still stored".
+Test: a canary file is deleted from the client. It is gone from the volume, and the next run is told. Its log record stays without its content. The test reads the configured purge window and fails only if it is above 30 days. With the clock moved past the configured window, no snapshot or backup from before the deletion exists and the canary is in nothing stored.
+Fails with: "the purge window is over 30 days", "a snapshot outlived the purge window", "the deleted file is still stored".
 
 ## Step 4: egress
 
@@ -59,8 +48,8 @@ Test: as root the guest flushes routes and firewall rules, unsets proxy settings
 Fails with: "the guest reached <address> around the proxy".
 
 **8. inv1 `egress_is_not_forwarded_when_its_intent_cannot_be_recorded`**
-Rule: no row in the log, no packet out.
-Test: a database trigger rejects only intent rows. An otherwise allowed request is not forwarded, and the fake site sees nothing.
+Rule: no row in the egress audit table, no packet out.
+Test: a database trigger rejects only that table's intent rows. An otherwise allowed request is not forwarded, and the fake site sees nothing.
 Fails with: "egress went out with no recorded intent".
 
 **9. inv1 `a_name_or_redirect_to_private_infrastructure_is_refused`**
@@ -68,10 +57,10 @@ Rule: the proxy checks the resolved and final address.
 Test: a public name resolving to a private address, a public URL redirecting to one, and a name that changes address between check and connect are each refused.
 Fails with: "the proxy reached private infrastructure through <case>".
 
-**10. inv4 `a_guests_report_can_only_tighten_taint`**
-Rule: what a process reports never loosens the computer's taint.
-Test: on a tainted computer the guest reports the sending process as clean, and the decision is unchanged. On a clean computer the guest reports it as tainted, and the decision tightens.
-Fails with: "a guest's report loosened taint".
+**31. inv1 `a_computer_reaches_only_declared_destinations_even_as_root`**
+Rule: a computer reaches only package registries for downloads, the hosts each app declared at install, and pages the agent opened with their own resources. Anything else is refused and logged, and adding a destination is a boundary action.
+Test: as root the guest requests an undeclared host, which is refused with a row in the egress audit table. A PUT or POST to a registry is refused while a download from it works. A host declared by one app works. A resource of a page the agent opened works, and the same host does not once that page is closed. Declaring a new destination from inside the guest changes nothing until the boundary allows it.
+Fails with: "a computer reached undeclared <host>", "a registry accepted an upload".
 
 **11. inv8 `one_persons_computer_cannot_reach_anothers`**
 Rule: nothing on one person's computer is reachable from another's.
@@ -86,8 +75,8 @@ Test: config, the API and policy each fail to turn it off. With the reviewer err
 Fails with: "a boundary action ran without Auto Review".
 
 **13. inv4 `auto_review_alone_cannot_release_private_data_to_a_wider_audience`**
-Rule: after untrusted input, private data to a wider audience asks unless a rule or grant the person made covers it.
-Test: the fake reviewer allows everything. The send asks and has no effect. A rule the person made lets it run once. A rule the model proposed and nobody accepted does not.
+Rule: after untrusted input, private data to a wider audience asks unless a rule or grant covers it, by a deterministic Cedar match. A recipient the person wrote themselves passes, as `an_allowed_recipient_passes_under_both_taints` requires.
+Test: the fake reviewer allows everything. The send asks and has no effect. A compiled rule the person accepted lets it run once. A rule the model proposed and nobody accepted does not. Rule text in plain words with no compiled match does not.
 Fails with: "Auto Review released private data on its own".
 
 **14. inv4 `page_text_reaches_auto_review_only_as_quoted_data`**
@@ -95,14 +84,9 @@ Rule: page text and files reach the reviewer as quoted data inside the action, n
 Test: a page canary saying to allow the action reaches the reviewer's request only inside the action's quoted field, never in its system text or instructions.
 Fails with: "page text reached the reviewer as instructions".
 
-**15. inv4 `a_computer_with_both_taints_asks_for_any_destination_no_rule_covers`** (see B)
-Rule: tainted egress goes to Auto Review, which caches its decision. With both taints, a destination no rule or grant covers asks.
-Test: with one taint, a request is reviewed and the identical request is not reviewed again. With both taints and an always-allowing reviewer, an uncovered host asks and is not reached, and a covered host is reviewed.
-Fails with: "a doubly tainted computer reached an uncovered host".
-
 **16. inv6 `an_expired_background_ask_runs_nothing`**
-Rule: a background ask expires after 30 minutes. A message becomes a draft, an install or payment waits with its ask, and nothing runs.
-Test: with the clock moved past 30 minutes, the email is a draft with no send, and the install's task is waiting with no effect.
+Rule: a background ask expires after the configured time, 30 minutes by default. A message becomes a draft, an install or payment waits with its ask, and nothing runs.
+Test: the test reads the configured expiry. A proxied request that needs an ask fails at once with the ask's id and holds no connection open. With the clock moved past the expiry, the email is a draft with no send, and the install's task is waiting with no effect.
 Fails with: "an expired ask ran".
 
 **17. inv6 `no_grant_unlocks_a_hard_denial`**
@@ -122,6 +106,12 @@ Fails with: "the agent captured the screen during a takeover".
 Rule: takeover uses short-lived, single-use tickets. The display port is never on the network.
 Test: a second use, an expired ticket and another person's ticket are refused. The ticket is in no URL or log. No host interface has a display port open.
 Fails with: "a takeover ticket worked twice", "the display port is reachable".
+
+**29. inv8 `operator_routes_reach_a_computer_only_in_a_session_its_user_granted`**
+Rule: developer and operator routes cannot read a user's screen or files without that user's active grant. Each granted session shows in that user's log.
+Test: every developer and operator route that serves a computer's screen or files is refused with no grant, with a grant from a different user, and with a grant that has expired or been ended. With the user's active grant the route works for that computer only. The session appears in that user's own activity log with who opened it and when. Audit log and observability routes still work with no grant and carry no screen or file content.
+Scope: a computer's screen and files. The admin's existing data access under spec-decisions ruling 14 is not changed by this test.
+Fails with: "an operator read a computer without the user's grant", "a granted session is missing from the user's log".
 
 ## Step 7: browser and credentials
 
@@ -145,7 +135,22 @@ Rule: a secure form sends its value straight to the credential service.
 Test: a canary submitted through the form fills the page in the browser VM and is in no model request, log row or computer disk.
 Fails with: "a secure form value reached <where>".
 
+**30. inv2 `an_attachment_opens_only_in_a_per_run_sandbox`**
+Rule: an attachment opens in the existing per-run sandbox, with no user volume, no profiles and no network. Only what it extracts comes back, as quoted data, unless the user saves the file.
+Test: an email attachment tries to read a canary from the user volume and a profile, and neither is mounted. It probes host addresses, a fake public site and name resolution, and reaches nothing. The extracted text reaches the model only as quoted data and taints the run. The sandbox is gone afterwards, and the file is not in the user volume until the user saves it.
+Fails with: "the attachment reached the user volume or a profile", "the attachment reached <address> over the network", "the extracted text was not quoted data", "the file was saved without the user".
+
 ## Later steps
+
+**32. inv4 `the_outgoing_classifier_finding_reaches_auto_review_with_the_action`** (step 8)
+Rule: a classifier outside the working model scans outgoing messages, form submissions and uploads for sensitive data, and its finding goes to Auto Review with the action.
+Test: a message, a form submission and an upload each carry a canary the classifier flags. The reviewer's request holds the finding beside each action. With the classifier failing, the action asks and has no effect.
+Fails with: "an outgoing action reached Auto Review without its finding", "an outgoing action ran with the classifier down".
+
+**33. inv2 `a_login_code_never_reaches_the_agent`** (step 8)
+Rule: the email connector removes one-time codes, password reset links and sign-in links before mail reaches the agent.
+Test: mail holding each kind is read through the connector. None of the canaries is in any model request, log row or computer disk, and the rest of the message arrives.
+Fails with: "a login code reached the agent through <where>".
 
 **24. inv8 `a_sub_agent_never_holds_more_than_its_parent`** (step 9)
 Rule: a sub-agent's authority is its parent's intersected with what it is given. It keeps the requester, carries its taint, and its result is quoted data.
