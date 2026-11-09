@@ -1,6 +1,10 @@
 //! Runs the agent's work on the person's own computer, inside the folders
 //! they granted. The server decides what may be attempted. This side decides
 //! what a path really is, because only this side can see the symlinks.
+mod capture;
+mod confine;
+mod presence;
+
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::io::Write;
@@ -11,9 +15,10 @@ use std::time::Duration;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const EXEC_LIMIT: Duration = Duration::from_secs(120);
+/// Where macOS keeps its confinement tool, by absolute path so nothing can stand in.
+const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
-const SYSTEM_ROOTS: &[&str] = &["/bin", "/sbin", "/lib", "/lib64"];
 
 /// The folders the person granted, each resolved once at startup.
 #[derive(Clone, Debug)]
@@ -82,6 +87,8 @@ pub struct Config {
     pub mode: String,
     pub folders: Folders,
     pub bwrap: PathBuf,
+    /// While this file exists, the person has told the agent to keep off.
+    pub pause_file: Option<PathBuf>,
 }
 
 /// One job, carried out. The answer is the agent's tool result.
@@ -103,8 +110,9 @@ async fn job_result(job: &Value, folders: &Folders, bwrap: &Path) -> Result<Stri
         "delete" => delete(&need()?),
         "exec" => {
             let cwd = job["cwd"].as_str().map(|p| folders.resolve(Path::new(p))).transpose()?.map_or_else(|| folders.first().cloned(), Ok)?;
-            exec(job["command"].as_str().context("a command is required")?, &cwd, folders, bwrap).await
+            exec(job["command"].as_str().context("a command is required")?, &cwd, folders, bwrap, job["network"].as_bool().unwrap_or(false)).await
         }
+        "capture" => capture::capture(job["kind"].as_str().context("a kind is required")?, job["seconds"].as_u64(), folders).await,
         other => bail!("unknown job {other}"),
     }
 }
@@ -147,31 +155,19 @@ fn delete(path: &Path) -> Result<String> {
 /// The bubblewrap arguments for a command that sees the system read-only,
 /// the granted folders, and nothing else: no home directory, no keychain and
 /// no network.
-fn sandbox_args(cwd: &Path, folders: &Folders, command: &str) -> Vec<String> {
-    let mut a: Vec<String> =
-        ["--unshare-all", "--die-with-parent", "--new-session", "--ro-bind", "/usr", "/usr", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run"]
-            .map(String::from)
-            .to_vec();
-    for root in SYSTEM_ROOTS {
-        match std::fs::read_link(root) {
-            Ok(target) => a.extend(["--symlink".to_string(), target.display().to_string(), root.to_string()]),
-            Err(_) if Path::new(root).exists() => a.extend(["--ro-bind".to_string(), root.to_string(), root.to_string()]),
-            Err(_) => {}
-        }
-    }
-    for f in folders.list() {
-        a.extend(["--bind".to_string(), f.clone(), f]);
-    }
-    a.extend(["--chdir".to_string(), cwd.display().to_string(), "--".to_string(), "/bin/sh".to_string(), "-c".to_string(), command.to_string()]);
-    a
-}
-
-async fn exec(command: &str, cwd: &Path, folders: &Folders, bwrap: &Path) -> Result<String> {
-    if !cfg!(target_os = "linux") {
+async fn exec(command: &str, cwd: &Path, folders: &Folders, bwrap: &Path, network: bool) -> Result<String> {
+    let mut cmd = if cfg!(target_os = "linux") {
+        let mut c = tokio::process::Command::new(bwrap);
+        c.args(confine::bubblewrap_args(cwd, folders, command, network));
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = tokio::process::Command::new(SANDBOX_EXEC);
+        c.args(["-p", &confine::seatbelt_profile(folders, network), "/bin/sh", "-c", command]).current_dir(cwd);
+        c
+    } else {
         bail!("commands cannot be confined on this operating system yet, so they do not run");
-    }
-    let mut cmd = tokio::process::Command::new(bwrap);
-    cmd.args(sandbox_args(cwd, folders, command)).env_clear().env("PATH", "/usr/bin:/bin").env("HOME", cwd).stdin(Stdio::null()).kill_on_drop(true);
+    };
+    cmd.env_clear().env("PATH", "/usr/bin:/bin").env("HOME", cwd).stdin(Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(EXEC_LIMIT, cmd.output())
         .await
         .map_err(|_| anyhow!("the command ran past {EXEC_LIMIT:?} and was stopped"))?
@@ -203,11 +199,22 @@ pub async fn serve(cfg: Config) -> Result<()> {
 }
 
 async fn next(http: &reqwest::Client, cfg: &Config, id: &str) -> Result<()> {
-    let r = http.get(format!("{}/v1/local/computers/{id}/next", cfg.server)).bearer_auth(&cfg.token).send().await?.error_for_status()?;
+    let active = presence::in_use(cfg.pause_file.as_deref());
+    let r = http.get(format!("{}/v1/local/computers/{id}/next?active={active}", cfg.server)).bearer_auth(&cfg.token).send().await?.error_for_status()?;
     if r.status() == reqwest::StatusCode::NO_CONTENT {
         return Ok(());
     }
     let job: Value = r.json().await?;
+    // Between asking and being given it, the person may have sat down.
+    if job["resumed"] != json!(true) && presence::in_use(cfg.pause_file.as_deref()) {
+        http.post(format!("{}/v1/local/computers/{id}/result", cfg.server))
+            .bearer_auth(&cfg.token)
+            .json(&json!({ "job": job["id"], "ok": false, "text": "", "busy": true }))
+            .send()
+            .await?
+            .error_for_status()?;
+        return Ok(());
+    }
     let (ok, text) = run_job(&job, &cfg.folders, &cfg.bwrap).await;
     let done = json!({ "job": job["id"], "ok": ok, "text": text });
     http.post(format!("{}/v1/local/computers/{id}/result", cfg.server)).bearer_auth(&cfg.token).json(&done).send().await?.error_for_status()?;
@@ -283,7 +290,7 @@ mod tests {
     #[test]
     fn a_command_sees_only_the_system_and_the_granted_folders() {
         let (_d, granted, _o, f) = setup();
-        let args = sandbox_args(&granted, &f, "ls");
+        let args = confine::bubblewrap_args(&granted, &f, "ls", false);
         assert!(args.contains(&"--unshare-all".to_string()));
         let binds: Vec<&String> = args.windows(2).filter(|w| w[0] == "--bind").map(|w| &w[1]).collect();
         assert_eq!(binds, vec![&granted.display().to_string()]);

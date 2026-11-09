@@ -8,7 +8,7 @@ use crate::config::Person;
 use crate::kernel::Kernel;
 use crate::tools::{obj, Audience, Builtin, Label, Risk};
 use anyhow::{Context, Result};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
@@ -23,6 +23,14 @@ use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, Notify};
 
 const NEXT_WAIT: Duration = Duration::from_secs(20);
+/// While the person is at the machine it checks in often, to hand back soon.
+const ACTIVE_POLL_WAIT: Duration = Duration::from_secs(2);
+/// A job held for someone at their machine waits this long before giving up.
+const YIELD_WAIT: Duration = Duration::from_secs(15 * 60);
+/// After "go ahead", the agent ignores the person being at the machine for this long.
+const RESUME_WINDOW: Duration = Duration::from_secs(10 * 60);
+/// What the machine prefixes to an image.
+const IMAGE: &str = "IMAGE:";
 /// A job is given up on after this; the machine limits a command to less.
 const JOB_WAIT: Duration = Duration::from_secs(150);
 /// The gap between two polls, within which a computer still counts as online.
@@ -41,6 +49,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "local_edit_file", app: "local", risk: Risk::Irreversible, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "local_delete", app: "local", risk: Risk::Irreversible, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "local_exec", app: "local", risk: Risk::Irreversible, label: BOTH, audience: Audience::Private },
+    Builtin { name: "local_capture", app: "local", risk: Risk::Irreversible, label: BOTH, audience: Audience::Private },
 ];
 
 /// Stricter comes first, so the lower of two modes is the one that holds.
@@ -108,6 +117,17 @@ struct Line {
     polls: usize,
     seen: Option<Instant>,
     wake: Arc<Notify>,
+    /// The person is using the machine, so nothing is handed to it.
+    active: bool,
+    resume_until: Option<Instant>,
+    /// Handed out and not yet answered, should the machine hand one back.
+    out: BTreeMap<String, Value>,
+}
+
+impl Line {
+    fn holds(&self, job: &str) -> bool {
+        self.jobs.iter().any(|j| j["id"] == json!(job))
+    }
 }
 
 static LINES: LazyLock<Mutex<BTreeMap<String, Line>>> = LazyLock::new(Default::default);
@@ -150,10 +170,10 @@ fn chosen(mine: &[Computer], input: &Value) -> std::result::Result<Computer, Str
 }
 
 /// Whether an action could carry data away. A local write stays on the
-/// person's machine, and a team write stays with the requester if it read
+/// person's machine unless the command has the network, and a team write stays with the requester if it read
 /// their private data.
 pub(crate) fn may_send(a: &Action, f: &Facts) -> bool {
-    f.app != "local" && a.tool != "team_write_file" && !crate::boundary::is_chat_tool(f)
+    (f.app != "local" || a.input["network"] == json!(true)) && a.tool != "team_write_file" && !crate::boundary::is_chat_tool(f)
 }
 
 /// The folder an action touches, when it names one.
@@ -214,11 +234,31 @@ impl Kernel {
             l.wake.clone()
         });
         wake.notify_one();
-        let result = tokio::time::timeout(JOB_WAIT, answer).await;
-        line(&computer.id, |l| l.waiting.remove(&id));
+        let mut answer = answer;
+        let started = Instant::now();
+        let result = loop {
+            match tokio::time::timeout(JOB_WAIT, &mut answer).await {
+                Ok(r) => break r.ok(),
+                Err(_) if started.elapsed() < YIELD_WAIT && line(&computer.id, |l| l.active && l.holds(&id)) => continue,
+                Err(_) => break None,
+            }
+        };
+        // Taken back so that it cannot run later, when nobody is waiting.
+        let never_ran = line(&computer.id, |l| {
+            l.waiting.remove(&id);
+            l.out.remove(&id);
+            let queued = l.holds(&id);
+            l.jobs.retain(|j| j["id"] != json!(id));
+            queued
+        });
         Ok(match result {
-            Ok(Ok((ok, text))) => (text, !ok, None),
-            _ => (format!("{} did not answer, so this may or may not have happened", computer.name), true, None),
+            Some((true, text)) if a.tool == "local_capture" => match text.strip_prefix(IMAGE) {
+                Some(image) => ("The capture is attached.".to_string(), false, Some(json!({ "image_b64": image }))),
+                None => (text, false, None),
+            },
+            Some((ok, text)) => (text, !ok, None),
+            None if never_ran => (format!("{} was in use, so nothing ran. The person can tell you to go ahead.", computer.name), true, None),
+            None => (format!("{} did not answer, so this may or may not have happened", computer.name), true, None),
         })
     }
 
@@ -252,9 +292,15 @@ impl Kernel {
             ),
             tool(
                 "local_exec",
-                "Run a command on the person's own computer. It sees the granted folders and has no network. The person is asked unless a rule allows it.",
-                json!({ "command": text, "cwd": path, "computer": on }),
+                "Run a command on the person's own computer. It sees the granted folders and has no network unless you set network, which installs need. The person is asked unless a rule allows it.",
+                json!({ "command": text, "cwd": path, "computer": on, "network": { "type": "boolean" } }),
                 &["command"],
+            ),
+            tool(
+                "local_capture",
+                "See the screen or the camera, or record the microphone to a granted folder. The computer asks its owner for access the first time.",
+                json!({ "kind": { "type": "string", "enum": ["screen", "camera", "microphone"] }, "seconds": { "type": "integer" }, "computer": on }),
+                &["kind"],
             ),
         ]
     }
@@ -266,6 +312,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/local/computers/{id}", delete(disconnect))
         .route("/v1/local/computers/{id}/next", get(next))
         .route("/v1/local/computers/{id}/result", post(result))
+        .route("/v1/local/computers/{id}/resume", post(resume))
 }
 
 type K = State<Arc<Kernel>>;
@@ -286,7 +333,7 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
-    let view: Vec<Value> = k.read(|s| s.local.of(&p.id)).into_iter().map(|c| json!({ "online": online(&c.id), "computer": c })).collect();
+    let view: Vec<Value> = k.read(|s| s.local.of(&p.id)).into_iter().map(|c| json!({ "online": online(&c.id), "in_use": line(&c.id, |l| l.active), "computer": c })).collect();
     Json(view).into_response()
 }
 
@@ -323,7 +370,13 @@ async fn disconnect(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Respon
     }
 }
 
-async fn next(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
+#[derive(Deserialize)]
+struct Poll {
+    #[serde(default)]
+    active: bool,
+}
+
+async fn next(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<Poll>) -> Response {
     let p = match who(&k, &h).await {
         Ok(p) => p,
         Err(r) => return r,
@@ -331,11 +384,25 @@ async fn next(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     if mine(&k, &p.id, &id).is_none() {
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
-    line(&id, |l| l.polls += 1);
+    line(&id, |l| {
+        l.polls += 1;
+        l.active = q.active;
+    });
     let _polling = Polling(id.clone());
-    let until = Instant::now() + NEXT_WAIT;
+    let until = Instant::now() + if q.active { ACTIVE_POLL_WAIT } else { NEXT_WAIT };
     loop {
-        let (job, wake) = line(&id, |l| (l.jobs.pop_front(), l.wake.clone()));
+        let (job, wake) = line(&id, |l| {
+            let resumed = l.resume_until.is_some_and(|t| t > Instant::now());
+            let job = if l.active && !resumed { None } else { l.jobs.pop_front() };
+            let job = job.map(|mut j| {
+                if resumed {
+                    j["resumed"] = json!(true);
+                }
+                l.out.insert(j["id"].as_str().unwrap_or_default().to_string(), j.clone());
+                j
+            });
+            (job, l.wake.clone())
+        });
         if let Some(job) = job {
             return Json(job).into_response();
         }
@@ -351,6 +418,9 @@ struct Done {
     job: String,
     ok: bool,
     text: String,
+    /// The person sat down between being asked and starting.
+    #[serde(default)]
+    busy: bool,
 }
 
 async fn result(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Done>) -> Response {
@@ -361,11 +431,38 @@ async fn result(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json
     if mine(&k, &p.id, &id).is_none() {
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
+    if b.busy {
+        line(&id, |l| {
+            l.active = true;
+            if let Some(job) = l.out.remove(&b.job) {
+                l.jobs.push_front(job);
+            }
+        });
+        return Json(json!({ "ok": true })).into_response();
+    }
+    line(&id, |l| l.out.remove(&b.job));
     let text: String = b.text.chars().take(MAX_RESULT_BYTES).collect();
     if let Some(waiter) = line(&id, |l| l.waiting.remove(&b.job)) {
         // The run may have stopped waiting; then there is no one to tell.
         let _ = waiter.send((b.ok, text));
     }
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// "Go ahead": the agent carries on though the person is at the machine.
+async fn resume(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
+    let p = match who(&k, &h).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    if mine(&k, &p.id, &id).is_none() {
+        return err(StatusCode::NOT_FOUND, "no such computer");
+    }
+    let wake = line(&id, |l| {
+        l.resume_until = Some(Instant::now() + RESUME_WINDOW);
+        l.wake.clone()
+    });
+    wake.notify_one();
     Json(json!({ "ok": true })).into_response()
 }
 

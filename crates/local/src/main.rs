@@ -8,7 +8,7 @@ use std::path::PathBuf;
 const DEFAULT_BWRAP: &str = "bwrap";
 
 fn config() -> Result<Config> {
-    let (mut server, mut name, mut mode, mut folders, mut bwrap) = (None, None, "ask".to_string(), vec![], PathBuf::from(DEFAULT_BWRAP));
+    let (mut server, mut name, mut mode, mut folders, mut bwrap, mut pause_file) = (None, None, "ask".to_string(), vec![], PathBuf::from(DEFAULT_BWRAP), None);
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let value = args.next().with_context(|| format!("{flag} needs a value"))?;
@@ -18,6 +18,7 @@ fn config() -> Result<Config> {
             "--mode" => mode = value,
             "--folder" => folders.push(PathBuf::from(value)),
             "--bwrap" => bwrap = PathBuf::from(value),
+            "--pause-file" => pause_file = Some(PathBuf::from(value)),
             other => bail!("unknown option {other}"),
         }
     }
@@ -31,6 +32,7 @@ fn config() -> Result<Config> {
         mode,
         folders: Folders::new(&folders)?,
         bwrap,
+        pause_file,
     })
 }
 
