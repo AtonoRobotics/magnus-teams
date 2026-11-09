@@ -40,6 +40,7 @@ pub mod kernel;
 pub mod knowledge;
 pub mod knowledge_admin;
 pub mod library;
+pub mod local;
 pub mod log;
 pub mod login_codes;
 pub mod mailer;

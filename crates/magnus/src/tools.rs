@@ -239,7 +239,7 @@ pub const BUILTINS: &[Builtin] = &[
 ];
 
 pub fn builtin(name: &str) -> Option<&'static Builtin> {
-    BUILTINS.iter().find(|b| b.name == name)
+    BUILTINS.iter().chain(crate::local::BUILTINS).find(|b| b.name == name)
 }
 
 /// Tools whose calls are their person's alone: no other person's run, the
@@ -255,7 +255,7 @@ pub const REDACTED_CALL: &str = "redacted: this call is the person's alone";
 
 /// The appliance's own apps; no added app may take one of their names.
 pub fn builtin_apps() -> Vec<&'static str> {
-    let mut a: Vec<&str> = BUILTINS.iter().map(|b| b.app).collect();
+    let mut a: Vec<&str> = BUILTINS.iter().chain(crate::local::BUILTINS).map(|b| b.app).collect();
     a.sort();
     a.dedup();
     a

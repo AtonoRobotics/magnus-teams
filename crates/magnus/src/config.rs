@@ -25,6 +25,8 @@ pub struct Config {
     #[serde(default)]
     pub safety: crate::safety::Settings,
     #[serde(default)]
+    pub local: crate::local::Settings,
+    #[serde(default)]
     pub backup: Backup,
     #[serde(default)]
     pub trash: Trash,

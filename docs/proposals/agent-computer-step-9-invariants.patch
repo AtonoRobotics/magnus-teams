@@ -1,0 +1,128 @@
+diff --git a/tests/invariants/tests/inv8_layers.rs b/tests/invariants/tests/inv8_layers.rs
+index afbd01e..cb37e82 100644
+--- a/tests/invariants/tests/inv8_layers.rs
++++ b/tests/invariants/tests/inv8_layers.rs
+@@ -245,3 +245,123 @@ async fn operator_routes_reach_a_computer_only_in_a_session_its_user_granted() {
+     assert!(code.is_success(), "observability needs no grant");
+     assert!(!audit.to_string().contains(&secret), "an observability route carries file content");
+ }
++
++// Step 9: a sub-agent and the person's own computer.
++
++const CHILD_GOAL: &str = "CHILD-GOAL read the page and report";
++
++/// A script that tells a sub-agent from its parent by the goal it was given.
++fn parent_and_child(parent: Vec<Reply>, child: Vec<Reply>) -> magnus_invariants::model::Script {
++    let (parent, child) = (std::sync::Arc::new(parent), std::sync::Arc::new(child));
++    script(move |c| {
++        let is_child = c.messages().first().is_some_and(|m| m.to_string().contains(CHILD_GOAL));
++        let replies = if is_child { child.clone() } else { parent.clone() };
++        async move { replies.get(c.turn()).cloned().unwrap_or_else(|| fail("the script ran out")) }
++    })
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_sub_agent_never_holds_more_than_its_parent() {
++    let site = FakeWeb::start(&[("/p", "<html><p>words from outside</p></html>")]).await;
++    let mail = mcp::mail().start().await;
++    let parent = vec![
++        contract_unchecked("delegate", "done"),
++        tool("start_sub_agent", json!({ "goal": "use a grant I do not hold", "grant": "not-a-grant-this-run-holds" })),
++        tool("start_sub_agent", json!({ "goal": CHILD_GOAL, "tools": ["task_contract", "web_fetch", "task_complete"] })),
++        complete("done"),
++    ];
++    let child = vec![
++        contract_unchecked("read", "read"),
++        tool("web_fetch", json!({ "url": site.url("/p") })),
++        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
++        complete("the child's report"),
++    ];
++    let model = FakeModel::start(parent_and_child(parent, child)).await;
++    let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
++    let alice = app.api("alice");
++    let policy = [permit_execute("web_fetch"), permit_execute("mail__send")].join("\n");
++    assert!(alice.put_policy("org", &org_policy(&policy)).await.is_success());
++    let task = alice.submit("Delegate this.").await;
++    alice.wait_settled(&task).await;
++
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("not one this run holds")), "a sub-agent exceeded its parent: a grant the parent lacks was accepted: {results:?}");
++    assert!(results.iter().any(|t| t.contains("was not given mail__send")), "a sub-agent exceeded its parent: it used a tool it was not given: {results:?}");
++    assert_eq!(mail.effects("send"), 0, "a sub-agent exceeded its parent");
++    assert_eq!(alice.task(&task).await["taint"]["untrusted"], json!(true), "a sub-agent's reading did not taint its parent");
++
++    let bodies: Vec<serde_json::Value> = app.db.admin().await.query("SELECT body FROM public.events", &[]).await.unwrap().iter().map(|r| r.get::<_, serde_json::Value>(0)).collect();
++    let child_run = bodies.iter().find(|b| b["child"].is_string() && b["parent"].is_string()).expect("the sub-agent was not recorded")["child"].as_str().unwrap().to_string();
++    let created = bodies.iter().find(|b| b["run"] == child_run.as_str() && b["person"].is_string()).expect("the child run was not recorded");
++    assert_eq!(created["person"], "alice", "a sub-agent exceeded its parent: it acted as someone else");
++    assert!(bodies.iter().any(|b| b["run"] == child_run.as_str() && b["tool"] == "web_fetch"), "the child's action does not carry the child's run id");
++}
++
++/// `magnus-local` connected to this appliance as `who`, until dropped.
++async fn connect_computer(app: &Appliance, who: &str, name: &str, mode: &str, folder: &std::path::Path) -> tokio::process::Child {
++    let api = app.api(who);
++    let child = tokio::process::Command::new(appliance::bin("magnus-local"))
++        .args(["--server", &api.base, "--name", name, "--mode", mode, "--bwrap", "/usr/local/lib/magnus/bwrap", "--folder"])
++        .arg(folder)
++        .env("MAGNUS_LOCAL_TOKEN", &api.token)
++        .kill_on_drop(true)
++        .spawn()
++        .unwrap();
++    eventually("the computer connected", PATIENCE, || async {
++        let (_, v) = api.get("/v1/local/computers").await;
++        v.as_array().and_then(|a| a.iter().find(|c| c["computer"]["name"] == name && c["online"] == true)).map(|_| ())
++    })
++    .await;
++    child
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn the_agent_cannot_touch_a_desktop_or_folder_not_connected() {
++    let dir = tempfile::tempdir().unwrap();
++    let root = dir.path().canonicalize().unwrap();
++    let (granted, outside) = (root.join("granted"), root.join("outside"));
++    std::fs::create_dir_all(&granted).unwrap();
++    std::fs::create_dir_all(&outside).unwrap();
++    let secret = canary("outside-the-folder");
++    std::fs::write(outside.join("secret"), &secret).unwrap();
++    std::fs::write(granted.join("ok.txt"), "hello from the granted folder").unwrap();
++    std::os::unix::fs::symlink(outside.join("secret"), granted.join("link")).unwrap();
++    let read = |p: std::path::PathBuf| tool("local_read_file", json!({ "path": p }));
++
++    // No connection: nothing runs.
++    let model = FakeModel::start(steps(vec![contract_unchecked("read", "read"), read(outside.join("secret")), complete("done")])).await;
++    let app = Appliance::start(Spec::default(), &model).await;
++    let alice = app.api("alice");
++    let task = alice.submit("Read that file.").await;
++    alice.wait_settled(&task).await;
++    assert!(model.requests().iter().flat_map(|r| r.last_results()).any(|r| r.text.contains("no computer is connected")), "the agent reached a computer that was not connected");
++    assert!(!model.requests().iter().any(|r| r.text().contains(&secret)), "the agent reached outside a granted folder");
++
++    // Connected: only the granted folder, whatever the path says.
++    let mut replies = vec![contract_unchecked("read", "read"), read(granted.join("ok.txt")), read(outside.join("secret")), read(granted.join("link"))];
++    replies.push(tool("local_exec", json!({ "command": format!("cat {}", outside.join("secret").display()), "cwd": granted })));
++    replies.push(complete("done"));
++    model.set_script(steps(replies));
++    let _computer = connect_computer(&app, "alice", "laptop", "allow", &granted).await;
++    assert!(alice.put_policy("org", &org_policy(&permit_execute("local_exec"))).await.is_success());
++    let task = alice.submit("Read those files.").await;
++    alice.wait_settled(&task).await;
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("hello from the granted folder")), "a granted file did not arrive: {results:?}");
++    assert!(!model.requests().iter().any(|r| r.text().contains(&secret)), "the agent reached outside a granted folder");
++    assert!(results.iter().any(|t| t.contains("outside the folders")), "a path outside was not refused: {results:?}");
++
++    // A ceiling only tightens: "allow" under "ask" still asks.
++    let target = granted.join("new.txt");
++    let model = FakeModel::start(steps(vec![contract_unchecked("write", "written"), tool("local_write_file", json!({ "path": target, "content": "made" })), complete("done")])).await;
++    let app = Appliance::start(Spec::default().section("local", json!({ "ceiling": "ask" })), &model).await;
++    let alice = app.api("alice");
++    let _computer = connect_computer(&app, "alice", "laptop", "allow", &granted).await;
++    let task = alice.submit("Write a file.").await;
++    let item = alice.wait_item(&task, "approval").await;
++    assert!(!item.is_null(), "a personal allow under a stricter ceiling did not ask");
++    assert!(!target.exists(), "a personal allow under a stricter ceiling did not ask");
++    assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
++    alice.wait_settled(&task).await;
++    assert_eq!(std::fs::read_to_string(&target).unwrap(), "made");
++}

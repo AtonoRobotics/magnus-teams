@@ -1753,6 +1753,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "magnus-local"
+version = "0.2.5"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "magnus-scratch"
 version = "0.2.5"
 dependencies = [

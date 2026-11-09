@@ -335,6 +335,7 @@ impl Kernel {
         if !self.read(|s| s.tasks.get(&run.task).and_then(|t| t.project.as_ref()).is_some_and(|p| !p.files.is_empty())) {
             specs.retain(|t| t.name != "project_read");
         }
+        specs.extend(self.local_specs(&run.person));
         let limited = self.read(|s| s.sub_agents.get(&run.id).map(|c| c.tools.clone())).filter(|t| !t.is_empty());
         if let Some(allowed) = &limited {
             specs.retain(|t| allowed.contains(&t.name));

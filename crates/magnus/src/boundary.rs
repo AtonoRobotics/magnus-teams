@@ -168,7 +168,7 @@ fn render_thread(messages: &[Value]) -> String {
         .collect()
 }
 
-fn is_chat_tool(f: &Facts) -> bool {
+pub(crate) fn is_chat_tool(f: &Facts) -> bool {
     // Sharing is the one bundle write that belongs to conversation, as the
     // controls do (#299): the person's say after seeing the text. A task
     // proposal is not chat-only: a run with no thread puts it in the
@@ -190,7 +190,7 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if f.connector.is_none() && f.app == "memory" {
         return false;
     }
-    f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer"
+    f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer" || f.app == "local"
 }
 
 /// Whether a sent search found mail: what `found` points at is not empty.
@@ -802,6 +802,11 @@ impl Kernel {
             Outcome::Ask { rule } => Some((format!("policy asks before {}", a.tool), Some(rule))),
             Outcome::Allow { .. } => None,
         };
+        match self.local_gate(a, f, person, ask.is_some()) {
+            Some(Err(why)) => return Ok(Err(self.deny(a, "policy", &why, false, None).await?)),
+            Some(Ok(asked)) => ask = Some(asked),
+            None => {}
+        }
         // A loop run's tool calls need the act action too: the org can
         // keep autonomous acts off an app the person's own tasks may
         // still use (#368). Denied outright, never asked: there is no
@@ -821,7 +826,7 @@ impl Kernel {
         // no one there (#175). So does an identity's page, read at its own site.
         // A read through the organisation's key, the web and the browser keep it.
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
-        let transmits = !is_chat_tool(f)
+        let transmits = crate::local::may_send(a, f)
             && !own_memory
             && !f.reaches_self
             && (f.risk.changes_state()
@@ -1664,6 +1669,7 @@ impl Kernel {
                     }
                 }
                 t if t.starts_with("browser_") => self.browser_tool(a).await,
+                t if t.starts_with("local_") => self.local_tool(a).await,
                 "add_computer_destination" | "open_attachment" | "start_sub_agent" => self.side_tool(a).await,
                 t if t.starts_with("computer_") => {
                     let person = self.read(|st| st.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
