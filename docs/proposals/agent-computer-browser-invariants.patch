@@ -1,0 +1,239 @@
+diff --git a/tests/invariants/tests/inv2_credentials.rs b/tests/invariants/tests/inv2_credentials.rs
+index c68f277..2f20c6c 100644
+--- a/tests/invariants/tests/inv2_credentials.rs
++++ b/tests/invariants/tests/inv2_credentials.rs
+@@ -193,6 +193,20 @@ async fn identity_of(app: &Appliance, site: &str) -> String {
+     made["id"].as_str().unwrap().to_string()
+ }
+ 
++/// Signing in after reading a page is asked about, under the Rule of Two.
++async fn approve_sign_in(alice: &Api, task: &str) {
++    let asked = alice.wait_item(task, "approval").await;
++    assert_eq!(asked["details"]["tool"], "browser_sign_in", "{asked}");
++    assert!(alice.respond(asked["id"].as_str().unwrap(), json!({ "decision": "approve" })).await.is_success());
++}
++
++/// A run whose work is done stops on the review of its contract.
++async fn finish(alice: &Api, task: &str) {
++    let review = alice.wait_item(task, "review").await;
++    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
++    alice.wait_status(task, &["completed"]).await;
++}
++
+ fn permits(tools: &[&str]) -> String {
+     org_policy(&tools.iter().map(|t| permit_execute(t)).collect::<Vec<_>>().join("\n"))
+ }
+@@ -362,10 +376,12 @@ async fn a_secure_form_value_reaches_neither_the_model_nor_the_log() {
+     ));
+     assert!(alice.put_policy("org", &permits(&["browser_as_navigate", "browser_sign_in", "browser_as_snapshot"])).await.is_success());
+     let task = alice.submit("Sign in to my account.").await;
+-    alice.wait_settled(&task).await;
++    approve_sign_in(&alice, &task).await;
++    alice.wait_item(&task, "secure_form").await;
+     let (code, filled) = alice.post(&format!("/v1/identities/{identity}/secure-form"), json!({ "target": "e1", "value": secret, "submit": true })).await;
+     assert!(code.is_success(), "the secure form was refused: {filled}");
+     assert!(site.hits().iter().any(|p| p.starts_with("/in?") && p.contains(&secret)), "the value never reached the page: {:?}", site.hits());
++    finish(&alice, &task).await;
+ 
+     model.set_script(model_steps(&identity, vec![("browser_as_snapshot", json!({ "identity": "" }))]));
+     let task = alice.submit("Look at the page now.").await;
+@@ -505,3 +521,199 @@ async fn a_login_code_never_reaches_the_agent() {
+         assert!(files.is_empty(), "a login code reached the agent through a file: {what}: {files:?}");
+     }
+ }
++
++const LOGIN_PAGE: &str = r#"<html><form action="/in" method="get"><input name="pw" placeholder="Password"></form></html>"#;
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_sign_in_with_no_saved_login_waits_for_the_person() {
++    let computerd = Computerd::start();
++    let secret = canary("waited-for");
++    let site = FakeWeb::start(&[("/login", LOGIN_PAGE), ("/in", "<html><p>welcome back</p></html>")]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate", "browser_sign_in"])).await.is_success());
++    let sign_in = || model_steps(&identity, vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" })), ("browser_sign_in", json!({ "identity": "", "password_field": "e1" }))]);
++
++    model.set_script(sign_in());
++    let task = alice.submit("Sign in to my account.").await;
++    approve_sign_in(&alice, &task).await;
++    alice.wait_item(&task, "secure_form").await;
++    let waiting = alice.wait_settled(&task).await;
++    assert_ne!(waiting["status"], "completed", "the run went on without the sign-in");
++    let asked = model.requests().len();
++    assert!(alice.open_items(&task, "review").await.is_empty(), "the run finished its work without the sign-in");
++    let (code, filled) = alice.post(&format!("/v1/identities/{identity}/secure-form"), json!({ "target": "e1", "value": secret, "submit": true })).await;
++    assert!(code.is_success(), "{filled}");
++    finish(&alice, &task).await;
++    assert!(model.requests().len() > asked, "the run did not carry on after the form");
++    assert!(alice.open_items(&task, "secure_form").await.is_empty(), "the form is still open");
++
++    model.set_script(sign_in());
++    let task = alice.submit("Sign in again.").await;
++    approve_sign_in(&alice, &task).await;
++    let item = alice.wait_item(&task, "secure_form").await;
++    alice.wait_settled(&task).await;
++    let hits = site.hits().len();
++    assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "decline" })).await.is_success());
++    finish(&alice, &task).await;
++    assert!(alice.open_items(&task, "secure_form").await.is_empty(), "a declined form is still open");
++    assert!(site.hits()[hits..].iter().all(|p| !p.starts_with("/in")), "a declined sign-in signed in");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_password_manager_fills_the_page_and_the_agent_never_has_it() {
++    let computerd = Computerd::start();
++    let (password, username) = (canary("manager-password"), canary("manager-user"));
++    let (p, u) = (password.clone(), username.clone());
++    let manager = FakeMcp::builder()
++        .tool("get_login", "Get the login for a site.", json!({ "type": "object", "properties": { "site": { "type": "string" } } }), move |_, _, _| mcp::ok(json!({ "username": u, "password": p })))
++        .start()
++        .await;
++    let site = FakeWeb::start(&[("/login", r#"<html><form action="/in" method="get"><input name="u" placeholder="User"><input name="pw" type="password" placeholder="Password"><button>Go</button></form></html>"#), ("/in", "<html><p>welcome back</p></html>")]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default()
++        .computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] }, "password_manager": "pm" }))
++        .app("pm", &manager, "public", "private", &[("get_login", "read")]);
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate", "browser_sign_in", "pm__get_login"])).await.is_success());
++    model.set_script(model_steps(
++        &identity,
++        vec![
++            ("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" })),
++            ("browser_sign_in", json!({ "identity": "", "username_field": "e1", "password_field": "e2" })),
++            ("pm__get_login", json!({ "site": "acct.test" })),
++        ],
++    ));
++    let task = alice.submit("Sign in to my account.").await;
++    approve_sign_in(&alice, &task).await;
++    finish(&alice, &task).await;
++
++    assert!(site.hits().iter().any(|p| p.starts_with("/in?") && p.contains(&password) && p.contains(&username)), "the login never reached the page: {:?}", site.hits());
++    assert_eq!(manager.calls_to("get_login").len(), 1, "the agent reached the password manager itself");
++    assert!(alice.open_items(&task, "secure_form").await.is_empty(), "the person was asked although the manager had the login");
++    assert!(!model.requests()[0].text().contains("pm__get_login"), "the agent was offered the password manager");
++    for canary in [&password, &username] {
++        for (i, r) in model.requests().iter().enumerate() {
++            assert!(!scan::contains(r.text().as_bytes(), canary), "the login reached model request {i}");
++        }
++        assert!(!scan::contains(app.db.dump().await.as_bytes(), canary), "the login reached the log");
++        assert!(!scan::contains(app.logs().as_bytes(), canary), "the login reached the appliance's output");
++        let files = scan::files_containing(&app.state_dir, canary);
++        assert!(files.is_empty(), "the login reached a file: {files:?}");
++    }
++
++    // A saved login comes first.
++    let saved = canary("saved-password");
++    model.set_script(model_steps(&identity, vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" }))]));
++    let task = alice.submit("Open the sign-in page.").await;
++    finish(&alice, &task).await;
++    assert!(alice.post(&format!("/v1/identities/{identity}/secure-form"), json!({ "target": "e2", "value": saved, "submit": true, "save": true })).await.0.is_success());
++    model.set_script(model_steps(
++        &identity,
++        vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" })), ("browser_sign_in", json!({ "identity": "", "password_field": "e2" }))],
++    ));
++    let task = alice.submit("Sign in again.").await;
++    approve_sign_in(&alice, &task).await;
++    finish(&alice, &task).await;
++    assert_eq!(manager.calls_to("get_login").len(), 1, "the password manager was asked before the vault");
++    assert_eq!(site.hits().iter().filter(|p| p.contains(&format!("pw={saved}"))).count(), 2, "the saved login was not used: {:?}", site.hits());
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_real_credential_echoed_by_a_site_comes_back_as_its_surrogate() {
++    let computerd = Computerd::start();
++    let real = canary("echoed-token");
++    let page = format!("<html><pre>your token is {real} and again {real}</pre></html>");
++    let site = FakeWeb::start(&[("/echo", page.as_str())]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "app.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{id}/start"), json!({})).await.0, 200);
++    let (code, issued) = alice.post(&format!("/v1/computers/{id}/surrogates"), json!({ "name": "app", "value": real, "host": "app.test" })).await;
++    assert!(code.is_success(), "{issued}");
++    let surrogate = issued["surrogate"].as_str().unwrap().to_string();
++    assert!(alice.post(&format!("/v1/computers/{id}/destinations"), json!({ "host": "app.test" })).await.0.is_success());
++    let got = computerd.root_shell(&id, &format!("curl -s -m 20 --compressed -x {SITE_PROXY} -H 'Authorization: Bearer {surrogate}' http://app.test/echo"));
++    assert_eq!(got.matches(&surrogate).count(), 2, "the page did not come back: {got}");
++    assert!(!got.contains(&real), "the real credential reached the computer: {got}");
++    assert_eq!(site.seen().iter().find(|s| s.path == "/echo").unwrap().authorization.as_deref(), Some(format!("Bearer {real}").as_str()), "the app did not get the real credential");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_mail_attachment_stays_out_of_the_model_until_it_is_opened() {
++    use base64::Engine;
++    let computerd = Computerd::start();
++    let inside = canary("in-the-attachment");
++    let file = base64::engine::general_purpose::STANDARD.encode(inside.as_bytes());
++    let (name, data) = ("invoice.txt", file.clone());
++    let mail = FakeMcp::builder()
++        .tool("read_message", "Read a message.", json!({ "type": "object", "properties": {} }), move |_, _, _| {
++            mcp::ok(json!({ "subject": "your invoice", "attachments": [{ "name": name, "media_type": "text/plain", "data_b64": data }] }))
++        })
++        .start()
++        .await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().app("mail", &mail, "public", "private", &[("read_message", "read")]).filter_login_codes("mail");
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let computer = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{computer}/start"), json!({})).await.0, 200);
++    model.set_script(steps(vec![
++        contract_unchecked("read the mail", "read"),
++        tool("mail__read_message", json!({})),
++        tool("open_attachment", json!({ "name": name, "command": "cat /workspace/inputs/attachment" })),
++        complete("done"),
++    ]));
++    let task = alice.submit("Read my invoice mail.").await;
++    alice.wait_settled(&task).await;
++    let reqs = model.requests();
++    assert!(reqs.iter().all(|r| !r.text().contains(&file)), "the attachment's bytes reached the model");
++    let told = reqs.iter().position(|r| r.last_results().iter().any(|t| t.text.contains("Attachments from outside: invoice.txt"))).unwrap_or_else(|| panic!("the model was not told of the attachment"));
++    assert!(!reqs[told].text().contains(&inside), "the attachment was read without opening it");
++    assert!(reqs.iter().any(|r| r.last_results().iter().any(|t| t.text.contains(&inside))), "open_attachment did not find it");
++    assert_eq!(alice.task(&task).await["taint"]["untrusted"], json!(true), "the attachment's text was not treated as outside data");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_page_showing_a_filled_value_is_not_photographed() {
++    let computerd = Computerd::start();
++    let secret = canary("on-the-page");
++    let site = FakeWeb::start(&[("/form", LOGIN_PAGE), ("/plain", "<html><p>nothing here</p></html>")]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate", "browser_as_screenshot"])).await.is_success());
++    model.set_script(model_steps(&identity, vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/form" }))]));
++    let task = alice.submit("Open the form.").await;
++    finish(&alice, &task).await;
++    let (code, filled) = alice.post(&format!("/v1/identities/{identity}/secure-form"), json!({ "target": "e1", "value": secret, "submit": false })).await;
++    assert!(code.is_success(), "{filled}");
++
++    model.set_script(model_steps(&identity, vec![("browser_as_screenshot", json!({ "identity": "" }))]));
++    let task = alice.submit("Take a picture of the page.").await;
++    alice.wait_settled(&task).await;
++    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(results.iter().any(|t| t.contains("was not captured")), "a page showing the value was photographed: {results:?}");
++    finish(&alice, &task).await;
++
++    model.set_script(model_steps(
++        &identity,
++        vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/plain" })), ("browser_as_screenshot", json!({ "identity": "" }))],
++    ));
++    let before = model.requests().len();
++    let task = alice.submit("Picture of the next page.").await;
++    finish(&alice, &task).await;
++    let later: Vec<String> = model.requests()[before..].iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
++    assert!(!later.iter().any(|t| t.contains("was not captured")), "an ordinary page was refused: {later:?}");
++}
