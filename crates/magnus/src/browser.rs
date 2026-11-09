@@ -4,7 +4,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -27,6 +27,19 @@ pub struct Settings {
 
 fn default_bwrap() -> PathBuf {
     PathBuf::from("/usr/local/lib/magnus/bwrap")
+}
+
+/// Starts the jail the way the browser will, with nothing inside it. Run by
+/// `magnus check`, so a release that needs a jail this machine lacks is not
+/// switched to: updating runs without root and cannot install one.
+pub fn check_jail(bwrap: &Path) -> Result<()> {
+    const PROBE: [&str; 12] = ["--unshare-all", "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64", "--", "/usr/bin/true"];
+    let fix = "run install-browser-jail.sh from the release with sudo, naming the user Magnus runs as, then restart Magnus";
+    let out = Command::new(bwrap).args(PROBE).output().with_context(|| format!("this user cannot run the browser jail {}: {fix}", bwrap.display()))?;
+    if !out.status.success() {
+        return Err(anyhow!("the browser jail {} does not start ({}): {fix}", bwrap.display(), String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(())
 }
 
 pub struct Browser {
@@ -103,5 +116,18 @@ impl Browser {
                 tracing::error!("closing the browser: {e:#}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod jail_tests {
+    use super::check_jail;
+    use std::path::Path;
+
+    #[test]
+    fn a_release_is_refused_where_the_jail_cannot_start() {
+        assert!(check_jail(Path::new("/nonexistent/bwrap")).is_err(), "a missing jail passed");
+        assert!(check_jail(Path::new("/usr/bin/false")).is_err(), "a jail that fails to start passed");
+        assert!(check_jail(Path::new("/usr/bin/true")).is_ok());
     }
 }

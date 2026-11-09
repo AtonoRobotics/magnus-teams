@@ -65,6 +65,9 @@ async fn restore(args: &[String]) -> Result<()> {
 /// A new release proves it can read this appliance before it is switched to.
 async fn check(args: &[String]) -> Result<()> {
     let cfg = config(args)?;
+    if let Some(browser) = &cfg.browser {
+        crate::browser::check_jail(&browser.bwrap)?;
+    }
     println!("{}", crate::update::check(&cfg).await?);
     Ok(())
 }

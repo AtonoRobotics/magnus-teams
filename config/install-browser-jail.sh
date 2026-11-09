@@ -8,7 +8,8 @@
 # Magnus picks up the group when it next starts; a shell needs a new login.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "run this with sudo" >&2; exit 1; }
-source=$(command -v bwrap) || { echo "install bubblewrap first (apt-get install bubblewrap)" >&2; exit 1; }
+command -v bwrap >/dev/null || apt-get install -y bubblewrap
+source=$(command -v bwrap) || { echo "install bubblewrap first" >&2; exit 1; }
 user=${1:-${SUDO_USER:-}}
 [ -n "$user" ] && id "$user" >/dev/null 2>&1 || { echo "usage: sudo sh $0 <user Magnus runs as>" >&2; exit 1; }
 dir=/usr/local/lib/magnus

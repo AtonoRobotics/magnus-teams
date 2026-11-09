@@ -77,8 +77,14 @@ for f in sys.argv[2:]:
 EOF
 
 npm ci --prefix browser --omit=dev
+# The browser's jail needs root, which the appliance's own update does not
+# have: `magnus check` refuses a release on a machine without it.
+if ! /usr/local/lib/magnus/bwrap --version > /dev/null 2>&1; then
+  sudo -n sh config/install-browser-jail.sh "$(id -un)" ||
+    { echo "this machine has no browser jail: run config/install-browser-jail.sh with sudo" >&2; exit 1; }
+fi
 release/publish.sh appliance "$version" "$updates" "$notes" \
-  "${bins[@]}" browser "$images" \
+  "${bins[@]}" browser config/install-browser-jail.sh "$images" \
   "$links/$(basename "$kernel")" "$links/$(basename "$rootfs")"
 published=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$updates/appliance/latest.json")
 [ "$published" = "$version" ] || exit 0

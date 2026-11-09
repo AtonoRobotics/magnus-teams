@@ -61,7 +61,7 @@ async function page(run) {
     // included (Playwright adds `<-loopback>` to the bypass list); WebRTC may
     // not send UDP around it. Chromium's own sandbox stays on inside the jail.
     try { fs.accessSync(bwrap, fs.constants.X_OK); } catch {
-      throw new Error(`This user cannot run the browser jail (${bwrap}): run config/install-browser-jail.sh with sudo, then restart so the magnus group applies.`);
+      throw new Error(`This user cannot run the browser jail (${bwrap}): run install-browser-jail.sh from the release with sudo, then restart so the magnus group applies.`);
     }
     const launching = chromium.launch({
       executablePath: path.join(__dirname, 'jail.sh'),
