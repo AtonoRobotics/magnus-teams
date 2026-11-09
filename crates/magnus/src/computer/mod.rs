@@ -45,6 +45,10 @@ pub struct Settings {
     /// The same, but the private-address check still applies.
     #[serde(default)]
     pub hosts: BTreeMap<String, Vec<String>>,
+    /// A PEM file of certificate authorities the egress proxy trusts beside
+    /// the public ones, for a company's own sites.
+    #[serde(default)]
+    pub upstream_ca: Option<std::path::PathBuf>,
     /// A computer unused this long hibernates; 0 keeps it running.
     #[serde(default = "default_idle_hibernate_minutes")]
     pub idle_hibernate_minutes: u64,

@@ -14,6 +14,7 @@ pub(super) use ca::certificate_pem;
 use super::client;
 use crate::kernel::Kernel;
 use anyhow::{Context, Result};
+use rustls::pki_types::pem::PemObject;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
@@ -81,6 +82,11 @@ async fn listen(kernel: Arc<Kernel>, computerd: &Path, path: &Path) -> Result<()
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(SOCKET_MODE)).context("set the proxy socket's mode")?;
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    if let Some(file) = kernel.cfg.computer.as_ref().and_then(|c| c.upstream_ca.as_ref()) {
+        for certificate in rustls::pki_types::CertificateDer::pem_file_iter(file).with_context(|| format!("read {}", file.display()))? {
+            roots.add(certificate.context("a certificate that cannot be read")?).context("a certificate that cannot be trusted")?;
+        }
+    }
     let client_tls = rustls::ClientConfig::builder_with_provider(rustls::crypto::ring::default_provider().into())
         .with_safe_default_protocol_versions()?
         .with_root_certificates(roots)
