@@ -57,6 +57,17 @@ pub struct Settings {
     /// only the fixed phrases below are looked for.
     #[serde(default)]
     pub inbound_model: Option<String>,
+    /// The model that reviews actions, as `adapter/model`. Without one the
+    /// monitor's reviews them, and without that the working model does.
+    #[serde(default)]
+    pub reviewer_model: Option<String>,
+}
+
+impl Settings {
+    /// The model to review with, when one other than the working model is set.
+    pub(crate) fn independent_reviewer(&self) -> Option<(&str, &str)> {
+        self.reviewer_model.as_deref().or(self.monitor_model.as_deref())?.split_once('/')
+    }
 }
 
 /// Flags text from outside that tries to give orders.

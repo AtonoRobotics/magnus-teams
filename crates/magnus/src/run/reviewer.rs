@@ -45,7 +45,8 @@ impl Kernel {
         if calls >= run.config.budget.max_model_calls || self.grant_spent(&run.id).is_some() {
             return Ok(None);
         }
-        let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
+        let (adapter, model) = self.cfg.safety.independent_reviewer().unwrap_or(run.model());
+        let (adapter, model) = (adapter.to_string(), model.to_string());
         let Some(allowance) = self.aux_max_tokens(&run.id, "reviewer", &adapter, &model, system, messages.clone(), tools.clone(), run.config.max_tokens).await else {
             return Ok(None);
         };
