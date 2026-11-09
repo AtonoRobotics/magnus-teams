@@ -10,6 +10,16 @@ Commit small changes to `main`. A pull request is optional. The fast tier (`.git
 
 Record each new decision as a file in `decisions/` named `<date>-<slug>.md`: the choice and its reason. Commit working states and revert a failed attempt instead of patching it. A fix comes with a test that fails without it.
 
+## Deciding
+Decide anything that follows from the spec, the decisions and the Code Standard, record it in `decisions/` with its reason, and keep working. That covers design choices with a clear best option, wording, pushing your own commits, accepting spec suggestions that carry a decision already made, and fixing a spec contradiction toward the safer reading.
+
+Stop and ask the owner only for:
+- a step you cannot take yourself: a privilege, a host or production change, an edit to `tests/invariants/` (send a `git apply` patch);
+- a new promise to users that the spec does not make, about their data, money or privacy;
+- a choice between options that trade those against each other, with no rule settling it.
+
+When you must ask, ask once with your recommendation, and keep working on what does not depend on the answer.
+
 ## Commands
 - `cargo fmt --all --check`
 - `ci/ratchet.sh size` and `ci/ratchet.sh clippy`
