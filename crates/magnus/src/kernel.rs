@@ -154,7 +154,7 @@ impl Kernel {
             sandboxes: Sandboxes::new(cfg.sandbox.clone(), &cfg.appliance.state_dir),
             brokered: crate::brokered::Brokered::new(cfg.sandbox.clone(), cfg.brokered.clone(), &cfg.appliance.state_dir),
             browser: crate::browser::Browser::new(cfg.browser.clone(), &cfg.appliance.state_dir),
-            mcp: Mcp::new(),
+            mcp: Mcp::new().allowing_private(cfg.web.allow_private_networks),
             adapters,
             vault,
             accounts,

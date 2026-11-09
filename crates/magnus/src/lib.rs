@@ -33,6 +33,7 @@ pub mod controls;
 pub mod dev;
 pub mod devices;
 pub mod events;
+pub mod generated;
 pub mod grants;
 pub mod identity;
 pub mod inbox;

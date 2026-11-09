@@ -1037,8 +1037,7 @@ impl Kernel {
         let s = |f: &str| b[f].as_str().map(str::trim).unwrap_or_default().to_string();
         let (mut name, url, audience, label) = (s("name"), s("url"), s("audience"), s("label"));
         let taken = |n: &str| self.all_connectors().iter().any(|(c, _)| c.name == n) || crate::tools::builtin_apps().contains(&n);
-        // Never a key or token in the address either (below): checked before
-        // the app is asked anything, so one is neither sent nor recorded.
+        // Never a key or token in the address, checked before the app is asked.
         match url::Url::parse(&url) {
             Ok(u) if u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none() => {}
             Ok(_) => return Err(refusal(
@@ -1099,6 +1098,7 @@ impl Kernel {
         };
         // A server that asks for no sign-in is called without a credential.
         let c = Connector {
+            owner: None,
             filter_login_codes: false,
             name: name.clone(),
             transport: "mcp_http".into(),
@@ -1146,7 +1146,7 @@ impl Kernel {
 
     /// Revoke every sign-in to an app (each person's own, at the app, and
     /// the old shared one) and its key. The number revoked.
-    async fn revoke_all(&self, c: &Connector) -> Result<usize, Refusal> {
+    pub(crate) async fn revoke_all(&self, c: &Connector) -> Result<usize, Refusal> {
         let names: Vec<String> = self.vault.names().map_err(failed)?.into_iter().filter(|n| is_sign_in_of(n, &c.name) || c.credential.as_ref() == Some(n)).collect();
         let mut n = 0;
         for cred in names {
@@ -1356,7 +1356,7 @@ async fn list(AxState(k): K, h: HeaderMap) -> Response {
         // not in, is not in their Library (connectors spec, Org policy).
         // The owner still manages it in Settings, marked as not theirs.
         let theirs = crate::boundary::may_use(&p, &c);
-        if !theirs && !p.is_owner() {
+        if !theirs && (!p.is_owner() || c.owner.is_some()) {
             continue;
         }
         let from_app = added.contains(&c.name) && k.cfg.connectors.iter().all(|f| f.name != c.name);
@@ -1448,7 +1448,7 @@ async fn card(k: &Kernel, c: &Connector, person: &str) -> Value {
     let summary = c.summary.clone().unwrap_or(sentence);
     let last = k.recent_uses(&c.name, person, 1).first().map(|u| u["at"].clone());
     json!({
-        "name": c.name, "title": c.title.clone().unwrap_or_else(|| title(&c.name)), "summary": summary, "allows": allows, "catalog": c.catalog,
+        "generated": c.owner.is_some(), "needs_token": c.owner.is_some() && c.credential.is_some(), "name": c.name, "title": c.title.clone().unwrap_or_else(|| title(&c.name)), "summary": summary, "allows": allows, "catalog": c.catalog,
         "state": standing.as_str(), "signed_in": standing == Standing::Connected, "signs_in": c.auth.as_deref() == Some(OAUTH),
         "connected_at": at.and_then(|s| chrono::DateTime::from_timestamp(s, 0)), "account": account, "last_used": last,
         // False only on an appliance Alpha Vector has not finished setting up.
@@ -1471,7 +1471,7 @@ async fn detail(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Respon
         Ok(p) => p,
         Err(r) => return r,
     };
-    let Some(c) = k.connector(&name).filter(|c| p.is_owner() || crate::boundary::may_use(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
+    let Some(c) = k.connector(&name).filter(|c| (p.is_owner() && c.owner.is_none()) || crate::boundary::may_use(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
     let mut v = card(&k, &c, &p.id).await;
     v["for_you"] = json!(crate::boundary::may_use(&p, &c));
     v["recent"] = json!(k.recent_uses(&c.name, &p.id, 10));

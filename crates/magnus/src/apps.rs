@@ -91,6 +91,8 @@ pub struct CallOutput {
 #[derive(Clone)]
 pub struct Mcp {
     http: reqwest::Client,
+    /// Whether a generated connector may reach a private address.
+    allow_private: bool,
     /// Which tools ship a view, as listed: app url and tool, to the view.
     views: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
 }
@@ -103,10 +105,23 @@ struct Session {
 
 impl Mcp {
     pub fn new() -> Mcp {
-        Mcp { http: reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(120)).build().expect("http client"), views: Default::default() }
+        Mcp {
+            allow_private: false,
+            http: reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(120)).build().expect("http client"),
+            views: Default::default(),
+        }
+    }
+
+    /// With the appliance's rule on private addresses.
+    pub fn allowing_private(mut self, allow: bool) -> Mcp {
+        self.allow_private = allow;
+        self
     }
 
     async fn rpc(&self, s: &Session, id: Option<u64>, method: &str, params: Value, extra: &[(&str, &str)]) -> Result<Option<Value>, CallError> {
+        if crate::generated::is_generated(&s.url) {
+            return crate::generated::answer(&s.url, s.bearer.as_deref(), method, params, self.allow_private).await;
+        }
         let mut body = json!({ "jsonrpc": "2.0", "method": method, "params": params });
         if let Some(id) = id {
             body["id"] = json!(id);
@@ -164,6 +179,9 @@ impl Mcp {
 
     async fn open(&self, url: &str, bearer: Option<&str>) -> Result<Session, CallError> {
         let mut s = Session { url: url.into(), bearer: bearer.map(String::from), id: None };
+        if crate::generated::is_generated(url) {
+            return Ok(s);
+        }
         let mut req = self.http.post(url).header("accept", "application/json, text/event-stream").json(&json!({
             "jsonrpc": "2.0", "id": 0, "method": "initialize",
             "params": { "protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": { "name": "magnus", "version": env!("CARGO_PKG_VERSION") } }

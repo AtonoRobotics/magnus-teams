@@ -191,7 +191,7 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if f.connector.is_none() && f.app == "memory" {
         return false;
     }
-    f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer" || f.app == "local" || f.app == "team"
+    f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer" || f.app == "local" || f.app == "connector" || f.app == "team"
 }
 
 /// Whether a sent search found mail: what `found` points at is not empty.
@@ -212,7 +212,7 @@ pub fn has_rights(person: &Person, f: &Facts) -> bool {
 /// Whether a person may use one of the organisation's apps: in one of the
 /// groups it is for (none named: everyone), and in none it is blocked for.
 pub fn may_use(person: &Person, c: &crate::config::Connector) -> bool {
-    (c.access_groups.is_empty() || c.access_groups.iter().any(|g| person.groups.contains(g))) && !c.blocked_groups.iter().any(|g| person.groups.contains(g))
+    crate::generated::may_use(person, c)
 }
 
 /// What a run has spent of its action and dollar budget, as a budget stop
@@ -1670,7 +1670,7 @@ impl Kernel {
                     }
                 }
                 t if t.starts_with("browser_") => self.browser_tool(a).await,
-                t if t.starts_with("local_") || t.starts_with("team_") || t.starts_with("image_") => self.far_tool(a).await,
+                t if crate::local::is_far_tool(t) => self.far_tool(a).await,
                 "add_computer_destination" | "open_attachment" | "start_sub_agent" => self.side_tool(a).await,
                 t if t.starts_with("computer_") => {
                     if let Some(done) = self.computer_tool(&a.run, t, &a.input).await? {

@@ -43,6 +43,11 @@ const ASK_EVERY_TIME: &str = "kernel:local_ask";
 const CHANGE_NEEDS_A_RULE: &str = "kernel:local_change";
 const BOTH: Label = Label { untrusted: true, private: true };
 
+/// A tool the kernel carries out away from the run's own computer.
+pub(crate) fn is_far_tool(tool: &str) -> bool {
+    ["local_", "team_", "image_", "connector_"].iter().any(|prefix| tool.starts_with(prefix))
+}
+
 pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "local_read_file", app: "local", risk: Risk::Read, label: BOTH, audience: Audience::Private },
     Builtin { name: "local_write_file", app: "local", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
@@ -215,6 +220,9 @@ impl Kernel {
         }
         if a.tool.starts_with("image_") {
             return self.image_tool(a).await;
+        }
+        if a.tool.starts_with("connector_") {
+            return self.connector_tool(a).await;
         }
         self.local_tool(a).await
     }

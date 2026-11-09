@@ -2864,7 +2864,7 @@ function connectorBody(c) {
     return `${head}${st === "needs_attention" ? `<p class="lc-note warn">Your sign-in to ${esc(c.title)} stopped working. Sign in again to keep using it.</p>` : ""}
       <dl class="kv cp-kv"><dt>Account</dt><dd>${esc(c.account || "Your own account")}</dd><dt>It can</dt><dd>${esc(L.can || c.summary)}</dd>${L.cannot ? `<dt>It cannot</dt><dd>${esc(L.cannot)}</dd>` : ""}
       ${c.connected_at ? `<dt>Connected</dt><dd>${esc(when(c.connected_at))}</dd>` : ""}<dt>Last used</dt><dd>${c.last_used ? esc(when(c.last_used)) : "Not yet"}</dd></dl>
-      ${recent}<div class="row cp-actions">${st === "needs_attention" ? `<button class="primary" data-act="connect" data-app="${esc(c.name)}">Sign in to ${esc(c.title)} again</button>` : ""}${c.signs_in ? `<button data-act="disconnect" data-app="${esc(c.name)}">Disconnect ${esc(c.title)}</button>` : ""}</div>`;
+      ${recent}<div class="row cp-actions">${st === "needs_attention" ? `<button class="primary" data-act="connect" data-app="${esc(c.name)}">Sign in to ${esc(c.title)} again</button>` : ""}${c.signs_in ? `<button data-act="disconnect" data-app="${esc(c.name)}">Disconnect ${esc(c.title)}</button>` : ""}${c.generated ? `<button data-act="gen-download" data-app="${esc(c.name)}">Download definition</button><button data-act="gen-delete" data-app="${esc(c.name)}">Delete</button>` : ""}</div>${c.needs_token ? `<div class="row"><input type="password" autocomplete="off" aria-label="Token for ${esc(c.title)}" data-gen-token><button data-act="gen-token" data-app="${esc(c.name)}">Save token</button></div>` : ""}`;
   }
   const can = L.abilities?.length ? L.abilities : c.allows || [];
   const go = st === "connecting"
@@ -2909,6 +2909,13 @@ function bindConnectorActs(root) {
     if (!a || !root.contains(a)) return;
     if (a.dataset.act === "connect") { e.preventDefault(); connectApp(a.dataset.app).catch(err => toast(err.message)); }
     if (a.dataset.act === "connect-page") { e.preventDefault(); Magnus.openExternal(a.dataset.url).catch(() => {}); }
+    if (a.dataset.act === "gen-download") { e.preventDefault(); try { toast(`Saved ${await Magnus.download(`/v1/connectors/${enc(a.dataset.app)}/definition`, `${a.dataset.app}.json`)}`); } catch (err) { toast(err.message); } }
+    if (a.dataset.act === "gen-token") { e.preventDefault(); const input = $("[data-gen-token]", root); try { await api("PUT", `/v1/connectors/${enc(a.dataset.app)}/token`, { token: input.value }); input.value = ""; toast("Saved."); connectorsChanged(); } catch (err) { toast(err.message); } }
+    if (a.dataset.act === "gen-delete") {
+      e.preventDefault();
+      if (!await ask("Delete this connector? Its token and grants are revoked and its approval rules are removed.", "Delete")) return;
+      try { await api("DELETE", `/v1/connectors/${enc(a.dataset.app)}/generated`); location.hash = "#/library"; connectorsChanged(); } catch (err) { toast(err.message); }
+    }
     if (a.dataset.act === "disconnect") {
       e.preventDefault();
       if (!await ask("Disconnect? Your sign-in is ended at the app, and Magnus can no longer use it for you until you connect again.", "Disconnect")) return;

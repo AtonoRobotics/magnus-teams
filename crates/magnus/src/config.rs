@@ -849,6 +849,8 @@ pub struct Connector {
     /// Takes login codes and sign-in links out of what this app returns.
     #[serde(default)]
     pub filter_login_codes: bool,
+    #[serde(default)]
+    pub owner: Option<String>, // The one person a generated connector belongs to.
     pub name: String,
     #[serde(default = "mcp_http")]
     pub transport: String,
@@ -859,9 +861,7 @@ pub struct Connector {
     pub label: String,
     #[serde(default)]
     pub access_groups: Vec<String>,
-    /// Groups it is blocked for (connectors spec, Org policy: "allowed or
-    /// blocked per group"): their people neither see it in the Library nor
-    /// reach it, whatever `access_groups` says.
+    /// Groups blocked from it, whatever `access_groups` says (connectors spec).
     #[serde(default)]
     pub blocked_groups: Vec<String>,
     #[serde(default = "header")]

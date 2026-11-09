@@ -147,6 +147,7 @@ pub fn registration_name(provider: &str) -> String {
 /// from the registration at sign-in, never kept here.
 pub fn connector(m: &Manifest) -> Connector {
     Connector {
+        owner: None,
         filter_login_codes: m.category == "email",
         name: m.id.clone(),
         transport: if m.kind == "brokered" { crate::brokered::BROKERED.into() } else { "mcp_http".into() },

@@ -316,7 +316,7 @@ impl Kernel {
     }
 
     /// A file request on a computer the caller may already reach.
-    pub(super) async fn computer_file_for(&self, c: &Computer, req: Value) -> Result<Value, Refused> {
+    pub(crate) async fn computer_file_for(&self, c: &Computer, req: Value) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
         let id = c.id.as_str();
         let reply = match c.status {

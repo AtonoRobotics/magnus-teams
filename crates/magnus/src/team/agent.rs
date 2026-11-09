@@ -374,6 +374,7 @@ mod tests {
             "browser_as_click",
             "browser_sign_in",
             "local_read_file",
+            "connector_build",
             "open_attachment",
             "project_read",
             "knowledge_search",
