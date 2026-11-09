@@ -215,6 +215,7 @@ const Compose = (() => {
       case "map": return map(c);
       case "timeline": return timeline(c);
       case "comparison": return comparison(c);
+      case "action": return `<p><button type="button" class="action">${esc(c.label)}</button></p>`;
       case "code": return frame(c, `<div class="markdown">${codeBlock(c.code,c.language)}</div>`);
       case "image": return files[c.file]?.image ? frame(c, `<img src="${files[c.file].image}" alt="${esc(c.caption || c.file)}">`) : frame(c, `<p class="cap">${esc(c.file)} (not an image this app can show)</p>`);
       case "file": return `<section class="file" data-file="${esc(c.file)}"><p class="fname">${esc(c.file)}</p>${fileParts(c.file, files[c.file], limit).map(x => part(x, files, limit)).join("\n")}</section>`;

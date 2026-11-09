@@ -851,3 +851,48 @@ Each test needs KVM, passwordless sudo, the guest images (`MAGNUS_GUEST_KERNEL`,
 | 6 | no_grant_unlocks_a_hard_denial | The hard denial is off | rules.rs | KILLED: a grant unlocked a hard denial |
 
 Each of the five step 5 tests was also run with no mutation, and all passed, so a timeout above is the mutation's effect and not a broken test.
+
+## Agent computer, steps 6 to 10 and the UI catalog
+
+| Step | Test | Mutation | Where | Result |
+|---|---|---|---|---|
+| 6 | a_takeover_ticket_works_once_and_never_appears_in_a_url | A ticket survives its first use | computer/takeover.rs | KILLED: assertion `left == right` failed: a takeover ticket worked twice |
+| 6 | capture_stops_and_the_agent_pauses_while_a_person_holds_control | The agent keeps going under a takeover | run/mod.rs | KILLED: the agent was not told about the takeover |
+| 6 | capture_stops_and_the_agent_pauses_while_a_person_holds_control | Capture is allowed while a person holds the screen | computer/takeover.rs | SURVIVED |
+| 6 | operator_routes_reach_a_computer_only_in_a_session_its_user_granted | An admin reads a user's computer | computer/service.rs | KILLED: an operator read a computer without the user's grant: /v1/computers/8dda4117c0b5db2d933217 |
+| 6 | operator_routes_reach_a_computer_only_in_a_session_its_user_granted | An operator session never expires | computer/takeover.rs | KILLED: an operator read a computer without the user's grant: /v1/operator/computers/b0498d3a26c22 |
+| 6 | adding_a_destination_goes_through_auto_review | A new destination skips Auto Review | computer/service.rs | KILLED: the reviewer was not asked |
+| 7 | a_surrogate_becomes_the_real_credential_only_after_approval_and_only_at_its_destination | A surrogate is swapped without review | computer/egress | KILLED: assertion `left != right` failed: a denied request went through |
+| 7 | a_surrogate_becomes_the_real_credential_only_after_approval_and_only_at_its_destination | A surrogate works at any host | computer/egress/surrogate.rs | KILLED: assertion `left != right` failed: the surrogate worked at another host |
+| 7 | a_secure_form_value_reaches_neither_the_model_nor_the_log | The secure form value is logged | computer/identity.rs | KILLED: a secure form value reached the log |
+| 7 | a_secure_form_value_reaches_neither_the_model_nor_the_log | The audit keeps the URL query for an identity | computer/egress/http.rs | KILLED: a secure form value reached the log |
+| 7 | untrusted_reading_uses_a_browser_with_no_profile | A throwaway browser carries a login | computer/identity.rs | KILLED: assertion `left == right` failed: untrusted reading carried a login: Seen { path: "/public |
+| 7 | the_agent_cannot_reach_a_browser_vm_or_its_profile | A browser VM is reachable on the computer routes | computer/service.rs | KILLED: assertion `left == right` failed: the agent reached a profile through /v1/computers/02054c |
+| 7 | the_agent_cannot_reach_a_browser_vm_or_its_profile | The profile stays unsealed | computer/identity.rs | KILLED: the profile stayed in plain form |
+| 7 | an_attachment_opens_only_in_a_per_run_sandbox | The open_attachment result is labelled clean | tools.rs | SURVIVED |
+| 7 | an_attachment_opens_only_in_a_per_run_sandbox | An outside file enters the run's workspace | kernel.rs | KILLED: the attachment entered the run's own workspace: exit code: 0 |
+| 7 | an_attachment_opens_only_in_a_per_run_sandbox | The attachment sandbox is left behind | attachment.rs | KILLED: the attachment's sandbox was left behind |
+| 7 | the_agent_cannot_reach_a_browser_vm_or_its_profile | The guest forwards any command to the browser | sandbox/guest/src/browser.rs | SURVIVED |
+| 8 | a_login_code_never_reaches_the_agent | The login-code filter is off | boundary.rs | KILLED: nothing was filtered |
+| 8 | the_outgoing_classifier_finding_reaches_auto_review_with_the_action | Auto Review does not get the finding | auto_review.rs | KILLED: assertion `left == right` failed: an outgoing action reached Auto Review without its findi |
+| 8 | the_outgoing_classifier_finding_reaches_auto_review_with_the_action | A failed classifier counts as clean | auto_review.rs | KILLED: timed out after 90s waiting for: open approval item for task task_bc61966a4f114881839c67b7 |
+| 8 | injected_page_text_is_flagged_before_the_model_reads_it | Inbound text is not screened | safety.rs | KILLED: injected text reached the model unflagged: HTTP 200 OK http://127.0.0.1:45495/p |
+| 8 | the_independent_monitor_can_block_an_action_and_ask_for_review | The monitor's block is ignored | safety.rs | KILLED: assertion `left == right` failed: the monitor's block did not stop the action |
+| 9 | a_sub_agent_never_holds_more_than_its_parent | A child takes a grant its parent lacks | sub_agents.rs | KILLED: a sub-agent exceeded its parent: a grant the parent lacks was accepted |
+| 9 | a_sub_agent_never_holds_more_than_its_parent | A child uses a tool it was not given | sub_agents.rs | KILLED: a sub-agent exceeded its parent: it used a tool it was not given |
+| 9 | a_sub_agent_never_holds_more_than_its_parent | A child's reading does not taint its parent | boundary.rs | KILLED: assertion `left == right` failed: a sub-agent's reading did not taint its parent |
+| 9 | the_agent_cannot_touch_a_desktop_or_folder_not_connected | The machine does not check folders | crates/local | KILLED: the agent reached outside a granted folder |
+| 9 | the_agent_cannot_touch_a_desktop_or_folder_not_connected | A local command sees the whole disk | crates/local | KILLED: the agent reached outside a granted folder |
+| 9 | the_agent_cannot_touch_a_desktop_or_folder_not_connected | The admin ceiling is ignored | local.rs | KILLED: timed out after 90s waiting for: open approval item for task task_b57457667e874d639b30da56 |
+| 10 | a_team_request_runs_with_no_more_than_the_requesters_entitlements | A guest can have the agent act | team/routes.rs | KILLED: assertion `left == right` failed: the team agent exceeded its requester: a guest's request |
+| 10 | a_team_request_runs_with_no_more_than_the_requesters_entitlements | A role the app is not open to can use it | team/agent.rs | KILLED: assertion `left == right` failed: the team agent exceeded its requester |
+| 10 | a_team_request_runs_with_no_more_than_the_requesters_entitlements | A file from private data goes to the team volume | team/agent.rs | KILLED: assertion `left == right` failed: data fetched under one member's entitlements reached the |
+| 10 | personal_context_and_credentials_never_serve_a_team_thread | Personal tools serve a team run | team/agent.rs | KILLED: personal context reached a team thread: memory_write was offered |
+| 10 | personal_context_and_credentials_never_serve_a_team_thread | An ungranted app serves a team run | team/agent.rs | KILLED: a member's own app was not refused |
+| 10 | personal_context_and_credentials_never_serve_a_team_thread | The memory pass runs on a team run | run/memory.rs | KILLED: personal context reached a team thread: memory |
+| 10 | personal_context_and_credentials_never_serve_a_team_thread | Relationship notes reach a team run | relationship.rs | KILLED: personal context reached a team thread: a relationship note |
+| UI | a_button_in_rendered_ui_is_a_request_not_an_approval | A rendered button approves the open ask | ui_actions.rs | KILLED: assertion `left == right` failed: rendered UI approved an action |
+
+Three mutations survived, and each is a layer with another behind it. `capture-while-held`: the run pauses first, so nothing reaches the capture refusal. `attachment-untainted`: a task with any attachment already starts untrusted. `guest-allows-anything`: the sidecar has no command for anything else, so the guest's list is the first of two checks. Each of these tests was also run with no mutation, and all passed.
+
+Mutations run with `mut.py`, one at a time, on a copy of the tree, against the real test on a real VM where the test needs one.

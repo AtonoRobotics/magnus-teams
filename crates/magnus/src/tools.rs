@@ -295,7 +295,7 @@ fn component(kinds: &[&str]) -> Value {
         "items": { "type": "array", "items": { "type": "string" }, "description": "list" },
         "columns": { "type": "array", "items": { "type": "string" }, "description": "table" },
         "rows": { "type": "array", "items": { "type": "array", "items": cell }, "description": "table: one list of cells per row, as many as columns" },
-        "label": { "type": "string", "description": "stat" },
+        "label": { "type": "string", "description": "stat, action: the button's words" }, "request": { "type": "string", "description": "action: the work a press asks for; it starts a new task and approves nothing" },
         "value": { "type": ["string", "number"], "description": "stat" },
         "unit": { "type": "string", "description": "stat, bar_chart" },
         "labels": { "type": "array", "items": { "type": "string" }, "description": "bar_chart, line_chart" },

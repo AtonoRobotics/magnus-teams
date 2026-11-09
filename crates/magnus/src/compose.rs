@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 
-pub const KINDS: &[&str] = &["heading", "text", "list", "table", "stat", "bar_chart", "line_chart", "map", "timeline", "comparison", "code", "image", "file"];
+pub const KINDS: &[&str] = &["heading", "text", "list", "table", "stat", "bar_chart", "line_chart", "map", "timeline", "comparison", "code", "image", "file", "action"];
 
 /// What a chat answer may show beside its text: only components that carry
 /// what prose cannot. Headings, paragraphs and lists belong in the answer
@@ -84,6 +84,11 @@ pub fn validate(view: &Value, files: &[String]) -> Result<(), String> {
         let kind = c["type"].as_str().ok_or(format!("{at} has no type"))?;
         match kind {
             "heading" | "text" => text(&c["text"], &format!("{at}.text"))?,
+            // A button: a request for more work, never an approval.
+            "action" => {
+                text(&c["label"], &format!("{at}.label"))?;
+                text(&c["request"], &format!("{at}.request"))?;
+            }
             "list" => {
                 strings(&c["items"], &format!("{at}.items"), MAX_ITEMS)?;
             }

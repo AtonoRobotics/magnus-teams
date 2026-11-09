@@ -22,8 +22,7 @@ type K = State<Arc<Kernel>>;
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
-        .merge(crate::local::router())
-        .merge(crate::team::router())
+        .merge(crate::ui_actions::router())
         .route("/v1/computers", get(list).post(create))
         .route("/v1/computers/{id}", get(one))
         .route("/v1/computers/{id}/start", post(start))

@@ -70,6 +70,7 @@ pub mod tools;
 mod tools_identity;
 pub mod totp;
 pub mod trash;
+pub mod ui_actions;
 pub mod unattended;
 pub mod update;
 pub mod vault;

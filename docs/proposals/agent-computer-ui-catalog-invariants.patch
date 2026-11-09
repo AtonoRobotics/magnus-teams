@@ -1,0 +1,43 @@
+diff --git a/tests/invariants/tests/inv6_policy.rs b/tests/invariants/tests/inv6_policy.rs
+index a216cae..f6c250e 100644
+--- a/tests/invariants/tests/inv6_policy.rs
++++ b/tests/invariants/tests/inv6_policy.rs
+@@ -318,3 +318,38 @@ async fn no_grant_unlocks_a_hard_denial() {
+     assert!(crm.calls_to("update_record").is_empty(), "a grant unlocked a hard denial");
+     assert!(alice.open_items(&id, "approval").await.is_empty(), "a hard denial was offered for approval");
+ }
++
++// The UI catalog: what the agent renders can ask for work, and only that.
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_button_in_rendered_ui_is_a_request_not_an_approval() {
++    let mail = mcp::mail().start().await;
++    let send = || tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
++    let model = FakeModel::start(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")])).await;
++    let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
++    let alice = app.api("alice");
++    let waiting = alice.submit("Send a note.").await;
++    let item = alice.wait_item(&waiting, "approval").await;
++    assert!(!item.is_null(), "the send did not wait for approval");
++
++    let button = json!({ "type": "action", "label": "Approve", "request": "Approve the waiting send and send it." });
++    model.set_script(steps(vec![contract_unchecked("offer", "offered"), tool("task_complete", json!({ "summary": "here it is", "deliverable": [button] }))]));
++    let offered = alice.submit("Offer a button.").await;
++    alice.wait_settled(&offered).await;
++
++    model.set_reviewer(script(|_| async { review("deny", "no") }));
++    model.set_script(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")]));
++    assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
++    let (code, made) = alice.post(&format!("/v1/tasks/{offered}/actions/0"), json!({})).await;
++    assert_eq!(code, 200, "{made}");
++    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
++
++    let still = alice.open_items(&waiting, "approval").await;
++    assert_eq!(still.len(), 1, "rendered UI approved an action");
++    assert_eq!(still[0]["id"], item["id"], "rendered UI approved an action");
++    assert_eq!(mail.effects("send"), 0, "rendered UI approved an action");
++    assert!(!model.reviews().is_empty(), "the button's request did not go through Auto Review");
++
++    let (code, _) = alice.post(&format!("/v1/tasks/{waiting}/actions/0"), json!({})).await;
++    assert_eq!(code, 404, "a task with no button took a press");
++}

@@ -2231,9 +2231,18 @@ async function fill(frame, view, taskId, task) {
   const t = task || (view?.some(c => c.type === "image" || c.type === "file") ? await api("GET", `/v1/tasks/${enc(taskId)}`) : null);
   frame.removeAttribute("data-sized");
   frame.srcdoc = Compose.documentFor(view, await fileData(view, t), fontCss(), t?.preview, ...look());
-  frame.onload=()=>{wireMarkdown(frame.contentDocument);sizeComposedFrame(frame);};
+  frame.onload=()=>{wireMarkdown(frame.contentDocument);wireActions(frame,view,taskId);sizeComposedFrame(frame);};
 }
 
+// A button in something the agent made starts a new request and approves nothing.
+function wireActions(frame, view, taskId) {
+  const at = (view || []).flatMap((c, i) => c.type === "action" ? [i] : []);
+  frame.contentDocument?.querySelectorAll("button.action").forEach((b, n) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    try { await api("POST", `/v1/tasks/${enc(taskId)}/actions/${at[n]}`); toast("Started as a new request"); }
+    catch (e) { b.disabled = false; toast(e.message); }
+  }));
+}
 async function respond(btn, root) {
   // Sent once, however many handlers see the click.
   if (btn.disabled) return;
