@@ -4,7 +4,27 @@
 
 use serde_json::Value;
 
-pub const KINDS: &[&str] = &["heading", "text", "list", "table", "stat", "bar_chart", "line_chart", "map", "timeline", "comparison", "code", "image", "file", "action"];
+pub const KINDS: &[&str] = &[
+    "heading",
+    "text",
+    "list",
+    "table",
+    "stat",
+    "bar_chart",
+    "line_chart",
+    "map",
+    "timeline",
+    "comparison",
+    "code",
+    "image",
+    "file",
+    "action",
+    "card",
+    "gallery",
+    "app",
+    "form",
+    "deck",
+];
 
 /// What a chat answer may show beside its text: only components that carry
 /// what prose cannot. Headings, paragraphs and lists belong in the answer
@@ -23,6 +43,10 @@ const MAX_POINTS: usize = 60;
 const MAX_ITEMS: usize = 100;
 /// A comparison sets 2 to this many options side by side.
 const MAX_OPTIONS: usize = 6;
+const MAX_FORM_FIELDS: usize = 12;
+const MAX_SLIDES: usize = 60;
+const SLIDE_LAYOUTS: &[&str] = &["title", "bullets", "text", "quote", "image"];
+const FIELD_TYPES: &[&str] = &["text", "email", "number", "date", "textarea", "select"];
 pub const MAX_SPOKEN: usize = 6000;
 
 fn text(v: &Value, what: &str) -> Result<(), String> {
@@ -88,6 +112,45 @@ pub fn validate(view: &Value, files: &[String]) -> Result<(), String> {
             "action" => {
                 text(&c["label"], &format!("{at}.label"))?;
                 text(&c["request"], &format!("{at}.request"))?;
+            }
+            "card" => {
+                text(&c["title"], &format!("{at}.title"))?;
+                text(&c["text"], &format!("{at}.text"))?;
+            }
+            "gallery" => {
+                for (i, g) in objects(&c["items"], &format!("{at}.items"), MAX_ITEMS)?.iter().enumerate() {
+                    let f = g["file"].as_str().ok_or(format!("{at}.items[{i}].file must name a delivered file"))?;
+                    if !files.iter().any(|x| x == f) {
+                        return Err(format!("{at}.items[{i}].file {f:?} is not a file you delivered; deliver it with deliver_file first"));
+                    }
+                }
+            }
+            "deck" => {
+                text(&c["title"], &format!("{at}.title"))?;
+                for (i, s) in objects(&c["slides"], &format!("{at}.slides"), MAX_SLIDES)?.iter().enumerate() {
+                    let layout = s["layout"].as_str().unwrap_or_default();
+                    if !SLIDE_LAYOUTS.contains(&layout) {
+                        return Err(format!("{at}.slides[{i}].layout must be one of {}", SLIDE_LAYOUTS.join(", ")));
+                    }
+                    if layout == "bullets" {
+                        strings(&s["items"], &format!("{at}.slides[{i}].items"), MAX_ITEMS)?;
+                    }
+                }
+            }
+            // A form: its answers are a request for more work, never an approval.
+            "form" => {
+                text(&c["request"], &format!("{at}.request"))?;
+                text(&c["submit"], &format!("{at}.submit"))?;
+                for (i, f) in objects(&c["fields"], &format!("{at}.fields"), MAX_FORM_FIELDS)?.iter().enumerate() {
+                    text(&f["name"], &format!("{at}.fields[{i}].name"))?;
+                    let kind = f["type"].as_str().unwrap_or("text");
+                    if !FIELD_TYPES.contains(&kind) {
+                        return Err(format!("{at}.fields[{i}].type must be one of {}", FIELD_TYPES.join(", ")));
+                    }
+                    if kind == "select" {
+                        strings(&f["options"], &format!("{at}.fields[{i}].options"), MAX_ITEMS)?;
+                    }
+                }
             }
             "list" => {
                 strings(&c["items"], &format!("{at}.items"), MAX_ITEMS)?;
@@ -164,6 +227,8 @@ pub fn validate(view: &Value, files: &[String]) -> Result<(), String> {
             "code" => text(&c["code"], &format!("{at}.code"))?,
             // An image is drawn; a file is shown in full, drawn from the
             // same components by the app.
+            "app" => text(&c["view"], &format!("{at}.view"))?,
+            "image" if c["placeholder"].is_string() => text(&c["placeholder"], &format!("{at}.placeholder"))?,
             "image" | "file" => {
                 let f = c["file"].as_str().ok_or(format!("{at}.file must name a delivered file"))?;
                 if !files.iter().any(|x| x == f) {

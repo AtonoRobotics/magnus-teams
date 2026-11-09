@@ -1,0 +1,258 @@
+[
+ {
+  "spec": "heading Quarterly results level=2",
+  "components": [
+   {
+    "type": "heading",
+    "text": "Quarterly results",
+    "level": 2.0
+   }
+  ]
+ },
+ {
+  "spec": "text A plain line muted",
+  "components": [
+   {
+    "type": "text",
+    "text": "A plain line",
+    "muted": true
+   }
+  ]
+ },
+ {
+  "spec": "list title=\"To do\" ordered\n  item Buy milk\n  item Call \"Bo\"",
+  "components": [
+   {
+    "type": "list",
+    "title": "To do",
+    "ordered": true,
+    "items": [
+     "Buy milk",
+     "Call \"Bo\""
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "table columns=Name,\"Full score\"\n  row Ada,3\n  row \"Bo, Jr\",4.5",
+  "components": [
+   {
+    "type": "table",
+    "columns": [
+     "Name",
+     "Full score"
+    ],
+    "rows": [
+     [
+      "Ada",
+      3.0
+     ],
+     [
+      "Bo, Jr",
+      4.5
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "stat label=Revenue value=41.7 unit=M\nstat label=Plan value=\"12\"",
+  "components": [
+   {
+    "type": "stat",
+    "label": "Revenue",
+    "value": 41.7,
+    "unit": "M"
+   },
+   {
+    "type": "stat",
+    "label": "Plan",
+    "value": "12"
+   }
+  ]
+ },
+ {
+  "spec": "bar_chart title=\"By region\" labels=North,South values=10,20.5",
+  "components": [
+   {
+    "type": "bar_chart",
+    "title": "By region",
+    "labels": [
+     "North",
+     "South"
+    ],
+    "values": [
+     10.0,
+     20.5
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "line_chart labels=Jan,Feb\n  series Sales values=1,2\n  series \"Net sales\" values=3,4",
+  "components": [
+   {
+    "type": "line_chart",
+    "labels": [
+     "Jan",
+     "Feb"
+    ],
+    "series": [
+     {
+      "name": "Sales",
+      "values": [
+       1.0,
+       2.0
+      ]
+     },
+     {
+      "name": "Net sales",
+      "values": [
+       3.0,
+       4.0
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "map\n  place Paris lat=48.85 lon=2.35",
+  "components": [
+   {
+    "type": "map",
+    "places": [
+     {
+      "name": "Paris",
+      "lat": 48.85,
+      "lon": 2.35
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "comparison options=A,B\n  aspect Speed values=1,fast best=0",
+  "components": [
+   {
+    "type": "comparison",
+    "options": [
+     "A",
+     "B"
+    ],
+    "aspects": [
+     {
+      "name": "Speed",
+      "values": [
+       1.0,
+       "fast"
+      ],
+      "best": 0.0
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "form title=Contact submit=Send request=\"Add them\"\n  field name=email label=Email type=email required\n  field name=size type=select options=S,M",
+  "components": [
+   {
+    "type": "form",
+    "title": "Contact",
+    "submit": "Send",
+    "request": "Add them",
+    "fields": [
+     {
+      "name": "email",
+      "label": "Email",
+      "type": "email",
+      "required": true
+     },
+     {
+      "name": "size",
+      "type": "select",
+      "options": [
+       "S",
+       "M"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "# a note\n\ncard title=Plan text=\"Line one\\nLine two\"",
+  "components": [
+   {
+    "type": "card",
+    "title": "Plan",
+    "text": "Line one\nLine two"
+   }
+  ]
+ },
+ {
+  "spec": "marquee text=hello",
+  "error": "unknown element"
+ },
+ {
+  "spec": "text \"never closed",
+  "error": "not closed"
+ },
+ {
+  "spec": "  item stray",
+  "error": "nothing to indent"
+ },
+ {
+  "spec": "stat label=a value=1\n  row b",
+  "error": "takes no indented"
+ },
+ {
+  "spec": "bar_chart labels=a values=x",
+  "error": "must be a number"
+ },
+ {
+  "spec": "deck title=Pitch\n  slide layout=bullets title=Wins items=One,Two",
+  "components": [
+   {
+    "type": "deck",
+    "title": "Pitch",
+    "slides": [
+     {
+      "layout": "bullets",
+      "title": "Wins",
+      "items": [
+       "One",
+       "Two"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "spec": "app view=run_1.view_2",
+  "components": [
+   {
+    "type": "app",
+    "view": "run_1.view_2"
+   }
+  ]
+ },
+ {
+  "spec": "image placeholder=run_1.img_2",
+  "components": [
+   {
+    "type": "image",
+    "placeholder": "run_1.img_2"
+   }
+  ]
+ },
+ {
+  "spec": "table columns=a\n  item b",
+  "error": "takes `row`"
+ },
+ {
+  "spec": "",
+  "error": "empty"
+ }
+]

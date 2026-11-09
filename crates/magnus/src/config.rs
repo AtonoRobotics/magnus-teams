@@ -25,6 +25,8 @@ pub struct Config {
     #[serde(default)]
     pub safety: crate::safety::Settings,
     #[serde(default)]
+    pub images: Option<crate::ui::images::Settings>,
+    #[serde(default)]
     pub local: crate::local::Settings,
     #[serde(default)]
     pub backup: Backup,
@@ -48,8 +50,7 @@ pub struct Config {
     pub web: Web,
     #[serde(default)]
     pub sandbox: Option<Sandbox>,
-    /// Brokered connectors' microVMs, booted with the sandbox's Firecracker
-    /// and kernel.
+    /// Brokered connectors' microVMs, booted with the sandbox's kernel.
     #[serde(default)]
     pub brokered: Brokered,
     #[serde(default)]

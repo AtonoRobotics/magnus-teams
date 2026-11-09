@@ -130,11 +130,12 @@ const Compose = (() => {
     for (let i = 0; i < lines.length;) {
       const line = lines[i]; let m;
       if (!line.trim()) { i++; continue; }
-      if ((m = line.match(/^\s{0,3}(`{3,}|~{3,})([^\s]*)\s*$/))) {
+      if ((m = line.match(/^\s{0,3}(`{3,}|~{3,})([^\s]*)(?:\s+id=\S+)?\s*$/))) {
         const fence = m[1], lang = m[2], body = [];
         for (i++; i < lines.length && !new RegExp(`^\\s{0,3}${fence[0]}{${fence.length},}\\s*$`).test(lines[i]); i++) body.push(lines[i]);
-        if (i < lines.length) i++;
-        out.push(codeBlock(body.join("\n"),lang));
+        const closed = i < lines.length;
+        if (closed) i++;
+        out.push(/^magnus-(ui|html)$/.test(lang) ? `<div class="ui-block" data-ui-kind="${lang.slice(7)}" data-ui-closed="${closed ? 1 : 0}" data-ui-body="${esc(body.join("\n"))}"></div>` : codeBlock(body.join("\n"),lang));
       } else if ((m = line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/))) { out.push(`<h${m[1].length}>${markdownInline(m[2])}</h${m[1].length}>`); i++; }
       else if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) { out.push("<hr>"); i++; }
       else if (line.includes("|") && tableRule.test(lines[i + 1] || "")) {
@@ -198,8 +199,26 @@ const Compose = (() => {
     return parts;
   }
 
+  function slide(s) {
+    const items = s.items?.map(i => `<li>${esc(i)}</li>`).join("") || "";
+    const body = s.layout === "bullets" ? `<ul>${items}</ul>` : s.layout === "quote" ? `<blockquote>${esc(s.text)}</blockquote><p class="cap">${esc(s.subtitle)}</p>` : s.layout === "title" ? `<p>${esc(s.subtitle)}</p>` : s.layout === "image" ? `<p class="cap">${esc(s.file)}</p>` : `<p>${esc(s.text)}</p>`;
+    return `<section class="slide ${esc(s.layout)}">${s.title ? `<h2>${esc(s.title)}</h2>` : ""}${body}</section>`;
+  }
+
+  function field(f) {
+    const label = esc(f.label || f.name), name = esc(f.name), req = f.required ? " required" : "";
+    const input = f.type === "textarea" ? `<textarea name="${name}"${req}></textarea>`
+      : f.type === "select" ? `<select name="${name}"${req}>${(f.options || []).map(o => `<option>${esc(o)}</option>`).join("")}</select>`
+      : `<input name="${name}" type="${esc(f.type || "text")}"${req}>`;
+    return `<label>${label}${input}</label>`;
+  }
+
   function part(c, files, limit) {
     switch (c.type) {
+      case "deck": return `<div class="deck" data-deck><div class="deck-bar"><span class="fname">${esc(c.title)}</span><button type="button" class="deck-present">Present</button></div>${c.slides.map(slide).join("")}</div>`;
+      case "card": return frame({ title: c.title }, `<p>${esc(c.text)}</p>`);
+      case "gallery": return frame(c, `<div class="gallery">${c.items.map(g => { const f = files[g.file]; return `<div>${f?.image ? `<img src="${esc(f.image)}" alt="${esc(g.caption || g.file)}">` : `<p class="cap">${esc(g.file)}</p>`}${g.caption ? `<p class="cap">${esc(g.caption)}</p>` : ""}</div>`; }).join("")}</div>`);
+      case "form": return frame(c, `<div class="uiform">${c.fields.map(field).join("")}<button type="button" class="action form-send">${esc(c.submit)}</button></div>`);
       case "heading": return c.level > 2 ? `<h4>${esc(c.text)}</h4>` : `<h2>${esc(c.text)}</h2>`;
       case "markdown": return markdown(c.text,limit);
       case "text": return `<p${c.muted ? ` class="cap"` : ""}>${esc(c.text)}</p>`;
@@ -217,7 +236,10 @@ const Compose = (() => {
       case "comparison": return comparison(c);
       case "action": return `<p><button type="button" class="action">${esc(c.label)}</button></p>`;
       case "code": return frame(c, `<div class="markdown">${codeBlock(c.code,c.language)}</div>`);
-      case "image": return files[c.file]?.image ? frame(c, `<img src="${files[c.file].image}" alt="${esc(c.caption || c.file)}">`) : frame(c, `<p class="cap">${esc(c.file)} (not an image this app can show)</p>`);
+      case "app": return "";
+      case "image": if (c.placeholder && !files[c.placeholder]?.image) return frame(c, `<div class="placeholder">${files[c.placeholder]?.failed ? "This image could not be made." : "Making this image…"}</div>`);
+        if (c.placeholder) c = { ...c, file: c.placeholder };
+        return files[c.file]?.image ? frame(c, `<img src="${files[c.file].image}" alt="${esc(c.caption || c.file)}">`) : frame(c, `<p class="cap">${esc(c.file)} (not an image this app can show)</p>`);
       case "file": return `<section class="file" data-file="${esc(c.file)}"><p class="fname">${esc(c.file)}</p>${fileParts(c.file, files[c.file], limit).map(x => part(x, files, limit)).join("\n")}</section>`;
       default: return "";
     }
@@ -295,6 +317,23 @@ const Compose = (() => {
     img { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; }
     .area { fill: none; stroke: var(--line); }
     .pt { fill: var(--bar); }
+    .deck { display: flex; flex-direction: column; gap: 12px; }
+    .deck-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .deck-present { min-height: 44px; padding: 0 16px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: 8px; cursor: pointer; }
+    .slide { aspect-ratio: 16 / 9; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 32px; box-sizing: border-box; overflow: hidden; }
+    .slide h2 { font-size: 28px; margin: 0 0 16px; }
+    .slide.title { display: flex; flex-direction: column; justify-content: center; }
+    body.presenting { padding: 0; display: block; }
+    body.presenting .deck-bar { display: none; }
+    body.presenting .slide { display: none; border: 0; border-radius: 0; height: 100vh; width: 100vw; font-size: 24px; }
+    body.presenting .slide.on { display: block; }
+    body.presenting .slide.title.on { display: flex; }
+    .placeholder { display: grid; place-items: center; min-height: 180px; color: var(--muted); font-size: 13px; background: var(--raised); }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; padding: 14px 16px; }
+    .uiform { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
+    .uiform label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+    .uiform :is(input, select, textarea) { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+    .uiform .form-send { align-self: flex-start; min-height: 44px; padding: 0 16px; }
     .tl { list-style: none; padding: 0; margin: 0; max-width: none; }
     .tl li { display: flex; gap: 14px; padding: 14px 16px; margin: 0; border-bottom: 1px solid var(--hair); }
     .tl li:last-child { border-bottom: 0; }

@@ -621,12 +621,140 @@ const Tooltips = (() => {
   return { install, dismiss };
 })();
 function loadMarkdownImages(root) {
+  drawUiBlocks(root);
   for (const img of root.querySelectorAll("img[data-prose-image]")) {
     if (img._loading) continue; img._loading = true;
     const path = img.dataset.proseImage;
     if (!/^\/v1\/files\/[^/?#]+$/.test(path)) continue;
     Magnus.dataUrl(path).then(src => { if (img.isConnected) img.src = src; }).catch(() => { img.alt = `${img.alt || "Image"} (unavailable)`; });
   }
+}
+// An answer still being written: prose is redrawn, while a block keeps its
+// frame, so what is already drawn stays put as more arrives.
+function patchLive(el, text) {
+  const parts = UiSpec.split(text);
+  [...el.children].slice(parts.length).forEach(c => c.remove());
+  parts.forEach((p, i) => {
+    const html = p.kind === "text";
+    let node = el.children[i];
+    if (!node || node.classList.contains("ui-block") === html) {
+      const made = document.createElement("div");
+      if (node) node.replaceWith(made); else el.append(made);
+      node = made;
+    }
+    if (html) { node.innerHTML = Compose.markdown(p.text); return; }
+    node.className = "ui-block";
+    Object.assign(node.dataset, { uiKind: p.kind, uiBody: p.body, uiClosed: p.closed ? "1" : "0" });
+  });
+}
+// A spec block in the agent's words is drawn in a frame of its own: Compose
+// makes the document, and the frame's scripts stay off. HTML the agent wrote
+// runs in a sandbox with an opaque origin, under a policy set before it.
+function drawUiBlocks(root) {
+  if ((root.ownerDocument || root) !== document) return;
+  root.querySelectorAll(".ui-block").forEach((block, n) => {
+    const body = block.dataset.uiBody, closed = block.dataset.uiClosed === "1", kind = block.dataset.uiKind;
+    if (block._drawn === body + closed) return;
+    block._drawn = body + closed;
+    if (kind === "html") {
+      if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
+      block.innerHTML = `<iframe class="composed ui-html" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
+      block.firstChild.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${esc(UiSpec.catalog?.html_csp || "default-src 'none'")}">${body}`;
+      return;
+    }
+    let view;
+    try { view = closed ? UiSpec.compile(body) : UiSpec.compilePartial(body); }
+    catch (e) { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; return; }
+    if (!view.length) { block.innerHTML = `<div class="small faint">Drawing…</div>`; return; }
+    if (closed) view.filter(c => c.type === "app").forEach(c => drawAppView(block, c.view));
+    if (view.every(c => c.type === "app")) return;
+    if (!block.firstChild?.matches?.("iframe")) block.innerHTML = `<iframe class="composed" sandbox="allow-same-origin" title="What Magnus showed" data-sized=""></iframe>`;
+    const frame = block.firstChild;
+    const drawn = JSON.stringify(view);
+    if (block._view === drawn) return;
+    block._view = drawn;
+    const files = {};
+    const paint = () => { frame.srcdoc = Compose.documentFor(view, files, fontCss(), undefined, ...look()); };
+    paint();
+    frame.onload = () => { sizeComposedFrame(frame); if (closed) wireBlock(frame, view, block, n); };
+    if (closed) view.filter(c => c.placeholder).forEach(c => waitForImage(c.placeholder, files, block, paint));
+  });
+}
+// What is pressed is read again by the server from what the task holds.
+function wireBlock(frame, view, block, fence) {
+  const task = block.closest("[data-task]")?.dataset.task;
+  if (!task) return;
+  const at = kind => view.flatMap((c, i) => c.type === kind ? [i] : []);
+  const send = (index, values, b) => { b.disabled = true; api("POST", `/v1/tasks/${enc(task)}/actions/${index}`, { fence, values }).then(() => toast("Started as a new request")).catch(e => { b.disabled = false; toast(e.message); }); };
+  const doc = frame.contentDocument;
+  doc?.querySelectorAll("button.action:not(.form-send)").forEach((b, n) => b.addEventListener("click", () => send(at("action")[n], {}, b)));
+  doc?.querySelectorAll(".deck-present").forEach(b => b.addEventListener("click", () => presentDeck(frame)));
+  doc?.querySelectorAll(".uiform").forEach((form, n) => form.querySelector(".form-send").addEventListener("click", e => {
+    if (![...form.querySelectorAll("input,select,textarea")].every(i => i.reportValidity())) return;
+    send(at("form")[n], Object.fromEntries([...form.querySelectorAll("[name]")].map(i => [i.name, i.value])), e.currentTarget);
+  }));
+}
+// Present mode: the same frame full screen, one slide at a time.
+function presentDeck(frame) {
+  const doc = frame.contentDocument, slides = [...doc.querySelectorAll(".slide")];
+  if (!slides.length) return;
+  let at = 0;
+  const show = () => slides.forEach((s, i) => s.classList.toggle("on", i === at));
+  const end = () => { doc.body.classList.remove("presenting"); doc.removeEventListener("keydown", key); document.removeEventListener("keydown", key); document.removeEventListener("fullscreenchange", left); if (document.fullscreenElement === frame) document.exitFullscreen().catch(() => {}); sizeComposedFrame(frame); };
+  const left = () => { if (document.fullscreenElement !== frame) end(); };
+  const key = e => { if (e.key === "ArrowRight" || e.key === " ") { at = Math.min(at + 1, slides.length - 1); show(); } else if (e.key === "ArrowLeft") { at = Math.max(at - 1, 0); show(); } else if (e.key === "Escape") end(); };
+  doc.body.classList.add("presenting");
+  show();
+  doc.addEventListener("keydown", key); document.addEventListener("keydown", key); document.addEventListener("fullscreenchange", left);
+  frame.requestFullscreen?.().catch(() => {});
+}
+// A connector's view, in the same sandbox as the agent's own HTML. It talks
+// over postMessage; a tool it asks for starts a new request.
+async function drawAppView(block, id) {
+  if (block.querySelector(`iframe[data-view="${CSS.escape(id)}"]`)) return;
+  const frame = document.createElement("iframe");
+  Object.assign(frame, { className: "composed ui-html", title: "A connector's view" });
+  frame.setAttribute("sandbox", "allow-scripts");
+  frame.dataset.view = id;
+  block.append(frame);
+  let v;
+  try { v = await api("GET", `/v1/ui/apps/${enc(id)}`); }
+  catch { frame.replaceWith(Object.assign(document.createElement("div"), { className: "small bad", textContent: "This view is no longer available." })); return; }
+  const send = m => frame.contentWindow?.postMessage({ jsonrpc: "2.0", ...m }, "*");
+  const onMessage = e => {
+    if (!frame.isConnected) return window.removeEventListener("message", onMessage);
+    if (e.source !== frame.contentWindow || !e.data || e.data.jsonrpc !== "2.0") return;
+    const { id: rid, method, params } = e.data;
+    if (method === "ui/initialize") send({ id: rid, result: { protocolVersion: params?.protocolVersion, hostInfo: { name: "Magnus", version: "1" }, hostCapabilities: {}, hostContext: {} } });
+    else if (method === "ui/notifications/initialized") {
+      send({ method: "ui/notifications/tool-input", params: { arguments: v.input } });
+      send({ method: "ui/notifications/tool-result", params: { content: [{ type: "text", text: v.text }], structuredContent: v.structured ?? undefined } });
+    } else if (method === "tools/call") api("POST", `/v1/ui/apps/${enc(id)}/request`, { tool: String(params?.name), arguments: params?.arguments ?? {} })
+      .then(() => { toast("Started as a new request."); send({ id: rid, result: { content: [{ type: "text", text: "Started as a new request." }] } }); })
+      .catch(err => send({ id: rid, error: { code: -32000, message: err.message || String(err) } }));
+    else if (rid !== undefined) send({ id: rid, error: { code: -32601, message: "Not available here." } });
+  };
+  window.addEventListener("message", onMessage);
+  frame.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${esc(UiSpec.catalog?.html_csp || "default-src 'none'")}">${v.html}`;
+}
+// An image being made: asked after until it is there, then drawn in place.
+async function waitForImage(id, files, block, paint) {
+  for (let tries = 0; tries < IMAGE_POLLS && block.isConnected; tries++) {
+    try {
+      const src = await Magnus.dataUrl(`/v1/ui/images/${enc(id)}`);
+      if (src && !/^data:[^,]*,$/.test(src)) { files[id] = { image: src }; paint(); return; }
+    } catch { files[id] = { failed: true }; paint(); return; }
+    await new Promise(r => setTimeout(r, IMAGE_POLL_MS));
+  }
+}
+const IMAGE_POLLS = 120, IMAGE_POLL_MS = 3000;
+// Says what this client can draw, so the agent writes only that.
+async function loadUiCatalog() {
+  try {
+    const c = await api("GET", "/v1/ui/catalog");
+    UiSpec.setCatalog(c);
+    await api("PUT", "/v1/ui/catalog", { version: c.version, elements: c.elements.map(e => e.name) });
+  } catch {/* Drawn as "could not be drawn" until it loads. */}
 }
 function wireMarkdown(root) {
   if (root._markdownWired) return; root._markdownWired = true;
@@ -648,6 +776,7 @@ function wireDocument() {
   });
   document.addEventListener("click", e => { const b=e.target.closest("[data-attach-open]"); if (b) b.closest(".attachment-picker").querySelector("input").click(); });
   Menus.install(); Tooltips.install(); wireMarkdown(document);
+  new MutationObserver(() => drawUiBlocks(document)).observe(document.body, { childList: true, subtree: true });
   const style = document.createElement("style"); style.textContent = Compose.markdownStyles; document.head.append(style);
   document.addEventListener("load", e => { if (e.target.matches?.("iframe.composed")) { try { wireMarkdown(e.target.contentDocument); sizeComposedFrame(e.target); } catch { /* frame unavailable */ } } }, true);
   new MutationObserver(()=>{for(const [frame,sizing] of frameSizing)if(!frame.isConnected){sizing.observer.disconnect();frame._frameActions?.dispose();delete frame._frameActions;frameSizing.delete(frame);}}).observe(document.body,{childList:true,subtree:true});
@@ -1391,7 +1520,7 @@ async function showThread(main, thread) {
       const el = $(`[data-live="${CSS.escape(id)}"]`, main);
       if(el){
         const root=$("#thread",main), followed=ReadingAnchors.capture(root)?.follow;
-        ReadingAnchors.hold(root,()=>{el.innerHTML=Compose.markdown(ui.live[id]);loadMarkdownImages(el);});
+        ReadingAnchors.hold(root,()=>{patchLive(el,ui.live[id]);loadMarkdownImages(el);});
         if(!followed)$("[data-jump-latest]",main).hidden=false;
       }
     });
@@ -1826,7 +1955,7 @@ function entry(e, ui = {}) {
         <div class="row small"><button class="primary" data-msg-act="edit-send">Send</button><button class="link" data-msg-act="edit-cancel">Cancel</button></div></div>`
       : `<div class="msg me"><div class="small faint">You · ${esc(when(e.at))}</div><div>${esc(e.text)}</div>${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}</div>`;
     case "opener": return `<div class="msg magnus" data-opener><div class="small faint">Magnus · ${esc(when(e.at))}</div><div class="small muted">${e.app_title ? `You connected ${esc(e.app_title)}, so I had a look at what I could take over there.` : "You are new here, so I had a look at what I could take over for you."}</div></div>`;
-    case "answer": return `<div class="msg magnus" data-answer><div class="small faint">Magnus${e.model ? ` · ${esc(e.model.model)}` : ""} · ${esc(when(e.at))}</div><div class="answer-body">${Compose.markdown(e.text || "")}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}</div>`;
+    case "answer": return `<div class="msg magnus" data-answer data-task="${esc(e.task_id)}"><div class="small faint">Magnus${e.model ? ` · ${esc(e.model.model)}` : ""} · ${esc(when(e.at))}</div><div class="answer-body">${Compose.markdown(e.text || "")}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}</div>`;
     case "turn": return e.status === "failed" || e.status === "cancelled"
       ? `<div class="msg magnus"><div class="small bad">Could not answer: ${esc(e.text || e.status)}</div></div>`
       : `<div class="msg magnus"><div class="small faint">${e.status === "running" ? "Working on an answer…" : esc(WAITING[e.waiting_on] || "paused")}</div>${e.status === "running" ? `<div class="pre" data-live="${esc(e.task_id)}">${Compose.markdown(ui.live?.[e.task_id] || "")}</div>` : ""}</div>${waitingCard(e.waiting_item, ui)}`;
@@ -3437,6 +3566,7 @@ async function updateRequiredScreen(info) {
 window.addEventListener("magnus-update-required", e => updateRequiredScreen(e.detail));
 
 async function boot() {
+  await loadUiCatalog();
   App.sessionGeneration++;
   Resources.reset();
   App.me = await api("GET", "/v1/me");

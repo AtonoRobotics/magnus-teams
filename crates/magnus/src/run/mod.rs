@@ -334,7 +334,7 @@ impl Kernel {
         if !self.read(|s| s.tasks.get(&run.task).and_then(|t| t.project.as_ref()).is_some_and(|p| !p.files.is_empty())) {
             specs.retain(|t| t.name != "project_read");
         }
-        specs.extend(self.local_specs(&run.person));
+        specs.extend(self.local_specs(&run.person).into_iter().chain(crate::tools_ui::specs()));
         let limited = self.read(|s| s.sub_agents.get(&run.id).map(|c| c.tools.clone())).filter(|t| !t.is_empty());
         if let Some(allowed) = &limited {
             specs.retain(|t| allowed.contains(&t.name));
@@ -564,7 +564,7 @@ impl Kernel {
         Ok(false)
     }
 
-    async fn result(&self, run: &str, call_id: &str, text: impl Into<String>, is_error: bool) -> Result<()> {
+    pub(crate) async fn result(&self, run: &str, call_id: &str, text: impl Into<String>, is_error: bool) -> Result<()> {
         self.emit(
             "kernel",
             Ev::ToolResult {
@@ -611,6 +611,9 @@ impl Kernel {
         let rid = run.id.as_str();
         if name == "show" {
             return self.show(run, call_id, input).await;
+        }
+        if let Some(flow) = self.ui_record(run, call_id, name, input).await {
+            return flow;
         }
         // A chat turn has no contract, plan or Done: it ends with its answer.
         if self.is_chat_turn(run) {

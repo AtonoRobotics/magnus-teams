@@ -213,6 +213,9 @@ impl Kernel {
         if a.tool.starts_with("team_") {
             return self.team_tool(a).await;
         }
+        if a.tool.starts_with("image_") {
+            return self.image_tool(a).await;
+        }
         self.local_tool(a).await
     }
 

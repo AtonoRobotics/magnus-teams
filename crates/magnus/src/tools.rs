@@ -118,22 +118,7 @@ impl Audience {
     }
 }
 
-/// Run records the loop writes to the log itself, outside execute() (K21).
-pub const RECORDS: &[&str] = &[
-    "show",
-    "task_contract",
-    "task_plan",
-    "task_complete",
-    "task_fail",
-    "ask_principal",
-    "propose_policy",
-    "propose_schedule",
-    "end_schedule",
-    "wait_until",
-    "notify",
-    "observe",
-    "interrupt",
-];
+pub use crate::tools_ui::RECORDS;
 
 /// Built-in actions that pass the boundary like app tools.
 pub struct Builtin {
@@ -239,7 +224,7 @@ pub const BUILTINS: &[Builtin] = &[
 ];
 
 pub fn builtin(name: &str) -> Option<&'static Builtin> {
-    BUILTINS.iter().chain(crate::local::BUILTINS).chain(crate::team::BUILTINS).find(|b| b.name == name)
+    BUILTINS.iter().chain(crate::local::BUILTINS).chain(crate::team::BUILTINS).chain(crate::tools_ui::BUILTINS).find(|b| b.name == name)
 }
 
 /// Tools whose calls are their person's alone: no other person's run, the

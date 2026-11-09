@@ -780,3 +780,6 @@ nav.side a { position: relative; }
 .connection-status { grid-column: 2 / -1; grid-row: 3; min-height: 28px; padding: 4px 12px; background: var(--side); color: var(--fg); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; border-top: 1px solid var(--line); }
 .shell:has(> .connection-status:not([hidden])) { grid-template-rows: 48px minmax(0, 1fr) auto; }
 body[data-navigation=drawer] .connection-status { grid-column: 1; }
+
+/* Agent-built HTML sets no height of its own in the opaque-origin sandbox. */
+iframe.ui-html { width: 100%; height: 480px; border: 1px solid var(--line); border-radius: 12px; }

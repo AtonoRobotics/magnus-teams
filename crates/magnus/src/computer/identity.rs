@@ -225,6 +225,19 @@ impl Kernel {
         }
     }
 
+    /// A document drawn offline and photographed, in a browser with no login.
+    pub(crate) async fn render_html(&self, run: &str, person: &str, html: &str) -> Result<String> {
+        let request = json!({ "op": "render_html", "html": html });
+        let reply = if self.cfg.computer.is_some() {
+            let c = self.throwaway_for(run, person).await?;
+            self.running_browser(&c).await?;
+            self.broker(&c.id, request).await?
+        } else {
+            self.browser.request(run, request).await?
+        };
+        reply["image_b64"].as_str().map(String::from).context("the browser returned no picture")
+    }
+
     /// A browser tool: in a VM here, or the host's jail with no computers.
     pub(crate) async fn browser_tool(&self, a: &crate::boundary::Action) -> Result<(String, bool, Option<Value>)> {
         if let Some(done) = self.browser_vm_tool(&a.run, &a.tool, &a.input).await? {

@@ -80,6 +80,7 @@ impl Kernel {
         let seqs = self.log.content_seqs(&holding).await?;
         self.emit(actor, Ev::Removed { item: item.into(), seqs: seqs.clone() }).await?;
         self.log.delete_content(&seqs).await?;
+        crate::ui::images::forget_runs(&self.cfg.appliance.state_dir, &holding.runs);
         Ok(())
     }
 

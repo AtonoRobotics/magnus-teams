@@ -260,7 +260,7 @@ impl Kernel {
                     Status::Completed => out.push((
                         r.ended_at.unwrap_or(t.created_at),
                         i64::MAX,
-                        json!({ "id": format!("a:{}", t.task_id), "kind": "answer", "text": r.summary, "view": r.outcome_view, "spoken": r.spoken, "at": r.ended_at, "task_id": t.task_id, "model": { "adapter": r.config.adapter, "model": r.config.model }, "verdict": t.verdict }),
+                        json!({ "id": format!("a:{}", t.task_id), "kind": "answer", "text": self.read(|s| crate::ui::docs::current_text(s, &t.person, &r.summary)), "view": r.outcome_view, "spoken": r.spoken, "at": r.ended_at, "task_id": t.task_id, "model": { "adapter": r.config.adapter, "model": r.config.model }, "verdict": t.verdict }),
                     )),
                     _ => out.push((
                         r.ended_at.unwrap_or(t.created_at),

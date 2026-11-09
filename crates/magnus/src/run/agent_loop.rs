@@ -234,6 +234,13 @@ impl Kernel {
                     }
                     self.emit("model", Ev::ModelReply { run: run_id.into(), step, blocks: t.blocks, state: t.state, usage: t.usage, served_model: t.served_model, stop: t.stop })
                         .await?;
+                    // A block that cannot be drawn goes back to be fixed.
+                    let files: Vec<String> = run.outputs.iter().map(|(_, n, ..)| n.clone()).collect();
+                    if let Some(why) = crate::ui::docs::problems(&answer, &run.person, &files) {
+                        let text = format!("A block in your reply cannot be drawn: {why}. Write it again, or use ui_catalog to see how the element is written.");
+                        self.emit("kernel", Ev::Notice { run: run_id.into(), step: step + 1, text }).await?;
+                        return Ok(Flow::Continue);
+                    }
                     // A chat turn ends with its answer: no contract, no Done
                     // check. What it did on the way went through execute().
                     if !has_call && chat {

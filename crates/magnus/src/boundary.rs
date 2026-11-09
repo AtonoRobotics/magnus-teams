@@ -1568,7 +1568,7 @@ impl Kernel {
                         let data = o.structured.clone().or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null);
                         self.note_watched(&person, &f.app, &f.remote, &data).await;
                     }
-                    Ok((o.text, o.is_error, o.structured))
+                    Ok(self.with_app_view(a, &c.url, bearer, &f.remote, o).await)
                 }
                 Err(crate::apps::CallError::NotSent(m)) if self.still_running(&a.run, &f.app).is_err() => Err(CallFailure::Stopped(m)),
                 Err(crate::apps::CallError::NotSent(m)) => Err(CallFailure::NotDone(m)),
@@ -1670,7 +1670,7 @@ impl Kernel {
                     }
                 }
                 t if t.starts_with("browser_") => self.browser_tool(a).await,
-                t if t.starts_with("local_") || t.starts_with("team_") => self.far_tool(a).await,
+                t if t.starts_with("local_") || t.starts_with("team_") || t.starts_with("image_") => self.far_tool(a).await,
                 "add_computer_destination" | "open_attachment" | "start_sub_agent" => self.side_tool(a).await,
                 t if t.starts_with("computer_") => {
                     if let Some(done) = self.computer_tool(&a.run, t, &a.input).await? {

@@ -32,7 +32,7 @@ const RUN: &str = "vm";
 
 /// Everything the broker may ask. `ping` and `sync` are the host's, for
 /// knowing the VM is up and for flushing the profile before a stop.
-pub const COMMANDS: [&str; 9] = ["navigate", "snapshot", "click", "type", "select", "back", "screenshot", "fill_secret", "close"];
+pub const COMMANDS: [&str; 10] = ["navigate", "snapshot", "click", "type", "select", "back", "screenshot", "fill_secret", "close", "render_html"];
 
 pub fn is_browser_vm() -> bool {
     std::fs::read_to_string("/proc/cmdline").is_ok_and(|c| c.split_whitespace().any(|a| a == ROLE))

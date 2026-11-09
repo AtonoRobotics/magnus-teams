@@ -188,6 +188,16 @@ async function handle(req) {
     if (b) await b.then(x => x.close()).catch(() => {});
     return { ok: true };
   }
+  // Agent-built HTML, drawn so the agent can check it: no network of any kind.
+  if (op === 'render_html') {
+    const q = await (await page(run)).context().newPage();
+    try {
+      await q.route('**/*', r => /^(data|about):/.test(r.request().url()) ? r.continue() : r.abort());
+      await q.setContent(String(req.html), { waitUntil: 'load', timeout: ACTION_MS });
+      const b = await q.screenshot({ type: 'png' });
+      return { image_b64: b.toString('base64') };
+    } finally { await q.close().catch(() => {}); }
+  }
   if (op === 'navigate') { website(req.url); if (destinations) await destinations.check(req.url); }
   const p = await page(run);
   switch (op) {

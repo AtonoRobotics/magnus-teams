@@ -1,0 +1,394 @@
+{
+  "version": 1,
+  "elements": [
+    {
+      "name": "heading",
+      "doc": "heading Text level=2",
+      "shape": {
+        "lead": "text",
+        "lists": [],
+        "numbers": [
+          "level"
+        ],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "text",
+      "doc": "text A paragraph. Add muted to quiet it.",
+      "shape": {
+        "lead": "text",
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [
+          "muted"
+        ],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "list",
+      "doc": "list title=\"...\" [ordered], then one indented `item Words` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [
+          "ordered"
+        ],
+        "loose": []
+      },
+      "child": {
+        "line": "item",
+        "into": "items",
+        "takes": "text",
+        "shape": {
+          "lead": null,
+          "lists": [],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "table",
+      "doc": "table columns=Name,Score, then one indented `row Ada,3` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [
+          "columns"
+        ],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "row",
+        "into": "rows",
+        "takes": "row",
+        "shape": {
+          "lead": null,
+          "lists": [],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "stat",
+      "doc": "stat label=Revenue value=41.7 unit=M",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": [
+          "value"
+        ]
+      },
+      "child": null
+    },
+    {
+      "name": "bar_chart",
+      "doc": "bar_chart title=\"...\" labels=North,South values=10,20 unit=M",
+      "shape": {
+        "lead": null,
+        "lists": [
+          "labels"
+        ],
+        "numbers": [],
+        "number_lists": [
+          "values"
+        ],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "line_chart",
+      "doc": "line_chart labels=Jan,Feb, then one indented `series Name values=1,2` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [
+          "labels"
+        ],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "series",
+        "into": "series",
+        "takes": "object",
+        "shape": {
+          "lead": "name",
+          "lists": [],
+          "numbers": [],
+          "number_lists": [
+            "values"
+          ],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "map",
+      "doc": "map, then one indented `place Paris lat=48.85 lon=2.35` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "place",
+        "into": "places",
+        "takes": "object",
+        "shape": {
+          "lead": "name",
+          "lists": [],
+          "numbers": [
+            "lat",
+            "lon"
+          ],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "timeline",
+      "doc": "timeline, then one indented `event when=2024 label=\"Launched\"` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "event",
+        "into": "events",
+        "takes": "object",
+        "shape": {
+          "lead": null,
+          "lists": [],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "comparison",
+      "doc": "comparison options=A,B, then one indented `aspect Speed values=1,2 best=0` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [
+          "options"
+        ],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "aspect",
+        "into": "aspects",
+        "takes": "object",
+        "shape": {
+          "lead": "name",
+          "lists": [
+            "values"
+          ],
+          "numbers": [
+            "best"
+          ],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "code",
+      "doc": "code language=rust code=\"fn main() {}\"",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "image",
+      "doc": "image file=chart.png caption=\"...\", or image placeholder=ID for one still being made",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "file",
+      "doc": "file file=report.md",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "action",
+      "doc": "action label=\"Do it\" request=\"What to ask for\". A request for more work, never an approval.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "card",
+      "doc": "card title=\"...\" text=\"...\"",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    },
+    {
+      "name": "gallery",
+      "doc": "gallery, then one indented `item file=a.png caption=\"...\"` per line.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "item",
+        "into": "items",
+        "takes": "object",
+        "shape": {
+          "lead": null,
+          "lists": [],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "form",
+      "doc": "form title=\"...\" submit=Send request=\"What to do with the answers\", then one indented `field name=email label=Email type=email required` per line. Types: text, email, number, date, textarea, select (with options=a,b). A request for more work, never an approval.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "field",
+        "into": "fields",
+        "takes": "object",
+        "shape": {
+          "lead": null,
+          "lists": [
+            "options"
+          ],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [
+            "required"
+          ],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "deck",
+      "doc": "deck title=\"...\", then one indented `slide layout=bullets title=\"Wins\" items=One,Two` per line. Layouts: title (title, subtitle), bullets (title, items), text (title, text), quote (text, subtitle), image (title, file). Fill the slots; the template does the rest. Exports as PPTX and PDF.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": {
+        "line": "slide",
+        "into": "slides",
+        "takes": "object",
+        "shape": {
+          "lead": null,
+          "lists": [
+            "items"
+          ],
+          "numbers": [],
+          "number_lists": [],
+          "flags": [],
+          "loose": []
+        }
+      }
+    },
+    {
+      "name": "app",
+      "doc": "app view=ID, for the view a connector's tool told you it has.",
+      "shape": {
+        "lead": null,
+        "lists": [],
+        "numbers": [],
+        "number_lists": [],
+        "flags": [],
+        "loose": []
+      },
+      "child": null
+    }
+  ],
+  "html_csp": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+}

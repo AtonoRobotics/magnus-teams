@@ -27,6 +27,7 @@ argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
+crc32fast = "1"
 cedar-policy = "4"
 # The places of a policy's problems, which Cedar reports as diagnostics.
 miette = "7"

@@ -22,6 +22,17 @@ pub struct AppTool {
     pub annotations: Value,
 }
 
+/// Where a tool's view lives, when it ships one (MCP Apps).
+fn view_uri(tool: &Value) -> Option<String> {
+    let meta = &tool["_meta"];
+    let uri = meta["ui"]["resourceUri"].as_str().or(meta["ui/resourceUri"].as_str())?;
+    uri.starts_with("ui://").then(|| uri.to_string())
+}
+
+fn view_key(url: &str, tool: &str) -> String {
+    format!("{url}\n{tool}")
+}
+
 #[derive(Debug)]
 pub enum CallError {
     /// The request never left: nothing happened at the app.
@@ -80,6 +91,8 @@ pub struct CallOutput {
 #[derive(Clone)]
 pub struct Mcp {
     http: reqwest::Client,
+    /// Which tools ship a view, as listed: app url and tool, to the view.
+    views: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
 }
 
 struct Session {
@@ -90,7 +103,7 @@ struct Session {
 
 impl Mcp {
     pub fn new() -> Mcp {
-        Mcp { http: reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(120)).build().expect("http client") }
+        Mcp { http: reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(120)).build().expect("http client"), views: Default::default() }
     }
 
     async fn rpc(&self, s: &Session, id: Option<u64>, method: &str, params: Value, extra: &[(&str, &str)]) -> Result<Option<Value>, CallError> {
@@ -217,6 +230,12 @@ impl Mcp {
             .as_array()
             .into_iter()
             .flatten()
+            .inspect(|t| {
+                if let Some(uri) = view_uri(t) {
+                    let key = view_key(url, t["name"].as_str().unwrap_or_default());
+                    self.views.lock().unwrap_or_else(|e| e.into_inner()).insert(key, uri);
+                }
+            })
             .map(|t| AppTool {
                 name: t["name"].as_str().unwrap_or_default().into(),
                 description: t["description"].as_str().unwrap_or_default().into(),
@@ -224,6 +243,18 @@ impl Mcp {
                 annotations: t.get("annotations").cloned().unwrap_or(Value::Null),
             })
             .collect())
+    }
+
+    /// The view of a tool, as the app last listed it.
+    pub fn view_of(&self, url: &str, tool: &str) -> Option<String> {
+        self.views.lock().unwrap_or_else(|e| e.into_inner()).get(&view_key(url, tool)).cloned()
+    }
+
+    pub async fn read_view(&self, url: &str, bearer: Option<&str>, uri: &str) -> Result<String, CallError> {
+        let s = self.open(url, bearer).await?;
+        let r = self.rpc(&s, Some(3), "resources/read", json!({ "uri": uri }), &[]).await?.unwrap_or_default();
+        let html = r["contents"][0]["text"].as_str().ok_or_else(|| CallError::NotSent("the view has no text".into()))?;
+        Ok(Self::clean(html, bearer))
     }
 
     pub async fn call(&self, url: &str, bearer: Option<&str>, tool: &str, args: &Value, key: Option<&str>) -> Result<CallOutput, CallError> {
