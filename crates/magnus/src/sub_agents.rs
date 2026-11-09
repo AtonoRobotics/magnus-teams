@@ -68,6 +68,12 @@ impl Ledger {
     }
 }
 
+/// A refusal is the kernel's own sentence: no sub-agent ran, so nothing was
+/// read and the parent takes on no taint.
+fn refused(text: String) -> (String, bool, Option<Value>) {
+    (text, true, Some(json!({ "untrusted": false, "private": false })))
+}
+
 /// A share of the parent's budget, however it was asked for.
 fn child_budget(parent: &Budget, share: Option<f64>) -> Budget {
     let share = share.unwrap_or(DEFAULT_CHILD_SHARE).clamp(0.0, MAX_CHILD_SHARE);
@@ -83,19 +89,19 @@ impl Kernel {
         let parent = self.read(|s| s.runs.get(&a.run).cloned()).context("no such run")?;
         let goal = a.input["goal"].as_str().context("goal is required")?.to_string();
         if self.read(|s| s.sub_agents.depth(&a.run)) >= MAX_DEPTH {
-            return Ok(("Sub-agents cannot be nested this deeply.".to_string(), true, None));
+            return Ok(refused("Sub-agents cannot be nested this deeply.".to_string()));
         }
         let parent_grant = self.read(|s| s.tasks.get(&parent.task).and_then(|t| t.grant.clone()));
         let grant = a.input["grant"].as_str().map(String::from);
         if grant.is_some() && grant != parent_grant {
-            return Ok(("That grant is not one this run holds, so a sub-agent cannot be given it.".to_string(), true, None));
+            return Ok(refused("That grant is not one this run holds, so a sub-agent cannot be given it.".to_string()));
         }
         let mut tools: Vec<String> = a.input["tools"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(String::from)).collect();
         // A child never gets to start more than its own limit lets it.
         let ceiling = self.read(|s| s.sub_agents.get(&a.run).map(|p| p.tools.clone())).unwrap_or_default();
         if !ceiling.is_empty() {
             if let Some(extra) = tools.iter().find(|t| !ceiling.contains(t)) {
-                return Ok((format!("{extra} is not a tool this sub-agent holds."), true, None));
+                return Ok(refused(format!("{extra} is not a tool this sub-agent holds.")));
             }
             if tools.is_empty() {
                 tools = ceiling;
