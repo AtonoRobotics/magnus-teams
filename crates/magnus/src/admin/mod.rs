@@ -369,7 +369,7 @@ async fn asset(axum::extract::Path(file): axum::extract::Path<String>) -> Respon
 
 /// The desktop app's own fonts, so the console looks as the app does.
 async fn font(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
-    match crate::api::FONTS.iter().find(|(n, _)| *n == file) {
+    match crate::ui::assets::FONTS.iter().find(|(n, _)| *n == file) {
         Some((_, body)) => ([(header::CONTENT_TYPE, "font/woff2")], *body).into_response(),
         None => not_found().await,
     }

@@ -1,6 +1,8 @@
 //! Runs the agent's work on the person's own computer, inside the folders
 //! they granted. The server decides what may be attempted. This side decides
 //! what a path really is, because only this side can see the symlinks.
+pub mod tls;
+pub use tls::Trust;
 mod capture;
 mod confine;
 mod presence;
@@ -89,6 +91,7 @@ pub struct Config {
     pub bwrap: PathBuf,
     /// While this file exists, the person has told the agent to keep off.
     pub pause_file: Option<PathBuf>,
+    pub trust: Trust,
 }
 
 /// One job, carried out. The answer is the agent's tool result.
@@ -186,7 +189,7 @@ async fn exec(command: &str, cwd: &Path, folders: &Folders, bwrap: &Path, networ
 /// Connects and works through jobs one at a time until the process ends.
 /// One at a time also means no job's symlink can race another job's check.
 pub async fn serve(cfg: Config) -> Result<()> {
-    let http = reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build()?;
+    let http = tls::apply(reqwest::Client::builder().timeout(REQUEST_TIMEOUT), &cfg.trust)?.build()?;
     let register = json!({ "name": cfg.name, "mode": cfg.mode, "folders": cfg.folders.list() });
     let reply: Value = http.post(format!("{}/v1/local/computers", cfg.server)).bearer_auth(&cfg.token).json(&register).send().await?.error_for_status()?.json().await?;
     let id = reply["id"].as_str().context("the server gave no id")?.to_string();

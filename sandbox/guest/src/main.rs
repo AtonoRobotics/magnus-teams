@@ -21,6 +21,7 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+const MAX_LISTED_ENTRIES: usize = 5_000;
 const PORT: u32 = 52;
 /// The desktop, for a takeover through the host's broker.
 const DISPLAY_PORT: u32 = 5900;
@@ -389,6 +390,26 @@ fn resolve(path: &str) -> std::path::PathBuf {
     }
 }
 
+/// A directory's entries, for the person's file explorer. Links are shown
+/// as themselves and never followed.
+fn list_dir(path: &std::path::Path) -> Value {
+    let dir = match std::fs::read_dir(path) {
+        Ok(d) => d,
+        Err(e) => return json!({ "error": format!("{}: {e}", path.display()) }),
+    };
+    let mut entries: Vec<Value> = dir
+        .flatten()
+        .take(MAX_LISTED_ENTRIES)
+        .filter_map(|e| {
+            let meta = e.path().symlink_metadata().ok()?;
+            let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+            Some(json!({ "name": e.file_name().to_string_lossy(), "dir": meta.is_dir(), "size": meta.len(), "modified": modified }))
+        })
+        .collect();
+    entries.sort_by_key(|e| (!e["dir"].as_bool().unwrap_or(false), e["name"].as_str().unwrap_or_default().to_string()));
+    json!({ "path": path, "entries": entries })
+}
+
 /// The whole file, or the part of it asked for.
 fn read_part(path: &std::path::Path, offset: Option<u64>, length: Option<u64>) -> std::io::Result<Vec<u8>> {
     let Some(length) = length else { return std::fs::read(path) };
@@ -432,6 +453,7 @@ fn handle(req: Value) -> Value {
                 Err(e) => json!({ "error": format!("{}: {e}", p.display()) }),
             }
         }
+        "list" => list_dir(&resolve(req["path"].as_str().unwrap_or_default())),
         "sync" => {
             unsafe { libc::sync() };
             json!({ "ok": true })

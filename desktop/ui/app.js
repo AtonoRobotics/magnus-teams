@@ -332,6 +332,7 @@ const WAITING = {
   approval: "waiting for an approval", review: "waiting for your review", question: "waiting for your answer", budget: "paused: budget reached",
   contract_change: "waiting for you to decide on a change to its done-criteria",
   provider: "paused: the model provider is unavailable", usage_limit: "paused: model usage limit", auth: "paused: sign in to the model again",
+  monitor: "waiting for you: the safety monitor held an action", secure_form: "waiting for you to sign in", takeover: "paused: you have control of the computer",
   kill_switch: "stopped by the kill switch", timer: "waiting until a set time", invalid_request: "paused: the model rejected the request",
 };
 const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class="chip ${c}">${esc(l)}</span>`; };
@@ -342,7 +343,7 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["approval","question","contract_change","review","policy_proposal","schedule_proposal","task_proposal","tool_change","deletion_request","endorsement","tool_review"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","approval","question","contract_change","review","policy_proposal","schedule_proposal","task_proposal","tool_change","deletion_request","endorsement","tool_review"]);
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -387,10 +388,10 @@ function nav() {
   const route=location.hash || "#/home", waiting=needsMe();
   const item=Panel.what?.startsWith("item:") ? App.inbox.find(i=>i.id===Panel.what.slice(5)) : null;
   const active=k=>k==="activity" ? ["activity","tasks","schedules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : route.startsWith("#/library");
-  const primary=(k,label,ic,href)=>`<a class="primary-nav${k==="needs" ? " needs" : ""}${active(k) ? " on" : ""}" href="${href}" ${k!=="apps" ? `data-open="${k}"` : ""} ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}${k==="needs" && waiting.length ? `, ${waiting.length} decisions` : ""}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span>${k==="needs" ? `<span class="pill${waiting.length ? "" : " quiet"}" data-needs-count aria-hidden="true">${waiting.length}</span>` : ""}</a>`;
+  const primary=(k,label,ic,href)=>`<a class="primary-nav${k==="needs" ? " needs" : ""}${active(k) ? " on" : ""}" href="${href}" ${!["apps","computer","teams"].includes(k) ? `data-open="${k}"` : ""} ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}${k==="needs" && waiting.length ? `, ${waiting.length} decisions` : ""}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span>${k==="needs" ? `<span class="pill${waiting.length ? "" : " quiet"}" data-needs-count aria-hidden="true">${waiting.length}</span>` : ""}</a>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
     <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>
-    <div class="primary-destinations">${primary("activity","Activity","tasks","#/activity")}${primary("needs","Needs you","bell","#/inbox")}${primary("files","Files","file","#/files")}${primary("apps","Apps","grid","#/library")}</div>
+    <div class="primary-destinations">${primary("activity","Activity","tasks","#/activity")}${primary("needs","Needs you","bell","#/inbox")}${primary("files","Files","file","#/files")}${primary("apps","Apps","grid","#/library")}${primary("computer","Computers","computer","#/computer")}${primary("teams","Teams","team","#/teams")}</div>
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings" class="icon-btn${route.startsWith("#/settings") ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
@@ -659,7 +660,7 @@ function drawUiBlocks(root) {
     if (kind === "html") {
       if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
       block.innerHTML = `<iframe class="composed ui-html" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
-      block.firstChild.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${esc(UiSpec.catalog?.html_csp || "default-src 'none'")}">${body}`;
+      Magnus.sandboxUrl(`<!doctype html>${body}`).then(url => { if (block.firstChild?.matches?.("iframe")) block.firstChild.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });;
       return;
     }
     let view;
@@ -735,7 +736,7 @@ async function drawAppView(block, id) {
     else if (rid !== undefined) send({ id: rid, error: { code: -32601, message: "Not available here." } });
   };
   window.addEventListener("message", onMessage);
-  frame.srcdoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${esc(UiSpec.catalog?.html_csp || "default-src 'none'")}">${v.html}`;
+  frame.src = await Magnus.sandboxUrl(`<!doctype html>${v.html}`);
 }
 // An image being made: asked after until it is there, then drawn in place.
 async function waitForImage(id, files, block, paint) {
@@ -2030,7 +2031,7 @@ route(/^#\/chat\/([^/]+)$/, async (main, thread) => {
 const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
   policy_proposal: "Policy proposal", schedule_proposal: "Recurring task proposal", task_proposal: "Task proposal", tool_change: "Changed tool", tool_review: "New app's tools",
-  contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
+  monitor: "Safety monitor", secure_form: "Secure sign-in", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
 const AUDIENCE = { private: "only you", org: "people in your organization", public: "anyone" };
@@ -2222,6 +2223,13 @@ function card(i, composed) {
         ${buttons(i, [["endorse", "Make it a company fact", "primary"], ["decline", "Decline"]])}`;
       break;
     }
+    case "monitor":
+      body = `<div class="what"><div class="field"><span>Action</span>${fieldValue(d.tool || d.action)}</div><div class="field"><span>Why it was held</span>${fieldValue(d.reason)}</div></div>
+        ${buttons(i, [["allow", "Allow", "primary"], ["reject", "Reject"]])}`;
+      break;
+    case "secure_form":
+      body = secureFormCard(i);
+      break;
     case "tool_review":
       body = `<div class="what">${(d.tools || []).map(t => `<div class="field"><span class="mono">${esc(t.tool)}</span>${fieldValue(t.description)}</div>`).join("")}</div>
         ${buttons(i, [["approve", "Let the agent read these", "primary"], ["reject", "Reject"]])}`;

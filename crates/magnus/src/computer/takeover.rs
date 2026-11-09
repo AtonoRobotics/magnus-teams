@@ -307,6 +307,18 @@ impl Kernel {
         self.computer_file_for(&c, json!({ "op": "read", "path": path })).await
     }
 
+    /// A look at the screen, for the person. It is no use of the computer,
+    /// so it does not keep it awake.
+    pub async fn computer_preview(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let c = self.opened_computer(who, id)?;
+        if c.status != Status::Running {
+            return Err(Refused::Conflict("the computer is not running".into()));
+        }
+        let socket = self.computer_socket()?;
+        let image = self.capture(&socket, id).await.map_err(failed)?;
+        Ok(json!({ "image_b64": image }))
+    }
+
     pub async fn operator_screen(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let c = self.operator_session(who, id, "the screen").await?;
         if c.status != Status::Running {

@@ -35,6 +35,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: node desktop/tests/ui-spec-check.mjs
+      - run: node desktop/tests/rfb-check.mjs
       - run: ci/ratchet.sh size
       - run: ci/ratchet.sh clippy
       - run: cargo test --workspace --lib --bins

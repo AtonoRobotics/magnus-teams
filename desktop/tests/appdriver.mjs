@@ -57,7 +57,7 @@ export async function open(wd, app, shots, prefix) {
   };
   d.css = v => find("css selector", v);
   d.xpath = v => find("xpath", v);
-  d.button = (label, within = "") => d.xpath(`${within}//button[normalize-space()='${label}']`);
+  d.button = (label, within = "") => d.xpath(`${within}//button[normalize-space()="${label}"]`);
   // A click lands where the element was when the driver measured it. A card
   // sizes its outcome frame once the frame has loaded (`data-sized`), which
   // moves the buttons below it; on a busy runner the update test's Accept

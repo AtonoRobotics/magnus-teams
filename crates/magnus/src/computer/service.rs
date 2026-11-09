@@ -295,6 +295,13 @@ impl Kernel {
         Ok(json!({ "written": path, "reply": v }))
     }
 
+    /// One directory of the person's files. The top is their files' root.
+    pub async fn list_computer_files(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
+        self.opened_computer(who, id)?;
+        let path = if path == USER_FILES { path } else { user_path(path)? };
+        self.on_computer(who, id, json!({ "op": "list", "path": path })).await
+    }
+
     pub async fn read_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         let path = user_path(path)?;

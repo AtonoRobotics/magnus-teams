@@ -29,6 +29,8 @@ Linux (needs the WebKitGTK 4.1 development packages):
 cargo tauri build --bundles deb,appimage
 ```
 
+The `.deb` also carries `magnus-local`, the agent that works on this computer once the person connects it, so bundling builds it first.
+
 This writes `target/release/bundle/deb/Magnus_<version>_amd64.deb` and `target/release/bundle/appimage/Magnus_<version>_amd64.AppImage`.
 
 Windows, cross-built on Linux. It needs `rustup target add x86_64-pc-windows-gnu`, mingw-w64 and NSIS:

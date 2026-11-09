@@ -29,6 +29,9 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}/kill", post(kill))
         .route("/v1/computers/{id}/grants", post(grant))
         .route("/v1/computers/{id}/files", get(read_file).put(write_file).delete(delete_file))
+        .route("/v1/computers/{id}/listing", get(listing))
+        .route("/v1/computers/{id}/files/raw", get(raw_file))
+        .route("/v1/computers/{id}/screen", get(screen))
         .route("/v1/computers/{id}/destinations", post(add_destination))
         .route("/v1/computers/{id}/pages", post(open_page))
         .route("/v1/computers/{id}/pages/{page}", delete(close_page))
@@ -154,6 +157,28 @@ async fn grant(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<
 #[derive(Deserialize)]
 struct FilePath {
     path: String,
+}
+
+async fn listing(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
+    let p = person!(k, h);
+    answered(k.list_computer_files(&p, &id, &q.path).await)
+}
+
+/// The file itself, for the person to keep.
+async fn raw_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
+    use base64::Engine;
+    let p = person!(k, h);
+    let read = k.read_computer_file(&p, &id, &q.path).await;
+    let bytes = read.map(|v: serde_json::Value| base64::engine::general_purpose::STANDARD.decode(v["data_b64"].as_str().unwrap_or_default()).unwrap_or_default());
+    match bytes {
+        Ok(b) => ([(axum::http::header::CONTENT_TYPE, "application/octet-stream")], b).into_response(),
+        Err(e) => answered(Err(e)),
+    }
+}
+
+async fn screen(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
+    let p = person!(k, h);
+    answered(k.computer_preview(&p, &id).await)
 }
 
 async fn read_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {

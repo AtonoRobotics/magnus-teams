@@ -54,6 +54,25 @@ const appBridge = tauri && {
   // App sign-ins come back to a loopback address on this computer.
   async loopbackOpen(redirect) { return this.invoke("loopback_open", { redirect: redirect || null }); },
   async loopbackWait() { return this.invoke("loopback_wait"); },
+  async sandboxUrl(html) { return this.invoke("sandbox_frame", { html, csp: UiSpec.catalog?.html_csp || null }); },
+  async putBytes(path, bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return this.invoke("put_bytes", { path, dataB64: btoa(s) }); },
+  async localState() { return this.invoke("local_state"); },
+  async localStart(how) { return this.invoke("local_start", how); },
+  async localPause(paused) { return this.invoke("local_pause", { paused }); },
+  async localStop() { return this.invoke("local_stop"); },
+  // A takeover's screen, carried by the app so its pinned certificate applies.
+  displayOpen(computer, ticket, prefix, onBytes, onEnd) {
+    const handle = crypto.randomUUID();
+    const off = [];
+    const end = reason => { off.splice(0).forEach(u => u()); onEnd(reason); };
+    tauri.event.listen("display-bytes", e => { if (e.payload.handle === handle) onBytes(Uint8Array.from(atob(e.payload.b64), c => c.charCodeAt(0))); }).then(u => off.push(u));
+    tauri.event.listen("display-end", e => { if (e.payload.handle === handle) end(e.payload.reason); }).then(u => off.push(u));
+    this.invoke("display_open", { handle, computer, ticket, prefix }).catch(e => end(String(e)));
+    return {
+      send: bytes => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); this.invoke("display_send", { handle, b64: btoa(s) }).catch(() => {}); },
+      close: () => { off.splice(0).forEach(u => u()); this.invoke("display_close", { handle }).catch(() => {}); },
+    };
+  },
   async dataUrl(path, mediaType) { const file = await this.invoke("fetch_bytes", { path }); return `data:${mediaType || file.media_type};base64,${file.data_b64}`; },
   // The app's own updates, served by the appliance and signed with the release key.
   async updateState() { return this.invoke("update_state"); },
@@ -140,6 +159,21 @@ const webBridge = {
   // A browser has no window material: the page draws its backdrop.
   async setMaterial() { return { native: false }; },
   async systemLook() { return { reduce_transparency: false }; },
+  async sandboxUrl(html) { return (await this.api("POST", "/v1/ui/frames", { html })).url; },
+  async putBytes(path, bytes) {
+    const r = await fetch(path, { method: "PUT", credentials: "same-origin", body: bytes });
+    if (!r.ok) throw errorOf(r.status, await r.text());
+  },
+  // Connecting this computer needs the desktop app.
+  async localState() { return null; },
+  displayOpen(computer, ticket, prefix, onBytes, onEnd) {
+    const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(`${scheme}//${location.host}/v1/computers/${encodeURIComponent(computer)}/display`, [prefix + ticket, "magnus.display"]);
+    socket.binaryType = "arraybuffer";
+    socket.onmessage = e => onBytes(new Uint8Array(e.data));
+    socket.onclose = () => onEnd();
+    return { send: bytes => { if (socket.readyState === WebSocket.OPEN) socket.send(bytes); }, close: () => { socket.onclose = null; socket.close(); } };
+  },
   async dataUrl(path) {
     const r = await fetch(path, { credentials: "same-origin" });
     if (!r.ok) throw errorOf(r.status, await r.text());

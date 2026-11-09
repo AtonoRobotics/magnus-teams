@@ -103,9 +103,9 @@ pub(crate) async fn owner(k: &Kernel, h: &HeaderMap) -> Result<Person, Response>
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
     Router::new()
-        .route("/", get(|| ui_file(Path("index.html".into()))))
-        .route("/{file}", get(ui_file))
-        .route("/fonts/{file}", get(ui_font))
+        .route("/", get(|| crate::ui::assets::ui_file(Path("index.html".into()))))
+        .route("/{file}", get(crate::ui::assets::ui_file))
+        .route("/fonts/{file}", get(crate::ui::assets::ui_font))
         .route("/v1/health", get(health))
         .route("/v1/sign-in", get(sign_in_method).post(sign_in))
         .route("/v1/devices", get(list_devices).post(enroll_device))
@@ -922,48 +922,6 @@ async fn versions(State(k): K, h: HeaderMap) -> Response {
         })
     });
     Json(v).into_response()
-}
-
-/// The people's web app: the desktop app's own frontend, served as is.
-const UI: &[(&str, &str, &[u8])] = &[
-    ("index.html", "text/html; charset=utf-8", include_bytes!("../../../desktop/ui/index.html")),
-    ("app.css", "text/css; charset=utf-8", include_bytes!("../../../desktop/ui/app.css")),
-    ("bridge.js", "text/javascript; charset=utf-8", include_bytes!("../../../desktop/ui/bridge.js")),
-    ("theme.js", "text/javascript; charset=utf-8", include_bytes!("../../../desktop/ui/theme.js")),
-    ("compose.js", "text/javascript; charset=utf-8", include_bytes!("../../../desktop/ui/compose.js")),
-    ("app.js", "text/javascript; charset=utf-8", include_bytes!("../../../desktop/ui/app.js")),
-    ("dev.js", "text/javascript; charset=utf-8", include_bytes!("../../../desktop/ui/dev.js")),
-];
-pub(crate) const FONTS: &[(&str, &[u8])] = &[
-    ("inter-latin-wght-normal.woff2", include_bytes!("../../../desktop/ui/fonts/inter-latin-wght-normal.woff2")),
-    ("inter-latin-ext-wght-normal.woff2", include_bytes!("../../../desktop/ui/fonts/inter-latin-ext-wght-normal.woff2")),
-    ("ibm-plex-mono-latin-400-normal.woff2", include_bytes!("../../../desktop/ui/fonts/ibm-plex-mono-latin-400-normal.woff2")),
-    ("ibm-plex-mono-latin-500-normal.woff2", include_bytes!("../../../desktop/ui/fonts/ibm-plex-mono-latin-500-normal.woff2")),
-];
-const UI_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src blob:; font-src 'self'; connect-src 'self'; frame-src 'self' about:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
-
-fn static_file(media: &str, body: &'static [u8]) -> Response {
-    Response::builder()
-        .header("content-type", media)
-        .header("content-security-policy", UI_CSP)
-        .header("x-content-type-options", "nosniff")
-        .header("cache-control", "no-cache")
-        .body(axum::body::Body::from(body))
-        .unwrap()
-}
-
-async fn ui_file(Path(file): Path<String>) -> Response {
-    match UI.iter().find(|(n, _, _)| *n == file) {
-        Some((_, media, body)) => static_file(media, body),
-        None => err(StatusCode::NOT_FOUND, "not found"),
-    }
-}
-
-async fn ui_font(Path(file): Path<String>) -> Response {
-    match FONTS.iter().find(|(n, _)| *n == file) {
-        Some((_, body)) => static_file("font/woff2", body),
-        None => err(StatusCode::NOT_FOUND, "not found"),
-    }
 }
 
 pub(crate) fn status_str(s: Status) -> &'static str {

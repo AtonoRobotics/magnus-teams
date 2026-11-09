@@ -3,9 +3,11 @@
 //! against a versioned catalog of elements and draws with its own code.
 //! Unknown elements are refused, not guessed.
 pub mod apps;
+pub mod assets;
 pub mod catalog;
 pub mod deck;
 pub mod docs;
+pub mod frames;
 pub mod images;
 pub mod routes;
 pub mod spec;

@@ -36,6 +36,8 @@ url = "2"
 dirs = "5"
 keyring = { version = "3", features = ["windows-native", "sync-secret-service", "crypto-rust"] }
 tauri-plugin-updater = "2"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 window-vibrancy = "0.8"

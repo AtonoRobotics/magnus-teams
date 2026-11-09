@@ -130,17 +130,22 @@ fn identity(cert_pem: &str, key_pem: &str) -> Result<(Vec<CertificateDer<'static
 
 /// TLS that trusts the public roots and presents this computer's device
 /// certificate. Used only for `magnus.pyrallon.ai`.
-pub fn public_client(cert_pem: &str, key_pem: &str) -> Result<reqwest::Client, String> {
+/// TLS for the public appliance: the public roots and this computer's device certificate.
+pub fn public_tls(cert_pem: &str, key_pem: &str) -> Result<rustls::ClientConfig, String> {
     let provider = Arc::new(ring::default_provider());
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let (certs, key) = identity(cert_pem, key_pem)?;
-    let mut tls = rustls::ClientConfig::builder_with_provider(provider)
+    rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| e.to_string())?
         .with_root_certificates(roots)
         .with_client_auth_cert(certs, key)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+}
+
+pub fn public_client(cert_pem: &str, key_pem: &str) -> Result<reqwest::Client, String> {
+    let mut tls = public_tls(cert_pem, key_pem)?;
     tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     let mut headers = reqwest::header::HeaderMap::new();
     if let Ok(v) = reqwest::header::HeaderValue::from_str(&crate::app_version()) {

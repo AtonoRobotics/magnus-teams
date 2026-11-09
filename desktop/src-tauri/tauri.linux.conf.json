@@ -1,0 +1,14 @@
+{
+  "build": {
+    "beforeBundleCommand": "cd \"$(git rev-parse --show-toplevel)\" && cargo build --release -p magnus-local"
+  },
+  "bundle": {
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/magnus-local": "../../target/release/magnus-local"
+        }
+      }
+    }
+  }
+}

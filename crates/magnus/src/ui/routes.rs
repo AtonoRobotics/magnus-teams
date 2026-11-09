@@ -23,6 +23,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/ui/docs/{id}/export/{format}", get(exported))
         .merge(super::images::router())
         .merge(super::apps::router())
+        .merge(super::frames::router())
 }
 
 async fn served(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {

@@ -3,6 +3,9 @@
 //! request itself, so the page never sees the token. It holds no provider
 //! or tool credentials; approvals are made here, outside the agent's context.
 
+mod display;
+mod frames;
+mod local;
 mod look;
 mod pin;
 mod speech;
@@ -40,6 +43,39 @@ struct App {
 }
 
 impl App {
+    /// How the display's socket and the local agent reach the appliance.
+    fn trust(&self) -> Res<(String, Option<String>, Option<(String, String)>)> {
+        let cfg = self.store.config();
+        let url = cfg.appliance.ok_or("not connected to an appliance")?;
+        if pin::is_public_appliance(&url) {
+            let device = self.store.device(&url).ok_or("this computer is not paired with the appliance yet")?;
+            return Ok((url, None, Some(device)));
+        }
+        let pinned = cfg.pins.get(&url).cloned();
+        Ok((url, pinned, None))
+    }
+
+    /// `None` for plain http, which the appliance accepts only from itself.
+    fn display_tls(&self) -> Res<(String, Option<rustls::ClientConfig>)> {
+        let (url, pinned, device) = self.trust()?;
+        if !url.starts_with("https://") {
+            return Ok((url, None));
+        }
+        let mut tls = match device {
+            Some((cert, key)) => pin::public_tls(&cert, &key)?,
+            None => pin::tls(Some(pinned.as_deref().ok_or("the appliance's certificate is not trusted yet")?))?,
+        };
+        tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Ok((url, Some(tls)))
+    }
+
+    /// The address, the sign-in, the pin and the device certificate.
+    fn local_session(&self) -> Res<(String, String, Option<String>, Option<(String, String)>)> {
+        let (url, pinned, device) = self.trust()?;
+        let token = self.store.token(&url).ok_or("signed out")?;
+        Ok((url, token, pinned, device))
+    }
+
     /// The appliance's address and a client for it: the pinned certificate
     /// on a private address, or the public roots and this computer's device
     /// certificate on magnus.pyrallon.ai.
@@ -330,6 +366,20 @@ async fn bytes(app: &App, path: &str) -> Res<Vec<u8>> {
 }
 #[derive(serde::Serialize)]
 struct FileBytes { data_b64: String, media_type: String }
+#[tauri::command]
+async fn put_bytes(app: State<'_, App>, path: String, data_b64: String) -> Res<()> {
+    use base64::Engine;
+    allowed(&path)?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data_b64).map_err(|e| e.to_string())?;
+    let (url, c, token) = app.session()?;
+    let r = c.put(format!("{url}{path}")).bearer_auth(&token).body(bytes).send().await.map_err(|e| format!("Cannot reach {url}: {}", pin::describe(&e)))?;
+    let (status, body) = body_of(r).await;
+    if status >= 400 {
+        return Err(message(&body, status));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn fetch_bytes(app: State<'_, App>, path: String) -> Res<FileBytes> {
     let response = file_response(&app, &path).await?;
@@ -648,7 +698,14 @@ pub fn run() {
             Ok(())
         })
         .manage(App { store: store::Store::open(), client: Mutex::new(None), live: Mutex::new(HashMap::new()), speech: speech::Speech::default(), loopback: Mutex::new(None), browser_sign_in: Mutex::new(BrowserSignIn::default()) })
-        .invoke_handler(tauri::generate_handler![restore, connect, trust, sign_in_method, sign_in, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::whats_new, look::set_material, look::system_look])
+        .manage(display::Displays::default())
+        .manage(frames::Frames::default())
+        .manage(local::Local::default())
+        .register_uri_scheme_protocol(frames::SCHEME, |ctx, request| {
+            use tauri::Manager;
+            frames::serve(&ctx.app_handle().state::<frames::Frames>(), request.uri().path())
+        })
+        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, restore, connect, trust, sign_in_method, sign_in, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::whats_new, look::set_material, look::system_look])
         .run(tauri::generate_context!())
         .expect("start the Magnus app");
 }
