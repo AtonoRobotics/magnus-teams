@@ -12,6 +12,6 @@ Follows spec revision 69 and `decisions/2026-11-08-agent-computer-declared-desti
 7. **Browser VM and credentials:** a browser VM per identity, the sign-in order, surrogates. Payments wait on a card issuer. Tests 20 to 23, 30.
 8. **Safety:** inbound screening, the outgoing classifier, the email login-code filter, the independent monitor, proactive work on computers. Tests 32, 33.
 9. **Sub-agents, then local desktop work.** Tests 24, 25.
-10. **Team workspace:** requester and agent authority, channels, roles, team volume with per-requester data scope, team agent, direct knowledge base writes. Tests 26, 27.
+10. **Team workspace:** requester and agent authority, channels, roles, team volume, data fetched under one member's entitlements kept in that requester's run and off the team computer, team agent, direct knowledge base writes. Tests 26, 27.
 
 The UI catalog can run in parallel once step 5 has landed (test 28). Audit and deletion ship inside each step. Each step is done when its tests pass on a KVM machine in acceptance, since the fast tier cannot run them.
