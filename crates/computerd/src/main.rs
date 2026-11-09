@@ -5,6 +5,7 @@ use anyhow::{bail, ensure, Result};
 use magnus_computerd::computers::{kill_every_computer, Computers, CGROUP_ROOT};
 use magnus_computerd::config::Config;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 const DEFAULT_CONFIG: &str = "/etc/magnus/computerd.toml";
 
@@ -21,6 +22,11 @@ fn kill_all(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn open_snapshot(key: &str, from: &str, to: &str) -> Result<()> {
+    let key: [u8; magnus_computerd::seal::KEY_BYTES] = std::fs::read(key)?.try_into().map_err(|_| anyhow::anyhow!("not a snapshot key"))?;
+    magnus_computerd::seal::open(&key, &mut std::fs::File::open(from)?, &mut std::fs::File::create(to)?)
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     ensure!(unsafe { libc::geteuid() } == 0, "magnus-computerd runs as root");
@@ -29,6 +35,25 @@ fn main() -> Result<()> {
         Some("serve") => magnus_computerd::server::serve(Config::load(&config)?),
         Some("kill-all") => kill_all(&config),
         // Started by the service for one connection; see `relay`.
+        Some("api") => match (args.get(1), args.get(2).map(|u| u.parse::<u32>()), args.get(3)) {
+            (Some(root), Some(Ok(uid)), Some(what)) => magnus_computerd::relay::api(Path::new(root), uid, what),
+            _ => bail!("usage: magnus-computerd api ROOT UID WHAT"),
+        },
+        // For checking what is stored, by hand or in a test: root only.
+        Some("purge") => match (args.get(1), args.get(2).map(|s| s.parse::<u64>())) {
+            (Some(config), Some(Ok(at))) => {
+                magnus_computerd::computers::Computers::new(magnus_computerd::config::Config::parse(Path::new(config))?).purge(SystemTime::UNIX_EPOCH + Duration::from_secs(at))
+            }
+            _ => bail!("usage: magnus-computerd purge CONFIG UNIX_SECONDS"),
+        },
+        Some("open-backups") => match (args.get(1), args.get(2)) {
+            (Some(dir), Some(to)) => magnus_computerd::computers::backup::open_all_chunks(Path::new(dir), &mut std::fs::File::create(to)?),
+            _ => bail!("usage: magnus-computerd open-backups DIR TO"),
+        },
+        Some("open-snapshot") => match (args.get(1), args.get(2), args.get(3)) {
+            (Some(key), Some(from), Some(to)) => open_snapshot(key, from, to),
+            _ => bail!("usage: magnus-computerd open-snapshot KEY FROM TO"),
+        },
         Some("relay") => match (args.get(1), args.get(2).map(|u| u.parse::<u32>())) {
             (Some(root), Some(Ok(uid))) => magnus_computerd::relay::run(Path::new(root), uid),
             _ => bail!("usage: magnus-computerd relay ROOT UID"),

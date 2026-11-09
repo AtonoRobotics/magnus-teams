@@ -13,10 +13,11 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 const MAX_REQUEST_BYTES: u64 = 4096;
 const MAX_CONNECTIONS: usize = 64;
+const BACKUP_EVERY: Duration = Duration::from_secs(3600);
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const SOCKET_MODE: u32 = 0o660;
 /// So the socket is never open to others between bind and chmod.
@@ -33,9 +34,26 @@ pub enum Request {
     Start {
         id: String,
     },
+    Hibernate {
+        id: String,
+    },
+    Wake {
+        id: String,
+    },
+    DiscardSnapshot {
+        id: String,
+    },
+    Backup {
+        id: String,
+    },
+    RestoreBackup {
+        id: String,
+    },
     /// A VM with only the volume, to reach a stopped computer's files.
     StartHelper {
         id: String,
+        #[serde(default)]
+        read_only: bool,
     },
     Pause {
         id: String,
@@ -65,12 +83,20 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
     let id = |raw: &str| ComputerId::parse(raw);
     Ok(match req {
         Request::Create { id: raw } => json!({ "uid": c.create(&id(&raw)?)? }),
-        Request::Start { id: raw } => {
-            c.start(&id(&raw)?, Purpose::Computer)?;
+        Request::Start { id: raw } => json!({ "overlay_fresh": c.start(&id(&raw)?, Purpose::Computer)? }),
+        Request::Hibernate { id: raw } => {
+            c.hibernate(&id(&raw)?)?;
             json!({})
         }
-        Request::StartHelper { id: raw } => {
-            c.start(&id(&raw)?, Purpose::Helper)?;
+        Request::Wake { id: raw } => json!(c.wake(&id(&raw)?)?),
+        Request::DiscardSnapshot { id: raw } => {
+            c.discard_snapshot(&id(&raw)?)?;
+            json!({})
+        }
+        Request::Backup { id: raw } => c.backup(&id(&raw)?)?,
+        Request::RestoreBackup { id: raw } => c.restore_backup(&id(&raw)?)?,
+        Request::StartHelper { id: raw, read_only } => {
+            c.start(&id(&raw)?, if read_only { Purpose::ReadHelper } else { Purpose::Helper })?;
             json!({})
         }
         Request::Pause { id: raw } => {
@@ -146,6 +172,16 @@ pub fn serve(cfg: Config) -> Result<()> {
     let listener = listener?;
     chown(&socket, Some(0), Some(gid)).context("give the socket to the magnus group")?;
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(SOCKET_MODE)).context("set the socket's mode")?;
+    let keeper = computers.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(BACKUP_EVERY);
+        if let Err(e) = keeper.backup_changed() {
+            eprintln!("magnus-computerd: {e:#}");
+        }
+        if let Err(e) = keeper.purge(SystemTime::now()) {
+            eprintln!("magnus-computerd: {e:#}");
+        }
+    });
     let open = Arc::new(AtomicUsize::new(0));
     for conn in listener.incoming() {
         let Ok(mut conn) = conn else { continue };

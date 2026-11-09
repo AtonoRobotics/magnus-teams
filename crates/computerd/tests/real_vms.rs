@@ -6,7 +6,7 @@
 mod real_vms {
     use serde_json::{json, Value};
     use std::io::{BufRead, BufReader, Write};
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::os::unix::net::UnixStream;
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};
@@ -141,6 +141,7 @@ mod real_vms {
         for name in ["vmlinux", "rootfs.ext4"] {
             std::fs::copy(images.join(name), Path::new(STATE).join("images").join(name)).unwrap();
         }
+        std::fs::write(Path::new(STATE).join("images/base.id"), "base-one").unwrap();
         std::fs::write(
             config_path(),
             format!(
@@ -259,6 +260,103 @@ mod real_vms {
         assert!(!Path::new(STATE).join("computers/c/overlay.ext4").exists(), "a helper VM made an overlay");
         ok(json!({"op":"start","id":"b"}));
         wait_for_boot("b");
+
+        // The root is writable, and what is written there survives a stop.
+        guest("b", json!({"op":"exec","command":"echo kept > /usr/local/marker; sync","timeout_s":10}));
+        ok(json!({"op":"stop","id":"b"}));
+        let started = ok(json!({"op":"start","id":"b"}));
+        assert_eq!(started["overlay_fresh"], false, "{started}");
+        wait_for_boot("b");
+        let marker = guest("b", json!({"op":"exec","command":"cat /usr/local/marker","timeout_s":10}));
+        assert!(marker["stdout"].as_str().unwrap_or_default().contains("kept"), "the overlay lost a file: {marker}");
+
+        // Hibernating stores only ciphertext and resumes the same memory.
+        guest("b", json!({"op":"exec","command":"echo canary-$((1000+1000)) > /tmp/in-memory","timeout_s":10}));
+        let before = guest("b", json!({"op":"exec","command":"cat /etc/machine-id 2>/dev/null; hostname","timeout_s":10}));
+        ok(json!({"op":"hibernate","id":"b"}));
+        assert!(procs("b").is_empty(), "a hibernated computer kept running");
+        assert_eq!(state("b"), "hibernated");
+        let stored = Path::new(STATE).join("computers/b/snapshot");
+        let memory = std::fs::read(stored.join("snapshot.mem")).unwrap();
+        assert!(!memory.windows(11).any(|w| w == b"canary-2000"), "the stored memory is readable");
+        let opened = Path::new(STATE).join("opened");
+        let out = program().args(["open-snapshot"]).arg(stored.join("key")).arg(stored.join("snapshot.mem")).arg(&opened).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let plain = std::fs::read(&opened).unwrap();
+        assert!(plain.windows(11).any(|w| w == b"canary-2000"), "the scan read nothing real");
+        std::fs::remove_file(&opened).unwrap();
+        let woke = ok(json!({"op":"wake","id":"b"}));
+        assert_eq!(woke["resumed"], true, "{woke}");
+        wait_for_boot("b");
+        let after = guest("b", json!({"op":"exec","command":"cat /etc/machine-id; hostname","timeout_s":10}));
+        assert_ne!(before["stdout"], after["stdout"], "a restore kept the machine id or name");
+        let kept = guest("b", json!({"op":"exec","command":"cat /tmp/in-memory","timeout_s":10}));
+        assert!(kept["stdout"].as_str().unwrap_or_default().contains("canary-2000"), "the wake lost the memory: {kept}");
+        assert!(!stored.exists(), "a used snapshot was kept");
+
+        // A snapshot and an overlay are valid only on their own base image.
+        ok(json!({"op":"hibernate","id":"b"}));
+        std::fs::write(Path::new(STATE).join("images/base.id"), "base-two").unwrap();
+        let woke = ok(json!({"op":"wake","id":"b"}));
+        assert_eq!((woke["resumed"].as_bool(), woke["overlay_fresh"].as_bool()), (Some(false), Some(true)), "{woke}");
+        std::fs::write(Path::new(STATE).join("images/base.id"), "base-one").unwrap();
+        wait_for_boot("b");
+
+        // Reading a hibernated computer keeps its memory; editing it does not.
+        ok(json!({"op":"hibernate","id":"b"}));
+        ok(json!({"op":"start_helper","id":"b","read_only":true}));
+        wait_for_boot("b");
+        ok(json!({"op":"stop","id":"b"}));
+        assert_eq!(state("b"), "hibernated", "a read discarded the snapshot");
+        let woke = ok(json!({"op":"wake","id":"b"}));
+        assert_eq!(woke["resumed"], true, "a read forced a cold boot: {woke}");
+        ok(json!({"op":"hibernate","id":"b"}));
+        ok(json!({"op":"start_helper","id":"b"}));
+        wait_for_boot("b");
+        ok(json!({"op":"stop","id":"b"}));
+        assert_eq!(state("b"), "stopped", "an edit kept the snapshot");
+        let woke = ok(json!({"op":"wake","id":"b"}));
+        assert_eq!(woke["resumed"], false, "an edit was followed by a resume: {woke}");
+        wait_for_boot("b");
+
+        // A backup is ciphertext, stores only what changed, and comes back.
+        let data = "backup-canary-".repeat(1000);
+        guest("b", json!({"op":"exec","command":format!("echo {data} > /workspace/precious; head -c 67108864 /dev/urandom > /workspace/big; sync"),"timeout_s":60}));
+        let first = ok(json!({"op":"backup","id":"b"}));
+        let stored_files: Vec<PathBuf> = std::fs::read_dir(Path::new(STATE).join("backups/b/chunks")).unwrap().map(|e| e.unwrap().path()).collect();
+        assert!(!stored_files.is_empty(), "a backup stored nothing");
+        for f in &stored_files {
+            assert!(!std::fs::read(f).unwrap().windows(13).any(|w| w == b"backup-canary"), "a backup is readable");
+        }
+        guest("b", json!({"op":"exec","command":"echo ok > /workspace/alive; sync","timeout_s":10}));
+        let second = ok(json!({"op":"backup","id":"b"}));
+        let grown = second["bytes"].as_u64().unwrap() - first["bytes"].as_u64().unwrap();
+        // The journal and inode tables change; the 64 MiB file does not.
+        assert!(first["bytes"].as_u64().unwrap() > 67_108_864, "the first backup is missing data: {first}");
+        assert!(grown < 33_554_432, "a second backup stored everything again: {first} then {second}");
+        ok(json!({"op":"stop","id":"b"}));
+        let volume = Path::new(STATE).join("computers/b/volume.ext4");
+        let uid = std::fs::metadata(&volume).unwrap().uid();
+        std::fs::remove_file(&volume).unwrap();
+        ok(json!({"op":"restore_backup","id":"b"}));
+        assert_eq!(std::fs::metadata(&volume).unwrap().uid(), uid, "the restored volume is not the VM's");
+        ok(json!({"op":"start","id":"b"}));
+        wait_for_boot("b");
+        let back = guest("b", json!({"op":"exec","command":"cat /workspace/precious","timeout_s":10}));
+        assert!(back["stdout"].as_str().unwrap_or_default().contains("backup-canary"), "the backup lost a file: {back}");
+
+        // Nothing outlives the purge window, and the clock is the only reason.
+        let month_later = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 31 * 86_400;
+        let purged = program().arg("purge").arg(config_path()).arg(month_later.to_string()).output().unwrap();
+        assert!(purged.status.success(), "{}", String::from_utf8_lossy(&purged.stderr));
+        assert!(!Path::new(STATE).join("backups/b").exists(), "a backup outlived the purge window");
+
+        // A planted link cannot make root read another file into a snapshot.
+        let target = Path::new(STATE).join("config.toml");
+        let jail = Path::new(STATE).join("jail/firecracker/b/root");
+        std::os::unix::fs::symlink(&target, jail.join("trap")).unwrap();
+        let denied = std::fs::File::options().read(true).custom_flags(libc::O_NOFOLLOW).open(jail.join("trap"));
+        assert!(denied.is_err(), "the check for links does not work");
 
         // The owner's kill needs neither Magnus nor the service, and sticks.
         drop(daemon);

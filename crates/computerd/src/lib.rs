@@ -7,4 +7,5 @@ pub mod computers;
 pub mod config;
 pub mod id;
 pub mod relay;
+pub mod seal;
 pub mod server;

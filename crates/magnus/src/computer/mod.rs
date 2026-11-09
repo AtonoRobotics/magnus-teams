@@ -2,6 +2,7 @@
 //! Magnus decides who may do what and records it; `magnus-computerd` is the
 //! only thing that touches a VM (`decisions/2026-11-08-computerd.md`).
 
+mod apps;
 mod client;
 mod routes;
 mod service;
@@ -9,9 +10,15 @@ mod service;
 pub use routes::router;
 pub use service::schedule;
 
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+
+/// Enough to tell a run what went; the log has every one.
+const MAX_DELETED_FILES: usize = 200;
+/// As long as a deleted file can still be in a backup.
+const TELL_DAYS: i64 = 30;
 
 /// `[computer]`: where computerd listens.
 #[derive(Deserialize, Clone, Debug)]
@@ -63,6 +70,53 @@ pub enum Change {
         id: String,
         grant: String,
     },
+    Hibernated {
+        id: String,
+    },
+    /// Written before an install counts as done, and on an update of it.
+    AppInstalled {
+        id: String,
+        app: App,
+    },
+    AppRemoved {
+        id: String,
+        name: String,
+    },
+    /// The manifest could not be replayed onto a new overlay.
+    ReplayFailed {
+        id: String,
+        app: String,
+        error: String,
+    },
+    /// The path only: nothing of the file's content is kept here.
+    FileDeleted {
+        id: String,
+        path: String,
+        at: DateTime<Utc>,
+    },
+    /// The volume was put back from a backup taken at `at`.
+    Restored {
+        id: String,
+        at: u64,
+    },
+}
+
+/// One installed app, enough to install it again on a fresh overlay.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct App {
+    pub name: String,
+    pub version: String,
+    pub source: String,
+    /// Of the installer in the cache.
+    pub sha256: String,
+    /// Shell commands, with the installer's path in `$INSTALLER`.
+    pub steps: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct DeletedFile {
+    pub path: String,
+    pub at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,6 +126,7 @@ pub enum Status {
     Queued,
     Running,
     Paused,
+    Hibernated,
     Killed,
 }
 
@@ -88,6 +143,10 @@ pub struct Computer {
     pub owner: Owner,
     pub status: Status,
     pub grants: Vec<Grant>,
+    /// Outside the VM, so any VM can be rebuilt from it.
+    pub apps: Vec<App>,
+    pub replay_error: Option<String>,
+    pub deleted_files: Vec<DeletedFile>,
     /// Its place among waiting wakes, oldest first.
     #[serde(skip)]
     queued: Option<u64>,
@@ -116,10 +175,40 @@ impl Ledger {
         waiting
     }
 
+    /// What a run starting at `at` must be told is gone from its person's
+    /// computers. Fixed by the run's start, so a replay says the same.
+    pub fn deletion_section(&self, person: &str, at: DateTime<Utc>) -> String {
+        let oldest = at - Duration::days(TELL_DAYS);
+        let gone: Vec<String> = self
+            .computers
+            .values()
+            .filter(|c| c.owner == Owner::Person(person.to_string()))
+            .flat_map(|c| &c.deleted_files)
+            .filter(|f| f.at < at && f.at >= oldest)
+            .map(|f| format!("- {}\n", f.path))
+            .collect();
+        if gone.is_empty() {
+            return String::new();
+        }
+        format!("\n\nThese files were deleted from the person's computer. They are gone: do not rely on them or recreate them.\n{}", gone.concat())
+    }
+
     pub fn apply(&mut self, change: &Change) {
         match change {
             Change::Created { id, owner } => {
-                self.computers.insert(id.clone(), Computer { id: id.clone(), owner: owner.clone(), status: Status::Stopped, grants: vec![], queued: None });
+                self.computers.insert(
+                    id.clone(),
+                    Computer {
+                        id: id.clone(),
+                        owner: owner.clone(),
+                        status: Status::Stopped,
+                        grants: vec![],
+                        apps: vec![],
+                        replay_error: None,
+                        deleted_files: vec![],
+                        queued: None,
+                    },
+                );
             }
             Change::Granted { id, grant, label } => {
                 if let Some(c) = self.computers.get_mut(id) {
@@ -137,6 +226,7 @@ impl Ledger {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.status = Status::Running;
                     c.queued = None;
+                    c.replay_error = None;
                 }
             }
             Change::Killed { id, mode, delete_volume } => {
@@ -152,6 +242,35 @@ impl Ledger {
                     g.revoked = true;
                 }
             }
+            Change::Hibernated { id } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.status = Status::Hibernated;
+                }
+            }
+            Change::AppInstalled { id, app } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.apps.retain(|a| a.name != app.name);
+                    c.apps.push(app.clone());
+                }
+            }
+            Change::AppRemoved { id, name } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.apps.retain(|a| a.name != *name);
+                }
+            }
+            Change::ReplayFailed { id, app, error } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.replay_error = Some(format!("{app}: {error}"));
+                }
+            }
+            Change::FileDeleted { id, path, at } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.deleted_files.push(DeletedFile { path: path.clone(), at: *at });
+                    let over = c.deleted_files.len().saturating_sub(MAX_DELETED_FILES);
+                    c.deleted_files.drain(..over);
+                }
+            }
+            Change::Restored { .. } => {}
         }
     }
 }
@@ -162,6 +281,29 @@ mod tests {
 
     fn created(l: &mut Ledger, id: &str) {
         l.apply(&Change::Created { id: id.into(), owner: Owner::Person("alice".into()) });
+    }
+
+    #[test]
+    fn a_run_is_told_only_of_what_was_gone_when_it_started() {
+        let mut l = Ledger::default();
+        created(&mut l, "a");
+        let t = Utc::now();
+        l.apply(&Change::FileDeleted { id: "a".into(), path: "/workspace/x".into(), at: t });
+        assert!(l.deletion_section("alice", t + Duration::seconds(1)).contains("/workspace/x"));
+        assert_eq!(l.deletion_section("alice", t - Duration::seconds(1)), "", "a run was told of a later deletion");
+        assert_eq!(l.deletion_section("bob", t + Duration::seconds(1)), "", "another person was told");
+    }
+
+    #[test]
+    fn a_manifest_follows_installs_updates_and_removals() {
+        let mut l = Ledger::default();
+        created(&mut l, "a");
+        let app = |v: &str| App { name: "n".into(), version: v.into(), source: "s".into(), sha256: "h".into(), steps: vec!["x".into()] };
+        l.apply(&Change::AppInstalled { id: "a".into(), app: app("1") });
+        l.apply(&Change::AppInstalled { id: "a".into(), app: app("2") });
+        assert_eq!(l.get("a").unwrap().apps.iter().map(|a| a.version.as_str()).collect::<Vec<_>>(), ["2"]);
+        l.apply(&Change::AppRemoved { id: "a".into(), name: "n".into() });
+        assert!(l.get("a").unwrap().apps.is_empty());
     }
 
     #[test]

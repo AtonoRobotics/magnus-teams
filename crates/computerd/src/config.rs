@@ -9,6 +9,8 @@ const ROOT_UID: u32 = 0;
 /// Below this are the system's own users.
 const MIN_FIRST_UID: u32 = 100_000;
 const MAX_COMPUTERS_LIMIT: u32 = 65_536;
+/// A month to act on an erasure (spec, the purge window).
+pub const MAX_PURGE_DAYS: u32 = 30;
 const GROUP_OR_OTHER_WRITE: u32 = 0o022;
 pub const FIRECRACKER_NAME: &str = "firecracker";
 pub const KERNEL_IMAGE: &str = "vmlinux";
@@ -26,7 +28,14 @@ pub struct Config {
     pub first_uid: u32,
     pub max_computers: u32,
     pub max_live: u32,
+    /// How long a backup or snapshot may be kept.
+    #[serde(default = "default_purge_days")]
+    pub purge_days: u32,
     pub vm: VmCaps,
+}
+
+fn default_purge_days() -> u32 {
+    MAX_PURGE_DAYS
 }
 
 /// The same for every computer, and never taken from a request.
@@ -76,6 +85,7 @@ impl Config {
         ensure!((1..=MAX_COMPUTERS_LIMIT).contains(&self.max_computers), "max_computers must be 1 to {MAX_COMPUTERS_LIMIT}");
         ensure!(self.first_uid.checked_add(self.max_computers).is_some_and(|end| end < u32::MAX), "the uid range overflows");
         ensure!(self.max_live >= 1, "max_live must be at least 1");
+        ensure!((1..=MAX_PURGE_DAYS).contains(&self.purge_days), "purge_days must be 1 to {MAX_PURGE_DAYS}");
         let v = &self.vm;
         ensure!(v.vcpus >= 1 && v.memory_mib >= 1 && v.cpu_percent >= 1 && v.pids_max >= 1, "every vm limit must be at least 1");
         ensure!(v.volume_gib >= 1 && v.overlay_gib >= 1, "every drive must be at least 1 GiB");

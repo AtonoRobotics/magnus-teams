@@ -10,6 +10,7 @@ use std::net::Shutdown;
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 const GUEST_PORT: u32 = 52;
 /// Set by `computers`, inside the chroot.
@@ -75,4 +76,46 @@ pub fn run(root: &Path, uid: u32) -> Result<()> {
     let _ = guest.shutdown(Shutdown::Both);
     let _ = upstream.join();
     Ok(())
+}
+
+const API_SOCKET: &str = "/run/firecracker.socket";
+const API_WAIT: Duration = Duration::from_secs(5);
+const API_POLL: Duration = Duration::from_millis(20);
+pub const SNAPSHOT_STATE: &str = "snapshot.state";
+pub const SNAPSHOT_MEMORY: &str = "snapshot.mem";
+
+fn api_call(method: &str, path: &str, body: &str) -> Result<()> {
+    let started = Instant::now();
+    let mut s = loop {
+        match UnixStream::connect(API_SOCKET) {
+            Ok(s) => break s,
+            Err(e) if started.elapsed() > API_WAIT => return Err(e).context("reach firecracker's API"),
+            Err(_) => std::thread::sleep(API_POLL),
+        }
+    };
+    write!(s, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len())?;
+    let mut reader = BufReader::new(s);
+    let mut status = String::new();
+    reader.read_line(&mut status)?;
+    if !status.split_whitespace().nth(1).is_some_and(|c| c.starts_with('2')) {
+        bail!("firecracker refused {method} {path}: {}", status.trim());
+    }
+    Ok(())
+}
+
+/// Drives firecracker's API as the VM's user, inside its chroot.
+pub fn api(root: &Path, uid: u32, what: &str) -> Result<()> {
+    confine(root, uid)?;
+    match what {
+        "snapshot" => {
+            api_call("PATCH", "/vm", r#"{"state":"Paused"}"#)?;
+            api_call("PUT", "/snapshot/create", &format!(r#"{{"snapshot_type":"Full","snapshot_path":"{SNAPSHOT_STATE}","mem_file_path":"{SNAPSHOT_MEMORY}"}}"#))
+        }
+        "restore" => api_call(
+            "PUT",
+            "/snapshot/load",
+            &format!(r#"{{"snapshot_path":"{SNAPSHOT_STATE}","mem_backend":{{"backend_path":"{SNAPSHOT_MEMORY}","backend_type":"File"}},"resume_vm":true}}"#),
+        ),
+        _ => bail!("no such API step"),
+    }
 }

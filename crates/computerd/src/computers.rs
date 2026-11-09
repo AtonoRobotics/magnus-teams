@@ -9,10 +9,16 @@ use anyhow::{bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs::File;
+use std::io::Write as _;
 use std::os::unix::fs::{chown, DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+pub mod backup;
+mod guest;
+mod snapshot;
+pub use snapshot::Wake;
 
 pub const CGROUP_ROOT: &str = "/sys/fs/cgroup/magnus-computers";
 const PARENT_CGROUP: &str = "magnus-computers";
@@ -30,6 +36,7 @@ const KILL_WAIT: Duration = Duration::from_secs(10);
 const LOCK_WAIT: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 const VM_CONFIG: &str = "vm.json";
+const BASE_ID: &str = "base.id";
 const VOLUME: &str = "volume.ext4";
 const OVERLAY: &str = "overlay.ext4";
 /// The guest's existing name for its writable data drive.
@@ -41,6 +48,9 @@ const BOOT_ARGS: &str = "console=ttyS0 reboot=k panic=1 pci=off quiet loglevel=3
 #[derive(Serialize, Deserialize)]
 struct Meta {
     uid: u32,
+    /// The base image its overlay was made on: valid on no other.
+    #[serde(default)]
+    overlay_base: Option<String>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Copy)]
@@ -49,6 +59,7 @@ pub enum State {
     Stopped,
     Running,
     Paused,
+    Hibernated,
 }
 
 /// A helper VM reaches a stopped computer's files. It has the volume and
@@ -57,16 +68,21 @@ pub enum State {
 pub enum Purpose {
     Computer,
     Helper,
+    /// For reading a hibernated computer: leaves its volume as the memory
+    /// snapshot expects it.
+    ReadHelper,
 }
 
 pub struct Computers {
     cfg: Config,
     cgroups: PathBuf,
+    /// One backup at a time, and without the lock that a kill needs.
+    backing_up: std::sync::Mutex<()>,
 }
 
 impl Computers {
     pub fn new(cfg: Config) -> Computers {
-        Computers { cfg, cgroups: PathBuf::from(CGROUP_ROOT) }
+        Computers { cfg, cgroups: PathBuf::from(CGROUP_ROOT), backing_up: std::sync::Mutex::new(()) }
     }
 
     fn state(&self, rest: &str) -> PathBuf {
@@ -88,7 +104,7 @@ impl Computers {
 
     /// Where a relay for this computer locks itself in, and as whom.
     pub fn relay_target(&self, id: &ComputerId) -> Result<(PathBuf, u32)> {
-        let Meta { uid } = self.meta(id)?;
+        let Meta { uid, .. } = self.meta(id)?;
         ensure!(self.is_live(id), "computer {} is not running", id.as_str());
         Ok((self.jail_root(id), uid))
     }
@@ -147,7 +163,7 @@ impl Computers {
         ensure!(!dir.exists(), "computer {} already exists", id.as_str());
         let uid = self.free_uid()?;
         std::fs::DirBuilder::new().mode(0o700).create(&dir).context("make the computer's directory")?;
-        let made = std::fs::write(dir.join("meta.json"), serde_json::to_vec(&Meta { uid })?)
+        let made = std::fs::write(dir.join("meta.json"), serde_json::to_vec(&Meta { uid, overlay_base: None })?)
             .map_err(anyhow::Error::from)
             .and_then(|_| make_drive(&dir.join(VOLUME), self.cfg.vm.volume_gib, uid, VOLUME_LABEL));
         if let Err(e) = made {
@@ -160,7 +176,7 @@ impl Computers {
     pub fn status(&self, id: &ComputerId) -> Result<State> {
         self.meta(id)?;
         if !self.is_live(id) {
-            return Ok(State::Stopped);
+            return Ok(if self.has_snapshot(id) { State::Hibernated } else { State::Stopped });
         }
         let frozen = std::fs::read_to_string(self.cgroup(id).join("cgroup.freeze")).unwrap_or_default();
         Ok(if frozen.trim() == "1" { State::Paused } else { State::Running })
@@ -182,17 +198,57 @@ impl Computers {
         Ok(n)
     }
 
-    pub fn start(&self, id: &ComputerId, purpose: Purpose) -> Result<()> {
+    pub fn start(&self, id: &ComputerId, purpose: Purpose) -> Result<bool> {
         let _lock = self.lock()?;
+        self.boot_locked(id, purpose)
+    }
+
+    fn may_start(&self, id: &ComputerId) -> Result<()> {
         ensure!(!self.halted_marker().exists(), "the owner has halted every computer");
-        let Meta { uid } = self.meta(id)?;
         ensure!(!self.is_live(id), "computer {} is already running", id.as_str());
         ensure!(self.live_count()? < self.cfg.max_live, "this machine is running as many computers as it may");
+        Ok(())
+    }
 
+    fn base_id(&self) -> Result<String> {
+        Ok(std::fs::read_to_string(self.state("images").join(BASE_ID)).context("read the base image's id")?.trim().to_string())
+    }
+
+    fn write_meta(&self, id: &ComputerId, meta: &Meta) -> Result<()> {
+        std::fs::write(self.computer(id).join("meta.json"), serde_json::to_vec(meta)?).context("record the computer")
+    }
+
+    /// A cold boot. True when the overlay is new, so its apps must be replayed.
+    fn boot_locked(&self, id: &ComputerId, purpose: Purpose) -> Result<bool> {
+        self.may_start(id)?;
+        let mut meta = self.meta(id)?;
         let dir = self.computer(id);
-        if purpose == Purpose::Computer && !dir.join(OVERLAY).exists() {
-            make_drive(&dir.join(OVERLAY), self.cfg.vm.overlay_gib, uid, OVERLAY_LABEL)?;
+        let mut fresh = false;
+        if purpose == Purpose::Helper {
+            // An edit makes the memory snapshot wrong about the disk.
+            self.discard_snapshot_locked(id)?;
         }
+        if purpose == Purpose::Computer {
+            let base = self.base_id()?;
+            if meta.overlay_base.as_deref() != Some(&base) {
+                remove_file_if_there(&dir.join(OVERLAY))?;
+                self.discard_snapshot_locked(id)?;
+            }
+            if !dir.join(OVERLAY).exists() {
+                make_drive(&dir.join(OVERLAY), self.cfg.vm.overlay_gib, meta.uid, OVERLAY_LABEL)?;
+                fresh = true;
+            }
+            meta.overlay_base = Some(base);
+            self.write_meta(id, &meta)?;
+        }
+        self.prepare_jail(id, meta.uid, purpose)?;
+        self.launch(id, meta.uid, true)?;
+        Ok(fresh)
+    }
+
+    /// An empty jail holding this computer's images and drives.
+    fn prepare_jail(&self, id: &ComputerId, uid: u32, purpose: Purpose) -> Result<()> {
+        let dir = self.computer(id);
         let _ = std::fs::remove_dir(self.cgroup(id));
         remove_if_there(&self.jail(id))?;
         let root = self.jail_root(id);
@@ -211,8 +267,13 @@ impl Computers {
         std::fs::write(&config, serde_json::to_vec(&vm_config(&self.cfg, purpose))?).context("write the VM's config")?;
         // Readable by the VM's own user whatever the umask.
         chown(&config, Some(uid), Some(uid)).context("give the VM its config")?;
+        Ok(())
+    }
 
-        let out = Command::new(&self.cfg.jailer).env_clear().args(jailer_args(&self.cfg, id, uid)).output().context("run the jailer")?;
+    /// Starts the jailer. `configured` boots from the VM's config; otherwise
+    /// the VM waits on its API for a snapshot to load.
+    fn launch(&self, id: &ComputerId, uid: u32, configured: bool) -> Result<()> {
+        let out = Command::new(&self.cfg.jailer).env_clear().args(jailer_args(&self.cfg, id, uid, configured)).output().context("run the jailer")?;
         if !out.status.success() {
             bail!("the jailer failed: {}", String::from_utf8_lossy(&out.stderr).trim());
         }
@@ -258,10 +319,8 @@ impl Computers {
         if delete_volume {
             std::fs::remove_dir_all(&dir).context("delete the computer")
         } else {
-            match std::fs::remove_file(dir.join(OVERLAY)) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-                _ => Ok(()),
-            }
+            self.discard_snapshot_locked(id)?;
+            remove_file_if_there(&dir.join(OVERLAY))
         }
     }
 
@@ -323,6 +382,13 @@ fn kill_cgroup(cgroup: &Path) -> Result<()> {
     }
 }
 
+fn remove_file_if_there(file: &Path) -> Result<()> {
+    match std::fs::remove_file(file) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).with_context(|| format!("remove {}", file.display())),
+        _ => Ok(()),
+    }
+}
+
 fn remove_if_there(dir: &Path) -> Result<()> {
     match std::fs::remove_dir_all(dir) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).with_context(|| format!("remove {}", dir.display())),
@@ -351,7 +417,7 @@ fn make_drive(path: &Path, gib: u32, uid: u32, label: &str) -> Result<()> {
 fn vm_config(cfg: &Config, purpose: Purpose) -> serde_json::Value {
     let mut drives = vec![
         json!({ "drive_id": "rootfs", "path_on_host": BASE_IMAGE, "is_root_device": true, "is_read_only": true }),
-        json!({ "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": false }),
+        json!({ "drive_id": "volume", "path_on_host": VOLUME, "is_root_device": false, "is_read_only": purpose == Purpose::ReadHelper }),
     ];
     if purpose == Purpose::Computer {
         drives.push(json!({ "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false }));
@@ -364,7 +430,7 @@ fn vm_config(cfg: &Config, purpose: Purpose) -> serde_json::Value {
     })
 }
 
-fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32) -> Vec<String> {
+fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32, configured: bool) -> Vec<String> {
     let v = &cfg.vm;
     let memory_max = (u64::from(v.memory_mib) + VMM_OVERHEAD_MIB) * BYTES_PER_MIB;
     let cpu_quota = CPU_PERIOD_US * u64::from(v.cpu_percent) / 100;
@@ -387,7 +453,10 @@ fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32) -> Vec<String> {
     pair("--cgroup", format!("pids.max={}", v.pids_max));
     pair("--resource-limit", format!("fsize={largest_drive}"));
     pair("--resource-limit", format!("no-file={MAX_OPEN_FILES}"));
-    args.extend(["--new-pid-ns", "--daemonize", "--", "--config-file", VM_CONFIG].map(String::from));
+    args.extend(["--new-pid-ns", "--daemonize"].map(String::from));
+    if configured {
+        args.extend(["--", "--config-file", VM_CONFIG].map(String::from));
+    }
     args
 }
 
@@ -425,7 +494,7 @@ mod tests {
     #[test]
     fn a_vm_runs_as_its_own_user_with_limits_from_the_config() {
         let id = ComputerId::parse("abc").unwrap();
-        let args = jailer_args(&config(), &id, 200003);
+        let args = jailer_args(&config(), &id, 200003, true);
         assert_eq!(after(&args, "--uid"), ["200003"]);
         assert_eq!(after(&args, "--gid"), ["200003"]);
         assert_eq!(after(&args, "--id"), ["abc"]);

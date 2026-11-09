@@ -1,6 +1,6 @@
 //! The operations on a computer: who may, what the log says, what computerd does.
 
-use super::{client, Change, Computer, KillMode, Owner, Status};
+use super::{apps, client, Change, Computer, KillMode, Owner, Status};
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
@@ -47,16 +47,16 @@ fn user_path(path: &str) -> Result<&str, Refused> {
 }
 
 impl Kernel {
-    fn computer_socket(&self) -> Result<PathBuf, Refused> {
+    pub(super) fn computer_socket(&self) -> Result<PathBuf, Refused> {
         self.cfg.computer.as_ref().map(|c| c.socket.clone()).ok_or_else(|| Refused::Conflict("this appliance has no computers".into()))
     }
 
     /// The person sees "no such computer" for one that is not theirs.
-    fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
+    pub(super) fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
         self.read(|s| s.computers.get(id).cloned()).filter(|c| may_control(who, &c.owner)).ok_or(Refused::NotFound("computer"))
     }
 
-    async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
+    pub(super) async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
         self.emit(&format!("person:{}", who.id), Ev::Computer(change)).await.map(|_| ()).map_err(failed)
     }
 
@@ -109,20 +109,71 @@ impl Kernel {
                 self.record_computer(who, Change::Started { id: id.into() }).await?;
                 return Ok(json!({ "status": "running" }));
             }
-            Status::Stopped | Status::Killed => {}
+            Status::Stopped | Status::Hibernated | Status::Killed => {}
         }
-        match client::ask(&socket, json!({ "op": "start", "id": id })).await {
-            Ok(_) => {}
+        // Wake boots cold when there is no snapshot it can use.
+        let woke = match client::ask(&socket, json!({ "op": "wake", "id": id })).await {
+            Ok(v) => v,
             Err(e) if client::at_capacity(&e) => {
                 self.record_computer(who, Change::Queued { id: id.into() }).await?;
                 let position = self.read(|s| s.computers.queue().len());
                 return Ok(json!({ "status": "queued", "queue_position": position }));
             }
             Err(e) => return Err(failed(e)),
-        }
+        };
         self.record_computer(who, Change::Started { id: id.into() }).await?;
         wait_for_guest(&socket, id).await.map_err(failed)?;
-        Ok(json!({ "status": "running" }))
+        self.after_boot(&socket, id, &woke).await;
+        Ok(json!({ "status": "running", "resumed": woke["resumed"], "replayed": woke["overlay_fresh"] }))
+    }
+
+    /// A new overlay has none of the computer's apps yet.
+    async fn after_boot(&self, socket: &Path, id: &str, woke: &Value) {
+        if woke["overlay_fresh"] != true {
+            return;
+        }
+        let list = self.read(|s| s.computers.get(id).map(|c| c.apps.clone())).unwrap_or_default();
+        for app in &list {
+            if let Err(e) = apps::replay(&self.computer_installers(), socket, id, app).await {
+                tracing::warn!("computer {id} could not replay {}: {e:#}", app.name);
+                if let Err(e) = self.emit("kernel", Ev::Computer(Change::ReplayFailed { id: id.into(), app: app.name.clone(), error: format!("{e:#}") })).await {
+                    tracing::warn!("computer {id}'s failed replay could not be recorded: {e:#}");
+                }
+                return;
+            }
+        }
+    }
+
+    pub async fn hibernate_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let c = self.controlled_computer(who, id)?;
+        if c.status != Status::Running {
+            return Err(Refused::Conflict("only a running computer can hibernate".into()));
+        }
+        client::ask(&socket, json!({ "op": "hibernate", "id": id })).await.map_err(failed)?;
+        self.record_computer(who, Change::Hibernated { id: id.into() }).await?;
+        Ok(json!({ "status": "hibernated" }))
+    }
+
+    pub async fn backup_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        self.controlled_computer(who, id)?;
+        client::ask(&socket, json!({ "op": "backup", "id": id })).await.map_err(failed)
+    }
+
+    pub async fn restore_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        self.controlled_computer(who, id)?;
+        let v = client::ask(&socket, json!({ "op": "restore_backup", "id": id })).await.map_err(failed)?;
+        self.record_computer(who, Change::Restored { id: id.into(), at: v["restored"].as_u64().unwrap_or_default() }).await?;
+        Ok(v)
+    }
+
+    pub async fn delete_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
+        let path = user_path(path)?;
+        self.on_computer(who, id, json!({ "op": "erase", "path": path })).await?;
+        self.record_computer(who, Change::FileDeleted { id: id.into(), path: path.into(), at: chrono::Utc::now() }).await?;
+        Ok(json!({ "deleted": path }))
     }
 
     pub async fn grant_computer(&self, who: &Person, id: &str, label: &str) -> Result<Value, Refused> {
@@ -186,7 +237,7 @@ impl Kernel {
                 client::guest(&socket, id, json!({ "op": "sync" })).await.map_err(failed)?;
                 reply
             }
-            Status::Stopped => {
+            Status::Stopped | Status::Hibernated => {
                 let _one_at_a_time = HELPER.lock().await;
                 in_helper(&socket, id, req).await.map_err(failed)?
             }
@@ -211,7 +262,9 @@ async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
 }
 
 async fn in_helper(socket: &Path, id: &str, req: Value) -> Result<Value> {
-    client::ask(socket, json!({ "op": "start_helper", "id": id })).await?;
+    // Reading leaves a hibernated computer's memory snapshot usable.
+    let read_only = req["op"] == "read";
+    client::ask(socket, json!({ "op": "start_helper", "id": id, "read_only": read_only })).await?;
     let done = async {
         wait_for_guest(socket, id).await?;
         let reply = client::guest(socket, id, req).await?;
@@ -239,11 +292,18 @@ pub fn schedule(k: Arc<Kernel>) {
             tick.tick().await;
             let next = k.read(|s| s.computers.queue().first().map(|c| c.id.clone()));
             let Some(id) = next else { continue };
-            match client::ask(&socket, json!({ "op": "start", "id": id })).await {
-                Ok(_) => {
+            match client::ask(&socket, json!({ "op": "wake", "id": id })).await {
+                Ok(woke) => {
                     if let Err(e) = k.emit("kernel", Ev::Computer(Change::Started { id: id.clone() })).await {
                         tracing::warn!("computer {id} started but could not be recorded: {e:#}");
                     }
+                    let (k, socket) = (k.clone(), socket.clone());
+                    tokio::spawn(async move {
+                        match wait_for_guest(&socket, &id).await {
+                            Ok(()) => k.after_boot(&socket, &id, &woke).await,
+                            Err(e) => tracing::warn!("computer {id} did not come up from the queue: {e:#}"),
+                        }
+                    });
                 }
                 Err(e) if client::at_capacity(&e) => {}
                 Err(e) => tracing::warn!("computer {id} could not start from the queue: {e:#}"),

@@ -37,6 +37,10 @@ for pair in "$kernel:vmlinux" "$rootfs:rootfs.ext4"; do
   mv -f "$state/images/$name.new" "$state/images/$name"
 done
 
+# Overlays and snapshots are valid only on the base image they were made on.
+sha256sum "$state/images/rootfs.ext4" | cut -d' ' -f1 > "$state/images/base.id"
+chmod 0644 "$state/images/base.id"
+
 if [ ! -f /etc/magnus/computerd.toml ]; then
   install -m 0644 -o root -g root /dev/null /etc/magnus/computerd.toml
   cat > /etc/magnus/computerd.toml <<EOF

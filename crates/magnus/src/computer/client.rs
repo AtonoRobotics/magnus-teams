@@ -7,8 +7,9 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
-/// Creating a computer makes its drives, and a start waits for the VM.
-const REPLY_WAIT: Duration = Duration::from_secs(120);
+/// Creating a computer makes its drives, a start waits for the VM, and a
+/// hibernate or backup copies a whole disk or memory image.
+const REPLY_WAIT: Duration = Duration::from_secs(600);
 const GUEST_WAIT: Duration = Duration::from_secs(60);
 const MAX_REPLY_BYTES: u64 = 1 << 16;
 /// A file read comes back whole, in base64.
@@ -47,7 +48,12 @@ pub async fn ask(socket: &Path, req: Value) -> Result<Value> {
 
 /// One request to a computer's guest agent.
 pub async fn guest(socket: &Path, id: &str, req: Value) -> Result<Value> {
-    let reply = tokio::time::timeout(GUEST_WAIT, async {
+    guest_for(socket, id, req, GUEST_WAIT).await
+}
+
+/// For work that takes as long as it takes, such as an install step.
+pub async fn guest_for(socket: &Path, id: &str, req: Value, wait: Duration) -> Result<Value> {
+    let reply = tokio::time::timeout(wait, async {
         let s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
         let (r, mut w) = s.into_split();
         w.write_all(format!("{}\n", json!({ "op": "connect", "id": id })).as_bytes()).await?;
