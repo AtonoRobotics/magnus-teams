@@ -64,6 +64,7 @@ pub mod speech;
 pub mod state;
 pub mod sub_agents;
 pub mod suggestions;
+pub mod team;
 pub mod tls;
 pub mod tools;
 mod tools_identity;

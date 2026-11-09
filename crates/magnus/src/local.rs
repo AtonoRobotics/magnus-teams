@@ -150,9 +150,10 @@ fn chosen(mine: &[Computer], input: &Value) -> std::result::Result<Computer, Str
 }
 
 /// Whether an action could carry data away. A local write stays on the
-/// person's machine.
+/// person's machine, and a team write stays with the requester if it read
+/// their private data.
 pub(crate) fn may_send(a: &Action, f: &Facts) -> bool {
-    f.app != "local" && !crate::boundary::is_chat_tool(f)
+    f.app != "local" && a.tool != "team_write_file" && !crate::boundary::is_chat_tool(f)
 }
 
 /// The folder an action touches, when it names one.
@@ -186,7 +187,15 @@ impl Kernel {
         }
     }
 
-    pub(crate) async fn local_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
+    /// The tools that reach past this server: the person's computer, the team.
+    pub(crate) async fn far_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
+        if a.tool.starts_with("team_") {
+            return self.team_tool(a).await;
+        }
+        self.local_tool(a).await
+    }
+
+    async fn local_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).context("no such run")?;
         let mine = self.read(|s| s.local.of(&person));
         let computer = match chosen(&mine, &a.input) {

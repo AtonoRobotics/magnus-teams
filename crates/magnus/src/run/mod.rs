@@ -180,7 +180,7 @@ impl Kernel {
         // The person's apps, as they stand at this call, before what they said (connectors spec,
         // How the agent uses connectors: "the context always holds the
         // user's connector index").
-        if let Some(index) = self.person(&run.person).and_then(|p| self.app_index(&p)) {
+        if let Some(index) = self.index_for(run) {
             first.push(Block::Text { text: index });
         }
         first.push(Block::Text { text: said });
@@ -211,8 +211,7 @@ impl Kernel {
             });
         }
         first.extend(crate::attachment::prompt_blocks(&attachments));
-        let playbook: Vec<(String, String, bool)> =
-            self.read(|s| s.playbook_at(&run.person, run.config.playbook).into_iter().map(|i| (i.id.clone(), i.text.clone(), i.label.untrusted)).collect());
+        let playbook = self.playbook_for(run);
         if !playbook.is_empty() {
             let mut t = format!("Your playbook (version {}): lessons you recorded in earlier tasks. Change it with playbook_update.\n", run.config.playbook);
             for (id, text, untrusted) in &playbook {
@@ -348,7 +347,7 @@ impl Kernel {
         } else {
             specs.extend(apps);
         }
-        specs
+        self.team_scoped(run, specs)
     }
 
     /// The tools found by this run's `find_tools` calls.

@@ -229,6 +229,9 @@ impl Kernel {
     /// recent messages are those that ended before it started, outside
     /// its own conversation, so its context is the same at every call.
     pub(crate) async fn person_context(&self, run: &Run) -> anyhow::Result<(String, Option<u32>)> {
+        if self.team_of(&run.task).is_some() {
+            return Ok((String::new(), None));
+        }
         // Their notes, as they stood when it started (#259).
         let (notes, version) = self.relationship_at(&run.person, run.created_at).await?;
         let thread = self.read(|s| s.tasks.get(&run.task).and_then(|t| t.chat.as_ref().map(|c| c.thread.clone())));

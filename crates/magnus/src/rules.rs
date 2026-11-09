@@ -168,6 +168,9 @@ impl Kernel {
     /// asked: disclosing a credential, or reaching another person's account
     /// or computer. Only what the model asked for is judged here.
     pub(crate) fn hard_denial(&self, a: &Action, run: &Run) -> Option<String> {
+        if let Some(why) = self.team_refusal(a, run) {
+            return Some(why);
+        }
         if a.issuer != Issuer::Model {
             return None;
         }
