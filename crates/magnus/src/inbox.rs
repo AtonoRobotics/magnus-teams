@@ -185,6 +185,11 @@ impl Kernel {
                 ));
                 evs.extend(self.resume(&run));
             }
+            // What the monitor held goes on, or is refused when the run asks again.
+            ("monitor", "allow" | "reject") => {
+                evs.push((&actor, resolve(None)));
+                evs.extend(self.resume(&run));
+            }
             // They would rather not sign in: the agent is told and goes on.
             ("secure_form", "decline") => {
                 let steps = self.read(|st| st.runs.get(&run).map_or(0, |r| r.replies.len() as u32));

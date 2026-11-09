@@ -256,6 +256,9 @@ impl Kernel {
         if delete_volume && mode != KillMode::Destroy {
             return Err(Refused::Invalid("only destroying a computer can delete its volume".into()));
         }
+        if delete_volume && matches!(&c.owner, Owner::Person(p) if *p != who.id) {
+            return Err(Refused::Denied("a volume is deleted only when the person it belongs to asks".into()));
+        }
         let actor = format!("person:{}", who.id);
         let mut evs = vec![];
         for g in c.grants.iter().filter(|g| !g.revoked) {

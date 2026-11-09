@@ -383,7 +383,7 @@ impl Kernel {
         sources: Vec<String>,
         data: Option<Value>,
     ) -> Result<Verdict> {
-        let text = crate::safety::screened(text, label.untrusted);
+        let (text, data) = self.screen_inbound(&a.run, &a.tool, text, data, label.untrusted).await;
         // What the verifier reads taints the run like the model's own reads:
         // its words go back to the model.
         self.emit(
@@ -1061,7 +1061,7 @@ impl Kernel {
                     json!({ "call_id": a.call_id, "tool": a.tool, "reason": reason }),
                 );
                 self.emit("kernel", ev).await?;
-                Ok(Gate::Stop(self.deny(a, "reviewer", &format!("the reviewer blocked this send: {reason}"), false, None).await?))
+                Ok(Gate::Stop(self.deny(a, "reviewer", &crate::safety::blocked(&a.run, &a.tool, &hash, &format!("the reviewer blocked this send: {reason}")), false, None).await?))
             }
             crate::run::reviewer::SendVerdict::Flag(reason) => {
                 let why = format!("the reviewer flagged this send: {reason}");

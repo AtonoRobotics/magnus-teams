@@ -48,6 +48,14 @@ pub struct Settings {
     /// A computer unused this long hibernates; 0 keeps it running.
     #[serde(default = "default_idle_hibernate_minutes")]
     pub idle_hibernate_minutes: u64,
+    /// A computer running this long without a stop hibernates, busy or not,
+    /// unless a person holds it; 0 sets no limit.
+    #[serde(default = "default_max_run_minutes")]
+    pub max_run_minutes: u64,
+}
+
+fn default_max_run_minutes() -> u64 {
+    24 * 60
 }
 
 fn default_idle_hibernate_minutes() -> u64 {

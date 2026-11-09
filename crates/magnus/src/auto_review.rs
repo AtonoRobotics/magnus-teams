@@ -279,6 +279,9 @@ impl Kernel {
     /// What Auto Review says about one boundary action. Anything but a
     /// clear answer is an ask.
     async fn auto_review(&self, a: &Action, run: &Run, shown: Option<&Shown>, content_hash: &str, standing: &str) -> Result<Verdict> {
+        if let Some(again) = crate::safety::resubmission(&a.run, &a.tool, content_hash) {
+            return Ok(again.into());
+        }
         let destination = shown.map_or_else(|| Value::String(a.tool.clone()), Shown::details);
         let rules: Vec<String> = self.read(|s| s.policies.values().cloned().collect());
         let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
@@ -290,9 +293,6 @@ impl Kernel {
         let Some(finding) = self.outgoing_finding(a, run).await else {
             return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
         };
-        if let Some(verdict) = self.monitor(a, run).await {
-            return Ok(verdict);
-        }
         let doc = document(a, &destination, &asked, &rules, standing, finding.as_deref());
         if doc.len() > MAX_DOCUMENT_BYTES {
             return Ok(Verdict::Ask("the action is too large for Auto Review to read".to_string()));
@@ -304,7 +304,10 @@ impl Kernel {
             return Ok(Verdict::Ask("Auto Review could not be reached".to_string()));
         };
         remember(key, &verdict);
-        Ok(verdict)
+        Ok(match verdict {
+            Verdict::Deny(reason) => Verdict::Deny(crate::safety::blocked(&a.run, &a.tool, content_hash, &reason)),
+            other => other,
+        })
     }
 }
 

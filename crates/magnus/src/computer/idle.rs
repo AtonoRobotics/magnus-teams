@@ -10,6 +10,25 @@ const IDLE_POLL: Duration = Duration::from_secs(60);
 const SECONDS_PER_MINUTE: u64 = 60;
 
 static LAST_USED: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+/// When each computer last began running, as this process has seen it.
+static RUNNING_SINCE: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+
+/// The computers now over the run-time limit, given those running now and
+/// not held by a person. Whatever stopped starts its count again.
+fn over_run_limit(running: &[String], held: &[String], limit: Duration, now: Instant) -> Vec<String> {
+    let mut slot = RUNNING_SINCE.lock().unwrap_or_else(|e| e.into_inner());
+    let since = slot.get_or_insert_with(HashMap::new);
+    since.retain(|id, _| running.contains(id));
+    let mut over = vec![];
+    for id in running {
+        let began = *since.entry(id.clone()).or_insert(now);
+        if now.saturating_duration_since(began) >= limit && !held.contains(id) {
+            since.remove(id);
+            over.push(id.clone());
+        }
+    }
+    over
+}
 
 pub(super) fn touch(id: &str) {
     LAST_USED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(id.to_string(), Instant::now());
@@ -29,6 +48,7 @@ pub(super) fn schedule(k: Arc<Kernel>) {
     let minutes = k.cfg.computer.as_ref().map(|c| c.idle_hibernate_minutes).unwrap_or(0);
     // Zero keeps computers running; the browsers are still tended.
     let limit = if minutes > 0 { Duration::from_secs(minutes * SECONDS_PER_MINUTE) } else { Duration::MAX };
+    let run_limit = Duration::from_secs(k.cfg.computer.as_ref().map_or(0, |c| c.max_run_minutes) * SECONDS_PER_MINUTE);
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(IDLE_POLL);
@@ -45,7 +65,12 @@ pub(super) fn schedule(k: Arc<Kernel>) {
                     .map(|c| c.id.clone())
                     .collect()
             });
-            for id in candidates.into_iter().filter(|id| idle_for(id) >= limit) {
+            let running: Vec<(String, bool)> =
+                k.read(|s| s.computers.all().filter(|c| c.role == super::Role::Computer && c.status == Status::Running).map(|c| (c.id.clone(), c.controller.is_some())).collect());
+            let (ids, held): (Vec<String>, Vec<String>) = (running.iter().map(|(i, _)| i.clone()).collect(), running.iter().filter(|(_, h)| *h).map(|(i, _)| i.clone()).collect());
+            let over = if run_limit > Duration::ZERO { over_run_limit(&ids, &held, run_limit, Instant::now()) } else { vec![] };
+            let due = candidates.into_iter().filter(|id| idle_for(id) >= limit && !over.contains(id)).chain(over.iter().cloned()).collect::<Vec<_>>();
+            for id in due {
                 match client::ask(&socket, serde_json::json!({ "op": "hibernate", "id": id })).await {
                     Ok(_) => {
                         if let Err(e) = k.emit("kernel", Ev::Computer(Change::Hibernated { id: id.clone() })).await {
@@ -57,4 +82,23 @@ pub(super) fn schedule(k: Arc<Kernel>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_computer_over_its_run_time_stops_unless_a_person_holds_it() {
+        let limit = Duration::from_secs(600);
+        let start = Instant::now();
+        let (a, b) = ("limit-a".to_string(), "limit-b".to_string());
+        let both = [a.clone(), b.clone()];
+        assert!(over_run_limit(&both, &[], limit, start).is_empty());
+        let held = std::slice::from_ref(&b);
+        assert_eq!(over_run_limit(&both, held, limit, start + limit), std::slice::from_ref(&a));
+        // It stopped, so its count starts again.
+        assert!(over_run_limit(&both, held, limit, start + limit).is_empty());
+        assert_eq!(over_run_limit(&both, &[], limit, start + limit), std::slice::from_ref(&b));
+    }
 }

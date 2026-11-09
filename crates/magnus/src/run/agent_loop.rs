@@ -133,10 +133,14 @@ impl Kernel {
         if let Some((index, call_id, name, input)) = run.pending_calls().into_iter().next() {
             let step = run.replies.last().map(|r| r.step).unwrap_or(0);
             let step_id = format!("s{step}.{index}");
-            if crate::tools::RECORDS.contains(&name.as_str()) {
-                return self.record_call(&run, &call_id, &step_id, &name, &input).await;
-            }
-            let v = self.execute(Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model }).await?;
+            let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
+            let v = match self.watched(&run, &action).await? {
+                Some(v) => v,
+                None if crate::tools::RECORDS.contains(&action.tool.as_str()) => {
+                    return self.record_call(&run, &action.call_id, &action.step_id, &action.tool, &action.input).await
+                }
+                None => self.execute(action).await?,
+            };
             return Ok(match v {
                 Verdict::Done { .. } => Flow::Continue,
                 Verdict::Suspended => Flow::Stop,
@@ -225,6 +229,9 @@ impl Kernel {
                         .join("\n")
                         .trim()
                         .to_string();
+                    if !has_call && self.cfg.safety.monitor_model.is_some() {
+                        self.watch_answer(&run, &answer).await;
+                    }
                     self.emit("model", Ev::ModelReply { run: run_id.into(), step, blocks: t.blocks, state: t.state, usage: t.usage, served_model: t.served_model, stop: t.stop })
                         .await?;
                     // A chat turn ends with its answer: no contract, no Done

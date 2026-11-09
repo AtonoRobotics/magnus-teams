@@ -70,6 +70,10 @@ impl Kernel {
     /// person asked. `shown` is where the gate read it goes, when the
     /// connector says; otherwise the call's own input.
     pub(crate) async fn review_send(&self, run: &Run, tool: &str, input: &Value, shown: Option<&Shown>) -> Result<SendVerdict> {
+        let hash = shown.map_or_else(|| crate::boundary::input_hash(tool, input), |s| s.hash(tool, input));
+        if let Some(again) = crate::safety::resubmission(&run.id, tool, &hash) {
+            return Ok(again.into());
+        }
         let asked = self.asked(run).await?;
         let where_to = match shown {
             Some(s) => format!("recipients:\n{}\ncontent:\n{}", serde_json::to_string_pretty(&s.recipients)?, serde_json::to_string_pretty(&s.content)?),
