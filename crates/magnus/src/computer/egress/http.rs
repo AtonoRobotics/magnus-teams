@@ -5,6 +5,7 @@
 use super::audit::Row;
 use super::{ca, policy, surrogate, Proxy};
 use anyhow::{bail, Context, Result};
+use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -232,11 +233,15 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     stream.get_mut().write_all(format!("{}Connection: close\r\n\r\n", &without_connection[..header_end]).as_bytes()).await?;
 
     let mut seen = Vec::new();
+    let mut download = (head.method == "GET" && status.split_whitespace().nth(1) == Some("200")).then(Sha256::new);
     let mut buffer = vec![0u8; COPY_BUFFER_BYTES];
     loop {
         let n = tokio::time::timeout(UPSTREAM_WAIT, from_upstream.read(&mut buffer)).await.context("the destination stopped answering")??;
         if n == 0 {
             break;
+        }
+        if let Some(hash) = &mut download {
+            hash.update(&buffer[..n]);
         }
         if is_html && page.is_some() && seen.len() < MAX_PAGE_BYTES {
             seen.extend_from_slice(&buffer[..n]);
@@ -247,6 +252,9 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     let rest = scrubber.finish();
     stream.get_mut().write_all(&rest).await?;
     stream.get_mut().flush().await?;
+    if let Some(hash) = download {
+        super::saw_download(computer, host, hex::encode(hash.finalize()));
+    }
     if let Some(page) = page {
         if !seen.is_empty() {
             let hosts = policy::resources_of(&String::from_utf8_lossy(&seen));

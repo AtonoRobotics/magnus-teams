@@ -126,6 +126,10 @@ impl Kernel {
             return Err(Refused::Conflict("an app is recorded from a running computer".into()));
         }
         let sha256 = self.cache_installer(&socket, id, &installer).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let host = url::Url::parse(&source).ok().and_then(|u| u.host_str().map(String::from));
+        if !host.is_some_and(|h| super::egress::carried(id, &h, &sha256)) {
+            return Err(Refused::Invalid("the proxy did not carry this file from that source: an app is recorded with the address it was downloaded from".into()));
+        }
         let app = App { name, version, source, sha256: sha256.clone(), steps, hosts };
         self.record_computer(who, Change::AppInstalled { id: id.into(), app }).await?;
         Ok(json!({ "sha256": sha256 }))
