@@ -20,6 +20,7 @@ const MAX_CONNECTIONS: usize = 64;
 const BACKUP_EVERY: Duration = Duration::from_secs(3600);
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const SOCKET_MODE: u32 = 0o660;
+const EGRESS_DIR_MODE: u32 = 0o2770;
 /// So the socket is never open to others between bind and chmod.
 const UMASK_BEFORE_BIND: libc::mode_t = 0o177;
 const UMASK_AFTER_BIND: libc::mode_t = 0o077;
@@ -45,6 +46,12 @@ pub enum Request {
     },
     Backup {
         id: String,
+    },
+    /// Where the egress proxy listens.
+    EgressSocket,
+    /// The computer that runs as this uid.
+    Whose {
+        uid: u32,
     },
     RestoreBackup {
         id: String,
@@ -94,6 +101,8 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
             json!({})
         }
         Request::Backup { id: raw } => c.backup(&id(&raw)?)?,
+        Request::EgressSocket => json!({ "socket": c.proxy_socket() }),
+        Request::Whose { uid } => json!({ "id": c.whose_uid(uid)?.map(|i| i.as_str().to_string()) }),
         Request::RestoreBackup { id: raw } => c.restore_backup(&id(&raw)?)?,
         Request::StartHelper { id: raw, read_only } => {
             c.start(&id(&raw)?, if read_only { Purpose::ReadHelper } else { Purpose::Helper })?;
@@ -160,6 +169,15 @@ fn answer(c: &Computers, req: Result<Request>) -> Value {
     }
 }
 
+/// Magnus's group makes the proxy's socket here, and forwarders reach it.
+fn prepare_egress_dir(c: &Computers, gid: u32) -> Result<()> {
+    let socket = c.proxy_socket();
+    let dir = socket.parent().context("the egress directory")?;
+    std::fs::create_dir_all(dir).context("make the egress directory")?;
+    chown(dir, Some(0), Some(gid)).context("give the egress directory to the magnus group")?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(EGRESS_DIR_MODE)).context("set the egress directory's mode")
+}
+
 pub fn serve(cfg: Config) -> Result<()> {
     let socket = cfg.socket.clone();
     let gid = cfg.socket_gid;
@@ -172,6 +190,7 @@ pub fn serve(cfg: Config) -> Result<()> {
     let listener = listener?;
     chown(&socket, Some(0), Some(gid)).context("give the socket to the magnus group")?;
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(SOCKET_MODE)).context("set the socket's mode")?;
+    prepare_egress_dir(&computers, gid)?;
     let keeper = computers.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(BACKUP_EVERY);

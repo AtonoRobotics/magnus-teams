@@ -35,6 +35,8 @@ pub struct NewApp {
     /// Where the installer is on the computer.
     installer: String,
     steps: Vec<String>,
+    #[serde(default)]
+    hosts: Vec<String>,
 }
 
 fn checked_fields(name: &str, version: &str, source: &str, steps: &[String]) -> Result<(), Refused> {
@@ -116,7 +118,7 @@ impl Kernel {
 
     /// Caches the installer from the computer, then writes the manifest entry.
     pub async fn record_computer_app(&self, who: &Person, id: &str, new: NewApp) -> Result<Value, Refused> {
-        let NewApp { name, version, source, installer, steps } = new;
+        let NewApp { name, version, source, installer, steps, hosts } = new;
         checked_fields(&name, &version, &source, &steps)?;
         let socket = self.computer_socket()?;
         let c = self.controlled_computer(who, id)?;
@@ -124,7 +126,7 @@ impl Kernel {
             return Err(Refused::Conflict("an app is recorded from a running computer".into()));
         }
         let sha256 = self.cache_installer(&socket, id, &installer).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
-        let app = App { name, version, source, sha256: sha256.clone(), steps };
+        let app = App { name, version, source, sha256: sha256.clone(), steps, hosts };
         self.record_computer(who, Change::AppInstalled { id: id.into(), app }).await?;
         Ok(json!({ "sha256": sha256 }))
     }

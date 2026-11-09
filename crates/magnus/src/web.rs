@@ -14,7 +14,7 @@ pub struct Web {
     search_url: Option<String>,
 }
 
-fn private_ip(ip: IpAddr) -> bool {
+pub(crate) fn private_ip(ip: IpAddr) -> bool {
     // An IPv4 address written as IPv6 (`::ffff:a.b.c.d`) is reached as that
     // IPv4 address, so it is judged as one (#196).
     if let IpAddr::V6(v) = ip {

@@ -1,0 +1,357 @@
+diff --git a/tests/invariants/src/appliance.rs b/tests/invariants/src/appliance.rs
+index e32317f..f3084e0 100644
+--- a/tests/invariants/src/appliance.rs
++++ b/tests/invariants/src/appliance.rs
+@@ -85,6 +85,8 @@ pub struct Spec {
+     pub mail: Option<Value>,
+     /// Where `magnus-computerd` listens, when the test has computers.
+     pub computer: Option<PathBuf>,
++    /// More of the `[computer]` section, when a test has computers.
++    pub computer_options: Value,
+ }
+ 
+ fn person(id: &str, groups: &[&str], roles: &[&str]) -> Person {
+@@ -116,6 +118,7 @@ impl Default for Spec {
+             proactive: json!({ "on": false }),
+             mail: None,
+             computer: None,
++            computer_options: Value::Null,
+         }
+     }
+ }
+@@ -211,6 +214,11 @@ impl Spec {
+         self
+     }
+ 
++    pub fn computer_options(mut self, options: Value) -> Self {
++        self.computer_options = options;
++        self
++    }
++
+     pub fn mail(mut self, v: Value) -> Self {
+         self.mail = Some(v);
+         self
+@@ -331,6 +339,11 @@ impl Appliance {
+         });
+         if let Some(socket) = &spec.computer {
+             config["computer"] = json!({ "socket": socket });
++            if let Value::Object(options) = &spec.computer_options {
++                for (name, value) in options {
++                    config["computer"][name] = value.clone();
++                }
++            }
+         }
+         if let Some(mail) = spec.mail.clone() {
+             config["mail"] = mail;
+diff --git a/tests/invariants/src/computerd.rs b/tests/invariants/src/computerd.rs
+index e486c96..cb9e277 100644
+--- a/tests/invariants/src/computerd.rs
++++ b/tests/invariants/src/computerd.rs
+@@ -103,13 +103,18 @@ impl Computerd {
+         let mut ack = String::new();
+         from.read_line(&mut ack).expect("hear the relay");
+         assert!(ack.contains("true"), "{ack}");
+-        writeln!(conn, "{}", json!({ "op": "exec", "command": command, "timeout_s": 60 })).expect("send");
++        writeln!(conn, "{}", json!({ "op": "exec", "command": command, "timeout_s": 300 })).expect("send");
+         let mut line = String::new();
+         from.read_line(&mut line).expect("hear the guest");
+         let reply: Value = serde_json::from_str(&line).expect("the guest's reply");
+         reply["stdout"].as_str().unwrap_or_default().to_string()
+     }
+ 
++    /// As root in the guest, with a shell. Returns what it printed.
++    pub fn root_shell(&self, id: &str, script: &str) -> String {
++        self.exec(id, script)
++    }
++
+     /// Everything that can be rebuilt, gone from the disk.
+     pub fn remove_overlay_and_snapshot(&self, id: &str) {
+         let d = self.computer_dir(id);
+diff --git a/tests/invariants/src/web.rs b/tests/invariants/src/web.rs
+index cf653ed..55fe054 100644
+--- a/tests/invariants/src/web.rs
++++ b/tests/invariants/src/web.rs
+@@ -1,7 +1,13 @@
+ //! A fake website. Pages are untrusted content; every hit is recorded with its
+ //! full path and query, so an exfiltration attempt by URL is visible.
+ 
+-use axum::{extract::State, http::Uri, response::Html, routing::get, Router};
++use axum::{
++    extract::State,
++    http::Uri,
++    response::{Html, IntoResponse, Redirect, Response},
++    routing::any,
++    Router,
++};
+ use std::{
+     collections::HashMap,
+     sync::{Arc, Mutex},
+@@ -21,7 +27,7 @@ pub struct FakeWeb {
+ impl FakeWeb {
+     pub async fn start(pages: &[(&str, &str)]) -> Self {
+         let inner = Arc::new(Inner { pages: pages.iter().map(|(p, h)| (p.to_string(), h.to_string())).collect(), hits: Mutex::new(vec![]) });
+-        let app = Router::new().fallback(get(page)).with_state(inner.clone());
++        let app = Router::new().fallback(any(page)).with_state(inner.clone());
+         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+         let base = format!("http://{}", listener.local_addr().unwrap());
+         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+@@ -38,7 +44,12 @@ impl FakeWeb {
+     }
+ }
+ 
+-async fn page(State(inner): State<Arc<Inner>>, uri: Uri) -> Html<String> {
++/// A page whose text is `redirect:<url>` redirects there.
++async fn page(State(inner): State<Arc<Inner>>, uri: Uri) -> Response {
+     inner.hits.lock().unwrap().push(uri.path_and_query().map(|p| p.to_string()).unwrap_or_default());
+-    Html(inner.pages.get(uri.path()).cloned().unwrap_or_else(|| "<html>not found</html>".into()))
++    let text = inner.pages.get(uri.path()).cloned().unwrap_or_else(|| "<html>not found</html>".into());
++    match text.strip_prefix("redirect:") {
++        Some(to) => Redirect::temporary(to).into_response(),
++        None => Html(text).into_response(),
++    }
+ }
+diff --git a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+index fdce7f4..4b235a0 100644
+--- a/tests/invariants/tests/inv1_boundary.rs
++++ b/tests/invariants/tests/inv1_boundary.rs
+@@ -337,3 +337,188 @@ async fn each_restore_gets_a_new_clock_machine_id_entropy_and_network_identity()
+         assert!((host - guest).abs() < 5, "two restores share the clock: guest {guest}, host {host}");
+     }
+ }
++
++const GUEST_PROXY: &str = "http://10.200.0.1:3128";
++
++async fn computer_with_network(spec: Spec, computerd: &Computerd, model: &FakeModel) -> (Appliance, String) {
++    let app = Appliance::start(spec.computer(&computerd.socket), model).await;
++    let (_, made) = app.api("alice").post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let (code, started) = app.api("alice").post(&format!("/v1/computers/{id}/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++    (app, id)
++}
++
++fn through_proxy(computerd: &Computerd, id: &str, flags: &str, url: &str) -> String {
++    computerd.root_shell(id, &format!("curl -s -m 20 -o /dev/null -w '%{{http_code}}' -x {GUEST_PROXY} {flags} {url}"))
++}
++
++async fn audit_rows(app: &Appliance, id: &str, host: &str) -> Vec<String> {
++    let rows = app.db.admin().await.query("SELECT phase FROM public.computer_egress WHERE computer = $1 AND host = $2 ORDER BY id", &[&id, &host]).await.unwrap();
++    rows.iter().map(|r| r.get::<_, String>(0)).collect()
++}
++
++fn local_port(web: &FakeWeb) -> String {
++    web.base.rsplit(':').next().unwrap().to_string()
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn root_in_a_computer_has_no_way_out_but_the_proxy() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let site = FakeWeb::start(&[("/ok", "<html>fine</html>")]).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "site.test": [site.base.trim_start_matches("http://")] } }));
++    let (app, id) = computer_with_network(spec, &computerd, &model).await;
++    let port = local_port(&site);
++    let api = app.base.trim_start_matches("http://").to_string();
++    let host_ip = String::from_utf8(std::process::Command::new("hostname").arg("-I").output().unwrap().stdout).unwrap().split_whitespace().next().unwrap().to_string();
++
++    let tried = computerd.root_shell(
++        &id,
++        &format!(
++            r#"unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
++ip route add default via 10.200.0.1 dev eth0
++ip addr add 192.168.77.2/24 dev eth0
++ip route add 169.254.169.254 via 10.200.0.1
++echo nameserver 1.1.1.1 > /etc/resolv.conf
++for target in 169.254.169.254:80 {host_ip}:{port} {api} 127.0.0.1:{port} 10.200.0.1:22 10.200.0.1:80 1.1.1.1:80; do
++  if curl -s -m 3 -o /dev/null http://$target/; then echo "REACHED $target"; fi
++done
++python3 - <<'E'
++import socket
++s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
++s.bind(("eth0", 0))
++s.send(b"\xff" * 6 + b"\x02" * 6 + b"\x08\x00" + b"\x45" + b"\x00" * 19)
++print("raw socket sent")
++for port in list(range(1, 200)) + [1024, 3128, 8080, 10000, 52000]:
++    v = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
++    v.settimeout(0.3)
++    try:
++        v.connect((2, port))
++        print("REACHED vsock", port)
++    except OSError:
++        pass
++    finally:
++        v.close()
++E"#
++        ),
++    );
++    assert!(tried.contains("raw socket sent"), "the test's script did not run: {tried}");
++    assert!(!tried.contains("REACHED"), "the guest reached an address around the proxy: {tried}");
++    assert!(site.hits().is_empty(), "the guest reached the fake site around the proxy: {:?}", site.hits());
++    assert!(audit_rows(&app, &id, "site.test").await.is_empty(), "a direct attempt was seen by the proxy");
++
++    let (code, _) = app.api("alice").post(&format!("/v1/computers/{id}/destinations"), json!({ "host": "site.test" })).await;
++    assert_eq!(code, 200);
++    assert_eq!(through_proxy(&computerd, &id, "", "http://site.test/ok"), "200");
++    assert_eq!(site.hits(), vec!["/ok".to_string()], "the proxy did not carry the request");
++    assert_eq!(audit_rows(&app, &id, "site.test").await, vec!["intent".to_string(), "result".to_string()], "the fake site was reached without a record");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn egress_is_not_forwarded_when_its_intent_cannot_be_recorded() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let site = FakeWeb::start(&[("/ok", "<html>fine</html>")]).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "site.test": [site.base.trim_start_matches("http://")] } }));
++    let (app, id) = computer_with_network(spec, &computerd, &model).await;
++    let (code, _) = app.api("alice").post(&format!("/v1/computers/{id}/destinations"), json!({ "host": "site.test" })).await;
++    assert_eq!(code, 200);
++    assert_eq!(through_proxy(&computerd, &id, "", "http://site.test/ok"), "200", "the request should work before the trigger");
++    assert_eq!(site.hits().len(), 1);
++
++    app.db
++        .admin()
++        .await
++        .batch_execute(
++            "CREATE FUNCTION no_intent() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.phase = 'intent' THEN RAISE EXCEPTION 'no'; END IF; RETURN NEW; END $$;
++             CREATE TRIGGER no_intent BEFORE INSERT ON public.computer_egress FOR EACH ROW EXECUTE FUNCTION no_intent();",
++        )
++        .await
++        .unwrap();
++    assert_eq!(through_proxy(&computerd, &id, "", "http://site.test/ok"), "502");
++    assert_eq!(site.hits().len(), 1, "egress went out with no recorded intent");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_name_or_redirect_to_private_infrastructure_is_refused() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let private = FakeWeb::start(&[("/secret", "<html>inside</html>")]).await;
++    let other = FakeWeb::start(&[("/two", "<html>second answer</html>")]).await;
++    let front = FakeWeb::start(&[("/redirect", "redirect:http://private.test/secret"), ("/two", "<html>first answer</html>")]).await;
++    let bare = |w: &FakeWeb| w.base.trim_start_matches("http://").to_string();
++    let spec = Spec::default().computer_options(json!({
++        "public_hosts": { "front.test": [bare(&front)], "rebind.test": [bare(&front), bare(&other)] },
++        "hosts": { "private.test": [bare(&private)] },
++    }));
++    let (app, id) = computer_with_network(spec, &computerd, &model).await;
++    let alice = app.api("alice");
++    for host in ["private.test", "front.test", "rebind.test"] {
++        let (code, _) = alice.post(&format!("/v1/computers/{id}/destinations"), json!({ "host": host })).await;
++        assert_eq!(code, 200);
++    }
++
++    assert_eq!(through_proxy(&computerd, &id, "", "http://private.test/secret"), "403");
++    assert!(private.hits().is_empty(), "the proxy reached private infrastructure through a name");
++    assert_eq!(through_proxy(&computerd, &id, "-L", "http://front.test/redirect"), "403", "a redirect to a private name was followed");
++    assert!(private.hits().is_empty(), "the proxy reached private infrastructure through a redirect");
++
++    // One lookup per request: the address checked is the address connected to.
++    assert_eq!(through_proxy(&computerd, &id, "", "http://rebind.test/two"), "200");
++    assert_eq!(front.hits().iter().filter(|h| *h == "/two").count(), 1);
++    assert!(other.hits().is_empty(), "the proxy reached private infrastructure through a name that changed");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_computer_reaches_only_declared_destinations_even_as_root() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let site = FakeWeb::start(&[("/file", "<html>a download</html>"), ("/page", r#"<html><img src="http://cdn.test/a.png"></html>"#), ("/a.png", "png"), ("/api", "ok")]).await;
++    let address = site.base.trim_start_matches("http://").to_string();
++    let names = ["undeclared.test", "registry.test", "appapi.test", "page.test", "cdn.test", "late.test"];
++    let public: serde_json::Map<String, Value> = names.iter().map(|n| (n.to_string(), json!([address.clone()]))).collect();
++    let spec = Spec::default().computer_options(json!({ "public_hosts": public, "registries": ["registry.test"] }));
++    let (app, id) = computer_with_network(spec, &computerd, &model).await;
++    let alice = app.api("alice");
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++
++    assert_eq!(through_proxy(&computerd, &id, "", "http://undeclared.test/file"), "403", "a computer reached undeclared undeclared.test");
++    assert_eq!(audit_rows(&app, &id, "undeclared.test").await, vec!["refused".to_string()], "a refusal has no row in the audit table");
++
++    assert_eq!(through_proxy(&computerd, &id, "", "http://registry.test/file"), "200");
++    for method in ["PUT", "POST"] {
++        assert_eq!(through_proxy(&computerd, &id, &format!("-X {method} -d x"), "http://registry.test/file"), "403", "a registry accepted an upload");
++    }
++
++    // A host one app declared at install.
++    computerd.root_shell(&id, "echo '#!/bin/sh' > /workspace/app-installer");
++    assert_eq!(through_proxy(&computerd, &id, "", "http://appapi.test/api"), "403");
++    let (code, recorded) =
++        alice.post(&at("/apps"), json!({ "name": "a", "version": "1", "source": "s", "installer": "/workspace/app-installer", "steps": ["true"], "hosts": ["appapi.test"] })).await;
++    assert_eq!(code, 200, "{recorded}");
++    assert_eq!(through_proxy(&computerd, &id, "-X POST -d x", "http://appapi.test/api"), "200", "a host an app declared was refused");
++
++    // A page the agent opened, with its own resources, while it stays open.
++    assert_eq!(through_proxy(&computerd, &id, "", "http://cdn.test/a.png"), "403");
++    let (code, opened) = alice.post(&at("/pages"), json!({ "url": "http://page.test/page" })).await;
++    assert_eq!(code, 200, "{opened}");
++    let page = opened["page"].as_str().unwrap().to_string();
++    assert_eq!(through_proxy(&computerd, &id, "", "http://page.test/page"), "200");
++    assert_eq!(through_proxy(&computerd, &id, "", "http://cdn.test/a.png"), "200", "a resource of an open page was refused");
++    let (code, _) = alice.send(reqwest::Method::DELETE, &at(&format!("/pages/{page}")), None).await;
++    assert_eq!(code, 200);
++    assert_eq!(through_proxy(&computerd, &id, "", "http://cdn.test/a.png"), "403", "a computer reached undeclared cdn.test");
++    assert_eq!(through_proxy(&computerd, &id, "", "http://page.test/page"), "403", "a computer reached undeclared page.test");
++
++    // The guest cannot declare its own way out, and a person can.
++    let api = app.base.clone();
++    computerd.root_shell(
++        &id,
++        &format!("curl -s -m 5 -x {GUEST_PROXY} -X POST -H 'Content-Type: application/json' -d '{{\"host\":\"late.test\"}}' {api}/v1/computers/{id}/destinations; true"),
++    );
++    assert_eq!(through_proxy(&computerd, &id, "", "http://late.test/file"), "403", "a computer reached undeclared late.test");
++    let (code, _) = alice.post(&at("/destinations"), json!({ "host": "late.test" })).await;
++    assert_eq!(code, 200);
++    assert_eq!(through_proxy(&computerd, &id, "", "http://late.test/file"), "200", "a destination added at the boundary was refused");
++}
+diff --git a/tests/invariants/tests/inv8_layers.rs b/tests/invariants/tests/inv8_layers.rs
+index 09a9de6..000f80d 100644
+--- a/tests/invariants/tests/inv8_layers.rs
++++ b/tests/invariants/tests/inv8_layers.rs
+@@ -131,3 +131,47 @@ async fn only_holders_of_the_approver_role_can_approve() {
+     assert!(bob.respond(iid, json!({ "decision": "approve", "scope": "once" })).await.is_success());
+     eventually("bob's approval took effect", PATIENCE, || async { (mail.effects("send") == 1).then_some(()) }).await;
+ }
++
++#[tokio::test(flavor = "multi_thread")]
++async fn one_persons_computer_cannot_reach_anothers() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let site = FakeWeb::start(&[("/ok", "<html>bob's destination</html>")]).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "bobs.test": [site.base.trim_start_matches("http://")] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let (alice, bob) = (app.api("alice"), app.api("bob"));
++    let start = |who: &'_ Api| {
++        let who = who.clone();
++        async move {
++            let (_, made) = who.post("/v1/computers", json!({})).await;
++            let id = made["id"].as_str().unwrap().to_string();
++            let (code, started) = who.post(&format!("/v1/computers/{id}/start"), json!({})).await;
++            assert_eq!(code, 200, "{started}");
++            id
++        }
++    };
++    let (alices, bobs) = (start(&alice).await, start(&bob).await);
++    let (code, _) = bob.post(&format!("/v1/computers/{bobs}/destinations"), json!({ "host": "bobs.test" })).await;
++    assert_eq!(code, 200);
++    let marker = canary("bobs-computer");
++    computerd.exec(&bobs, &format!("echo {marker} > /workspace/marker; python3 -m http.server 8000 --directory /workspace >/dev/null 2>&1 &"));
++
++    // Every computer has the same private addresses, on its own network.
++    let tried = computerd.root_shell(
++        &alices,
++        "ip route add default via 10.200.0.1 dev eth0; for t in 10.200.0.2:8000 10.200.0.1:8000 10.200.0.6:8000; do curl -s -m 3 http://$t/marker; done; echo finished",
++    );
++    assert!(tried.contains("finished"), "the test's script did not run: {tried}");
++    assert!(!tried.contains(&marker), "Alice's computer reached Bob's VM: {tried}");
++
++    // Asking the proxy in Bob's name does nothing: the socket says who it is.
++    let code = computerd.root_shell(&alices, "curl -s -m 20 -o /dev/null -w '%{http_code}' -x http://10.200.0.1:3128 -H 'X-Computer: bob' http://bobs.test/ok");
++    assert_eq!(code, "403", "Alice's computer reached Bob's destination through the proxy");
++    assert!(site.hits().is_empty(), "Alice's computer reached Bob's proxy path");
++
++    // Each computer's own CA, so one's interception certificate means nothing on the other.
++    let alice_ca = computerd.exec(&alices, "cat /usr/local/share/ca-certificates/magnus-computer.crt");
++    let bob_ca = computerd.exec(&bobs, "cat /usr/local/share/ca-certificates/magnus-computer.crt");
++    assert!(alice_ca.contains("BEGIN CERTIFICATE") && bob_ca.contains("BEGIN CERTIFICATE"), "a computer has no CA");
++    assert_ne!(alice_ca, bob_ca, "Alice's computer shares a CA with Bob's");
++}

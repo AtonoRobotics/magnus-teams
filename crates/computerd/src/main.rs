@@ -46,6 +46,13 @@ fn main() -> Result<()> {
             }
             _ => bail!("usage: magnus-computerd purge CONFIG UNIX_SECONDS"),
         },
+        Some("forward") => match (args.get(1), args.get(2).map(|u| u.parse::<u32>()), args.get(3).map(|g| g.parse::<u32>()), args.get(4), args.get(5)) {
+            (Some(ns), Some(Ok(uid)), Some(Ok(gid)), Some(proxy), Some(pids)) => {
+                let pids: Result<Vec<i32>, _> = pids.split(',').map(str::parse).collect();
+                magnus_computerd::forward::run(Path::new(ns), uid, gid, Path::new(proxy), &pids?)
+            }
+            _ => bail!("usage: magnus-computerd forward NETNS UID GID PROXY_SOCKET PIDS"),
+        },
         Some("open-backups") => match (args.get(1), args.get(2)) {
             (Some(dir), Some(to)) => magnus_computerd::computers::backup::open_all_chunks(Path::new(dir), &mut std::fs::File::create(to)?),
             _ => bail!("usage: magnus-computerd open-backups DIR TO"),

@@ -17,6 +17,9 @@ const QUEUE_POLL: Duration = Duration::from_secs(5);
 const ID_BYTES: usize = 16;
 const MAX_LABEL_CHARS: usize = 200;
 const USER_FILES: &str = "/workspace/";
+const MAX_HOST_CHARS: usize = 253;
+/// Where the guest looks for certificate authorities to trust.
+const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.crt";
 /// A stopped computer's files are reached one helper VM at a time.
 static HELPER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -29,6 +32,16 @@ fn may_control(who: &Person, owner: &Owner) -> bool {
 
 fn failed(e: anyhow::Error) -> Refused {
     Refused::Failed(format!("{e:#}"))
+}
+
+/// A host name, or `*.` and a host name.
+fn checked_host(raw: &str) -> Result<String, Refused> {
+    let host = raw.trim().to_ascii_lowercase();
+    let bare = host.strip_prefix("*.").unwrap_or(&host);
+    if bare.is_empty() || bare.len() > MAX_HOST_CHARS || !bare.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') {
+        return Err(Refused::Invalid(format!("{raw} is not a host name")));
+    }
+    Ok(host)
 }
 
 fn new_id() -> String {
@@ -129,6 +142,12 @@ impl Kernel {
 
     /// A new overlay has none of the computer's apps yet.
     async fn after_boot(&self, socket: &Path, id: &str, woke: &Value) {
+        if woke["resumed"] != true {
+            // On every cold boot, so a CA change reaches an overlay that stayed.
+            if let Err(e) = self.trust_computer_ca(socket, id).await {
+                tracing::warn!("computer {id} does not trust its proxy yet: {e:#}");
+            }
+        }
         if woke["overlay_fresh"] != true {
             return;
         }
@@ -142,6 +161,43 @@ impl Kernel {
                 return;
             }
         }
+    }
+
+    /// Reachable from this computer. Goes through the boundary once the agent
+    /// can ask for it; for now only a person who controls the computer can.
+    pub async fn add_computer_destination(&self, who: &Person, id: &str, host: &str) -> Result<Value, Refused> {
+        self.controlled_computer(who, id)?;
+        let host = checked_host(host)?;
+        self.record_computer(who, Change::DestinationAdded { id: id.into(), host: host.clone() }).await?;
+        Ok(json!({ "added": host }))
+    }
+
+    pub async fn open_computer_page(&self, who: &Person, id: &str, url: &str) -> Result<Value, Refused> {
+        self.controlled_computer(who, id)?;
+        let parsed = url::Url::parse(url).map_err(|_| Refused::Invalid("not a URL".into()))?;
+        let host = checked_host(parsed.host_str().unwrap_or_default())?;
+        let page = new_id();
+        self.record_computer(who, Change::PageOpened { id: id.into(), page: page.clone(), host }).await?;
+        Ok(json!({ "page": page }))
+    }
+
+    pub async fn close_computer_page(&self, who: &Person, id: &str, page: &str) -> Result<Value, Refused> {
+        let c = self.controlled_computer(who, id)?;
+        if !c.pages.iter().any(|p| p.id == page) {
+            return Err(Refused::NotFound("page"));
+        }
+        self.record_computer(who, Change::PageClosed { id: id.into(), page: page.into() }).await?;
+        Ok(json!({ "closed": page }))
+    }
+
+    /// TLS through the proxy works for what the guest trusts, and nothing else.
+    async fn trust_computer_ca(&self, socket: &Path, id: &str) -> Result<()> {
+        use base64::Engine;
+        let pem = super::egress::certificate_pem(&self.vault, id)?;
+        let data_b64 = base64::engine::general_purpose::STANDARD.encode(pem);
+        client::guest(socket, id, json!({ "op": "write", "path": GUEST_CA_FILE, "data_b64": data_b64 })).await?;
+        client::guest(socket, id, json!({ "op": "exec", "command": "update-ca-certificates", "timeout_s": 60 })).await?;
+        Ok(())
     }
 
     pub async fn hibernate_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
@@ -280,6 +336,7 @@ async fn in_helper(socket: &Path, id: &str, req: Value) -> Result<Value> {
 /// in their turn.
 pub fn schedule(k: Arc<Kernel>) {
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
+    tokio::spawn(super::egress::serve(k.clone(), socket.clone()));
     tokio::spawn(async move {
         let killed: Vec<String> = k.read(|s| s.computers.all().filter(|c| c.status == Status::Killed).map(|c| c.id.clone()).collect());
         for id in killed {

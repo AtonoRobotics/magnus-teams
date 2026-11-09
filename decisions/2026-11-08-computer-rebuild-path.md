@@ -10,7 +10,7 @@ A computer's VM can be thrown away. What makes that true is here.
 
 **Hibernate.** Firecracker's memory and state files are made by the VM's own user inside its jail, so root opens them only with `O_NOFOLLOW`, only as a regular file owned by that uid, and only after the VM is dead. Each is sealed in 1 MiB chunks under a key made for that snapshot and stored root-only beside it. A snapshot is deleted the moment it has been resumed, because the disks move on from it.
 
-**Resets.** computerd itself sends the reset, through the relay, inside `wake`. A caller cannot forget it, and if it fails the VM is killed and the snapshot kept. Network identity is the host name until step 4 gives a computer a network card, which must then add its MAC and address to the reset.
+**Resets.** computerd itself sends the reset, through the relay, inside `wake`. A caller cannot forget it, and if it fails the VM is killed and the snapshot kept. Network identity is the host name and the MAC of the network card; the address is fixed and private to the computer's own network namespace.
 
 **An edit discards the memory.** A helper VM that can write discards the snapshot when it boots. Reading uses a helper with a read-only drive and a `noload` mount, so looking at a hibernated computer's files does not cost its memory.
 

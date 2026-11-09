@@ -58,8 +58,9 @@ impl Computers {
         Ok(())
     }
 
-    /// The four things a snapshot would otherwise hand to every restore. The
-    /// network identity is the host name until a computer has a network card.
+    /// The four things a snapshot would otherwise hand to every restore: the
+    /// clock, the machine id, the entropy, and the network identity (MAC and
+    /// host name).
     fn reset_guest(&self, id: &ComputerId, uid: u32) -> Result<()> {
         let mut entropy = [0u8; RESET_ENTROPY_BYTES];
         File::open("/dev/urandom").context("open the system's randomness")?.read_exact(&mut entropy)?;
@@ -69,6 +70,7 @@ impl Computers {
             "unix_seconds": unix_seconds,
             "machine_id": random_hex(MACHINE_ID_BYTES)?,
             "hostname": format!("computer-{}", random_hex(HOST_SUFFIX_BYTES)?),
+            "mac": random_mac()?,
             "entropy_b64": base64::engine::general_purpose::STANDARD.encode(entropy),
         });
         let reply = self.ask_guest(id, uid, &req)?;
@@ -119,7 +121,7 @@ impl Computers {
             seal::open(&key, &mut BufReader::with_capacity(BUFFER_BYTES, File::open(dir.join(name))?), &mut BufWriter::with_capacity(BUFFER_BYTES, to))?;
             chown(&to_path, Some(uid), Some(uid)).context("give the VM its snapshot")?;
         }
-        self.launch(id, uid, false)?;
+        self.launch(id, uid, false, true)?;
         // Until the resets are done this VM is a copy of the one that was
         // saved, so it either gets them all or does not stay up.
         if let Err(e) = self.run_as_vm(id, uid, "restore").and_then(|_| self.reset_guest(id, uid)) {
@@ -136,6 +138,14 @@ fn random_hex(bytes: usize) -> Result<String> {
     let mut raw = vec![0u8; bytes];
     File::open("/dev/urandom").context("open the system's randomness")?.read_exact(&mut raw)?;
     Ok(raw.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Locally administered and not multicast.
+fn random_mac() -> Result<String> {
+    let mut raw = [0u8; 6];
+    File::open("/dev/urandom").context("open the system's randomness")?.read_exact(&mut raw)?;
+    raw[0] = (raw[0] | 0x02) & 0xFE;
+    Ok(raw.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":"))
 }
 
 #[derive(Serialize, Debug, Clone, Copy)]

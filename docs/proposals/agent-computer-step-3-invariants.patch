@@ -1,0 +1,414 @@
+diff --git a/tests/invariants/src/computerd.rs b/tests/invariants/src/computerd.rs
+index 491fb59..e486c96 100644
+--- a/tests/invariants/src/computerd.rs
++++ b/tests/invariants/src/computerd.rs
+@@ -3,6 +3,7 @@
+ //! `magnus` group, the way the appliance runs.
+ 
+ use crate::appliance::{bin, sandbox_assets};
++use serde_json::{json, Value};
+ use std::io::{BufRead, BufReader, Write};
+ use std::os::unix::net::UnixStream;
+ use std::path::{Path, PathBuf};
+@@ -11,6 +12,8 @@ use std::time::{Duration, Instant};
+ 
+ const SOCKET_WAIT: Duration = Duration::from_secs(10);
+ const CGROUPS: &str = "/sys/fs/cgroup/magnus-computers";
++/// computerd's default.
++const PURGE_DAYS_WHEN_UNSET: u64 = 30;
+ 
+ pub struct Computerd {
+     child: Child,
+@@ -37,7 +40,7 @@ impl Computerd {
+             k = socket.display(),
+         );
+         sudo_sh(&format!(
+-            "umask 022; mkdir -p {s}/images {s}/computers {s}/jail; cp -L --sparse=always {k} {s}/images/vmlinux; cp -L --sparse=always {r} {s}/images/rootfs.ext4; cat > {s}/config.toml <<'EOF'\n{config}EOF\n",
++            "umask 022; mkdir -p {s}/images {s}/computers {s}/jail; cp -L --sparse=always {k} {s}/images/vmlinux; cp -L --sparse=always {r} {s}/images/rootfs.ext4; echo base-one > {s}/images/base.id; chmod 644 {s}/images/base.id; cat > {s}/config.toml <<'EOF'\n{config}EOF\n",
+             s = state.display(),
+             k = kernel.display(),
+             r = rootfs.display(),
+@@ -73,6 +76,131 @@ impl Computerd {
+         Command::new("sudo").args(["-n", "test", "-f"]).arg(self.state.join("computers").join(id).join("volume.ext4")).status().is_ok_and(|s| s.success())
+     }
+ 
++    fn computer_dir(&self, id: &str) -> PathBuf {
++        self.state.join("computers").join(id)
++    }
++
++    fn backups_dir(&self, id: &str) -> PathBuf {
++        self.state.join("backups").join(id)
++    }
++
++    /// One request to computerd itself.
++    pub fn ask(&self, req: Value) -> Value {
++        let mut conn = UnixStream::connect(&self.socket).expect("reach computerd");
++        writeln!(conn, "{req}").expect("ask computerd");
++        let mut line = String::new();
++        BufReader::new(conn).read_line(&mut line).expect("hear computerd");
++        let reply: Value = serde_json::from_str(&line).expect("computerd's reply");
++        assert_eq!(reply["ok"], true, "{req}: {reply}");
++        reply
++    }
++
++    /// What a command in the computer printed.
++    pub fn exec(&self, id: &str, command: &str) -> String {
++        let mut conn = UnixStream::connect(&self.socket).expect("reach computerd");
++        writeln!(conn, "{}", json!({ "op": "connect", "id": id })).expect("connect");
++        let mut from = BufReader::new(conn.try_clone().expect("clone"));
++        let mut ack = String::new();
++        from.read_line(&mut ack).expect("hear the relay");
++        assert!(ack.contains("true"), "{ack}");
++        writeln!(conn, "{}", json!({ "op": "exec", "command": command, "timeout_s": 60 })).expect("send");
++        let mut line = String::new();
++        from.read_line(&mut line).expect("hear the guest");
++        let reply: Value = serde_json::from_str(&line).expect("the guest's reply");
++        reply["stdout"].as_str().unwrap_or_default().to_string()
++    }
++
++    /// Everything that can be rebuilt, gone from the disk.
++    pub fn remove_overlay_and_snapshot(&self, id: &str) {
++        let d = self.computer_dir(id);
++        sudo_sh(&format!("rm -rf {d}/overlay.ext4 {d}/snapshot", d = d.display()));
++    }
++
++    pub fn remove_volume(&self, id: &str) {
++        sudo_sh(&format!("rm -f {}/volume.ext4", self.computer_dir(id).display()));
++    }
++
++    pub fn snapshot_aside(&self, id: &str) {
++        let d = self.computer_dir(id);
++        sudo_sh(&format!("cp -a {d}/snapshot {d}/snapshot.aside", d = d.display()));
++    }
++
++    pub fn snapshot_back(&self, id: &str) {
++        let d = self.computer_dir(id);
++        sudo_sh(&format!("rm -rf {d}/snapshot; cp -a {d}/snapshot.aside {d}/snapshot", d = d.display()));
++    }
++
++    /// Whether `file` holds `secret` in any encoding `scan` knows.
++    pub fn file_holds(&self, file: &Path, secret: &str) -> bool {
++        crate::scan::encodings(secret).iter().any(|needle| {
++            let status = Command::new("sudo").args(["-n", "grep", "-qaF", "--"]).arg(String::from_utf8_lossy(needle).as_ref()).arg(file).status().expect("run grep");
++            status.code() == Some(0)
++        })
++    }
++
++    fn opened(&self, name: &str) -> PathBuf {
++        self.state.join(format!("opened-{name}"))
++    }
++
++    fn run_root(&self, args: &[&std::ffi::OsStr]) {
++        let out = Command::new("sudo").arg("-n").arg(bin("magnus-computerd")).args(args).output().expect("run computerd's tool");
++        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
++    }
++
++    /// `secret` in the stored snapshot files as they sit on disk, then in
++    /// their plaintext. The two together show the scan read real data.
++    pub fn snapshot_holds(&self, id: &str, secret: &str) -> (bool, bool) {
++        let dir = self.computer_dir(id).join("snapshot");
++        let (mut stored, mut plain) = (false, false);
++        for name in ["snapshot.mem", "snapshot.state"] {
++            let file = dir.join(name);
++            stored |= self.file_holds(&file, secret);
++            let opened = self.opened(name);
++            self.run_root(&["open-snapshot".as_ref(), dir.join("key").as_os_str(), file.as_os_str(), opened.as_os_str()]);
++            plain |= self.file_holds(&opened, secret);
++            sudo_sh(&format!("rm -f {}", opened.display()));
++        }
++        (stored, plain)
++    }
++
++    pub fn volume_holds(&self, id: &str, secret: &str) -> bool {
++        self.file_holds(&self.computer_dir(id).join("volume.ext4"), secret)
++    }
++
++    /// Every chunk stored for the computer, decrypted.
++    pub fn backups_hold(&self, id: &str, secret: &str) -> bool {
++        let dir = self.backups_dir(id);
++        let opened = self.opened("backups");
++        self.run_root(&["open-backups".as_ref(), dir.as_os_str(), opened.as_os_str()]);
++        let found = self.file_holds(&opened, secret);
++        sudo_sh(&format!("rm -f {}", opened.display()));
++        found
++    }
++
++    /// The times of the backups kept for the computer, oldest first.
++    pub fn backups(&self, id: &str) -> Vec<u64> {
++        let out = Command::new("sudo").args(["-n", "sh", "-c", &format!("ls {} 2>/dev/null || true", self.backups_dir(id).display())]).output().expect("list backups");
++        let mut at: Vec<u64> = String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|n| n.strip_suffix(".list")?.parse().ok()).collect();
++        at.sort();
++        at
++    }
++
++    pub fn has_snapshot(&self, id: &str) -> bool {
++        Command::new("sudo").args(["-n", "test", "-d"]).arg(self.computer_dir(id).join("snapshot")).status().is_ok_and(|s| s.success())
++    }
++
++    pub fn purge_days(&self) -> u64 {
++        let out = Command::new("sudo").args(["-n", "cat"]).arg(self.state.join("config.toml")).output().expect("read the config");
++        let cfg: toml::Value = toml::from_str(&String::from_utf8_lossy(&out.stdout)).expect("the config");
++        cfg.get("purge_days").and_then(toml::Value::as_integer).map_or(PURGE_DAYS_WHEN_UNSET, |d| d as u64)
++    }
++
++    /// Runs the purge as if the clock read `unix_seconds`.
++    pub fn purge_at(&self, unix_seconds: u64) {
++        let (config, at) = (self.state.join("config.toml"), unix_seconds.to_string());
++        self.run_root(&["purge".as_ref(), config.as_os_str(), at.as_ref()]);
++    }
++
+     fn ids(&self) -> Vec<String> {
+         let out = Command::new("sudo").args(["-n", "ls"]).arg(self.state.join("computers")).output().expect("list computers");
+         String::from_utf8_lossy(&out.stdout).split_whitespace().map(String::from).collect()
+diff --git a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+index 664977a..fdce7f4 100644
+--- a/tests/invariants/tests/inv1_boundary.rs
++++ b/tests/invariants/tests/inv1_boundary.rs
+@@ -289,3 +289,51 @@ async fn killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volum
+     assert_eq!(code, 200);
+     assert!(!computerd.volume_exists(&id), "asking to delete the volume did not delete it");
+ }
++
++#[tokio::test(flavor = "multi_thread")]
++async fn each_restore_gets_a_new_clock_machine_id_entropy_and_network_identity() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++    let (code, started) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++
++    let read = |computerd: &Computerd| {
++        let line = |c: &str| computerd.exec(&id, c).trim().to_string();
++        let clock = line("date +%s");
++        let host_clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
++        (line("cat /etc/machine-id"), line("head -c 32 /dev/urandom | base64"), format!("{} {}", line("hostname"), line("cat /sys/class/net/eth0/address")), clock, host_clock)
++    };
++    let saved = read(&computerd);
++    let (code, _) = alice.post(&at("/hibernate"), json!({})).await;
++    assert_eq!(code, 200);
++    computerd.snapshot_aside(&id);
++
++    let wake = |computerd: &Computerd| {
++        let woke = computerd.ask(json!({ "op": "wake", "id": id }));
++        assert_eq!(woke["resumed"], true, "{woke}");
++    };
++    wake(&computerd);
++    let first = read(&computerd);
++    computerd.ask(json!({ "op": "stop", "id": id }));
++    computerd.snapshot_back(&id);
++    wake(&computerd);
++    let second = read(&computerd);
++
++    for (what, a, b, c) in
++        [("machine id", &saved.0, &first.0, &second.0), ("first random bytes", &saved.1, &first.1, &second.1), ("network identity", &saved.2, &first.2, &second.2)]
++    {
++        assert!(!b.is_empty() && !c.is_empty(), "{what} could not be read");
++        assert_ne!(a, b, "two restores share {what}");
++        assert_ne!(a, c, "two restores share {what}");
++        assert_ne!(b, c, "two restores share {what}");
++    }
++    for (clock, host) in [(&first.3, first.4), (&second.3, second.4)] {
++        let guest: i64 = clock.parse().expect("the guest's clock");
++        assert!((host - guest).abs() < 5, "two restores share the clock: guest {guest}, host {host}");
++    }
++}
+diff --git a/tests/invariants/tests/inv2_credentials.rs b/tests/invariants/tests/inv2_credentials.rs
+index 0226336..a33251c 100644
+--- a/tests/invariants/tests/inv2_credentials.rs
++++ b/tests/invariants/tests/inv2_credentials.rs
+@@ -80,3 +80,32 @@ async fn secrets_can_be_written_but_not_read_back() {
+         }
+     }
+ }
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_snapshot_holds_no_vault_material_and_is_stored_encrypted() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let credential = canary("vault");
++    assert!(alice.put_secret("extra", &credential).await.is_success());
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++    let (code, started) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++
++    // In a file and in memory, so a scan that reads nothing cannot pass.
++    let second = canary("in-the-computer");
++    computerd.exec(&id, &format!("echo {second} > /workspace/note; echo {second} > /tmp/in-memory; sync"));
++    let (code, _) = alice.post(&at("/hibernate"), json!({})).await;
++    assert_eq!(code, 200);
++
++    let (stored, plain) = computerd.snapshot_holds(&id, &second);
++    assert!(plain, "the scan found nothing it should have");
++    assert!(!stored, "the snapshot is readable without its key");
++    for secret in [&credential, &app.provider_key] {
++        let (stored, plain) = computerd.snapshot_holds(&id, secret);
++        assert!(!stored && !plain, "a credential is in the snapshot");
++    }
++}
+diff --git a/tests/invariants/tests/inv3_event_log.rs b/tests/invariants/tests/inv3_event_log.rs
+index 37e1b73..8d53717 100644
+--- a/tests/invariants/tests/inv3_event_log.rs
++++ b/tests/invariants/tests/inv3_event_log.rs
+@@ -266,3 +266,154 @@ async fn repeated_crashes_never_repeat_an_effect() {
+         assert_eq!(k, 1, "update {n} was posted {k} times after {} starts: {texts:?}", app.starts());
+     }
+ }
++
++fn b64(bytes: &[u8]) -> String {
++    use base64::Engine;
++    base64::engine::general_purpose::STANDARD.encode(bytes)
++}
++
++/// An installer that leaves a program behind, so a replay can be seen working.
++const INSTALLER: &str = "#!/bin/sh\nprintf '#!/bin/sh\\necho hello-from-the-app\\n' > /usr/local/bin/hello\nchmod 755 /usr/local/bin/hello\n";
++
++fn sha256_of(data: &[u8]) -> String {
++    use std::io::Write;
++    use std::process::{Command, Stdio};
++    let mut child = Command::new("sha256sum").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("run sha256sum");
++    child.stdin.take().expect("its stdin").write_all(data).expect("hash");
++    let out = child.wait_with_output().expect("hash");
++    String::from_utf8_lossy(&out.stdout).split_whitespace().next().expect("a hash").to_string()
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn destroying_a_computer_loses_no_user_work() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++    let (code, started) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++
++    let work = canary("user-work");
++    let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/work", "data_b64": b64(work.as_bytes()) })).await;
++    assert_eq!(code, 200, "{wrote}");
++    let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/installer", "data_b64": b64(INSTALLER.as_bytes()) })).await;
++    assert_eq!(code, 200, "{wrote}");
++    computerd.exec(&id, "sh /workspace/installer");
++    assert!(computerd.exec(&id, "hello").contains("hello-from-the-app"), "the test's own install did not work");
++    let (code, recorded) = alice
++        .post(&at("/apps"), json!({ "name": "hello", "version": "1", "source": "https://example.test/hello", "installer": "/workspace/installer", "steps": ["sh \"$INSTALLER\""] }))
++        .await;
++    assert_eq!(code, 200, "{recorded}");
++    let hash = sha256_of(INSTALLER.as_bytes());
++    assert_eq!(recorded["sha256"], hash.as_str(), "the manifest does not hold the installer's own hash");
++    let (code, backed) = alice.post(&at("/backup"), json!({})).await;
++    assert_eq!(code, 200, "{backed}");
++
++    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
++    assert_eq!(code, 200);
++    computerd.remove_overlay_and_snapshot(&id);
++    let (code, woke) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{woke}");
++    assert_eq!(woke["replayed"], true, "the overlay was new and the manifest was not replayed: {woke}");
++    let (code, read) = alice.get(&at("/files?path=/workspace/work")).await;
++    assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some(b64(work.as_bytes()).as_str())), "the rebuilt computer lost the file: {read}");
++    assert!(computerd.exec(&id, "hello").contains("hello-from-the-app"), "the app was not replayed from the manifest");
++    let (_, seen) = alice.get(&at("/apps")).await;
++    assert_eq!(seen["apps"][0]["sha256"], hash.as_str(), "the manifest changed: {seen}");
++    assert!(seen["replay_error"].is_null(), "{seen}");
++
++    // An installer that is no longer what the manifest says is not run.
++    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
++    assert_eq!(code, 200);
++    computerd.remove_overlay_and_snapshot(&id);
++    let cached = app.state_dir.join("computer-installers").join(&hash);
++    std::fs::write(&cached, "#!/bin/sh\ntouch /usr/local/bin/tampered\n").unwrap();
++    let (code, woke) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{woke}");
++    let (_, seen) = alice.get(&at("/apps")).await;
++    assert!(seen["replay_error"].as_str().is_some_and(|e| e.contains("does not match")), "a changed installer was accepted: {seen}");
++    assert!(!computerd.exec(&id, "ls /usr/local/bin").contains("tampered"), "a changed installer ran");
++
++    // The volume itself comes back from its backup.
++    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
++    assert_eq!(code, 200);
++    computerd.remove_volume(&id);
++    assert!(!computerd.volume_exists(&id));
++    let (code, restored) = alice.post(&at("/restore"), json!({})).await;
++    assert_eq!(code, 200, "the backup did not restore the volume: {restored}");
++    std::fs::write(&cached, INSTALLER).unwrap();
++    let (code, woke) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{woke}");
++    let (code, read) = alice.get(&at("/files?path=/workspace/work")).await;
++    assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some(b64(work.as_bytes()).as_str())), "the backup did not restore the volume: {read}");
++}
++
++#[tokio::test(flavor = "multi_thread")]
++async fn a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window() {
++    let computerd = Computerd::start();
++    assert!(computerd.purge_days() <= 30, "the purge window is over 30 days");
++    let systems = Arc::new(std::sync::Mutex::new(String::new()));
++    let seen_by_model = systems.clone();
++    let model = FakeModel::start(script(move |c| {
++        seen_by_model.lock().unwrap().push_str(&c.body["system"].to_string());
++        async move {
++            match c.turn() {
++                0 => contract_unchecked("nothing", "nothing"),
++                _ => fail("done"),
++            }
++        }
++    }))
++    .await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++    let (code, started) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++
++    let secret = canary("deleted-file");
++    let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/secret.txt", "data_b64": b64(secret.as_bytes()) })).await;
++    assert_eq!(code, 200, "{wrote}");
++    let (code, before) = alice.post(&at("/backup"), json!({})).await;
++    assert_eq!(code, 200, "{before}");
++    assert!(computerd.backups_hold(&id, &secret), "the scan found nothing it should have");
++    // Backups are named by the second, and this one must be the older.
++    tokio::time::sleep(Duration::from_secs(2)).await;
++
++    // Hibernated, so a snapshot from before the deletion exists too.
++    let (code, _) = alice.post(&at("/hibernate"), json!({})).await;
++    assert_eq!(code, 200);
++    assert!(computerd.has_snapshot(&id));
++
++    let (code, gone) = alice.send(reqwest::Method::DELETE, &at("/files?path=/workspace/secret.txt"), None).await;
++    assert_eq!(code, 200, "{gone}");
++    assert!(!computerd.volume_holds(&id, &secret), "the deleted file is still stored: on the volume");
++    assert!(!computerd.has_snapshot(&id), "a snapshot outlived the edit it no longer matches");
++    let (code, read) = alice.get(&at("/files?path=/workspace/secret.txt")).await;
++    assert!(code != 200, "the deleted file can still be read: {read}");
++
++    // The log keeps that it happened and none of what it was.
++    let task = alice.submit("Do nothing.").await;
++    alice.wait_settled(&task).await;
++    assert!(systems.lock().unwrap().contains("/workspace/secret.txt"), "the next run was not told");
++    assert!(magnus_invariants::scan::files_containing(&app.state_dir, &secret).is_empty(), "the deleted file is still stored: in the appliance's state");
++
++    let (code, started) = alice.post(&at("/start"), json!({})).await;
++    assert_eq!(code, 200, "{started}");
++    let (code, after) = alice.post(&at("/backup"), json!({})).await;
++    assert_eq!(code, 200, "{after}");
++
++    // One second before the newer backup expires: the older one must be gone.
++    let window_seconds = computerd.purge_days() * 86_400;
++    let newest = *computerd.backups(&id).last().unwrap();
++    assert_eq!(computerd.backups(&id).len(), 2, "{:?}", computerd.backups(&id));
++    computerd.purge_at(newest + window_seconds - 1);
++    assert_eq!(computerd.backups(&id), vec![newest], "a backup outlived the purge window");
++    assert!(!computerd.backups_hold(&id, &secret), "the deleted file is still stored: in a backup");
++    computerd.purge_at(newest + window_seconds + 1);
++    assert!(computerd.backups(&id).is_empty(), "a backup outlived the purge window");
++}

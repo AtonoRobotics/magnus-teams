@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 pub mod backup;
 mod guest;
+pub mod network;
 mod snapshot;
 pub use snapshot::Wake;
 
@@ -173,6 +174,16 @@ impl Computers {
         Ok(uid)
     }
 
+    /// Which computer runs as `uid`, for the egress proxy to name a connection.
+    pub fn whose_uid(&self, uid: u32) -> Result<Option<ComputerId>> {
+        for id in self.list()? {
+            if self.meta(&id)?.uid == uid {
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn status(&self, id: &ComputerId) -> Result<State> {
         self.meta(id)?;
         if !self.is_live(id) {
@@ -242,7 +253,7 @@ impl Computers {
             self.write_meta(id, &meta)?;
         }
         self.prepare_jail(id, meta.uid, purpose)?;
-        self.launch(id, meta.uid, true)?;
+        self.launch(id, meta.uid, true, purpose == Purpose::Computer)?;
         Ok(fresh)
     }
 
@@ -272,8 +283,14 @@ impl Computers {
 
     /// Starts the jailer. `configured` boots from the VM's config; otherwise
     /// the VM waits on its API for a snapshot to load.
-    fn launch(&self, id: &ComputerId, uid: u32, configured: bool) -> Result<()> {
-        let out = Command::new(&self.cfg.jailer).env_clear().args(jailer_args(&self.cfg, id, uid, configured)).output().context("run the jailer")?;
+    fn launch(&self, id: &ComputerId, uid: u32, configured: bool, networked: bool) -> Result<()> {
+        let netns = if networked {
+            self.prepare_network(id, uid)?;
+            Some(self.netns_path(id))
+        } else {
+            None
+        };
+        let out = Command::new(&self.cfg.jailer).env_clear().args(jailer_args(&self.cfg, id, uid, configured, netns.as_deref())).output().context("run the jailer")?;
         if !out.status.success() {
             bail!("the jailer failed: {}", String::from_utf8_lossy(&out.stderr).trim());
         }
@@ -286,6 +303,9 @@ impl Computers {
         // a daemonized jailer has already reported success.
         std::thread::sleep(START_SETTLE);
         ensure!(self.is_live(id), "computer {} exited as it started", id.as_str());
+        if networked {
+            self.start_forwarder(id, uid)?;
+        }
         Ok(())
     }
 
@@ -315,6 +335,7 @@ impl Computers {
         self.meta(id)?;
         self.stop(id)?;
         let _lock = self.lock()?;
+        self.remove_network(id);
         let dir = self.computer(id);
         if delete_volume {
             std::fs::remove_dir_all(&dir).context("delete the computer")
@@ -422,15 +443,19 @@ fn vm_config(cfg: &Config, purpose: Purpose) -> serde_json::Value {
     if purpose == Purpose::Computer {
         drives.push(json!({ "drive_id": "overlay", "path_on_host": OVERLAY, "is_root_device": false, "is_read_only": false }));
     }
-    json!({
+    let mut v = json!({
         "boot-source": { "kernel_image_path": KERNEL_IMAGE, "boot_args": BOOT_ARGS },
         "drives": drives,
         "machine-config": { "vcpu_count": cfg.vm.vcpus, "mem_size_mib": cfg.vm.memory_mib },
         "vsock": { "guest_cid": GUEST_CID, "uds_path": VSOCK_IN_JAIL.trim_start_matches('/') },
-    })
+    });
+    if purpose == Purpose::Computer {
+        v["network-interfaces"] = json!([{ "iface_id": "eth0", "host_dev_name": network::TAP, "guest_mac": network::GUEST_MAC }]);
+    }
+    v
 }
 
-fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32, configured: bool) -> Vec<String> {
+fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32, configured: bool, netns: Option<&Path>) -> Vec<String> {
     let v = &cfg.vm;
     let memory_max = (u64::from(v.memory_mib) + VMM_OVERHEAD_MIB) * BYTES_PER_MIB;
     let cpu_quota = CPU_PERIOD_US * u64::from(v.cpu_percent) / 100;
@@ -453,6 +478,9 @@ fn jailer_args(cfg: &Config, id: &ComputerId, uid: u32, configured: bool) -> Vec
     pair("--cgroup", format!("pids.max={}", v.pids_max));
     pair("--resource-limit", format!("fsize={largest_drive}"));
     pair("--resource-limit", format!("no-file={MAX_OPEN_FILES}"));
+    if let Some(ns) = netns {
+        args.extend(["--netns".to_string(), ns.display().to_string()]);
+    }
     args.extend(["--new-pid-ns", "--daemonize"].map(String::from));
     if configured {
         args.extend(["--", "--config-file", VM_CONFIG].map(String::from));
@@ -494,7 +522,7 @@ mod tests {
     #[test]
     fn a_vm_runs_as_its_own_user_with_limits_from_the_config() {
         let id = ComputerId::parse("abc").unwrap();
-        let args = jailer_args(&config(), &id, 200003, true);
+        let args = jailer_args(&config(), &id, 200003, true, None);
         assert_eq!(after(&args, "--uid"), ["200003"]);
         assert_eq!(after(&args, "--gid"), ["200003"]);
         assert_eq!(after(&args, "--id"), ["abc"]);
@@ -518,8 +546,9 @@ mod tests {
         let helper = vm_config(&config(), Purpose::Helper);
         assert!(helper.get("network-interfaces").is_none());
         assert_eq!(helper["drives"].as_array().unwrap().len(), 2, "a helper VM got more than the volume");
+        assert!(helper.get("network-interfaces").is_none(), "a helper VM got a network");
         let v = vm_config(&config(), Purpose::Computer);
-        assert!(v.get("network-interfaces").is_none());
+        assert_eq!(v["network-interfaces"][0]["host_dev_name"], network::TAP);
         let text = v.to_string();
         assert!(!text.contains("/var/lib"), "{text}");
         assert_eq!(v["drives"][0]["is_read_only"], true);

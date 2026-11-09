@@ -22,6 +22,11 @@ use std::time::{Duration, Instant};
 const PORT: u32 = 52;
 const MAX_OUT: usize = 200_000;
 const MIN_ENTROPY_BYTES: usize = 32;
+const NET_DEVICE: &[u8] = b"eth0";
+const GUEST_ADDRESS: [u8; 4] = [10, 200, 0, 2];
+const GUEST_NETMASK: [u8; 4] = [255, 255, 255, 252];
+const PROXY_URL: &str = "http://10.200.0.1:3128";
+const ARPHRD_ETHER: libc::sa_family_t = 1;
 /// `_IOWR('X', 119, int)` and `_IOWR('X', 120, int)` from linux/fs.h.
 const FIFREEZE: u64 = 0xC004_5877;
 const FITHAW: u64 = 0xC004_5878;
@@ -39,6 +44,81 @@ fn mount(src: &str, target: &str, fstype: &str, flags: libc::c_ulong, data: &str
     let rc = unsafe { libc::mount(s.as_ptr(), t.as_ptr(), f.as_ptr(), flags, d.as_ptr() as *const libc::c_void) };
     if rc != 0 {
         eprintln!("magnus-guest: mount {target}: {}", std::io::Error::last_os_error());
+    }
+}
+
+/// The ifreq of `eth0`, or nothing on a VM with no network (a helper, a sandbox).
+fn interface(name: &[u8]) -> Option<libc::ifreq> {
+    if !std::path::Path::new("/sys/class/net").join(std::str::from_utf8(name).ok()?).exists() {
+        return None;
+    }
+    let mut req: libc::ifreq = unsafe { std::mem::zeroed() };
+    for (i, b) in name.iter().enumerate() {
+        req.ifr_name[i] = *b as libc::c_char;
+    }
+    Some(req)
+}
+
+fn sockaddr_in(address: [u8; 4]) -> libc::sockaddr {
+    let v4 = libc::sockaddr_in { sin_family: libc::AF_INET as libc::sa_family_t, sin_port: 0, sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(address) }, sin_zero: [0; 8] };
+    unsafe { std::mem::transmute(v4) }
+}
+
+fn set_up(fd: i32, req: &mut libc::ifreq, up: bool) -> bool {
+    unsafe {
+        if libc::ioctl(fd, libc::SIOCGIFFLAGS as _, &mut *req as *mut libc::ifreq) != 0 {
+            return false;
+        }
+        if up {
+            req.ifr_ifru.ifru_flags |= libc::IFF_UP as libc::c_short;
+        } else {
+            req.ifr_ifru.ifru_flags &= !(libc::IFF_UP as libc::c_short);
+        }
+        libc::ioctl(fd, libc::SIOCSIFFLAGS as _, &mut *req as *mut libc::ifreq) == 0
+    }
+}
+
+/// The address of the one network there is. The only other thing on it is
+/// the gateway, where the proxy's forwarder listens.
+fn network_up() {
+    let Some(mut req) = interface(NET_DEVICE) else { return };
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
+        if fd < 0 {
+            return;
+        }
+        req.ifr_ifru.ifru_addr = sockaddr_in(GUEST_ADDRESS);
+        libc::ioctl(fd, libc::SIOCSIFADDR as _, &req);
+        req.ifr_ifru.ifru_netmask = sockaddr_in(GUEST_NETMASK);
+        libc::ioctl(fd, libc::SIOCSIFNETMASK as _, &req);
+        set_up(fd, &mut req, true);
+        libc::close(fd);
+    }
+}
+
+/// A restored VM must not share its MAC with the one it was saved from.
+fn set_mac(mac: &str) -> bool {
+    let bytes: Vec<u8> = mac.split(':').filter_map(|p| u8::from_str_radix(p, 16).ok()).collect();
+    let Some(mut req) = interface(NET_DEVICE) else { return true };
+    if bytes.len() != 6 {
+        return false;
+    }
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
+        if fd < 0 {
+            return false;
+        }
+        let mut done = set_up(fd, &mut req, false);
+        let mut address: libc::sockaddr = std::mem::zeroed();
+        address.sa_family = ARPHRD_ETHER;
+        for (i, b) in bytes.iter().enumerate() {
+            address.sa_data[i] = *b as libc::c_char;
+        }
+        req.ifr_ifru.ifru_hwaddr = address;
+        done &= libc::ioctl(fd, libc::SIOCSIFHWADDR as _, &req) == 0;
+        done &= set_up(fd, &mut req, true);
+        libc::close(fd);
+        done
     }
 }
 
@@ -127,6 +207,9 @@ fn reset(req: &Value) -> Value {
     if !matches!(reseeded, Ok(true)) {
         return json!({ "error": "the guest's randomness was not reset" });
     }
+    if !set_mac(req["mac"].as_str().unwrap_or_default()) {
+        return json!({ "error": "the guest's network identity was not reset" });
+    }
     if std::fs::write("/etc/machine-id", format!("{machine_id}\n")).is_err() || std::fs::write("/proc/sys/kernel/hostname", hostname).is_err() {
         return json!({ "error": "the guest's identity was not reset" });
     }
@@ -193,6 +276,7 @@ fn init() {
         mount("/dev/vdb", "/workspace", "ext4", libc::MS_RDONLY, "noload");
     }
     loopback_up();
+    network_up();
     let _ = std::fs::write("/proc/sys/kernel/hostname", "sandbox");
 }
 
@@ -229,6 +313,13 @@ fn exec(req: &Value) -> Value {
         .env("HOME", "/workspace")
         .env("LANG", "C.UTF-8")
         .env("DISPLAY", ":0");
+    // A guest with root can unset these, and is then left with no way out.
+    if std::path::Path::new("/sys/class/net/eth0").exists() {
+        for name in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"] {
+            cmd.env(name, PROXY_URL);
+        }
+        cmd.env("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt").env("REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt");
+    }
     if check_vm() {
         let _ = std::fs::create_dir_all("/tmp/home");
         cmd.env("HOME", "/tmp/home").env("PYTHONNOUSERSITE", "1").env("PYTHONSAFEPATH", "1").env("MAGNUS_CHECK", "1");

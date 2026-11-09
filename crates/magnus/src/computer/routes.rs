@@ -23,6 +23,9 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}/kill", post(kill))
         .route("/v1/computers/{id}/grants", post(grant))
         .route("/v1/computers/{id}/files", get(read_file).put(write_file).delete(delete_file))
+        .route("/v1/computers/{id}/destinations", post(add_destination))
+        .route("/v1/computers/{id}/pages", post(open_page))
+        .route("/v1/computers/{id}/pages/{page}", delete(close_page))
         .route("/v1/computers/{id}/hibernate", post(hibernate))
         .route("/v1/computers/{id}/backup", post(backup))
         .route("/v1/computers/{id}/restore", post(restore))
@@ -146,4 +149,31 @@ async fn install_app(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b):
 async fn remove_app(State(k): K, h: HeaderMap, Path((id, name)): Path<(String, String)>) -> Response {
     let p = person!(k, h);
     answered(k.remove_computer_app(&p, &id, &name).await)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewDestination {
+    host: String,
+}
+
+async fn add_destination(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewDestination>) -> Response {
+    let p = person!(k, h);
+    answered(k.add_computer_destination(&p, &id, &b.host).await)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewPage {
+    url: String,
+}
+
+async fn open_page(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewPage>) -> Response {
+    let p = person!(k, h);
+    answered(k.open_computer_page(&p, &id, &b.url).await)
+}
+
+async fn close_page(State(k): K, h: HeaderMap, Path((id, page)): Path<(String, String)>) -> Response {
+    let p = person!(k, h);
+    answered(k.close_computer_page(&p, &id, &page).await)
 }

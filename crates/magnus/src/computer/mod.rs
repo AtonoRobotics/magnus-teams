@@ -4,9 +4,11 @@
 
 mod apps;
 mod client;
+mod egress;
 mod routes;
 mod service;
 
+pub use egress::migrate_sql;
 pub use routes::router;
 pub use service::schedule;
 
@@ -25,6 +27,22 @@ const TELL_DAYS: i64 = 30;
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub socket: PathBuf,
+    /// Package registries, for downloads only. `*.name` is any subdomain.
+    #[serde(default = "default_registries")]
+    pub registries: Vec<String>,
+    /// For a test's fake sites: names answered here, in order, with the last
+    /// answer repeating. These are taken as public.
+    #[serde(default)]
+    pub public_hosts: BTreeMap<String, Vec<String>>,
+    /// The same, but the private-address check still applies.
+    #[serde(default)]
+    pub hosts: BTreeMap<String, Vec<String>>,
+}
+
+fn default_registries() -> Vec<String> {
+    ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "deb.debian.org", "security.debian.org", "crates.io", "static.crates.io", "index.crates.io"]
+        .map(String::from)
+        .to_vec()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -73,6 +91,20 @@ pub enum Change {
     Hibernated {
         id: String,
     },
+    /// Reachable by this computer from now on; a boundary action.
+    DestinationAdded {
+        id: String,
+        host: String,
+    },
+    PageOpened {
+        id: String,
+        page: String,
+        host: String,
+    },
+    PageClosed {
+        id: String,
+        page: String,
+    },
     /// Written before an install counts as done, and on an update of it.
     AppInstalled {
         id: String,
@@ -111,6 +143,15 @@ pub struct App {
     pub sha256: String,
     /// Shell commands, with the installer's path in `$INSTALLER`.
     pub steps: Vec<String>,
+    /// Destinations the app needs; `*.name` is any subdomain.
+    #[serde(default)]
+    pub hosts: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct OpenPage {
+    pub id: String,
+    pub host: String,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -147,6 +188,9 @@ pub struct Computer {
     pub apps: Vec<App>,
     pub replay_error: Option<String>,
     pub deleted_files: Vec<DeletedFile>,
+    /// Reachable because a person or the boundary said so.
+    pub destinations: Vec<String>,
+    pub pages: Vec<OpenPage>,
     /// Its place among waiting wakes, oldest first.
     #[serde(skip)]
     queued: Option<u64>,
@@ -206,6 +250,8 @@ impl Ledger {
                         apps: vec![],
                         replay_error: None,
                         deleted_files: vec![],
+                        destinations: vec![],
+                        pages: vec![],
                         queued: None,
                     },
                 );
@@ -271,6 +317,23 @@ impl Ledger {
                 }
             }
             Change::Restored { .. } => {}
+            Change::DestinationAdded { id, host } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    if !c.destinations.contains(host) {
+                        c.destinations.push(host.clone());
+                    }
+                }
+            }
+            Change::PageOpened { id, page, host } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.pages.push(OpenPage { id: page.clone(), host: host.clone() });
+                }
+            }
+            Change::PageClosed { id, page } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.pages.retain(|p| p.id != *page);
+                }
+            }
         }
     }
 }
@@ -298,7 +361,7 @@ mod tests {
     fn a_manifest_follows_installs_updates_and_removals() {
         let mut l = Ledger::default();
         created(&mut l, "a");
-        let app = |v: &str| App { name: "n".into(), version: v.into(), source: "s".into(), sha256: "h".into(), steps: vec!["x".into()] };
+        let app = |v: &str| App { name: "n".into(), version: v.into(), source: "s".into(), sha256: "h".into(), steps: vec!["x".into()], hosts: vec![] };
         l.apply(&Change::AppInstalled { id: "a".into(), app: app("1") });
         l.apply(&Change::AppInstalled { id: "a".into(), app: app("2") });
         assert_eq!(l.get("a").unwrap().apps.iter().map(|a| a.version.as_str()).collect::<Vec<_>>(), ["2"]);

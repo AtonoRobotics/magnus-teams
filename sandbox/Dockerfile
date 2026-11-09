@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       poppler-utils qpdf ghostscript imagemagick tesseract-ocr \
       libreoffice-writer libreoffice-calc libreoffice-impress fonts-dejavu fonts-liberation fonts-noto-core \
       xvfb xdotool x11-utils x11-xserver-utils fluxbox xterm \
-      sqlite3 git jq \
+      sqlite3 git jq ca-certificates curl iproute2 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \
       python-docx openpyxl xlsxwriter python-pptx reportlab pypdf pdfplumber pymupdf \
