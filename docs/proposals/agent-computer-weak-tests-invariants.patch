@@ -1,0 +1,318 @@
+diff --git a/tests/invariants/src/computerd.rs b/tests/invariants/src/computerd.rs
+index cc49a4e..c449615 100644
+--- a/tests/invariants/src/computerd.rs
++++ b/tests/invariants/src/computerd.rs
+@@ -179,18 +179,28 @@ impl Computerd {
+ 
+     /// `secret` in the stored snapshot files as they sit on disk, then in
+     /// their plaintext. The two together show the scan read real data.
+-    pub fn snapshot_holds(&self, id: &str, secret: &str) -> (bool, bool) {
++    pub fn snapshot_holds(&self, id: &str, secrets: &[&str]) -> Vec<(bool, bool)> {
+         let dir = self.computer_dir(id).join("snapshot");
+-        let (mut stored, mut plain) = (false, false);
++        let mut found = vec![(false, false); secrets.len()];
+         for name in ["snapshot.mem", "snapshot.state"] {
+             let file = dir.join(name);
+-            stored |= self.file_holds(&file, secret);
++            // Opening the whole of memory is slow in a debug build, so once.
+             let opened = self.opened(name);
+             self.run_root(&["open-snapshot".as_ref(), dir.join("key").as_os_str(), file.as_os_str(), opened.as_os_str()]);
+-            plain |= self.file_holds(&opened, secret);
++            for (slot, secret) in found.iter_mut().zip(secrets) {
++                slot.0 |= self.file_holds(&file, secret);
++                slot.1 |= self.file_holds(&opened, secret);
++            }
+             sudo_sh(&format!("rm -f {}", opened.display()));
+         }
+-        (stored, plain)
++        found
++    }
++
++    /// What the volume costs the host's disk, rather than its apparent size.
++    pub fn volume_allocated_bytes(&self, id: &str) -> u64 {
++        let out = Command::new("sudo").args(["-n", "du", "--block-size=1"]).arg(self.computer_dir(id).join("volume.ext4")).output().expect("run du");
++        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
++        String::from_utf8_lossy(&out.stdout).split_whitespace().next().and_then(|n| n.parse().ok()).expect("a size from du")
+     }
+ 
+     pub fn volume_holds(&self, id: &str, secret: &str) -> bool {
+diff --git a/tests/invariants/tests/inv1_boundary.rs b/tests/invariants/tests/inv1_boundary.rs
+index a3f0e89..8b9c108 100644
+--- a/tests/invariants/tests/inv1_boundary.rs
++++ b/tests/invariants/tests/inv1_boundary.rs
+@@ -492,10 +492,10 @@ async fn a_computer_reaches_only_declared_destinations_even_as_root() {
+     }
+ 
+     // A host one app declared at install.
+-    computerd.root_shell(&id, "echo '#!/bin/sh' > /workspace/app-installer");
++    computerd.root_shell(&id, &format!("curl -s -m 20 -o /workspace/app-installer -x {GUEST_PROXY} http://registry.test/file"));
+     assert_eq!(through_proxy(&computerd, &id, "", "http://appapi.test/api"), "403");
+     let (code, recorded) =
+-        alice.post(&at("/apps"), json!({ "name": "a", "version": "1", "source": "s", "installer": "/workspace/app-installer", "steps": ["true"], "hosts": ["appapi.test"] })).await;
++        alice.post(&at("/apps"), json!({ "name": "a", "version": "1", "source": "http://registry.test/file", "installer": "/workspace/app-installer", "steps": ["true"], "hosts": ["appapi.test"] })).await;
+     assert_eq!(code, 200, "{recorded}");
+     assert_eq!(through_proxy(&computerd, &id, "-X POST -d x", "http://appapi.test/api"), "200", "a host an app declared was refused");
+ 
+diff --git a/tests/invariants/tests/inv2_credentials.rs b/tests/invariants/tests/inv2_credentials.rs
+index 2f20c6c..6a099b6 100644
+--- a/tests/invariants/tests/inv2_credentials.rs
++++ b/tests/invariants/tests/inv2_credentials.rs
+@@ -84,11 +84,17 @@ async fn secrets_can_be_written_but_not_read_back() {
+ #[tokio::test(flavor = "multi_thread")]
+ async fn a_snapshot_holds_no_vault_material_and_is_stored_encrypted() {
+     let computerd = Computerd::start();
+-    let model = FakeModel::start(steps(vec![])).await;
+-    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let crm = mcp::crm().start().await;
++    let model = FakeModel::start(steps(vec![contract_unchecked("read", "read"), tool("crm__get_record", json!({ "id": "42" })), complete("read")])).await;
++    let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read")]).computer(&computerd.socket);
++    let app = Appliance::start(spec, &model).await;
+     let alice = app.api("alice");
+     let credential = canary("vault");
+     assert!(alice.put_secret("extra", &credential).await.is_success());
++    // A run has really used a connector, so its credential was in play.
++    let used = alice.submit("Read record 42.").await;
++    alice.wait_settled(&used).await;
++    let connector = crm.calls_to("get_record").first().and_then(|c| c.bearer().map(String::from)).expect("the run did not call the connector with its credential");
+     let (_, made) = alice.post("/v1/computers", json!({})).await;
+     let id = made["id"].as_str().unwrap().to_string();
+     let at = |rest: &str| format!("/v1/computers/{id}{rest}");
+@@ -101,13 +107,11 @@ async fn a_snapshot_holds_no_vault_material_and_is_stored_encrypted() {
+     let (code, _) = alice.post(&at("/hibernate"), json!({})).await;
+     assert_eq!(code, 200);
+ 
+-    let (stored, plain) = computerd.snapshot_holds(&id, &second);
+-    assert!(plain, "the scan found nothing it should have");
+-    assert!(!stored, "the snapshot is readable without its key");
+-    for secret in [&credential, &app.provider_key] {
+-        let (stored, plain) = computerd.snapshot_holds(&id, secret);
+-        assert!(!stored && !plain, "a credential is in the snapshot");
+-    }
++    let provider_key = app.provider_key.to_string();
++    let found = computerd.snapshot_holds(&id, &[&second, &credential, &provider_key, &connector]);
++    assert!(found[0].1, "the scan found nothing it should have");
++    assert!(!found[0].0, "the snapshot is readable without its key");
++    assert!(found[1..].iter().all(|(stored, plain)| !stored && !plain), "a credential is in the snapshot");
+ }
+ 
+ /// Test 18. While a person holds control the agent takes no step and captures
+@@ -274,6 +278,33 @@ async fn the_agent_cannot_reach_a_browser_vm_or_its_profile() {
+     assert_eq!(computerd.try_ask(json!({ "op": "unseal_volume", "id": identity, "key_b64": stranger }))["ok"], false, "a wrong key opened the profile");
+ }
+ 
++/// A login is often a cookie with no expiry, which Chromium drops on exit by
++/// default. The identity's stays signed in across a stop of its browser VM.
++#[tokio::test(flavor = "multi_thread")]
++async fn a_login_kept_in_a_cookie_with_no_expiry_survives_a_stop() {
++    let computerd = Computerd::start();
++    let session = canary("session");
++    let site = FakeWeb::start(&[("/login", &*format!("cookie:session={session}; Path=/|<html><p>in</p></html>")), ("/signed", "<html><p>your account</p></html>")]).await;
++    let model = FakeModel::start(steps(vec![])).await;
++    let spec = Spec::default().computer_options(json!({ "public_hosts": { "acct.test": [bare(&site)] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let identity = identity_of(&app, "acct.test").await;
++    assert!(alice.put_policy("org", &permits(&["browser_as_navigate"])).await.is_success());
++    model.set_script(model_steps(&identity, vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/login" }))]));
++    let task = alice.submit("Open the site.").await;
++    alice.wait_settled(&task).await;
++    assert!(site.seen().iter().any(|s| s.path == "/login"), "it did not sign in");
++    computerd.guest(&identity, json!({ "op": "sync" }));
++    computerd.ask(json!({ "op": "stop", "id": identity }));
++    model.set_script(model_steps(&identity, vec![("browser_as_navigate", json!({ "identity": "", "url": "http://acct.test/signed" }))]));
++    let task = alice.submit("Open the account page.").await;
++    alice.wait_settled(&task).await;
++    let seen = site.seen();
++    let signed = seen.iter().find(|s| s.path == "/signed").expect("it did not open its page after the stop");
++    assert!(signed.cookie.as_deref().unwrap_or_default().contains(&session), "the login did not survive the stop: {signed:?}");
++}
++
+ #[tokio::test(flavor = "multi_thread")]
+ async fn untrusted_reading_uses_a_browser_with_no_profile() {
+     let computerd = Computerd::start();
+diff --git a/tests/invariants/tests/inv3_event_log.rs b/tests/invariants/tests/inv3_event_log.rs
+index 8d53717..e3f0410 100644
+--- a/tests/invariants/tests/inv3_event_log.rs
++++ b/tests/invariants/tests/inv3_event_log.rs
+@@ -288,7 +288,10 @@ fn sha256_of(data: &[u8]) -> String {
+ async fn destroying_a_computer_loses_no_user_work() {
+     let computerd = Computerd::start();
+     let model = FakeModel::start(steps(vec![])).await;
+-    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let registry = FakeWeb::start(&[("/hello", INSTALLER)]).await;
++    let bare = registry.base.trim_start_matches("http://").to_string();
++    let spec = Spec::default().computer_options(json!({ "registries": ["registry.test"], "public_hosts": { "registry.test": [bare] } }));
++    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
+     let alice = app.api("alice");
+     let (_, made) = alice.post("/v1/computers", json!({})).await;
+     let id = made["id"].as_str().unwrap().to_string();
+@@ -299,12 +302,19 @@ async fn destroying_a_computer_loses_no_user_work() {
+     let work = canary("user-work");
+     let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/work", "data_b64": b64(work.as_bytes()) })).await;
+     assert_eq!(code, 200, "{wrote}");
+-    let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/installer", "data_b64": b64(INSTALLER.as_bytes()) })).await;
+-    assert_eq!(code, 200, "{wrote}");
++    computerd.root_shell(&id, "curl -s -m 20 -o /workspace/installer -x http://10.200.0.1:3128 http://registry.test/hello");
+     computerd.exec(&id, "sh /workspace/installer");
+     assert!(computerd.exec(&id, "hello").contains("hello-from-the-app"), "the test's own install did not work");
++    // The proxy checks what the entry claims against what it carried.
++    let untraced = canary("not-downloaded");
++    assert_eq!(alice.put(&at("/files"), json!({ "path": "/workspace/made-here", "data_b64": b64(untraced.as_bytes()) })).await.0, 200);
++    let claim = |installer: &str, source: &str| json!({ "name": "x", "version": "1", "source": source, "installer": installer, "steps": ["true"] });
++    let (code, refused) = alice.post(&at("/apps"), claim("/workspace/made-here", "http://registry.test/hello")).await;
++    assert_eq!(code, 400, "a file the proxy never carried was accepted: {refused}");
++    let (code, refused) = alice.post(&at("/apps"), claim("/workspace/installer", "http://other.test/hello")).await;
++    assert_eq!(code, 400, "a file was accepted from a source it did not come from: {refused}");
+     let (code, recorded) = alice
+-        .post(&at("/apps"), json!({ "name": "hello", "version": "1", "source": "https://example.test/hello", "installer": "/workspace/installer", "steps": ["sh \"$INSTALLER\""] }))
++        .post(&at("/apps"), json!({ "name": "hello", "version": "1", "source": "http://registry.test/hello", "installer": "/workspace/installer", "steps": ["sh \"$INSTALLER\""] }))
+         .await;
+     assert_eq!(code, 200, "{recorded}");
+     let hash = sha256_of(INSTALLER.as_bytes());
+@@ -351,6 +361,48 @@ async fn destroying_a_computer_loses_no_user_work() {
+     assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some(b64(work.as_bytes()).as_str())), "the backup did not restore the volume: {read}");
+ }
+ 
++/// A volume's blocks go back to the host after zeroing: well under the
++/// 1 GiB test volume, whose free space was all written.
++const ZEROED_VOLUME_MAX_BYTES: u64 = 256 << 20;
++
++/// An earlier version of a deleted file lives on in free blocks until they
++/// are overwritten, which happens before the computer hibernates.
++#[tokio::test(flavor = "multi_thread")]
++async fn earlier_versions_of_a_deleted_file_leave_the_volume_when_it_goes_idle() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
++    assert_eq!(alice.post(&at("/start"), json!({})).await.0, 200);
++    let old = canary("old-version");
++    computerd.exec(&id, &format!("echo {old} > /workspace/report; sync; echo newer > /workspace/report.new; mv /workspace/report.new /workspace/report; sync"));
++    assert_eq!(alice.delete(&at("/files?path=/workspace/report")).await.0, 200);
++    computerd.exec(&id, "sync");
++    let (code, slept) = alice.post(&at("/hibernate"), json!({})).await;
++    assert_eq!(code, 200, "{slept}");
++    assert!(!computerd.volume_holds(&id, &old), "an earlier version of a deleted file stayed in the volume's free blocks");
++    let cost = computerd.volume_allocated_bytes(&id);
++    assert!(cost < ZEROED_VOLUME_MAX_BYTES, "zeroing left the host holding {cost} bytes of nothing");
++}
++
++/// The host's unflushed pages count against a VM's memory limit, so a big
++/// write used to get the VM killed.
++#[tokio::test(flavor = "multi_thread")]
++async fn a_computer_survives_writing_far_more_than_its_memory() {
++    let computerd = Computerd::start();
++    let model = FakeModel::start(steps(vec![])).await;
++    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
++    let alice = app.api("alice");
++    let (_, made) = alice.post("/v1/computers", json!({})).await;
++    let id = made["id"].as_str().unwrap().to_string();
++    assert_eq!(alice.post(&format!("/v1/computers/{id}/start"), json!({})).await.0, 200);
++    let done = computerd.exec(&id, "for i in 1 2 3 4; do dd if=/dev/zero of=/workspace/big bs=1M count=900 2>/dev/null; rm /workspace/big; done; sync; echo still-here");
++    assert!(format!("{done}").contains("still-here"), "{done}");
++}
++
+ #[tokio::test(flavor = "multi_thread")]
+ async fn a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window() {
+     let computerd = Computerd::start();
+diff --git a/tests/invariants/tests/inv4_taint.rs b/tests/invariants/tests/inv4_taint.rs
+index e41a173..9d770da 100644
+--- a/tests/invariants/tests/inv4_taint.rs
++++ b/tests/invariants/tests/inv4_taint.rs
+@@ -536,6 +536,27 @@ async fn the_independent_monitor_can_block_an_action_and_ask_for_review() {
+     assert!(result.contains("this looks wrong"), "{result}");
+ }
+ 
++/// Auto Review is a model outside the one doing the work.
++#[tokio::test(flavor = "multi_thread")]
++async fn the_reviewer_is_not_the_model_doing_the_work() {
++    let mail = mcp::mail().start().await;
++    let model = FakeModel::start(steps(vec![contract_unchecked("send", "sent"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), complete("done")])).await;
++    model.set_reviewer(script(|_| async { review("allow", "fine") }));
++    let spec = Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]).section("safety", json!({ "reviewer_model": "anthropic/reviewer-model" })).section("reviewer", json!({ "enabled": true }));
++    let app = Appliance::start(spec, &model).await;
++    let alice = app.api("alice");
++    assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
++    let task = alice.submit("Send a note.").await;
++    alice.wait_settled(&task).await;
++    let reviews = model.reviews();
++    assert!(!reviews.is_empty(), "the reviewer was not asked");
++    assert!(reviews.iter().all(|r| r.body["model"] == "reviewer-model"), "the action was reviewed by the working model: {:?}", reviews[0].body["model"]);
++    let requests = model.requests();
++    let work: Vec<_> = requests.iter().filter(|r| r.offered_tools().iter().any(|t| t == "mail__send")).collect();
++    assert!(!work.is_empty(), "no work was done");
++    assert!(work.iter().all(|r| r.body["model"] != "reviewer-model"), "the work went to the reviewer's model");
++}
++
+ #[tokio::test(flavor = "multi_thread")]
+ async fn what_tries_to_steer_the_agent_is_held_back_before_the_model() {
+     use magnus_invariants::model::screen;
+diff --git a/tests/invariants/tests/inv6_policy.rs b/tests/invariants/tests/inv6_policy.rs
+index 6edf85a..568d794 100644
+--- a/tests/invariants/tests/inv6_policy.rs
++++ b/tests/invariants/tests/inv6_policy.rs
+@@ -306,19 +306,53 @@ async fn no_grant_unlocks_a_hard_denial() {
+     assert_eq!(code, 200, "{body}");
+     let (_, made) = bob.post("/v1/computers", json!({})).await;
+     let bobs = made["id"].as_str().unwrap().to_string();
+-    model.set_script(steps(vec![
+-        contract_unchecked("update", "updated"),
+-        tool("crm__update_record", json!({ "id": "42", "fields": { "note": stored } })),
+-        tool("crm__update_record", json!({ "id": "42", "fields": { "account": "bob" } })),
+-        tool("crm__update_record", json!({ "id": "42", "fields": { "computer": bobs } })),
+-        fail("all refused"),
+-    ]));
+-    let id = alice.submit("Update record 42.").await;
++    model.set_script(hard_denial_model(stored, bobs));
++    // A real grant, accepted by its person, over everything the app can do.
++    let card = chat_entries(&alice, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
++    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "accept" })).await;
++    assert!(st.is_success(), "{v}");
++    let id = run_under(&alice, v["grant"].as_str().unwrap()).await.expect("no task under the grant");
+     alice.wait_settled(&id).await;
+     assert!(crm.calls_to("update_record").is_empty(), "a grant unlocked a hard denial");
+     assert!(alice.open_items(&id, "approval").await.is_empty(), "a hard denial was offered for approval");
+ }
+ 
++/// In chat, proposes a grant over the whole app, and starts a task under it.
++/// The task tries each thing no grant can allow.
++fn hard_denial_model(stored: String, bobs: String) -> model::Script {
++    script(move |c| {
++        let (stored, bobs) = (stored.clone(), bobs.clone());
++        async move {
++            let sys = match &c.body["system"] {
++                Value::String(s) => s.clone(),
++                Value::Array(a) => a.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n"),
++                other => other.to_string(),
++            };
++            if sys.contains(PASS) {
++                return Reply::Text(String::new());
++            }
++            if !sys.contains(CHAT) {
++                let update = |fields: Value| tool("crm__update_record", json!({ "id": "42", "fields": fields }));
++                return match c.turn() {
++                    0 => contract_unchecked("update", "updated"),
++                    1 => update(json!({ "note": stored })),
++                    2 => update(json!({ "account": "bob" })),
++                    3 => update(json!({ "computer": bobs })),
++                    _ => fail("all refused"),
++                };
++            }
++            if c.turn() > 0 {
++                return Reply::Text("Done.".into());
++            }
++            let said = c.messages().first().and_then(|m| m["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).map(String::from)).unwrap_or_default();
++            match said.strip_prefix("run ") {
++                Some(g) => tool("create_task", json!({ "title": "Update record 42", "text": "Update record 42.", "grant": g })),
++                None => tool("propose_grant", json!({ "title": "The CRM", "apps": ["crm"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked." })),
++            }
++        }
++    })
++}
++
+ // The UI catalog: what the agent renders can ask for work, and only that.
+ 
+ #[tokio::test(flavor = "multi_thread")]
