@@ -1,0 +1,22 @@
+[package]
+name = "magnus-outlook-calendar"
+description = "Outlook calendar, brokered: an MCP server over Microsoft Graph's calendar API, run in a microVM of its own for each person on the appliance."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "magnus-outlook-calendar"
+path = "src/main.rs"
+
+[dependencies]
+magnus-brokered-kit = { path = "../kit" }
+magnus-brokered-microsoft = { path = "../microsoft" }
+serde_json = "1"
+
+[dev-dependencies]
+toml = "0.8"
+
+[lints]
+workspace = true

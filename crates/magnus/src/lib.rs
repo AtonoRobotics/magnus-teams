@@ -39,6 +39,7 @@ pub mod generated;
 pub mod grants;
 pub mod identity;
 pub mod inbox;
+pub mod issuers;
 pub mod kernel;
 pub mod knowledge;
 pub mod knowledge_admin;

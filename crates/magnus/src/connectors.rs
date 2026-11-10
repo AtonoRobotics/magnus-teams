@@ -442,7 +442,7 @@ async fn server_metadata(issuer: &str) -> Result<Value> {
     urls.push(format!("{}/.well-known/openid-configuration", issuer.trim_end_matches('/')));
     let asm = first_json(&c, &urls).await.ok_or_else(|| anyhow!("{issuer} publishes no authorization server metadata"))?;
     match asm["issuer"].as_str() {
-        Some(i) if same_url(i, issuer) => {}
+        Some(i) if crate::issuers::same(i, issuer) => {}
         other => bail!("the authorization server metadata found for {issuer} names issuer {}", other.unwrap_or("none")),
     }
     Ok(asm)
@@ -748,7 +748,7 @@ impl Kernel {
         // 9207): otherwise the code and verifier would go to this one's token
         // endpoint for another server's code (a mix-up).
         match iss {
-            Some(i) if !same_url(i, &p.issuer) => bail!("the sign-in was answered by {i}, not {}; start again", p.issuer),
+            Some(i) if !crate::issuers::same(i, &p.issuer) => bail!("the sign-in was answered by {i}, not {}; start again", p.issuer),
             None if p.iss_required => bail!("{} says it names itself in its answer, and this answer names no one; start again", p.issuer),
             _ => {}
         }

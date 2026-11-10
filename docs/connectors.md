@@ -98,7 +98,7 @@ one commit), 2026-11-02.
 ### Client registration
 
 - [x] Pre-registered: Alpha Vector's own client for the provider (Google: `google.rs`)
-- [ ] Pre-registered clients for Microsoft, Slack and the others under Provider registrations (Slack's manifest uses its client, `slack.rs`; GitHub's and Vercel's manifests use theirs; Microsoft's and Sentry's client IDs are in `catalog/registrations.toml` and no manifest uses them; Sentry's catalog connector registers Magnus itself at `mcp.sentry.dev`, which does not take sentry.io's clients)
+- [ ] Pre-registered clients for Microsoft, Slack and the others under Provider registrations (Slack's manifest uses its client, `slack.rs`; GitHub's and Vercel's manifests use theirs; Microsoft's public client signs in Outlook, Outlook Calendar and OneDrive, brokered over Graph, through `organizations`, `catalog/microsoft-*.toml`, `issuers.rs`; Sentry's client ID is in `catalog/registrations.toml` and no manifest uses it; Sentry's catalog connector registers Magnus itself at `mcp.sentry.dev`, which does not take sentry.io's clients)
 - [ ] Client ID Metadata Document, used when the provider advertises it, one document at pyrallon.ai naming the relay callback
 - [x] Dynamic Client Registration as the fallback (`connectors.rs`, the fake app registers Magnus; against Sentry, Hugging Face, GitLab.com, Supabase and Cloudflare, `sentry.rs`, `huggingface.rs`, `gitlab.rs`, `supabase.rs`, `cloudflare.rs`)
 - [ ] The order the MCP authorization spec (2026-07-28) sets: pre-registered, then CIMD, then DCR

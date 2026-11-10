@@ -28,6 +28,9 @@ const SOURCES: &[&str] = &[
     include_str!("../../../catalog/github.toml"),
     include_str!("../../../catalog/vercel.toml"),
     include_str!("../../../catalog/asana.toml"),
+    include_str!("../../../catalog/microsoft-outlook.toml"),
+    include_str!("../../../catalog/microsoft-calendar.toml"),
+    include_str!("../../../catalog/microsoft-onedrive.toml"),
 ];
 
 #[derive(Deserialize, Clone, Debug)]
@@ -131,6 +134,10 @@ pub struct Client {
     /// `desktop` or `confidential` (a secret at the token exchange), or
     /// `public` (none).
     pub kind: String,
+    /// Microsoft: who signs in through the client (`organizations`: anyone
+    /// from any organisation), which its connectors' issuer names.
+    #[serde(default)]
+    pub authority: Option<String>,
 }
 
 impl Client {
@@ -297,7 +304,11 @@ mod tests {
         }
         // A preregistered connector is set up already: its provider's client is in the catalog.
         if let Some(p) = &m.provider {
-            assert!(super::client(p).is_some(), "{}: no client for {p} in catalog/registrations.toml", m.id);
+            let c = super::client(p).unwrap_or_else(|| panic!("{}: no client for {p} in catalog/registrations.toml", m.id));
+            // A Microsoft connector signs in where its client's authority is.
+            if let Some(a) = &c.authority {
+                assert_eq!(m.issuer.as_deref(), Some(format!("https://login.microsoftonline.com/{a}/v2.0").as_str()), "{}: not its client's authority", m.id);
+            }
         }
         match (&m.redirect_uri, &m.handoff) {
             (None, None) => {}

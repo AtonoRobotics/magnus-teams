@@ -1,0 +1,56 @@
+id = "microsoft-onedrive"
+version = "1.0.0"
+name = "OneDrive"
+summary = "Magnus can find and read the files in your OneDrive, and upload new ones."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Microsoft"
+category = "files"
+abilities = ["Find a file when you describe it", "Read documents and other files", "Save a new file to your OneDrive"]
+asks = ["See your files, and add new ones", "Stay connected, so you do not sign in again each hour"]
+can = "Find, list and read the files in your OneDrive, and upload new files"
+cannot = "Change, replace, move, share or delete a file, or reach SharePoint sites and files others share with you"
+letters = "Od"
+tint = "#0364B8"
+# Brokered, as Outlook is: Alpha Vector's server over Microsoft Graph
+# (`brokered/onedrive`), its image named by digest and built from this
+# commit by `brokered/build.sh`; each person's runs in a microVM of its own
+# that reaches only Graph, and people sign in at Microsoft, through
+# "organizations", from any organisation. A file's bytes come from Graph
+# itself (`contentStream`), never from the organisation's SharePoint host,
+# which differs for each organisation and so cannot be named here.
+kind = "brokered"
+endpoint = "sha256:c6a68d4219b484b0e5fe716031c2263e2a36d3e2531022364ef3de8dad42c6b5"
+hosts = ["graph.microsoft.com"]
+issuer = "https://login.microsoftonline.com/organizations/v2.0"
+# Its one write puts a new file in the person's own OneDrive (it cannot
+# share).
+audience = "private"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "microsoft"
+# Where a person removes Magnus at Microsoft (My Apps: an app's
+# permissions are revoked there); Microsoft has no revocation endpoint.
+remove_access = "https://myapps.microsoft.com"
+# Least privilege: `Files.ReadWrite`, the person's own files (Microsoft
+# Graph permissions reference: the least privileged delegated permission
+# for upload; reads take less, and one sign-in holds both). Not
+# `Files.ReadWrite.All` or `Sites.*`: no other person's files and no
+# SharePoint site. `offline_access` keeps the sign-in past the hour an
+# access token lasts.
+scopes = ["https://graph.microsoft.com/Files.ReadWrite", "offline_access"]
+
+# Exactly the tools its image lists (`every_tool_is_classed_in_the_manifest`).
+[tools]
+list_files = "read"
+search_files = "read"
+read_file = "read"
+# A new file, never one that replaces another: deleting it undoes it.
+upload_file = "reversible_write"
+
+# `self`: a new file in the person's own OneDrive reaches no one.
+[reach]
+upload_file = "self"

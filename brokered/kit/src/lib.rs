@@ -269,16 +269,34 @@ pub fn exchange(s: Https, method: &str, host: &str, path: &str, token: &str, bod
     exchange_over(s, method, host, path, token, body)
 }
 
-fn exchange_over(mut s: impl Read + Write, method: &str, host: &str, path: &str, token: &str, body: Option<&Value>) -> Result<Response, String> {
-    let data = body.map(|b| b.to_string()).unwrap_or_default();
-    let mut req =
-        format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nAccept: application/json\r\nConnection: close\r\nContent-Length: {}\r\n", data.len());
-    if body.is_some() {
-        req.push_str("Content-Type: application/json\r\n");
+fn exchange_over(s: impl Read + Write, method: &str, host: &str, path: &str, token: &str, body: Option<&Value>) -> Result<Response, String> {
+    let data = body.map(|b| b.to_string());
+    send_over(s, method, host, path, token, "application/json", data.as_deref().map(|d| Body { kind: "application/json", bytes: d.as_bytes() }))
+}
+
+/// A request's body: its media type and its bytes as sent.
+pub struct Body<'a> {
+    pub kind: &'a str,
+    pub bytes: &'a [u8],
+}
+
+/// One HTTP/1.1 request to the provider over `s` with a body of any type
+/// (a file's bytes), and an answer of the type `accept` names: as
+/// [`exchange`] otherwise.
+pub fn send(s: Https, method: &str, host: &str, path: &str, token: &str, accept: &str, body: Option<Body>) -> Result<Response, String> {
+    send_over(s, method, host, path, token, accept, body)
+}
+
+fn send_over(mut s: impl Read + Write, method: &str, host: &str, path: &str, token: &str, accept: &str, body: Option<Body>) -> Result<Response, String> {
+    let n = body.as_ref().map_or(0, |b| b.bytes.len());
+    let mut req = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nAccept: {accept}\r\nConnection: close\r\nContent-Length: {n}\r\n");
+    if let Some(b) = &body {
+        req.push_str(&format!("Content-Type: {}\r\n", b.kind));
     }
     req.push_str("\r\n");
-    req.push_str(&data);
-    s.write_all(req.as_bytes()).and_then(|_| s.flush()).map_err(|e| format!("sending to {host}: {e}"))?;
+    let mut out = req.into_bytes();
+    out.extend_from_slice(body.map_or(&[][..], |b| b.bytes));
+    s.write_all(&out).and_then(|_| s.flush()).map_err(|e| format!("sending to {host}: {e}"))?;
     let mut raw = vec![];
     // A TLS peer may end without its closing alert (rustls says so as an
     // unexpected end); that is an end only where the answer says it is

@@ -24,7 +24,7 @@ tint = "#4A154B"
 # Slack is given the appliance's public callback. The browser is sent on
 # to the desktop, which is listening at `handoff`.
 kind = "brokered"
-endpoint = "sha256:aa18e926d95c25ba436999e2df14dceb64538a429d91511ed381c0bdac4b42cc"
+endpoint = "sha256:612896d71e5c0cd03358481d7fcb5a1a74cf7d015142565dd88860140feb8e84"
 hosts = ["slack.com"]
 issuer = "https://mcp.slack.com"
 pkce = false

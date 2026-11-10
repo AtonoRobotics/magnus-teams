@@ -129,6 +129,23 @@ fn an_exchange_sends_the_token_and_reads_a_chunked_answer() {
     assert!(sent.ends_with("\r\n\r\n{\"b\":2}"), "{sent}");
 }
 
+/// A file's bytes go as they are, with their own type and length, and the
+/// answer comes back as bytes (Microsoft Graph's upload and file content).
+#[test]
+fn a_request_carries_a_body_of_any_type() {
+    let mut p = Peer(vec![], std::io::Cursor::new(b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n\x00\xff\x01".to_vec()), None);
+    let bytes = [0u8, 0xff, b'\r', b'\n'];
+    let r = send_over(&mut p, "PUT", "api.example", "/v1/f", "tok", "*/*", Some(Body { kind: "application/octet-stream", bytes: &bytes })).unwrap();
+    assert_eq!((r.status, r.body.as_slice()), (200, &[0u8, 0xff, 1][..]));
+    let head = b"PUT /v1/f HTTP/1.1\r\nHost: api.example\r\nAuthorization: Bearer tok\r\nAccept: */*\r\nConnection: close\r\nContent-Length: 4\r\nContent-Type: application/octet-stream\r\n\r\n";
+    assert_eq!(p.0, [&head[..], &bytes[..]].concat());
+    // With no body, no type and a length of none.
+    let mut q = Peer(vec![], std::io::Cursor::new(b"HTTP/1.1 204 No Content\r\n\r\n".to_vec()), None);
+    send_over(&mut q, "GET", "api.example", "/v1/f", "tok", "*/*", None).unwrap();
+    let sent = String::from_utf8(q.0).unwrap();
+    assert!(sent.ends_with("Content-Length: 0\r\n\r\n") && !sent.contains("Content-Type"), "{sent}");
+}
+
 /// A connection that fails while the answer comes is an error; a TLS
 /// peer's end without its closing alert is not, once the answer is
 /// whole.

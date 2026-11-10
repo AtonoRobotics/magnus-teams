@@ -1,0 +1,52 @@
+id = "microsoft-calendar"
+version = "1.0.0"
+name = "Outlook Calendar"
+summary = "Magnus can read your Outlook calendars and events, and add or change events and answer invitations with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Microsoft"
+category = "email"
+abilities = ["Tell you what is on your calendar", "Add or move events, and answer invitations, when you allow it"]
+asks = ["See and change your calendars and events", "Stay connected, so you do not sign in again each hour"]
+can = "Read your calendars and events, and add or change events and answer invitations (it asks you before each)"
+cannot = "Cancel or delete an event, or share a calendar or change who can see it"
+letters = "Ca"
+tint = "#0F6CBD"
+# Brokered, as Outlook is: Alpha Vector's server over Microsoft Graph
+# (`brokered/outlook-calendar`), its image named by digest and built from
+# this commit by `brokered/build.sh`; each person's runs in a microVM of its
+# own that reaches only Graph, and people sign in at Microsoft, through
+# "organizations", from any organisation.
+kind = "brokered"
+endpoint = "sha256:11fd6e6b0b2263cc385ac9b5ec6ceec65528b2789bd7acd981060f5b115a9f28"
+hosts = ["graph.microsoft.com"]
+issuer = "https://login.microsoftonline.com/organizations/v2.0"
+# Events and answers reach their attendees, who may be anyone.
+audience = "public"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "microsoft"
+# Where a person removes Magnus at Microsoft (My Apps: an app's
+# permissions are revoked there); Microsoft has no revocation endpoint.
+remove_access = "https://myapps.microsoft.com"
+# Least privilege: `Calendars.ReadWrite`, the least privileged delegated
+# permission of every method the tools use (Microsoft Graph permissions
+# reference: calendars, calendarView, events, and accept, decline and
+# tentativelyAccept). It cannot share a calendar. `offline_access` keeps
+# the sign-in past the hour an access token lasts.
+scopes = ["https://graph.microsoft.com/Calendars.ReadWrite", "offline_access"]
+
+# Exactly the tools its image lists (`every_tool_is_classed_in_the_manifest`).
+[tools]
+list_calendars = "read"
+list_events = "read"
+get_event = "read"
+# Outlook sends an invitation to each person an event names, and tells
+# them of each change; an answer goes to the organizer. None can be called
+# back once sent.
+create_event = "irreversible"
+update_event = "irreversible"
+respond_to_event = "irreversible"

@@ -1671,6 +1671,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "magnus-brokered-microsoft"
+version = "0.2.5"
+dependencies = [
+ "magnus-brokered-kit",
+ "serde_json",
+]
+
+[[package]]
 name = "magnus-brokered-test"
 version = "0.2.5"
 dependencies = [
@@ -1767,6 +1775,39 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "magnus-onedrive"
+version = "0.2.5"
+dependencies = [
+ "base64 0.22.1",
+ "magnus-brokered-kit",
+ "magnus-brokered-microsoft",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "magnus-outlook"
+version = "0.2.5"
+dependencies = [
+ "base64 0.22.1",
+ "magnus-brokered-kit",
+ "magnus-brokered-microsoft",
+ "serde_json",
+ "sha2 0.10.9",
+ "toml",
+]
+
+[[package]]
+name = "magnus-outlook-calendar"
+version = "0.2.5"
+dependencies = [
+ "magnus-brokered-kit",
+ "magnus-brokered-microsoft",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

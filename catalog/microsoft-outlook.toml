@@ -1,0 +1,79 @@
+id = "microsoft-outlook"
+version = "1.0.0"
+name = "Outlook"
+summary = "Magnus can search and read your Outlook email, write drafts and replies, and send one when you allow it."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Microsoft"
+category = "email"
+abilities = ["Find an email when you ask about it", "Read messages and catch you up", "Write drafts and replies, and send one when you allow it"]
+asks = ["Read your email and write drafts", "Send email as you", "Stay connected, so you do not sign in again each hour"]
+can = "Read and search your email, and write drafts and replies, and send a draft (it asks you before each send)"
+cannot = "Delete, move or file email, or change your mailbox settings"
+letters = "Ol"
+tint = "#0F6CBD"
+# Brokered (Microsoft has no remote mail server that a public client can
+# sign in to from any organisation: its Work IQ servers are in preview and
+# each organisation registers them): Alpha Vector's server over Microsoft
+# Graph (`brokered/outlook`), its image named by digest and built from this
+# commit by `brokered/build.sh`; each person's runs in a microVM of its own
+# that reaches only Graph, and people sign in at Microsoft, through
+# "organizations", from any organisation.
+kind = "brokered"
+endpoint = "sha256:e10be36bf7ec0464062a79b0ee23d32917d8d04ef35e5e1fa9bef23e7880c462"
+hosts = ["graph.microsoft.com"]
+issuer = "https://login.microsoftonline.com/organizations/v2.0"
+# A draft it sends reaches anyone the person writes to. What comes back is
+# their private mail, written by others.
+audience = "public"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "microsoft"
+# Where a person removes Magnus at Microsoft (My Apps: an app's
+# permissions are revoked there); Microsoft has no revocation endpoint.
+remove_access = "https://myapps.microsoft.com"
+# Least privilege (Microsoft Graph permissions reference, each method's
+# least privileged delegated permission): `Mail.ReadWrite` lists, searches
+# and reads mail and writes drafts; `Mail.Send` sends. `offline_access`
+# keeps the sign-in past the hour an access token lasts. None of them is
+# the mailbox's settings, and no tool deletes or moves mail.
+scopes = ["https://graph.microsoft.com/Mail.ReadWrite", "https://graph.microsoft.com/Mail.Send", "offline_access"]
+
+# Exactly the tools its image lists (`every_tool_is_classed_in_the_manifest`).
+[tools]
+list_messages = "read"
+search_messages = "read"
+get_message = "read"
+list_drafts = "read"
+get_draft = "read"
+create_draft = "reversible_write"
+update_draft = "reversible_write"
+reply_draft = "reversible_write"
+# Sent mail cannot be called back.
+send_draft = "irreversible"
+
+# What each tool reaches (approvals spec, The approval model; Email end to
+# end). `self`: a draft stays in the person's own mailbox and reaches no
+# one, so it does not count as sending under the Rule of Two. send_draft is
+# left out of [reach]: who it reaches is the draft's To, Cc and Bcc, read at
+# the gate in [destinations.send_draft].
+[reach]
+create_draft = "self"
+update_draft = "self"
+reply_draft = "self"
+
+# Who a send reaches is read from the draft at the gate (get_draft), never
+# taken from what Magnus wrote: the card shows its To, Cc and Bcc, subject,
+# text and attachments, and an approval holds only for exactly those, and
+# for a digest of what the card does not show whole (the body's every byte
+# and type, who it is from and who replies go to, each attachment's bytes):
+# a change to any of them asks again.
+[destinations.send_draft]
+read = "get_draft"
+id = "draft_id"
+recipients = ["/message/to", "/message/cc", "/message/bcc"]
+content = ["/message/subject", "/message/body", "/message/attachments"]
+bound = ["/message/digest"]
