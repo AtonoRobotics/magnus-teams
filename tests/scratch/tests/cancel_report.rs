@@ -4,7 +4,7 @@
 //! run had done and counts only runs actually stopped (#263).
 
 use magnus_invariants::{mcp, *};
-use magnus_scratch::reconfigure;
+use magnus_scratch::{reconfigure, start_checked};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -66,7 +66,7 @@ async fn every_minute(app: &mut Appliance) {
 /// gone out, and it cannot be taken back.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancel_names_an_in_flight_send_possibly_done() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
@@ -92,7 +92,7 @@ async fn a_cancel_names_an_in_flight_send_possibly_done() {
 /// counts only runs actually stopped.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_schedule_cancel_reports_what_each_stopped_run_had_done() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),

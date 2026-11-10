@@ -3,6 +3,7 @@
 //! with no card; one it does not hold asks.
 
 use magnus_invariants::{mcp, *};
+use magnus_scratch::start_checked;
 use serde_json::json;
 
 /// A stub identity provider: discovery, a token endpoint, and realm users
@@ -64,7 +65,7 @@ async fn a_colleagues_address_passes_and_an_outside_one_asks() {
         &["/message/to"],
         &["/message/subject", "/message/body"],
     );
-    let model = FakeModel::start(steps(vec![
+    let model = start_checked(steps(vec![
         contract_unchecked("send the Q3 draft", "it is sent"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),

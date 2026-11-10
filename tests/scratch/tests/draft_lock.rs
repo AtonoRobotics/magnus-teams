@@ -3,6 +3,7 @@
 //! no other run changes it (approvals spec, "Email end to end"; #177).
 
 use magnus_invariants::*;
+use magnus_scratch::start_checked;
 use serde_json::json;
 
 /// Drafts the person can update and send, sends read at the gate as
@@ -47,7 +48,7 @@ async fn drafts_app(model: &FakeModel) -> (FakeMcp, Appliance) {
 /// (`draft_id`), not only on an `id` or `record_id`.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_draft_being_sent_is_changed_by_no_other_run() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         let sending = c.messages()[0].to_string().contains("Send Bob");
         match (sending, c.turn()) {
             (true, 0) => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
@@ -92,7 +93,7 @@ async fn settled_call(p: &Api, task: &str, tool: &str) -> serde_json::Value {
 /// from the copy the gate made before it waited (#187).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_whose_task_is_cancelled_while_the_gate_reads_the_draft_sends_nothing() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
@@ -124,7 +125,7 @@ async fn a_send_whose_task_is_cancelled_while_the_gate_reads_the_draft_sends_not
 /// have gone out (#187).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_resend_held_back_for_a_cancelled_task_is_reported_as_unknown() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),

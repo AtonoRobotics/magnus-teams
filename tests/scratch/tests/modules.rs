@@ -51,7 +51,7 @@ fn looper() -> Script {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_looping_run_is_reset_and_recovers_and_without_the_module_runs_to_its_budget() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(looper()).await;
+    let m = start_checked(looper()).await;
     let app = Appliance::start(spec().app("mail", &mail, "public", "private", &[("list_sent", "read")]), &m).await;
     let dana = app.api("dana");
 
@@ -88,7 +88,7 @@ async fn a_looping_run_is_reset_and_recovers_and_without_the_module_runs_to_its_
 async fn a_run_lost_again_escalates_to_the_stronger_model() {
     let mail = mcp::mail().start().await;
     // Only the stronger model gets out of the loop.
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         if c.turn() == 0 {
             return contract_unchecked("check the sent mail", "the sent mail was checked");
         }
@@ -136,7 +136,7 @@ async fn a_run_lost_again_escalates_to_the_stronger_model() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_verifier_catches_work_its_own_report_overstates() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         let t = c.text();
         // The verifier, before work: it reviews the criteria.
         if c.offered_tools().is_empty() && t.contains("The agent's criteria") {
@@ -197,7 +197,7 @@ async fn the_verifier_catches_work_its_own_report_overstates() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_reviewer_blocks_a_send_to_the_wrong_recipient() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         // The reviewer blocks mail to mallory, and holds the completion.
         if c.offered_tools().contains(&"review".to_string()) {
             if !c.text().contains("The send to judge") {

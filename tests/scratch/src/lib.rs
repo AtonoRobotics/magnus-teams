@@ -15,6 +15,8 @@ use magnus_invariants::appliance::bin;
 pub mod admin;
 pub mod brokered;
 pub mod catalog;
+mod checks;
+pub use checks::*;
 mod keycloak;
 pub mod mail;
 pub mod stand_in;
@@ -232,7 +234,7 @@ impl Flow {
 
     /// The same appliance, with the model following `s` instead.
     pub async fn start_with(web: FakeWeb, s: model::Script) -> Flow {
-        let mut model = FakeModel::start(s).await;
+        let mut model = start_checked(s).await;
         model.url = provider(&model).await;
         let app = Appliance::start(Spec::default(), &model).await;
         // Ask before any file leaves a task, so the flow has an approval.

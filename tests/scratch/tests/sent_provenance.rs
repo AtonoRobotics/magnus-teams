@@ -5,6 +5,7 @@
 
 use magnus_invariants::appliance::Person;
 use magnus_invariants::{mcp, *};
+use magnus_scratch::start_checked;
 use serde_json::json;
 
 async fn drafts_app(drafts: serde_json::Value, sent: serde_json::Value, model: &FakeModel) -> (FakeMcp, Appliance) {
@@ -47,7 +48,7 @@ async fn drafts_app(drafts: serde_json::Value, sent: serde_json::Value, model: &
 /// not found asks (#210).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_recipient_mailed_before_passes_and_a_new_one_asks() {
-    let model = FakeModel::start(steps(vec![
+    let model = start_checked(steps(vec![
         contract_unchecked("send the Q3 draft", "it is sent"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),
@@ -95,7 +96,7 @@ async fn search_decisions(app: &Appliance, alice: &Api, id: &str) -> Vec<serde_j
 /// read never reaches the provider (#371).
 #[tokio::test(flavor = "multi_thread")]
 async fn task_policy_forbidding_the_sent_search_makes_the_send_ask() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => tool("ask_principal", json!({ "question": "Ready?" })),
             1 => contract_unchecked("send the Q3 draft", "it is sent"),
@@ -127,7 +128,7 @@ async fn task_policy_forbidding_the_sent_search_makes_the_send_ask() {
 /// send passes with no card (#371).
 #[tokio::test(flavor = "multi_thread")]
 async fn allowed_sent_search_leaves_an_audit_decision() {
-    let model = FakeModel::start(steps(vec![
+    let model = start_checked(steps(vec![
         contract_unchecked("send the Q3 draft", "it is sent"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),

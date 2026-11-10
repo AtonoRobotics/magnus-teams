@@ -34,7 +34,7 @@ async fn sign_in(api: &Api, app: &str, port: u16) {
 async fn a_client_the_provider_does_not_know_yet_is_waited_for_before_the_person_signs_in() {
     let cal = FakeOAuthApp::start(3600).await;
     cal.state.lock().unwrap().new_clients_unknown_at_first = true;
-    let m = FakeModel::start(steps(vec![])).await;
+    let m = start_checked(steps(vec![])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let (st, v) = alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
@@ -56,7 +56,7 @@ async fn a_client_the_provider_does_not_know_yet_is_waited_for_before_the_person
 async fn a_sign_in_waits_for_a_new_client_ten_seconds_at_most() {
     let cal = FakeOAuthApp::start(3600).await;
     cal.state.lock().unwrap().new_clients_unknown_then_silent = Some(std::time::Duration::from_secs(9));
-    let m = FakeModel::start(steps(vec![])).await;
+    let m = start_checked(steps(vec![])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let (st, v) = alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
@@ -82,7 +82,7 @@ async fn a_sign_in_waits_for_a_new_client_ten_seconds_at_most() {
 #[tokio::test(flavor = "multi_thread")]
 async fn sign_ins_by_anyone_from_any_port_register_magnus_once() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(steps(vec![])).await;
+    let m = start_checked(steps(vec![])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let (st, v) = app.api("alice").post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
@@ -100,7 +100,7 @@ async fn sign_ins_by_anyone_from_any_port_register_magnus_once() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_client_the_provider_dropped_is_registered_again() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(steps(vec![])).await;
+    let m = start_checked(steps(vec![])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let (st, v) = app.api("alice").post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
@@ -119,7 +119,7 @@ async fn a_client_the_provider_dropped_is_registered_again() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_busy_provider_does_not_cost_a_registration() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(steps(vec![])).await;
+    let m = start_checked(steps(vec![])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let (st, v) = app.api("alice").post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
@@ -136,7 +136,7 @@ async fn a_busy_provider_does_not_cost_a_registration() {
 async fn the_owner_adds_an_app_each_person_signs_in_with_their_own_account_and_the_kill_switch_revokes_every_sign_in() {
     // Tokens last 30 s, inside the minute Magnus refreshes ahead: every use refreshes.
     let cal = FakeOAuthApp::start(30).await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("add the standup", "the standup is on the calendar"),
             1 => tool("calendar__create_event", json!({ "title": "Standup" })),
@@ -244,7 +244,7 @@ async fn the_owner_adds_an_app_each_person_signs_in_with_their_own_account_and_t
 #[tokio::test(flavor = "multi_thread")]
 async fn another_persons_attempt_leaves_a_sign_in_waiting_for_its_owner() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(script(|_| async move { complete("done") })).await;
+    let m = start_checked(script(|_| async move { complete("done") })).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let (alice, carol) = (app.api("alice"), app.api("carol"));
     assert_eq!(alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await.0, 201);
@@ -262,7 +262,7 @@ async fn another_persons_attempt_leaves_a_sign_in_waiting_for_its_owner() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_changed_tool_definition_waits_for_the_owner() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("check the calendar", "the calendar was checked"),
             _ => complete("checked"),
@@ -301,7 +301,7 @@ async fn a_changed_tool_definition_waits_for_the_owner() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_kill_switch_cut_short_by_a_crash_is_finished_at_the_next_start() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(steps(vec![fail("nothing to do")])).await;
+    let m = start_checked(steps(vec![fail("nothing to do")])).await;
     let mut app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let (st, v) = alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
@@ -341,7 +341,7 @@ async fn a_kill_switch_cut_short_by_a_crash_is_finished_at_the_next_start() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_approval_does_not_cover_its_tool_once_it_is_classed_riskier() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("add the standup", "the standup is on the calendar"),
             1 => tool("calendar__create_event", json!({ "title": "Standup" })),
@@ -385,7 +385,7 @@ async fn an_approval_does_not_cover_its_tool_once_it_is_classed_riskier() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_standing_approval_outlives_deleting_the_task_that_asked_for_it() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("add the standup", "the standup is on the calendar"),
             1 => tool("calendar__create_event", json!({ "title": "Standup" })),
@@ -433,7 +433,7 @@ async fn a_standing_approval_outlives_deleting_the_task_that_asked_for_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_app_address_holding_a_secret_is_refused() {
     let cal = FakeOAuthApp::start(3600).await;
-    let m = FakeModel::start(steps(vec![fail("nothing to do")])).await;
+    let m = start_checked(steps(vec![fail("nothing to do")])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let with_query = format!("{}?api_key=s3cret-in-query", cal.url);
@@ -459,7 +459,7 @@ async fn an_app_address_holding_a_secret_is_refused() {
 async fn an_apps_tool_is_never_classed_as_the_sandbox() {
     let cal = FakeOAuthApp::start(3600).await;
     // No contract: the call is refused unless its class skips the contract.
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         match c.turn() {
             0 => tool("calendar__create_event", json!({ "title": "Standup" })),
             _ => fail("not offered"),

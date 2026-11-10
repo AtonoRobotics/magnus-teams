@@ -4,6 +4,7 @@
 //! `docs/proposals/invariant-tests-tightened.patch`.
 
 use magnus_invariants::{mcp, *};
+use magnus_scratch::start_checked;
 use serde_json::json;
 use std::{collections::BTreeMap, time::Duration};
 
@@ -12,7 +13,7 @@ use std::{collections::BTreeMap, time::Duration};
 #[tokio::test(flavor = "multi_thread")]
 async fn action_is_not_executed_when_its_intent_cannot_be_recorded() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
+    let model = start_checked(steps(vec![
         contract_unchecked("send a note", "note sent"),
         tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
         fail("stopping"),
@@ -61,7 +62,7 @@ async fn action_is_not_executed_when_its_intent_cannot_be_recorded() {
 #[tokio::test(flavor = "multi_thread")]
 async fn repeated_crashes_never_repeat_an_effect() {
     let chat = mcp::chat().start().await;
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => contract_checked("post four updates", "chat__list_posts", json!({}), "/count", json!(4)),
             n @ 1..=4 => tool("chat__post", json!({ "channel": "team", "text": format!("update {n}") })),
@@ -114,7 +115,7 @@ fn send(body: &str) -> Reply {
 /// been used stops it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_action_approval_covers_one_action() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("say hi twice", "said"), send("hello"), send("hello"), fail("done")])).await;
+    let model = start_checked(steps(vec![contract_unchecked("say hi twice", "said"), send("hello"), send("hello"), fail("done")])).await;
     let mail = mcp::mail().start().await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");
@@ -138,7 +139,7 @@ async fn a_one_action_approval_covers_one_action() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_criterion_without_a_check_goes_to_the_person_for_review() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("review rejected")])).await;
+    let model = start_checked(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("review rejected")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
 

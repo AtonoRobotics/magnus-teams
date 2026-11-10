@@ -7,6 +7,7 @@
 
 use magnus_invariants::appliance::Person;
 use magnus_invariants::{mcp, *};
+use magnus_scratch::start_checked;
 use serde_json::json;
 
 async fn drafts_app(drafts: serde_json::Value, sent: serde_json::Value, model: &FakeModel) -> (FakeMcp, Appliance) {
@@ -60,7 +61,7 @@ async fn preview_decisions(app: &Appliance, api: &Api, task: &str) -> Vec<serde_
 
 #[tokio::test(flavor = "multi_thread")]
 async fn task_policy_forbidding_the_preview_read_denies_the_send() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => tool("ask_principal", json!({ "question": "Ready?" })),
             1 => contract_unchecked("send the Q3 draft", "it is sent"),
@@ -90,8 +91,7 @@ async fn task_policy_forbidding_the_preview_read_denies_the_send() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn allowed_preview_leaves_an_audit_decision() {
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("send the Q3 draft", "it is sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
+    let model = start_checked(steps(vec![contract_unchecked("send the Q3 draft", "it is sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
     let (drafts, app) =
         drafts_app(json!({ "d1": { "to": "bob@corp.example", "subject": "Q3", "body": "hi" } }), json!([{ "to": "bob@corp.example", "subject": "Q2" }]), &model).await;
     let alice = app.api("alice");
@@ -106,7 +106,7 @@ async fn allowed_preview_leaves_an_audit_decision() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn changed_preview_read_definition_denies_the_send() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         if c.text().contains("Read the draft.") {
             match c.turn() {
                 0 => contract_unchecked("read the draft", "it is read"),
@@ -146,8 +146,7 @@ async fn changed_preview_read_definition_denies_the_send() {
 /// send's result (#373).
 #[tokio::test(flavor = "multi_thread")]
 async fn trace_shows_preview_and_send_as_two_actions() {
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("send the Q3 draft", "it is sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
+    let model = start_checked(steps(vec![contract_unchecked("send the Q3 draft", "it is sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
     let (_drafts, app) =
         drafts_app(json!({ "d1": { "to": "bob@corp.example", "subject": "Q3", "body": "hi" } }), json!([{ "to": "bob@corp.example", "subject": "Q2" }]), &model).await;
     let alice = app.api("alice");

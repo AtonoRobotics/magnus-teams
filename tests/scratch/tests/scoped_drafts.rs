@@ -5,6 +5,7 @@
 //! nothing of B.
 
 use magnus_invariants::{mcp, *};
+use magnus_scratch::start_checked;
 use serde_json::{json, Value};
 
 /// Mail with two threads: A from Bob (never mailed before, named nowhere),
@@ -91,7 +92,7 @@ async fn mail_app(model: &FakeModel) -> (FakeMcp, Appliance) {
 /// from A alone, records only A, and its send to Bob passes with no card.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reply_is_written_from_its_thread_alone_and_sent_to_its_sender_without_asking() {
-    let model = FakeModel::start(script(|c| async move {
+    let model = start_checked(script(|c| async move {
         // The scoped step: A alone in context, answered clean.
         if c.text().contains("You write one mail draft") {
             return Reply::Text("Q3 revenue was 41.7M (ALPHA-1).".into());

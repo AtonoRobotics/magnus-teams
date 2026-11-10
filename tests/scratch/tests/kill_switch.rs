@@ -54,7 +54,7 @@ async fn the_kill_switch_revokes_sign_ins_seals_the_vault_and_releasing_resumes_
     let in_turn = Arc::new(AtomicBool::new(false));
     let go = Arc::new(tokio::sync::Notify::new());
     let (t, g) = (in_turn.clone(), go.clone());
-    let m = FakeModel::start(script(move |c| {
+    let m = start_checked(script(move |c| {
         let (t, g) = (t.clone(), g.clone());
         async move {
             let send = tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
@@ -188,7 +188,7 @@ async fn releasing_the_switch_and_its_notices_are_one_write() {
     let in_turn = Arc::new(AtomicBool::new(false));
     let go = Arc::new(tokio::sync::Notify::new());
     let (t, g) = (in_turn.clone(), go.clone());
-    let m = FakeModel::start(script(move |c| {
+    let m = start_checked(script(move |c| {
         let (t, g) = (t.clone(), g.clone());
         async move {
             match c.turn() {
@@ -232,7 +232,7 @@ async fn releasing_the_switch_and_its_notices_are_one_write() {
 /// (owner's ruling 11, 2026-11-01).
 #[tokio::test(flavor = "multi_thread")]
 async fn new_work_is_refused_while_the_kill_switch_is_on() {
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         if c.body["system"].to_string().contains("talking with the person you work for in a chat") {
             return Reply::Text("Noted.".into());
         }
@@ -306,7 +306,7 @@ async fn the_kill_switch_closes_every_runs_pages() {
     let in_turn = Arc::new(AtomicBool::new(false));
     let go = Arc::new(tokio::sync::Notify::new());
     let (t, g, s) = (in_turn.clone(), go.clone(), site.clone());
-    let m = FakeModel::start(script(move |c| {
+    let m = start_checked(script(move |c| {
         let (t, g, s) = (t.clone(), g.clone(), s.clone());
         async move {
             let page = if c.body.to_string().contains("Watch page a.") { "a" } else { "b" };

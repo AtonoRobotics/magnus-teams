@@ -8,7 +8,7 @@
 //! one-off task still asks as before.
 
 use magnus_invariants::{mcp, *};
-use magnus_scratch::reconfigure;
+use magnus_scratch::{reconfigure, start_checked};
 use serde_json::json;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ const EMAIL: &str = "Email the team the plan.";
 #[tokio::test(flavor = "multi_thread")]
 async fn a_confirmed_schedule_runs_without_asking_again_within_its_persons_authority() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         let t = c.text();
         // The verifier: reviews the criteria, then judges them true.
         if c.offered_tools().is_empty() && t.contains("The agent's criteria") {
