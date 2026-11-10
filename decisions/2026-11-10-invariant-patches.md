@@ -1,0 +1,34 @@
+# The pending invariant patches, brought to spec rev 140 as one patch
+
+The owner said on 2026-11-10: "I don't do the coding you do. Apply the patches." This brings every pending patch to `tests/invariants/` together as one patch against `main`, `decisions/2026-11-10-invariant-patches.patch`, with each test that encoded a retired flow brought to spec rev 140 ("Permissions and tasks") and the newest decisions. Apply it from the repository root with `git apply decisions/2026-11-10-invariant-patches.patch`. Once it is applied, the patches it replaces (listed below) can be deleted or moved to `docs/proposals/applied/`.
+
+The agent that prepared it could not apply it: the permission check refused its `git apply` to `tests/invariants/`. It was built and run in a copy of the repository instead.
+
+## What it applies
+
+- `docs/proposals/agent-computer-all-invariants.patch`, whole. It is the union of the twenty series patches (steps 2 to 10, safety, payments, browser, desktop-app, egress-tls, generated-connector, local, team, ui-catalog, ui-spec, weak-tests): every test function any of them adds is in it, and it applies cleanly to `main`. The series patches add nothing beyond it.
+- `decisions/2026-11-10-permissions-asks-invariants.patch`, whole: `private_data_posted_after_untrusted_input_asks_one_action_at_a_time` replaces `private_data_sent_to_a_wider_audience_asks`, and `a_criterion_without_a_check_is_never_put_to_the_person` replaces the criterion review.
+- From `docs/proposals/invariant-tests-tightened.patch`, three of its five hunks, in the current flow they have in `tests/scratch/tests/proposed_invariants.rs`: the log refuses exactly the send's intent (inv1), every crash lands while a post is in flight (inv3), and a one-action approval with two identical sends (inv6).
+
+## What it adapts, and why
+
+- **The stand-in for Auto Review** (`src/model.rs`, `default_review`). Since rev 140 every boundary action goes through Auto Review, and the scripted model could not answer it, so every app action in the suite asked: on `main` today, 19 invariant tests fail for this reason alone (run on Strix Beta, 2026-11-10). The all-invariants patch added a stand-in that allowed only what the old kernel called "permitted", a standing the kernel no longer sends. The stand-in now reads the review document as a reviewer would: what the organisation's layer permits fits the request (a permit of the tool or of everything, or the baseline's reads and reversible writes by the action's effect), a lower layer's forbid of the tool makes it ask, and anything else asks. Two kernel changes it needed, each to the spec, are their own commits: Auto Review is told the action's effect (`2026-11-10-auto-review-sees-the-effect.md`) and reads only the person's own layers (`2026-11-10-auto-review-reads-the-persons-layers.md`).
+- **`a_blocked_message_goes_out_only_revised_and_approved`** becomes `a_blocked_message_goes_out_only_revised_and_reviewed_again`. A rewrite is not one of the four asks: it is reviewed again, told why the first was blocked, and goes out if it passes. The test keeps every protection: the blocked message never goes out, the identical message stays blocked without a second review, the agent is told it may revise. It adds that the review of the rewrite is told the first block's reason, and that the person is never asked (`2026-11-10-rewrites-reviewed-and-approvers-retired.md`).
+- **Criteria put to the person.** Waits for a `review` item, which rev 140 removed ("checking is internal"), now wait for the task to complete: two payment tests, `inv2`'s `finish`, two team tests (working notes, whisper) and the monitor test. The helpers that accepted a review if one came (`settle_reviewed`, the generated connector's `settled`) now require there to be none.
+- **`a_workspace_rule_decides_who_answers_for_its_resource`** becomes `in_a_team_thread_only_the_person_who_asked_answers_an_ask`. Named approvers are retired; rev 140 shows a team thread's card only to the asker. The test keeps that no one else can answer, that the ask is in no one else's list nor in the thread, and that the asker's answer counts.
+- **`an_expired_background_ask_runs_nothing`.** The `unattended_ask_expiry_seconds` setting is gone: the wait is rev 140's 30 minutes, a constant. The test moves the whole log back 31 minutes and restarts the server, so the ask is as old as that; the assertions are unchanged, and it now also checks the ask is not a draft before its wait is over.
+- **`auto_review_alone_cannot_release_private_data_to_a_wider_audience`** becomes `..._after_untrusted_input`. A draft is untrusted, so the test was already rev 140's case 3; only its name and comment said "wider audience", the retired ask.
+- **`a_local_command_gets_the_network_only_as_a_reviewed_send`.** Its last step encoded the retired audience ask (private data out, with no untrusted input). It now reads a page first, so the networked command after a private read is case 3: it asks one action at a time even though the reviewer allows it. It also checks that a networked command goes through Auto Review.
+- **`a_sub_agent_never_holds_more_than_its_parent`.** `start_sub_agent` no longer takes a grant: a sub-agent works under its parent's and no other (`2026-11-10-sub-agents-carry-parent-authority.md`). The test names a grant the parent lacks and checks the child holds none.
+- **"Server", not "appliance"**, in the new tests' failure messages.
+- **Clippy.** The new harness code (computers, browsers, payments) added 99 `unwrap`/`expect` warnings, which the ratchet refuses. The suite is test code, where AGENTS.md allows them, so the harness and each test file allow the two lints at the top, and two small warnings (a needless `format!`, a needless `mut`) are fixed. The count falls from 899 to 821; set `ci/clippy-baseline` to 821 when the patch is applied.
+
+## What it leaves out, and why
+
+- `docs/proposals/invariant-deliverable.patch`: already in `tests/invariants/src/lib.rs` (`complete` sends the summary as the deliverable).
+- The contract-change hunk of `invariant-tests-tightened.patch` (`criteria_changed_after_work_begins_need_an_approved_contract_change`): rev 140 puts no contract change to the person, and a late change is refused.
+- Its inv7 hunk (a rejected review goes back to the agent): the test it tightens is gone, and with the criteria review there is nothing to reject.
+
+## What was run
+
+On Strix Beta (`ci/on-strix-beta.sh`), every test that does not need a computer passes. The 39 tests that start `magnus-computerd` (computers, browsers, egress, the generated connector, the desktop screens) could not run there: Strix Beta has `firecracker` but no `jailer`, and installing it was refused to the agent. `desktop_native` is `#[ignore]` and needs the built desktop app. These need a run on a host with `jailer` before the suite is called green.
