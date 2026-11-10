@@ -200,6 +200,18 @@ impl Kernel {
                 ));
                 evs.extend(self.resume(&run));
             }
+            // Asked to take over: done some other way, or not at all.
+            ("takeover_request", "done" | "decline") => {
+                let steps = self.read(|st| st.runs.get(&run).map_or(0, |r| r.replies.len() as u32));
+                let said = if decision == "done" {
+                    "The person says they did that step themselves. Take a fresh screenshot before going on."
+                } else {
+                    "The person chose not to take over, so that step will not be done for this task. Decide what to do instead."
+                };
+                evs.push((&actor, resolve(None)));
+                evs.push(("kernel", Ev::Notice { run: run.clone(), step: steps, text: said.to_string() }));
+                evs.extend(self.resume(&run));
+            }
             ("approval", "reject") => {
                 evs.push((&actor, resolve(None)));
                 let unknown = item.details["reason"] == "unknown_outcome";

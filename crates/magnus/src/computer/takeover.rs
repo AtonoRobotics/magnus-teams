@@ -64,7 +64,7 @@ pub(super) fn redeem(raw: &str, computer: &str) -> Option<String> {
 }
 
 /// The runs that use a computer with this owner.
-fn runs_on<'a>(s: &'a crate::state::State, owner: &'a Owner) -> impl Iterator<Item = &'a crate::state::Run> {
+pub(super) fn runs_on<'a>(s: &'a crate::state::State, owner: &'a Owner) -> impl Iterator<Item = &'a crate::state::Run> {
     s.runs.values().filter(move |r| match owner {
         Owner::Person(p) => r.person == *p && s.team.run_of(&r.task).is_none(),
         Owner::Workspace(w) => s.team.run_of(&r.task).is_some_and(|t| t.workspace == *w),
@@ -164,6 +164,9 @@ impl Kernel {
         if self.computer_held(run) {
             return Some("takeover");
         }
+        if self.read(|s| super::driving::open_request(s, &run.id).is_some()) {
+            return Some(super::driving::REQUEST_REASON);
+        }
         let form = |i: &crate::state::Item| i.kind == "secure_form" && i.resolution.is_none() && i.run.as_deref() == Some(run.id.as_str());
         self.read(|s| s.items.values().any(form)).then_some("secure_form")
     }
@@ -192,6 +195,9 @@ impl Kernel {
     /// A desktop tool on the person's computer. `None`: they have none
     /// running, and it goes to the run's own sandbox.
     pub(crate) async fn computer_tool(&self, run: &str, tool: &str, input: &Value) -> Result<Option<(String, bool, Option<Value>)>> {
+        if tool == super::driving::REQUEST_TOOL {
+            return self.request_takeover(run, input).await.map(Some);
+        }
         let Some(id) = self.read(|s| s.runs.get(run).cloned()).and_then(|r| self.computer_of_run(&r)) else { return Ok(None) };
         let held = self.read(|s| s.computers.get(&id).is_some_and(|c| c.controller.is_some()));
         if held {
@@ -226,7 +232,7 @@ impl Kernel {
                 let (waiting, active): (Vec<_>, Vec<_>) = on_it.partition(|r| r.status == crate::state::Status::Suspended);
                 let asked = waiting.iter().find_map(|r| s.items.values().find(|i| i.run.as_deref() == Some(r.id.as_str()) && i.resolution.is_none()));
                 let cause = match (asked, waiting.is_empty() && active.is_empty()) {
-                    (Some(item), _) => format!("the agent was waiting on {}", item.kind),
+                    (Some(item), _) => super::driving::cause_of(item),
                     (None, true) => "nothing was running".to_string(),
                     (None, false) => "the person stepped in".to_string(),
                 };
@@ -248,12 +254,16 @@ impl Kernel {
         let frame = self.capture(&socket, id).await.ok();
         let runs: Vec<(String, u32)> = self.read(|s| {
             runs_on(s, &c.owner)
-                .filter(|r| r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("takeover"))
+                .filter(|r| r.status == crate::state::Status::Suspended && matches!(r.reason.as_deref(), Some("takeover" | super::driving::REQUEST_REASON)))
                 .map(|r| (r.id.clone(), r.replies.len() as u32))
                 .collect()
         });
+        let ids: Vec<String> = runs.iter().map(|(r, _)| r.clone()).collect();
+        let answered = self.read(|s| super::driving::answered_by_handback(s, id, &ids));
         let actor = format!("person:{}", who.id);
         let mut evs: Vec<(&str, Ev)> = vec![(actor.as_str(), Ev::Computer(Change::TakeoverEnded { id: id.into(), by: who.id.clone(), at: Utc::now() }))];
+        // What the agent asked for is answered by handing back.
+        evs.extend(answered.into_iter().map(|item| (actor.as_str(), Ev::ItemResolved { id: item, decision: "handed_back".into(), scope: None, text: None })));
         for (run, step) in &runs {
             evs.push((
                 "kernel",

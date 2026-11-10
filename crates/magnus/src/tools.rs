@@ -155,6 +155,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "deliver_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_screenshot", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "add_computer_destination", app: "computer", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Public },
+    Builtin { name: "computer_request_takeover", app: "computer", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_click", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_type", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "computer_key", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
@@ -655,6 +656,7 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
     }
     if computer {
         v.extend(crate::tools_identity::specs(&d));
+        v.push(crate::computer::request_spec(&d));
         v.push(ToolSpec {
             name: "add_computer_destination".into(),
             description: d("add_computer_destination"),

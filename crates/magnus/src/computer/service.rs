@@ -95,6 +95,7 @@ impl Kernel {
             let queue: Vec<&str> = s.computers.queue().iter().map(|c| c.id.as_str()).collect();
             let shown = |c: &Computer| {
                 let mut v = json!(c);
+                v["driving"] = super::driving::driving(s, c);
                 if let Some(i) = queue.iter().position(|q| *q == c.id) {
                     v["queue_position"] = json!(i + 1);
                 }
@@ -106,8 +107,9 @@ impl Kernel {
 
     pub fn computer_json(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let c = self.controlled_computer(who, id)?;
-        let position = self.read(|s| s.computers.queue().iter().position(|q| q.id == id));
+        let (position, driving) = self.read(|s| (s.computers.queue().iter().position(|q| q.id == id), super::driving::driving(s, &c)));
         let mut v = json!(c);
+        v["driving"] = driving;
         if let Some(i) = position {
             v["queue_position"] = json!(i + 1);
         }

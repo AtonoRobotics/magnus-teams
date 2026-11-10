@@ -784,3 +784,6 @@ body[data-navigation=drawer] .connection-status { grid-column: 1; }
 
 /* Agent-built HTML sets no height of its own in the opaque-origin sandbox. */
 iframe.ui-html { width: 100%; height: 480px; border: 1px solid var(--line); border-radius: 12px; }
+
+/* A cloud computer's screen pinned beside the conversation. */
+.pinned-screen img { display: block; width: 100%; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; }

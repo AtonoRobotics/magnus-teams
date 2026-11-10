@@ -4,6 +4,7 @@
 
 mod apps;
 mod client;
+mod driving;
 mod egress;
 mod identity;
 mod idle;
@@ -12,6 +13,7 @@ mod routes;
 mod service;
 mod takeover;
 
+pub(crate) use driving::request_spec;
 pub use egress::migrate_sql;
 use egress::surrogate as egress_surrogate;
 pub use routes::router;

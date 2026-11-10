@@ -10,7 +10,7 @@ const stillAt = hash => location.hash === hash;
 const bytesOf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const b64Of = bytes => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
 const STATE_WORDS = { running: ["good", "Running"], stopped: ["", "Stopped"], hibernated: ["", "Asleep"], queued: ["", "Waiting to start"], paused: ["warn", "Paused"], killed: ["bad", "Destroyed: your files are kept"] };
-const stateChip = c => { const [cls, word] = STATE_WORDS[c.status] || ["", c.status]; return `<span class="chip ${cls}">${esc(word)}</span>${c.controller ? ` <span class="chip warn">${esc(c.controller)} has control</span>` : ""}`; };
+const stateChip = c => { const [cls, word] = STATE_WORDS[c.status] || ["", c.status]; return `<span class="chip ${cls}">${esc(word)}</span> ${drivingLine(c)}${c.driving?.request ? ` <span class="chip warn">The agent asks you to take over</span>` : ""}`; };
 
 async function showComputers(main) {
   const hash = location.hash;
@@ -127,10 +127,10 @@ async function showComputer(main, id, tab) {
   if (!stillAt(hash)) return;
   const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>Computer</h1><div class="row"><span data-state>${stateChip(c)}</span>
     ${["stopped", "hibernated", "paused", "killed"].includes(c.status) ? `<button class="primary" data-act="start">${c.status === "paused" ? "Resume" : "Start"}</button>` : ""}
-    ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}
+    ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button><button data-open="computer:${esc(id)}">Pin beside the conversation</button>` : ""}
     ${c.status === "running" ? `<button class="danger" data-act="pause" title="The kill switch: freezes the computer and takes back every access it was given">Pause now</button>` : ""}
     <button data-act="reset">Reset…</button><button class="link danger" data-act="delete">Delete computer…</button></div>
-    <nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
+    ${takeoverAsk(c)}<nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
   paint(main, head(c));
   const body = $("#computer-tab", main);
   main.onclick = async e => {
@@ -163,12 +163,15 @@ function computerScreen(body, c, base, hash) {
     }
   };
   look();
-  $("[data-take]", body).onclick = async () => {
+  const take = async () => {
     let grant;
     try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { return toast(e.message); }
     looking = false;
     takeOver(body, c.id, base, grant, hash);
   };
+  $("[data-take]", body).onclick = take;
+  // Asked for from a card, a banner or the pinned screen.
+  if (Screen.takeOnOpen === c.id) { Screen.takeOnOpen = null; take(); }
 }
 
 // The person has the whole screen until they say they are done.
