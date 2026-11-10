@@ -16,14 +16,17 @@ const FROZEN: &str = "its criteria are frozen";
 async fn waiting_on(alice: &Api, text: &str) -> (String, String, String) {
     let t = alice.submit(text).await;
     let q = alice.wait_item(&t, "question").await;
-    let run = alice.task(&t).await["run_id"].as_str().unwrap().to_string();
-    let call = q["details"]["call_id"].as_str().expect("the question's call").to_string();
+    let run = alice.task(&t).await["run_id"].as_str().unwrap_or_default().to_string();
+    let call = q["details"]["call_id"].as_str().unwrap_or_default().to_string();
+    assert!(!call.is_empty(), "the question has no call: {q}");
     (t, run, call)
 }
 
 async fn insert(app: &Appliance, run: Option<&str>, body: Value) {
-    let kind = body["kind"].as_str().unwrap().to_string();
-    app.db.admin().await.execute("INSERT INTO public.events (kind, actor, run_id, body) VALUES ($1, 'kernel', $2, $3)", &[&kind, &run, &body]).await.unwrap();
+    let kind = body["kind"].as_str().unwrap_or_default().to_string();
+    let r =
+        app.db.admin().await.execute("INSERT INTO public.events (kind, actor, run_id, body) VALUES ($1, 'kernel', $2, $3)", &[&kind, &run, &body]).await.map_err(|e| e.to_string());
+    assert!(r.is_ok(), "{r:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -41,7 +44,7 @@ async fn items_of_retired_asks_are_put_in_their_current_form_at_startup() {
     let review = waiting_on(&alice, "Write me a poem.").await;
     let change = waiting_on(&alice, "Close the record.").await;
     let approval = waiting_on(&alice, "Post the summary.").await;
-    let questions: Vec<String> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "question").map(|i| i["id"].as_str().unwrap().to_string()).collect();
+    let questions: Vec<String> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "question").map(|i| i["id"].as_str().unwrap_or_default().to_string()).collect();
     assert_eq!(questions.len(), 3);
 
     app.kill().await;
