@@ -39,6 +39,7 @@ jobs:
       - run: node desktop/tests/screen-check.mjs
       - run: node desktop/tests/takeover-check.mjs
       - run: node desktop/tests/computer-panel-check.mjs
+      - run: node desktop/tests/team-check.mjs
       - run: ci/ratchet.sh size
       - run: ci/ratchet.sh clippy
       - run: cargo test --workspace --lib --bins

@@ -1329,7 +1329,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("commitment_changed", &["what", "to", "note"]),
     ("watched_seen", &["ids"]),
     ("rule", &["words"]),
-    ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine"]),
+    ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
 ];
 
 /// The content fields of one kind of event; none for most.

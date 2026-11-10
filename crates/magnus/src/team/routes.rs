@@ -1,5 +1,7 @@
 //! The workspaces' HTTP API.
 use super::agent::{held_dir, volume_dir};
+use super::chat::Chat;
+use super::conversation::Why;
 use super::{fit_name, Change, File, Message, Role};
 use crate::api::{err, who};
 use crate::config::Person;
@@ -19,6 +21,8 @@ use std::sync::Arc;
 const MAX_UPLOAD_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MESSAGE_CHARS: usize = 20_000;
 const MAX_NAME_CHARS: usize = 80;
+/// The channel every new workspace starts with.
+const FIRST_CHANNEL: &str = "general";
 
 pub(super) type K = State<Arc<Kernel>>;
 pub(super) type Reply = Response;
@@ -35,6 +39,9 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/files/{name}", get(read_file).put(write_file).delete(delete_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/v1/workspaces/{ws}/held/{name}/share", post(share_held))
         .merge(super::kb_routes::router())
+        .merge(super::chat_routes::router())
+        .merge(super::project_routes::router())
+        .merge(super::search::router())
         .merge(super::whisper::router())
         .merge(super::routines::router())
         .merge(super::upkeep::router())
@@ -83,6 +90,8 @@ async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
     }
     let id = new_id();
     ok_or_return!(send(&k, &p, Change::Created { workspace: id.clone(), name: b.name, owner: p.id.clone() }).await);
+    // Ready to talk in at once, with the team agent already there.
+    ok_or_return!(send(&k, &p, Change::Channel { workspace: id.clone(), channel: new_id(), name: FIRST_CHANNEL.into() }).await);
     Json(json!({ "id": id })).into_response()
 }
 
@@ -90,8 +99,8 @@ async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     let w = k.read(|s| s.team.workspace(&ws).cloned());
     let Some(w) = w else { return err(StatusCode::NOT_FOUND, "no such workspace") };
-    let channels: Vec<Value> = w.channels.iter().map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "approvers": w.approvers, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>() })).into_response()
+    let channels: Vec<Value> = w.channels.iter().filter(|(id, _)| w.sees(id, &p.id)).map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
+    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "approvers": w.approvers, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
 }
 
 async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
@@ -139,14 +148,15 @@ async fn add_channel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b):
     Json(json!({ "id": id })).into_response()
 }
 
-fn has_channel(k: &Kernel, ws: &str, channel: &str) -> bool {
-    k.read(|s| s.team.workspace(ws).is_some_and(|w| w.channels.contains_key(channel)))
+/// Whether the channel is there and this person sees it.
+pub(super) fn has_channel(k: &Kernel, ws: &str, channel: &str, person: &str) -> bool {
+    k.read(|s| s.team.workspace(ws).is_some_and(|w| w.sees(channel, person)))
 }
 
 /// A channel's messages, with each finished request's answer in its place.
 async fn messages(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    if !has_channel(&k, &ws, &channel) {
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
     let view = k.read(|s| {
@@ -177,7 +187,7 @@ struct NewMessage {
 
 async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    if !has_channel(&k, &ws, &channel) {
+    if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
@@ -192,14 +202,18 @@ async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(Stri
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         };
     }
+    super::presence::sent(&ws, &channel, &p.id);
     let message = Message { id: new_id(), sender: p.id.clone(), text: b.text.clone(), thread: b.thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
     ok_or_return!(send(&k, &p, Change::Message { workspace: ws.clone(), channel: channel.clone(), message }).await);
-    if !b.agent {
-        return Json(json!({ "id": id })).into_response();
-    }
+    // No button to press: mentioned, named or, where the channel allows, of help.
+    let why = if b.agent { Some(Why::Asked) } else { k.read(|s| s.team.workspace(&ws).and_then(|w| w.agent_answers(&channel, role, &b.text))) };
+    let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
     match k.team_request(&ws, &channel, b.thread, &p.id, b.text).await {
-        Ok((task, run)) => Json(json!({ "id": id, "task_id": task, "run_id": run })).into_response(),
+        Ok((task, run)) => {
+            ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Asked { channel, message: id.clone(), task: task.clone() } }).await);
+            Json(json!({ "id": id, "task_id": task, "run_id": run, "agent": why })).into_response()
+        }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
 }
@@ -232,7 +246,7 @@ async fn read_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, St
 }
 
 /// An explicit share: the only way a member's file enters the volume.
-async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, _q: Query<HashMap<String, String>>, body: Bytes) -> Reply {
+async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, q: Query<HashMap<String, String>>, body: Bytes) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     if !fit_name(&name) {
         return err(StatusCode::BAD_REQUEST, "that is not a file name");
@@ -246,8 +260,12 @@ async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
-    let file = File { name, size: body.len() as u64, by: p.id.clone() };
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws, file }).await);
+    let project = q.get("project").filter(|id| k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.projects.get(*id).is_some_and(|d| d.may_read(&p.id))))).cloned();
+    let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
+    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
+    if project.is_some() {
+        ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project } }).await);
+    }
     Json(json!({ "ok": true })).into_response()
 }
 

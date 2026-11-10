@@ -31,6 +31,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "team_add_fact", app: "team", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Internal },
     Builtin { name: "team_fix_entry", app: "team", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Internal },
     Builtin { name: "team_note", app: "team", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Internal },
+    Builtin { name: "team_create", app: "team", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Internal },
     Builtin { name: "team_read_knowledge", app: "team", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Internal },
 ];
 
@@ -167,6 +168,20 @@ impl Kernel {
     /// Takes a member's request. The run is theirs, so what it may do and
     /// who is asked follows them. Other people's words come in only as data.
     pub(super) async fn team_request(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, text: String) -> Result<(String, String)> {
+        self.team_request_as(&format!("person:{person}"), workspace, channel, thread, person, text).await
+    }
+
+    /// A request for a member that `actor` started: the member, or the
+    /// agent's own follow-up on their behalf.
+    pub(super) async fn team_request_as(
+        self: &Arc<Self>,
+        actor: &str,
+        workspace: &str,
+        channel: &str,
+        thread: Option<String>,
+        person: &str,
+        text: String,
+    ) -> Result<(String, String)> {
         let earlier: Vec<Message> = self.read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.clone())).unwrap_or_default();
         let start = earlier.len().saturating_sub(HISTORY_MESSAGES + 1);
         let shown = earlier.get(start..earlier.len().saturating_sub(1)).unwrap_or_default();
@@ -174,9 +189,9 @@ impl Kernel {
         let others = shown.iter().any(|m| m.sender != person);
         let outside = self.read(|s| shown.iter().any(|m| s.team.role(workspace, &m.sender).is_some_and(|r| r == Role::Guest)));
         let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), ..Default::default() };
-        let (task, run) = self.create_run(&format!("person:{person}"), person, text, vec![], new_run).await?;
+        let (task, run) = self.create_run(actor, person, text, vec![], new_run).await?;
         let change = Change::Run { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), requester: person.into(), history, sub: false, outside };
-        self.emit(&format!("person:{person}"), crate::events::Ev::Team(change)).await?;
+        self.emit(actor, crate::events::Ev::Team(change)).await?;
         self.wake(&run);
         Ok((task, run))
     }
@@ -193,6 +208,7 @@ impl Kernel {
             "team_post" => self.team_post(&t, a).await,
             "team_note" => self.team_note(&t, a).await,
             "team_fix_entry" => self.team_fix_entry(&t, a).await,
+            "team_create" => self.team_create(&t, a).await,
             _ => self.team_add_fact(&t, a).await,
         }
     }
@@ -233,9 +249,19 @@ impl Kernel {
 
     async fn team_post(self: &Arc<Self>, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let text = a.input["text"].as_str().context("text is required")?.to_string();
-        let message = Message { id: uuid::Uuid::new_v4().simple().to_string(), sender: format!("agent:{}", t.requester), text, thread: t.thread.clone(), at: chrono::Utc::now() };
+        // Long work talks in its own thread, on the message that asked for it.
+        let thread = t.thread.clone().or_else(|| self.read(|s| s.team.workspace(&t.workspace).and_then(|w| w.chat.asked.get(&t.task).cloned())));
+        let message = Message { id: uuid::Uuid::new_v4().simple().to_string(), sender: format!("agent:{}", t.requester), text, thread, at: chrono::Utc::now() };
         self.emit(&format!("run:{}", a.run), crate::events::Ev::Team(Change::Message { workspace: t.workspace.clone(), channel: t.channel.clone(), message })).await?;
         Ok(("posted".to_string(), false, None))
+    }
+
+    /// A project or channel the conversation calls for, made for the requester.
+    async fn team_create(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
+        let name = a.input["name"].as_str().context("name is required")?;
+        let kind = if a.input["kind"].as_str() == Some("project") { super::project_routes::Kind::Project } else { super::project_routes::Kind::Channel };
+        let made = self.start_space(&format!("run:{}", a.run), &t.workspace, &t.requester, kind, name).await?;
+        Ok((format!("made {made}"), false, None))
     }
 
     /// The current notes of this request's thread, ended tasks' gone.
@@ -353,6 +379,12 @@ fn team_specs() -> Vec<ToolSpec> {
             "Correct or retire a knowledge base entry the agent wrote, when you learn it is wrong.",
             json!({ "id": text, "statement": text, "retire": { "type": "boolean" }, "superseded_by": text }),
             &["id"],
+        ),
+        tool(
+            "team_create",
+            "Make a project (with its own channel, owned by the person you work for) or a channel, when the conversation calls for one.",
+            json!({ "kind": { "type": "string", "enum": ["project", "channel"] }, "name": text }),
+            &["kind", "name"],
         ),
         tool("team_note", "Keep a scratch note for this task. Never a fact, and gone when the task ends.", json!({ "text": text }), &["text"]),
         tool(

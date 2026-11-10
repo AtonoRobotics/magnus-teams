@@ -216,6 +216,7 @@ pub fn mask_event(ev: &mut Ev) -> Vec<&'static str> {
     let text = match ev {
         Ev::TaskCreated { text, .. } | Ev::ScheduleSet { text, .. } => text,
         Ev::Team(crate::team::Change::Message { message, .. }) => &mut message.text,
+        Ev::Team(crate::team::Change::Chat { chat: crate::team::chat::Chat::Edited { text, .. }, .. }) => text,
         _ => return vec![],
     };
     let m = mask(text);

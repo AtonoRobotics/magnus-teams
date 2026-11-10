@@ -11,10 +11,16 @@ macro_rules! ok_or_return {
 }
 
 mod agent;
+pub mod chat;
+mod chat_routes;
+pub mod conversation;
 mod kb_routes;
 pub(crate) mod knowledge;
+mod presence;
+mod project_routes;
 mod routes;
 mod routines;
+mod search;
 mod upkeep;
 mod whisper;
 
@@ -201,6 +207,12 @@ pub enum Change {
         task: String,
         at: chrono::DateTime<chrono::Utc>,
     },
+    /// Messaging, the board, invites and per-channel settings: see `chat`.
+    Chat {
+        workspace: String,
+        #[serde(default)]
+        chat: chat::Chat,
+    },
 }
 
 /// Scratch for one request: never a fact, and gone when the task is over.
@@ -259,6 +271,7 @@ pub struct Workspace {
     /// A resource, then who answers asks that use it.
     pub approvers: BTreeMap<String, Vec<String>>,
     pub routines: BTreeMap<String, Routine>,
+    pub chat: chat::ChatState,
 }
 
 #[derive(Serialize, Clone, Debug, Default)]
@@ -441,6 +454,11 @@ impl Ledger {
             Change::RoutineRan { workspace, id, at, .. } => {
                 if let Some(r) = self.workspaces.get_mut(workspace).and_then(|w| w.routines.get_mut(id)) {
                     r.last_at = Some(*at);
+                }
+            }
+            Change::Chat { workspace, chat } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    chat::apply(w, chat);
                 }
             }
             Change::Created { .. } | Change::Deleted { .. } | Change::Run { .. } | Change::Note { .. } | Change::Whisper { .. } | Change::WhisperShared { .. } => {}

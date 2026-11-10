@@ -111,6 +111,9 @@ pub fn schedule(k: Arc<Kernel>) {
             if let Err(e) = k.run_due_routines().await {
                 tracing::warn!("team routines: {e:#}");
             }
+            if let Err(e) = k.follow_up_quiet_threads().await {
+                tracing::warn!("team follow-ups: {e:#}");
+            }
         }
     });
 }
