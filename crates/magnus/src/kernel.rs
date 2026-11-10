@@ -562,6 +562,7 @@ impl Kernel {
         let (adapter, model) = o.model.clone().unwrap_or_else(|| self.default_model());
         let (mut modules, escalate_to) = self.modules_for(&adapter, &model);
         modules.extend(o.modules.clone());
+        crate::outcomes::mark(&mut modules, o.chat.as_ref());
         let config = crate::events::RunConfig {
             adapter,
             model,
@@ -622,7 +623,7 @@ impl Kernel {
     }
 
     /// Keep runs moving: restart drivers for running runs, wake due timers,
-    /// start scheduled tasks.
+    /// start scheduled tasks, return ended tasks' outcomes to their threads.
     pub async fn sweep(self: Arc<Self>) {
         loop {
             let now = chrono::Utc::now();
@@ -731,14 +732,13 @@ impl Kernel {
                             label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),
                             project: self.read(|s| s.project_of(&sc.id)),
                             scope: w.opt(sc.seq, "scope"),
-                            // Each run posts to the schedule's own thread,
-                            // so recurring output does not bury the
-                            // conversation it was set up in (behavior spec).
+                            // Each run posts to the schedule's own thread, where its outcome
+                            // returns to the agent too (outcomes.rs), so recurring output does
+                            // not bury the conversation it was set up in (behavior spec).
                             chat: Some(crate::events::ChatOrigin { thread: crate::chat::schedule_thread(&sc.id), turn: false, from_run: None, conversation: vec![], opener: None }),
-                            // A confirmed schedule runs on its own: the
-                            // verifier judges the criteria no code checks,
-                            // and only what it cannot judge goes to its
-                            // person (owner, 2026-11-02; invariant 7 holds).
+                            // A confirmed schedule runs on its own: the verifier judges the criteria
+                            // no code checks, and only what it cannot judge goes to its person
+                            // (owner, 2026-11-02; invariant 7 holds).
                             modules: [("verifier".to_string(), true)].into(),
                             ..Default::default()
                         };
@@ -787,9 +787,9 @@ impl Kernel {
                     self.wake(&run);
                 }
             }
-            // The proactive loop's own wakes: cadence, overnight, coming-up
-            // schedules, due commitments and stale approvals (#237).
+            // The proactive loop's own wakes: cadence, overnight, coming-up schedules, due commitments and stale approvals (#237).
             self.settle_background().await;
+            self.return_outcomes().await;
             self.review_due(now).await;
             // Scheduled polls of watched reads (#406).
             self.poll_due(now).await;

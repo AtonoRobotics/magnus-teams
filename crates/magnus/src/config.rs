@@ -40,6 +40,8 @@ pub struct Config {
     pub updates: Updates,
     #[serde(default)]
     pub proactive: Proactive,
+    #[serde(default)]
+    pub outcomes: crate::outcomes::Settings,
     /// The file this was read from: a new release is checked against it.
     #[serde(skip)]
     pub path: PathBuf,
@@ -83,10 +85,9 @@ pub struct Config {
     pub mail: Option<Mail>,
 }
 
-/// Developer-view settings (K51).
 #[derive(Deserialize, Clone, Debug)]
 pub struct Observability {
-    /// A running run with no new event for this long counts as stalled (V3).
+    /// Developer view (K51): a running run with no new event for this long counts as stalled (V3).
     #[serde(default = "stall_minutes")]
     pub stall_minutes: u32,
 }
@@ -505,9 +506,7 @@ impl Default for Trash {
 /// Recurring tasks.
 #[derive(Deserialize, Clone, Debug)]
 pub struct Schedules {
-    /// A schedule pauses itself, and tells its person, after this many of
-    /// its runs fail in a row (or cannot start), so a broken one stops
-    /// spending until someone looks.
+    /// A schedule pauses itself, and tells its person, after this many of its runs fail in a row (or cannot start), so a broken one stops spending.
     #[serde(default = "pause_after_failures")]
     pub pause_after_failures: u32,
     /// The shortest interval a schedule may repeat at.
@@ -1086,6 +1085,7 @@ impl Config {
         let text = std::fs::read_to_string(path)?;
         let mut cfg: Config = toml::from_str(&text)?;
         cfg.path = path.canonicalize()?;
+        cfg.outcomes.check()?;
         anyhow::ensure!(cfg.backup.keep_days >= 1, "[backup] keep_days must be at least 1: with 0 every backup is deleted as soon as it is made");
         if let Some(b) = &cfg.browser {
             for site in &b.allow {

@@ -864,6 +864,7 @@ pub struct State {
     pub payments: crate::payments::Ledger,
     pub rules: crate::rules::Ledger,
     pub sub_agents: crate::sub_agents::Ledger,
+    pub outcomes: crate::outcomes::Ledger,
     pub local: crate::local::Ledger,
     pub team: crate::team::Ledger,
     pub push: crate::push::Ledger,
@@ -2453,6 +2454,7 @@ impl State {
                 seq: e.seq,
             }),
         }
+        crate::outcomes::observe(self, e);
     }
 
     /// The person's playbook items that were live at playbook version `v`.

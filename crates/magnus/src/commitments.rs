@@ -177,7 +177,7 @@ impl Kernel {
         if let Some(c) = &task.chat {
             let roles: &[&str] = if magnus { &["person", "you"] } else { &["person"] };
             said.extend(c.conversation.iter().filter(|m| roles.iter().any(|r| m["role"] == *r)).filter_map(|m| m["text"].as_str().map(String::from)));
-            if c.turn && c.opener.is_none() {
+            if c.turn && c.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) {
                 said.push(self.asked(run).await?);
             }
         } else if task.schedule.is_none() {

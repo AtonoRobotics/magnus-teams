@@ -198,7 +198,8 @@ impl Kernel {
             if let Some(o) = t.chat.as_ref().and_then(|c| c.opener.as_deref()).filter(|_| turn) {
                 // Magnus opened it: the appliance's instruction is not shown as anyone's message.
                 out.push((t.created_at, 0, json!({ "id": format!("m:{}", t.task_id), "kind": "opener", "app": o.app, "app_title": o.app_title, "text": crate::openers::title(o), "at": t.created_at, "task_id": t.task_id })));
-            } else if turn {
+            } else if turn && self.read(|s| s.outcomes.of(&t.task_id).is_none()) {
+                // An outcome turn's text is the server's: the result above it shows instead.
                 let files: Vec<Value> = self
                     .read(|s| t.files.iter().filter_map(|id| s.files.get(id)).map(|f| json!({ "id": f.id, "name": f.name, "media_type": f.media_type, "size": f.size })).collect());
                 out.push((
@@ -440,19 +441,11 @@ impl Kernel {
         if !task.is_chat_turn() {
             return Ok(("create_task is for chat.".into(), true, None));
         }
-        // Under a grant (#235): the person's own, live, with budget left;
-        // the task spends no more than what is left of it this period.
-        let mut more = NewRun::default();
-        if let Some(id) = a.input["grant"].as_str().map(str::trim).filter(|g| !g.is_empty()) {
-            match self.grant_for_task(&run.person, id) {
-                Ok((g, left)) => {
-                    let mut budget = self.cfg.budget.clone();
-                    budget.max_usd = budget.max_usd.min(left);
-                    more = NewRun { grant: Some(g.id), budget: Some(budget), ..more };
-                }
-                Err(why) => return Ok((format!("No task started: {why}."), true, None)),
-            }
-        }
+        // The person's authority, a grant of theirs (#235), or a retry's (outcomes.rs).
+        let more = match self.task_authority(&run, &task, &a.input, key).await {
+            Ok(more) => more,
+            Err(why) => return Ok((format!("No task started: {why}."), true, None)),
+        };
         let grant = more.grant.clone();
         let task_id = self.task_from_turn(&format!("chat:{}", a.run), &task, &run, key, text.clone(), title.clone(), more).await?;
         let under = grant.as_ref().map(|g| format!(" It runs under the grant {g}.")).unwrap_or_default();
@@ -474,7 +467,7 @@ impl Kernel {
         if !self.read(|s| s.tasks.contains_key(&task_id)) {
             let mut conversation = chat.conversation.clone();
             // An opener's text is the appliance's instruction, not something the person asked.
-            if chat.opener.is_none() {
+            if chat.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) {
                 conversation.push(json!({ "role": "person", "text": self.asked(run).await? }));
             }
             let o = NewRun {
