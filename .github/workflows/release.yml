@@ -1,9 +1,9 @@
-# Every push to main becomes a magnus-teams release on its own appliance
+# Every push to main becomes a magnus-teams release on its own server
 # (decisions/2026-11-09-teams-own-release-and-server.md): built on the build
 # box, signed with the magnus-teams key there (release/signing-key.sh; the
 # key never leaves it), the desktop app published to the test and
-# development channels, and the appliance's programs published and waited
-# for until the appliance runs them (release/to-appliance.sh).
+# development channels, and the server's programs published and waited
+# for until the server runs them (release/to-appliance.sh).
 #
 # Only pushes to main and manual runs start it, never a pull request: the
 # runner is the build box itself.
@@ -68,5 +68,5 @@ jobs:
           release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" dist test
           release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" dist development
 
-      - name: Put it on the appliance
+      - name: Put it on the server
         run: release/to-appliance.sh "$CONFIG" "$MAGNUS_APPLIANCE_VERSION" "$RUNNER_TEMP/notes" target/release
