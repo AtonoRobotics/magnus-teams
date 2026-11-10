@@ -239,6 +239,16 @@ impl Kernel {
         (p.rail == Rail::SavedCard).then(|| (format!("this would charge the saved card {} at {}", amount_text(&p), p.merchant_name), Some(RULE.to_string())))
     }
 
+    /// What a saved card's ask shows the person: that it is the saved card,
+    /// what it costs and where. Not reasoning: the card is drawn from it.
+    pub(crate) fn saved_card_charge(&self, a: &Action) -> Option<Value> {
+        if a.tool != "purchase_fill" {
+            return None;
+        }
+        let p = self.read(|s| a.input["purchase_id"].as_str().and_then(|id| s.payments.get(id).cloned()))?;
+        (p.rail == Rail::SavedCard).then(|| json!({ "saved_card": true, "amount": amount_text(&p), "merchant": p.merchant_name }))
+    }
+
     pub(crate) async fn purchase_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).context("no such run")?;
         if a.tool == "purchase_fill" {

@@ -228,6 +228,22 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     assert_eq!(shown["input"]["to"], "eve@evil.example", "the exact content is not one tap away");
 }
 
+/// A saved card's ask says on its card that it is the saved card, what it
+/// costs and where: the rule and the reason that said so are the developer's.
+#[test]
+fn a_saved_cards_card_says_the_charge() {
+    let s = State::default();
+    let alice: Person = serde_json::from_value(json!({ "id": "alice", "groups": [] })).unwrap();
+    let mut i = item(crate::payments::RULE, "financial", "alice");
+    i.details["tool"] = json!("purchase_fill");
+    i.details["app"] = json!("payments");
+    i.details["charge"] = json!({ "saved_card": true, "amount": "USD 35.05", "merchant": "Paper Shop" });
+    let c = card(&s, &alice, &i);
+    assert_eq!(c["sentence"], "Magnus wants to charge your saved card USD 35.05 at Paper Shop.");
+    assert_eq!((c["offers"].clone(), c["allow_scope"].clone()), (json!(["allow", "dont_allow"]), json!("once")), "a saved card was allowed for more than one fill");
+    assert_eq!(without_reasoning(&i.details)["charge"]["saved_card"], true, "the item does not say it is the saved card");
+}
+
 #[test]
 fn a_sentence_names_what_and_where() {
     assert_eq!(sentence("purchase_fill", "payments", None, "financial", &[]), "Magnus wants to make a payment (purchase fill) with your payment method.");

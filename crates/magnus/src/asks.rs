@@ -233,6 +233,17 @@ pub fn sentence(tool: &str, app: &str, title: Option<&str>, risk: &str, dests: &
     format!("Magnus wants to {verb} in {at}{to}.")
 }
 
+/// The card's sentence from an item's fields: a saved card's charge says
+/// that it is the saved card, what it costs and where (`charge`, from
+/// `saved_card_charge`); any other ask, what and where (`sentence`).
+pub fn item_sentence(d: &Value, dests: &[String]) -> String {
+    if let (Some(amount), true) = (d["charge"]["amount"].as_str(), d["charge"]["saved_card"] == true) {
+        let at = d["charge"]["merchant"].as_str().filter(|m| !m.is_empty()).unwrap_or("the seller");
+        return format!("Magnus wants to charge your saved card {amount} at {at}.");
+    }
+    sentence(d["tool"].as_str().unwrap_or_default(), d["app"].as_str().unwrap_or_default(), d["app_title"].as_str(), d["risk"].as_str().unwrap_or_default(), dests)
+}
+
 /// The fields of an approval item the card is made from, as a reader of
 /// any item finds them (an item from before rev 140 lacks some).
 pub fn item_destinations(d: &Value) -> Vec<String> {
@@ -278,7 +289,7 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     let d = &i.details;
     let reason = Reason::of(d["rule"].as_str());
     let dests = item_destinations(d);
-    let say = sentence(d["tool"].as_str().unwrap_or_default(), d["app"].as_str().unwrap_or_default(), d["app_title"].as_str(), d["risk"].as_str().unwrap_or_default(), &dests);
+    let say = item_sentence(d, &dests);
     let task_wide = reason.is_some_and(Reason::task_wide);
     let mut offers = vec!["allow"];
     if reason.is_some_and(Reason::always) && viewer.id == i.person && !dests.is_empty() && d["app"].as_str().is_some_and(|a| !a.is_empty()) {
@@ -441,21 +452,22 @@ impl Kernel {
                 let id = new_id("item");
                 let dests = destinations(a, f, shown);
                 let title = f.connector.as_ref().and_then(|c| c.title.clone());
-                let summary = sentence(&a.tool, &f.app, title.as_deref(), f.risk.as_str(), &dests);
+                let details = json!({
+                    "call_id": a.call_id, "tool": a.tool, "input": a.input, "input_hash": shown_hash(a, shown),
+                    "risk": f.risk.as_str(), "app": f.app, "app_title": title, "audience": f.audience.as_str(),
+                    "destinations": shown.map(Shown::details), "ask_destinations": dests,
+                    "charge": self.saved_card_charge(a),
+                    "reason": reason.as_str(), "why": why, "rule": rule,
+                    "taint": { "untrusted": run.untrusted, "private": run.private },
+                });
                 let ev = Ev::Item {
                     id: id.clone(),
                     item_kind: "approval".into(),
                     task: Some(run.task.clone()),
                     run: Some(a.run.clone()),
                     person: run.person.clone(),
-                    summary,
-                    details: json!({
-                        "call_id": a.call_id, "tool": a.tool, "input": a.input, "input_hash": shown_hash(a, shown),
-                        "risk": f.risk.as_str(), "app": f.app, "app_title": title, "audience": f.audience.as_str(),
-                        "destinations": shown.map(Shown::details), "ask_destinations": dests,
-                        "reason": reason.as_str(), "why": why, "rule": rule,
-                        "taint": { "untrusted": run.untrusted, "private": run.private },
-                    }),
+                    summary: item_sentence(&details, &dests),
+                    details,
                 };
                 (id, Some(ev))
             }
