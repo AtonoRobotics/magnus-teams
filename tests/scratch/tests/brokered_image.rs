@@ -46,3 +46,26 @@ fn a_server_image_is_built_reproducibly_and_named_by_its_digest() {
     );
     assert!((0..phnum).all(|i| u32::from_le_bytes(init[phoff + i * phentsize..phoff + i * phentsize + 4].try_into().unwrap()) != 3), "/init is not static");
 }
+
+/// First release run on the magnus-teams server (2026-11-09): every
+/// brokered manifest in the catalog still named the image its first commit
+/// built; the locked dependencies had moved since, so no checkout built any
+/// of them and release/to-appliance.sh refused the release. Each image a
+/// manifest names is one this checkout builds.
+#[test]
+fn every_server_image_the_catalog_names_is_built_from_this_checkout() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let packages = std::fs::read_to_string(root.join("release/brokered-images")).unwrap();
+    let built: Vec<String> = packages.lines().map(str::trim).filter(|p| !p.is_empty()).map(|p| image(p).digest).collect();
+    for entry in std::fs::read_dir(root.join("catalog")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+            continue;
+        }
+        let m: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        if m.get("kind").and_then(|k| k.as_str()) == Some("brokered") {
+            let named = m["endpoint"].as_str().unwrap();
+            assert!(built.iter().any(|d| d == named), "{} names {named}, which this checkout does not build; it builds {built:?}", path.display());
+        }
+    }
+}
