@@ -50,6 +50,8 @@ pub struct Connector {
     /// header: the app honors an `Idempotency-Key` header. none: it does not.
     pub idempotency: String,
     pub tools: BTreeMap<String, Tool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub filter_login_codes: bool,
     /// Where a tool's action goes, read from what it acts on
     /// (`Spec::destinations`).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -83,6 +85,12 @@ pub struct Spec {
     /// The `[mail]` config, when the test's appliance sends account email.
     /// None: no mail section, and nothing is sent.
     pub mail: Option<Value>,
+    /// Where `magnus-computerd` listens, when the test has computers.
+    pub computer: Option<PathBuf>,
+    /// More of the `[computer]` section, when a test has computers.
+    pub computer_options: Value,
+    /// Further top-level config sections.
+    pub sections: Value,
 }
 
 fn person(id: &str, groups: &[&str], roles: &[&str]) -> Person {
@@ -113,6 +121,9 @@ impl Default for Spec {
             secrets: vec![],
             proactive: json!({ "on": false }),
             mail: None,
+            computer: None,
+            computer_options: Value::Null,
+            sections: json!({}),
         }
     }
 }
@@ -130,10 +141,16 @@ impl Spec {
             access_groups: vec![],
             idempotency: "header".into(),
             tools: tools.iter().map(|(t, r)| (t.to_string(), Tool { risk: r.to_string() })).collect(),
+            filter_login_codes: false,
             destinations: BTreeMap::new(),
             sent: None,
             watch: vec![],
         });
+        self
+    }
+    /// Has this app's results pass through the login-code filter.
+    pub fn filter_login_codes(mut self, app: &str) -> Self {
+        self.connectors.iter_mut().find(|c| c.name == app).expect("no such app").filter_login_codes = true;
         self
     }
 
@@ -200,6 +217,20 @@ impl Spec {
 
     pub fn proactive(mut self, v: Value) -> Self {
         self.proactive = v;
+        self
+    }
+
+    pub fn computer(mut self, socket: &std::path::Path) -> Self {
+        self.computer = Some(socket.to_path_buf());
+        self
+    }
+
+    pub fn section(mut self, name: &str, value: Value) -> Self {
+        self.sections[name] = value;
+        self
+    }
+    pub fn computer_options(mut self, options: Value) -> Self {
+        self.computer_options = options;
         self
     }
 
@@ -321,6 +352,19 @@ impl Appliance {
             "people": spec.people,
             "connectors": spec.connectors,
         });
+        if let Some(socket) = &spec.computer {
+            config["computer"] = json!({ "socket": socket });
+            if let Value::Object(options) = &spec.computer_options {
+                for (name, value) in options {
+                    config["computer"][name] = value.clone();
+                }
+            }
+        }
+        if let Value::Object(sections) = &spec.sections {
+            for (name, value) in sections {
+                config[name] = value.clone();
+            }
+        }
         if let Some(mail) = spec.mail.clone() {
             config["mail"] = mail;
         }
@@ -521,6 +565,9 @@ impl Api {
         self.send(reqwest::Method::GET, path, None).await
     }
 
+    pub async fn delete(&self, path: &str) -> (StatusCode, Value) {
+        self.send(reqwest::Method::DELETE, path, None).await
+    }
     pub async fn post(&self, path: &str, body: Value) -> (StatusCode, Value) {
         self.send(reqwest::Method::POST, path, Some(body)).await
     }

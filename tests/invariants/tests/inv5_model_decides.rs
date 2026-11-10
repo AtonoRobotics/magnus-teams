@@ -4,6 +4,9 @@
 //! Prevents: workflows hidden in the harness that make the agent brittle, and
 //! code that quietly ends, redirects or "fixes" the work.
 
+// Test code: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use magnus_invariants::{mcp, *};
 use serde_json::{json, Value};
 use std::time::Duration;

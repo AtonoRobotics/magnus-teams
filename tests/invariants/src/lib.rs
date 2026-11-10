@@ -8,7 +8,11 @@
 //! scripted, and often scripted to misbehave, because the invariants must hold
 //! whatever the model decides.
 
+// Test code: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 pub mod appliance;
+pub mod computerd;
 pub mod mcp;
 pub mod model;
 pub mod pg;
@@ -16,8 +20,9 @@ pub mod scan;
 pub mod web;
 
 pub use appliance::{Api, Appliance, Spec};
+pub use computerd::Computerd;
 pub use mcp::FakeMcp;
-pub use model::{script, steps, tool, tools, Conversation, FakeModel, Reply};
+pub use model::{review, review_document, script, steps, tool, tools, Conversation, FakeModel, Reply};
 pub use web::FakeWeb;
 
 use serde_json::{json, Value};

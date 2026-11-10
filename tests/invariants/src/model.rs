@@ -125,8 +125,63 @@ struct Inner {
     script: Mutex<Script>,
     requests: Mutex<Vec<Conversation>>,
     responses: Mutex<Vec<Value>>,
+    /// Answers Auto Review's calls; none means the policy's own answer.
+    reviewer: Mutex<Option<Script>>,
+    classifier: Mutex<Option<Script>>,
+    classified: Mutex<Vec<Conversation>>,
+    monitor: Mutex<Option<Script>>,
+    screener: Mutex<Option<Script>>,
+    reviews: Mutex<Vec<Conversation>>,
 }
 
+/// A verdict from the fake Auto Review.
+/// What the outgoing classifier says.
+pub fn classify(sensitive: bool, finding: &str) -> Reply {
+    tool("classify", json!({ "sensitive": sensitive, "finding": finding }))
+}
+
+/// What the screen on incoming content says.
+pub fn screen(injection: bool, finding: &str) -> Reply {
+    tool("screen", json!({ "injection": injection, "finding": finding }))
+}
+
+/// What the independent monitor says.
+pub fn monitor(decision: &str, reason: &str) -> Reply {
+    tool("monitor", json!({ "decision": decision, "reason": reason }))
+}
+
+pub fn review(decision: &str, reason: &str) -> Reply {
+    tool("review", json!({ "decision": decision, "reason": reason }))
+}
+/// The document Auto Review was given.
+pub fn review_document(c: &Conversation) -> Value {
+    serde_json::from_str(&content_text(&c.messages()[0]["content"])).unwrap_or(Value::Null)
+}
+/// Tests not about Auto Review see the policy unchanged: Auto Review checks
+/// each boundary action against the request and the rules (spec rev 140),
+/// and here what the owner's policy permits is what fits the request. The
+/// organisation's layer, read first, lets the agent act alone: by a permit
+/// for the tool, a permit of everything, or the baseline's permit of reads
+/// and reversible writes by the action's effect. A lower layer only narrows:
+/// its forbid of the tool makes the review ask. Any other action is judged
+/// outside what was asked, and asks.
+fn default_review(c: &Conversation) -> Reply {
+    let doc = review_document(c);
+    let standing = doc["standing"].as_str().unwrap_or_default();
+    let tool = doc["action"]["tool"].as_str().unwrap_or_default();
+    let effect = doc["action"]["effect"].as_str().unwrap_or_default();
+    let by_baseline = matches!(effect, "read" | "reversible_write" | "sandbox");
+    let rules: Vec<&str> = doc["their_rules"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let org = rules.first().copied().unwrap_or_default();
+    let baseline = org.contains(r#"resource.risk == "read" || resource.risk == "reversible_write""#);
+    let permitted = (by_baseline && baseline) || org.contains(&crate::permit_execute(tool)) || org.contains("permit(principal, action, resource);");
+    let narrowed = rules.iter().skip(1).any(|r| r.contains("forbid(") && r.contains(&format!("Tool::\"{tool}\"")));
+    if standing.starts_with("covered") || (permitted && !narrowed) {
+        review("allow", "it fits what was asked")
+    } else {
+        review("ask", "for the person")
+    }
+}
 #[derive(Clone)]
 pub struct FakeModel {
     pub url: String,
@@ -135,7 +190,17 @@ pub struct FakeModel {
 
 impl FakeModel {
     pub async fn start(s: Script) -> Self {
-        let inner = Arc::new(Inner { script: Mutex::new(s), requests: Mutex::new(vec![]), responses: Mutex::new(vec![]) });
+        let inner = Arc::new(Inner {
+            script: Mutex::new(s),
+            requests: Mutex::new(vec![]),
+            responses: Mutex::new(vec![]),
+            reviewer: Mutex::new(None),
+            classifier: Mutex::new(None),
+            classified: Mutex::new(vec![]),
+            monitor: Mutex::new(None),
+            screener: Mutex::new(None),
+            reviews: Mutex::new(vec![]),
+        });
         let app = Router::new().route("/v1/messages", post(messages)).with_state(inner.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -143,6 +208,32 @@ impl FakeModel {
         FakeModel { url, inner }
     }
 
+    /// What Auto Review is told from now on, instead of the default: allow
+    /// what is already permitted or covered, and ask about the rest.
+    pub fn set_reviewer(&self, s: Script) {
+        *self.inner.reviewer.lock().unwrap() = Some(s);
+    }
+    /// Every request Auto Review made, in order.
+    pub fn set_classifier(&self, s: Script) {
+        *self.inner.classifier.lock().unwrap() = Some(s);
+    }
+
+    /// Every request the outgoing classifier received.
+    pub fn classified(&self) -> Vec<Conversation> {
+        self.inner.classified.lock().unwrap().clone()
+    }
+
+    pub fn set_screener(&self, s: Script) {
+        *self.inner.screener.lock().unwrap() = Some(s);
+    }
+
+    pub fn set_monitor(&self, s: Script) {
+        *self.inner.monitor.lock().unwrap() = Some(s);
+    }
+
+    pub fn reviews(&self) -> Vec<Conversation> {
+        self.inner.reviews.lock().unwrap().clone()
+    }
     pub fn set_script(&self, s: Script) {
         *self.inner.script.lock().unwrap() = s;
     }
@@ -176,9 +267,41 @@ impl FakeModel {
 async fn messages(State(inner): State<Arc<Inner>>, headers: HeaderMap, body: String) -> Response {
     let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
     let conv = Conversation { headers: headers.iter().map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or_default().to_string())).collect(), body: body.clone() };
-    inner.requests.lock().unwrap().push(conv.clone());
-    let s = inner.script.lock().unwrap().clone();
-    let reply = s(conv).await;
+    let is_review = body["system"].to_string().contains("You are Auto Review");
+    let is_classifier = body["system"].to_string().contains("You scan outgoing content");
+    let is_monitor = body["system"].to_string().contains("independent safety monitor");
+    let is_screen = body["system"].to_string().contains("You screen content");
+    let reply = if is_classifier {
+        inner.classified.lock().unwrap().push(conv.clone());
+        let classifier = inner.classifier.lock().unwrap().clone();
+        match classifier {
+            Some(c) => c(conv).await,
+            None => classify(false, ""),
+        }
+    } else if is_screen {
+        let screener = inner.screener.lock().unwrap().clone();
+        match screener {
+            Some(f) => f(conv).await,
+            None => screen(false, ""),
+        }
+    } else if is_monitor {
+        let watcher = inner.monitor.lock().unwrap().clone();
+        match watcher {
+            Some(m) => m(conv).await,
+            None => monitor("allow", "fine"),
+        }
+    } else if is_review {
+        inner.reviews.lock().unwrap().push(conv.clone());
+        let reviewer = inner.reviewer.lock().unwrap().clone();
+        match reviewer {
+            Some(r) => r(conv).await,
+            None => default_review(&conv),
+        }
+    } else {
+        inner.requests.lock().unwrap().push(conv.clone());
+        let s = inner.script.lock().unwrap().clone();
+        s(conv).await
+    };
 
     let (model, input_tokens) = match reply {
         Reply::Charged(n) => (Value::Null, n),
@@ -214,7 +337,9 @@ async fn messages(State(inner): State<Arc<Inner>>, headers: HeaderMap, body: Str
         "stop_sequence": null,
         "usage": {"input_tokens": input_tokens, "output_tokens": 20}
     });
-    inner.responses.lock().unwrap().push(msg.clone());
+    if !is_review {
+        inner.responses.lock().unwrap().push(msg.clone());
+    }
 
     if body["stream"].as_bool().unwrap_or(false) {
         return sse(&msg);

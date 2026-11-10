@@ -6,14 +6,14 @@
 //! Prevents: lost sessions on crash, retries that repeat a side effect after a
 //! lost response, and content that can never be deleted.
 
+// Test code: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use magnus_invariants::{mcp, *};
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeSet,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
     time::Duration,
 };
 
@@ -230,11 +230,12 @@ async fn all_state_is_rebuilt_from_the_event_log_and_its_content() {
     assert_eq!(mail.effects("send"), 1);
 }
 
+/// Every crash lands while a post is in flight: its effect has happened and
+/// its response is lost. The resend after each restart must be recognized.
 #[tokio::test(flavor = "multi_thread")]
 async fn repeated_crashes_never_repeat_an_effect() {
     let chat = mcp::chat().start().await;
     let model = FakeModel::start(script(|c| async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
         match c.turn() {
             0 => contract_checked("post four updates", "chat__list_posts", json!({}), "/count", json!(4)),
             n @ 1..=4 => tool("chat__post", json!({ "channel": "team", "text": format!("update {n}") })),
@@ -245,24 +246,237 @@ async fn repeated_crashes_never_repeat_an_effect() {
     let mut app = Appliance::start(Spec::default().app("chat", &chat, "internal", "private", &[("post", "irreversible"), ("list_posts", "read")]), &model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", &org_policy(&permit_execute("chat__post"))).await.is_success());
-    let id = alice.submit("Post four updates to the team channel.").await;
 
-    let stop = Arc::new(AtomicBool::new(false));
-    for _ in 0..6 {
-        let wait = 200 + (uuid::Uuid::new_v4().as_u128() % 1300) as u64;
-        tokio::time::sleep(Duration::from_millis(wait)).await;
-        if alice.task(&id).await["status"] == "completed" {
-            stop.store(true, Ordering::SeqCst);
-            break;
-        }
+    // A held call is one that took effect; the app answers a recognized
+    // resend without holding it, so each hold catches the next new post.
+    let mut hold = chat.hold("post");
+    let id = alice.submit("Post four updates to the team channel.").await;
+    for n in 1..=4 {
+        tokio::time::timeout(PATIENCE, hold.received()).await.unwrap_or_else(|_| panic!("post {n} never reached the app"));
+        app.kill().await;
+        let next = (n < 4).then(|| chat.hold("post"));
+        hold.release();
         app.restart().await;
+        if let Some(h) = next {
+            hold = h;
+        }
     }
     let t = alice.wait_settled(&id).await;
     assert_eq!(t["status"], "completed", "{t}");
-    let posts = chat.world()["posts"].as_array().unwrap().clone();
-    let texts: Vec<_> = posts.iter().map(|p| p["text"].as_str().unwrap().to_string()).collect();
-    for n in 1..=4 {
-        let k = texts.iter().filter(|t| **t == format!("update {n}")).count();
-        assert_eq!(k, 1, "update {n} was posted {k} times after {} starts: {texts:?}", app.starts());
+    assert_eq!(app.starts(), 5);
+    let mut keys: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
+    for c in chat.calls_to("post") {
+        keys.entry(c.args["text"].as_str().unwrap().to_string()).or_default().push(c.idempotency_key().map(String::from));
     }
+    for n in 1..=4 {
+        let text = format!("update {n}");
+        let k = chat.world()["posts"].as_array().unwrap().iter().filter(|p| p["text"] == text.as_str()).count();
+        assert_eq!(k, 1, "{text} was posted {k} times across four crashes");
+        let sent = &keys[&text];
+        assert!(sent.len() >= 2, "{text} was not resent after its crash: {sent:?}");
+        assert!(sent.iter().all(|k| k.is_some() && *k == sent[0]), "the resends of {text} did not carry one idempotency key: {sent:?}");
+    }
+}
+
+fn b64(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// An installer that leaves a program behind, so a replay can be seen working.
+const INSTALLER: &str = "#!/bin/sh\nprintf '#!/bin/sh\\necho hello-from-the-app\\n' > /usr/local/bin/hello\nchmod 755 /usr/local/bin/hello\n";
+
+fn sha256_of(data: &[u8]) -> String {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("sha256sum").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().expect("run sha256sum");
+    child.stdin.take().expect("its stdin").write_all(data).expect("hash");
+    let out = child.wait_with_output().expect("hash");
+    String::from_utf8_lossy(&out.stdout).split_whitespace().next().expect("a hash").to_string()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn destroying_a_computer_loses_no_user_work() {
+    let computerd = Computerd::start();
+    let model = FakeModel::start(steps(vec![])).await;
+    let registry = FakeWeb::start(&[("/hello", INSTALLER)]).await;
+    let bare = registry.base.trim_start_matches("http://").to_string();
+    let spec = Spec::default().computer_options(json!({ "registries": ["registry.test"], "public_hosts": { "registry.test": [bare] } }));
+    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
+    let alice = app.api("alice");
+    let (_, made) = alice.post("/v1/computers", json!({})).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
+    let (code, started) = alice.post(&at("/start"), json!({})).await;
+    assert_eq!(code, 200, "{started}");
+
+    let work = canary("user-work");
+    let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/work", "data_b64": b64(work.as_bytes()) })).await;
+    assert_eq!(code, 200, "{wrote}");
+    computerd.root_shell(&id, "curl -s -m 20 -o /workspace/installer -x http://10.200.0.1:3128 http://registry.test/hello");
+    computerd.exec(&id, "sh /workspace/installer");
+    assert!(computerd.exec(&id, "hello").contains("hello-from-the-app"), "the test's own install did not work");
+    // The proxy checks what the entry claims against what it carried.
+    let untraced = canary("not-downloaded");
+    assert_eq!(alice.put(&at("/files"), json!({ "path": "/workspace/made-here", "data_b64": b64(untraced.as_bytes()) })).await.0, 200);
+    let claim = |installer: &str, source: &str| json!({ "name": "x", "version": "1", "source": source, "installer": installer, "steps": ["true"] });
+    let (code, refused) = alice.post(&at("/apps"), claim("/workspace/made-here", "http://registry.test/hello")).await;
+    assert_eq!(code, 400, "a file the proxy never carried was accepted: {refused}");
+    let (code, refused) = alice.post(&at("/apps"), claim("/workspace/installer", "http://other.test/hello")).await;
+    assert_eq!(code, 400, "a file was accepted from a source it did not come from: {refused}");
+    let (code, recorded) = alice
+        .post(&at("/apps"), json!({ "name": "hello", "version": "1", "source": "http://registry.test/hello", "installer": "/workspace/installer", "steps": ["sh \"$INSTALLER\""] }))
+        .await;
+    assert_eq!(code, 200, "{recorded}");
+    let hash = sha256_of(INSTALLER.as_bytes());
+    assert_eq!(recorded["sha256"], hash.as_str(), "the manifest does not hold the installer's own hash");
+    let (code, backed) = alice.post(&at("/backup"), json!({})).await;
+    assert_eq!(code, 200, "{backed}");
+
+    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
+    assert_eq!(code, 200);
+    computerd.remove_overlay_and_snapshot(&id);
+    let (code, woke) = alice.post(&at("/start"), json!({})).await;
+    assert_eq!(code, 200, "{woke}");
+    assert_eq!(woke["replayed"], true, "the overlay was new and the manifest was not replayed: {woke}");
+    let (code, read) = alice.get(&at("/files?path=/workspace/work")).await;
+    assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some(b64(work.as_bytes()).as_str())), "the rebuilt computer lost the file: {read}");
+    assert!(computerd.exec(&id, "hello").contains("hello-from-the-app"), "the app was not replayed from the manifest");
+    let (_, seen) = alice.get(&at("/apps")).await;
+    assert_eq!(seen["apps"][0]["sha256"], hash.as_str(), "the manifest changed: {seen}");
+    assert!(seen["replay_error"].is_null(), "{seen}");
+
+    // An installer that is no longer what the manifest says is not run.
+    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
+    assert_eq!(code, 200);
+    computerd.remove_overlay_and_snapshot(&id);
+    let cached = app.state_dir.join("computer-installers").join(&hash);
+    std::fs::write(&cached, "#!/bin/sh\ntouch /usr/local/bin/tampered\n").unwrap();
+    let (code, woke) = alice.post(&at("/start"), json!({})).await;
+    assert_eq!(code, 200, "{woke}");
+    let (_, seen) = alice.get(&at("/apps")).await;
+    assert!(seen["replay_error"].as_str().is_some_and(|e| e.contains("does not match")), "a changed installer was accepted: {seen}");
+    assert!(!computerd.exec(&id, "ls /usr/local/bin").contains("tampered"), "a changed installer ran");
+
+    // The volume itself comes back from its backup.
+    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy" })).await;
+    assert_eq!(code, 200);
+    computerd.remove_volume(&id);
+    assert!(!computerd.volume_exists(&id));
+    let (code, restored) = alice.post(&at("/restore"), json!({})).await;
+    assert_eq!(code, 200, "the backup did not restore the volume: {restored}");
+    std::fs::write(&cached, INSTALLER).unwrap();
+    let (code, woke) = alice.post(&at("/start"), json!({})).await;
+    assert_eq!(code, 200, "{woke}");
+    let (code, read) = alice.get(&at("/files?path=/workspace/work")).await;
+    assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some(b64(work.as_bytes()).as_str())), "the backup did not restore the volume: {read}");
+}
+
+/// A volume's blocks go back to the host after zeroing: well under the
+/// 1 GiB test volume, whose free space was all written.
+const ZEROED_VOLUME_MAX_BYTES: u64 = 256 << 20;
+
+/// An earlier version of a deleted file lives on in free blocks until they
+/// are overwritten, which happens before the computer hibernates.
+#[tokio::test(flavor = "multi_thread")]
+async fn earlier_versions_of_a_deleted_file_leave_the_volume_when_it_goes_idle() {
+    let computerd = Computerd::start();
+    let model = FakeModel::start(steps(vec![])).await;
+    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
+    let alice = app.api("alice");
+    let (_, made) = alice.post("/v1/computers", json!({})).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
+    assert_eq!(alice.post(&at("/start"), json!({})).await.0, 200);
+    let old = canary("old-version");
+    computerd.exec(&id, &format!("echo {old} > /workspace/report; sync; echo newer > /workspace/report.new; mv /workspace/report.new /workspace/report; sync"));
+    assert_eq!(alice.delete(&at("/files?path=/workspace/report")).await.0, 200);
+    computerd.exec(&id, "sync");
+    let (code, slept) = alice.post(&at("/hibernate"), json!({})).await;
+    assert_eq!(code, 200, "{slept}");
+    assert!(!computerd.volume_holds(&id, &old), "an earlier version of a deleted file stayed in the volume's free blocks");
+    let cost = computerd.volume_allocated_bytes(&id);
+    assert!(cost < ZEROED_VOLUME_MAX_BYTES, "zeroing left the host holding {cost} bytes of nothing");
+}
+
+/// The host's unflushed pages count against a VM's memory limit, so a big
+/// write used to get the VM killed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_computer_survives_writing_far_more_than_its_memory() {
+    let computerd = Computerd::start();
+    let model = FakeModel::start(steps(vec![])).await;
+    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
+    let alice = app.api("alice");
+    let (_, made) = alice.post("/v1/computers", json!({})).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    assert_eq!(alice.post(&format!("/v1/computers/{id}/start"), json!({})).await.0, 200);
+    let done = computerd.exec(&id, "for i in 1 2 3 4; do dd if=/dev/zero of=/workspace/big bs=1M count=900 2>/dev/null; rm /workspace/big; done; sync; echo still-here");
+    assert!(done.contains("still-here"), "{done}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window() {
+    let computerd = Computerd::start();
+    assert!(computerd.purge_days() <= 30, "the purge window is over 30 days");
+    let systems = Arc::new(std::sync::Mutex::new(String::new()));
+    let seen_by_model = systems.clone();
+    let model = FakeModel::start(script(move |c| {
+        seen_by_model.lock().unwrap().push_str(&c.body["system"].to_string());
+        async move {
+            match c.turn() {
+                0 => contract_unchecked("nothing", "nothing"),
+                _ => fail("done"),
+            }
+        }
+    }))
+    .await;
+    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
+    let alice = app.api("alice");
+    let (_, made) = alice.post("/v1/computers", json!({})).await;
+    let id = made["id"].as_str().unwrap().to_string();
+    let at = |rest: &str| format!("/v1/computers/{id}{rest}");
+    let (code, started) = alice.post(&at("/start"), json!({})).await;
+    assert_eq!(code, 200, "{started}");
+
+    let secret = canary("deleted-file");
+    let (code, wrote) = alice.put(&at("/files"), json!({ "path": "/workspace/secret.txt", "data_b64": b64(secret.as_bytes()) })).await;
+    assert_eq!(code, 200, "{wrote}");
+    let (code, before) = alice.post(&at("/backup"), json!({})).await;
+    assert_eq!(code, 200, "{before}");
+    assert!(computerd.backups_hold(&id, &secret), "the scan found nothing it should have");
+    // Backups are named by the second, and this one must be the older.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Hibernated, so a snapshot from before the deletion exists too.
+    let (code, _) = alice.post(&at("/hibernate"), json!({})).await;
+    assert_eq!(code, 200);
+    assert!(computerd.has_snapshot(&id));
+
+    let (code, gone) = alice.send(reqwest::Method::DELETE, &at("/files?path=/workspace/secret.txt"), None).await;
+    assert_eq!(code, 200, "{gone}");
+    assert!(!computerd.volume_holds(&id, &secret), "the deleted file is still stored: on the volume");
+    assert!(!computerd.has_snapshot(&id), "a snapshot outlived the edit it no longer matches");
+    let (code, read) = alice.get(&at("/files?path=/workspace/secret.txt")).await;
+    assert!(code != 200, "the deleted file can still be read: {read}");
+
+    // The log keeps that it happened and none of what it was.
+    let task = alice.submit("Do nothing.").await;
+    alice.wait_settled(&task).await;
+    assert!(systems.lock().unwrap().contains("/workspace/secret.txt"), "the next run was not told");
+    assert!(magnus_invariants::scan::files_containing(&app.state_dir, &secret).is_empty(), "the deleted file is still stored: in the server's state");
+
+    let (code, started) = alice.post(&at("/start"), json!({})).await;
+    assert_eq!(code, 200, "{started}");
+    let (code, after) = alice.post(&at("/backup"), json!({})).await;
+    assert_eq!(code, 200, "{after}");
+
+    // One second before the newer backup expires: the older one must be gone.
+    let window_seconds = computerd.purge_days() * 86_400;
+    let newest = *computerd.backups(&id).last().unwrap();
+    assert_eq!(computerd.backups(&id).len(), 2, "{:?}", computerd.backups(&id));
+    computerd.purge_at(newest + window_seconds - 1);
+    assert_eq!(computerd.backups(&id), vec![newest], "a backup outlived the purge window");
+    assert!(!computerd.backups_hold(&id, &secret), "the deleted file is still stored: in a backup");
+    computerd.purge_at(newest + window_seconds + 1);
+    assert!(computerd.backups(&id).is_empty(), "a backup outlived the purge window");
 }

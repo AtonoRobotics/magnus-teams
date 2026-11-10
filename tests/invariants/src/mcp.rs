@@ -61,6 +61,8 @@ struct ToolDef {
     description: String,
     schema: Value,
     handler: Handler,
+    /// The view this tool ships (MCP Apps): its uri and page.
+    view: Option<(String, String)>,
 }
 
 struct Hold {
@@ -89,7 +91,13 @@ impl Builder {
     where
         F: Fn(&mut World, &Value, &HashMap<String, String>) -> Out + Send + Sync + 'static,
     {
-        self.tools.push(ToolDef { name: name.into(), description: description.into(), schema, handler: Arc::new(f) });
+        self.tools.push(ToolDef { name: name.into(), description: description.into(), schema, handler: Arc::new(f), view: None });
+        self
+    }
+
+    /// Gives a tool already added a view at `uri`.
+    pub fn view(mut self, tool: &str, uri: &str, html: &str) -> Self {
+        self.tools.iter_mut().find(|t| t.name == tool).expect("that tool").view = Some((uri.into(), html.into()));
         self
     }
 
@@ -206,8 +214,25 @@ async fn rpc(State(inner): State<Arc<Inner>>, headers: HeaderMap, body: String) 
         }),
         "ping" => json!({}),
         "tools/list" => {
-            let tools: Vec<Value> = inner.tools.lock().unwrap().iter().map(|t| json!({ "name": t.name, "description": t.description, "inputSchema": t.schema })).collect();
+            let tools: Vec<Value> = inner
+                .tools
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|t| {
+                    let mut v = json!({ "name": t.name, "description": t.description, "inputSchema": t.schema });
+                    if let Some((uri, _)) = &t.view {
+                        v["_meta"] = json!({ "ui": { "resourceUri": uri } });
+                    }
+                    v
+                })
+                .collect();
             json!({ "tools": tools })
+        }
+        "resources/read" => {
+            let uri = req["params"]["uri"].as_str().unwrap_or_default();
+            let found = inner.tools.lock().unwrap().iter().filter_map(|t| t.view.clone()).find(|(u, _)| u == uri);
+            json!({ "contents": found.map(|(u, html)| vec![json!({ "uri": u, "mimeType": "text/html", "text": html })]).unwrap_or_default() })
         }
         "tools/call" => call(&inner, &req["params"], headers).await,
         _ => {

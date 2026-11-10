@@ -1,8 +1,8 @@
 # The pending invariant patches, brought to spec rev 140 as one patch
 
-The owner said on 2026-11-10: "I don't do the coding you do. Apply the patches." This brings every pending patch to `tests/invariants/` together as one patch against `main`, `decisions/2026-11-10-invariant-patches.patch`, with each test that encoded a retired flow brought to spec rev 140 ("Permissions and tasks") and the newest decisions. Apply it from the repository root with `git apply decisions/2026-11-10-invariant-patches.patch`. Once it is applied, the patches it replaces (listed below) can be deleted or moved to `docs/proposals/applied/`.
+The owner said on 2026-11-10: "I don't do the coding you do. Apply the patches." This applies every pending patch to `tests/invariants/` as one patch against `main`, now kept at `docs/proposals/applied/2026-11-10-invariant-patches.patch`. Each test that encoded a retired flow is brought to spec rev 140 ("Permissions and tasks") and the newest decisions. The patches it replaces (listed below) moved to `docs/proposals/applied/`. `ci/clippy-baseline` falls from 899 to 821, because the harness allows `unwrap`/`expect` as test code.
 
-The agent that prepared it could not apply it: the permission check refused its `git apply` to `tests/invariants/`. It was built and run in a copy of the repository instead.
+The main session applied it on the owner's instruction. A sub-agent prepared it and ran it in a copy of the repository, because the permission check refused the sub-agent's own `git apply`.
 
 ## What it applies
 

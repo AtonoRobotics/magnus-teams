@@ -3,6 +3,9 @@
 //!
 //! Prevents: agents declaring completion early and marking work done untested.
 
+// Test code: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use magnus_invariants::{mcp, *};
 use serde_json::json;
 
@@ -82,23 +85,20 @@ async fn completion_reflects_the_world_at_the_time_of_checking() {
     assert_ne!(t["status"], "completed", "the report was trusted over the world: {t}");
 }
 
+/// Checking is internal (spec rev 140): a criterion no check can confirm is
+/// never put to the person. The task completes with the result, and the
+/// criterion is recorded as unconfirmed for the developer view.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_criterion_without_a_check_goes_to_the_person_for_review() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("review rejected")])).await;
+async fn a_criterion_without_a_check_is_never_put_to_the_person() {
+    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("unexpected turn")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
 
-    let accepted = alice.submit("Write me a poem.").await;
-    let review = alice.wait_item(&accepted, "review").await;
-    assert_eq!(alice.task(&accepted).await["status"], "suspended");
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
-    alice.wait_status(&accepted, &["completed"]).await;
-
-    let rejected = alice.submit("Write me another poem.").await;
-    let review = alice.wait_item(&rejected, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "reject", "text": "too short" })).await.is_success());
-    let t = alice.wait_settled(&rejected).await;
-    assert_eq!(t["status"], "failed", "a rejected review must go back to the agent, which decides: {t}");
+    let id = alice.submit("Write me a poem.").await;
+    let t = alice.wait_settled(&id).await;
+    assert_eq!(t["status"], "completed", "{t}");
+    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "review"), "the person was asked to review criteria");
+    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the unconfirmed criterion is not recorded");
 }
 
 #[tokio::test(flavor = "multi_thread")]
