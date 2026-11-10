@@ -150,7 +150,8 @@ await step("see the outcome, not how it was checked", async () => {
   // The plan left u1 active; once the task is done, nothing shows as active.
   await panel.getByRole("tab", { name: "Plan" }).click();
   await panel.locator("[data-unit-status]").first().waitFor({ timeout: T });
-  await panel.locator("ol .chip", { hasText: "appliance-verified" }).first().waitFor({ timeout: T });
+  // Checking is internal (spec rev 140): the plan shows no verified checks.
+  if (await panel.getByText(/appliance-verified/i).count()) throw new Error("the plan shows how the work was checked");
   const states = await panel.locator("[data-unit-status]").evaluateAll(els => els.map(e => e.dataset.unitStatus));
   if (states.some(s => s === "active" || s === "pending")) throw new Error(`a finished task shows plan units as ${states.join(", ")}`);
   await panel.getByRole("tab", { name: "Steps" }).click();

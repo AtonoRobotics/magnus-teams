@@ -26,7 +26,11 @@ if (shots) mkdirSync(shots, { recursive: true });
 const win = JSON.parse(readFileSync(join(root, "desktop/src-tauri/tauri.conf.json"), "utf8")).app.windows[0];
 // The catalog as it ships (`catalog/*.toml`): how many connectors it has,
 // and which are code services, so the Library is checked against it.
-const manifests = readdirSync(join(root, "catalog")).filter(f => f.endsWith(".toml") && f !== "registrations.toml").map(f => readFileSync(join(root, "catalog", f), "utf8"));
+// A manifest the kernel holds out of the shipped catalog (`HELD` in
+// catalog.rs, such as Shopify's until client ID metadata documents) is not
+// in the Library.
+const held = [...(readFileSync(join(root, "crates/magnus/src/catalog.rs"), "utf8").match(/const HELD[^;]*;/)?.[0] ?? "").matchAll(/catalog\/([\w-]+\.toml)/g)].map(m => m[1]);
+const manifests = readdirSync(join(root, "catalog")).filter(f => f.endsWith(".toml") && f !== "registrations.toml" && !held.includes(f)).map(f => readFileSync(join(root, "catalog", f), "utf8"));
 const field = (m, k) => m.match(new RegExp(`^${k} = "([^"]*)"`, "m"))?.[1];
 const code = manifests.filter(m => field(m, "category") === "code").map(m => field(m, "id"));
 
@@ -56,7 +60,8 @@ const step = async (name, f) => {
   catch (e) { await shot(`FAILED-${name}`); console.error(`FAIL ${name}: ${e.message}`); await browser.close(); process.exit(1); }
 };
 const T = 60_000;
-const PROTOCOL = /\b(oauth|scopes?|tokens?|mcp|port|https?:)/i;
+// A network port, not a word that starts with one, such as Asana's portfolios.
+const PROTOCOL = /\b(oauth|scopes?|tokens?|mcp|ports?\b|https?:)/i;
 // Text a person could type in, other than the Library's own search box.
 const typed = scope => page.locator(`${scope} input:not([type=search]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]), ${scope} textarea`).count();
 

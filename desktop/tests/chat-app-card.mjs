@@ -30,7 +30,8 @@ const step = async (name, f) => {
   catch (e) { await shot(`FAILED-${name}`); console.error(`FAIL ${name}: ${e.message}`); await browser.close(); process.exit(1); }
 };
 const T = 60_000;
-const PROTOCOL = /\b(oauth|scopes?|tokens?|mcp|port|https?:)/i;
+// A network port, not a word that starts with one, such as Asana's portfolios.
+const PROTOCOL = /\b(oauth|scopes?|tokens?|mcp|ports?\b|https?:)/i;
 
 await step("sign in", async () => {
   await page.goto(base);

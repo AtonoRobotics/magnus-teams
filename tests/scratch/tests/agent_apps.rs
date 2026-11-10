@@ -166,8 +166,9 @@ async fn magnus_cannot_offer_an_app_outside_the_persons_library() {
     assert!(back.contains("not in the person's Library"), "an app outside Bob's Library was offered: {back}");
     assert!(!back.contains("\"name\":\"google-gmail\""), "find_apps listed an app outside Bob's Library: {back}");
 
-    // Nothing fits: the person is told plainly.
-    let _ = say(&bob, &plan, "Can you post in our Slack?", vec![("find_apps", json!({ "query": "slack channel" }))]).await;
+    // Nothing fits: the person is told plainly. No app in the catalog sends a
+    // fax (Slack, asked for here before, now is one).
+    let _ = say(&bob, &plan, "Can you send this by fax?", vec![("find_apps", json!({ "query": "fax" }))]).await;
     assert!(said_back(&seen).contains("No app in the person's Library does that"), "{}", said_back(&seen));
 }
 
