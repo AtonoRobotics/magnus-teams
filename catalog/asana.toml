@@ -1,0 +1,113 @@
+id = "asana"
+version = "1.0.0"
+name = "Asana"
+summary = "Magnus can find and read your Asana tasks, projects, portfolios and tables, and create, update or comment on them with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Asana"
+category = "work"
+abilities = ["Find a task, project or person when you ask about one", "Read a task, its comments and history, and how a project or portfolio is going", "Create and update tasks, projects and table records, when you allow it", "Comment and post project status updates, when you allow each one"]
+asks = ["Work in one Asana workspace as you: read what you can see there, and change it when you allow it"]
+can = "Search and read the tasks, projects, portfolios, people and tables you can see in the workspace you pick, and create, update, comment on or delete them when you allow each one"
+cannot = "See anything you cannot see in Asana, work in a workspace other than the one you pick when you sign in, or change anything without asking you first"
+letters = "As"
+tint = "#C0474A"
+kind = "remote"
+# Asana's V2 server (streamable HTTP). The V1 server at /sse, the one that
+# let clients register themselves, was shut down on 2026-05-11.
+endpoint = "https://mcp.asana.com/v2/mcp"
+# Tasks, comments and status updates reach their followers and the
+# project's members, who may be guests from outside the organisation:
+# what reaches it may reach anyone. What comes back was written by others.
+audience = "public"
+label = "private+untrusted"
+# The V2 server takes no dynamic registration ("Dynamic client registration
+# is not supported with Asana's V2 MCP Server"): Alpha Vector's own MCP app
+# with Asana, confidential (its token endpoint takes client_secret_post or
+# client_secret_basic), its ID and secret provisioned by the release.
+registration = "preregistered"
+provider = "asana"
+# Asana matches the redirect exactly, port included, and takes a loopback
+# one only with PKCE (S256), which Magnus sends. One fixed loopback address
+# is registered on the app, and the desktop listens there, as Slack's did
+# before its https callback. It moves to the relay's callback at the relay
+# cutover (docs/remote-access-and-relay.md, "Redirects to switch, later";
+# decisions/2026-11-10-asana-and-shopify.md).
+redirect_uri = "http://127.0.0.1:17322/callback"
+# Asana names a revocation endpoint, so Disconnect revokes it there. When it
+# could not, the person removes Magnus under My settings, Apps, Deauthorize
+# (Asana's help names no direct link to that tab).
+remove_access = "https://help.asana.com/s/article/apps-settings"
+# MCP apps take no permission scopes: a sign-in grants every tool, limited
+# to what the person can see, in the one workspace they pick. `default` is
+# the one its metadata offers.
+scopes = ["default"]
+
+# The 44 tools mcp.asana.com/v2/mcp lists (Asana's MCP tools reference, read
+# 2026-11-10: 25 read, 16 write, 3 interactive). Writes that reach other
+# people (assignments, followers, comments, mentions, status updates,
+# sharing) cannot be taken back once they are seen, so they are
+# irreversible, as GitLab's are.
+[tools]
+search_objects = "read"
+get_task = "read"
+get_task_stories = "read"
+get_tasks = "read"
+get_my_tasks = "read"
+get_notifications = "read"
+search_tasks = "read"
+get_project = "read"
+get_projects = "read"
+get_portfolio = "read"
+get_portfolios = "read"
+get_items_for_portfolio = "read"
+get_status_overview = "read"
+get_attachments = "read"
+get_user = "read"
+get_me = "read"
+get_users = "read"
+get_teams = "read"
+get_agent = "read"
+get_workspace_agents = "read"
+get_table = "read"
+get_tables = "read"
+get_record = "read"
+get_records = "read"
+search_records = "read"
+# Assignees and followers are notified at once.
+create_tasks = "irreversible"
+create_project = "irreversible"
+create_task_from_template = "irreversible"
+create_project_from_template = "irreversible"
+# Can change owner, members and privacy, making a project public.
+update_project = "irreversible"
+# Can reassign, complete and move tasks; assignees and followers are
+# notified, and a failed batch may still have applied part of it.
+update_tasks = "irreversible"
+# The person's own Inbox, read or unread, and set back the same way.
+update_notifications = "reversible_write"
+# Also deletes its subtasks that are in no other project.
+delete_task = "irreversible"
+add_comment = "irreversible"
+create_project_status_update = "irreversible"
+create_table = "irreversible"
+# Removing a field from a table's schema can lose the records' values in it.
+update_table = "irreversible"
+# A table's records, changed and changed back without notifying anyone.
+create_records = "reversible_write"
+update_records = "reversible_write"
+delete_record = "irreversible"
+add_record_comment = "irreversible"
+search_tasks_preview = "read"
+# These draft a task or project in an interactive view where the person
+# creates it with a click in the client. Magnus shows no such view, and a
+# creation from it would never pass Magnus's approval: create_tasks and
+# create_project do the same work, asked for first.
+create_task_preview = "prohibited"
+create_project_preview = "prohibited"
+
+[reach]
+update_notifications = "self"

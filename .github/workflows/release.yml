@@ -94,5 +94,7 @@ jobs:
           SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
           SENTRY_CLIENT_ID: ${{ secrets.SENTRY_CLIENT_ID }}
           SENTRY_CLIENT_SECRET: ${{ secrets.SENTRY_CLIENT_SECRET }}
+          ASANA_CLIENT_ID: ${{ secrets.ASANA_CLIENT_ID }}
+          ASANA_CLIENT_SECRET: ${{ secrets.ASANA_CLIENT_SECRET }}
           MICROSOFT_TENANT_ID: ${{ secrets.MICROSOFT_TENANT_ID }}
         run: release/provision-registrations.sh "$CONFIG"

@@ -27,6 +27,7 @@ const SOURCES: &[&str] = &[
     include_str!("../../../catalog/slack.toml"),
     include_str!("../../../catalog/github.toml"),
     include_str!("../../../catalog/vercel.toml"),
+    include_str!("../../../catalog/asana.toml"),
 ];
 
 #[derive(Deserialize, Clone, Debug)]
@@ -122,7 +123,11 @@ pub fn manifest(id: &str) -> Option<&'static Manifest> {
 /// Alpha Vector's own client with a provider.
 #[derive(Deserialize, Clone, Debug)]
 pub struct Client {
-    pub client_id: String,
+    /// None for a provider whose client exists only on the servers it was
+    /// provisioned to (`release/provision-registrations.sh`): sign-in waits
+    /// for that.
+    #[serde(default)]
+    pub client_id: Option<String>,
     /// `desktop` or `confidential` (a secret at the token exchange), or
     /// `public` (none).
     pub kind: String,
@@ -207,6 +212,11 @@ pub fn kind_problem(m: &Manifest) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    /// Manifests written and checked, but not shipped: their provider signs
+    /// clients in only in a way Magnus does not have yet. Shopify: a client
+    /// ID metadata document (decisions/2026-11-10-asana-and-shopify.md).
+    const HELD: &[&str] = &[include_str!("../../../catalog/shopify.toml")];
+
     /// Every manifest parses, names a known kind, registration, audience,
     /// label and tool class, and a preregistered one names its provider.
     #[test]
@@ -216,56 +226,87 @@ mod tests {
         let mut ids = std::collections::HashSet::new();
         for m in ms {
             assert!(ids.insert(m.id.clone()), "{} twice", m.id);
-            assert!(!m.id.contains("__") && m.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{}", m.id);
-            assert_eq!(super::kind_problem(m), None);
-            assert!(["dcr", "preregistered"].contains(&m.registration.as_str()), "{}", m.id);
-            assert_eq!(m.registration == "preregistered", m.provider.is_some(), "{}", m.id);
-            // Where the person removes Magnus when the app cannot end a sign-in itself.
-            assert!(m.remove_access.as_deref().is_some_and(|u| u.starts_with("https://")), "{}: no page where the person removes Magnus", m.id);
-            assert!(crate::tools::Audience::parse(&m.audience).is_some(), "{}", m.id);
-            assert!(crate::tools::Label::parse(&m.label).is_some(), "{}", m.id);
-            for (t, risk) in &m.tools {
-                assert!(["read", "reversible_write", "irreversible", "financial", "prohibited"].contains(&risk.as_str()), "{}: {t} is {risk}", m.id);
-            }
-            // A reach is declared only for a tool the manifest classes, and fits its class.
-            for (t, reach) in &m.reach {
-                let risk = m.tools.get(t).unwrap_or_else(|| panic!("{}: reach for {t}, which it does not class", m.id));
-                assert!(crate::tools::reach_fits(reach, risk), "{}: {t} is {risk} and cannot reach {reach:?}", m.id);
-            }
-            for (t, d) in &m.destinations {
-                assert_eq!(d.fault(t, |t| m.tools.get(t).cloned()), None, "{}", m.id);
-                assert!(m.tools.contains_key(t), "{}: destinations for {t}, which it does not have", m.id);
-            }
-            if let Some(s) = &m.sent {
-                assert_eq!(s.fault(|t| m.tools.get(t).cloned()), None, "{}", m.id);
-            }
-            // What the Library shows: a category chip, abilities, a plain line
-            // for every scope asked for, and never a protocol word.
-            assert!(super::CATEGORIES.contains(&m.category.as_str()), "{}: category {}", m.id, m.category);
-            assert!(!m.publisher.is_empty() && !m.abilities.is_empty() && !m.can.is_empty() && !m.cannot.is_empty(), "{}: its listing is incomplete", m.id);
-            assert_eq!(m.asks.len(), m.scopes.len(), "{}: one plain line for each scope asked for", m.id);
-            assert!((1..=2).contains(&m.letters.chars().count()) && m.tint.starts_with('#') && m.tint.len() == 7, "{}: its tile", m.id);
-            let shown = [&m.summary, &m.can, &m.cannot].into_iter().chain(&m.abilities).chain(&m.asks).map(|s| s.to_lowercase()).collect::<Vec<_>>();
-            for word in ["mcp", "oauth", "scope", "token", "api", "port"] {
-                assert!(shown.iter().all(|s| !s.split(|c: char| !c.is_alphanumeric()).any(|w| w == word)), "{}: protocol word {word:?} in what the Library shows", m.id);
-            }
-            // A preregistered connector is set up already: its provider's client is in the catalog.
-            if let Some(p) = &m.provider {
-                assert!(super::client(p).is_some(), "{}: no client for {p} in catalog/registrations.toml", m.id);
-            }
-            match (&m.redirect_uri, &m.handoff) {
-                (None, None) => {}
-                (Some(u), None) => assert!(crate::connectors::loopback(u).is_ok(), "{}: its redirect is not a loopback address", m.id),
-                (Some(u), Some(h)) => {
-                    assert_eq!(u, crate::connectors::SLACK_OAUTH_CALLBACK, "{}: the https redirect", m.id);
-                    assert_eq!(h, crate::connectors::SLACK_HANDOFF, "{}: the handoff", m.id);
-                }
-                (None, Some(_)) => panic!("{}: a handoff needs the registered redirect", m.id),
-            }
+            well_formed(m, &["dcr", "preregistered"]);
         }
         for p in ["google", "microsoft", "github", "vercel", "slack", "sentry"] {
             let c = super::client(p).unwrap_or_else(|| panic!("{p}"));
-            assert!(!c.client_id.is_empty() && ["desktop", "confidential", "public"].contains(&c.kind.as_str()), "{p}: {c:?}");
+            assert!(c.client_id.as_deref().is_some_and(|i| !i.is_empty()) && ["desktop", "confidential", "public"].contains(&c.kind.as_str()), "{p}: {c:?}");
+        }
+    }
+
+    /// A held manifest is checked like a shipped one, and ships nowhere.
+    #[test]
+    fn every_held_manifest_is_well_formed_and_not_shipped() {
+        for s in HELD {
+            let m: super::Manifest = toml::from_str(s).unwrap();
+            assert!(super::manifest(&m.id).is_none(), "{} is held and shipped", m.id);
+            well_formed(&m, &["dcr", "preregistered", "cimd"]);
+        }
+    }
+
+    /// Asana's V2 server takes only a registered client, and matches its
+    /// redirect exactly: Alpha Vector's client, at one fixed loopback
+    /// address, with PKCE (Asana requires it for a loopback redirect). Its
+    /// client ID is the provisioned one: the catalog names none.
+    #[test]
+    fn asana_signs_in_through_alpha_vectors_client_at_one_loopback_address() {
+        let m = super::manifest("asana").unwrap();
+        let c = super::connector(m);
+        assert_eq!((c.registration.as_deref(), c.redirect_uri.as_deref(), c.pkce), (Some("asana"), Some("http://127.0.0.1:17322/callback"), true));
+        let client = super::client("asana").unwrap();
+        assert_eq!((client.client_id.as_deref(), client.needs_secret()), (None, true));
+        assert_eq!(m.tools.len(), 44, "every tool the server lists is classed");
+        for t in ["delete_task", "add_comment", "update_tasks"] {
+            assert_eq!(m.tools[t], "irreversible", "{t}");
+        }
+    }
+
+    fn well_formed(m: &super::Manifest, registrations: &[&str]) {
+        assert!(!m.id.contains("__") && m.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{}", m.id);
+        assert_eq!(super::kind_problem(m), None);
+        assert!(registrations.contains(&m.registration.as_str()), "{}", m.id);
+        assert_eq!(m.registration == "preregistered", m.provider.is_some(), "{}", m.id);
+        // Where the person removes Magnus when the app cannot end a sign-in itself.
+        assert!(m.remove_access.as_deref().is_some_and(|u| u.starts_with("https://")), "{}: no page where the person removes Magnus", m.id);
+        assert!(crate::tools::Audience::parse(&m.audience).is_some(), "{}", m.id);
+        assert!(crate::tools::Label::parse(&m.label).is_some(), "{}", m.id);
+        for (t, risk) in &m.tools {
+            assert!(["read", "reversible_write", "irreversible", "financial", "prohibited"].contains(&risk.as_str()), "{}: {t} is {risk}", m.id);
+        }
+        // A reach is declared only for a tool the manifest classes, and fits its class.
+        for (t, reach) in &m.reach {
+            let risk = m.tools.get(t).unwrap_or_else(|| panic!("{}: reach for {t}, which it does not class", m.id));
+            assert!(crate::tools::reach_fits(reach, risk), "{}: {t} is {risk} and cannot reach {reach:?}", m.id);
+        }
+        for (t, d) in &m.destinations {
+            assert_eq!(d.fault(t, |t| m.tools.get(t).cloned()), None, "{}", m.id);
+            assert!(m.tools.contains_key(t), "{}: destinations for {t}, which it does not have", m.id);
+        }
+        if let Some(s) = &m.sent {
+            assert_eq!(s.fault(|t| m.tools.get(t).cloned()), None, "{}", m.id);
+        }
+        // What the Library shows: a category chip, abilities, a plain line
+        // for every scope asked for, and never a protocol word.
+        assert!(super::CATEGORIES.contains(&m.category.as_str()), "{}: category {}", m.id, m.category);
+        assert!(!m.publisher.is_empty() && !m.abilities.is_empty() && !m.can.is_empty() && !m.cannot.is_empty(), "{}: its listing is incomplete", m.id);
+        assert_eq!(m.asks.len(), m.scopes.len(), "{}: one plain line for each scope asked for", m.id);
+        assert!((1..=2).contains(&m.letters.chars().count()) && m.tint.starts_with('#') && m.tint.len() == 7, "{}: its tile", m.id);
+        let shown = [&m.summary, &m.can, &m.cannot].into_iter().chain(&m.abilities).chain(&m.asks).map(|s| s.to_lowercase()).collect::<Vec<_>>();
+        for word in ["mcp", "oauth", "scope", "token", "api", "port"] {
+            assert!(shown.iter().all(|s| !s.split(|c: char| !c.is_alphanumeric()).any(|w| w == word)), "{}: protocol word {word:?} in what the Library shows", m.id);
+        }
+        // A preregistered connector is set up already: its provider's client is in the catalog.
+        if let Some(p) = &m.provider {
+            assert!(super::client(p).is_some(), "{}: no client for {p} in catalog/registrations.toml", m.id);
+        }
+        match (&m.redirect_uri, &m.handoff) {
+            (None, None) => {}
+            (Some(u), None) => assert!(crate::connectors::loopback(u).is_ok(), "{}: its redirect is not a loopback address", m.id),
+            (Some(u), Some(h)) => {
+                assert_eq!(u, crate::connectors::SLACK_OAUTH_CALLBACK, "{}: the https redirect", m.id);
+                assert_eq!(h, crate::connectors::SLACK_HANDOFF, "{}: the handoff", m.id);
+            }
+            (None, Some(_)) => panic!("{}: a handoff needs the registered redirect", m.id),
         }
     }
 

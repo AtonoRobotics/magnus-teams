@@ -1,0 +1,94 @@
+id = "shopify"
+version = "1.0.0"
+name = "Shopify"
+summary = "Magnus can look into your Shopify store's products, orders, customers, stock and sales, and change products, prices, stock and discounts with your approval."
+# Held out of the shipped catalog (`catalog.rs`, HELD): Shopify's server
+# signs clients in only by a client ID metadata document, which Magnus does
+# not have yet (decisions/2026-11-10-asana-and-shopify.md). Checked like
+# every shipped manifest, so it is ready when that lands.
+#
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "Shopify"
+category = "work"
+abilities = ["Answer questions about your store's orders, customers, stock and sales", "Find a product or collection and read its details", "Change products, collections and stock, when you allow it", "Set prices and create discount codes, when you allow each one"]
+asks = ["See your store's sales reports", "See all your store's orders, older ones too", "Read and change your store's orders", "Read and change your products and collections", "Read and change your stock levels", "Read and change your customers", "Create discounts", "Put products and collections on your online store", "Create digital products"]
+can = "Read your store's products, collections, orders, customers, stock and sales reports, and change products, collections, stock, prices and discounts when you allow each one"
+cannot = "Refund an order, change your live theme or your staff, switch to another of your stores, or change anything without asking you first"
+letters = "Sh"
+tint = "#007A5A"
+kind = "remote"
+# Shopify's own server for running a store (server "shopify-mcp-server",
+# streamable HTTP, POST only), probed 2026-11-10. Its authorization server
+# is setup.shopify.com/auth, in front of admin.shopify.com's sign-in.
+endpoint = "https://setup.shopify.com/mcp"
+# Products, collections, prices and discounts go on the public storefront.
+# What comes back includes customers' names, addresses and orders.
+audience = "public"
+label = "private+untrusted"
+# No registration endpoint; `client_id_metadata_document_supported: true`,
+# and `token_endpoint_auth_methods_supported: ["none"]`. A plain client ID
+# is accepted only with a redirect on Shopify's own allowlist (a loopback
+# one is refused: "redirect_uri is not in the allowed origins list").
+registration = "cimd"
+remove_access = "https://admin.shopify.com/settings/apps"
+# Of the 37 its metadata offers, the ones its built-in tools need. Shopify
+# has no read-only scope for orders or customers beyond these: a write
+# scope also reads. `write_orders` and `write_customers` are asked for to
+# read; the tools that would change orders or customers are classed below.
+scopes = ["read_analytics", "read_all_orders", "write_orders", "write_products", "write_inventory", "write_customers", "write_discounts", "write_publications", "write_digital_products_product"]
+
+# The 37 tools setup.shopify.com/mcp lists to anyone (tools/list,
+# 2026-11-10), with Shopify's own hints read but not trusted: anything that
+# sets or changes a price, or puts priced products on sale, is financial;
+# anything public on the storefront is irreversible.
+[tools]
+find-mock-shop-catalogs = "read"
+generate-business-names = "read"
+generate-domain-names = "read"
+get-shop-info = "read"
+search_products = "read"
+get-product = "read"
+list-orders = "read"
+get-order = "read"
+list-customers = "read"
+get-inventory-levels = "read"
+run-analytics-query = "read"
+search_collections = "read"
+get-collection = "read"
+graphql_schema = "read"
+graphql_query = "read"
+search_docs_chunks = "read"
+validate_graphql_codeblocks = "read"
+get-digital-products-install-status = "read"
+get-digital-product = "read"
+test-digital-products-connection = "read"
+# These two return a link to Shopify's admin and change nothing.
+upload-digital-product-file = "read"
+upload-digital-product-media = "read"
+# Returns an install link; Shopify's hint says it is not read-only.
+open-digital-products-install = "reversible_write"
+# Drafts, not on sale.
+create-digital-product = "reversible_write"
+create-digital-product-from-link = "reversible_write"
+# Up to 16 priced products, published to the online store.
+import-mock-shop-catalog = "financial"
+# Sets variants' prices and can make the product active.
+create-product = "financial"
+update-product = "financial"
+create-discount = "financial"
+# Any Admin mutation (Shopify blocks refunds, gift cards, staff and the
+# live theme): orders, draft orders, prices and deletions included.
+graphql_mutation = "financial"
+set-inventory = "irreversible"
+bulk-update-product-status = "irreversible"
+add-to-collection = "irreversible"
+create-collection = "irreversible"
+update-collection = "irreversible"
+publish-digital-product = "irreversible"
+# Revokes the connection's token mid-run and asks for a sign-in to another
+# store. A different store is a different connection in Magnus.
+switch-shop = "prohibited"

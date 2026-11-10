@@ -19,6 +19,15 @@ manifest version classifies it.
   once by the owner (Settings, Connectors), kept in the vault. The connector
   is in no one's Library until it is set.
 
+A preregistered provider's client ID may be absent from
+`registrations.toml`: then only the ID the release provisions is used
+(Asana's), and the connector cannot be connected until it is.
+
+A manifest whose provider signs clients in only in a way Magnus lacks is
+held: written, checked by the catalog's tests (`HELD`), and not shipped.
+`shopify.toml` is held for `cimd`, a client ID metadata document
+(decisions/2026-11-10-asana-and-shopify.md).
+
 Classes: `read`, `reversible_write`, `irreversible`, `financial`, and
 `prohibited` (listed by the server, never offered to Magnus and refused
 if called: the policy's hard deny).

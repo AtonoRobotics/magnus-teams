@@ -485,12 +485,15 @@ impl Kernel {
     }
 
     /// Whether a catalog connector's provider client is complete on this
-    /// appliance: its secret, when it has one, provisioned by Alpha Vector.
-    /// Only a deployment that has not yet had it is incomplete.
+    /// appliance: its secret, when it has one, provisioned by Alpha Vector,
+    /// and its client ID, when the catalog names none. Only a deployment
+    /// that has not yet had them is incomplete.
     pub fn provider_ready(&self, c: &Connector) -> bool {
         match c.registration.as_deref() {
             None => true,
-            Some(p) => crate::catalog::client(p).is_some_and(|cl| !cl.needs_secret() || self.read(|s| s.registrations.contains(p))),
+            Some(p) => crate::catalog::client(p).is_some_and(|cl| {
+                (!cl.needs_secret() || self.read(|s| s.registrations.contains(p))) && (cl.client_id.is_some() || crate::registrations::client(&self.vault, p).is_ok())
+            }),
         }
     }
 

@@ -45,7 +45,8 @@ fn stored(vault: &Vault, provider: &str) -> Result<serde_json::Map<String, Value
 pub fn client(vault: &Vault, provider: &str) -> Result<(String, Option<String>)> {
     let catalog = crate::catalog::client(provider).ok_or_else(|| anyhow!("no catalog client with {provider}"))?;
     let s = stored(vault, provider)?;
-    let id = s.get("client_id").and_then(Value::as_str).map(String::from).unwrap_or_else(|| catalog.client_id.clone());
+    let id = s.get("client_id").and_then(Value::as_str).map(String::from).or_else(|| catalog.client_id.clone());
+    let id = id.ok_or_else(|| anyhow!("no client ID with {provider} here yet"))?;
     let secret = match catalog.needs_secret() {
         true => Some(s.get("client_secret").and_then(Value::as_str).ok_or_else(|| anyhow!("no client secret with {provider} here yet"))?.to_string()),
         false => None,
@@ -184,10 +185,23 @@ mod tests {
         assert_eq!(client(&v, "vercel").unwrap().0, "cl_teams");
     }
 
+    /// Asana's client exists only as magnus-teams provisioned it
+    /// (2026-11-10): the catalog names no ID, so sign-in waits for the
+    /// provisioned one, and a secret alone is not enough.
+    #[test]
+    fn a_client_the_catalog_names_no_id_for_needs_a_provisioned_one() {
+        let (_d, v) = vault();
+        assert_eq!(crate::catalog::client("asana").unwrap().client_id, None);
+        provision(&v, "asana", None, Some("s")).unwrap();
+        assert!(client(&v, "asana").is_err(), "a secret with no client ID");
+        provision(&v, "asana", Some("teams-asana"), None).unwrap();
+        assert_eq!(client(&v, "asana").unwrap(), ("teams-asana".to_string(), Some("s".to_string())));
+    }
+
     #[test]
     fn what_is_not_a_client_is_refused() {
         let (_d, v) = vault();
-        assert_eq!(provision(&v, "asana", Some("id"), Some("s")).unwrap_err().0, StatusCode::NOT_FOUND);
+        assert_eq!(provision(&v, "nobody", Some("id"), Some("s")).unwrap_err().0, StatusCode::NOT_FOUND);
         for bad in ["", "two words", "line\nbreak"] {
             assert_eq!(provision(&v, "github", Some(bad), Some("s")).unwrap_err().0, StatusCode::BAD_REQUEST, "{bad:?}");
         }

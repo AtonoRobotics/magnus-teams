@@ -572,10 +572,12 @@ async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
         ("VERCEL_CLIENT_SECRET", "secret-vercel-never-sent".into()),
         ("SLACK_CLIENT_SECRET", "secret-slack".into()),
         ("GOOGLE_WEB_CLIENT_ID", "id-google-web".into()),
+        ("ASANA_CLIENT_ID", "id-asana-teams".into()),
+        ("ASANA_CLIENT_SECRET", "secret-asana".into()),
     ];
     let mut cmd = tokio::process::Command::new(root.join("release/provision-registrations.sh"));
     cmd.arg(&config);
-    for v in ["GOOGLE", "GOOGLE_DESKTOP", "GOOGLE_WEB", "MICROSOFT", "GH_OAUTH", "VERCEL", "SLACK", "SENTRY"] {
+    for v in ["GOOGLE", "GOOGLE_DESKTOP", "GOOGLE_WEB", "MICROSOFT", "GH_OAUTH", "VERCEL", "SLACK", "SENTRY", "ASANA"] {
         cmd.env_remove(format!("{v}_CLIENT_ID")).env_remove(format!("{v}_CLIENT_SECRET"));
     }
     cmd.env_remove("MICROSOFT_TENANT_ID");
@@ -591,7 +593,13 @@ async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
             assert!(!printed.contains(v.as_str()), "{k}'s value was printed:\n{printed}");
         }
     }
-    for line in ["google: GOOGLE_DESKTOP_CLIENT_ID match", "github: GH_OAUTH_CLIENT_ID differs", "slack: SLACK_CLIENT_ID not set", "google: GOOGLE_WEB_CLIENT_ID differs"] {
+    for line in [
+        "google: GOOGLE_DESKTOP_CLIENT_ID match",
+        "github: GH_OAUTH_CLIENT_ID differs",
+        "slack: SLACK_CLIENT_ID not set",
+        "google: GOOGLE_WEB_CLIENT_ID differs",
+        "asana: ASANA_CLIENT_ID set (the catalog names no client ID",
+    ] {
         assert!(printed.contains(line), "said {line:?}:\n{printed}");
     }
     let got = got.lock().unwrap().clone();
@@ -600,6 +608,8 @@ async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
     assert_eq!(body("github"), serde_json::json!({ "actor": "release", "client_id": "id-github-teams", "client_secret": "secret-github" }));
     assert_eq!(body("vercel"), serde_json::json!({ "actor": "release", "client_id": "id-vercel-teams" }), "a public client is sent no secret");
     assert_eq!(body("slack"), serde_json::json!({ "actor": "release", "client_secret": "secret-slack" }));
+    // Asana's client is only ever provisioned: the catalog names no ID.
+    assert_eq!(body("asana"), serde_json::json!({ "actor": "release", "client_id": "id-asana-teams", "client_secret": "secret-asana" }));
     assert!(got.iter().all(|(p, _)| p != "microsoft" && p != "sentry"), "nothing set, nothing sent: {got:?}");
 }
 

@@ -40,3 +40,13 @@ name = "Magnus (Veyra workspace)"
 client_id = "197a5cfaccce1a5380164b4262ebb5515220a718e95759a4297d47e9cf45ea3"
 kind = "confidential"
 name = "Magnus (Alpha Vector organisation, not yet published)"
+
+[asana]
+# Alpha Vector's MCP app with Asana (V2 server). Its client ID is the
+# repository's ASANA_CLIENT_ID, provisioned with its secret by the release,
+# and is named nowhere here: magnus-teams registered it, and the catalog's
+# IDs are shared with the magnus-claude lineage
+# (decisions/2026-11-10-asana-and-shopify.md). Its one redirect is
+# http://127.0.0.1:17322/callback.
+kind = "confidential"
+name = "Magnus (Asana MCP app)"

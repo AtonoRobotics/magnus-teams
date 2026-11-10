@@ -27,12 +27,14 @@ socket=$state/control.sock
 field() { python3 -I -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get(sys.argv[2], {}).get(sys.argv[3], ""))' "$catalog" "$1" "$2"; }
 
 # "match", "differs" or "not set": the variable named $1 against the
-# catalog's value $2, compared without printing either.
+# catalog's value $2, compared without printing either; "set" when the
+# catalog names none (a client only ever provisioned, like Asana's).
 compare() {
   VAR="$1" WANT="$2" python3 -I -c '
 import os
 v = os.environ.get(os.environ["VAR"], "").strip()
-print("not set" if not v else "match" if v == os.environ["WANT"] else "differs")'
+w = os.environ["WANT"]
+print("not set" if not v else "set" if not w else "match" if v == w else "differs")'
 }
 
 failed=0
@@ -41,7 +43,12 @@ provision() {
   provider=$1 prefix=$2
   kind=$(field "$provider" kind)
   [ -n "$kind" ] || { echo "$provider: no registration in the catalog"; failed=1; return 0; }
-  echo "$provider: ${prefix}_CLIENT_ID $(compare "${prefix}_CLIENT_ID" "$(field "$provider" client_id)") the catalog's client ID"
+  want=$(field "$provider" client_id)
+  if [ -n "$want" ]; then
+    echo "$provider: ${prefix}_CLIENT_ID $(compare "${prefix}_CLIENT_ID" "$want") the catalog's client ID"
+  else
+    echo "$provider: ${prefix}_CLIENT_ID $(compare "${prefix}_CLIENT_ID" "") (the catalog names no client ID: this one is the only one)"
+  fi
   body=$(ID_VAR="${prefix}_CLIENT_ID" SECRET_VAR="${prefix}_CLIENT_SECRET" KIND="$kind" python3 -I -c '
 import json, os
 e = os.environ
@@ -73,6 +80,7 @@ provision github GH_OAUTH
 provision vercel VERCEL
 provision slack SLACK
 provision sentry SENTRY
+provision asana ASANA
 
 # The repository's other Google clients and Microsoft's tenant, compared
 # only, so a mismatch is seen: the catalog's Google client is a desktop one.

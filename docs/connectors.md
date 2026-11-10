@@ -354,7 +354,8 @@ one commit), 2026-11-02.
 - [ ] GitHub: a GitHub App or OAuth App for the remote server (an OAuth app, confidential; its ID and secret provisioned by the release, `catalog/github.toml`; its callback must be `http://127.0.0.1/callback`); org owners approve it for restricted orgs
 - [ ] Vercel: a place on Vercel's allowlist of approved MCP clients (a public client, "Magnus by Alpha Vector", `catalog/vercel.toml`; its callback must be `http://127.0.0.1:17321/callback`)
 - [ ] Atlassian: the relay callback on Atlassian's supported client domains
-- [ ] Asana: a registered client ID and secret for the V2 server
+- [ ] Asana: a registered client ID and secret for the V2 server (the repository's `ASANA_CLIENT_ID` and `ASANA_CLIENT_SECRET`, provisioned by the release; the catalog names no ID). Its redirect must be `http://127.0.0.1:17322/callback` until the relay cutover (decisions/2026-11-10-asana-and-shopify.md)
+- [ ] Shopify: setup.shopify.com signs clients in only by a client ID metadata document (not built) or a redirect on Shopify's allowlist; `catalog/shopify.toml` is held until then
 - [ ] Sentry (in the launch catalog; a client ID exists, "not yet published", confidential)
 - [ ] The public material at pyrallon.ai: homepage, privacy policy, terms, support contact, and Google's demo videos
 - [ ] Providers accepting Client ID Metadata Documents (Autodesk's cloud Fusion servers) need no registration (CIMD not built)
@@ -406,7 +407,8 @@ Code and deploy (Remote)
 Work management (Remote)
 - [ ] Notion (in the mockup, drawn needing attention)
 - [ ] Linear
-- [ ] Asana
+- [ ] Asana (manifest `asana`: the V2 server, Alpha Vector's client at `http://127.0.0.1:17322/callback`, all 44 tools classed; no sign-in test against Asana)
+- [ ] Shopify (manifest `shopify`, held: all 37 tools of setup.shopify.com classed; sign-in needs client ID metadata documents)
 - [ ] Jira (in the mockup, "by Atlassian")
 - [ ] Confluence
 - [ ] monday.com
