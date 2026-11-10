@@ -118,8 +118,14 @@ impl Kernel {
 
     /// Wakes or rebuilds a computer, or puts it in the queue at the limit.
     pub async fn start_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
-        let socket = self.computer_socket()?;
         let c = self.controlled_computer(who, id)?;
+        self.start_this(who, &c).await
+    }
+
+    /// Starts `c`, once the caller has decided `who` may.
+    pub(super) async fn start_this(&self, who: &Person, c: &Computer) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let id = c.id.as_str();
         match c.status {
             Status::Running => return Err(Refused::Conflict("the computer is already running".into())),
             Status::Queued => return Err(Refused::Conflict("the computer is already waiting to start".into())),
@@ -255,8 +261,14 @@ impl Kernel {
 
     /// One step: the log first, so nothing can act on it from here on, then the VM.
     pub async fn kill_computer(&self, who: &Person, id: &str, mode: KillMode, delete_volume: bool) -> Result<Value, Refused> {
-        let socket = self.computer_socket()?;
         let c = self.controlled_computer(who, id)?;
+        self.kill_this(who, &c, mode, delete_volume).await
+    }
+
+    /// Kills `c`, once the caller has decided `who` may.
+    pub(super) async fn kill_this(&self, who: &Person, c: &Computer, mode: KillMode, delete_volume: bool) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        let id = c.id.as_str();
         if delete_volume && mode != KillMode::Destroy {
             return Err(Refused::Invalid("only destroying a computer can delete its volume".into()));
         }

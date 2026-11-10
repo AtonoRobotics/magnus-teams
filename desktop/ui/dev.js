@@ -312,3 +312,89 @@ route(/^#\/dev\/playbook$/, async main => {
   await draw();
   every(10000, draw);
 });
+
+// ---------- Computers: what each one reached, live, with pause and start ----------
+
+/** @typedef {{ person?: string, workspace?: string }} Owner */
+/** @typedef {{ id: string, owner: Owner, status: string, controller: string|null, destinations: string[], apps: string[] }} DevComputer */
+/** @typedef {{ id: number, at: string, phase: string, verdict: "allowed"|"blocked"|"result", host: string, port: number, method: string, path: string, address: string|null, detail: string|null }} EgressRow */
+
+const EGRESS_POLL_MS = 2000;
+const EGRESS_KEPT_ROWS = 2000;
+const VERDICT_CHIP = { allowed: ["ok", "allowed"], blocked: ["bad", "blocked"], result: ["", "result"] };
+/** @param {Owner} o */
+const ownerName = o => o.person ? esc(o.person) : `workspace ${esc(o.workspace || "")}`;
+
+// The developer's own pause and start: the same kill switch as the computer page's Pause now.
+/** @param {string} id @param {string} status */
+function computerControls(id, status) {
+  if (status === "running") return `<button class="danger" data-act="dev-pause" data-id="${esc(id)}" title="Freezes the computer and takes back every access it was given">Pause now</button>`;
+  if (["paused", "stopped", "hibernated"].includes(status)) return `<button data-act="dev-start" data-id="${esc(id)}">Start</button>`;
+  return "";
+}
+/** @param {HTMLElement} main @param {() => Promise<void>} redraw */
+function onComputerControls(main, redraw) {
+  main.onclick = async e => {
+    const b = e.target.closest("[data-act^=dev-]");
+    if (b) {
+      b.disabled = true;
+      try {
+        if (b.dataset.act === "dev-pause") {
+          const r = await api("POST", `/v1/dev/computers/${enc(b.dataset.id)}/pause`, {});
+          toast(`Paused. ${r.revoked} access${r.revoked === 1 ? "" : "es"} taken back.`);
+        } else {
+          await api("POST", `/v1/dev/computers/${enc(b.dataset.id)}/start`, {});
+          toast("Started.");
+        }
+      } catch (err) { toast(err.message || String(err)); }
+      await redraw();
+      return;
+    }
+    const r = e.target.closest("[data-href]");
+    if (r) location.hash = r.dataset.href;
+  };
+}
+
+route(/^#\/dev\/computers$/, async main => {
+  if (devOnly(main)) return;
+  const draw = async () => {
+    /** @type {{ computers: DevComputer[] }} */
+    const { computers } = await api("GET", "/v1/dev/computers");
+    paint(main, `<h1>Computers</h1><p class="muted">Every agent computer on this server. Open one to watch what it reaches through the egress proxy as it happens. The screen and files open only in a session the user grants.</p>
+      ${computers.length ? `<table class="t"><thead><tr><th>Computer</th><th>Belongs to</th><th>Status</th><th>Allowed destinations</th><th></th></tr></thead><tbody>
+      ${computers.map(c => `<tr class="click" data-href="#/dev/computer/${enc(c.id)}"><td class="mono small">${esc(c.id)}</td><td>${ownerName(c.owner)}</td><td>${esc(c.status)}${c.controller ? ` <span class="chip warn">${esc(c.controller)} has control</span>` : ""}</td>
+        <td class="small">${c.destinations.map(esc).join(", ") || `<span class="faint">none</span>`}</td><td>${computerControls(c.id, c.status)}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">No computers yet.</p>`}`);
+  };
+  onComputerControls(main, draw);
+  await draw();
+  every(5000, draw);
+});
+
+route(/^#\/dev\/computer\/([^/]+)$/, async (main, id) => {
+  if (devOnly(main)) return;
+  /** @type {EgressRow[]} */
+  let rows = [];
+  let only = "";
+  let status = "";
+  const draw = async () => {
+    const after = rows.length ? rows[rows.length - 1].id : 0;
+    /** @type {{ status: string, egress: EgressRow[] }} */
+    const r = await api("GET", `/v1/dev/computers/${enc(id)}/egress?after=${after}`);
+    rows = rows.concat(r.egress).slice(-EGRESS_KEPT_ROWS);
+    status = r.status;
+    const count = v => rows.filter(x => x.verdict === v).length;
+    const shown = rows.filter(x => !only || x.verdict === only).slice().reverse();
+    paint(main, `<p class="small"><a href="#/dev/computers">Computers</a></p><h1 class="mono">${esc(id)}</h1>
+      <div class="row" style="margin:12px 0;gap:12px"><span class="chip">${esc(status)}</span> ${computerControls(id, status)}
+        <select data-f="only" aria-label="Show"><option value="">Every request</option>${["allowed", "blocked", "result"].map(v => `<option value="${v}" ${only === v ? "selected" : ""}>${v} (${count(v)})</option>`).join("")}</select>
+        <span class="small faint">Live, newest first. Every request leaves through the proxy and is recorded before it is sent.</span></div>
+      ${shown.length ? `<table class="t"><thead><tr><th>Time</th><th></th><th>Destination</th><th>Request</th><th>Why</th></tr></thead><tbody>
+      ${shown.map(x => `<tr><td class="small faint">${esc(new Date(x.at).toLocaleTimeString())}</td><td><span class="chip ${VERDICT_CHIP[x.verdict][0]}">${VERDICT_CHIP[x.verdict][1]}</span></td>
+        <td class="mono small">${esc(x.host)}:${x.port}${x.address ? `<div class="faint">${esc(x.address)}</div>` : ""}</td><td class="mono small">${esc(x.method)} ${esc(x.path)}</td><td class="small">${esc(x.detail || "")}</td></tr>`).join("")}</tbody></table>`
+        : `<p class="empty">Nothing has left this computer yet.</p>`}`);
+  };
+  onComputerControls(main, draw);
+  main.onchange = e => { if (e.target.dataset.f === "only") { only = e.target.value; draw(); } };
+  await draw();
+  every(EGRESS_POLL_MS, draw);
+});

@@ -7,6 +7,7 @@ mod ca;
 mod http;
 mod policy;
 pub(super) mod surrogate;
+pub(super) mod watch;
 
 pub use audit::migrate_sql;
 pub(super) use ca::certificate_pem;

@@ -4,6 +4,7 @@
 
 mod apps;
 mod client;
+mod devview;
 mod driving;
 mod egress;
 mod identity;
