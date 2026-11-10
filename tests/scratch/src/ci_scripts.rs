@@ -59,6 +59,36 @@ fn a_test_command_builds_the_programs_first() {
     assert!(!ssh.last().unwrap().contains("cargo build"), "only a test command builds first");
 }
 
+/// `ci/acceptance.sh invariants` against a stand-in `cargo` that records its
+/// arguments and the Chromium it was given.
+#[test]
+fn the_invariants_run_one_at_a_time_with_a_chromium() {
+    use std::os::unix::fs::PermissionsExt;
+    let (bin, log, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let cargo = bin.path().join("cargo");
+    std::fs::write(&cargo, "#!/bin/sh\nprintf '%s|%s\\n' \"$*\" \"$MAGNUS_CHROMIUM\" >> \"$CI_LOG/cargo\"\n").unwrap();
+    std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let chrome = home.path().join(".cache/ms-playwright/chromium-1234/chrome-linux64/chrome");
+    std::fs::create_dir_all(chrome.parent().unwrap()).unwrap();
+    std::fs::write(&chrome, "").unwrap();
+    std::fs::set_permissions(&chrome, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.path().display(), std::env::var("PATH").unwrap_or_default());
+    let out = Command::new("sh")
+        .arg(root().join("ci/acceptance.sh"))
+        .arg("invariants")
+        .env("PATH", path)
+        .env("CI_LOG", log.path())
+        .env("HOME", home.path())
+        .env_remove("MAGNUS_CHROMIUM")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let calls = std::fs::read_to_string(log.path().join("cargo")).unwrap();
+    let test = calls.lines().find(|l| l.starts_with("test -p magnus-invariants")).unwrap_or_else(|| panic!("{calls}"));
+    assert!(test.contains("--test-threads=1"), "the invariants run in parallel and run out of computers: {test}");
+    assert!(test.ends_with(&format!("|{}", chrome.display())), "the invariants get no Chromium: {test}");
+}
+
 #[test]
 fn the_copy_does_not_keep_times_cargo_would_skip() {
     let (_, rsync) = run("ci-test-one", &["true"]);

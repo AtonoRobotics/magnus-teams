@@ -27,11 +27,22 @@ done
 # built here are this checkout's own.
 cargo build --workspace --bins
 
+# The desktop-screens invariant drives a real Chromium; Strix Beta has
+# Playwright's. Name another with MAGNUS_CHROMIUM.
+if [ -z "${MAGNUS_CHROMIUM:-}" ]; then
+  for c in "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux64/chrome; do
+    [ -x "$c" ] && MAGNUS_CHROMIUM=$c
+  done
+fi
+[ -n "${MAGNUS_CHROMIUM:-}" ] && export MAGNUS_CHROMIUM
+
 failed=
 for s in $suites; do
   echo "== acceptance: $s"
   case $s in
-    invariants) cmd="cargo test -p magnus-invariants" ;;
+    # One test at a time: a machine runs only so many computers, and the
+    # invariants that start one fail when tests in parallel take every slot.
+    invariants) cmd="cargo test -p magnus-invariants -- --test-threads=1" ;;
     *) cmd="cargo test -p magnus-scratch --test $s" ;;
   esac
   $cmd || failed="$failed $s"
