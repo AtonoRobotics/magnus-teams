@@ -16,6 +16,8 @@ pub mod admin;
 pub mod brokered;
 pub mod catalog;
 mod checks;
+#[cfg(test)]
+mod ci_scripts;
 mod dev_view;
 pub use checks::*;
 pub use dev_view::*;

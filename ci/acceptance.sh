@@ -21,12 +21,10 @@ for s in $suites; do
   case " $all " in *" $s "*) ;; *) echo "no such suite: $s (have: $all)" >&2; exit 2 ;; esac
 done
 
-# The suites start the server and its model adapter as programs. On Strix
-# Beta every checkout shares one build directory, and cargo copies a program
-# into it only when it compiles one: a checkout whose build is already fresh
-# would run the programs another checkout built last. Touching each crate's
-# root makes this checkout's own programs the ones there.
-find . -path ./target -prune -o -path '*/src/*' \( -name lib.rs -o -name main.rs \) -print | xargs touch
+# The suites start the server and its model adapter as programs, which
+# `cargo test` does not build. ci/on-strix-beta.sh gives each NAME its own
+# build directory and copies changed files with fresh times, so the programs
+# built here are this checkout's own.
 cargo build --workspace --bins
 
 failed=
