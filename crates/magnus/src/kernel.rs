@@ -179,6 +179,12 @@ impl Kernel {
         // not see it. Revoking its sign-ins at their providers goes on in
         // the background.
         k.finish_kill_switch().await;
+        // Items left open under asks spec rev 140 retired are put in their
+        // current form before any run is driven (`legacy_items`).
+        let retired = k.retire_legacy_items().await?;
+        if retired > 0 {
+            tracing::info!("retired {retired} items of asks no longer made");
+        }
         // The search index catches up with the log (a restore, a missed
         // write, a new embedding model) without holding up the boot.
         let sync = k.clone();

@@ -45,6 +45,7 @@ pub mod issuers;
 pub mod kernel;
 pub mod knowledge;
 pub mod knowledge_admin;
+pub mod legacy_items;
 pub mod library;
 pub mod local;
 pub mod local_files;
