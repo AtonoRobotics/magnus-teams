@@ -9,7 +9,7 @@
 
 use magnus_invariants::*;
 use magnus_scratch::*;
-use serde_json::{json, Value};
+use serde_json::json;
 
 async fn signed_in(alice: &Api, cal: &FakeOAuthApp) {
     assert_eq!(alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await.0, 201);

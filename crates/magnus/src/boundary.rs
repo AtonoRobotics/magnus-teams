@@ -488,9 +488,7 @@ impl Kernel {
             Err(why) => return self.deny(a, "destinations", &why, true, None).await,
         };
 
-        // 4. Policy (its denials), the person's own rules (block, ask first),
-        // and the kernel's own asks: a payment, private data to a new
-        // destination after untrusted input.
+        // 4. Policy denials, the person's rules (block, ask first), and the kernel's asks: a payment, case 3.
         let policy = self.policy_stage(a, &run, &person, &f, shown.as_ref()).await?;
         let asked = match self.person_rules(a, &run, &f, shown.as_ref(), policy).await? {
             Ok(ask) => ask.map(|(why, rule)| (why, rule.unwrap_or_default())),
@@ -858,8 +856,7 @@ impl Kernel {
             _ => false,
         };
         if transmits && untrusted && private && !theirs && !content {
-            // A web lookup's address can carry data out too (K34): its host
-            // is the destination.
+            // A web lookup's address can carry data out too (K34): its host is the destination.
             let why = if lookup {
                 "the work has read untrusted content and private data, and a web lookup's address can carry data out to a new destination"
             } else {
