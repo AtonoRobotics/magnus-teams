@@ -170,7 +170,7 @@ mod tests {
         let (_d, v) = vault();
         provision(&v, "slack", None, Some("s")).unwrap();
         let catalog = crate::catalog::client("slack").unwrap();
-        assert_eq!(client(&v, "slack").unwrap(), (catalog.client_id.clone(), Some("s".to_string())));
+        assert_eq!(client(&v, "slack").unwrap(), (catalog.client_id.clone().unwrap(), Some("s".to_string())));
     }
 
     /// A public client takes a client ID and never a secret.
