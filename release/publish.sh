@@ -50,8 +50,13 @@ pr=${MAGNUS_PR:-}
 if [ "$commit" != "$(git rev-parse HEAD)" ]; then base=$(git rev-parse HEAD^1); else base=$commit; fi
 [ -r "$key" ] || { echo "no release key at $key" >&2; exit 1; }
 
+# Signs with the release key file only: a key a build step left in the
+# environment made the signer refuse, and its signature used to be published
+# empty. Callers assign the result first, so `set -e` stops the publish.
 sign() {
-  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" cargo tauri signer sign -f "$key" -p "" --app-version "$version" "$1" >/dev/null
+  env -u TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+    cargo tauri signer sign -f "$key" -p "" --app-version "$version" "$1" >/dev/null
+  [ -s "$1.sig" ] || { echo "no signature for $1" >&2; exit 4; }
   cat "$1.sig"
 }
 
@@ -147,7 +152,8 @@ appliance)
   echo "$version" > "$stage/VERSION"
   file=magnus-appliance-$version.tar.gz
   tar -C "$stage" -czf "$dir/$file" .
-  manifest "$dir/latest.json" appliance "$version" "$notes" "$commit" "$base" "$pr" "$file" "$(sign "$dir/$file")"
+  sig=$(sign "$dir/$file")
+  manifest "$dir/latest.json" appliance "$version" "$notes" "$commit" "$base" "$pr" "$file" "$sig"
   ;;
 desktop)
   dist=$1
@@ -155,9 +161,11 @@ desktop)
   linux=Magnus_${version}_amd64.AppImage
   windows=Magnus_${version}_x64-setup.exe
   cp "$dist/$linux" "$dist/$windows" "$dir/"
+  linux_sig=$(sign "$dir/$linux")
+  windows_sig=$(sign "$dir/$windows")
   manifest "$dir/latest.json" desktop "$version" "$notes" "$commit" "$base" "$pr" \
-    linux-x86_64 "$linux" "$(sign "$dir/$linux")" \
-    windows-x86_64 "$windows" "$(sign "$dir/$windows")"
+    linux-x86_64 "$linux" "$linux_sig" \
+    windows-x86_64 "$windows" "$windows_sig"
   ;;
 esac
 mv "$dir/latest.json.tmp" "$dir/latest.json"

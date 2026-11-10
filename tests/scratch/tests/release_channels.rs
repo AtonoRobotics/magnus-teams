@@ -421,6 +421,52 @@ fn a_pull_request_squash_merged_stops_no_later_build() {
     assert_eq!(dev()["commit"], e.as_str());
 }
 
+/// Redeploy of 0.7.1-test.1 (2026-11-09): the build step left the release
+/// key in TAURI_SIGNING_PRIVATE_KEY, the signer refused the key file beside
+/// it, and both channels were published with empty signatures, which no app
+/// can install. A key in the environment is ignored; a package the key file
+/// cannot sign is never published.
+#[test]
+fn a_release_is_never_published_without_its_signatures() {
+    let tmp = tempfile::tempdir().unwrap();
+    let key = tmp.path().join("test.key");
+    let made = Command::new("cargo").args(["tauri", "signer", "generate", "--ci", "-p", "", "-f", "-w"]).arg(&key).output().unwrap();
+    assert!(made.status.success(), "a test release key: {}", String::from_utf8_lossy(&made.stderr));
+    let (updates, dist, notes) = (tmp.path().join("updates"), tmp.path().join("dist"), tmp.path().join("notes"));
+    std::fs::write(&notes, "Build.\n").unwrap();
+    let run = |key: &Path, version: &str| {
+        build(&dist, version);
+        Command::new(release("publish.sh"))
+            .args(["desktop", version])
+            .args([&updates, &notes, &dist])
+            .arg("test")
+            .env("MAGNUS_RELEASE_KEY", key)
+            .env("TAURI_SIGNING_PRIVATE_KEY", std::fs::read_to_string(key).unwrap_or_default())
+            .env_remove("MAGNUS_COMMIT")
+            .env_remove("MAGNUS_PR")
+            .env_remove("MAGNUS_LANDED")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .unwrap()
+    };
+    let manifest = updates.join("desktop/test/latest.json");
+
+    let out = run(&key, "0.7.1-test.1");
+    assert!(out.status.success(), "publish with a key in the environment: {}", String::from_utf8_lossy(&out.stderr));
+    let m: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    for platform in ["linux-x86_64", "windows-x86_64"] {
+        let sig = base64_decode(m["platforms"][platform]["signature"].as_str().unwrap());
+        assert!(String::from_utf8_lossy(&sig).starts_with("untrusted comment:"), "{platform} is signed: {m}");
+    }
+
+    let broken = tmp.path().join("broken.key");
+    std::fs::write(&broken, "not a key").unwrap();
+    let out = run(&broken, "0.7.1-test.2");
+    assert!(!out.status.success(), "a package the key cannot sign is not published");
+    let m: Value = serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(m["version"], "0.7.1-test.1");
+}
+
 fn base64_decode(s: &str) -> Vec<u8> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.decode(s).unwrap()
