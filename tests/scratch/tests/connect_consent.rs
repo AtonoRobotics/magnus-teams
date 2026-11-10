@@ -160,7 +160,7 @@ async fn a_changed_description_is_screened_and_only_a_failed_screen_holds_the_to
     .await;
     let (mut app, cal) = calendar(&m, &["list_events"]).await;
     reconfigure(&mut app, |cfg| {
-        let model = format!("anthropic/{}", cfg["model"]["model"].as_str().unwrap_or_default());
+        let model = format!("anthropic/{}", cfg["model"]["name"].as_str().unwrap_or_default());
         let mut safety = toml::Table::new();
         safety.insert("inbound_model".into(), model.into());
         cfg.insert("safety".into(), safety.into());

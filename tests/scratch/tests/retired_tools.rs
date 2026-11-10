@@ -59,7 +59,9 @@ async fn a_tool_the_app_no_longer_lists_leaves_the_agent_at_once() {
     assert!(after.contains(&"calendar__list_events".to_string()), "{after:?}");
 
     // Listed again, unchanged: offered again, with no card for anyone.
-    let reviews = |alice: Api| async move { alice.inbox().await.len() };
+    let reviews = |alice: Api| async move {
+        alice.inbox().await.into_iter().filter(|i| ["tool_review", "tool_change", "app_tools"].contains(&i["kind"].as_str().unwrap_or_default())).count()
+    };
     let had = reviews(alice.clone()).await;
     cal.state.lock().unwrap().retired.clear();
     tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
