@@ -3,7 +3,7 @@
 #
 #   release/can-publish.sh CONFIG MUST
 #
-# Prints 1 when this runner has the release key (~/.magnus-release/update.key,
+# Prints 1 when this runner has the release key (~/.magnus-teams-release/update.key,
 # or MAGNUS_RELEASE_KEY) and the appliance at CONFIG, whose updates directory
 # the owner's app reads; else 0. With MUST=1 (master, a tag), a runner that
 # lacks either fails here, before anything is built. The key alone used to
@@ -13,7 +13,7 @@
 set -eu
 config=$1
 must=$2
-key=${MAGNUS_RELEASE_KEY:-$HOME/.magnus-release/update.key}
+key=${MAGNUS_RELEASE_KEY:-$HOME/.magnus-teams-release/update.key}
 if [ -f "$key" ] && [ -f "$config" ]; then
   echo 1
   exit 0

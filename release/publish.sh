@@ -43,7 +43,7 @@ set -eu
 
 what=$1 version=$2 updates=$3 notes=$4
 shift 4
-key=${MAGNUS_RELEASE_KEY:-$HOME/.magnus-release/update.key}
+key=${MAGNUS_RELEASE_KEY:-$HOME/.magnus-teams-release/update.key}
 commit=${MAGNUS_COMMIT:-$(git rev-parse HEAD)}
 pr=${MAGNUS_PR:-}
 # A pull request's checkout is its merge with master: master is the first parent.
