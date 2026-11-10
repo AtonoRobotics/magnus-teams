@@ -132,6 +132,20 @@ pub async fn provider_with(model: &FakeModel, ids: &[&str]) -> String {
     url
 }
 
+/// A chat turn that starts the task `title` when the person says `ask`, and
+/// otherwise says it started. The turn that returns the task's outcome
+/// (decisions/2026-11-09-outcomes-return-to-the-agent.md) starts nothing, so
+/// a test sees one task.
+pub fn starts(ask: &'static str, title: &'static str) -> impl Fn(&str, usize) -> Reply + Send + Sync + 'static {
+    move |said, turn| {
+        if turn == 0 && said == ask {
+            tool("create_task", json!({ "title": title, "text": format!("{title}.") }))
+        } else {
+            Reply::Text("Started.".into())
+        }
+    }
+}
+
 /// What a model does for the flow's task: a contract with one criterion
 /// checked against the world and one only a person can judge, a plan, a
 /// file, its delivery (which asks), and a composed outcome.

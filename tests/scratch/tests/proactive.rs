@@ -611,7 +611,7 @@ async fn a_review_proposes_a_task_the_person_approves() {
         assert_eq!(details["budget"]["max_usd"], 50.0, "the estimate capped the proposal: {item}");
     }
     // The review that proposed them ran on the per-task budget, not a small wake budget of its own.
-    let review = items[0]["task"].as_str().expect("the proposal names no review task");
+    let review = items[0]["task_id"].as_str().expect("the proposal names no review task");
     let (_, r) = bob.get(&format!("/v1/tasks/{review}")).await;
     assert_eq!((r["budget"]["max_usd"].as_f64(), r["budget"]["max_model_calls"].as_i64()), (Some(50.0), Some(200)), "the review ran on a wake budget: {r}");
 

@@ -140,6 +140,22 @@ pub fn attempt(s: &State, task: &str) -> u32 {
     n
 }
 
+/// The chat turn the person wrote that a task's chain of retries began
+/// from: `turn` itself, or, for an outcome turn, the turn that started the
+/// task whose outcome it returned, and so on back. An outcome turn's words
+/// are the server's, so nothing names a task's request by them.
+pub fn person_turn<'a>(s: &'a State, turn: &'a Task) -> &'a Task {
+    let mut at = turn;
+    for _ in 0..=MAX_RETRY_COUNT_CEILING {
+        let from = s.outcomes.of(&at.task_id).and_then(|t| s.tasks.get(t)).and_then(|t| t.chat.as_ref()?.from_run.as_ref()).and_then(|r| s.runs.get(r));
+        match from.and_then(|r| s.tasks.get(&r.task)) {
+            Some(prev) => at = prev,
+            None => break,
+        }
+    }
+    at
+}
+
 /// The outcome turn's text: the server's, about the task by id and status
 /// only. The task's own words come from the conversation, as a task result
 /// carrying its taint, never from here.
@@ -365,6 +381,24 @@ mod tests {
         assert!(spent.contains("start no new task") && spent.contains("one decision or permission"), "{spent}");
         let done = turn_text("t3", Status::Completed, 2, 2);
         assert!(done.contains("finished") && done.contains("Tell the person the result"), "{done}");
+    }
+
+    /// A retry is grouped under the person's own message, never under the
+    /// outcome turn that started it: that turn's words are the server's.
+    #[test]
+    fn a_retry_belongs_to_the_turn_the_person_wrote() {
+        let mut s = State::default();
+        let on = json!({ MODULE: true });
+        task(&mut s, "person:carol", "turn", json!({ "thread": "th", "turn": true }), json!({}));
+        task(&mut s, "chat:r_turn", "t1", json!({ "thread": "th", "turn": false, "from_run": "r_turn" }), on.clone());
+        ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_t1", "reason": "x", "by": "model" }));
+        task(&mut s, "outcome:t1", "o1", json!({ "thread": "th", "turn": true }), json!({}));
+        task(&mut s, "chat:r_o1", "t2", json!({ "thread": "th", "turn": false, "from_run": "r_o1" }), on.clone());
+        ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_t2", "reason": "x", "by": "model" }));
+        task(&mut s, "outcome:t2", "o2", json!({ "thread": "th", "turn": true }), json!({}));
+        assert_eq!(person_turn(&s, &s.tasks["turn"]).task_id, "turn");
+        assert_eq!(person_turn(&s, &s.tasks["o1"]).task_id, "turn", "a retry is grouped under the server's turn");
+        assert_eq!(person_turn(&s, &s.tasks["o2"]).task_id, "turn", "a second retry is grouped under the server's turn");
     }
 
     /// The limit is validated when the configuration loads.

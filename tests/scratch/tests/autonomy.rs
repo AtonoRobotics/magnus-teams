@@ -482,6 +482,8 @@ permit(principal, action == Action::"request_approval", resource);
     // with no approval, on no more than the grant's budget.
     let tasks = visible_tasks(&alice).await;
     assert_eq!(tasks.len(), 3, "{tasks:?}");
+    // Each retry is listed under the person's own message, not the server's turn.
+    assert!(tasks.iter().all(|t| t["group"]["title"] == ASK && t["group"]["thread"] == thread.as_str()), "a retry is grouped under the server's turn text: {tasks:?}");
     let ids: Vec<String> = tasks.iter().map(|t| t["task_id"].as_str().unwrap().to_string()).collect();
     for id in &ids {
         let t = alice.task(id).await;

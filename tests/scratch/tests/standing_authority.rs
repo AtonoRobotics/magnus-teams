@@ -19,6 +19,8 @@ const CHAT: &str = "talking with the person you work for in a chat";
 const PASS: &str = "You keep the person's long-term memory";
 const GRANTS: &str = "# Work this person lets you do on your own";
 const LEDGER: &str = "# Your suggestions to this person and their answers";
+const AUTO_REVIEW: &str = "You are Auto Review";
+const CLASSIFIER: &str = "You scan outgoing content for sensitive data";
 
 /// The owner's policy here: Magnus reads and works in its sandbox on its
 /// own, and asks before any change in the CRM or the team chat (and before
@@ -75,11 +77,28 @@ fn plan(name: &str) -> Vec<Reply> {
 /// - `revoke grant=<g>` revokes grant g.
 ///
 /// A task does its plan after its contract; the memory pass writes nothing.
+///
+/// The model also plays the independent checks every app write meets
+/// (decisions/2026-11-08-auto-review.md, 2026-11-09-safety-checks.md): the
+/// outgoing classifier finds nothing, and Auto Review allows what a rule or
+/// grant covers and asks about the rest. So what goes ahead here goes ahead
+/// because the grant covers it, and what the grant leaves out reaches the
+/// person.
 fn model() -> model::Script {
     script(|c| async move {
         let sys = system(&c);
         if sys.contains(PASS) {
             return Reply::Text(String::new());
+        }
+        if sys.contains(CLASSIFIER) {
+            return tool("classify", json!({ "sensitive": false }));
+        }
+        if sys.contains(AUTO_REVIEW) {
+            return if c.text().contains("covered by a rule or grant") {
+                tool("review", json!({ "decision": "allow", "reason": "The person's grant covers it." }))
+            } else {
+                tool("review", json!({ "decision": "ask", "reason": "Nothing the person set up covers it." }))
+            };
         }
         if !sys.contains(CHAT) {
             let steps = plan(&arg(&c.text(), "plan").unwrap_or_default());

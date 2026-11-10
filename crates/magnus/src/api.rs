@@ -963,7 +963,9 @@ pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crat
     v["ended_at"] = json!(r.ended_at);
     v["group"] = if let Some(sc) = t.schedule.as_ref().and_then(|id| s.schedules.get(id)) {
         json!({ "kind": "schedule", "id": sc.id, "title": words.title(sc.seq).unwrap_or_else(|| words.text(sc.seq).to_string()) })
-    } else if let Some((c, turn)) = t.chat.as_ref().and_then(|c| c.from_run.as_ref().and_then(|f| s.runs.get(f)).and_then(|r| s.tasks.get(&r.task)).map(|turn| (c, turn))) {
+    } else if let Some((c, turn)) =
+        t.chat.as_ref().and_then(|c| c.from_run.as_ref().and_then(|f| s.runs.get(f)).and_then(|r| s.tasks.get(&r.task)).map(|turn| (c, crate::outcomes::person_turn(s, turn))))
+    {
         if mine {
             json!({ "kind": "chat", "id": turn.task_id, "title": words.text(turn.seq), "thread": c.thread })
         } else {

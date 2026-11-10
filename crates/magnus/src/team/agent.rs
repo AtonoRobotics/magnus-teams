@@ -47,6 +47,12 @@ fn in_team_run(tool: &str) -> bool {
     tools::builtin(tool).is_some_and(|b| matches!(b.app, "web" | "team" | "browser"))
 }
 
+/// A workspace's own tool, which serves only a team thread. An app's tool
+/// (`app__tool`) is the person's, even when the app is named "team".
+fn team_only(tool: &str) -> bool {
+    tool.starts_with("team_") && !tool.contains("__") && tool != OPEN_TO_PERSONAL
+}
+
 pub(super) fn volume_dir(k: &Kernel, workspace: &str) -> PathBuf {
     k.cfg.appliance.state_dir.join("team").join(workspace).join("files")
 }
@@ -64,7 +70,7 @@ impl Kernel {
     /// the team's own tools are refused and nothing else is touched.
     pub(crate) fn team_refusal(&self, a: &Action, run: &Run) -> Option<String> {
         let Some(t) = self.team_of(&run.task) else {
-            return (a.tool.starts_with("team_") && a.tool != OPEN_TO_PERSONAL).then(|| format!("{} works only on a request made in a team thread", a.tool));
+            return team_only(&a.tool).then(|| format!("{} works only on a request made in a team thread", a.tool));
         };
         let Some(role) = self.read(|s| s.team.role(&t.workspace, &t.requester)) else {
             return Some(format!("{} is no longer a member of this workspace", t.requester));
@@ -417,6 +423,16 @@ mod tests {
         ] {
             assert!(!in_team_run(t), "{t}");
         }
+    }
+
+    /// A person's own app named "team" is theirs to use anywhere; only the
+    /// workspace's tools wait for a team thread.
+    #[test]
+    fn an_app_named_team_is_not_the_workspace() {
+        assert!(team_only("team_post"));
+        assert!(!team_only(OPEN_TO_PERSONAL));
+        assert!(!team_only("team__post"), "the person's app named team was refused outside a team thread");
+        assert!(!team_only("team_drive__list"), "the person's app named team_drive was refused outside a team thread");
     }
 
     #[test]

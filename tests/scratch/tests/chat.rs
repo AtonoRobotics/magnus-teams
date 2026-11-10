@@ -325,7 +325,7 @@ async fn a_chat_task_running_at_a_restart_resumes() {
         let first = first.clone();
         async move {
             if is_chat(&c) {
-                return if c.turn() == 0 { tool("create_task", json!({ "title": "Write the report", "text": "Write the report." })) } else { say("Started.") };
+                return magnus_scratch::starts("Write me the report.", "Write the report")(&said(&c), c.turn());
             }
             match c.turn() {
                 0 => simple_contract(),
@@ -369,7 +369,7 @@ async fn a_chat_task_running_at_a_restart_resumes() {
 async fn a_chat_task_waiting_for_approval_at_a_restart_resumes() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(model(
-        |_, turn| if turn == 0 { tool("create_task", json!({ "title": "Email Bob the agenda", "text": "Email Bob the agenda." })) } else { say("Started.") },
+        magnus_scratch::starts("Email Bob the agenda.", "Email Bob the agenda"),
         vec![
             simple_contract(),
             tool("mail__send", json!({ "to": "bob@corp.example", "subject": "Agenda", "body": "1. Budget" })),

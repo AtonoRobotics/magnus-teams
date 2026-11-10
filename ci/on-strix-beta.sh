@@ -21,7 +21,18 @@ ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=strix-beta"
 root=$(cd "$(dirname "$0")/.." && pwd)
 dir=magnus-teams-ci/$name
 rsync -a --delete -e "$ssh_" --exclude .git --exclude target/ --exclude node_modules/ "$root/" "$host:$dir/"
+# The sandbox's guest kernel and image are built, not checked in, and every
+# checkout shares one copy (decisions/2026-11-09-scratch-suites-on-strix-beta.md).
+# A checkout that has them refreshes it; without them a task's contract checks
+# cannot run, and every scratch test with a task fails.
+guest=magnus-teams-ci/sandbox-out
+if [ -f "$root/sandbox/out/rootfs.ext4" ] && [ -f "$root/sandbox/out/vmlinux" ]; then
+  $ssh_ "$host" "mkdir -p $guest"
+  rsync -a --sparse -e "$ssh_" "$root/sandbox/out/vmlinux" "$root/sandbox/out/rootfs.ext4" "$host:$guest/"
+fi
 # The command, quoted for the remote shell.
 cmd=
 for a in "$@"; do cmd="$cmd '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
-exec $ssh_ "$host" "export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/target; cd $dir && $cmd"
+# The browser checks load playwright-core from browser/node_modules, which
+# the copy leaves out.
+exec $ssh_ "$host" "export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/target MAGNUS_GUEST_KERNEL=\$HOME/$guest/vmlinux MAGNUS_GUEST_ROOTFS=\$HOME/$guest/rootfs.ext4; cd $dir && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && $cmd"
