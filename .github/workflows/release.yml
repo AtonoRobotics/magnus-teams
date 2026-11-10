@@ -1,0 +1,72 @@
+# Every push to main becomes a magnus-teams release on its own server
+# (decisions/2026-11-09-teams-own-release-and-server.md): built on the build
+# box, signed with the magnus-teams key there (release/signing-key.sh; the
+# key never leaves it), the desktop app published to the test and
+# development channels, and the server's programs published and waited
+# for until the server runs them (release/to-appliance.sh).
+#
+# Only pushes to main and manual runs start it, never a pull request: the
+# runner is the build box itself.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: [self-hosted, linux, magnus-teams]
+    timeout-minutes: 90
+    env:
+      CONFIG: ${{ vars.MAGNUS_APPLIANCE_CONFIG }}
+      UPDATES: ${{ vars.MAGNUS_UPDATES_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versions
+        run: |
+          # The next patch, as a pre-release numbered by this run: newer than
+          # what is installed, older than the next tagged release.
+          next() { python3 -I -c 'import sys; a, b, c = sys.argv[1].split("-")[0].split("."); print(f"{a}.{b}.{int(c) + 1}")' "$1"; }
+          app=$(python3 -I -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["version"])')
+          appliance=$(python3 -I -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          echo "MAGNUS_VERSION=$(next "$app")-test.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "MAGNUS_APPLIANCE_VERSION=$(next "$appliance")-test.${{ github.run_number }}" >> "$GITHUB_ENV"
+          git log -1 --format='%s%n%n%b' > "$RUNNER_TEMP/notes"
+
+      - name: May publish
+        run: |
+          [ "$(release/can-publish.sh "$CONFIG" 1)" = 1 ]
+          out=$(release/signing-key.sh "$RUNNER_TEMP/signing")
+          echo "KEY_FILE=$(echo "$out" | head -1)" >> "$GITHUB_ENV"
+
+      - name: Programs
+        run: cargo build --release --offline --workspace --bins
+
+      - name: Desktop app
+        run: |
+          sh release/ensure-windows-target.sh
+          sh release/ensure-nsis-tools.sh
+          c="{\"version\":\"$MAGNUS_VERSION\"}"
+          export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_FILE")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          (cd desktop/src-tauri && cargo tauri build --bundles deb,appimage --config "$c")
+          (cd desktop/src-tauri && cargo tauri build --runner cargo --target x86_64-pc-windows-gnu --bundles nsis --config "$c")
+          mkdir -p dist
+          cp desktop/src-tauri/target/release/bundle/appimage/Magnus_${MAGNUS_VERSION}_amd64.AppImage dist/
+          cp desktop/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/Magnus_${MAGNUS_VERSION}_x64-setup.exe dist/
+
+      - name: Publish the desktop app
+        run: |
+          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" dist test
+          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" dist development
+
+      - name: Put it on the server
+        run: release/to-appliance.sh "$CONFIG" "$MAGNUS_APPLIANCE_VERSION" "$RUNNER_TEMP/notes" target/release
