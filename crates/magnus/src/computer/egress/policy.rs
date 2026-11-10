@@ -19,7 +19,9 @@ fn matches(pattern: &str, host: &str) -> bool {
 pub type Learned = HashMap<String, BTreeSet<String>>;
 
 /// `Ok` names the rule that allows the request; `Err` says why not.
-pub fn classify(registries: &[String], c: &Computer, learned: &Learned, host: &str, port: u16, method: &str) -> Result<&'static str, String> {
+/// `live` says whether a task is still running: a source granted to a
+/// task is reachable only while it is.
+pub fn classify(registries: &[String], c: &Computer, learned: &Learned, live: &dyn Fn(&str) -> bool, host: &str, port: u16, method: &str) -> Result<&'static str, String> {
     if c.status != Status::Running {
         return Err("the computer is not running".to_string());
     }
@@ -35,6 +37,9 @@ pub fn classify(registries: &[String], c: &Computer, learned: &Learned, host: &s
     }
     if c.destinations.iter().any(|h| matches(h, host)) {
         return Ok("added at the boundary");
+    }
+    if c.task_destinations.iter().any(|(h, task)| matches(h, host) && live(task)) {
+        return Ok("granted to a running task");
     }
     if registries.iter().any(|h| matches(h, host)) {
         return if read { Ok("package registry") } else { Err(format!("a package registry is for downloads only, not {method}")) };
@@ -82,15 +87,15 @@ mod tests {
         let mut c = computer(&mut l);
         let reg = vec!["pypi.org".to_string(), "*.pythonhosted.org".to_string()];
         let none = Learned::new();
-        assert!(classify(&reg, &c, &none, "evil.test", 443, "GET").is_err());
-        assert!(classify(&reg, &c, &none, "pypi.org", 443, "GET").is_ok());
-        assert!(classify(&reg, &c, &none, "files.pythonhosted.org", 443, "GET").is_ok());
-        assert!(classify(&reg, &c, &none, "pypi.org", 443, "POST").is_err(), "a registry took an upload");
-        assert!(classify(&reg, &c, &none, "notpypi.org", 443, "GET").is_err());
-        assert!(classify(&reg, &c, &none, "xpythonhosted.org", 443, "GET").is_err());
-        assert!(classify(&reg, &c, &none, "pypi.org", 22, "GET").is_err(), "a non-web port went through");
+        assert!(classify(&reg, &c, &none, &|_| false, "evil.test", 443, "GET").is_err());
+        assert!(classify(&reg, &c, &none, &|_| false, "pypi.org", 443, "GET").is_ok());
+        assert!(classify(&reg, &c, &none, &|_| false, "files.pythonhosted.org", 443, "GET").is_ok());
+        assert!(classify(&reg, &c, &none, &|_| false, "pypi.org", 443, "POST").is_err(), "a registry took an upload");
+        assert!(classify(&reg, &c, &none, &|_| false, "notpypi.org", 443, "GET").is_err());
+        assert!(classify(&reg, &c, &none, &|_| false, "xpythonhosted.org", 443, "GET").is_err());
+        assert!(classify(&reg, &c, &none, &|_| false, "pypi.org", 22, "GET").is_err(), "a non-web port went through");
         c.apps.push(App { name: "n".into(), version: "1".into(), source: "s".into(), sha256: "h".into(), steps: vec![], hosts: vec!["api.app.test".into()] });
-        assert!(classify(&reg, &c, &none, "api.app.test", 443, "POST").is_ok());
+        assert!(classify(&reg, &c, &none, &|_| false, "api.app.test", 443, "POST").is_ok());
     }
 
     #[test]
@@ -100,11 +105,26 @@ mod tests {
         c.pages.push(OpenPage { id: "p1".into(), host: "news.test".into() });
         let mut learned = Learned::new();
         learned.insert("p1".into(), resources_of(r#"<img src="https://cdn.test/a.png"><a href='https://link.test/'>x</a>"#));
-        assert!(classify(&[], &c, &learned, "news.test", 443, "GET").is_ok());
-        assert!(classify(&[], &c, &learned, "cdn.test", 443, "GET").is_ok());
-        assert!(classify(&[], &c, &learned, "cdn.test", 443, "POST").is_err(), "a page's resource took a write");
+        assert!(classify(&[], &c, &learned, &|_| false, "news.test", 443, "GET").is_ok());
+        assert!(classify(&[], &c, &learned, &|_| false, "cdn.test", 443, "GET").is_ok());
+        assert!(classify(&[], &c, &learned, &|_| false, "cdn.test", 443, "POST").is_err(), "a page's resource took a write");
         c.pages.clear();
-        assert!(classify(&[], &c, &learned, "cdn.test", 443, "GET").is_err(), "a closed page's resource went through");
+        assert!(classify(&[], &c, &learned, &|_| false, "cdn.test", 443, "GET").is_err(), "a closed page's resource went through");
+    }
+
+    /// A source granted to one task is reached while that task runs, and
+    /// not once it ends or from a later task.
+    #[test]
+    fn a_source_granted_to_a_task_lasts_only_while_it_runs() {
+        let mut l = Ledger::default();
+        computer(&mut l);
+        l.apply(&Change::DestinationGranted { id: "a".into(), host: "data.example".into(), task: "t1".into() });
+        let c = l.get("a").unwrap().clone();
+        let running = |t: &str| t == "t1";
+        assert_eq!(classify(&[], &c, &Learned::new(), &running, "data.example", 443, "POST"), Ok("granted to a running task"));
+        assert!(classify(&[], &c, &Learned::new(), &|t| t == "t2", "data.example", 443, "GET").is_err(), "another task used the source");
+        assert!(classify(&[], &c, &Learned::new(), &|_| false, "data.example", 443, "GET").is_err(), "the source outlived its task");
+        assert!(classify(&[], &c, &Learned::new(), &running, "other.example", 443, "GET").is_err());
     }
 
     #[test]
@@ -112,6 +132,6 @@ mod tests {
         let mut l = Ledger::default();
         let mut c = computer(&mut l);
         c.status = Status::Paused;
-        assert!(classify(&["pypi.org".to_string()], &c, &Learned::new(), "pypi.org", 443, "GET").is_err());
+        assert!(classify(&["pypi.org".to_string()], &c, &Learned::new(), &|_| false, "pypi.org", 443, "GET").is_err());
     }
 }

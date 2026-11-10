@@ -283,7 +283,9 @@ impl Kernel {
             return Ok(again.into());
         }
         let destination = shown.map_or_else(|| Value::String(a.tool.clone()), Shown::details);
-        let rules: Vec<String> = self.read(|s| s.policies.values().cloned().collect());
+        // The organisation's policies and the person's own rules, in their words.
+        let mut rules: Vec<String> = self.read(|s| s.policies.values().cloned().collect());
+        rules.extend(self.rule_texts(&run.person));
         let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
         let key = cache_key(&run.person, &a.tool, &destination, content_hash, (run.untrusted, run.private), &version, standing);
         if let Some(hit) = cached(&key) {

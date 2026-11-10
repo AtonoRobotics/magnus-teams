@@ -57,6 +57,7 @@ pub mod proactive;
 pub mod reactions;
 pub mod recall;
 pub mod relationship;
+pub mod rule_effects;
 pub mod rules;
 pub mod run;
 pub mod safety;

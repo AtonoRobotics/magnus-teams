@@ -209,17 +209,6 @@ impl Kernel {
         Ok(Some(("Screenshot of your computer attached.".to_string(), false, Some(json!({ "image_b64": image })))))
     }
 
-    /// A boundary action: the pipeline has already reviewed it by now.
-    pub(crate) async fn add_destination_tool(&self, a: &crate::boundary::Action) -> Result<(String, bool, Option<Value>)> {
-        let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).and_then(|p| self.person(&p)).ok_or_else(|| anyhow!("the run has no person"))?;
-        let Some(id) = self.run_computer(&person.id) else { return Ok(("You have no running computer.".to_string(), true, None)) };
-        let host = a.input["host"].as_str().unwrap_or_default();
-        Ok(match self.add_computer_destination(&person, &id, host).await {
-            Ok(_) => (format!("{host} can now be reached from your computer."), false, None),
-            Err(e) => (e.to_string(), true, None),
-        })
-    }
-
     pub async fn start_takeover(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let c = self.opened_computer(who, id)?;
         if c.status != Status::Running {

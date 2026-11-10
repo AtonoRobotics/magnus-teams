@@ -5,7 +5,7 @@
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
     let src = &src[src.find("pub enum Ev {").unwrap()..src.find("pub const CONTENT").unwrap()];
-    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| *k != "team") {
+    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "rule"].contains(k)) {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
         let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
         let body = &src[start..start + src[start..].find("\n    },").unwrap()];
@@ -31,4 +31,22 @@ fn the_teams_content_fields_all_read_once_deleted() {
         assert!(src.contains(&field), "no team event has {f}");
         assert_eq!(src.matches(&field).count(), src.matches(&format!("#[serde(default)]{field}")).count(), "a team event's {f} has no default");
     }
+}
+
+/// A rule's words are the person's content: they leave the log's record,
+/// and a rule whose words were erased still reads.
+#[test]
+fn a_rules_words_are_content_and_read_once_deleted() {
+    let src = include_str!("rules.rs");
+    let src = &src[src.find("pub enum Change {").unwrap()..src.find("#[derive(Serialize, Clone, Debug)]\npub struct Rule").unwrap()];
+    let (_, fields) = super::CONTENT.iter().find(|(k, _)| *k == "rule").unwrap();
+    for f in *fields {
+        let field = format!("\n        {f}: ");
+        assert!(src.contains(&field), "no rule event has {f}");
+        assert_eq!(src.matches(&field).count(), src.matches(&format!("#[serde(default)]{field}")).count(), "a rule event's {f} has no default");
+    }
+    let ev = super::Ev::Rule(crate::rules::Change::Proposed { id: "r".into(), person: "alice".into(), compiled: None, words: Some("ask me first".into()) });
+    let (record, content) = crate::log::split(serde_json::to_value(&ev).unwrap());
+    assert!(record.get("words").is_none(), "the words stayed in the record");
+    assert_eq!(content.unwrap().body["words"], "ask me first");
 }

@@ -11,6 +11,7 @@ mod idle;
 mod lifecycle;
 mod routes;
 mod service;
+mod sources;
 mod takeover;
 
 pub(crate) use driving::request_spec;
@@ -161,6 +162,13 @@ pub enum Change {
         id: String,
         host: String,
     },
+    /// Reachable by this computer while one task is live; the person
+    /// granted the source to that task alone.
+    DestinationGranted {
+        id: String,
+        host: String,
+        task: String,
+    },
     PageOpened {
         id: String,
         page: String,
@@ -301,6 +309,8 @@ pub struct Computer {
     pub free_space_zeroed: Option<DateTime<Utc>>,
     /// Reachable because a person or the boundary said so.
     pub destinations: Vec<String>,
+    /// Sources granted to one task: (host, task).
+    pub task_destinations: Vec<(String, String)>,
     pub pages: Vec<OpenPage>,
     /// Its place among waiting wakes, oldest first.
     #[serde(skip)]
@@ -398,6 +408,7 @@ impl Ledger {
                 deleted_files: vec![],
                 free_space_zeroed: None,
                 destinations: vec![],
+                task_destinations: vec![],
                 pages: vec![],
                 queued: None,
                 controller: None,
@@ -504,6 +515,14 @@ impl Ledger {
                 if let Some(c) = self.computers.get_mut(id) {
                     if !c.destinations.contains(host) {
                         c.destinations.push(host.clone());
+                    }
+                }
+            }
+            Change::DestinationGranted { id, host, task } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    let grant = (host.clone(), task.clone());
+                    if !c.task_destinations.contains(&grant) {
+                        c.task_destinations.push(grant);
                     }
                 }
             }

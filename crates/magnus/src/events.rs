@@ -10,8 +10,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ChatOrigin {
     pub thread: String,
-    /// A chat turn (the person's message, answered without a contract), or a
-    /// task started from chat.
+    /// A chat turn (the person's message, answered without a contract), or a task started from chat.
     pub turn: bool,
     /// For a task: the chat turn that started it.
     #[serde(default)]
@@ -1329,6 +1328,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("commitment_recorded", &["what", "to", "quote"]),
     ("commitment_changed", &["what", "to", "note"]),
     ("watched_seen", &["ids"]),
+    ("rule", &["words"]),
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine"]),
 ];
 

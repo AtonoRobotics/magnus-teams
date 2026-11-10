@@ -2119,8 +2119,11 @@ function card(i, composed) {
       const onceOnly = String(d.rule || "").startsWith("kernel:") || d.reason === "unknown_outcome";
       // Web lookups after reading private data: one answer for the whole
       // task, or the whole conversation.
-      const list = d.web_lookups ? [["approve:task", `Allow web lookups for this ${d.web_lookups}`, "primary"], ["approve:once", "Allow this lookup only"]] : [["approve:once", "Approve once", "primary"]];
-      if (!onceOnly) {
+      // A new source: for this task alone, or always (the person's own computer).
+      const source = d.rule === "new_source" ? String(d.input?.host || "this site") : "";
+      const list = source ? [["approve:task", `Allow ${source} for this task`, "primary"], ["approve:standing", `Always allow ${source}`]]
+        : d.web_lookups ? [["approve:task", `Allow web lookups for this ${d.web_lookups}`, "primary"], ["approve:once", "Allow this lookup only"]] : [["approve:once", "Approve once", "primary"]];
+      if (!onceOnly && !source) {
         list.push(["approve:task", "Approve for this task"]);
         list.push(["approve:window", "Approve for an hour"]);
         if (isOwner()) list.push(["approve:standing", "Always allow"]);
@@ -3259,7 +3262,7 @@ async function connectorsSection(main) {
 // Everything a person can set, in one place; developer views stay in their
 // own group. Sections that need the owner role are shown only to owners.
 const SETTINGS = [
-  ["models", "Models", modelsSection, true], ["connectors", "Connectors", connectorsSection, true], ["account", "Account", accountSection], ["payments", "Payments", (el) => paymentsSection(el)],
+  ["models", "Models", modelsSection, true], ["connectors", "Connectors", connectorsSection, true], ["account", "Account", accountSection], ["rules", "Rules", (el) => rulesSection(el)], ["payments", "Payments", (el) => paymentsSection(el)],
   ["appearance", "Appearance", appearanceSection], ["notifications", "Notifications", notificationsSection], ["updates", "Updates", updatesSection], ["data", "Data and privacy", dataSection],
   ["safety", "Kill switch", killSwitchSection, true],
 ];

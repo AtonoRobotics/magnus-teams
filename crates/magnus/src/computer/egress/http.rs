@@ -111,7 +111,8 @@ async fn request<S: AsyncRead + AsyncWrite + Unpin>(proxy: &Proxy, computer: &st
         Some(c) => {
             let learned = proxy.learned.lock().unwrap_or_else(|e| e.into_inner());
             let registries = proxy.kernel.cfg.computer.as_ref().map(|c| c.registries.clone()).unwrap_or_default();
-            policy::classify(&registries, c, &learned, host, port, &head.method).map(String::from)
+            let live = |task: &str| s.tasks.get(task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|r| !r.status.terminal());
+            policy::classify(&registries, c, &learned, &live, host, port, &head.method).map(String::from)
         }
         None => Err("the computer is unknown".to_string()),
     });

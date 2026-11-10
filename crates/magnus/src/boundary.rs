@@ -436,9 +436,7 @@ impl Kernel {
 
     async fn pipeline(self: &Arc<Self>, a: &Action) -> Result<Verdict> {
         // 1. Identify: the run, the person and the tool are known.
-        let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else {
-            return Err(anyhow!("unknown run {}", a.run));
-        };
+        let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else { return Err(anyhow!("unknown run {}", a.run)) };
         let person = self.person(&run.person).ok_or_else(|| anyhow!("unknown person {}", run.person))?;
         // The kill switch holds before anything touches a credential (B11).
         if self.read(|s| s.kill_switch) {
@@ -498,10 +496,10 @@ impl Kernel {
             Err(why) => return self.deny(a, "destinations", &why, true, None).await,
         };
 
-        // 4. Policy.
-        let ask = match self.policy_stage(a, &run, &person, &f, shown.as_ref()).await? {
-            Ok(None) => None,
-            Ok(Some(why)) => Some(why),
+        // 4. Policy, then the person's own rules (block, ask first) and new sources.
+        let policy = self.policy_stage(a, &run, &person, &f, shown.as_ref()).await?;
+        let ask = match self.person_rules(a, &run, &f, shown.as_ref(), policy).await? {
+            Ok(ask) => ask,
             Err(v) => return Ok(v),
         };
 
@@ -704,9 +702,7 @@ impl Kernel {
     async fn check_pin(&self, c: &Connector, f: &Facts, person: &str) -> std::result::Result<(), String> {
         let secret = self.connector_secret(c, person).await.ok().flatten();
         let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| format!("could not read {}'s tool definitions ({e})", f.app))?;
-        let Some(t) = live.iter().find(|t| t.name == f.remote) else {
-            return Err(format!("{} no longer offers {}", f.app, f.remote));
-        };
+        let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err(format!("{} no longer offers {}", f.app, f.remote)) };
         match self.pin(c, &f.name, t).await {
             Ok(true) => {
                 let _ = self.review_item(&f.app, std::slice::from_ref(&f.name)).await;
@@ -936,6 +932,8 @@ impl Kernel {
                         && ap.risk.as_deref() == Some(f.risk.as_str())
                         && ap.reason.as_deref() != Some("unknown_outcome")
                         && (!kernel_ask || ap.scope == "once")
+                        // A source is approved for its own host only.
+                        && (ap.reason.as_deref() != Some(crate::rule_effects::NEW_SOURCE) || ap.input_hash.as_deref() == Some(hash))
                         && match ap.scope.as_str() {
                             "once" => !ap.used && ap.task == run.task && ap.input_hash.as_deref() == Some(hash),
                             "task" => ap.task == run.task,
@@ -948,9 +946,11 @@ impl Kernel {
                 .collect::<Vec<_>>()
         });
         // A lasting approval holds only while its approver may still give it:
-        // one whose approver role was taken away no longer covers anything.
+        // one whose approver role was taken away no longer covers anything. A
+        // source is the person's own computer's to allow.
         let still_may = |ap: &crate::state::Approval| {
             !matches!(ap.scope.as_str(), "standing" | "window")
+                || ap.reason.as_deref() == Some(crate::rule_effects::NEW_SOURCE)
                 || ap.by.strip_prefix("person:").and_then(|id| self.person(id)).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())))
         };
         found.into_iter().find(|ap| still_may(ap))
@@ -973,7 +973,7 @@ impl Kernel {
             }
             return Ok(Gate::Pass);
         }
-        let person_only = lookup || rule.as_deref() == Some(crate::auto_review::ASKED);
+        let person_only = lookup || crate::rule_effects::person_only(rule.as_deref());
         let why = match self.clear_ask(a, run, f, &rule, shown, &hash, kernel_ask, person_only).await? {
             crate::auto_review::Cleared::Gate(g) => return Ok(g),
             crate::auto_review::Cleared::Ask(reason) => reason.unwrap_or_else(|| why.to_string()),
@@ -1011,7 +1011,7 @@ impl Kernel {
                     let scope = if chat_turn { "this conversation" } else { "this task" };
                     format!("This {} {what} and searches the web — allow web lookups for {scope}?", if chat_turn { "conversation" } else { "task" })
                 } else {
-                    format!("Approve {} ({})?", a.tool, f.risk.as_str())
+                    crate::rule_effects::ask_summary(a, f)
                 };
                 let ev = Ev::Item {
                     id: id.clone(),

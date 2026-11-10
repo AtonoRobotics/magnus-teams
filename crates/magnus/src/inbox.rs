@@ -158,8 +158,10 @@ impl Kernel {
                 if scope != "once" && !lookups && (rule.starts_with("kernel:") || unknown) {
                     return Ok(Answer::Invalid("this action can only be approved once: it is asked because of what the task has read, or because its outcome is unknown".into()));
                 }
-                // A standing approval is autonomy; only the owner grants it (invariant 6).
-                if scope == "standing" && !p.is_owner() {
+                // A standing approval is autonomy; only the owner grants it
+                // (invariant 6). A source for the person's own computer is
+                // theirs to allow always, as they may add it themselves.
+                if scope == "standing" && !p.is_owner() && rule != crate::rule_effects::NEW_SOURCE {
                     return Ok(Answer::Forbidden("only the owner can approve standing; propose a policy instead"));
                 }
                 let until = match scope.as_str() {
