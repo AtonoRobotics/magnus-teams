@@ -14,8 +14,8 @@
 //! - a pause landing after a release snapshot is not undone by it;
 //! - one held on its waiting run can be paused by its person, and stays
 //!   paused when the hold ends;
-//! - a proposed schedule keeps the budget and taint of the run that
-//!   proposed it.
+//! - a proposed schedule runs on the server's per-task budget with the
+//!   taint of the run that proposed it.
 
 use magnus_invariants::appliance::workspace_root;
 use magnus_invariants::{mcp, *};
@@ -325,10 +325,10 @@ async fn deleting_an_ended_schedule_leaves_its_last_run_going() {
     assert!(t["summary"].as_str().unwrap_or_default().contains("the source was empty"), "{t}");
 }
 
-/// A schedule a run proposes gets that run's budget, kept as it was, and
+/// A schedule a run proposes runs on the server's per-task budget, and
 /// its runs start with that run's taint.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_proposed_schedule_keeps_the_budget_and_taint_of_the_run_that_proposed_it() {
+async fn a_proposed_schedule_runs_on_the_servers_budget_with_the_proposers_taint() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
         let b = c.body.to_string();
@@ -355,15 +355,15 @@ async fn a_proposed_schedule_keeps_the_budget_and_taint_of_the_run_that_proposed
     let s = v["schedules"].as_array().unwrap().iter().find(|s| s["text"] == "Summarise the inbox.").cloned().expect("the accepted proposal is not scheduled");
     let id = s["id"].as_str().unwrap().to_string();
     assert_eq!(s["max_runs"], 1, "{s}");
-    // The appliance's budget changes later; the schedule keeps the one its
-    // proposing run had.
+    // The server's budget changes later; each run takes the server's
+    // per-task budget, never one of the schedule's own (spec rev 133).
     reconfigure(&mut app, |c| {
         c["budget"].as_table_mut().unwrap().insert("max_usd".into(), 1000.0.into());
     })
     .await;
     let alice = app.api("alice");
     let s = schedule(&alice, &id).await.unwrap();
-    assert_eq!(s["budget"]["max_usd"].as_f64(), budget["max_usd"].as_float().or(budget["max_usd"].as_integer().map(|i| i as f64)), "{s}");
+    assert_eq!(s["budget"]["max_usd"].as_f64(), Some(1000.0), "{s}");
     assert_eq!(s["budget"]["max_model_calls"].as_i64(), budget["max_model_calls"].as_integer(), "{s}");
 
     let run = eventually("the proposed schedule's run", MINUTE, || async {

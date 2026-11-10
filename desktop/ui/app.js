@@ -1993,7 +1993,7 @@ function entry(e, ui = {}) {
         ${part("Outcome", `<p class="cc-text">${esc(e.outcome)}</p>`)}
         ${part("Why now", `<p class="cc-text">${esc(e.why_now)}</p>`)}
         ${e.changed ? `<p class="small"><strong>What changed:</strong> ${esc(e.changed)}</p>` : ""}
-        ${part("Needs", `<ul class="sugg-list">${(n.permissions || []).map(x => `<li>${esc(x)}</li>`).join("")}<li class="num">Up to $${esc(n.estimated_cost_usd)}</li>${n.input ? `<li>From you: ${esc(n.input)}</li>` : ""}</ul>`)}
+        ${part("Needs", `<ul class="sugg-list">${(n.permissions || []).map(x => `<li>${esc(x)}</li>`).join("")}<li class="num">About $${esc(n.estimated_cost_usd)} (estimated)</li>${n.input ? `<li>From you: ${esc(n.input)}</li>` : ""}</ul>`)}
         ${evidenceList(e, "Seen in")}
         <p class="small muted">It acts for you (${esc(e.acts_for)}), with your access, and spends no more than this; what it needs from you shows under Needs you.</p>${taintNote(e.taint)}
         ${ui.handling === e.card ? `<div class="sugg-part" data-handle>${grantForm(e.card, e.handle || {}, e.your_apps)}

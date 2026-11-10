@@ -697,8 +697,8 @@ impl Kernel {
                             continue;
                         }
                         let o = NewRun {
-                            // A schedule's own limits, within the appliance's today.
-                            budget: sc.budget.as_ref().map(|b| b.within(&self.cfg.budget)),
+                            // The server's per-task limit, never one the model set on the card.
+                            budget: Some(crate::task_budget::scheduled(&self.cfg.budget, sc.budget.as_ref())),
                             label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),
                             project: self.read(|s| s.project_of(&sc.id)),
                             scope: w.opt(sc.seq, "scope"),

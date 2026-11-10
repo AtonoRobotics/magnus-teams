@@ -64,6 +64,18 @@ struct ProposalParts {
     changed: Option<String>,
 }
 
+/// What a task proposal carries, in the thread or the inbox: its words,
+/// what it needs with the model's estimate (shown to the person), and the
+/// budget the task starts with, which is the server's per-task limit and
+/// never the estimate (spec rev 133).
+fn proposal_data(p: &ProposalParts, server: &crate::config::Budget) -> Value {
+    json!({
+        "title": p.title, "text": p.text, "noticed": { "what": p.what, "where": p.place }, "outcome": p.outcome, "why_now": p.why_now,
+        "needs": { "permissions": p.permissions, "estimated_cost_usd": p.cost, "input": p.input }, "evidence": p.evidence,
+        "scope": p.permissions.join("; "), "budget": crate::task_budget::for_task(server), "again": p.again, "changed": p.changed,
+    })
+}
+
 /// The person's cards as their conversations show them (one in the trash,
 /// deleted, or in a conversation in the trash, is left out), schedules and
 /// suggestions, not an app's offer.
@@ -246,22 +258,9 @@ impl Kernel {
         if let Some(denied) = self.loop_deny(run, "suggest", None) {
             return Ok((format!("No card: {denied}. A retry will not help."), true, None));
         }
-        // The task spends no more than the cost the person approved.
-        let mut budget = self.cfg.budget.clone();
-        budget.max_usd = p.cost;
-        let scope = p.permissions.join("; ");
-        let item = self
-            .item(
-                run,
-                "task_proposal",
-                format!("The worker proposes a task: {}", p.title),
-                json!({
-                    "title": p.title, "text": p.text, "noticed": { "what": p.what, "where": p.place }, "outcome": p.outcome, "why_now": p.why_now,
-                    "needs": { "permissions": p.permissions, "estimated_cost_usd": p.cost, "input": p.input }, "evidence": p.evidence,
-                    "scope": scope, "budget": budget, "again": p.again, "changed": p.changed, "call_id": a.call_id,
-                }),
-            )
-            .await?;
+        let mut details = proposal_data(&p, &self.cfg.budget);
+        details["call_id"] = json!(a.call_id);
+        let item = self.item(run, "task_proposal", format!("The worker proposes a task: {}", p.title), details).await?;
         Ok((format!("Proposal {item} is in the person's inbox. Nothing starts until they approve it."), false, None))
     }
 
@@ -280,16 +279,10 @@ impl Kernel {
         if !self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.is_chat_turn())) {
             return self.inbox_proposal(&run, a, p).await;
         }
-        // The task spends no more than the cost the person approved.
-        let mut budget = self.cfg.budget.clone();
-        budget.max_usd = p.cost;
-        let scope = p.permissions.join("; ");
         let card = crate::chat::derived("card", key);
-        let data = json!({
-            "card": card, "proposal": true, "title": p.title, "text": p.text, "noticed": { "what": p.what, "where": p.place }, "outcome": p.outcome, "why_now": p.why_now,
-            "needs": { "permissions": p.permissions, "estimated_cost_usd": p.cost, "input": p.input }, "evidence": p.evidence,
-            "scope": scope, "budget": budget, "again": p.again, "changed": p.changed,
-        });
+        let mut data = proposal_data(&p, &self.cfg.budget);
+        data["card"] = json!(card);
+        data["proposal"] = json!(true);
         Ok((format!("A card for this task proposal ({card}) is in the thread. Nothing starts until the person approves it."), false, Some(data)))
     }
 
@@ -326,10 +319,8 @@ impl Kernel {
                 Err(m) => return no(format!("{m}. A retry with the same values will not help.")),
             };
         }
-        let budget = match self.card_budget(&a.input["budget"]) {
-            Ok(b) => b,
-            Err(m) => return no(format!("{m}. A retry with the same budget will not help.")),
-        };
+        // Each run's limit is the server's per-task budget, never the model's.
+        let budget = crate::task_budget::for_task(&self.cfg.budget);
         let card = crate::chat::derived("card", key);
         let data = json!({
             "card": card, "suggestion": true, "title": title, "plan": plan, "text": plan, "evidence": evidence, "permissions": permissions,
@@ -368,6 +359,30 @@ impl Kernel {
 mod tests {
     use super::*;
     use crate::log::Event;
+
+    /// A proposal shows the model's estimate and starts the task with the
+    /// server's per-task budget, never capped at the estimate (spec rev 133).
+    #[test]
+    fn a_proposal_shows_the_estimate_and_starts_with_the_servers_budget() {
+        let p = ProposalParts {
+            title: "Chase the invoice".into(),
+            text: "Draft a reminder.".into(),
+            what: "Overdue".into(),
+            place: "Tasks".into(),
+            outcome: "A draft".into(),
+            why_now: "Friday".into(),
+            permissions: vec!["Reads invoices".into()],
+            cost: 0.75,
+            input: None,
+            evidence: vec![],
+            again: None,
+            changed: None,
+        };
+        let server = crate::config::Budget { max_model_calls: 300, max_actions: 500, max_usd: 50.0 };
+        let d = proposal_data(&p, &server);
+        assert_eq!(d["needs"]["estimated_cost_usd"].as_f64(), Some(0.75), "the estimate is not shown: {d}");
+        assert_eq!(d["budget"], json!({ "max_model_calls": 300, "max_actions": 500, "max_usd": 50.0 }), "the estimate capped the task: {d}");
+    }
 
     /// The ledger holds each card proposed before the run, with the answer
     /// given before it; a tainted card's words stay out; a deleted one and

@@ -606,8 +606,14 @@ async fn a_review_proposes_a_task_the_person_approves() {
     for item in &items {
         let details = &item["details"];
         assert!(details["evidence"].as_array().is_some_and(|e| !e.is_empty()), "ungrounded proposal: {item}");
-        assert_eq!(details["budget"]["max_usd"], 1.5, "proposal carries no budget: {item}");
+        // The estimate is shown; the task's budget is the server's (spec rev 133).
+        assert_eq!(details["needs"]["estimated_cost_usd"], 1.5, "the estimate is not shown: {item}");
+        assert_eq!(details["budget"]["max_usd"], 50.0, "the estimate capped the proposal: {item}");
     }
+    // The review that proposed them ran on the per-task budget, not a small wake budget of its own.
+    let review = items[0]["task"].as_str().expect("the proposal names no review task");
+    let (_, r) = bob.get(&format!("/v1/tasks/{review}")).await;
+    assert_eq!((r["budget"]["max_usd"].as_f64(), r["budget"]["max_model_calls"].as_i64()), (Some(50.0), Some(200)), "the review ran on a wake budget: {r}");
 
     // Accepting one starts the task; rejecting the other ends it quietly.
     let accept = items.iter().find(|i| i["details"]["title"] == "Rebuild the backup index").expect("the approval is missing");
@@ -624,7 +630,7 @@ async fn a_review_proposes_a_task_the_person_approves() {
     .await;
     assert!(bob.respond(reject["id"].as_str().unwrap(), json!({ "decision": "reject" })).await.is_success());
     let (_, detail) = bob.get(&format!("/v1/tasks/{}", task["task_id"].as_str().unwrap())).await;
-    assert_eq!(detail["budget"]["max_usd"], 1.5, "the run lost its approved budget: {detail}");
+    assert_eq!(detail["budget"]["max_usd"], 50.0, "the run is capped at the model's estimate, not the server's budget: {detail}");
     let rejected = bob.inbox().await.into_iter().find(|i| i["id"] == reject["id"]).expect("the rejection vanished");
     assert_eq!(rejected["status"], "resolved", "the rejection is still open: {rejected}");
     let (_, tasks) = bob.get("/v1/tasks").await;

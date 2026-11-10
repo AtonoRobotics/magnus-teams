@@ -300,7 +300,7 @@ impl crate::kernel::Kernel {
     }
 
     pub(crate) async fn start_poll(self: &Arc<Self>, person: &str, app: &str, watch: &crate::config::Watch) {
-        let budget = crate::config::Budget { max_model_calls: 5, max_actions: 3, max_usd: self.cfg.proactive.wake_max_usd };
+        let budget = crate::task_budget::for_wake(&self.cfg.budget);
         let text = format!("Poll {app}: call {app}__{} once with no arguments, then end the task. Do nothing else.", watch.tool);
         match self.create_run("poll", person, text, vec![], crate::kernel::NewRun { budget: Some(budget), ..Default::default() }).await {
             Ok(_) => {
@@ -396,11 +396,12 @@ impl crate::kernel::Kernel {
     }
 
     /// Start the review run itself: the review instruction over the
-    /// person's state, on a small wake budget (#237).
+    /// person's state, on the per-task budget, which its Auto Review calls
+    /// are charged to as well (#237, spec rev 133).
     async fn start_review(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
         let context = self.review_context(person, ended.as_ref()).await;
         let text = format!("Review the person's state ({reason}).\n\n{context}");
-        let budget = crate::config::Budget { max_model_calls: 10, max_actions: 10, max_usd: self.cfg.proactive.wake_max_usd };
+        let budget = crate::task_budget::for_wake(&self.cfg.budget);
         match self
             .create_run(
                 "review",

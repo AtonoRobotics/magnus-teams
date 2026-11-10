@@ -556,14 +556,12 @@ fn interruptions_per_day() -> u32 {
     3
 }
 
-fn wake_max_usd() -> f64 {
-    0.25
-}
-
 /// The proactive loop's operating parameters (behavior step 7, #237):
-/// how often reviews wake, how many interruptions a day they may deliver,
-/// and what each wake may spend. People override the cadence and the
-/// budget with preferences; `on` is the deployment kill switch.
+/// how often reviews wake and how many interruptions a day they may
+/// deliver. People override the cadence and the interruption budget with
+/// preferences; `on` is the deployment kill switch. A wake spends from the
+/// per-task `[budget]` like any task (spec rev 133); the retired
+/// `wake_max_usd` key is ignored where a config still sets it.
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Proactive {
     #[serde(default = "proactive_on")]
@@ -572,13 +570,11 @@ pub struct Proactive {
     pub review_every_minutes: u32,
     #[serde(default = "interruptions_per_day")]
     pub interruptions_per_day: u32,
-    #[serde(default = "wake_max_usd")]
-    pub wake_max_usd: f64,
 }
 
 impl Default for Proactive {
     fn default() -> Self {
-        Proactive { on: proactive_on(), review_every_minutes: review_every_minutes(), interruptions_per_day: interruptions_per_day(), wake_max_usd: wake_max_usd() }
+        Proactive { on: proactive_on(), review_every_minutes: review_every_minutes(), interruptions_per_day: interruptions_per_day() }
     }
 }
 

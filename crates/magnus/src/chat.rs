@@ -502,10 +502,8 @@ impl Kernel {
             Ok(r) => r,
             Err(m) => return (format!("{m}. A retry with the same values will not help."), true, None),
         };
-        let budget = match self.card_budget(&a.input["budget"]) {
-            Ok(b) => b,
-            Err(m) => return (format!("{m}. A retry with the same budget will not help."), true, None),
-        };
+        // Each run's limit is the server's per-task budget, never the model's.
+        let budget = crate::task_budget::for_task(&self.cfg.budget);
         let (until, max_runs) = match crate::api::end_for(&a.input) {
             Ok(r) => r,
             Err(m) => return (format!("{m}. A retry with the same values will not help."), true, None),
@@ -519,33 +517,9 @@ impl Kernel {
         (format!("A card for this schedule ({card}) is in the thread. Nothing is scheduled until the person confirms it."), false, Some(data))
     }
 
-    /// A schedule's budget per run: the appliance's, tightened where the
-    /// model asked, never loosened.
-    pub(crate) fn card_budget(&self, b: &Value) -> std::result::Result<crate::config::Budget, String> {
-        let mut out = self.cfg.budget.clone();
-        if b.is_null() {
-            return Ok(out);
-        }
-        if let Some(v) = b["max_usd"].as_f64() {
-            if v <= 0.0 || v > out.max_usd {
-                return Err(format!("max_usd must be above 0 and at most the server's {}", out.max_usd));
-            }
-            out.max_usd = v;
-        }
-        for (k, slot) in [("max_model_calls", &mut out.max_model_calls), ("max_actions", &mut out.max_actions)] {
-            if let Some(v) = b[k].as_u64() {
-                if v == 0 || v > *slot as u64 {
-                    return Err(format!("{k} must be above 0 and at most the appliance's {slot}"));
-                }
-                *slot = v as u32;
-            }
-        }
-        Ok(out)
-    }
-
     /// The person who started the thread answers a card: accept (or
     /// confirm), later ("Not now"), or decline with their reason. An
-    /// accepted schedule acts for them (K54), within the card's budget, and
+    /// accepted schedule acts for them (K54), within the server's per-task budget, and
     /// its runs start with the taint the turn had; an accepted suggestion
     /// without timing starts a task for them as `create_task` would. A task
     /// proposal is approved (it starts as such a suggestion does) or
@@ -611,8 +585,7 @@ impl Kernel {
                 };
                 let plan = d["text"].as_str().unwrap_or_default().to_string();
                 let title = d["title"].as_str().unwrap_or_default().to_string();
-                let mut budget: crate::config::Budget = serde_json::from_value(d["budget"].clone()).unwrap_or_else(|_| self.cfg.budget.clone());
-                budget.max_usd = budget.max_usd.min(left);
+                let budget = crate::task_budget::under_grant(&crate::task_budget::approved(&self.cfg.budget, &d["budget"]), left);
                 let more = NewRun { budget: Some(budget), scope: d["scope"].as_str().map(String::from), grant: Some(id.clone()), ..Default::default() };
                 let started = self.task_from_turn(&actor, &task, &run, &format!("card:{card}"), plan, title, more).await?;
                 self.emit(&actor, Ev::CardAccepted { card: card.into(), person: person.into(), task: started.clone() }).await?;
@@ -637,14 +610,17 @@ impl Kernel {
             "confirm" | "accept" if !crate::suggestions::timed(&d) => {
                 let plan = d["plan"].as_str().or(d["text"].as_str()).unwrap_or_default().to_string();
                 let title = d["title"].as_str().unwrap_or_default().to_string();
-                let more = NewRun { budget: serde_json::from_value(d["budget"].clone()).ok(), scope: d["scope"].as_str().map(String::from), ..Default::default() };
+                let more =
+                    NewRun { budget: Some(crate::task_budget::approved(&self.cfg.budget, &d["budget"])), scope: d["scope"].as_str().map(String::from), ..Default::default() };
                 let started = self.task_from_turn(&actor, &task, &run, &format!("card:{card}"), plan, title, more).await?;
                 self.emit(&actor, Ev::CardAccepted { card: card.into(), person: person.into(), task: started.clone() }).await?;
                 Ok(Ok(json!({ "task": started })))
             }
             "confirm" | "accept" => {
                 let id = new_id("sched");
-                let budget = serde_json::from_value(d["budget"].clone()).ok();
+                // No budget of its own: each run takes the server's per-task
+                // limit when it fires, never the figure on the card.
+                let budget = None;
                 self.emit(
                     &actor,
                     Ev::ScheduleSet {

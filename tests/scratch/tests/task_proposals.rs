@@ -3,8 +3,8 @@
 //! card with what it noticed and where, the outcome, why now, and what the
 //! task needs (permissions, an estimated cost, any input), refused when a
 //! field is missing, the estimate is out of bounds, or its evidence points
-//! at nothing real. The person approves it (the task starts for them and
-//! spends at most the estimate) or dismisses it with a reason, which later
+//! at nothing real. The person approves it (the task starts for them on
+//! the server's per-task budget; the estimate is only shown) or dismisses it with a reason, which later
 //! runs read in the ledger; a dismissed one comes back only with what
 //! changed. It is not put off.
 
@@ -21,6 +21,8 @@ const TEXT: &str = "Draft a reminder to Acme about invoice 1042, overdue by two 
 const OUTCOME: &str = "A reminder ready to send (outcome-prop-8).";
 const REASON: &str = "Acme paid yesterday (why-dis-57).";
 const ESTIMATE: f64 = 0.75;
+/// The harness's per-task `max_usd`.
+const SERVER_LIMIT: f64 = 50.0;
 
 fn said(c: &Conversation) -> String {
     let first = c.messages().first().cloned().unwrap_or_default();
@@ -153,7 +155,7 @@ async fn a_proposal_citing_what_it_read_becomes_a_card_and_approving_it_starts_o
     assert_eq!((card["needs"]["estimated_cost_usd"].as_f64(), &card["needs"]["input"]), (Some(ESTIMATE), &json!("Who at Acme to write to")), "{card}");
     assert_eq!(card["evidence"][0]["tool"], "list_tasks", "the evidence is not resolved to what was read: {card}");
     assert_eq!(card["scope"], "Reads your invoices; Drafts an email; sends nothing", "{card}");
-    assert_eq!(card["budget"]["max_usd"].as_f64(), Some(ESTIMATE), "the card's budget is not the estimate: {card}");
+    assert_eq!(card["budget"]["max_usd"].as_f64(), Some(SERVER_LIMIT), "the card's budget is not the server's: {card}");
     assert_eq!(card["acts_for"], "alice");
     let id = card["card"].as_str().unwrap();
     let before = alice.tasks().await["tasks"].as_array().unwrap().len();
@@ -168,9 +170,9 @@ async fn a_proposal_citing_what_it_read_becomes_a_card_and_approving_it_starts_o
     let t = alice.wait_settled(&task).await;
     assert_eq!(t["person"], "alice", "the task does not act for the person: {t}");
     assert_eq!(alice.tasks().await["tasks"].as_array().unwrap().len(), before + 1, "approving it twice started two tasks");
-    // It spends at most the cost the person approved, not the appliance's limit.
+    // It runs on the server's per-task limit; the estimate never caps it (spec rev 133).
     let t = alice.task(&task).await;
-    assert_eq!(t["budget"]["max_usd"].as_f64(), Some(ESTIMATE), "the task's budget is not the estimate: {t}");
+    assert_eq!(t["budget"]["max_usd"].as_f64(), Some(SERVER_LIMIT), "the task is capped at the model's estimate: {t}");
     let card = wait_entry(&alice, &thread, card_of).await;
     assert_eq!((&card["state"], &card["started"]), (&json!("confirmed"), &json!(task)), "{card}");
     // Its result posts to the thread.

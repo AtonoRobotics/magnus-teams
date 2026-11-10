@@ -313,9 +313,7 @@ fn component(kinds: &[&str]) -> Value {
 pub fn chat_specs() -> Vec<ToolSpec> {
     let desc: Value = serde_json::from_str(include_str!("../instructions/tools.json")).expect("tools.json");
     let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
-    let budget = json!({ "type": "object", "description": d("create_schedule.budget"), "properties": {
-        "max_usd": { "type": "number" }, "max_model_calls": { "type": "integer" }, "max_actions": { "type": "integer" }
-    } });
+    // No budget is the model's to set: a task's comes from the server (spec rev 133).
     let evidence = json!({ "type": "array", "minItems": 1, "description": d("suggest.evidence"), "items": { "type": "object", "properties": {
         "call": { "type": "string" }, "task": { "type": "string" }, "shows": { "type": "string" }
     }, "required": ["shows"] } });
@@ -334,7 +332,7 @@ pub fn chat_specs() -> Vec<ToolSpec> {
             name: "create_schedule".into(),
             description: d("create_schedule"),
             input_schema: obj(
-                json!({ "title": { "type": "string" }, "text": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" }, "scope": { "type": "string" }, "budget": budget }),
+                json!({ "title": { "type": "string" }, "text": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" }, "scope": { "type": "string" } }),
                 &["title", "text", "scope"],
             ),
         },
@@ -348,7 +346,6 @@ pub fn chat_specs() -> Vec<ToolSpec> {
                     "evidence": evidence.clone(),
                     "permissions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
                     "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" },
-                    "budget": budget,
                     "again": { "type": "string" }, "changed": { "type": "string" }
                 }),
                 &["title", "plan", "evidence", "permissions"],

@@ -296,11 +296,11 @@ impl Kernel {
                 evs.push((&actor, resolve(None)));
                 evs.push((&actor, Ev::PolicySet { layer, cedar: next }));
             }
-            // A schedule a worker proposed runs within the proposing run's
-            // limits and starts with its taint, as a chat card's does: it
-            // cannot get more than the run that asked for it had.
+            // A schedule a worker proposed starts with the proposing run's
+            // taint, as a chat card's does; each run takes the server's
+            // per-task budget when it fires (spec rev 133).
             ("schedule_proposal", "accept") => {
-                let from = self.read(|s| item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| (r.config.budget.clone(), Label { untrusted: r.untrusted, private: r.private })));
+                let from = self.read(|s| item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| Label { untrusted: r.untrusted, private: r.private }));
                 evs.push((&actor, resolve(None)));
                 evs.push((
                     &actor,
@@ -310,11 +310,9 @@ impl Kernel {
                         text: item.details["text"].as_str().unwrap_or_default().into(),
                         every_minutes: item.details["every_minutes"].as_u64().map(|m| m as u32),
                         daily_at: item.details["daily_at"].as_str().map(String::from),
-                        // Never more than the appliance gives a run: an
-                        // extension the person gave that one run stays its own.
-                        budget: from.as_ref().map(|f| f.0.within(&self.cfg.budget)),
+                        budget: None,
                         card: None,
-                        label: from.map(|f| f.1),
+                        label: from,
                         title: None,
                         until: serde_json::from_value(item.details["until"].clone()).ok().flatten(),
                         max_runs: item.details["max_runs"].as_u64().map(|m| m as u32),
@@ -323,8 +321,9 @@ impl Kernel {
                 ));
             }
             // A task a review proposed starts as a chat card's does: the
-            // card's budget, scope and title, the proposing run's model
-            // and taint, and it starts now (#393).
+            // server's per-task budget (never the estimate), the card's
+            // scope and title, the proposing run's model and taint, and it
+            // starts now (#393).
             ("task_proposal", "accept") => {
                 if self.read(|s| s.kill_switch) {
                     return Ok(Answer::Conflict("the kill switch is engaged"));
@@ -332,8 +331,7 @@ impl Kernel {
                 let from = self.read(|s| {
                     item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| (r.config.adapter.clone(), r.config.model.clone(), Label { untrusted: r.untrusted, private: r.private }))
                 });
-                let budget =
-                    serde_json::from_value(item.details["budget"].clone()).map(|b: crate::config::Budget| b.within(&self.cfg.budget)).unwrap_or_else(|_| self.cfg.budget.clone());
+                let budget = crate::task_budget::approved(&self.cfg.budget, &item.details["budget"]);
                 let (adapter, model) = from.as_ref().map(|f| (f.0.clone(), f.1.clone())).unwrap_or_else(|| self.default_model());
                 let (modules, escalate_to) = self.modules_for(&adapter, &model);
                 let m = &self.cfg.model;

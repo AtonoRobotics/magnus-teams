@@ -249,7 +249,8 @@ async fn handling_things_like_this_sets_a_grant_whose_tasks_go_ahead_and_approvi
     let thread = chat(&alice, "propose plan=update").await;
     let card = wait_entry(&alice, &thread, "proposal_card").await;
     let h = &card["handle"];
-    assert_eq!((&h["title"], &h["apps"], &h["allow"], &h["period"], h["max_usd"].as_f64()), (&card["title"], &json!(["crm"]), &json!([]), &json!("week"), Some(2.0)), "{card}");
+    // The default is the server's per-task limit, never a multiple of the model's estimate.
+    assert_eq!((&h["title"], &h["apps"], &h["allow"], &h["period"], h["max_usd"].as_f64()), (&card["title"], &json!(["crm"]), &json!([]), &json!("week"), Some(50.0)), "{card}");
     assert!(card["your_apps"].as_array().is_some_and(|a| a.iter().any(|x| x["name"] == "crm")), "{card}");
     let id = card["card"].as_str().unwrap().to_string();
     assert_eq!(decide(&w.app.api("bob"), &id, json!({ "decision": "handle" })).await.0, 404, "someone else handled the card");
@@ -262,7 +263,7 @@ async fn handling_things_like_this_sets_a_grant_whose_tasks_go_ahead_and_approvi
     let card = wait_entry(&alice, &thread, "proposal_card").await;
     assert_eq!((&card["state"], &card["started"], &card["granted"]), (&json!("confirmed"), &json!(task), &json!(g)), "{card}");
     let gr = grant_of(&alice, &g).await;
-    assert_eq!((&gr["title"], &gr["apps"], &gr["allow"], &gr["period"], gr["max_usd"].as_f64()), (&card["title"], &json!(["crm"]), &json!([]), &json!("week"), Some(2.0)), "{gr}");
+    assert_eq!((&gr["title"], &gr["apps"], &gr["allow"], &gr["period"], gr["max_usd"].as_f64()), (&card["title"], &json!(["crm"]), &json!([]), &json!("week"), Some(50.0)), "{gr}");
     let cedar = gr["cedar"].as_str().unwrap();
     assert!(cedar.contains("permit(principal == Person::\"alice\"") && cedar.contains("resource in App::\"crm\"") && cedar.contains("resource.risk == \"financial\""), "{cedar}");
     assert_eq!(gr["still_asks"].as_array().map(|a| a.len()), Some(3), "{gr}");

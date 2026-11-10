@@ -298,7 +298,7 @@ async fn a_schedule_from_chat_needs_its_creators_confirmation() {
     let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
     assert_eq!(card["state"], "open");
     assert_eq!(card["daily_at"], "07:30");
-    assert_eq!(card["budget"]["max_usd"], 0.5);
+    assert_eq!(card["budget"]["max_usd"], 50.0, "the model's $0.50 capped the schedule, not the server's per-task budget");
     assert!(card["budget"]["max_model_calls"].is_number(), "the card does not show the whole budget: {card}");
     assert_eq!(card["acts_for"], "alice");
     let (_, s) = alice.get("/v1/schedules").await;

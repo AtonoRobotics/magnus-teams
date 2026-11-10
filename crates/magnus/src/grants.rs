@@ -186,7 +186,8 @@ impl Kernel {
 
     /// What "Handle things like this" on a task proposal starts from: its
     /// title, the person's apps its evidence read, nothing lifted, a week,
-    /// and four times its estimate (at most the appliance's limit).
+    /// and the server's per-task limit: the model's estimate is shown on
+    /// the card, never made the cap (spec rev 133).
     pub(crate) fn handle_defaults(&self, person: &str, d: &Value) -> Value {
         let mine = self.person(person).map(|p| self.app_names(&p)).unwrap_or_default();
         let mut apps: Vec<String> = vec![];
@@ -197,8 +198,7 @@ impl Kernel {
                 }
             }
         }
-        let cap = self.cfg.budget.max_usd;
-        let max_usd = d["needs"]["estimated_cost_usd"].as_f64().map_or(cap, |e| (e * 4.0).min(cap));
+        let max_usd = crate::task_budget::for_task(&self.cfg.budget).max_usd;
         json!({ "title": d["title"], "apps": apps, "allow": [], "period": "week", "max_usd": max_usd })
     }
 
