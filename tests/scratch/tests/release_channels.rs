@@ -480,6 +480,22 @@ fn the_release_job_checks_out_the_history_publish_compares_against() {
     assert!(step.contains("fetch-depth: 0"), "the release checkout fetches all history: {step}");
 }
 
+/// The new magnus-teams server (2026-11-09) never had Google's or Slack's
+/// client secret: only the admin console's deploy provisioned them, and the
+/// release never ran it, so no one could connect those apps. The release
+/// provisions them from the repository's secrets after the server updates.
+#[test]
+fn the_release_provisions_the_provider_secrets_after_the_server_updates() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/release.yml");
+    let workflow = std::fs::read_to_string(path).unwrap();
+    let (server, provision) =
+        (workflow.find("release/to-appliance.sh").unwrap(), workflow.find("release/provision-registrations.sh").expect("the release provisions the provider secrets"));
+    assert!(provision > server, "provisioned after the server runs the release's programs");
+    for var in ["GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}", "SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}"] {
+        assert!(workflow.contains(var), "the step is given {var}");
+    }
+}
+
 fn base64_decode(s: &str) -> Vec<u8> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.decode(s).unwrap()

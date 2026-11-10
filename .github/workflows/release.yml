@@ -74,3 +74,9 @@ jobs:
 
       - name: Put it on the server
         run: release/to-appliance.sh "$CONFIG" "$MAGNUS_APPLIANCE_VERSION" "$RUNNER_TEMP/notes" target/release
+
+      - name: Provider secrets
+        env:
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+        run: release/provision-registrations.sh "$CONFIG"
