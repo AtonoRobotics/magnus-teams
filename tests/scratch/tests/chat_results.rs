@@ -68,6 +68,18 @@ async fn a_task_from_chat_shows_its_deliverable_in_the_conversation() {
     let view = result["view"].as_array().unwrap_or_else(|| panic!("the result in the thread has no deliverable: {result}"));
     assert_eq!(view.iter().map(|c| c["type"].as_str().unwrap()).collect::<Vec<_>>(), ["timeline", "table"], "{result}");
 
+    // The outcome returns to the conversation, whose turn answers after the
+    // result (decisions/2026-11-09-outcomes-return-to-the-agent.md). With no
+    // review to wait on, that turn can still be writing when the page opens,
+    // and its reply redraws the thread: the page opens once it has.
+    eventually("the conversation's turn on the outcome", PATIENCE, || async {
+        let (_, c) = alice.get(&format!("/v1/chat/{thread}")).await;
+        let entries = c["entries"].as_array().cloned().unwrap_or_default();
+        let at = entries.iter().position(|e| e["kind"] == "result" && e["task_id"] == id)?;
+        (entries.len() > at + 1).then_some(())
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     assert!(set_password(&app, "alice", PASSWORD));
     let out = tokio::process::Command::new("node")
         .arg(workspace_root().join("desktop/tests/chat-results.mjs"))

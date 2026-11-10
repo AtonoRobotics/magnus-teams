@@ -66,7 +66,8 @@ async fn items_of_retired_asks_are_put_in_their_current_form_at_startup() {
     app.restart().await;
 
     // Nothing of a retired kind waits on the person.
-    let open: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["status"] == "open").collect();
+    // (A run that went on and failed leaves its notice; that is not an ask.)
+    let open: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["status"] == "open" && i["kind"] != "notice").collect();
     assert!(open.is_empty(), "items of retired asks are still open after the update: {open:#?}");
     // The review's run completed, its criterion unconfirmed.
     let t = alice.wait_settled(&review.0).await;
