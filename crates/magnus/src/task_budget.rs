@@ -76,13 +76,16 @@ mod tests {
         assert!(same(&approved(&server(), &serde_json::Value::Null), &server()));
     }
 
-    /// A schedule confirmed from a card with the model's $0.50 runs on the
-    /// server's limit.
+    /// The teams server's failed schedule run of 2026-11-10: the schedule
+    /// was proposed with the model's own estimate of 3 model calls and
+    /// $0.50 as its budget. Its runs, and a new card's, take the server's.
     #[test]
-    fn a_schedules_runs_take_the_servers_limit_not_the_one_it_stored() {
-        let stored = Budget { max_model_calls: 5, max_actions: 3, max_usd: 0.5 };
-        assert!(same(&scheduled(&server(), Some(&stored)), &server()), "the stored figure capped the run");
+    fn a_schedule_proposed_with_a_too_small_estimate_runs_on_the_servers_budget() {
+        let stored = Budget { max_model_calls: 3, max_actions: 1, max_usd: 0.5 };
+        assert!(same(&scheduled(&server(), Some(&stored)), &server()), "the stored estimate capped the run");
         assert!(same(&scheduled(&server(), None), &server()));
+        let card = serde_json::json!({ "max_model_calls": 3, "max_actions": 1, "max_usd": 0.5 });
+        assert!(same(&approved(&server(), &card), &server()), "the card's estimate capped the schedule");
     }
 
     #[test]
