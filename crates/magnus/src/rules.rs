@@ -240,6 +240,14 @@ impl Kernel {
         if a.issuer != Issuer::Model {
             return None;
         }
+        // A write whose attempt may have reached the app is not made again
+        // blindly, and no one is asked (spec rev 140: a retry never asks).
+        if run.intents.values().any(|i| i.tool == a.tool && i.input == a.input && i.result.as_ref().is_some_and(|r| r.status == "unknown")) {
+            return Some(format!(
+                "{} was already attempted with this input and may have happened; it is not made again. Check whether it happened before trying anything else",
+                a.tool
+            ));
+        }
         let text = a.input.to_string();
         for name in self.vault.names().unwrap_or_default() {
             let Ok(Some(secret)) = self.vault.get(&name) else { continue };

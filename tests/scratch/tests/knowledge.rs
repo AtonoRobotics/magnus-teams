@@ -128,7 +128,7 @@ async fn start() -> Kb {
     // The second source is another host (two ports of one host are one source).
     let m = FakeModel::start(model(web.url("/evil"), web.url("/a"), other.url("/b").replace("127.0.0.1", "localhost"))).await;
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")]).access("crm", &["finance"]);
-    let app = Appliance::start(spec, &m).await;
+    let app = Appliance::start(magnus_scratch::with_developer(spec), &m).await;
     Kb { app, m, crm, web, other }
 }
 
@@ -250,7 +250,10 @@ async fn an_untrusted_entry_with_instructions_makes_nothing_happen() {
     assert!(k.crm.calls_to("update_record").is_empty(), "the entry's instructions reached the CRM");
     let inbox = bob.inbox().await;
     let ask = inbox.iter().find(|i| i["kind"] == "approval").unwrap_or_else(|| panic!("the update did not wait for bob: {inbox:?} {t}"));
-    assert_eq!((ask["details"]["rule"].clone(), ask["details"]["tool"].clone()), (json!("kernel:rule_of_two"), json!("crm__update_record")), "{ask}");
+    assert_eq!(ask["details"]["tool"], "crm__update_record", "{ask}");
+    let dev = k.app.api(magnus_scratch::DEVELOPER);
+    let why = magnus_scratch::ask_reasoning(&dev, ask["run_id"].as_str().unwrap_or_default(), ask["id"].as_str().unwrap_or_default()).await;
+    assert_eq!((why["rule"].clone(), why["reason"].clone()), (json!("kernel:rule_of_two"), json!("new_destination")), "{why}");
     assert_eq!(k.crm.world()["records"]["42"]["status"], "open");
 }
 

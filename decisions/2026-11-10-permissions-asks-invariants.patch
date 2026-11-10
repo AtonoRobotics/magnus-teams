@@ -1,0 +1,34 @@
+--- a/tests/invariants/tests/inv4_taint.rs
++++ b/tests/invariants/tests/inv4_taint.rs
+@@ -194,21 +194,28 @@
+     assert_eq!(w.notes.effects("save"), 1, "two of three must not be blocked");
+ }
+ 
++/// Private data going to a new destination after untrusted input asks the
++/// person, one action at a time (spec rev 140, What still asks, case 3): the
++/// card offers no task-wide Allow and no Allow always.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn private_data_sent_to_a_wider_audience_asks() {
++async fn private_data_posted_after_untrusted_input_asks_one_action_at_a_time() {
+     let w = world().await;
++    let news = w.web.url("/news");
+     let model = FakeModel::start(steps(vec![
+         contract_unchecked("share the CFO update", "shared"),
+         tool("mail__list_inbox", json!({})),
++        tool("web_fetch", json!({ "url": news })),
+         tool("chat__post", json!({ "channel": "team", "text": "Q3 revenue 41.7M" })),
+         fail("stopping"),
+     ]))
+     .await;
+     let app = appliance(&w, &model).await;
+     let alice = app.api("alice");
+-    let id = alice.submit("Tell the team what the CFO emailed me.").await;
+-    alice.wait_item(&id, "approval").await;
++    let id = alice.submit("Tell the team what the CFO emailed me, with the news.").await;
++    let card = alice.wait_item(&id, "approval").await;
+     assert_eq!(w.chat.effects("post"), 0);
++    assert_eq!(card["ask"]["allow_scope"], "once", "case 3 offered a task-wide Allow: {card}");
++    assert_eq!(card["ask"]["offers"], json!(["allow", "dont_allow"]), "case 3 offered Allow always: {card}");
+ }
+ 
+ #[tokio::test(flavor = "multi_thread")]

@@ -70,35 +70,3 @@ async fn a_refresh_without_expires_in_keeps_the_token_refreshing() {
     assert!(refreshes() > first, "after a refresh answer without expires_in the token was never refreshed again");
     assert!(list["connectors"][0]["problem"].is_null(), "{list}");
 }
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_window_approval_ends_when_its_approver_loses_the_role() {
-    let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
-        match c.turn() {
-            0 => contract_unchecked("email bob", "bob was emailed"),
-            1 => tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hi" })),
-            _ => complete("sent"),
-        }
-    }))
-    .await;
-    let app = Appliance::start(Spec::default().app("mail", &mail, "public", "principal", &[("send", "irreversible")]), &m).await;
-    let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
-    let t = carol.submit("Email bob.").await;
-    let item = carol.wait_item(&t, "approval").await;
-    assert_eq!(bob.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "window", "minutes": 60 })).await.as_u16(), 200);
-    carol.wait_settled(&t).await;
-    assert_eq!(mail.effects("send"), 1);
-    // The window covers the next send, while bob is an approver...
-    let t = carol.submit("Email bob again.").await;
-    carol.wait_settled(&t).await;
-    assert_eq!(mail.effects("send"), 2, "the window did not cover the second send");
-    // ...and no longer once the owner takes the role away.
-    let (st, v) = alice.put("/v1/people/bob/roles", json!({ "roles": ["policy:user"] })).await;
-    assert!(st.is_success(), "{v}");
-    let t = carol.submit("Email bob a third time.").await;
-    let asked = carol.wait_item(&t, "approval").await;
-    assert_eq!(asked["kind"], "approval");
-    assert_eq!(mail.effects("send"), 2, "an approval outlived its approver's role");
-    let _: Value = asked;
-}

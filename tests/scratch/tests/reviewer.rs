@@ -6,7 +6,7 @@
 use magnus_invariants::appliance::Person;
 use magnus_invariants::model::Script;
 use magnus_invariants::*;
-use magnus_scratch::start_checked;
+use magnus_scratch::{ask_reasoning, start_checked};
 use serde_json::{json, Value};
 
 fn spec() -> Spec {
@@ -86,7 +86,9 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
 
     let card = dana.wait_item(&t, "approval").await;
     assert_eq!(card["details"]["input"]["to"], "bob@corp.example", "the person is not asked about the corrected send: {card}");
-    assert!(card.to_string().contains("revises a message that was blocked"), "the card does not say it revises a blocked send: {card}");
+    let why = ask_reasoning(&dana, &run, card["id"].as_str().unwrap_or_default()).await;
+    assert!(why["why"].as_str().unwrap_or_default().contains("revises a message that was blocked"), "the developer view does not say it revises a blocked send: {why}");
+    assert!(!card.to_string().contains("revises a message"), "the person's card shows the reviewer's reasoning: {card}");
     assert!(mail.calls_to("send").is_empty(), "a send left before the person approved the rewrite");
     assert!(dana.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     eventually("the approved rewrite is sent", PATIENCE, || async { (!mail.calls_to("send").is_empty()).then_some(()) }).await;
@@ -98,7 +100,10 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     assert_eq!(sends[0].args["to"], "bob@corp.example", "the wrong send went through: {sends:?}");
     assert_eq!(reviewer_replies(&dana, &run).await, 2, "the blocked send and the completion review are judged and recorded; the rewrite went to the person");
     let notices: Vec<Value> = dana.inbox().await.into_iter().filter(|i| i["kind"] == "notice").collect();
-    assert!(notices.iter().any(|n| n.to_string().contains("reviewer") && n.to_string().contains("mallory")), "no notice shows why the send was blocked: {notices:?}");
+    assert!(
+        notices.iter().any(|n| n["summary"].as_str().is_some_and(|s| s.contains("did not send") && s.contains("mallory"))),
+        "no notice says the send was not made: {notices:?}"
+    );
     let (_, reg) = dana.get("/v1/dev/modules").await;
     let rev = reg["modules"].as_array().unwrap().iter().find(|m| m["name"] == "reviewer").unwrap().clone();
     assert_eq!(rev["acted"], 2, "the module acted on the blocked send and the completion, not on the checks beside it: {reg}");
@@ -136,8 +141,11 @@ async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
     let (t, run) = trial(&dana, "rev", "flag", "Email bob hello.", json!({ "reviewer": true })).await;
 
     let card = dana.wait_item(&t, "approval").await;
-    assert_eq!(card["details"]["rule"], "reviewer:flag", "the flag is not marked as the reviewer's: {card}");
-    assert!(card["details"]["why"].as_str().unwrap_or_default().contains("mallory"), "the reviewer's reason is not on the card: {card}");
+    let why = ask_reasoning(&dana, &run, card["id"].as_str().unwrap_or_default()).await;
+    assert_eq!(why["rule"], "reviewer:flag", "the flag is not marked as the reviewer's: {why}");
+    assert_eq!(why["reason"], "outside_request", "a flag is not case 1: {why}");
+    assert!(why["why"].as_str().unwrap_or_default().contains("mallory"), "the reviewer's reason is not in the developer view: {why}");
+    assert!(card["details"]["why"].is_null() && card["details"]["rule"].is_null(), "the person's card shows the reviewer's reasoning: {card}");
     assert!(mail.calls_to("send").is_empty(), "the flagged send left before the person approved");
     assert!(dana.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     let done = dana.wait_settled(&t).await;
@@ -174,7 +182,8 @@ async fn a_send_the_kernel_asks_about_still_asks() {
     let (t, run) = trial(&dana, "rev", "ask", "Email bob hello.", json!({ "reviewer": true })).await;
 
     let card = dana.wait_item(&t, "approval").await;
-    assert_eq!((card["details"]["rule"].clone(), card["details"]["tool"].clone()), (json!("kernel:rule_of_two"), json!("mail__send")), "{card}");
+    assert_eq!(card["details"]["tool"], "mail__send", "{card}");
+    assert_eq!(ask_reasoning(&dana, &run, card["id"].as_str().unwrap_or_default()).await["rule"], "kernel:rule_of_two", "{card}");
     assert_eq!(reviewer_replies(&dana, &run).await, 0, "the reviewer ran on a send the kernel asks about");
     assert!(dana.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     assert_eq!(mail.effects("send"), 0, "the send left before approval");
@@ -254,11 +263,11 @@ async fn a_repeated_send_after_a_once_approval_is_judged_again() {
     let (t, run) = trial(&dana, "rev", "once", "Email bob hello.", json!({ "reviewer": true })).await;
 
     let first = dana.wait_item(&t, "approval").await;
-    assert_eq!(first["details"]["rule"], "reviewer:flag", "{first}");
+    assert_eq!(ask_reasoning(&dana, &run, first["id"].as_str().unwrap_or_default()).await["rule"], "reviewer:flag", "{first}");
     assert!(dana.respond(first["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     // The approved send goes; the identical repeat is flagged again.
     let second = dana.wait_item(&t, "approval").await;
-    assert_eq!(second["details"]["rule"], "reviewer:flag", "the repeat rode the consumed approval: {second}");
+    assert_eq!(ask_reasoning(&dana, &run, second["id"].as_str().unwrap_or_default()).await["rule"], "reviewer:flag", "the repeat rode the consumed approval: {second}");
     assert_ne!(second["id"], first["id"], "the same card came back");
     assert_eq!(mail.calls_to("send").len(), 1, "the repeat sent without a judgment");
     assert_eq!(reviewer_replies(&dana, &run).await, 2, "both sends were not judged");

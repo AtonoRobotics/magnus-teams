@@ -308,7 +308,7 @@ pub fn without_reasoning(details: &Value) -> Value {
 
 /// What already answers an ask for the person.
 pub(crate) enum Cover {
-    Approval(Approval),
+    Approval(Box<Approval>),
     Rule(String),
 }
 
@@ -334,7 +334,7 @@ impl Kernel {
                 || ap.by.strip_prefix("person:").and_then(|id| self.person(id)).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())))
         };
         if let Some(ap) = found.into_iter().find(still_may) {
-            return Some(Cover::Approval(ap));
+            return Some(Cover::Approval(Box::new(ap)));
         }
         if f.risk == Risk::Financial || !reason.is_none_or(Reason::rule_answers) {
             return None;
@@ -482,6 +482,24 @@ impl Kernel {
             }
         }
     }
+}
+
+/// A write that may have reached an app (cut off by a restart, or answered
+/// with something unreadable), to an app that cannot tell a repeat from a
+/// new request, is not sent again and asks no one (spec rev 140: a retry
+/// never asks). The person is told, as a notice on the task, and the agent
+/// is told to check before doing it again: the text returned.
+pub(crate) async fn outcome_unknown(k: &Kernel, a: &Action, f: &Facts) -> Result<String> {
+    let app = f.connector.as_ref().and_then(|c| c.title.clone()).unwrap_or_else(|| f.app.clone());
+    if let Some(run) = k.read(|s| s.runs.get(&a.run).cloned()) {
+        let summary = format!("{} may have reached {app}, and it was not sent again: check in {app} whether it happened.", a.tool);
+        let (_, ev) = crate::kernel::notice_event(Some(run.task), Some(a.run.clone()), run.person, summary, json!({ "call_id": a.call_id, "tool": a.tool }));
+        k.emit("kernel", ev).await?;
+    }
+    Ok(format!(
+        "{} may have reached {app}, and {app} cannot tell a repeat from a new request, so it was not sent again. Its outcome is unknown: check in {app} before doing it again.",
+        a.tool
+    ))
 }
 
 #[cfg(test)]

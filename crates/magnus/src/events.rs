@@ -1064,15 +1064,9 @@ pub enum Ev {
         until: Option<chrono::DateTime<chrono::Utc>>,
         #[serde(default)]
         reason: Option<String>,
-        /// The risk class the action had when approved: the approval covers
-        /// only that class. Kept here, not only in the item, whose details
-        /// are deleted with the task. Absent from approvals written before.
+        /// Kept here, as the item goes with its task: the one risk class it covers and (rev 140) the destinations it covers. Absent before.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         risk: Option<String>,
-        /// Where the approved action went (spec rev 140, How an ask looks):
-        /// an Allow covers later actions of its kind to these destinations,
-        /// and an allowed new destination is remembered. Absent from
-        /// approvals written before, which keep their old meaning.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         destinations: Option<Vec<String>>,
     },

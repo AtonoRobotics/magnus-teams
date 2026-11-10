@@ -210,11 +210,14 @@ async fn a_file_uploaded_into_a_project_is_used_by_a_task_there_and_its_output_l
     assert_eq!(bob.post("/v1/moves", json!({ "item": tid, "project": null })).await.0.as_u16(), 404);
 }
 
-/// The owner's decision (2026-10-29): a task that read an uploaded file and
-/// then looks prices up on the web asks once, and that approval covers all
-/// its web lookups; it then runs to completion.
+/// A task that read an uploaded file looks prices up on the web. Its first
+/// lookup after the search results (untrusted input) is private data going
+/// to a new destination, so it asks, one action at a time (spec rev 140,
+/// case 3; this replaces the owner's decision of 2026-10-29 that every
+/// lookup after an upload asks). The host allowed is remembered: the next
+/// lookup there, and the next task's, go without asking.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_project_task_that_reads_an_uploaded_file_then_searches_prices_asks_once_and_completes() {
+async fn a_project_task_that_reads_an_uploaded_file_then_searches_prices_asks_once_per_new_host() {
     let web = FakeWeb::start(&[("/widgets", "Widget: 38 EUR"), ("/bolts", "Bolt: 2 EUR")]).await;
     let (widgets, bolts) = (web.url("/widgets"), web.url("/bolts"));
     let search = fake_search(vec![widgets.clone()]).await;
@@ -240,31 +243,32 @@ async fn a_project_task_that_reads_an_uploaded_file_then_searches_prices_asks_on
     let id = v["task_id"].as_str().unwrap().to_string();
 
     let ask = alice.wait_item(&id, "approval").await;
-    assert_eq!(ask["details"]["tool"], "web_search");
-    assert_eq!(ask["details"]["web_lookups"], "task");
-    assert_eq!(ask["summary"], "This task reads your project files and searches the web — allow web lookups for this task?");
+    assert_eq!(ask["details"]["tool"], "web_fetch");
+    assert_eq!((ask["ask"]["allow_scope"].clone(), ask["ask"]["offers"].clone()), (json!("once"), json!(["allow", "dont_allow"])), "{ask}");
     assert!(web.hits().is_empty(), "a lookup went out before the person allowed it: {:?}", web.hits());
     let item = ask["id"].as_str().unwrap();
-    // Allowing web lookups is for this task only, never longer.
-    for scope in ["window", "standing"] {
+    // Allowed one action at a time, never for the task or always.
+    for scope in ["task", "always", "window", "standing"] {
         assert_eq!(alice.respond(item, json!({ "decision": "approve", "scope": scope })).await.as_u16(), 400, "{scope} was accepted");
     }
-    assert!(alice.respond(item, json!({ "decision": "approve", "scope": "task" })).await.is_success());
+    assert!(alice.respond(item, json!({ "decision": "approve", "scope": "once" })).await.is_success());
     let t = alice.wait_status(&id, &["completed", "failed"]).await;
     assert_eq!(t["status"], "completed", "{t}");
     assert_eq!(web.hits(), ["/widgets", "/bolts"]);
     let asks: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval").collect();
     assert_eq!(asks.len(), 1, "it asked more than once: {asks:?}");
-    // The approval covers this task only: another task in the project asks again.
+    // The host allowed is remembered: another task's lookups there go on.
     let (_, v2) = alice.post("/v1/tasks", json!({ "text": "Check them again.", "project": pid })).await;
     let id2 = v2["task_id"].as_str().unwrap().to_string();
-    alice.wait_item(&id2, "approval").await;
+    assert_eq!(alice.wait_status(&id2, &["completed", "failed"]).await["status"], "completed");
+    assert!(alice.open_items(&id2, "approval").await.is_empty(), "a remembered host asked again");
 }
 
-/// In chat the same rule asks once per conversation. A question that read
-/// nothing private never asks (the owner's request 1).
+/// In chat a lookup after an upload, with no untrusted input before it,
+/// is not one of the four asks (spec rev 140): it never asks, nor does a
+/// plain question.
 #[tokio::test(flavor = "multi_thread")]
-async fn chat_asks_once_per_conversation_for_web_lookups_after_an_upload_and_never_for_a_plain_question() {
+async fn chat_web_lookups_after_an_upload_and_a_plain_question_never_ask() {
     let web = FakeWeb::start(&[("/rates", "Plumber: 90 EUR an hour"), ("/llc", "An LLC is a legal structure.")]).await;
     let (rates, llc) = (web.url("/rates"), web.url("/llc"));
     let m = FakeModel::start(script(move |c| {
@@ -285,10 +289,6 @@ async fn chat_asks_once_per_conversation_for_web_lookups_after_an_upload_and_nev
     let (st, v) = alice.post("/v1/chat", json!({ "text": "Is this plumber's rate fair?", "files": [file] })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     let (thread, turn) = (v["thread"].as_str().unwrap().to_string(), v["task_id"].as_str().unwrap().to_string());
-    let ask = alice.wait_item(&turn, "approval").await;
-    assert_eq!(ask["details"]["web_lookups"], "conversation");
-    assert_eq!(ask["summary"], "This conversation reads a file you uploaded and searches the web — allow web lookups for this conversation?");
-    assert!(alice.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "task" })).await.is_success());
     assert_eq!(alice.wait_status(&turn, &["completed", "failed"]).await["status"], "completed");
     // The file went with the message, and the next message in the thread
     // looks things up without asking again.
@@ -302,6 +302,6 @@ async fn chat_asks_once_per_conversation_for_web_lookups_after_an_upload_and_nev
     let turn3 = v["task_id"].as_str().unwrap().to_string();
     assert_eq!(alice.wait_status(&turn3, &["completed", "failed"]).await["status"], "completed");
     let asks: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval").collect();
-    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert!(asks.is_empty(), "{asks:?}");
     assert_eq!(web.hits(), ["/rates", "/rates", "/llc"]);
 }

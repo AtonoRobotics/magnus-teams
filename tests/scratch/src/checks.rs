@@ -1,17 +1,18 @@
-//! The independent checks a boundary send meets, played by the scripted
-//! model (decisions/2026-11-08-auto-review.md, 2026-11-09-safety-checks.md).
-//! Every send the policy permits or a rule, grant or schedule covers goes to
-//! Auto Review, which first asks the outgoing classifier. A check that cannot
-//! answer asks the person, so a test whose model answers them as if they were
-//! its own run sees an approval where its send should go ahead.
+//! The independent checks a boundary action meets, played by the scripted
+//! model (decisions/2026-11-08-auto-review.md, 2026-11-09-safety-checks.md,
+//! 2026-11-10-permissions-asks.md). Every boundary action the person's own
+//! answer does not cover goes to Auto Review, which first asks the outgoing
+//! classifier. A check that cannot answer asks the person, so a test whose
+//! model answers them as if they were its own run sees an ask where its
+//! action should go ahead.
 //!
 //! The checks are played honestly and add no authority of their own. The
-//! classifier reports what the content plainly carries. Auto Review allows
-//! what its document says the owner's policy permits or a rule or grant
-//! covers, and asks about everything else, so what goes ahead in a test goes
-//! ahead because something the owner or person set up allows it. What the
-//! kernel decides before Auto Review (a payment, an ask-first rule, the floor,
-//! a hard denial, a frozen contract, the kill switch) never reaches it.
+//! classifier reports what the content plainly carries. Auto Review judges
+//! whether the action is within what the person asked (spec rev 140): in
+//! these tests every action is, unless its content carries `OUTSIDE_THE_ASK`,
+//! which a test uses to make the one ask Auto Review raises. What the kernel
+//! decides before Auto Review (a payment, an ask-first rule, the floor, a
+//! hard denial, a frozen contract, the kill switch) never reaches it.
 
 use magnus_invariants::model::Script;
 use magnus_invariants::{script, tool, Conversation, FakeModel, Reply};
@@ -21,8 +22,9 @@ use serde_json::{json, Value};
 pub const AUTO_REVIEW: &str = "You are Auto Review";
 /// The start of the outgoing classifier's instructions.
 pub const CLASSIFIER: &str = "You scan outgoing content for sensitive data";
-/// The standings in Auto Review's document that something set up allows.
-const ALLOWED_STANDINGS: [&str; 2] = ["covered by a rule or grant", "permitted by policy"];
+/// Content that marks an action as outside what the person asked: Auto
+/// Review asks the person about it (spec rev 140, case 1).
+pub const OUTSIDE_THE_ASK: &str = "nothing the person asked for";
 /// What the classifier calls private: the revenue figure the tests use.
 const PRIVATE_FIGURE: &str = "41.7M";
 
@@ -58,11 +60,12 @@ pub fn check_reply(c: &Conversation) -> Option<Reply> {
         });
     }
     if sys.contains(AUTO_REVIEW) {
-        let standing = document(c)["standing"].as_str().unwrap_or_default().to_string();
-        return Some(if ALLOWED_STANDINGS.contains(&standing.as_str()) {
-            tool("review", json!({ "decision": "allow", "reason": format!("The action is {standing}.") }))
+        let doc = document(c);
+        let standing = doc["standing"].as_str().unwrap_or_default().to_string();
+        return Some(if doc["action"]["content"].to_string().contains(OUTSIDE_THE_ASK) {
+            tool("review", json!({ "decision": "ask", "reason": "This is not what the person asked for." }))
         } else {
-            tool("review", json!({ "decision": "ask", "reason": "Nothing the person or the owner set up covers it." }))
+            tool("review", json!({ "decision": "allow", "reason": format!("The action is within the request: {standing}.") }))
         });
     }
     None

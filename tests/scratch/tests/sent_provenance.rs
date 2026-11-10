@@ -116,7 +116,8 @@ async fn task_policy_forbidding_the_sent_search_makes_the_send_ask() {
     assert!(alice.respond(q["id"].as_str().unwrap(), json!({ "decision": "answer", "text": "Yes." })).await.is_success());
 
     let card = alice.wait_item(&id, "approval").await;
-    assert_eq!(card["details"]["rule"], "kernel:rule_of_two", "the send did not ask: {card}");
+    let why = magnus_scratch::ask_reasoning(&app.api("dana"), card["run_id"].as_str().unwrap_or_default(), card["id"].as_str().unwrap_or_default()).await;
+    assert_eq!(why["rule"], "kernel:rule_of_two", "the send did not ask: {why}");
     assert!(drafts.calls_to("search_sent").is_empty(), "the forbidden search reached the provider");
     assert_eq!(drafts.effects("send_draft"), 0, "the send went out");
     let ds = search_decisions(&app, &alice, &id).await;

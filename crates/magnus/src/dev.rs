@@ -470,12 +470,8 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
             Ev::Wait { until, .. } => harness.push(json!({ "seq": e.seq, "kind": "wait", "issuer": who, "text": until })),
             Ev::BudgetExtended { budget, .. } => harness.push(json!({ "seq": e.seq, "kind": "budget_extended", "issuer": who, "text": budget })),
             Ev::ApprovalUsed { call_id, .. } => harness.push(json!({ "seq": e.seq, "kind": "approval_used", "issuer": who, "text": call_id })),
-            Ev::Item { item_kind, summary, id, details, .. } => {
-                let text = if redact && details.get("disagreement").is_some_and(|d| d.is_string()) { json!(crate::tools::REDACTED_CALL) } else { json!(summary) };
-                // Why an ask asked, which users never see (spec rev 140).
-                let reasoning = (item_kind == "approval").then(|| crate::asks::reasoning(details));
-                harness.push(json!({ "seq": e.seq, "kind": format!("inbox_{item_kind}"), "issuer": who, "text": text, "item": id, "reasoning": reasoning }))
-            }
+            // An ask's reasoning, which users never see (spec rev 140).
+            Ev::Item { item_kind, summary, id, details, .. } => harness.push(json!({ "seq": e.seq, "kind": format!("inbox_{item_kind}"), "issuer": who, "text": if redact && details.get("disagreement").is_some_and(|d| d.is_string()) { json!(crate::tools::REDACTED_CALL) } else { json!(summary) }, "item": id, "reasoning": (item_kind == "approval").then(|| crate::asks::reasoning(details)) })),
             Ev::Output { name, media_type, .. } => harness.push(json!({ "seq": e.seq, "kind": "output", "issuer": who, "text": format!("{name} ({media_type})") })),
             Ev::Memory { fact, label, .. } => harness.push(json!({ "seq": e.seq, "kind": "memory_write", "issuer": who, "text": fact, "label": label })),
             Ev::Playbook { op, item, text, .. } => {

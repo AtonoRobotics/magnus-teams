@@ -252,9 +252,9 @@ async fn disconnecting_erasing_and_the_kill_switch_stop_the_persons_microvm() {
 /// the server's kit (`send`) or, from a server that does not check it, by
 /// the appliance (`send_unchecked`). A read that answers so is an ordinary
 /// failure, and the run goes on. A write that answers so may have
-/// happened: its outcome is unknown and the person is asked, as after a
-/// crash. It is never failed as if nothing happened, so the model's retry
-/// never reaches the provider a second time.
+/// happened: its outcome is unknown, as after a crash. It is never failed as
+/// if nothing happened: the person is told to check, no one is asked (spec
+/// rev 140), and the model's identical retry never reaches the provider.
 async fn a_write_whose_answer_breaks_its_schema(tool: &'static str, write: &'static str) -> (Appliance, Vec<(String, String)>) {
     let api = ProviderApi::start().await;
     let host = api.host.clone();
@@ -286,18 +286,19 @@ async fn a_write_whose_answer_breaks_its_schema(tool: &'static str, write: &'sta
     sign_in_to(&alice, "testread").await;
     sign_in_to(&alice, "testapp").await;
     let task = alice.submit("Send the report").await;
-    // What it read was untrusted, so each send asks first; Alice allows
-    // each, until the task waits on her for anything else.
+    // Whatever asks first (what it read was untrusted), Alice allows, until
+    // the person is told the write's outcome is unknown.
     let mut asked = 0;
     let item = loop {
         let item =
-            eventually("the task waits on alice", PATIENCE, || async { alice.inbox().await.into_iter().find(|i| i["task_id"] == task.as_str() && i["status"] == "open") }).await;
-        if item["kind"] != "approval" || item["details"]["reason"] == "unknown_outcome" || asked == 4 {
+            eventually("the task tells alice", PATIENCE, || async { alice.inbox().await.into_iter().find(|i| i["task_id"] == task.as_str() && i["status"] == "open") }).await;
+        if item["kind"] != "approval" || asked == 4 {
             break item;
         }
         asked += 1;
         assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     };
+    alice.wait_settled(&task).await;
 
     let seen = api.seen.lock().unwrap().clone();
     let count = |p: &str| seen.iter().filter(|(path, _)| path == p).count();
@@ -306,12 +307,12 @@ async fn a_write_whose_answer_breaks_its_schema(tool: &'static str, write: &'sta
     // The read failed as any read does, and the run went on.
     let r = results(&m, "Send the report");
     assert!(r[1].contains("does not match its schema"), "{r:?}");
-    // The write's outcome is unknown: the person is asked whether to send
-    // it again, and nothing is sent until they say.
-    assert_eq!((item["kind"].as_str(), item["details"]["reason"].as_str()), (Some("approval"), Some("unknown_outcome")), "{item}");
+    // The write's outcome is unknown: the person is told to check, and the
+    // model is told it is unknown, not that it failed; its retry is refused.
+    assert_eq!(item["kind"], "notice", "{item}");
     assert!(item["details"]["tool"].as_str().is_some_and(|t| t.ends_with(tool)), "{item}");
-    assert_eq!(alice.task(&task).await["status"], "suspended");
-    assert_eq!(r.len(), 2, "the model was told the write failed: {r:?}");
+    assert!(item["summary"].as_str().is_some_and(|t| t.contains("not sent again")), "{item}");
+    assert!(r.len() >= 4 && r[2].contains("outcome is unknown") && r[3].contains("not made again"), "{r:?}");
     (app, seen)
 }
 

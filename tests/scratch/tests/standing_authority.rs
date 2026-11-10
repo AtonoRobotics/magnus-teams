@@ -170,7 +170,7 @@ async fn world_with(verifier: bool) -> World {
         .app("mail", &mail, "private", "private+untrusted", &[("list_inbox", "read")]);
     let mut spec = spec;
     spec.verifier = verifier;
-    let app = Appliance::start(spec, &m).await;
+    let app = Appliance::start(magnus_scratch::with_developer(spec), &m).await;
     assert!(app.api("alice").put_policy("org", STRICT).await.is_success());
     World { crm, team, _finance: finance, _mail: mail, app, m }
 }
@@ -327,7 +327,8 @@ async fn sends_and_what_cannot_be_undone_ask_until_lifted_and_money_and_the_rule
     // The kernel's own asks are never covered: after reading mail written by others, a post asks.
     let both = run(&alice, "inbox-post", Some(&g)).await.unwrap();
     let item = asked(&alice, Some(&w.team), "post", &both).await;
-    assert!(item["details"]["rule"].as_str().is_some_and(|r| r.starts_with("kernel:")), "{item}");
+    let why = magnus_scratch::ask_reasoning(&w.app.api(magnus_scratch::DEVELOPER), item["run_id"].as_str().unwrap_or_default(), item["id"].as_str().unwrap_or_default()).await;
+    assert!(why["rule"].as_str().is_some_and(|r| r.starts_with("kernel:")), "{why}");
     assert_eq!(w.team.effects("post"), 1);
 }
 

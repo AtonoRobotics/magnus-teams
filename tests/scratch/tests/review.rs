@@ -87,9 +87,11 @@ async fn broad_approvals_do_not_cover_taint_asks() {
     assert_eq!(st, 400, "a taint ask accepted a broad approval");
 }
 
-/// Finding 3b: only the owner grants standing approvals.
+/// Finding 3b, as of spec rev 140: nothing lasts beyond a task but the
+/// person's own Allow always, so an approver answering someone else's ask
+/// cannot make a lasting rule, nor give the old lasting scopes.
 #[tokio::test(flavor = "multi_thread")]
-async fn only_the_owner_grants_standing_approvals() {
+async fn only_the_person_whose_work_it_is_may_allow_always() {
     let mail = mcp::mail().start().await;
     let model =
         FakeModel::start(steps(vec![contract_unchecked("x", "x"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "a", "body": "a" })), fail("done")])).await;
@@ -97,8 +99,11 @@ async fn only_the_owner_grants_standing_approvals() {
     let (carol, bob) = (app.api("carol"), app.api("bob"));
     let id = carol.submit("Email bob.").await;
     let item = carol.wait_item(&id, "approval").await;
-    let st = bob.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "standing" })).await;
-    assert_eq!(st, 403, "an approver granted standing autonomy");
+    for scope in ["always", "standing", "window"] {
+        let st = bob.respond(item["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": scope })).await;
+        assert_eq!(st, 400, "an approver gave lasting autonomy for carol's work with {scope}");
+    }
+    assert!(bob.respond(item["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": "once" })).await.is_success(), "an approver could not Allow");
 }
 
 /// Finding 5: checks cannot use memory or pass vacuously.

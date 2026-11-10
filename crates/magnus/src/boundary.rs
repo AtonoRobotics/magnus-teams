@@ -887,13 +887,9 @@ impl Kernel {
             self.decision(a, "allow", "idempotency", "resending with the same idempotency key", None).await?;
             return Ok(Gate::Pass);
         }
-        // Not safe to resend, and a retry never asks (spec rev 140): the
-        // agent is told the outcome is unknown and checks before doing it again.
+        // Not safe to resend, and a retry never asks (spec rev 140).
         self.decision(a, "deny", "idempotency", "outcome unknown and the app cannot deduplicate", None).await?;
-        let text = err_text(
-            &format!("{} was interrupted by a restart, and {} cannot tell a repeat from a new request, so it was not sent again. Its outcome is unknown: check in {} before doing it again.", a.tool, f.app, f.app),
-            false,
-        );
+        let text = err_text(&crate::asks::outcome_unknown(self, a, f).await?, false);
         Ok(Gate::Stop(self.record(a, Some(key.into()), "unknown", text, true, f.label, None).await?))
     }
 
