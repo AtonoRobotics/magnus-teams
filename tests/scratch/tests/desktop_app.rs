@@ -919,9 +919,9 @@ async fn the_owners_installed_app_follows_development() {
 }
 
 #[test]
-fn the_update_script_waits_two_minutes_to_accept_the_task_that_waited() {
+fn the_update_script_waits_two_minutes_to_allow_the_task_that_waited() {
     let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../desktop/tests/app-update.mjs")).unwrap();
-    assert!(src.contains("seen(\"Accepted.\", 120_000)"), "{src}");
+    assert!(src.contains("seen(\"Allowed.\", 120_000)"), "{src}");
 }
 
 /// The Library step reaches it through the sidebar's link, not its address:
