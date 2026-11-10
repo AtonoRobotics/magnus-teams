@@ -375,15 +375,18 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
                 sources.insert(0, json!({ "source": "tool definitions", "chars": tools_now.1 }));
                 let st = steps.entry(*step).or_default();
                 st.insert("step".into(), json!(step));
-                st.insert("context".into(), json!({
-                    "through_seq": context.through_seq,
-                    "instructions": context.instructions,
-                    // The run's own instructions, whatever of its person the call carried besides.
-                    "instructions_match_build": run.config.instructions == instructions_now,
-                    "tools_hash": context.tools_hash,
-                    "tools_match_now": context.tools_hash == tools_now.0,
-                    "sources": sources,
-                }));
+                st.insert(
+                    "context".into(),
+                    json!({
+                        "through_seq": context.through_seq,
+                        "instructions": context.instructions,
+                        // The run's own instructions, whatever of its person the call carried besides.
+                        "instructions_match_build": run.config.instructions == instructions_now,
+                        "tools_hash": context.tools_hash,
+                        "tools_match_now": context.tools_hash == tools_now.0,
+                        "sources": sources,
+                    }),
+                );
                 let attempts = st.entry("attempts").or_insert(json!([]));
                 attempts.as_array_mut().unwrap().push(json!({ "attempt": attempt, "seq": e.seq, "at": e.at }));
             }
@@ -449,7 +452,9 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
                     None => records.push(json!({ "seq": e.seq, "kind": "record_result", "call_id": call_id, "tool": tool, "issuer": who, "result": res })),
                 }
             }
-            Ev::Contract { version, contract, approved_by, .. } => records.push(json!({ "seq": e.seq, "kind": "contract", "version": version, "issuer": who, "body": contract, "approved_by": approved_by })),
+            Ev::Contract { version, contract, approved_by, .. } => {
+                records.push(json!({ "seq": e.seq, "kind": "contract", "version": version, "issuer": who, "body": contract, "approved_by": approved_by }))
+            }
             Ev::WorkStarted { .. } => harness.push(json!({ "seq": e.seq, "kind": "work_started", "issuer": who })),
             Ev::ContractFrozen { version, .. } => harness.push(json!({ "seq": e.seq, "kind": "contract_frozen", "issuer": who, "text": format!("version {version}") })),
             Ev::Plan { version, plan, .. } => records.push(json!({ "seq": e.seq, "kind": "plan", "version": version, "issuer": who, "body": plan })),
@@ -465,11 +470,20 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
             Ev::Wait { until, .. } => harness.push(json!({ "seq": e.seq, "kind": "wait", "issuer": who, "text": until })),
             Ev::BudgetExtended { budget, .. } => harness.push(json!({ "seq": e.seq, "kind": "budget_extended", "issuer": who, "text": budget })),
             Ev::ApprovalUsed { call_id, .. } => harness.push(json!({ "seq": e.seq, "kind": "approval_used", "issuer": who, "text": call_id })),
-            Ev::Item { item_kind, summary, id, details, .. } => harness.push(json!({ "seq": e.seq, "kind": format!("inbox_{item_kind}"), "issuer": who, "text": if redact && details.get("disagreement").is_some_and(|d| d.is_string()) { json!(crate::tools::REDACTED_CALL) } else { json!(summary) }, "item": id })),
+            Ev::Item { item_kind, summary, id, details, .. } => {
+                let text = if redact && details.get("disagreement").is_some_and(|d| d.is_string()) { json!(crate::tools::REDACTED_CALL) } else { json!(summary) };
+                // Why an ask asked, which users never see (spec rev 140).
+                let reasoning = (item_kind == "approval").then(|| crate::asks::reasoning(details));
+                harness.push(json!({ "seq": e.seq, "kind": format!("inbox_{item_kind}"), "issuer": who, "text": text, "item": id, "reasoning": reasoning }))
+            }
             Ev::Output { name, media_type, .. } => harness.push(json!({ "seq": e.seq, "kind": "output", "issuer": who, "text": format!("{name} ({media_type})") })),
             Ev::Memory { fact, label, .. } => harness.push(json!({ "seq": e.seq, "kind": "memory_write", "issuer": who, "text": fact, "label": label })),
-            Ev::Playbook { op, item, text, .. } => harness.push(json!({ "seq": e.seq, "kind": "playbook", "issuer": who, "text": format!("{op} {item}: {}", text.clone().unwrap_or_default()) })),
-            Ev::Graded { grader, passed, score, .. } => harness.push(json!({ "seq": e.seq, "kind": "graded", "issuer": who, "text": format!("{grader}: {}", if *passed { "pass" } else { "fail" }), "score": score })),
+            Ev::Playbook { op, item, text, .. } => {
+                harness.push(json!({ "seq": e.seq, "kind": "playbook", "issuer": who, "text": format!("{op} {item}: {}", text.clone().unwrap_or_default()) }))
+            }
+            Ev::Graded { grader, passed, score, .. } => {
+                harness.push(json!({ "seq": e.seq, "kind": "graded", "issuer": who, "text": format!("{grader}: {}", if *passed { "pass" } else { "fail" }), "score": score }))
+            }
             _ => {}
         }
     }
@@ -1001,23 +1015,20 @@ async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
         ));
 
         let mut outcomes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let mut taint: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut asks: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for r in &all {
             for d in &r.decisions {
                 outcomes.entry(format!("{} · {}", d.stage, d.outcome)).or_default().insert(r.id.clone());
                 if d.outcome == "ask" {
-                    match d.rule.as_deref() {
-                        Some("kernel:rule_of_two") => taint.entry("Rule of Two".into()).or_default().insert(r.id.clone()),
-                        Some("kernel:audience") => taint.entry("audience".into()).or_default().insert(r.id.clone()),
-                        _ => false,
-                    };
+                    let reason = crate::asks::Reason::of(d.rule.as_deref()).map_or("before rev 140", crate::asks::Reason::as_str);
+                    asks.entry(reason.to_string()).or_default().insert(r.id.clone());
                 }
             }
         }
         let decisions: usize = all.iter().map(|r| r.decisions.len()).sum();
         panels.push(panel("boundary", "Boundary outcomes by stage", json!(decisions), "decisions", ids(&|r| !r.decisions.is_empty()), rows(outcomes)));
-        let taint_runs: BTreeSet<String> = taint.values().flatten().cloned().collect();
-        panels.push(panel("taint_asks", "Taint and audience asks", json!(taint_runs.len()), "runs", taint_runs.into_iter().collect(), rows(taint)));
+        let ask_runs: BTreeSet<String> = asks.values().flatten().cloned().collect();
+        panels.push(panel("asks", "Asks by reason", json!(ask_runs.len()), "runs", ask_runs.into_iter().collect(), rows(asks)));
 
         let mut scopes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for a in &s.approvals {

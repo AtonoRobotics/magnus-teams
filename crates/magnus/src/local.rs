@@ -39,8 +39,6 @@ const MAX_RESULT_BYTES: usize = 512 * 1024;
 const MAX_NAME_CHARS: usize = 80;
 const MAX_FOLDERS: usize = 32;
 /// Set on an ask that only a person can answer, one action at a time.
-const ASK_EVERY_TIME: &str = "kernel:local_ask";
-const CHANGE_NEEDS_A_RULE: &str = "kernel:local_change";
 const BOTH: Label = Label { untrusted: true, private: true };
 /// Marks a job the person asked for themselves.
 pub(crate) const BY_PERSON: &str = "by_person";
@@ -236,7 +234,7 @@ pub(crate) async fn run_on(computer: &str, mut job: Value) -> (Option<(bool, Str
 impl Kernel {
     /// What the person's computer says about this action: `None` for no
     /// objection, an error to refuse it, or a reason to ask a person.
-    pub(crate) fn local_gate(&self, a: &Action, f: &Facts, person: &Person, policy_asked: bool) -> Option<std::result::Result<(String, Option<String>), String>> {
+    pub(crate) fn local_gate(&self, a: &Action, f: &Facts, person: &Person) -> Option<std::result::Result<(String, Option<String>), String>> {
         if f.app != "local" || f.connector.is_some() {
             return None;
         }
@@ -254,8 +252,8 @@ impl Kernel {
         let workspaces = self.read(|s| s.team.local_ceiling(&person.id)).unwrap_or(Mode::Allow);
         match computer.mode.min(self.cfg.local.ceiling).min(workspaces) {
             Mode::Never => Some(Err(format!("{} is set to never", computer.name))),
-            Mode::Ask => Some(Ok((format!("{} asks before every action", computer.name), Some(ASK_EVERY_TIME.to_string())))),
-            Mode::Allow if policy_asked => Some(Ok((format!("this changes something already on {}, and no rule allows it", computer.name), Some(CHANGE_NEEDS_A_RULE.to_string())))),
+            // The person's own setting: ask first, case 4 of the four asks.
+            Mode::Ask => Some(Ok((format!("{} asks before every action", computer.name), Some(crate::asks::LOCAL_ASK_FIRST.to_string())))),
             Mode::Allow => None,
         }
     }

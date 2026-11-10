@@ -23,8 +23,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const CARD_NAME: &str = "payments/card";
-const RULE: &str = "kernel:saved_card";
-const MONEY_RULE: &str = "kernel:payment";
+pub(crate) const RULE: &str = "kernel:saved_card";
+pub(crate) const MONEY_RULE: &str = "kernel:payment";
 const MIN_CONTEXT_CHARS: usize = 100;
 const MAX_CONTEXT_CHARS: usize = 2000;
 /// Link gives a person 30 minutes, then the request is `expired`.

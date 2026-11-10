@@ -107,10 +107,6 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 /// The appliance's own chat tools (`create_task`, `create_schedule`, `suggest`,
 /// `propose_grant`, `revoke_grant`, the task and schedule controls), never
 /// a connector's, whatever the connector is called.
-/// The Rule of Two asks before a web lookup; one approval covers a task's
-/// lookups (or a conversation's).
-pub const WEB_LOOKUPS: &str = "kernel:web_lookups";
-
 /// The rule on an approval card the send reviewer asked for: it flagged
 /// the send, and the person decides (#179).
 pub const REVIEWER_FLAG: &str = "reviewer:flag";
@@ -492,35 +488,18 @@ impl Kernel {
             Err(why) => return self.deny(a, "destinations", &why, true, None).await,
         };
 
-        // 4. Policy, then the person's own rules (block, ask first) and new sources.
+        // 4. Policy (its denials), the person's own rules (block, ask first),
+        // and the kernel's own asks: a payment, private data to a new
+        // destination after untrusted input.
         let policy = self.policy_stage(a, &run, &person, &f, shown.as_ref()).await?;
-        let ask = match self.person_rules(a, &run, &f, shown.as_ref(), policy).await? {
-            Ok(ask) => ask,
+        let asked = match self.person_rules(a, &run, &f, shown.as_ref(), policy).await? {
+            Ok(ask) => ask.map(|(why, rule)| (why, rule.unwrap_or_default())),
             Err(v) => return Ok(v),
         };
 
-        // 4b. An enabled reviewer judges each send the kernel does not ask about (#179).
-        if ask.is_none() && run.config.module("reviewer") && is_reviewed_send(a, &f) {
-            if let Gate::Stop(v) = self.reviewer_stage(a, &run, &f, shown.as_ref()).await? {
-                return Ok(v);
-            }
-        }
-
-        // 5. Approval, after Auto Review of what the policy permits.
-        let ask = match ask {
-            Some(x) => Some(x),
-            None => match self.review_permitted(a, &run, &f, shown.as_ref()).await? {
-                crate::auto_review::Permitted::Pass => None,
-                crate::auto_review::Permitted::Stop(v) => return Ok(v),
-                crate::auto_review::Permitted::Ask(why) => Some((why, Some(crate::auto_review::ASKED.to_string()))),
-            },
-        };
-        if let Some((why, rule)) = ask {
-            if let Gate::Stop(v) = self.approval_stage(a, &run, &f, &why, rule, shown.as_ref()).await? {
-                return Ok(v);
-            }
-        } else {
-            self.decision(a, "allow", "policy", "permitted", None).await?;
+        // 5. The person's answer, one of the four asks, or Auto Review.
+        if let Gate::Stop(v) = self.settle(a, &run, &f, shown.as_ref(), asked).await? {
+            return Ok(v);
         }
 
         // 6. Idempotency.
@@ -539,7 +518,7 @@ impl Kernel {
                     return self.deny(a, "idempotency", "this step was already used for a different request", false, None).await;
                 }
                 // A crash left this intent without a result.
-                match self.reconcile(a, &run, &f, &key).await? {
+                match self.reconcile(a, &f, &key).await? {
                     Gate::Pass => true,
                     Gate::Stop(v) => return Ok(v),
                 }
@@ -673,7 +652,7 @@ impl Kernel {
             Err(CallFailure::Unknown(m)) => {
                 // The request may have reached the app. Resolve as after a crash.
                 tracing::warn!("{}: outcome unknown: {m}", a.tool);
-                match self.reconcile(a, &run, &f, &key).await? {
+                match self.reconcile(a, &f, &key).await? {
                     Gate::Pass => {
                         let again = self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await;
                         match again {
@@ -786,12 +765,13 @@ impl Kernel {
         let policies = self.read(|s| s.policies.clone());
         let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
         let outcome = policy::decide(&policies, person, Some(&run.task), &facts, untrusted, private)?;
-        let mut ask = match outcome {
-            Outcome::Deny { reason, rule } => return Ok(Err(self.deny(a, "policy", &reason, false, rule).await?)),
-            Outcome::Ask { rule } => Some((format!("policy asks before {}", a.tool), Some(rule))),
-            Outcome::Allow { .. } => None,
-        };
-        match self.local_gate(a, f, person, ask.is_some()) {
+        // A policy's ask is no longer an ask of its own (spec rev 140): Auto
+        // Review judges every boundary action. Only its denials stand here.
+        if let Outcome::Deny { reason, rule } = outcome {
+            return Ok(Err(self.deny(a, "policy", &reason, false, rule).await?));
+        }
+        let mut ask = None;
+        match self.local_gate(a, f, person) {
             Some(Err(why)) => return Ok(Err(self.deny(a, "policy", &why, false, None).await?)),
             Some(Ok(asked)) => ask = Some(asked),
             None => {}
@@ -831,12 +811,17 @@ impl Kernel {
         // (#176, #210, #211; approvals spec, recipient provenance). That
         // the content is what they wanted is theirs to judge (owner,
         // 2026-11-04).
+        let dests = crate::asks::destinations(a, f, shown);
+        let lookup = f.app == "web" && f.risk == Risk::Read && f.connector.is_none();
+        // An approved destination is remembered (spec rev 140, What still asks).
+        let remembered = |d: &String| self.read(|s| crate::asks::remembered(&s.approvals, &run.person, d));
         let theirs = match shown {
+            _ if transmits && untrusted && private && !dests.is_empty() && dests.iter().all(remembered) => true,
             Some(s) if transmits && untrusted && private => {
                 let named = self.named_by_person(run).await?;
                 let mut all = true;
                 for r in s.recipients.values().flatten() {
-                    if named.contains(r) {
+                    if named.contains(r) || remembered(r) {
                         continue;
                     }
                     // The spec's second source (#210): mailed before.
@@ -873,234 +858,22 @@ impl Kernel {
             _ => false,
         };
         if transmits && untrusted && private && !theirs && !content {
-            // A web lookup's address can carry data out too (K34). The person
-            // may allow all of a task's lookups at once (B5); anything else
-            // it sends is approved one action at a time.
-            let lookup = f.app == "web" && f.risk == Risk::Read && f.connector.is_none();
-            ask = Some(if lookup {
-                ("this task has read untrusted content and private data, and a web lookup's address can carry data out (Rule of Two)".into(), Some(WEB_LOOKUPS.into()))
+            // A web lookup's address can carry data out too (K34): its host
+            // is the destination.
+            let why = if lookup {
+                "the work has read untrusted content and private data, and a web lookup's address can carry data out to a new destination"
             } else {
-                ("this task has read untrusted content and private data, so anything it sends out needs approval (Rule of Two)".into(), Some("kernel:rule_of_two".into()))
-            });
-        }
-        // Private content returning to the app it came from reaches no one new.
-        let from_elsewhere = run.private_from.iter().any(|app| app != &f.app);
-        if !ask.as_ref().is_some_and(|(_, r)| matches!(r.as_deref(), Some("kernel:rule_of_two") | Some(WEB_LOOKUPS)))
-            && f.risk.changes_state()
-            && !f.reaches_self
-            && from_elsewhere
-            && f.audience > Audience::Private
-            && !content
-        {
-            ask = Some((format!("this task has read private data and {} reaches a {} audience", f.app, f.audience.as_str()), Some("kernel:audience".into())));
+                "the work has read untrusted content and private data, and this sends to a new destination"
+            };
+            ask = Some((why.to_string(), Some(crate::asks::NEW_DESTINATION.to_string())));
         }
         Ok(Ok(self.payment_ask(a, f.risk).or(ask)))
-    }
-
-    /// The approval covering this exact action, if one holds and its
-    /// approver may still give it.
-    pub(crate) fn covering_approval(&self, run: &Run, a: &Action, f: &Facts, hash: &str, kernel_ask: bool, lookup: bool) -> Option<crate::state::Approval> {
-        let now = chrono::Utc::now();
-        let found = self.read(|s| {
-            // The person allowed this task's web lookups, or, in chat, this
-            // conversation's: any web read, not only the one first asked about.
-            // A sub-agent holds what was approved for each run above it.
-            let (mine, thread) = (s.lineage(&run.id), |task: &str| s.tasks.get(task).and_then(|t| t.chat.as_ref()).filter(|c| c.turn).map(|c| c.thread.clone()));
-            let allowed = s.approvals.iter().find(|ap| {
-                lookup
-                    && ap.person == run.person
-                    && ap.scope == "task"
-                    && ap.reason.as_deref() == Some(WEB_LOOKUPS)
-                    && (mine.contains(&ap.task) || thread(&ap.task).is_some_and(|t| mine.iter().any(|m| thread(m).as_ref() == Some(&t))))
-            });
-            if let Some(ap) = allowed {
-                return vec![ap.clone()];
-            }
-            s.approvals
-                .iter()
-                .filter(|ap| {
-                    ap.person == run.person
-                        && ap.tool == a.tool
-                        // Approved as the class it had then, not a riskier one since.
-                        && ap.risk.as_deref() == Some(f.risk.as_str())
-                        && ap.reason.as_deref() != Some("unknown_outcome")
-                        && (!kernel_ask || ap.scope == "once")
-                        // A source is approved for its own host only.
-                        && (ap.reason.as_deref() != Some(crate::rule_effects::NEW_SOURCE) || ap.input_hash.as_deref() == Some(hash))
-                        && match ap.scope.as_str() {
-                            "once" => !ap.used && mine.contains(&ap.task) && ap.input_hash.as_deref() == Some(hash),
-                            "task" => mine.contains(&ap.task),
-                            "window" => ap.until.is_some_and(|u| u > now),
-                            "standing" => true,
-                            _ => false,
-                        }
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        });
-        // A lasting approval holds only while its approver may still give it:
-        // one whose approver role was taken away no longer covers anything. A
-        // source is the person's own computer's to allow.
-        let still_may = |ap: &crate::state::Approval| {
-            !matches!(ap.scope.as_str(), "standing" | "window")
-                || ap.reason.as_deref() == Some(crate::rule_effects::NEW_SOURCE)
-                || ap.by.strip_prefix("person:").and_then(|id| self.person(id)).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())))
-        };
-        found.into_iter().find(|ap| still_may(ap))
-    }
-
-    async fn approval_stage(&self, a: &Action, run: &Run, f: &Facts, why: &str, rule: Option<String>, shown: Option<&Shown>) -> Result<Gate> {
-        if a.issuer.reads_only() {
-            return Ok(Gate::Stop(self.deny(a, "approval", "a contract check or the verifier cannot wait for approval", false, rule).await?));
-        }
-        let hash = shown_hash(a, shown);
-        // A taint ask (Rule of Two, audience) is satisfied only by an approval
-        // of this exact action; broader scopes cover policy asks only.
-        let kernel_ask = rule.as_deref().is_some_and(|r| r.starts_with("kernel:"));
-        let lookup = rule.as_deref() == Some(WEB_LOOKUPS);
-        let found = self.covering_approval(run, a, f, &hash, kernel_ask, lookup);
-        if let Some(ap) = found {
-            self.decision(a, "allow", "approval", &format!("approved by {} ({})", ap.by, ap.scope), rule).await?;
-            if ap.scope == "once" {
-                self.emit("kernel", Ev::ApprovalUsed { id: ap.id.clone(), run: a.run.clone(), call_id: a.call_id.clone() }).await?;
-            }
-            return Ok(Gate::Pass);
-        }
-        let person_only = lookup || crate::rule_effects::person_only(rule.as_deref(), f.risk);
-        let why = match self.clear_ask(a, run, f, &rule, shown, &hash, kernel_ask, person_only).await? {
-            crate::auto_review::Cleared::Gate(g) => return Ok(g),
-            crate::auto_review::Cleared::Ask(reason) => reason.unwrap_or_else(|| why.to_string()),
-        };
-        // Background work asks no one (owner, 2026-11-07): what would need
-        // the person's approval goes back to the model, which can put it in
-        // front of them as a suggestion instead.
-        if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background())) {
-            let reason =
-                format!("{why}. This is background work, so no one is asked to approve it; if it is worth doing, suggest it to the person (observe, or suggest) and finish");
-            return Ok(Gate::Stop(self.deny(a, "approval", &reason, false, rule).await?));
-        }
-        self.decision(a, "ask", "approval", &why, rule.clone()).await?;
-        let open = self.read(|s| {
-            s.items
-                .values()
-                .find(|i| i.run.as_deref() == Some(&a.run) && i.kind == "approval" && i.resolution.is_none() && i.details["call_id"] == a.call_id.as_str())
-                .map(|i| i.id.clone())
-        });
-        let (id, item) = match open {
-            Some(id) => (id, None),
-            None => {
-                let id = new_id("item");
-                // One question for all of a task's (or a conversation's) web
-                // lookups, naming where the private data came from.
-                let (chat_turn, in_project, uploads) = self.read(|s| {
-                    let t = s.tasks.get(&run.task);
-                    (t.is_some_and(|t| t.is_chat_turn()), t.is_some_and(|t| t.project.is_some()), t.is_some_and(|t| !t.files.is_empty()) || s.attachments.contains_key(&run.task))
-                });
-                let summary = if lookup {
-                    let what = match (run.private_from.contains("library"), in_project && !uploads) {
-                        (true, true) => "reads your project files",
-                        (true, false) => "reads a file you uploaded",
-                        _ => "has read your private data",
-                    };
-                    let scope = if chat_turn { "this conversation" } else { "this task" };
-                    format!("This {} {what} and searches the web — allow web lookups for {scope}?", if chat_turn { "conversation" } else { "task" })
-                } else {
-                    crate::rule_effects::ask_summary(a, f)
-                };
-                let ev = Ev::Item {
-                    id: id.clone(),
-                    item_kind: "approval".into(),
-                    task: Some(run.task.clone()),
-                    run: Some(a.run.clone()),
-                    person: run.person.clone(),
-                    summary,
-                    details: json!({
-                        "call_id": a.call_id, "tool": a.tool, "input": a.input, "input_hash": hash,
-                        "risk": f.risk.as_str(), "app": f.app, "audience": f.audience.as_str(),
-                        "why": why, "rule": rule, "web_lookups": lookup.then_some(if chat_turn { "conversation" } else { "task" }),
-                        "taint": { "untrusted": run.untrusted, "private": run.private },
-                        "destinations": shown.map(Shown::details),
-                    }),
-                };
-                (id, Some(ev))
-            }
-        };
-        self.suspend_on(&a.run, "approval", id, item).await?;
-        Ok(Gate::Stop(Verdict::Suspended))
-    }
-
-    /// The reviewer's judgment on a send: a pass or nothing said lets it
-    /// through; a block denies it with its reason on the task; a flag asks
-    /// the person on an approval card the same shape as any ask (#179).
-    async fn reviewer_stage(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Result<Gate> {
-        let hash = shown.map_or_else(|| input_hash(&a.tool, &a.input), |s| s.hash(&a.tool, &a.input));
-        // The person already cleared a flag on this exact action: judging it
-        // again would ask twice for the same send. A once approval is not
-        // spent here but at the approval stage this send reaches next (Auto
-        // Review defers to it), so a repeated identical send is judged again
-        // (#385). Spent here, Auto Review found it gone and asked the person a
-        // second time about a rewrite they had just approved.
-        if self.covering_approval(run, a, f, &hash, false, false).is_some() {
-            return Ok(Gate::Pass);
-        }
-        match self.review_send(run, &a.tool, &a.input, shown).await? {
-            crate::run::reviewer::SendVerdict::Pass | crate::run::reviewer::SendVerdict::Unavailable => Ok(Gate::Pass),
-            crate::run::reviewer::SendVerdict::Block(reason) => {
-                let (_, ev) = crate::kernel::notice_event(
-                    Some(run.task.clone()),
-                    Some(a.run.clone()),
-                    run.person.clone(),
-                    format!("The reviewer blocked {}: {reason}", a.tool),
-                    json!({ "call_id": a.call_id, "tool": a.tool, "reason": reason }),
-                );
-                self.emit("kernel", ev).await?;
-                Ok(Gate::Stop(self.deny(a, "reviewer", &crate::safety::blocked(&a.run, &a.tool, &hash, &format!("the reviewer blocked this send: {reason}")), false, None).await?))
-            }
-            crate::run::reviewer::SendVerdict::Flag(reason) => {
-                let why = format!("the reviewer flagged this send: {reason}");
-                if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background())) {
-                    let reason = format!("{why}. This is background work, so no one is asked to approve it; if it is worth doing, suggest it to the person and finish");
-                    return Ok(Gate::Stop(self.deny(a, "reviewer", &reason, false, Some(REVIEWER_FLAG.into())).await?));
-                }
-                self.decision(a, "ask", "reviewer", &why, Some(REVIEWER_FLAG.into())).await?;
-                let open = self.read(|s| {
-                    s.items
-                        .values()
-                        .find(|i| i.run.as_deref() == Some(&a.run) && i.kind == "approval" && i.resolution.is_none() && i.details["call_id"] == a.call_id.as_str())
-                        .map(|i| i.id.clone())
-                });
-                let (id, item) = match open {
-                    Some(id) => (id, None),
-                    None => {
-                        let id = new_id("item");
-                        let ev = Ev::Item {
-                            id: id.clone(),
-                            item_kind: "approval".into(),
-                            task: Some(run.task.clone()),
-                            run: Some(a.run.clone()),
-                            person: run.person.clone(),
-                            summary: format!("The reviewer flagged {} — approve?", a.tool),
-                            details: json!({
-                                "call_id": a.call_id, "tool": a.tool, "input": a.input, "input_hash": hash,
-                                "risk": f.risk.as_str(), "app": f.app, "audience": f.audience.as_str(),
-                                "why": why, "rule": REVIEWER_FLAG,
-                                "taint": { "untrusted": run.untrusted, "private": run.private },
-                                "destinations": shown.map(Shown::details),
-                            }),
-                        };
-                        (id, Some(ev))
-                    }
-                };
-                self.suspend_on(&a.run, "approval", id, item).await?;
-                Ok(Gate::Stop(Verdict::Suspended))
-            }
-        }
     }
 
     /// Resolve an intent that has no result (B7): resend when the app honors
     /// idempotency keys or the call cannot have external effect; otherwise mark
     /// it unknown and ask the person.
-    async fn reconcile(&self, a: &Action, run: &Run, f: &Facts, key: &str) -> Result<Gate> {
+    async fn reconcile(&self, a: &Action, f: &Facts, key: &str) -> Result<Gate> {
         if f.app == "sandbox" {
             let text = err_text(&format!("{} was interrupted by a restart; its outcome is unknown. Check the workspace before doing it again.", a.tool), false);
             return Ok(Gate::Stop(self.record(a, Some(key.into()), "unknown", text, true, f.label, None).await?));
@@ -1114,57 +887,14 @@ impl Kernel {
             self.decision(a, "allow", "idempotency", "resending with the same idempotency key", None).await?;
             return Ok(Gate::Pass);
         }
-        // Not safe to resend. An approval of this exact call means the person
-        // chose to resend.
-        let hash = input_hash(&a.tool, &a.input);
-        let approved = self.read(|s| {
-            s.approvals
-                .iter()
-                .find(|ap| {
-                    ap.scope == "once"
-                        && !ap.used
-                        && ap.task == run.task
-                        && ap.tool == a.tool
-                        && ap.input_hash.as_deref() == Some(&hash)
-                        && ap.reason.as_deref() == Some("unknown_outcome")
-                })
-                .cloned()
-        });
-        if let Some(ap) = approved {
-            self.emit("kernel", Ev::ApprovalUsed { id: ap.id, run: a.run.clone(), call_id: a.call_id.clone() }).await?;
-            return Ok(Gate::Pass);
-        }
-        self.decision(a, "ask", "idempotency", "outcome unknown and the app cannot deduplicate", None).await?;
-        // The card and the suspension in one write, so no reader sees one
-        // without the other.
-        let open = self.read(|s| {
-            s.items
-                .values()
-                .find(|i| i.run.as_deref() == Some(&a.run) && i.kind == "approval" && i.resolution.is_none() && i.details["call_id"] == a.call_id.as_str())
-                .map(|i| i.id.clone())
-        });
-        let (id, item) = match open {
-            Some(id) => (id, None),
-            None => {
-                let id = new_id("item");
-                let ev = Ev::Item {
-                    id: id.clone(),
-                    item_kind: "approval".into(),
-                    task: Some(run.task.clone()),
-                    run: Some(a.run.clone()),
-                    person: run.person.clone(),
-                    summary: format!("{} may or may not have happened. Send it again?", a.tool),
-                    details: json!({
-                        "call_id": a.call_id, "tool": a.tool, "input": a.input, "input_hash": hash,
-                        "risk": f.risk.as_str(), "app": f.app, "reason": "unknown_outcome",
-                        "why": format!("the appliance stopped while {} was in flight and {} cannot tell a repeat from a new request", a.tool, f.app)
-                    }),
-                };
-                (id, Some(ev))
-            }
-        };
-        self.suspend_on(&a.run, "approval", id, item).await?;
-        Ok(Gate::Stop(Verdict::Suspended))
+        // Not safe to resend, and a retry never asks (spec rev 140): the
+        // agent is told the outcome is unknown and checks before doing it again.
+        self.decision(a, "deny", "idempotency", "outcome unknown and the app cannot deduplicate", None).await?;
+        let text = err_text(
+            &format!("{} was interrupted by a restart, and {} cannot tell a repeat from a new request, so it was not sent again. Its outcome is unknown: check in {} before doing it again.", a.tool, f.app, f.app),
+            false,
+        );
+        Ok(Gate::Stop(self.record(a, Some(key.into()), "unknown", text, true, f.label, None).await?))
     }
 
     /// Whether a brokered call may still send, checked once it has its

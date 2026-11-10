@@ -34,8 +34,9 @@ pub fn may_set_policy(p: &Person, layer: &str) -> bool {
 
 pub fn may_respond(s: &State, p: &Person, i: &Item) -> bool {
     match i.kind.as_str() {
-        // A workspace rule that names approvers for this resource decides who.
-        "approval" if named_approvers(s, i).is_some() => named_approvers(s, i).is_some_and(|named| named.contains(&p.id)),
+        // In a team thread the card shows only to the person who asked
+        // (spec rev 140, How an ask looks).
+        "approval" if in_team_thread(s, i) => i.person == p.id,
         "approval" => p.is_owner() || p.has_role(&format!("approver:{}", i.details["risk"].as_str().unwrap_or_default())),
         "policy_proposal" => may_set_policy(p, i.details["layer"].as_str().unwrap_or_default()),
         crate::consent::APP_TOOLS | "deletion_request" => p.is_owner(),
@@ -51,8 +52,9 @@ pub fn may_respond(s: &State, p: &Person, i: &Item) -> bool {
     }
 }
 
-fn named_approvers(s: &State, i: &Item) -> Option<Vec<String>> {
-    s.team.approvers(i.task.as_deref()?, i.details["tool"].as_str()?)
+/// Whether the item's work was asked for in a team thread.
+fn in_team_thread(s: &State, i: &Item) -> bool {
+    i.task.as_deref().is_some_and(|t| s.team.run_of(t).is_some())
 }
 
 pub fn visible(s: &State, p: &Person, i: &Item) -> bool {
@@ -65,9 +67,6 @@ pub fn visible(s: &State, p: &Person, i: &Item) -> bool {
 fn consequence(i: &Item) -> Option<&'static str> {
     if i.kind != "approval" {
         return None;
-    }
-    if i.details["reason"] == "unknown_outcome" {
-        return Some("It may already have happened once. Approving sends it again.");
     }
     match i.details["risk"].as_str().unwrap_or_default() {
         "irreversible" => Some("This cannot be undone once it runs."),
@@ -108,7 +107,10 @@ pub fn render(s: &State, p: &Person, i: &Item) -> Value {
         "run_id": i.run,
         "person": i.person,
         "summary": i.summary,
-        "details": i.details,
+        // What the card is made from; its reasoning (rule, policy, taint,
+        // the reviewer's words) is for the developer view alone.
+        "details": if i.kind == "approval" { crate::asks::without_reasoning(&i.details) } else { i.details.clone() },
+        "ask": (i.kind == "approval").then(|| crate::asks::card(s, p, i)),
         "created_at": i.created_at,
         "opened_at": s.items_opened.get(&i.id),
         "status": if i.resolution.is_some() { "resolved" } else { "open" },
@@ -154,32 +156,35 @@ impl Kernel {
 
         match (inbox_kind(&item.kind), decision.as_str()) {
             ("approval", "approve") => {
+                use crate::asks::Reason;
+                // Allow ("task") covers the rest of the task for the same kind
+                // and destinations; Allow always saves a narrow rule as well;
+                // "once" is Allow where only this action may be allowed.
                 let scope = body["scope"].as_str().unwrap_or("once").to_string();
-                if !["once", "task", "window", "standing"].contains(&scope.as_str()) {
+                if !["once", "task", "always"].contains(&scope.as_str()) {
                     return Ok(Answer::Invalid(format!("unknown scope {scope}")));
                 }
-                let rule = item.details["rule"].as_str().unwrap_or_default();
-                let unknown = item.details["reason"] == "unknown_outcome";
-                // Web lookups after reading private, untrusted data may be
-                // allowed for the whole task (B5); other taint asks only once.
-                let lookups = rule == crate::boundary::WEB_LOOKUPS;
-                if lookups && !["once", "task"].contains(&scope.as_str()) {
-                    return Ok(Answer::Invalid("web lookups are allowed once or for this task".into()));
+                let rule = item.details["rule"].as_str().map(String::from);
+                let reason = Reason::of(rule.as_deref());
+                if scope != "once" && !reason.is_some_and(Reason::task_wide) {
+                    return Ok(Answer::Invalid("this can only be allowed one action at a time: a payment, or private data going to a new destination".into()));
                 }
-                if scope != "once" && !lookups && (rule.starts_with("kernel:") || unknown) {
-                    return Ok(Answer::Invalid("this action can only be approved once: it is asked because of what the task has read, or because its outcome is unknown".into()));
+                let dests = crate::asks::item_destinations(&item.details);
+                let tool = item.details["tool"].as_str().unwrap_or_default().to_string();
+                let app = item.details["app"].as_str().unwrap_or_default().to_string();
+                if scope == "always" {
+                    if !reason.is_some_and(Reason::always) || p.id != item.person || dests.is_empty() || app.is_empty() {
+                        return Ok(Answer::Invalid("Allow always is not offered for this".into()));
+                    }
+                    let compiled = match crate::asks::always_rule(&item.person, &app, &tool, &dests) {
+                        Ok(c) => c,
+                        Err(e) => return Ok(Answer::Invalid(e)),
+                    };
+                    let rule_id = new_id("rule");
+                    let words = format!("Always allow: {}", item.summary);
+                    evs.push((&actor, Ev::Rule(crate::rules::Change::Proposed { id: rule_id.clone(), person: item.person.clone(), compiled: Some(compiled), words: Some(words) })));
+                    evs.push((&actor, Ev::Rule(crate::rules::Change::Accepted { id: rule_id })));
                 }
-                // A standing approval is autonomy; only the owner grants it
-                // (invariant 6). A source for the person's own computer is
-                // theirs to allow always, as they may add it themselves.
-                if scope == "standing" && !p.is_owner() && rule != crate::rule_effects::NEW_SOURCE {
-                    return Ok(Answer::Forbidden("only the owner can approve standing; propose a policy instead"));
-                }
-                let until = match scope.as_str() {
-                    "window" => Some(chrono::Utc::now() + chrono::Duration::minutes(body["minutes"].as_i64().unwrap_or(60).clamp(1, 24 * 60))),
-                    _ => None,
-                };
-                let reason = if unknown { Some("unknown_outcome".to_string()) } else { item.details["rule"].as_str().map(String::from) };
                 evs.push((&actor, resolve(Some(scope.clone()))));
                 evs.push((
                     &actor,
@@ -188,14 +193,21 @@ impl Kernel {
                         item: item.id.clone(),
                         person: item.person.clone(),
                         task: item.task.clone().unwrap_or_default(),
-                        tool: item.details["tool"].as_str().unwrap_or_default().into(),
+                        tool,
                         input_hash: item.details["input_hash"].as_str().map(String::from),
-                        scope,
-                        until,
-                        reason,
+                        scope: if scope == "always" { "once".into() } else { scope },
+                        until: None,
+                        reason: rule,
                         risk: item.details["risk"].as_str().map(String::from),
+                        destinations: Some(dests),
                     },
                 ));
+                // Unwatched work went on without this (`unattended.rs`): it is told.
+                let (answered, step) = self.read(|st| st.runs.get(&run).map_or((false, 0), |r| (r.results.contains_key(&call_id), r.replies.len() as u32)));
+                if answered {
+                    let said = format!("The person allowed what waited for them: {} Do it now if it is still needed.", item.summary);
+                    evs.push(("kernel", Ev::Notice { run: run.clone(), step, text: said }));
+                }
                 evs.extend(self.resume(&run));
             }
             // What the monitor held goes on, or is refused when the run asks again.
@@ -225,18 +237,11 @@ impl Kernel {
                 evs.push(("kernel", Ev::Notice { run: run.clone(), step: steps, text: said.to_string() }));
                 evs.extend(self.resume(&run));
             }
+            // Don't allow: that action stops, and the agent carries on with
+            // what does not depend on it.
             ("approval", "reject") => {
                 evs.push((&actor, resolve(None)));
-                let unknown = item.details["reason"] == "unknown_outcome";
-                let msg = if unknown {
-                    format!("{} was treated as not done, by the person's decision. {}", item.details["tool"].as_str().unwrap_or_default(), text.clone().unwrap_or_default())
-                } else {
-                    format!(
-                        "The person declined this action{}. A retry of the same action will not help; decide what to do instead.",
-                        text.as_ref().map(|t| format!(": {t}")).unwrap_or_default()
-                    )
-                };
-                evs.extend(reply(&run, &call_id, msg, true, Label::PRINCIPAL));
+                evs.extend(reply(&run, &call_id, crate::asks::declined(text.as_deref()), true, Label::PRINCIPAL));
                 evs.extend(self.resume(&run));
             }
             ("review", "accept") => {

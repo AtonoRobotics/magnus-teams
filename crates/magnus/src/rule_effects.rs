@@ -1,10 +1,7 @@
 //! What a person's own rules do at the boundary. A block stops the action
 //! before anything is asked. An ask first goes to the person, whatever a
-//! policy permit, a grant, an allow rule or Auto Review would say, because
-//! ask first wins over allow. A new source for the person's computer is a
-//! boundary action like any other: an allow rule naming its host or Auto
-//! Review clears it for the task, and only when neither does is the person
-//! asked, who grants it to the task or for good.
+//! policy, a grant, an allow rule or Auto Review would say, because ask
+//! first wins over allow (spec rev 140, Rules).
 use crate::boundary::{Action, Facts, Shown, Verdict};
 use crate::kernel::Kernel;
 use crate::policy::{self, ToolFacts};
@@ -14,28 +11,11 @@ use anyhow::Result;
 
 /// An ask raised by the person's own rule: `person_rule:<id>`.
 pub const PERSON_RULE: &str = "person_rule:";
-/// An ask for a source the person's computer cannot reach yet.
-pub const NEW_SOURCE: &str = "new_source";
-/// The tool through which the agent asks for a new source.
+/// The tool through which the agent asks for a new source: a boundary
+/// action Auto Review judges like any other, never an ask of its own.
 pub const SOURCE_TOOL: &str = "add_computer_destination";
 
 type Ask = Option<(String, Option<String>)>;
-
-/// Asks only a person may answer: neither a rule, a grant nor Auto Review.
-/// Their own ask-first rule, Auto Review's own ask, and every payment
-/// (spec: payments are approved every time). A new source is not one: a
-/// rule or Auto Review clears it like any boundary action.
-pub fn person_only(rule: Option<&str>, risk: crate::tools::Risk) -> bool {
-    risk == crate::tools::Risk::Financial || rule.is_some_and(|r| r == crate::auto_review::ASKED || r.starts_with(PERSON_RULE))
-}
-
-/// The approval card's question.
-pub fn ask_summary(a: &Action, f: &Facts) -> String {
-    match a.input["host"].as_str().filter(|_| a.tool == SOURCE_TOOL) {
-        Some(host) => format!("Let the agent use {host} as a source?"),
-        None => format!("Approve {} ({})?", a.tool, f.risk.as_str()),
-    }
-}
 
 /// " (their words)" when the rule has words.
 fn quoted_words(r: &Rule) -> String {
@@ -68,8 +48,8 @@ impl Kernel {
         strongest(self.read(|s| s.rules.of(&run.person)), &person, &facts, &crate::rules::destinations_of(a, shown))
     }
 
-    /// The policy's answer, after the person's rules and the sources rule.
-    /// The kernel's own asks stand: they are already answerable only once.
+    /// The kernel's own ask, after the person's rules: a block denies, and
+    /// an ask first is asked unless the kernel already asks.
     pub(crate) async fn person_rules(
         &self,
         a: &Action,
@@ -92,9 +72,6 @@ impl Kernel {
         }
         if let Some(r) = found {
             return Ok(Ok(Some((format!("your rule says to ask first{}", quoted_words(&r)), Some(format!("{PERSON_RULE}{}", r.id))))));
-        }
-        if let Some(host) = self.new_source(a, run) {
-            return Ok(Ok(Some((format!("{host} is a new source: allow it for this task, or always"), Some(NEW_SOURCE.to_string())))));
         }
         Ok(Ok(ask))
     }
@@ -121,19 +98,6 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_a_person_answers_their_ask_first_rules_and_payments() {
-        use crate::tools::Risk;
-        let w = Risk::Irreversible;
-        assert!(person_only(Some("person_rule:rule-1"), w));
-        assert!(person_only(Some(crate::auto_review::ASKED), w));
-        assert!(person_only(Some("default:ask"), Risk::Financial), "a payment was left to Auto Review");
-        assert!(person_only(None, Risk::Financial), "a payment was left to Auto Review");
-        assert!(!person_only(Some(NEW_SOURCE), Risk::ReversibleWrite), "a new source skipped rules and Auto Review");
-        assert!(!person_only(Some("default:ask"), w));
-        assert!(!person_only(None, w));
-    }
 
     /// A rule names a source by its host, so an allow rule can cover it.
     #[test]
@@ -176,28 +140,5 @@ mod tests {
         assert_eq!(picked(vec![allow.clone()], &to), None, "an allow stopped something");
         assert_eq!(picked(vec![block.clone()], &["#random".to_string()]), None, "a block reached another channel");
         assert_eq!(picked(vec![rule("p", Effect::Block, "", &[], false)], &to), None, "an unaccepted block decided");
-    }
-
-    #[test]
-    fn a_source_card_names_the_host() {
-        let a = Action {
-            run: "r".into(),
-            call_id: "c".into(),
-            step_id: "s".into(),
-            tool: SOURCE_TOOL.into(),
-            input: serde_json::json!({ "host": "data.example" }),
-            issuer: crate::boundary::Issuer::Model,
-        };
-        let f = crate::boundary::Facts {
-            name: SOURCE_TOOL.into(),
-            app: "computer".into(),
-            risk: crate::tools::Risk::ReversibleWrite,
-            label: crate::tools::Label::PRINCIPAL,
-            audience: crate::tools::Audience::Public,
-            connector: None,
-            remote: String::new(),
-            reaches_self: false,
-        };
-        assert_eq!(ask_summary(&a, &f), "Let the agent use data.example as a source?");
     }
 }

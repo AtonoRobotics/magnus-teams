@@ -11,6 +11,7 @@ pub mod admin;
 pub mod api;
 pub mod app_tools;
 pub mod apps;
+pub mod asks;
 pub mod attachment;
 pub mod auto_review;
 pub mod backup;

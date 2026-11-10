@@ -1069,6 +1069,12 @@ pub enum Ev {
         /// are deleted with the task. Absent from approvals written before.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         risk: Option<String>,
+        /// Where the approved action went (spec rev 140, How an ask looks):
+        /// an Allow covers later actions of its kind to these destinations,
+        /// and an allowed new destination is remembered. Absent from
+        /// approvals written before, which keep their old meaning.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        destinations: Option<Vec<String>>,
     },
     ApprovalUsed {
         id: String,

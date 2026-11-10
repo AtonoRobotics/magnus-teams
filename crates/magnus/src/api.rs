@@ -1316,7 +1316,8 @@ async fn timeline(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response
     Json(timeline_of(&run, false)).into_response()
 }
 
-/// A run's steps, each with its tool calls, the boundary's decisions and
+/// A run's steps, each with its tool calls, the boundary's decisions (their
+/// stage and outcome: rules and reasons are the developer view's) and
 /// their results; its notices and verifications. With `redact_private`, the
 /// calls that are the person's alone keep their name but lose their words.
 pub(crate) fn timeline_of(run: &Run, redact_private: bool) -> Value {
@@ -1329,8 +1330,7 @@ pub(crate) fn timeline_of(run: &Run, redact_private: bool) -> Value {
                 magnus_adapter_proto::Block::Text { text } => said.push_str(text),
                 magnus_adapter_proto::Block::ToolCall { id, name, input } => {
                     let r = run.results.get(id);
-                    let decisions: Vec<Value> =
-                        run.decisions.iter().filter(|d| &d.call_id == id).map(|d| json!({ "stage": d.stage, "outcome": d.outcome, "rule": d.rule })).collect();
+                    let decisions: Vec<Value> = run.decisions.iter().filter(|d| &d.call_id == id).map(|d| json!({ "stage": d.stage, "outcome": d.outcome })).collect();
                     let hidden = redact_private && crate::tools::person_only_tool(name);
                     calls.push(json!({
                         "call_id": id, "tool": name, "input": if hidden { json!(crate::tools::REDACTED_CALL) } else { input.clone() },

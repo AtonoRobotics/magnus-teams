@@ -379,6 +379,8 @@ pub struct Approval {
     /// The risk class the action had when it was approved (its item's): an
     /// approval covers only that class.
     pub risk: Option<String>,
+    /// Where the approved action went; None for approvals from before.
+    pub destinations: Option<Vec<String>>,
 }
 
 /// A knowledge entry's record. What it says (its text, source, evidence
@@ -2322,7 +2324,7 @@ impl State {
                     }
                 }
             }
-            Ev::Approval { id, item, person, task, tool, input_hash, scope, until, reason, risk } => self.approvals.push(Approval {
+            Ev::Approval { id, item, person, task, tool, input_hash, scope, until, reason, risk, destinations } => self.approvals.push(Approval {
                 id: id.clone(),
                 person: person.clone(),
                 task: task.clone(),
@@ -2336,6 +2338,7 @@ impl State {
                 // Approvals written before the event kept it read it from
                 // their item; with that deleted, they ask again.
                 risk: risk.clone().or_else(|| self.items.get(item).and_then(|i| i.details["risk"].as_str()).map(String::from)),
+                destinations: destinations.clone(),
             }),
             Ev::ApprovalUsed { id, .. } => {
                 if let Some(a) = self.approvals.iter_mut().find(|a| &a.id == id) {
