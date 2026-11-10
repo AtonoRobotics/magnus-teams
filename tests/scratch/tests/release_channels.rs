@@ -495,6 +495,19 @@ fn the_release_bundles_the_appimage_with_the_pinned_runtime() {
     assert!(pinned < bundled, "pinned before the AppImage is bundled");
 }
 
+/// Release run 42746287718 (2026-11-09): the sandbox image copies the
+/// browser's packages, which the release job's fresh checkout never
+/// installed, so putting the release on the server stopped. to-appliance.sh
+/// installs them before it builds the image.
+#[test]
+fn the_server_release_installs_the_browser_packages_before_the_image() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../release/to-appliance.sh");
+    let script = std::fs::read_to_string(path).unwrap();
+    let install = script.find("|| npm ci --prefix browser\n").expect("to-appliance.sh installs the browser's packages when they are missing");
+    let image = script.find("image=$(sandbox/image.sh)").unwrap();
+    assert!(install < image, "the packages are installed before the image is built");
+}
+
 /// The new magnus-teams server (2026-11-09) never had Google's or Slack's
 /// client secret: only the admin console's deploy provisioned them, and the
 /// release never ran it, so no one could connect those apps. The release

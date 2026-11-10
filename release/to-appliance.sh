@@ -48,7 +48,11 @@ else
   echo "::warning::no $admin: the log's tables were not migrated"
 fi
 
-# The appliance's own copy of the image, and the release's links to it.
+# The appliance's own copy of the image, and the release's links to it. The
+# image holds the browser with its packages, which a fresh checkout does not
+# have (the magnus-teams release's first runs, 2026-11-09: "cannot stat
+# browser/node_modules").
+[ -d browser/node_modules ] || npm ci --prefix browser
 image=$(sandbox/image.sh)
 h=$(basename "$image")
 if [ ! -f "$own/$h/rootfs.ext4" ]; then
