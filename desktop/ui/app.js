@@ -3257,7 +3257,7 @@ async function updatesSection(el) {
     try {
       if (b.dataset.act === "restart-update") return restartToUpdate();
       if (b.dataset.act === "look") { b.disabled = true; await Magnus.updateLook(); await refreshUpdate(); }
-      if (b.dataset.act === "install") { b.disabled = true; await api("POST", "/v1/updates/check", {}); toast("Installing; the appliance restarts in a moment."); }
+      if (b.dataset.act === "install") { b.disabled = true; await api("POST", "/v1/updates/check", {}); toast("Installing; the server restarts in a moment."); }
       el._html = null; await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
   };
