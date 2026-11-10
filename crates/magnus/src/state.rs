@@ -2046,7 +2046,8 @@ impl State {
                     if let Ev::SpokenWritten { script, .. } = &e.ev {
                         r.spoken = Some(script.clone());
                     }
-                    if matches!(&e.ev, Ev::ReviewerReply { .. }) {
+                    // What the reviewer module did, not the checks that share its model.
+                    if matches!(&e.ev, Ev::ReviewerReply { purpose, .. } if crate::run::reviewer::MODULE_PURPOSES.contains(&purpose.as_str())) {
                         r.reviewed += 1;
                     }
                     r.model_calls += 1;

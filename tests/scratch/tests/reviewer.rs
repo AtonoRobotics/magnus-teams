@@ -6,6 +6,7 @@
 use magnus_invariants::appliance::Person;
 use magnus_invariants::model::Script;
 use magnus_invariants::*;
+use magnus_scratch::start_checked;
 use serde_json::{json, Value};
 
 fn spec() -> Spec {
@@ -28,14 +29,14 @@ async fn trial(dana: &Api, exp: &str, case: &str, text: &str, modules: Value) ->
     (v["task_id"].as_str().unwrap().to_string(), v["run_id"].as_str().unwrap().to_string())
 }
 
-/// The kinds of a run's events, in order.
-async fn kinds(dana: &Api, run: &str) -> Vec<String> {
-    let (_, log) = dana.get(&format!("/v1/dev/runs/{run}/log")).await;
-    log["events"].as_array().unwrap().iter().map(|e| e["kind"].as_str().unwrap_or_default().to_string()).collect()
-}
-
+/// The reviewer module's replies in a run: its judgments of sends and of
+/// completions. The independent checks every send meets (the outgoing
+/// classifier and Auto Review) ask the same reviewer model and are recorded
+/// the same way; they are not the module.
 async fn reviewer_replies(dana: &Api, run: &str) -> usize {
-    kinds(dana, run).await.iter().filter(|k| k.as_str() == "reviewer_reply").count()
+    let (_, log) = dana.get(&format!("/v1/dev/runs/{run}/log")).await;
+    let module = ["send", "completion"];
+    log["events"].as_array().unwrap().iter().filter(|e| e["kind"] == "reviewer_reply" && module.contains(&e["body"]["purpose"].as_str().unwrap_or_default())).count()
 }
 
 /// The reviewer judges sends: a scripted reviewer blocks mail to anyone but
@@ -60,7 +61,9 @@ fn reviewer_script(agent: Script) -> Script {
 }
 
 /// A blocked send never leaves: the agent is told why, the person sees a
-/// notice on the task, and a corrected send goes through.
+/// notice on the task, and a corrected send goes through once the person
+/// approves it: a rewrite of a blocked message is not the reviewer's alone
+/// to judge (decisions/2026-11-09-safety-model-checks.md).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     let mail = mcp::mail().start().await;
@@ -74,24 +77,31 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
             _ => complete("emailed"),
         }
     });
-    let m = FakeModel::start(reviewer_script(agent)).await;
+    let m = start_checked(reviewer_script(agent)).await;
     let s = spec().app("mail", &mail, "public", "private", &[("list_sent", "read"), ("send", "reversible_write")]);
     let app = Appliance::start(s, &m).await;
     assert!(app.api("alice").put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
     let dana = app.api("dana");
     let (t, run) = trial(&dana, "rev", "block", "Email bob hello.", json!({ "reviewer": true })).await;
 
+    let card = dana.wait_item(&t, "approval").await;
+    assert_eq!(card["details"]["input"]["to"], "bob@corp.example", "the person is not asked about the corrected send: {card}");
+    assert!(card.to_string().contains("revises a message that was blocked"), "the card does not say it revises a blocked send: {card}");
+    assert!(mail.calls_to("send").is_empty(), "a send left before the person approved the rewrite");
+    assert!(dana.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
+    eventually("the approved rewrite is sent", PATIENCE, || async { (!mail.calls_to("send").is_empty()).then_some(()) }).await;
     let done = dana.wait_settled(&t).await;
-    assert_eq!(done["status"], "completed", "the run did not finish after the block: {done}");
+    let open = dana.open_items(&t, "approval").await;
+    assert_eq!(done["status"], "completed", "the run did not finish after the block: {done}\nstill asking: {open:?}");
     let sends = mail.calls_to("send");
     assert_eq!(sends.len(), 1, "the blocked send left, or the retry did not: {sends:?}");
     assert_eq!(sends[0].args["to"], "bob@corp.example", "the wrong send went through: {sends:?}");
-    assert_eq!(reviewer_replies(&dana, &run).await, 3, "each send and the completion review is recorded");
+    assert_eq!(reviewer_replies(&dana, &run).await, 2, "the blocked send and the completion review are judged and recorded; the rewrite went to the person");
     let notices: Vec<Value> = dana.inbox().await.into_iter().filter(|i| i["kind"] == "notice").collect();
     assert!(notices.iter().any(|n| n.to_string().contains("reviewer") && n.to_string().contains("mallory")), "no notice shows why the send was blocked: {notices:?}");
     let (_, reg) = dana.get("/v1/dev/modules").await;
     let rev = reg["modules"].as_array().unwrap().iter().find(|m| m["name"] == "reviewer").unwrap().clone();
-    assert_eq!(rev["acted"], 3, "{reg}");
+    assert_eq!(rev["acted"], 2, "the module acted on the blocked send and the completion, not on the checks beside it: {reg}");
 }
 
 /// A flagged send waits for the person: their approval sends it, without
@@ -106,7 +116,7 @@ async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
             _ => complete("emailed"),
         }
     });
-    let m = FakeModel::start(script(move |c| {
+    let m = start_checked(script(move |c| {
         let agent = agent.clone();
         async move {
             if c.offered_tools().contains(&"review".to_string()) && c.text().contains("The send to judge") {
@@ -142,7 +152,7 @@ async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_the_kernel_asks_about_still_asks() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         if c.offered_tools().contains(&"review".to_string()) && c.text().contains("The send to judge") {
             return tool("review", json!({ "verdict": "pass", "reason": "looks fine" }));
         }
@@ -178,7 +188,7 @@ async fn a_send_the_kernel_asks_about_still_asks() {
 #[tokio::test(flavor = "multi_thread")]
 async fn unchecked_criteria_go_to_the_reviewer_before_the_person() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         if c.offered_tools().contains(&"review".to_string()) {
             let holds = c.text().contains("Count the sent mail");
             return tool(
@@ -224,7 +234,7 @@ async fn a_repeated_send_after_a_once_approval_is_judged_again() {
             _ => complete("emailed"),
         }
     });
-    let m = FakeModel::start(script(move |c| {
+    let m = start_checked(script(move |c| {
         let agent = agent.clone();
         async move {
             if c.offered_tools().contains(&"review".to_string()) && c.text().contains("The send to judge") {
@@ -260,7 +270,7 @@ async fn a_repeated_send_after_a_once_approval_is_judged_again() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_completion_reviewer_sees_the_runs_tool_results() {
     let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
+    let m = start_checked(script(|c| async move {
         if c.offered_tools().contains(&"review".to_string()) {
             // Hold only when the run's results show the claimed send.
             let sent = c.text().contains("mail__send") && c.text().contains("\"status\": \"done\"");

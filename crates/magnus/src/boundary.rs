@@ -1038,13 +1038,12 @@ impl Kernel {
     async fn reviewer_stage(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Result<Gate> {
         let hash = shown.map_or_else(|| input_hash(&a.tool, &a.input), |s| s.hash(&a.tool, &a.input));
         // The person already cleared a flag on this exact action: judging it
-        // again would ask twice for the same send. A once approval is
-        // consumed here, as the approval stage would: otherwise a repeated
-        // identical send rides it with no judgment (#385).
-        if let Some(ap) = self.covering_approval(run, a, f, &hash, false, false) {
-            if ap.scope == "once" {
-                self.emit("kernel", Ev::ApprovalUsed { id: ap.id, run: a.run.clone(), call_id: a.call_id.clone() }).await?;
-            }
+        // again would ask twice for the same send. A once approval is not
+        // spent here but at the approval stage this send reaches next (Auto
+        // Review defers to it), so a repeated identical send is judged again
+        // (#385). Spent here, Auto Review found it gone and asked the person a
+        // second time about a rewrite they had just approved.
+        if self.covering_approval(run, a, f, &hash, false, false).is_some() {
             return Ok(Gate::Pass);
         }
         match self.review_send(run, &a.tool, &a.input, shown).await? {
