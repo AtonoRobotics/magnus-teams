@@ -100,7 +100,7 @@ async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let w = k.read(|s| s.team.workspace(&ws).cloned());
     let Some(w) = w else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     let channels: Vec<Value> = w.channels.iter().filter(|(id, _)| w.sees(id, &p.id)).map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "approvers": w.approvers, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
+    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
 }
 
 async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {

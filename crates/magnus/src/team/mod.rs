@@ -143,8 +143,9 @@ pub enum Change {
         workspace: String,
         mode: crate::local::Mode,
     },
-    /// Who answers an ask that uses this workspace resource: an app's name,
-    /// `computer` or `team`. Empty sends it back to the requester.
+    /// Retired by spec rev 140, where only the person who asked answers an
+    /// ask: it named who else answered asks that used a workspace resource.
+    /// An old log still holds it, and it is read and changes nothing.
     Approvers {
         workspace: String,
         resource: String,
@@ -268,8 +269,6 @@ pub struct Workspace {
     pub knowledge: BTreeMap<String, Entry>,
     pub projects: BTreeMap<String, Project>,
     pub local_ceiling: Option<crate::local::Mode>,
-    /// A resource, then who answers asks that use it.
-    pub approvers: BTreeMap<String, Vec<String>>,
     pub routines: BTreeMap<String, Routine>,
     pub chat: chat::ChatState,
 }
@@ -422,15 +421,7 @@ impl Ledger {
                     w.local_ceiling = Some(*mode);
                 }
             }
-            Change::Approvers { workspace, resource, people } => {
-                if let Some(w) = self.workspaces.get_mut(workspace) {
-                    if people.is_empty() {
-                        w.approvers.remove(resource);
-                    } else {
-                        w.approvers.insert(resource.clone(), people.clone());
-                    }
-                }
-            }
+            Change::Approvers { .. } => {}
             Change::Project { workspace, id, def } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.projects.insert(id.clone(), def.clone());
@@ -499,21 +490,6 @@ impl Ledger {
     /// The strictest ceiling any of this person's workspaces sets.
     pub fn local_ceiling(&self, person: &str) -> Option<crate::local::Mode> {
         self.of(person).into_iter().filter_map(|w| w.local_ceiling).min()
-    }
-
-    /// Who a workspace rule names to answer this tool's ask, if anyone does
-    /// and they are still members.
-    pub fn approvers(&self, task: &str, tool: &str) -> Option<Vec<String>> {
-        let run = self.runs.get(task)?;
-        let w = self.workspaces.get(&run.workspace)?;
-        let resource = match tool.split_once("__") {
-            Some((app, _)) => app,
-            None if tool.starts_with("computer_") => "computer",
-            None if tool.starts_with("team_") => "team",
-            None => return None,
-        };
-        let named: Vec<String> = w.approvers.get(resource)?.iter().filter(|p| w.members.contains_key(*p)).cloned().collect();
-        (!named.is_empty()).then_some(named)
     }
 
     pub fn notes(&self, task: &str) -> &[Note] {
@@ -592,24 +568,13 @@ mod tests {
     }
 
     #[test]
-    fn an_approver_who_left_answers_nothing() {
+    fn a_retired_approvers_rule_is_read_and_changes_nothing() {
         let mut l = made();
-        l.apply(&Change::Run {
-            workspace: "w".into(),
-            channel: "c".into(),
-            thread: None,
-            task: "t".into(),
-            requester: "alice".into(),
-            history: String::new(),
-            sub: false,
-            outside: false,
-        });
         l.apply(&Change::Member { workspace: "w".into(), person: "bob".into(), role: Role::Member });
-        l.apply(&Change::Approvers { workspace: "w".into(), resource: "crm".into(), people: vec!["bob".into()] });
-        assert_eq!(l.approvers("t", "crm__send"), Some(vec!["bob".to_string()]));
-        assert_eq!(l.approvers("t", "mail__send"), None, "a rule names one resource");
-        l.apply(&Change::Removed { workspace: "w".into(), person: "bob".into() });
-        assert_eq!(l.approvers("t", "crm__send"), None);
+        let before = serde_json::to_value(l.workspace("w").unwrap()).unwrap();
+        let old: Change = serde_json::from_value(serde_json::json!({ "change": "approvers", "workspace": "w", "resource": "crm", "people": ["bob"] })).unwrap();
+        l.apply(&old);
+        assert_eq!(serde_json::to_value(l.workspace("w").unwrap()).unwrap(), before, "an old approvers rule still names who answers");
     }
 
     #[test]

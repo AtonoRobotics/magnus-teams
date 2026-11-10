@@ -84,7 +84,6 @@ const AUDIT_CHANGES: i64 = 5000;
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
         .route("/v1/workspaces/{ws}/local_ceiling", post(set_ceiling))
-        .route("/v1/workspaces/{ws}/approvers", post(set_approvers))
         .route("/v1/workspaces/{ws}/audit", get(audit))
         .route("/v1/workspaces/{ws}/channels/{channel}/notes", get(notes))
 }
@@ -97,22 +96,6 @@ struct Ceiling {
 async fn set_ceiling(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Ceiling>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
     ok_or_return!(send(&k, &p, Change::LocalCeiling { workspace: ws, mode: b.mode }).await);
-    Json(json!({ "ok": true })).into_response()
-}
-
-#[derive(Deserialize)]
-struct Approvers {
-    resource: String,
-    people: Vec<String>,
-}
-
-async fn set_approvers(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Approvers>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
-    let members = k.read(|s| s.team.workspace(&ws).map(|w| w.members.clone())).unwrap_or_default();
-    if b.people.iter().any(|a| members.get(a).is_none_or(|r| *r == Role::Guest)) {
-        return err(StatusCode::BAD_REQUEST, "an approver is a member of this workspace, and not a guest");
-    }
-    ok_or_return!(send(&k, &p, Change::Approvers { workspace: ws, resource: b.resource, people: b.people }).await);
     Json(json!({ "ok": true })).into_response()
 }
 
