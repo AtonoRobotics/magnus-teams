@@ -94,7 +94,7 @@ fn model() -> model::Script {
             return tool("classify", json!({ "sensitive": false }));
         }
         if sys.contains(AUTO_REVIEW) {
-            return if c.text().contains("covered by a rule or grant") {
+            return if c.text().contains("covered by a grant or schedule") {
                 tool("review", json!({ "decision": "allow", "reason": "The person's grant covers it." }))
             } else {
                 tool("review", json!({ "decision": "ask", "reason": "Nothing the person set up covers it." }))

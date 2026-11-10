@@ -14,7 +14,7 @@ permit(principal, action == Action::"request_approval", resource);
 "#;
 
 /// What Auto Review is told when a standing authority covers the action.
-const COVERED: &str = "covered by a rule or grant";
+const COVERED: &str = "covered by a grant or schedule";
 
 /// 6. A scheduled run uses sub-agents. The person sets up a schedule in a
 /// conversation and leaves. Its run starts three sub-agents, for the

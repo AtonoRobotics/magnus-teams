@@ -4,7 +4,7 @@ Spec rev 140 ("Permissions and tasks") says only four things reach a person as a
 
 **One module asks.** `crates/magnus/src/asks.rs` is the only code that makes an approval item (`raise`), and the only one that decides whether the person's own answer already covers an action (`person_cover`). It names the four asks as `asks::Reason`:
 
-1. **Outside what was asked** (`outside_request`). Auto Review judges a boundary action. When it asks, or cannot answer, or allows without the owner's delegation, this is the ask. A send reviewer's flag is the same case. Enforced in `Kernel::settle`.
+1. **Outside what was asked** (`outside_request`). Auto Review judges a boundary action. When it asks, or cannot answer, or allows without the owner's delegation, this is the ask. A send reviewer's flag is the same case. Enforced in `Kernel::settle`. As before, a grant or schedule the person set up answers for them on an action that sends nothing out, without Auto Review; a send it covers is still judged.
 2. **A payment** (`payment`), every time. `payment_ask` in the boundary's policy stage. No rule answers it and Allow covers one action.
 3. **Private data to a new destination after untrusted input** (`new_destination`), the Rule of Two floor, unless a rule covers it. Recipients the person named pass, and so does a destination the person allowed once before (`asks::remembered`). A web lookup's host is its destination. It is never Auto Review's call alone (invariant 4): the floor runs before Auto Review and Auto Review never sees it. Allow covers one action, and there is no Allow always.
 4. **The person's own ask-first rule** (`ask_first`): `rule_effects::person_rules` and, for the person's own computer, `local::local_gate`.
@@ -17,8 +17,9 @@ A unit test (`asks_tests::no_ask_outside_the_four_can_be_produced`) maps every r
 - the audience ask (`kernel:audience`) for private data to a wider audience without untrusted input: Auto Review judges it as any other boundary action;
 - the web-lookups-after-private-data ask (`kernel:web_lookups`): a lookup asks only as case 3, after untrusted input too;
 - the local-change ask a policy Ask raised on the person's computer (`kernel:local_change`): a policy's Ask is no longer an ask, only its Deny stands;
-- the unknown-outcome ask after a write that may have reached an app that cannot deduplicate. It is not sent again, the agent is told to check, and the person gets a notice on the task;
-- the approval-for-an-hour ("window") and standing scopes, the workspace's named approvers, Auto Review's routing table (`route`, `clear_ask`, `review_permitted`), the old approval and reviewer stages of the boundary, and the unattended-expiry setting.
+- the unknown-outcome ask after a write that may have reached an app that cannot deduplicate (cut off by a restart, or answered with something unreadable). It is not sent again, the agent is told to check, and the person gets a notice on the task (`asks::outcome_unknown`). The agent's identical retry is refused as a hard denial (`rules::hard_denial`), so the old ask's protection stays without asking;
+- the web-lookups ask after an upload (the owner's decision of 2026-10-29): rev 140 makes a lookup ask only as case 3, after untrusted input. The library tests now check that one ask per new host, remembered after;
+- the approval-for-an-hour ("window") and standing scopes (approvals written with them before are still read), named approvers answering a team thread's ask (only the asker answers there), Auto Review's routing table (`route`, `clear_ask`, `review_permitted`), the old approval and reviewer stages of the boundary, and the unattended-expiry setting.
 
 The Never-allowed denials, payments, the floor, taint and the reviewer's block are unchanged. Reads and everything inside the computer pass without review (`asks::is_boundary`).
 
@@ -27,9 +28,12 @@ The Never-allowed denials, payments, the floor, taint and the reviewer's block a
 - **Allow always** is offered on case 1 only, to the person whose work it is, when the action has a destination. It saves a narrow rule through `rules::compile`, accepted at once, which counts as the person's answer ahead of Auto Review next time. A rule never answers a payment or an ask-first rule.
 - **Don't allow** stops that action. The agent is told to carry on with what does not depend on it (`asks::declined`).
 - In a team thread only the asker can answer.
+- A sub-agent holds an Allow given to any run above it, and a chat turn one given in its conversation (decisions/2026-11-10-sub-agents-carry-parent-authority.md).
 
 **Unwatched work.** On a schedule or in the background, an ask waits `UNWATCHED_ASK_WAIT_MINUTES` (30). Then a message stays a draft and the item is closed; anything else keeps waiting for the person while the run is told to carry on with what does not depend on it, and is told again if the person allows it later.
 
 **What only developers see.** The rule, the reason, the taint and the reviewer's words are on `/v1/dev/runs/{id}` (each ask's `reasoning`, each action's decisions with reason and rule) and drawn by `dev.js`, not on the inbox, the task view's decisions or toasts. Scratch tests that read them now read them as a developer (`tests/scratch/src/dev_view.rs`).
+
+**Tests changed with it.** The scratch Auto Review player (`tests/scratch/src/checks.rs`) now judges what was asked, as rev 140 has Auto Review do: every action the tests' person asks for is within the ask, unless its content carries `OUTSIDE_THE_ASK`. It used to allow only what a policy permit, rule or grant covered, which no longer decides. Tests of scopes that can no longer be given (standing, window, and their role and erasure cases) are removed; the contract-change tests now check the change is refused and never put to the person; the reviewer, Rule of Two and taint assertions read the rule and reason from the developer view. `tests/scratch/tests/asks.rs` covers the card, Allow, Allow always and Don't allow end to end, and that the agent never sees the card. `docs/proposals/invariant-tests-tightened.patch` still proposes the contract-change test in its form before rev 140.
 
 **Invariants.** `inv4_taint::private_data_sent_to_a_wider_audience_asks` encodes the deleted audience ask. It passes today only because the scripted model cannot answer Auto Review. `decisions/2026-11-10-permissions-asks-invariants.patch` replaces it with the same post made after untrusted input, which must ask as case 3 with neither a task-wide Allow nor Allow always. It needs the owner's `git apply`. `inv3_event_log::crash_against_an_app_without_idempotency_asks_instead_of_resending` still passes unchanged: the person's notice is the open inbox item it waits for, and nothing is sent again.

@@ -390,7 +390,15 @@ impl Kernel {
                 return Ok(Gate::Stop(v));
             }
         }
-        let standing = self.what_covers(run, f);
+        // A grant or schedule the person set up answers for them, as an
+        // Allow does, for an action that sends nothing out.
+        let standing = match self.what_covers(run, f) {
+            Some(s) if !crate::boundary::is_reviewed_send(a, f) => {
+                self.record_standing(a, run, &None, s).await?;
+                return Ok(Gate::Pass);
+            }
+            other => other,
+        };
         let said = if standing.is_some() { "covered by a grant or schedule the person set up" } else { "asked for by the person" };
         match self.auto_review(a, run, shown, &hash, said).await? {
             crate::auto_review::Verdict::Allow(why) if self.cfg.auto_review.delegate || standing.is_some() => {

@@ -557,10 +557,11 @@ async fn a_client_that_prefers_http2_is_answered_over_https() {
     assert_eq!(r.version(), reqwest::Version::HTTP_11, "the appliance agreed to HTTP/2");
 }
 
-/// The whole operator flow: plan, an approval that blocks, a review card,
-/// and an outcome with its composition and evidence.
+/// The whole operator flow: plan, a review card, and an outcome with its
+/// composition and evidence. (It had a policy-asked approval before spec
+/// rev 140; asks are covered in asks.rs.)
 #[tokio::test(flavor = "multi_thread")]
-async fn an_approval_blocks_and_the_outcome_carries_its_view() {
+async fn a_plan_a_review_and_the_outcome_carries_its_view() {
     let model = FakeModel::start(script(|c| async move {
         let last = c.last_results();
         match c.turn() {
@@ -594,26 +595,9 @@ async fn an_approval_blocks_and_the_outcome_carries_its_view() {
     .await;
     let app = Appliance::start(spec(), &model).await;
     let alice = app.api("alice");
-    assert!(alice.put_policy("org", &org_policy("forbid(principal, action == Action::\"execute\", resource == Tool::\"memory_write\");")).await.is_success());
     let id = alice.submit("Remember that Q3 revenue was 41.7M.").await;
-
-    let card = eventually("a blocking approval", PATIENCE, || {
-        let alice = alice.clone();
-        let id = id.clone();
-        async move { alice.inbox().await.into_iter().find(|i| i["task_id"] == id.as_str() && i["kind"] == "approval" && i["blocking"] == true) }
-    })
-    .await;
-    assert_eq!(card["tier"], "reversible_write");
-    assert!(card["consequence"].as_str().is_some_and(|c| c.contains("undone")), "{card}");
-    assert_eq!(card["details"]["tool"], "memory_write");
-    assert_eq!(card["details"]["input"]["fact"], "Q3 revenue is 41.7M", "the card must show exactly what will happen");
-
-    let task = alice.task(&id).await;
-    assert_eq!(task["plan_version"], 1);
-    assert_eq!(task["plan"]["units"][0]["id"], "u1");
-    assert_eq!(task["waiting_item"], card["id"]);
-
-    assert!(alice.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
+    // Writing its own memory is inside Magnus: nothing asks (spec rev 140;
+    // a policy's ask is no longer an ask). The run goes on to its review.
     let review = alice.wait_item(&id, "review").await;
     // A review is not an approval: it does not interrupt (the run waits, but
     // the card is about checking, not acting) unless the run is paused on it.
@@ -627,8 +611,8 @@ async fn an_approval_blocks_and_the_outcome_carries_its_view() {
     let calls: Vec<&Value> = tl["steps"].as_array().unwrap().iter().flat_map(|s| s["calls"].as_array().unwrap()).collect();
     let mw = calls.iter().find(|c| c["tool"] == "memory_write").expect("memory_write in the timeline");
     assert_eq!(mw["issuer"], "model");
-    assert!(mw["decisions"].as_array().unwrap().iter().any(|d| d["outcome"] == "ask"), "{mw}");
-    assert!(mw["decisions"].as_array().unwrap().iter().any(|d| d["outcome"] == "allow"), "{mw}");
+    assert!(mw["decisions"].as_array().unwrap().iter().all(|d| d["outcome"] == "allow"), "{mw}");
+    assert!(mw["decisions"].as_array().unwrap().iter().all(|d| d["rule"].is_null() && d["reason"].is_null()), "the task view shows a decision's reasoning: {mw}");
 }
 
 /// The inspector compares each run's instructions with the build's own: the

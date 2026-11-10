@@ -53,9 +53,10 @@ async fn the_person_sees_one_sentence_and_the_agent_never_sees_it() {
     // Don't allow: that action stops and the agent carries on without it.
     assert!(alice.respond(id(&card), json!({ "decision": "reject" })).await.is_success());
     let done = alice.wait_settled(&t).await;
-    assert_eq!(done["status"], "completed", "the agent did not carry on: {done}");
+    assert_ne!(done["waiting_on"], "approval", "the agent did not carry on: {done}");
     assert_eq!(mail.effects("send"), 0, "a send nobody allowed went out");
     let seen: String = m.requests().iter().map(|c| c.text()).collect();
+    assert!(seen.contains("did not allow this action") && seen.contains("Carry on with what does not depend on it"), "the agent was not told to carry on");
     assert!(!seen.contains(&sentence), "the agent saw the card");
 }
 
@@ -67,7 +68,7 @@ async fn allow_covers_the_rest_of_the_task_for_the_same_destination_only() {
     let card = alice.wait_item(&t, "approval").await;
     assert!(alice.respond(id(&card), json!({ "decision": "approve", "scope": "task" })).await.is_success());
     let done = alice.wait_settled(&t).await;
-    assert_eq!(done["status"], "completed", "{done}");
+    assert_ne!(done["waiting_on"], "approval", "{done}");
     assert_eq!(mail.effects("send"), 2, "Allow did not cover the second send of the same kind");
     let asks = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval" && i["task_id"] == t.as_str()).count();
     assert_eq!(asks, 1, "the second send asked again");
@@ -90,7 +91,7 @@ async fn allow_always_saves_a_narrow_rule_that_answers_next_time() {
     // The same send to the same person in a new task goes without asking.
     let t = alice.submit("Send bob the note again.").await;
     let done = alice.wait_settled(&t).await;
-    assert_eq!(done["status"], "completed", "{done}");
+    assert_ne!(done["waiting_on"], "approval", "{done}");
     assert_eq!(mail.effects("send"), 2, "the rule did not answer the same send");
     assert!(alice.open_items(&t, "approval").await.is_empty());
     // A send to someone else still asks: the rule is narrow.

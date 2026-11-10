@@ -186,9 +186,17 @@ pub(crate) fn destinations_of(a: &Action, shown: Option<&Shown>) -> Vec<String> 
     if a.tool == crate::rule_effects::SOURCE_TOOL {
         return a.input["host"].as_str().map(normalized).filter(|h| !h.is_empty()).into_iter().collect();
     }
+    // Where the gate read no recipients (an app with no destinations set
+    // up), the addresses the call itself names.
     match shown {
-        Some(s) => s.recipients.values().flatten().map(|r| normalized(r)).collect(),
-        None => crate::tools::addresses(&a.input),
+        Some(s) if s.recipients.values().any(|r| !r.is_empty()) => s.recipients.values().flatten().map(|r| normalized(r)).collect(),
+        _ => ["to", "cc", "bcc", "recipient", "recipients"]
+            .iter()
+            .filter_map(|k| a.input.get(*k))
+            .flat_map(crate::tools::addresses)
+            .chain(crate::tools::addresses(&a.input))
+            .map(|r| normalized(&r))
+            .collect(),
     }
 }
 

@@ -42,7 +42,7 @@ impl Default for Settings {
     }
 }
 
-/// What a person set up that covers an action: Auto Review still judges it.
+/// What a person set up that covers an action: Auto Review still judges a send.
 pub(crate) enum Standing {
     Schedule(String),
     Grant(String),

@@ -250,6 +250,14 @@ fn a_lookup_goes_to_its_host() {
     assert_eq!(destinations(&a, &facts("web_fetch", "web", Risk::Read, false), None), to(&["collect.example"]));
 }
 
+/// An app with no destinations set up still has the recipients its call
+/// names, so its card says where it goes and Allow always can be offered.
+#[test]
+fn a_send_without_destinations_set_up_goes_to_whom_it_names() {
+    let a = action("mail__send", json!({ "to": "Bob <Bob@Corp.example>", "cc": ["carol@corp.example"], "body": "ask eve@x.example" }));
+    assert_eq!(destinations(&a, &facts("mail__send", "mail", Risk::ReversibleWrite, true), None), to(&["bob@corp.example", "carol@corp.example"]));
+}
+
 /// A sub-agent holds what was approved for the runs above it: its query
 /// carries its parents' tasks too (decisions/2026-11-10-sub-agents-carry-parent-authority.md).
 #[test]

@@ -242,33 +242,59 @@ async fn a_project_task_that_reads_an_uploaded_file_then_searches_prices_asks_on
     assert_eq!(st.as_u16(), 201, "{v}");
     let id = v["task_id"].as_str().unwrap().to_string();
 
-    let ask = alice.wait_item(&id, "approval").await;
-    assert_eq!(ask["details"]["tool"], "web_fetch");
-    assert_eq!((ask["ask"]["allow_scope"].clone(), ask["ask"]["offers"].clone()), (json!("once"), json!(["allow", "dont_allow"])), "{ask}");
+    // The search and the first fetch each take the file's contents to a
+    // new destination; the second fetch goes to a host already allowed.
+    let first = alice.wait_item(&id, "approval").await;
+    assert_eq!(first["details"]["tool"], "web_search", "{first}");
+    assert_eq!((first["ask"]["allow_scope"].clone(), first["ask"]["offers"].clone()), (json!("once"), json!(["allow", "dont_allow"])), "{first}");
     assert!(web.hits().is_empty(), "a lookup went out before the person allowed it: {:?}", web.hits());
-    let item = ask["id"].as_str().unwrap();
     // Allowed one action at a time, never for the task or always.
     for scope in ["task", "always", "window", "standing"] {
-        assert_eq!(alice.respond(item, json!({ "decision": "approve", "scope": scope })).await.as_u16(), 400, "{scope} was accepted");
+        assert_eq!(alice.respond(id_of(&first), json!({ "decision": "approve", "scope": scope })).await.as_u16(), 400, "{scope} was accepted");
     }
-    assert!(alice.respond(item, json!({ "decision": "approve", "scope": "once" })).await.is_success());
+    assert_eq!(answer_each(&alice, &id).await, ["web_search", "web_fetch"], "not one ask per new destination");
     let t = alice.wait_status(&id, &["completed", "failed"]).await;
     assert_eq!(t["status"], "completed", "{t}");
     assert_eq!(web.hits(), ["/widgets", "/bolts"]);
-    let asks: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval").collect();
-    assert_eq!(asks.len(), 1, "it asked more than once: {asks:?}");
-    // The host allowed is remembered: another task's lookups there go on.
+    // The host allowed is remembered: another task's fetches there go on,
+    // and only its search, which names no host, asks.
     let (_, v2) = alice.post("/v1/tasks", json!({ "text": "Check them again.", "project": pid })).await;
-    let id2 = v2["task_id"].as_str().unwrap().to_string();
-    assert_eq!(alice.wait_status(&id2, &["completed", "failed"]).await["status"], "completed");
-    assert!(alice.open_items(&id2, "approval").await.is_empty(), "a remembered host asked again");
+    let id2 = v2["task_id"].as_str().unwrap_or_default().to_string();
+    assert_eq!(answer_each(&alice, &id2).await, ["web_search"], "a remembered host asked again");
 }
 
-/// In chat a lookup after an upload, with no untrusted input before it,
-/// is not one of the four asks (spec rev 140): it never asks, nor does a
-/// plain question.
+fn id_of(v: &Value) -> &str {
+    v["id"].as_str().unwrap_or_default()
+}
+
+/// Allow each ask of the task, one action at a time, until it ends: the
+/// tools that asked, in order.
+async fn answer_each(alice: &Api, task: &str) -> Vec<String> {
+    let mut asked = vec![];
+    loop {
+        let next = eventually("an ask or the end", PATIENCE, || async {
+            if let Some(i) = alice.open_items(task, "approval").await.into_iter().next() {
+                return Some(Some(i));
+            }
+            let t = alice.task(task).await;
+            ["completed", "failed"].contains(&t["status"].as_str().unwrap_or_default()).then_some(None)
+        })
+        .await;
+        let Some(item) = next else { return asked };
+        asked.push(item["details"]["tool"].as_str().unwrap_or_default().to_string());
+        assert!(alice.respond(id_of(&item), json!({ "decision": "approve", "scope": "once" })).await.is_success());
+        if asked.len() > 4 {
+            return asked;
+        }
+    }
+}
+
+/// In chat a lookup carrying an uploaded file's contents to a new host asks
+/// once, one action at a time (spec rev 140, case 3). The host allowed is
+/// remembered, so the next message's lookup there does not ask, and a
+/// plain question never asks.
 #[tokio::test(flavor = "multi_thread")]
-async fn chat_web_lookups_after_an_upload_and_a_plain_question_never_ask() {
+async fn chat_asks_once_per_new_host_after_an_upload_and_never_for_a_plain_question() {
     let web = FakeWeb::start(&[("/rates", "Plumber: 90 EUR an hour"), ("/llc", "An LLC is a legal structure.")]).await;
     let (rates, llc) = (web.url("/rates"), web.url("/llc"));
     let m = FakeModel::start(script(move |c| {
@@ -289,6 +315,9 @@ async fn chat_web_lookups_after_an_upload_and_a_plain_question_never_ask() {
     let (st, v) = alice.post("/v1/chat", json!({ "text": "Is this plumber's rate fair?", "files": [file] })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     let (thread, turn) = (v["thread"].as_str().unwrap().to_string(), v["task_id"].as_str().unwrap().to_string());
+    let ask = alice.wait_item(&turn, "approval").await;
+    assert_eq!((ask["details"]["tool"].clone(), ask["ask"]["allow_scope"].clone()), (json!("web_fetch"), json!("once")), "{ask}");
+    assert!(alice.respond(id_of(&ask), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     assert_eq!(alice.wait_status(&turn, &["completed", "failed"]).await["status"], "completed");
     // The file went with the message, and the next message in the thread
     // looks things up without asking again.
@@ -302,6 +331,6 @@ async fn chat_web_lookups_after_an_upload_and_a_plain_question_never_ask() {
     let turn3 = v["task_id"].as_str().unwrap().to_string();
     assert_eq!(alice.wait_status(&turn3, &["completed", "failed"]).await["status"], "completed");
     let asks: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval").collect();
-    assert!(asks.is_empty(), "{asks:?}");
+    assert_eq!(asks.len(), 1, "{asks:?}");
     assert_eq!(web.hits(), ["/rates", "/rates", "/llc"]);
 }
