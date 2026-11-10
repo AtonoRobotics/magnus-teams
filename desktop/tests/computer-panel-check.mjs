@@ -51,6 +51,10 @@ await tick(stream);
 assert.equal(preview.src, "data:image/png;base64,NOW");
 assert.equal(caption().hidden, true, "a live screen still says it is waking");
 assert.match(page.els["[data-screen-bar]"].innerHTML, /The agent has control\. It is working\./);
+// Opened asleep, the page's head says it is running once it is, with what a
+// running computer offers (it kept saying Asleep until a reload).
+assert.match(page.els["[data-head]"]?.innerHTML ?? "", />Running</, "the computer's page still says it is asleep after it woke");
+assert.match(page.els["[data-head]"].innerHTML, /data-act="hibernate"/, "a running computer's page does not offer to put it to sleep");
 const pageStrip = page.els["[data-screen-bar]"].innerHTML;
 
 // Another person holds it, then the agent asks for a takeover.

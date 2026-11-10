@@ -165,13 +165,18 @@ async function showComputer(main, id, tab) {
   // Opening it is a use, and any use wakes it: there is no Start button
   // (spec rev 131, Lifecycle). The kill switch's pause stays until Resume.
   if (c.status !== "paused") api("POST", `${base}/wake`, {}).catch(() => { /* The screen says how it stands. */ });
-  const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>Computer</h1><div class="row"><span data-state>${stateChip(c)}</span>
+  // The state and the buttons it allows, redrawn as the screen's look finds
+  // it changed: opened asleep, the page says when it is running.
+  const state = c => `<div class="row"><span data-state>${stateChip(c)}</span>
     ${c.status === "paused" ? `<button class="primary" data-act="start">Resume</button>` : ""}
     ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}<button data-open="computer:${esc(id)}">Pin beside the conversation</button>
     ${c.status === "running" ? `<button class="danger" data-act="pause" title="The kill switch: freezes the computer and takes back every access it was given">Pause now</button>` : ""}
     <button data-act="reset">Reset…</button><button class="link danger" data-act="delete">Delete computer…</button></div>
-    ${takeoverAsk(c)}<nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
+    ${takeoverAsk(c)}`;
+  const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>Computer</h1><div data-head>${state(c)}</div><nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
   paint(main, head(c));
+  let drawn = state(c);
+  const restate = now => { const el = $("[data-head]", main), html = state(now); if (el && html !== drawn) { drawn = html; el.innerHTML = html; } };
   const body = $("#computer-tab", main);
   main.onclick = async e => {
     const b = e.target.closest("[data-act]");
@@ -189,7 +194,7 @@ async function showComputer(main, id, tab) {
     body.innerHTML = activity.length ? `<table class="t"><tbody>${[...activity].reverse().map(a => `<tr><td>${esc(a.what)}</td><td class="small faint">${esc(a.who)}</td><td class="small faint n">${esc(when(a.at))}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">Nothing has happened on this computer yet.</p>`;
     return;
   }
-  computerScreen(body, c, base, hash);
+  computerScreen(body, c, base, hash, { onState: restate });
 }
 
 /**
@@ -204,7 +209,7 @@ async function showComputer(main, id, tab) {
  * @param {object} c the computer, as the server shows it
  * @param {string} base
  * @param {string|(() => boolean)} alive the page's hash, or whether the view is still shown
- * @param {{ ask?: boolean }} [opts] ask: show the agent's takeover request here too
+ * @param {{ ask?: boolean, onState?: (c: object) => void }} [opts] ask: show the agent's takeover request here too; onState: told the computer as each look finds it
  */
 function computerScreen(body, c, base, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
@@ -246,6 +251,7 @@ function computerScreen(body, c, base, alive, opts = {}) {
         if (shot?.status) view.c = { ...view.c, status: shot.status, waking: shot.waking };
         if (shot?.image_b64 && !view.live) preview.src = `data:image/png;base64,${shot.image_b64}`;
         strip();
+        opts.onState?.(view.c);
         if (!view.holding || view.c.status !== "running") caption(screenCaption(view.c, shot));
       } catch { /* The next look may work. */ }
       await new Promise(r => setTimeout(r, PREVIEW_EVERY_MS));

@@ -43,10 +43,11 @@ await step("open the app", async () => {
   await page.getByRole("link", { name: "Computers" }).waitFor();
 });
 
-await step("make and start a computer", async () => {
+// Opening a computer is a use, and a use wakes it: there is no Start button
+// (spec rev 131, Lifecycle).
+await step("make a computer, and opening it wakes it", async () => {
   await page.getByRole("link", { name: "Computers" }).click();
   await page.getByRole("button", { name: "New computer" }).click();
-  await page.getByRole("button", { name: "Start" }).click();
   await page.locator("[data-state]", { hasText: "Running" }).waitFor();
   computer = new URL(page.url()).hash.split("/")[2];
 });
@@ -93,42 +94,51 @@ await step("browse, edit and bulk delete files", async () => {
   await row("note.txt").waitFor({ state: "detached" });
 });
 
+// The team workspace is a team chat (decisions/2026-11-09-team-workspace-experience.md):
+// a new workspace opens on its first channel, files and knowledge belong to a
+// project, and people join by invite.
+const composer = () => page.locator("#tc-form");
+
 await step("use a team", async () => {
   await page.getByRole("link", { name: "Teams" }).click();
   await page.locator("#team-name").fill("Research");
   await page.getByRole("button", { name: "Create" }).click();
-  await page.locator("#channel-name").fill("general");
-  await page.getByRole("button", { name: "Add" }).click();
-  await page.locator("#say-text").fill("Hello team");
-  await page.getByRole("button", { name: "Send" }).click();
-  await page.locator("#messages", { hasText: "Hello team" }).waitFor();
+  await page.locator("#tc-text").fill("Hello team");
+  await composer().getByRole("button", { name: "Send" }).click();
+  await page.locator("#tc-list", { hasText: "Hello team" }).waitFor();
 });
 
-await step("whisper and post it", async () => {
-  await page.locator("#say-text").fill("Say something privately");
-  await page.getByRole("button", { name: "Ask my agent privately" }).click();
+await step("whisper and share it", async () => {
+  await page.locator("#tc-text").fill("Say something privately");
+  await page.locator("#tc-whisper").check();
+  await composer().getByRole("button", { name: "Send" }).click();
   // Checking is internal (spec rev 140): no review comes first.
-  await page.locator("#whispers", { hasText: "A private answer" }).waitFor();
-  assert.equal(await page.locator("#messages", { hasText: "A private answer" }).count(), 0, "the whisper reached the channel");
-  await page.getByRole("button", { name: "Post to the channel" }).click();
-  await page.locator("#messages", { hasText: "A private answer" }).waitFor();
+  await page.locator("#tc-whispers", { hasText: "A private answer" }).waitFor();
+  assert.equal(await page.locator("#tc-list", { hasText: "A private answer" }).count(), 0, "the whisper reached the channel");
+  await page.locator("#tc-whispers").getByRole("button", { name: "Share" }).click();
+  await page.locator("#tc-list", { hasText: "A private answer" }).waitFor();
 });
 
-await step("manage members, files and knowledge", async () => {
-  await page.locator("nav.tabs").getByRole("link", { name: "Members", exact: true }).click();
-  await page.locator("#member-id").fill("bob");
-  await page.getByRole("button", { name: "Add" }).click();
-  await page.locator('tr[data-member="bob"]').waitFor();
-  await page.locator("nav.tabs").getByRole("link", { name: "Files", exact: true }).click();
-  await page.locator("#team-upload").setInputFiles({ name: "plan.txt", mimeType: "text/plain", buffer: Buffer.from("the plan") });
-  const file = page.locator('tr[data-team-file="plan.txt"]');
+await step("invite someone, and keep files and knowledge in a project", async () => {
+  await page.getByRole("link", { name: "People and invites" }).click();
+  await page.getByLabel("Invite by email").fill("newcomer@corp.example");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await page.locator("[data-invite-result]", { hasText: "Send them this link" }).waitFor();
+  await page.locator("#team-rail [data-command]").click();
+  await page.locator("dialog.team-command input").fill("Launch");
+  await page.locator("dialog.team-command").getByRole("option", { name: /^New project Launch/ }).click();
+  const tabs = page.getByRole("navigation", { name: "Project" });
+  await tabs.getByRole("link", { name: "Files", exact: true }).click();
+  await page.locator("[data-project-files]").setInputFiles({ name: "plan.txt", mimeType: "text/plain", buffer: Buffer.from("the plan") });
+  const file = page.locator('[data-team-file="plan.txt"]');
   await file.waitFor();
-  await file.locator("[data-delete]").click();
+  await file.locator("[data-file-delete]").click();
+  await page.locator("dialog.ask").getByRole("button", { name: "Delete" }).click();
   await file.waitFor({ state: "detached" });
-  await page.locator("nav.tabs").getByRole("link", { name: "Knowledge", exact: true }).click();
-  await page.locator("#entry-text").fill("Fridays are for reviews");
-  await page.getByRole("button", { name: "Add" }).click();
-  await page.locator("tr[data-entry]", { hasText: "Fridays" }).waitFor();
+  await tabs.getByRole("link", { name: "Knowledge", exact: true }).click();
+  await page.getByLabel("Statement").fill("Fridays are for reviews");
+  await page.locator("[data-new-entry]").getByRole("button", { name: "Add" }).click();
+  await page.locator("[data-entry]", { hasText: "Fridays" }).waitFor();
 });
 
 await step("run agent-made html with no network", async () => {
