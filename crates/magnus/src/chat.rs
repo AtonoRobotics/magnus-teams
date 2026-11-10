@@ -188,8 +188,7 @@ impl Kernel {
         }
         // The tasks one message started, as one card in the order they began.
         let mut started: std::collections::BTreeMap<String, (DateTime<Utc>, Vec<Value>)> = Default::default();
-        // A task's result follows the reply of the message that started it,
-        // even when the task finished first.
+        // A task's result follows the reply of the message that started it, even when the task finished first.
         let answered: std::collections::HashMap<String, DateTime<Utc>> =
             runs.iter().filter(|(t, _)| t.is_chat_turn()).filter_map(|(_, r)| r.ended_at.map(|e| (r.id.clone(), e))).collect();
         for (t, r) in &runs {
@@ -257,6 +256,7 @@ impl Kernel {
                     e["taint"] = json!({ "untrusted": r.untrusted, "private": r.private });
                     out.push((t.created_at, seq, e));
                 }
+                out.extend(self.sub_agents_entry(t, r, w));
                 match r.status {
                     Status::Completed => out.push((
                         r.ended_at.unwrap_or(t.created_at),
@@ -297,13 +297,13 @@ impl Kernel {
     }
 
     /// The chat turn (its task id) that started what an entry shows: a
-    /// task's result or a "started tasks" card. None for the turn's own
+    /// task's result, a "started tasks" card or its sub-agents. None for the turn's own
     /// entries, and for anything not started from a turn.
     pub(crate) fn origin_turn(&self, e: &Value) -> Option<String> {
         self.read(|s| {
             let from_run = match e["kind"].as_str()? {
                 "result" => s.tasks.get(e["task_id"].as_str()?)?.chat.as_ref()?.from_run.clone()?,
-                "tasks" => e["from_run"].as_str()?.to_string(),
+                "tasks" | "sub_agents" => e["from_run"].as_str()?.to_string(),
                 _ => return None,
             };
             s.runs.get(&from_run).map(|r| r.task.clone())

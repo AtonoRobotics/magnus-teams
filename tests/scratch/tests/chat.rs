@@ -93,10 +93,10 @@ async fn a_question_is_answered_in_the_thread_and_is_not_a_task() {
     assert_eq!(e[1]["text"], "Paris.");
     assert!(alice.tasks().await["tasks"].as_array().unwrap().is_empty(), "a chat turn is listed as a task");
     let offered = m.requests()[0].offered_tools();
-    for t in ["create_task", "create_schedule", "web_fetch", "memory_write"] {
+    for t in ["create_task", "create_schedule", "web_fetch", "memory_write", "start_sub_agent"] {
         assert!(offered.contains(&t.to_string()), "{t} not offered in chat: {offered:?}");
     }
-    for t in ["task_contract", "task_complete", "sandbox_exec", "ask_principal"] {
+    for t in ["task_contract", "task_complete", "ask_principal"] {
         assert!(!offered.contains(&t.to_string()), "{t} offered in chat: {offered:?}");
     }
     // A follow-up sees the thread so far.
@@ -167,12 +167,12 @@ async fn a_question_with_a_quick_search_is_answered_in_chat_without_asking() {
     assert!(alice.inbox().await.is_empty(), "a read asked: {:?}", alice.inbox().await);
 }
 
-/// In chat the model may only read, and write the person's memory (an
-/// explicit "remember that ..." is kept at once). Anything else that changes
-/// something is denied at the boundary, even when the model calls a tool it
-/// was not offered, and the chat tools work nowhere else.
+/// In chat the model does the work itself (spec, Chat and tasks): a call
+/// that changes something is not refused for being in chat, and memory is
+/// kept at once. A task's records are not for chat, and the chat tools work
+/// nowhere else.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_chat_turn_may_only_read() {
+async fn a_chat_turn_does_the_work_itself() {
     let m = FakeModel::start(model(
         |_, turn| match turn {
             0 => tools(vec![
@@ -192,7 +192,7 @@ async fn a_chat_turn_may_only_read() {
     alice.wait_settled(&turn).await;
     let results = m.requests().into_iter().find(|c| is_chat(c) && c.turn() == 1).unwrap().last_results();
     assert_eq!(results.len(), 4);
-    assert!(results[0].is_error && results[0].text.contains("in chat you may only read"), "{}", results[0].text);
+    assert!(!results[0].text.contains("may only read") && !results[0].text.contains("start a task"), "chat handed the work off: {}", results[0].text);
     assert!(!results[1].is_error && results[1].text.contains("remembered"), "the memory write was refused: {}", results[1].text);
     for r in &results[2..] {
         assert!(r.is_error && r.text.contains("not available in chat"), "{}", r.text);

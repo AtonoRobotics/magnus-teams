@@ -308,7 +308,7 @@ impl Kernel {
 
     /// Tools offered to the run's next model call: run records, built-ins,
     /// and the person's classified app tools with pinned definitions.
-    /// A chat turn is offered only the tools that read, and the chat tools.
+    /// A chat turn is offered every built-in action and the chat tools.
     pub async fn tools_for(&self, run: &Run) -> Vec<ToolSpec> {
         self.offered(run, false).await
     }
@@ -324,7 +324,7 @@ impl Kernel {
         let mut specs =
             tools::builtin_specs(self.sandboxes.available(), self.web.can_search(), self.browser.available() || self.cfg.computer.is_some(), self.cfg.computer.is_some());
         if chat {
-            specs.retain(|t| tools::builtin(&t.name).is_some_and(|b| b.risk == Risk::Read || b.app == "memory"));
+            specs.retain(|t| crate::chat_work::offered_in_chat(&t.name));
             specs.extend(tools::chat_specs());
         }
         // A review proposes tasks to the inbox, having no thread (#393).
@@ -340,7 +340,7 @@ impl Kernel {
         if let Some(allowed) = &limited {
             specs.retain(|t| allowed.contains(&t.name));
         }
-        let apps = self.app_tool_specs(run, chat).await;
+        let apps = self.app_tool_specs(run).await;
         if apps.len() > tools::LOAD_ALL && !every {
             let found = self.found_tools(run);
             specs.extend(apps.into_iter().filter(|t| found.contains(&t.name)));
@@ -371,7 +371,7 @@ impl Kernel {
     pub async fn find_tools(&self, run: &Run, query: &str) -> Value {
         let words: Vec<String> = query.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 2).map(String::from).collect();
         let mut hits: Vec<(usize, ToolSpec)> = self
-            .app_tool_specs(run, self.is_chat_turn(run))
+            .app_tool_specs(run)
             .await
             .into_iter()
             .map(|t| {
@@ -394,7 +394,7 @@ impl Kernel {
 
     /// Every tool of the person's connected apps this run may use, with its
     /// definition as reviewed.
-    async fn app_tool_specs(&self, run: &Run, chat: bool) -> Vec<ToolSpec> {
+    async fn app_tool_specs(&self, run: &Run) -> Vec<ToolSpec> {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
         for c in self.connectors() {
@@ -418,7 +418,7 @@ impl Kernel {
                 if live.as_ref().is_some_and(|l| !l.iter().any(|t| &t.name == remote)) {
                     continue;
                 }
-                if f.risk == Risk::Prohibited || !boundary::has_rights(&person, &f) || (chat && f.risk != Risk::Read) {
+                if f.risk == Risk::Prohibited || !boundary::has_rights(&person, &f) {
                     continue;
                 }
                 if let Some(t) = live.as_ref().and_then(|l| l.iter().find(|t| &t.name == remote)) {
@@ -618,7 +618,7 @@ impl Kernel {
         }
         // A chat turn has no contract, plan or Done: it ends with its answer.
         if self.is_chat_turn(run) {
-            self.result(rid, call_id, format!("{name} is not available in chat. Reply with your answer as text, or start a task with create_task."), true).await?;
+            self.result(rid, call_id, format!("{name} is not available in chat. When the work is done, reply with your answer as text."), true).await?;
             return Ok(Flow::Continue);
         }
         match name {

@@ -165,6 +165,11 @@ aside.detail[hidden] { display: none; }
 .rg-row.open { background: var(--row-hi); }
 .rg-row:hover { background: var(--row-hi); text-decoration: none; }
 .tcard + .tcard .rg-row { border-top: 1px solid var(--hair); }
+.sub-agent { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 14px; }
+.sub-agent + .sub-agent { border-top: 1px solid var(--hair); }
+.sub-agent[data-depth="2"] { padding-inline-start: 30px; }
+.sub-agent[data-depth="3"] { padding-inline-start: 46px; }
+.sub-agent details { grid-column: 1 / -1; }
 .rg-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .rg-main .ttl { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
 .rg-main .sub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

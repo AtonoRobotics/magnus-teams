@@ -1538,7 +1538,7 @@ async function showThread(main, thread) {
     if (App.thread !== thread) return;
     shown = entries;
     // A decision the thread now waits on, not read yet: read the inbox first.
-    const waits = entries.flatMap(e => e.kind === "tasks" ? e.tasks.map(t => t.waiting_item) : [e.waiting_item]).filter(Boolean);
+    const waits = entries.flatMap(e => e.kind === "tasks" ? e.tasks.map(t => t.waiting_item) : e.kind === "sub_agents" ? e.agents.map(a => a.waiting_item) : [e.waiting_item]).filter(Boolean);
     if (waits.some(id => !App.inbox.some(i => i.id === id))) await pollInbox();
     convHead(thread);
     ui.composed = [];
@@ -1937,7 +1937,7 @@ const ICONS = {
 // take it back) for each of Magnus's messages; the rest for every entry. Each is an icon, named
 // by its tooltip and, for screen readers, by hidden text.
 function msgActions(e, ui) {
-  if (!e.id) return "";
+  if (!e.id || e.kind === "sub_agents") return "";
   const mine = e.kind === "message", magnus = e.kind === "answer" || e.kind === "turn";
   const said = ["answer", "turn", "result", "tasks", "proposal_card", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"].includes(e.kind);
   const id = `message-menu-${enc(e.id)}`, reading = voice.entry === e.id;
@@ -1968,6 +1968,7 @@ function entry(e, ui = {}) {
         <ul class="rg-rows">${e.tasks.map(taskCard).join("")}</ul></div>
         ${e.tasks.map(t => t.waiting_item && waitingCard(t.waiting_item, ui) ? `<div class="decide" data-for-task="${esc(t.task_id)}">${waitingCard(t.waiting_item, ui)}</div>` : "").join("")}`;
     }
+    case "sub_agents": return subAgentsCard(e, ui);
     case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details data-key="result:${esc(e.task_id)}"><summary>${chip(e.status)} <span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span></summary>
       <div class="pre">${esc(e.summary || "")}</div></details>
       ${e.view ? shownFrame(e.id, "The deliverable") : ""}

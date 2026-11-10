@@ -1128,7 +1128,7 @@ async fn list_tasks(State(k): K, h: HeaderMap) -> Response {
             .values()
             // Polls fire dozens a day: they stay out of the person's
             // lists, auditable by id and in the log (#406).
-            .filter(|t| visible_task(&p, t) && !t.is_chat_turn() && !t.poll)
+            .filter(|t| visible_task(&p, t) && !s.in_chat(t) && !t.poll)
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .collect()
     });
@@ -1187,7 +1187,7 @@ async fn search(State(k): K, h: HeaderMap, Query(q): Query<std::collections::Has
         let tasks: Vec<Value> = s
             .tasks
             .values()
-            .filter(|t| visible_task(&p, t) && !t.is_chat_turn() && !t.poll)
+            .filter(|t| visible_task(&p, t) && !s.in_chat(t) && !t.poll)
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .filter(|v| {
                 all(&format!("{} {} {}", v["title"].as_str().unwrap_or_default(), v["text"].as_str().unwrap_or_default(), v["summary"].as_str().unwrap_or_default()).to_lowercase())
@@ -1441,7 +1441,7 @@ async fn home_opened(State(k): K, h: HeaderMap) -> Response {
         let mut arrived: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut decided: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut observations: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
-        for t in s.tasks.values().filter(|t| visible_task(&p, t) && !t.is_chat_turn() && !t.review && !t.poll) {
+        for t in s.tasks.values().filter(|t| visible_task(&p, t) && !s.in_chat(t) && !t.review && !t.poll) {
             if let Some(r) = s.runs.get(&t.run_id) {
                 if matches!(r.status, Status::Completed | Status::Failed) && r.ended_at.is_some_and(|e| e > since) {
                     ended.push((r.ended_at.unwrap(), task_row(&k, s, &p, t, r, &words)));

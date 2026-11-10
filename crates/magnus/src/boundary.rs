@@ -766,21 +766,18 @@ impl Kernel {
             let why = format!("{} does not have access to {} (identity-provider groups)", person.id, f.app);
             return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
         }
-        // A chat turn may only read, and start a task or propose a schedule.
+        // In chat Magnus does the work itself, each call checked below like
+        // any run's (spec, Chat and tasks); only the chat tools stay in chat.
         let chat_turn = self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.is_chat_turn()));
-        if is_chat_tool(f) && !chat_turn {
-            return Ok(Err(self.deny(a, "policy", &format!("{} is for chat; in a task, do the work, or propose a schedule with propose_schedule", a.tool), false, None).await?));
+        if let Some(why) = crate::chat_work::misplaced(chat_turn, f) {
+            return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
         }
         if a.issuer == Issuer::Memory && f.name != "memory_write" {
             return Ok(Err(self.deny(a, "policy", "the memory pass may only write memory", false, None).await?));
         }
         // The person's own memory is not the world: writing it changes nothing
-        // outside the appliance (M1), so chat may write it and it needs no contract.
+        // outside the server (M1), so it needs no contract.
         let own_memory = f.connector.is_none() && f.app == "memory";
-        if chat_turn && f.risk != Risk::Read && !is_chat_tool(f) && !own_memory {
-            let why = format!("in chat you may only read; {} changes something, so start a task with create_task to do it", a.tool);
-            return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
-        }
         if f.risk.changes_state() && run.contract.is_none() && a.issuer == Issuer::Model && !chat_turn && !own_memory {
             let why = "record a task contract with task_contract before changing anything; then retry";
             return Ok(Err(self.deny(a, "policy", why, true, None).await?));

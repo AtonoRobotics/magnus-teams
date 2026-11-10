@@ -1,0 +1,9 @@
+# Chat does the work; its sub-agents work in the chat
+
+**A chat turn does the work itself.** Spec rev 133, "Chat and tasks": in chat Magnus reads, writes, makes files, uses its computer, starts sub-agents and sends, and each boundary action is reviewed like any other. The owner reported that Magnus had lost its autonomy: a chat turn was offered only reads, and the boundary refused anything else with "in chat you may only read; start a task with create_task", so every request became a task. Now a turn is offered every built-in action and the person's app tools, and the boundary no longer refuses a call for being in chat. Policy, Auto Review, approvals, taint and hard denials apply to it exactly as to a task's call. A turn still needs no contract: it ends with its answer. A task's run records (contract, plan, completion) stay out of chat, and the chat tools stay out of tasks.
+
+**A task is for long-running or unattended work.** `create_task` is described to the model as work that runs in the background, outlasts the conversation, or the person asks to have as a task. Schedules, grants and proposals are unchanged.
+
+**Sub-agents started in chat work in that chat.** A sub-agent whose top parent is a chat turn is not listed among the person's tasks, in Activity or in Home. The conversation shows one `sub_agents` entry per turn, placed when its first sub-agent started: each one's goal, depth, status, what it waits on and its result. A decision one of them waits on is drawn in the conversation below the card, as a task's is. Hiding the turn's answer hides its sub-agents with it. The card has no message actions; there is no message to act on. Nothing about a sub-agent's authority changes (decisions/2026-11-09-sub-agents.md).
+
+**Why the entry is derived, not recorded.** The sub-agent ledger already records each child and its parent, so the conversation is built from it with no new event kind.

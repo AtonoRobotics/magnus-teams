@@ -29,11 +29,15 @@ pub struct SubAgent {
 #[derive(Default, Clone, Debug)]
 pub struct Ledger {
     children: BTreeMap<String, SubAgent>,
+    /// The children in the order they were started.
+    started: Vec<String>,
 }
 
 impl Ledger {
     pub fn apply(&mut self, s: &SubAgent) {
-        self.children.insert(s.child.clone(), s.clone());
+        if self.children.insert(s.child.clone(), s.clone()).is_none() {
+            self.started.push(s.child.clone());
+        }
     }
 
     pub fn get(&self, child: &str) -> Option<&SubAgent> {
@@ -51,6 +55,41 @@ impl Ledger {
             }
         }
         depth
+    }
+
+    /// The run at the top of a sub-agent's parents; None for a run that is
+    /// no sub-agent.
+    pub fn top(&self, run: &str) -> Option<String> {
+        let mut at = &self.children.get(run)?.parent;
+        for _ in 0..MAX_DEPTH {
+            match self.children.get(at) {
+                Some(s) => at = &s.parent,
+                None => break,
+            }
+        }
+        Some(at.clone())
+    }
+
+    /// Every sub-agent below a run, each after its parent, with its depth
+    /// (1 for the run's own), in the order they were started.
+    pub fn below(&self, run: &str) -> Vec<(usize, SubAgent)> {
+        let mut out = vec![];
+        let mut stack: Vec<(usize, &str)> = vec![(0, run)];
+        while let Some((depth, at)) = stack.pop() {
+            if depth > MAX_DEPTH {
+                continue;
+            }
+            let kids: Vec<&SubAgent> = self.started.iter().filter_map(|c| self.children.get(c)).filter(|s| s.parent == at).collect();
+            for s in kids.iter().rev() {
+                stack.push((depth + 1, &s.child));
+            }
+            if depth > 0 {
+                if let Some(s) = self.children.get(at) {
+                    out.push((depth, s.clone()));
+                }
+            }
+        }
+        out
     }
 
     /// Why a sub-agent may not use this tool, if so: its own limit and every
@@ -169,6 +208,18 @@ mod tests {
         assert!(l.refusal("c", "send").is_some(), "a grandchild escaped its parent's limit");
         assert!(l.refusal("c", "read").is_none());
         assert!(l.refusal("a", "send").is_none(), "the top run has no limit");
+    }
+
+    #[test]
+    fn below_lists_each_child_after_its_parent_in_start_order() {
+        let mut l = Ledger::default();
+        l.apply(&s("z", "turn", &[]));
+        l.apply(&s("a", "turn", &[]));
+        l.apply(&s("m", "z", &[]));
+        let order: Vec<(usize, String)> = l.below("turn").into_iter().map(|(d, s)| (d, s.child)).collect();
+        assert_eq!(order, [(1, "z".to_string()), (2, "m".to_string()), (1, "a".to_string())]);
+        assert_eq!(l.top("m").as_deref(), Some("turn"), "a grandchild lost its chat turn");
+        assert_eq!(l.top("turn"), None, "the top run counted as a sub-agent");
     }
 
     #[test]
