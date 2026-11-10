@@ -1452,7 +1452,7 @@ async fn card(k: &Kernel, c: &Connector, person: &str) -> Value {
         "state": standing.as_str(), "signed_in": standing == Standing::Connected, "signs_in": c.auth.as_deref() == Some(OAUTH),
         "connected_at": at.and_then(|s| chrono::DateTime::from_timestamp(s, 0)), "account": account, "last_used": last,
         // False only on an appliance Alpha Vector has not finished setting up.
-        "ready": k.provider_ready(c),
+        "ready": k.provider_ready(c), "watched": !c.watch.is_empty(),
         // The address the desktop app listens on, when the provider
         // registered one exactly. Not shown.
         "redirect_uri": c.redirect_uri,

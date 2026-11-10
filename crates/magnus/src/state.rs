@@ -866,6 +866,7 @@ pub struct State {
     pub sub_agents: crate::sub_agents::Ledger,
     pub local: crate::local::Ledger,
     pub team: crate::team::Ledger,
+    pub push: crate::push::Ledger,
     /// Trashed items by id.
     pub trash: BTreeMap<String, Trashed>,
     /// Conversations removed from the trash: their tasks stay, the thread is gone.
@@ -1376,6 +1377,7 @@ impl State {
             Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::LocalComputer(c) => self.local.apply(c),
             Ev::Team(c) => self.team.apply(c),
+            Ev::Push(c) => self.push.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;
@@ -1549,6 +1551,7 @@ impl State {
                 // Their poll clocks: whoever is next known by their
                 // name starts polling fresh (#406).
                 self.watch_last_polled.retain(|(p, _, _), _| p != person);
+                self.push.forget(person);
                 // The rights they held go with them: whoever is next known by
                 // their name starts from the organisation's config.
                 self.roles_set.remove(person);

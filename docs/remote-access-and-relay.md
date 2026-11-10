@@ -109,6 +109,12 @@ config file committed anywhere). Account
 | `identity.pyrallon.ai` | the public Keycloak port, found on the host, never `19446` | HTTP/2 to origin off. Add this row only after confirming the name is served from StrixAlpha. | No Access application and no device certificate. A login page behind either is a second login. Rate limit the hostname. Path allow only `/realms/magnus/` and `/resources/`. |
 | (catch-all) | `http_status:404` | | |
 
+Pushes from connected apps (`decisions/2026-11-09-app-push.md`) arrive at
+`magnus.pyrallon.ai/v1/push/...` from the app's own servers, which hold no
+device certificate. The client-certificate rule must skip that one path
+prefix: `not starts_with(http.request.uri.path, "/v1/push/")`. The address
+itself is the credential, and a wrong one answers 404.
+
 Not in the ingress: `7443`, `7701`, `19446`, `54341`, `22`, and the apex
 `pyrallon.ai` (that name is the site and the relay, not the appliance).
 

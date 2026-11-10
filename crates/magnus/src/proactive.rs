@@ -153,6 +153,8 @@ impl crate::kernel::Kernel {
         if !self.cfg.proactive.on {
             return;
         }
+        // Pushes that landed inside their gap poll once it passes.
+        self.push_due(now).await;
         let people: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
         for person in people {
             if self.read(|s| s.turned_off.contains(&person) || s.review_runs.values().any(|p| p == &person)) {
@@ -297,7 +299,7 @@ impl crate::kernel::Kernel {
         }
     }
 
-    async fn start_poll(self: &Arc<Self>, person: &str, app: &str, watch: &crate::config::Watch) {
+    pub(crate) async fn start_poll(self: &Arc<Self>, person: &str, app: &str, watch: &crate::config::Watch) {
         let budget = crate::config::Budget { max_model_calls: 5, max_actions: 3, max_usd: self.cfg.proactive.wake_max_usd };
         let text = format!("Poll {app}: call {app}__{} once with no arguments, then end the task. Do nothing else.", watch.tool);
         match self.create_run("poll", person, text, vec![], crate::kernel::NewRun { budget: Some(budget), ..Default::default() }).await {

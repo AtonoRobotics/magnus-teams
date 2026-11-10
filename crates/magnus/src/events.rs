@@ -25,8 +25,7 @@ pub struct ChatOrigin {
     pub opener: Option<Box<Opener>>,
 }
 
-/// Why Magnus opened a conversation itself: the person's cold start (no
-/// app), or their first connection of `app`.
+/// Why Magnus opened a conversation itself: the person's cold start (no app), or their first connection of `app`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Opener {
     /// The app's name.
@@ -187,6 +186,7 @@ pub enum Ev {
     SubAgent(crate::sub_agents::SubAgent),
     LocalComputer(crate::local::Computer),
     Team(crate::team::Change),
+    Push(crate::push::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {
         run: String,
