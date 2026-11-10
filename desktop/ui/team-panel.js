@@ -23,7 +23,7 @@ function progressBar(p) {
  * One task card: its status, who has it, and where it came from.
  * @param {TeamTask} t @param {string} ws @param {(id: string) => string} name @param {boolean} edit
  */
-function taskCard(t, ws, name, edit) {
+function teamTaskCard(t, ws, name, edit) {
   const from = t.from ? `<a class="small" href="${teamHref(ws, { kind: "channel", id: t.from.channel, thread: t.from.message })}">From the conversation</a>` : "";
   return `<li class="team-task" data-task="${esc(t.id)}" draggable="${edit}"><span>${esc(t.title)}</span>
     <div class="row small">${edit ? `<select data-task-status aria-label="Status of ${esc(t.title)}">${TEAM_STATUSES.map(([v, l]) => `<option value="${v}"${t.status === v ? " selected" : ""}>${l}</option>`).join("")}</select>` : `<span class="chip">${esc(t.status)}</span>`}
@@ -37,7 +37,7 @@ function taskCard(t, ws, name, edit) {
 function boardHtml(tasks, ws, name, edit) {
   return `<div class="team-board">${TEAM_STATUSES.map(([v, l]) => {
     const here = tasks.filter(t => t.status === v);
-    return `<section class="team-col" data-col="${v}" aria-label="${l}"><h3>${l} <span class="small faint">${here.length}</span></h3><ul>${here.map(t => taskCard(t, ws, name, edit)).join("")}</ul>
+    return `<section class="team-col" data-col="${v}" aria-label="${l}"><h3>${l} <span class="small faint">${here.length}</span></h3><ul>${here.map(t => teamTaskCard(t, ws, name, edit)).join("")}</ul>
       ${edit ? `<form data-new-task="${v}"><input placeholder="Add a task" aria-label="New task in ${l}" autocomplete="off"></form>` : ""}</section>`;
   }).join("")}</div>`;
 }
