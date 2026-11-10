@@ -232,11 +232,11 @@ pub fn router() -> Router<Arc<Kernel>> {
 type K = AxState<Arc<Kernel>>;
 
 /// The app as the person may connect it.
-async fn usable(k: &Kernel, h: &HeaderMap, name: &str) -> Result<(String, Connector), Response> {
-    let p = who(k, h).await?;
+async fn usable(k: &Kernel, h: &HeaderMap, name: &str) -> std::result::Result<(String, Connector), Box<Response>> {
+    let p = who(k, h).await.map_err(Box::new)?;
     match k.connector(name).filter(|c| crate::boundary::may_use(&p, c)) {
         Some(c) => Ok((p.id, c)),
-        None => Err(err(StatusCode::NOT_FOUND, "no such app")),
+        None => Err(Box::new(err(StatusCode::NOT_FOUND, "no such app"))),
     }
 }
 
@@ -244,7 +244,7 @@ async fn usable(k: &Kernel, h: &HeaderMap, name: &str) -> Result<(String, Connec
 async fn connect_screen(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
     match usable(&k, &h, &name).await {
         Ok((person, c)) => Json(k.connect_terms(&c, &person).await).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 
@@ -252,7 +252,7 @@ async fn connect_screen(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -
 async fn accept(AxState(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
     let (person, c) = match usable(&k, &h, &name).await {
         Ok(x) => x,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match k.consent(&c, &person, b["terms"].as_str().unwrap_or_default()).await {
         Ok(v) => Json(v).into_response(),

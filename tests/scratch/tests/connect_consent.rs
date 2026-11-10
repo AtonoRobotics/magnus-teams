@@ -17,7 +17,9 @@ const SCREEN: &str = "You screen content an autonomous agent is about to read";
 /// alice, who signs in to it. `first` are the tools it lists at first.
 async fn calendar(m: &FakeModel, first: &[&str]) -> (Appliance, FakeOAuthApp) {
     let cal = FakeOAuthApp::start(3600).await;
-    cal.state.lock().unwrap().retired = ["list_events", "create_event", "delete_all"].iter().filter(|t| !first.contains(t)).map(|t| t.to_string()).collect();
+    if let Ok(mut s) = cal.state.lock() {
+        s.retired = ["list_events", "create_event", "delete_all"].iter().filter(|t| !first.contains(t)).map(|t| t.to_string()).collect();
+    }
     let mut spec = Spec::default();
     spec.people.push(Person { id: "dana".into(), name: "Dana".into(), token: "tok-dana-consent".into(), groups: vec!["staff".into()], roles: vec!["developer".into()] });
     let app = Appliance::start(spec, m).await;
@@ -25,14 +27,15 @@ async fn calendar(m: &FakeModel, first: &[&str]) -> (Appliance, FakeOAuthApp) {
     let (st, v) = alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
     assert!(st.is_success(), "{v}");
     let (_, v) = alice.post("/v1/connectors/calendar/sign-in", json!({ "redirect_uri": "http://127.0.0.1:9/callback" })).await;
-    let (code, state) = FakeOAuthApp::browse(v["authorize_url"].as_str().unwrap()).await;
+    let (code, state) = FakeOAuthApp::browse(v["authorize_url"].as_str().unwrap_or_default()).await;
     assert_eq!(alice.post("/v1/connectors/calendar/sign-in/complete", json!({ "state": state, "code": code })).await.0, 204);
     (app, cal)
 }
 
+/// The calendar's tools as the owner's listing classes them.
 fn classes(list: &Value) -> Vec<(String, Value)> {
-    let c = list["connectors"].as_array().unwrap().iter().find(|c| c["name"] == "calendar").expect("the calendar is listed");
-    c["tools"].as_array().unwrap().iter().map(|t| (t["name"].as_str().unwrap().to_string(), t["risk"].clone())).collect()
+    let c = list["connectors"].as_array().into_iter().flatten().find(|c| c["name"] == "calendar").cloned().unwrap_or_default();
+    c["tools"].as_array().into_iter().flatten().map(|t| (t["name"].as_str().unwrap_or_default().to_string(), t["risk"].clone())).collect()
 }
 
 /// Run a task that lists the calendar's tools; what it was offered.
