@@ -220,8 +220,7 @@ async fn a_backup_left_holding_an_erased_persons_content_does_not_restore_it() {
 /// the backups it runs before it answers.
 async fn remove_a_task(alice: &Api, words: &str) {
     let t = alice.submit(words).await;
-    let review = alice.wait_item(&t, "review").await;
-    assert_eq!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.as_u16(), 200);
+    alice.wait_status(&t, &["completed"]).await;
     alice.wait_settled(&t).await;
     let (st, v) = alice.post("/v1/trash", json!({ "item": t })).await;
     assert!(st.is_success(), "{v}");

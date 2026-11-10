@@ -86,25 +86,3 @@ async fn a_crash_after_an_approval_is_granted_still_resumes_its_run() {
     respond_through_crash(&mut app, &item, json!({ "decision": "approve", "scope": "once" })).await;
     approved_once(&app, &mail, &id, &item).await;
 }
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_crash_after_a_review_is_accepted_still_completes_its_run() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it")])).await;
-    let mut app = Appliance::start(Spec::default(), &model).await;
-    let alice = app.api("alice");
-    let id = alice.submit("Write me a poem.").await;
-    let review = alice.wait_item(&id, "review").await;
-    let item = review["id"].as_str().unwrap().to_string();
-    crash_after(&app, "item_resolved");
-    respond_through_crash(&mut app, &item, json!({ "decision": "accept" })).await;
-    let alice = app.api("alice");
-    eventually(&format!("task {id} completes after the restart"), Duration::from_secs(60), || {
-        let alice = alice.clone();
-        let id = id.clone();
-        async move { (alice.task(&id).await["status"] == "completed").then_some(()) }
-    })
-    .await;
-    let card = alice.inbox().await.into_iter().find(|i| i["id"] == item.as_str()).expect("the card");
-    assert_eq!(card["status"], "resolved", "{card:#}");
-    assert_eq!(alice.respond(&item, json!({ "decision": "accept" })).await, reqwest::StatusCode::CONFLICT);
-}

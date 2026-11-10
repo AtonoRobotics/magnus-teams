@@ -22,7 +22,7 @@ async fn partial_refresh_failure_retains_cached_data_and_reconciles_latest() {
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");
     let task = alice.submit("Verify work details.").await;
-    let item = alice.wait_item(&task, "review").await;
+    let item = alice.wait_status(&task, &["completed"]).await;
     assert!(alice.respond(item["id"].as_str().unwrap(), json!({"decision":"accept"})).await.is_success());
     alice.wait_settled(&task).await;
     assert!(set_password(&app, "alice", PASSWORD));

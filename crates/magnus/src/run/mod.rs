@@ -900,7 +900,7 @@ impl Kernel {
                 })
                 .await?;
             // A check that could not run says nothing about the work: the
-            // person reviews the criterion, and it is never replaced (K37).
+            // criterion stays unconfirmed, and it is never replaced (K37).
             let check_call = format!("check:{call_id}:{id}");
             let denied = self.read(|s| s.runs.get(rid).and_then(|r| r.results.get(&check_call)).is_some_and(|r| r.status == "denied"));
             let Verdict::Done { text, is_error, data } = v else {
@@ -968,7 +968,7 @@ impl Kernel {
                 rid,
                 call_id,
                 format!(
-                    "Not complete. These criteria do not hold in the world: {}. The task stays open: fix the work, then call task_complete again; a retry without changes will not help. The criteria are frozen; a task_contract call now asks the person to approve a change.",
+                    "Not complete. These criteria do not hold in the world: {}. The task stays open: fix the work, then call task_complete again; a retry without changes will not help. The criteria are frozen and cannot change.",
                     failures.join("; ")
                 ),
                 true,
@@ -978,7 +978,7 @@ impl Kernel {
         }
         let summary = input["summary"].as_str().unwrap_or_default().to_string();
         // The verifier judges only criteria without a check: one whose check
-        // could not run goes to the person unchanged (K37).
+        // could not run stays unconfirmed (K37).
         let (mut judgeable, could_not_run): (Vec<Value>, Vec<Value>) = unchecked.into_iter().partition(|cr| cr.get("check").is_none_or(|v| v.is_null()));
         unchecked = could_not_run;
         let goal = contract["goal"].as_str().unwrap_or_default();
@@ -995,28 +995,14 @@ impl Kernel {
             judgeable = self.reviewer_on_completion(run, goal, judgeable, &summary).await?;
         }
         unchecked.extend(judgeable);
-        // Background work is not put in front of its person for review
-        // (owner, 2026-11-07): it completes, and the criteria no one could
-        // check stay in the log for the run inspector.
-        if !unchecked.is_empty() && self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background())) {
+        // Checking is internal (spec rev 140): the person sees the result,
+        // never criteria. What no check, verifier or reviewer could confirm
+        // stays in the log for the run inspector, and the task completes.
+        if !unchecked.is_empty() {
             let ids: Vec<&str> = unchecked.iter().filter_map(|c| c["id"].as_str()).collect();
-            self.result(rid, call_id, "Completed. As background work, its unchecked criteria go to no one.", false).await?;
-            let summary = format!("{summary} (unchecked criteria: {})", ids.join(", "));
+            self.result(rid, call_id, format!("Completed. Not confirmed by any check: {}.", ids.join(", ")), false).await?;
             self.emit("kernel", Ev::Completed { run: rid.into(), summary, view: Some(view), spoken }).await?;
             self.on_stop(rid, true).await;
-            self.after_end(rid);
-            return Ok(Flow::Stop);
-        }
-        if !unchecked.is_empty() {
-            // No executable check, and the verifier off or unsure: the person reviews (K37).
-            let (item, ev) = self.item_event(
-                run,
-                "review",
-                format!("Review: {}", contract["goal"].as_str().unwrap_or("the task")),
-                json!({ "call_id": call_id, "summary": summary, "criteria": unchecked, "view": view, "spoken": spoken }),
-            );
-            self.suspend_on(rid, "review", item, ev).await?;
-            // The work is done; only the person's review is left.
             self.after_end(rid);
             return Ok(Flow::Stop);
         }

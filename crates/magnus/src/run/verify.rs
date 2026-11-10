@@ -133,7 +133,7 @@ impl Kernel {
     }
 
     /// The verifier's part of completion: failures go back to the agent,
-    /// what it could not tell goes to the person, what holds is recorded.
+    /// what holds is recorded, what it could not tell stays unconfirmed.
     /// Returns the criteria still unchecked, or the flow when the work failed.
     pub(super) async fn verifier_on_completion(
         self: &Arc<Self>,

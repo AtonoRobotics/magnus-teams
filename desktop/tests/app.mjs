@@ -48,8 +48,6 @@ await step("approve under Needs you", async () => {
   if (!what.includes("deliver_file")) throw new Error(`the card does not name the action: ${what}`);
   await click(button("Allow", card));
   await seen("Allowed.");
-  await click(button("Accept", "//aside[@id='detail']//article[contains(@class,'review')]"));
-  await seen("Accepted.");
 });
 
 await step("see the outcome beside the conversation, with no checks shown", async () => {

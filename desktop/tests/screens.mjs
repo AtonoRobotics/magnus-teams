@@ -107,13 +107,7 @@ await step("use a team", async () => {
 await step("whisper and post it", async () => {
   await page.locator("#say-text").fill("Say something privately");
   await page.getByRole("button", { name: "Ask my agent privately" }).click();
-  // Its work has no check it can run, so the person reviews it first.
-  const channel = await page.evaluate(() => location.hash);
-  await go("#/inbox");
-  const review = page.locator("article.item.review").first();
-  await review.getByRole("button", { name: /Accept/ }).click();
-  await review.waitFor({ state: "detached" });
-  await go(channel);
+  // Checking is internal (spec rev 140): no review comes first.
   await page.locator("#whispers", { hasText: "A private answer" }).waitFor();
   assert.equal(await page.locator("#messages", { hasText: "A private answer" }).count(), 0, "the whisper reached the channel");
   await page.getByRole("button", { name: "Post to the channel" }).click();

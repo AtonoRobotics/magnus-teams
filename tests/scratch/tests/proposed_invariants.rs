@@ -137,25 +137,18 @@ async fn a_one_action_approval_covers_one_action() {
 
 // ---- inv7_verify.rs
 
+/// Checking is internal (spec rev 140): a criterion no check can confirm is
+/// never put to the person; the task completes and the criterion is recorded
+/// as unconfirmed.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_criterion_without_a_check_goes_to_the_person_for_review() {
-    let model = start_checked(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("review rejected")])).await;
+async fn a_criterion_without_a_check_is_never_put_to_the_person() {
+    let model = start_checked(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("unexpected turn")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
 
-    let accepted = alice.submit("Write me a poem.").await;
-    let review = alice.wait_item(&accepted, "review").await;
-    assert_eq!(alice.task(&accepted).await["status"], "suspended");
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
-    alice.wait_status(&accepted, &["completed"]).await;
-
-    let rejected = alice.submit("Write me another poem.").await;
-    let review = alice.wait_item(&rejected, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "reject", "text": "too short" })).await.is_success());
-    let t = alice.wait_settled(&rejected).await;
-    assert_eq!(t["status"], "failed", "{t}");
-    // The rejection went back to the agent, and the agent ended the run.
-    let told = model.requests().into_iter().any(|c| c.last_results().iter().any(|r| r.text.contains("too short")));
-    assert!(told, "the rejection never reached the agent; the kernel ended the run itself");
-    assert_eq!(t["summary"], "review rejected", "the run did not end on the agent's own decision: {t}");
+    let id = alice.submit("Write me a poem.").await;
+    let t = alice.wait_settled(&id).await;
+    assert_eq!(t["status"], "completed", "{t}");
+    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "review"), "the person was asked to review criteria");
+    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the unconfirmed criterion is not recorded");
 }

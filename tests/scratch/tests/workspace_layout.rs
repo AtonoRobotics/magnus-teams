@@ -12,7 +12,8 @@ async fn responsive_workspace_preserves_access_and_preferences() {
             return Reply::Text("Recorded.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("Navigation review", "Useful result"),
+            0 => tool("ask_principal", json!({"question":"Which section first?"})),
+            1 => contract_unchecked("Navigation review", "Useful result"),
             _ => tool("task_complete", json!({"summary":"Navigation review completed","deliverable":[{"type":"text","text":"Actual reviewed navigation result"}]})),
         }
     }))
@@ -20,7 +21,7 @@ async fn responsive_workspace_preserves_access_and_preferences() {
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let task = alice.submit("Review navigation fixture").await;
-    let review = alice.wait_item(&task, "review").await;
+    let question = alice.wait_item(&task, "question").await;
     let bob = app.api("bob");
     let (status, chat) = bob.post("/v1/chat", json!({"text":"Shared activity update"})).await;
     assert!(status.is_success(), "{chat}");
@@ -32,8 +33,8 @@ async fn responsive_workspace_preserves_access_and_preferences() {
     assert!(set_password(&app, "alice", PASSWORD));
     let out = tokio::process::Command::new("node")
         .arg(workspace_root().join("desktop/tests/workspace-layout.mjs"))
-        .env("MAGNUS_REVIEW_TASK", &task)
-        .env("MAGNUS_REVIEW_ITEM", review["id"].as_str().unwrap())
+        .env("MAGNUS_QUESTION_TASK", &task)
+        .env("MAGNUS_QUESTION_ITEM", question["id"].as_str().unwrap())
         .env("MAGNUS_URL", &app.base)
         .env("MAGNUS_PASSWORD", PASSWORD)
         .env("MAGNUS_CHROMIUM", chromium())

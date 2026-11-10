@@ -72,8 +72,7 @@ async fn calendar_adds_an_event_only_once_the_person_approves_it_reaching_only_g
     assert!(api.requests().is_empty(), "Calendar was called before Alice approved: {:?}", api.calls(BASE));
     approve(&alice, &ask).await;
 
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(api.calls(BASE), [("POST".to_string(), "/calendars/primary/events".to_string())]);
     let sent = &api.requests()[0];
@@ -102,8 +101,7 @@ async fn calendar_lists_every_calendar_across_pages() {
     let (app, provider, _image) = signed_in(&m, &api, "google-calendar", "magnus-calendar", "calendar").await;
     let alice = app.api("alice");
     let task = alice.submit("Which calendars do I have?").await;
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     let get = ("GET".to_string(), "/users/me/calendarList".to_string());
     assert_eq!(api.calls(BASE), [get.clone(), get]);
@@ -133,8 +131,7 @@ async fn calendar_finds_a_time_when_everyone_is_free() {
     let alice = app.api("alice");
 
     let task = alice.submit("Find an hour Bob and I are both free on Thursday.").await;
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(api.calls(BASE), [("POST".to_string(), "/freeBusy".to_string())]);
     let asked_for: Value = serde_json::from_str(&api.requests()[0].body).unwrap();

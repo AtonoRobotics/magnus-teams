@@ -346,9 +346,9 @@ async fn a_check_reads_an_untrusted_page_without_tainting_the_run() {
 }
 
 /// A check the boundary refuses says nothing about the work: the criterion
-/// goes to the person, unchanged.
+/// stays unconfirmed, unchanged, and is never put to the person.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_criterion_whose_check_cannot_run_goes_to_review() {
+async fn a_criterion_whose_check_cannot_run_stays_unconfirmed() {
     let crm = mcp::crm().start().await;
     let model = start_checked(steps(vec![closed_42_contract(), tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } })), complete("closed")])).await;
     let app = Appliance::start(crm_spec(&crm), &model).await;
@@ -358,13 +358,11 @@ async fn a_criterion_whose_check_cannot_run_goes_to_review() {
     let rules = "forbid(principal, action, resource == Tool::\"crm__get_record\");";
     assert!(alice.put_policy("org", &org_policy(rules)).await.is_success());
     let id = alice.submit("Close CRM record 42.").await;
-    let review = alice.wait_item(&id, "review").await;
-    let crit = &review["details"]["criteria"][0];
-    assert_eq!(crit["id"], "c1", "{review}");
-    assert!(crit["unchecked_reason"].as_str().is_some_and(|r| !r.is_empty()), "{crit}");
-    let t = alice.task(&id).await;
+    let t = alice.wait_settled(&id).await;
+    assert_eq!(t["status"], "completed", "{t}");
+    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "review"), "the criterion was put to the person");
+    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the criterion was not recorded as unconfirmed");
     assert_eq!(ids(&t["contract"]), ["c1"], "the criterion was replaced: {t}");
-    assert_ne!(t["status"], "completed");
 }
 
 fn flyer_contract(pointer: &str) -> Reply {

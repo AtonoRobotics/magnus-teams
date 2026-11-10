@@ -56,8 +56,7 @@ async fn a_task_from_chat_shows_its_deliverable_in_the_conversation() {
     alice.wait_settled(v["task_id"].as_str().unwrap()).await;
     let trip = eventually("the trip task", PATIENCE, || async { alice.tasks().await["tasks"].as_array().unwrap().iter().find(|t| t["text"] == TRIP).cloned() }).await;
     let id = trip["task_id"].as_str().unwrap().to_string();
-    let review = alice.wait_item(&id, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&id, &["completed"]).await;
     assert_eq!(alice.wait_settled(&id).await["status"], "completed");
 
     // The thread's result for the trip carries what it delivered.

@@ -81,7 +81,7 @@ fn q(path: &str) -> String {
 async fn agent_maps_the_customers(app: &Appliance) {
     let alice = app.api("alice");
     let t = alice.submit(TASK).await;
-    alice.wait_item(&t, "review").await;
+    alice.wait_status(&t, &["completed"]).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

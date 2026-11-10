@@ -236,7 +236,7 @@ async fn a_signed_release_installs_while_a_task_runs_and_goes_back_one_step() {
 
     // The task went on: suspended for the switch, resumed by the new release, nothing twice.
     let done = alice.wait_settled(&task).await;
-    assert_eq!(done["waiting_on"], "review", "{done}");
+    assert_eq!(done["status"], "completed", "{done}");
     assert_eq!(mail.calls_to("list_inbox").len(), 1, "a tool call was repeated");
     // The memory pass reads the ended task with a request of its own.
     let task_requests = m.requests().into_iter().filter(|c| !c.body["system"].to_string().contains("You keep the person's long-term memory")).count();
@@ -286,7 +286,7 @@ async fn a_signed_release_installs_while_a_task_runs_and_goes_back_one_step() {
     assert_eq!(a.release(&err_log).await, "0.1.0");
     assert_eq!(a.child.id(), pid);
     let t = alice.submit("Read my inbox again.").await;
-    assert_eq!(alice.wait_settled(&t).await["waiting_on"], "review");
+    assert_eq!(alice.wait_settled(&t).await["status"], "completed");
 
     // The release kept now is the broken one. The owner goes back to it
     // anyway: it reads the appliance but cannot serve, so the appliance

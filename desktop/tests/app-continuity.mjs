@@ -1,10 +1,8 @@
 import {env,open,pinAndSignIn} from './appdriver.mjs';
 const [wd,app,url,fingerprint,provider,person]=['MAGNUS_WEBDRIVER','MAGNUS_APP','MAGNUS_URL','MAGNUS_FINGERPRINT','MAGNUS_PROVIDER','MAGNUS_PERSON'].map(env);
 const d=await open(wd,app,process.env.MAGNUS_SHOTS,'continuity');await pinAndSignIn(d,{url,fingerprint,provider,person});
-await d.step('start real work and accept its review',async()=>{
+await d.step('start real work and see it complete',async()=>{
  await d.type(d.css('#msg'),'Create anchor work');await d.click(d.css('#send'));
- await d.click(d.xpath("//nav//*[self::a or self::button][@aria-label='Needs you' or starts-with(@aria-label,'Needs you,') or starts-with(normalize-space(),'Needs you')]"));
- await d.click(d.xpath("//aside[@id='detail']//article[contains(@class,'review')]//button[normalize-space()='Accept']"));
  await d.xpath("//div[@id='thread']//li[@data-chat-task][@data-status='completed']");
 });
 await d.step('open the completed task after acting in Needs you',async()=>{

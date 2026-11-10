@@ -15,24 +15,22 @@ use std::time::Duration;
 const CHAT: &str = "talking with the person you work for in a chat";
 
 /// What a task in the batch does, named by a marker in its text.
-const KINDS: [&str; 6] = ["done", "review", "question", "wait", "fail", "running"];
+const KINDS: [&str; 6] = ["done", "confirm", "question", "wait", "fail", "running"];
 
 fn kind_of(c: &Conversation) -> &'static str {
     let first = c.messages().first().map(|m| m.to_string()).unwrap_or_default();
     KINDS.iter().find(|k| first.contains(&format!("MARK-{k}"))).copied().unwrap_or("done")
 }
 
-/// A task's replies by turn: a contract (checked against a page, or left to
-/// the person), then the end its marker names.
+/// A task's replies by turn: a contract checked against a page, then the end
+/// its marker names. Checking is internal (spec rev 140), so what needs the
+/// person is a question: "confirm" asks one before the work.
 fn task_reply(kind: &str, turn: usize, page: &str) -> Reply {
-    let criterion = if kind == "review" {
-        json!({ "id": "c1", "description": "It reads well" })
-    } else {
-        json!({ "id": "c1", "description": "The source still says ok", "check": { "tool": "web_fetch", "input": { "url": page }, "expect": [{ "pointer": "/text", "contains": "ok" }] } })
-    };
+    let criterion = json!({ "id": "c1", "description": "The source still says ok", "check": { "tool": "web_fetch", "input": { "url": page }, "expect": [{ "pointer": "/text", "contains": "ok" }] } });
     let contract = tool("task_contract", json!({ "title": "Typed task", "goal": "do it", "assumptions": [], "irreversible_actions": [], "criteria": [criterion] }));
     match (kind, turn) {
         ("question", _) => tool("ask_principal", json!({ "question": "Which quarter?" })),
+        ("confirm", _) => tool("ask_principal", json!({ "question": "Is this the tone you want?" })),
         ("fail", _) => tool("task_fail", json!({ "reason": "The source is gone." })),
         ("wait", _) => tool("wait_until", json!({ "at": "2099-01-01T00:00:00Z", "reason": "the filing window opens" })),
         (_, 0) => contract,
@@ -56,7 +54,13 @@ fn batch() -> Vec<(&'static str, &'static str, Vec<(&'static str, &'static str)>
         (
             "Plan the team offsite.",
             "chat",
-            vec![("Shortlist venues", "done"), ("Draft the agenda", "done"), ("Collect dietary needs", "done"), ("Write the invitation", "review"), ("Pick the dates", "question")],
+            vec![
+                ("Shortlist venues", "done"),
+                ("Draft the agenda", "done"),
+                ("Collect dietary needs", "done"),
+                ("Write the invitation", "confirm"),
+                ("Pick the dates", "question"),
+            ],
         ),
         (
             "Close out the Q3 books.",
@@ -64,7 +68,7 @@ fn batch() -> Vec<(&'static str, &'static str, Vec<(&'static str, &'static str)>
             vec![("Reconcile bank accounts", "done"), ("Accrue open invoices", "done"), ("Pull the payroll export", "fail"), ("File the sales tax", "wait")],
         ),
         ("Research three CRM tools.", "chat", vec![("Compare HubSpot", "done"), ("Compare Pipedrive", "done"), ("Compare Attio", "done")]),
-        ("Prepare the board update.", "chat", vec![("Gather KPIs", "running"), ("Draft the narrative", "review")]),
+        ("Prepare the board update.", "chat", vec![("Gather KPIs", "running"), ("Draft the narrative", "confirm")]),
         ("Renew the domain.", "chat", vec![("Renew magnus domain", "question")]),
         (
             "Onboard the new hire.",
@@ -74,17 +78,17 @@ fn batch() -> Vec<(&'static str, &'static str, Vec<(&'static str, &'static str)>
                 ("Order a laptop", "done"),
                 ("Book intro meetings", "done"),
                 ("Share the handbook", "done"),
-                ("Write the welcome note", "review"),
+                ("Write the welcome note", "confirm"),
                 ("Set up payroll", "running"),
             ],
         ),
         ("Summarise the support tickets from last week. MARK-done", "task", vec![]),
-        ("Draft the customer newsletter. MARK-review", "task", vec![]),
+        ("Draft the customer newsletter. MARK-confirm", "task", vec![]),
         ("Export the old CRM data. MARK-fail", "task", vec![]),
         ("Choose a new office printer. MARK-question", "task", vec![]),
         ("Every Monday, summarise my open invoices.", "chat", vec![]),
         ("Each morning, list my meetings.", "chat", vec![]),
-        ("Tidy the shared drive.", "chat", vec![("Find duplicate files", "review"), ("Archive old projects", "review"), ("Fix folder names", "done")]),
+        ("Tidy the shared drive.", "chat", vec![("Find duplicate files", "confirm"), ("Archive old projects", "confirm"), ("Fix folder names", "done")]),
         ("Write the release notes. MARK-done", "task", vec![]),
     ]
 }
@@ -141,7 +145,7 @@ async fn a_batch_of_requests_prioritises_actionable_tasks_without_page_scrolling
         let text = t["text"].as_str().unwrap_or_default();
         match KINDS.iter().find(|k| text.contains(&format!("MARK-{k}"))).copied().unwrap_or("done") {
             "done" => "done",
-            "review" | "question" => "needs",
+            "confirm" | "question" => "needs",
             "wait" => "waiting",
             "fail" => "failed",
             _ => "running",

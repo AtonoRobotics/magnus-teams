@@ -80,8 +80,8 @@ async fn task_policy_forbidding_the_preview_read_denies_the_send() {
     assert!(alice.respond(q["id"].as_str().unwrap(), json!({ "decision": "answer", "text": "Yes." })).await.is_success());
 
     alice.wait_settled(&id).await;
-    let review = alice.wait_item(&id, "review").await;
-    assert!(review["details"]["summary"].as_str().unwrap_or_default().contains("Denied"), "the send was not denied: {review}");
+    let t = alice.wait_status(&id, &["completed"]).await;
+    assert!(t["summary"].as_str().unwrap_or_default().contains("Denied"), "the send was not denied: {t}");
     assert!(drafts.calls_to("get_draft").is_empty(), "the forbidden preview read reached the provider");
     assert_eq!(drafts.effects("send_draft"), 0, "the send went out");
     let ds = preview_decisions(&app, &alice, &id).await;
@@ -136,8 +136,8 @@ async fn changed_preview_read_definition_denies_the_send() {
 
     let id = alice.submit("Send the Q3 draft.").await;
     alice.wait_settled(&id).await;
-    let review = alice.wait_item(&id, "review").await;
-    assert!(review["details"]["summary"].as_str().unwrap_or_default().contains("Denied"), "the send was not denied: {review}");
+    let t = alice.wait_status(&id, &["completed"]).await;
+    assert!(t["summary"].as_str().unwrap_or_default().contains("Denied"), "the send was not denied: {t}");
     assert_eq!(drafts.effects("send_draft"), 0, "the send went out under a changed read definition");
 }
 

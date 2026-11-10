@@ -135,7 +135,6 @@ async fn a_reply_is_written_from_its_thread_alone_and_sent_to_its_sender_without
     let sent = mail.world()["sent"][0].clone();
     assert_eq!(sent["to"], "bob@corp.example", "{sent}");
     assert!(sent["body"].as_str().is_some_and(|b| b.contains("ALPHA-1") && !b.contains("BETA-9")), "{sent}");
-    let review = alice.wait_item(&id, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&id, &["completed"]).await;
     assert_eq!(alice.wait_settled(&id).await["status"], "completed");
 }

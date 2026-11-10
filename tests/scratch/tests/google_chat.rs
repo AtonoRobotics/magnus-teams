@@ -80,7 +80,7 @@ async fn chat_never_deletes_another_members_message_even_when_approved() {
     let task = alice.submit(prompt).await;
     let (ask, _) = asked(&alice, &task, &WRITES).await;
     approve(&alice, &ask).await;
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
     assert!(api.requests().iter().all(|r| r.method != "DELETE"), "another member's message reached DELETE");
     assert!(told(&m, prompt).contains("only delete messages sent by the signed-in person"));
 }
@@ -123,8 +123,7 @@ async fn chat_reads_members_across_pages_and_approves_each_edit_and_delete() {
     assert_eq!(api.requests().iter().filter(|r| r.method == "PATCH").count(), 1);
     assert!(api.requests().iter().all(|r| r.method != "DELETE"));
     approve(&alice, &ask).await;
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     let calls = api.requests();
     let edit = calls.iter().find(|r| r.method == "PATCH").unwrap();
@@ -157,8 +156,7 @@ async fn chat_sends_a_message_only_once_the_person_approves_it_reaching_only_goo
     assert!(api.requests().is_empty(), "Chat was called before Alice approved: {:?}", api.calls(BASE));
     approve(&alice, &ask).await;
 
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     let sent = &api.requests()[0];
     assert_eq!((api.requests().len(), sent.method.as_str(), sent.path.as_str()), (1, "POST", "/v1/spaces/AAA/messages?messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"));
@@ -194,8 +192,7 @@ async fn chat_finds_words_across_pages_and_asks_before_telling_someone() {
     assert!(said.contains("We ship on Friday.") && !said.contains("Who has the keys?"), "the search's finding did not reach Magnus alone: {said}");
     approve(&alice, &ask).await;
 
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     let r = api.requests();
     assert_eq!(r[2].path, "/v1/spaces:findDirectMessage?name=users%2Fdee%40example.com");

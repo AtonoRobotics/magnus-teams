@@ -194,7 +194,7 @@ async fn a_task_that_needs_an_app_shows_its_card_with_why() {
     let carol = app.api("carol");
     let task = carol.submit("Find a time with my team next week.").await;
     // An unchecked contract waits for the person's review when it ends.
-    carol.wait_item(&task, "review").await;
+    carol.wait_status(&task, &["completed"]).await;
     let (_, done) = carol.get(&format!("/v1/tasks/{task}")).await;
     let offers = done["app_offers"].as_array().cloned().unwrap_or_default();
     let n = name.lock().unwrap().clone();

@@ -7,7 +7,7 @@
 //! - a schedule a run proposes never gets more than the appliance gives a
 //!   run, even when the person extended that run;
 //! - a schedule's own notice (it ended itself) has no Continue: answering it
-//!   so is refused and does not move its run past its review.
+//!   so is refused and does not move its run.
 
 use magnus_invariants::{mcp, *};
 use magnus_scratch::reconfigure;
@@ -60,8 +60,9 @@ async fn releasing_the_kill_switch_tells_each_person_whose_run_it_stopped() {
     // Nothing went on by itself; carol's Continue does.
     assert_eq!(carol.task(&id).await["status"], "suspended");
     assert!(carol.respond(n["id"].as_str().unwrap(), json!({ "decision": "resume" })).await.is_success());
-    // It goes on to its end, where its review waits for her.
-    assert_eq!(carol.wait_item(&id, "review").await["person"], "carol");
+    // It goes on to its end, and nothing is put to the admin.
+    assert_eq!(carol.wait_status(&id, &["completed"]).await["status"], "completed");
+    assert!(!alice.inbox().await.iter().any(|i| i["task_id"] == json!(id) && i["status"] == "open"), "the admin was shown carol's task");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -123,10 +124,10 @@ async fn a_schedules_own_notice_has_no_continue() {
     })
     .await;
     let task = n["task_id"].as_str().unwrap().to_string();
-    // Its run ends waiting on her review.
+    // Its run ends, with nothing put to her.
     let before = alice.wait_settled(&task).await;
-    assert_eq!(before["waiting_on"], "review", "{before}");
+    assert_eq!(before["status"], "completed", "{before}");
     assert_eq!(alice.respond(n["id"].as_str().unwrap(), json!({ "decision": "resume" })).await.as_u16(), 400, "a schedule's notice was continued");
     let after = alice.task(&task).await;
-    assert_eq!((&after["status"], &after["waiting_on"]), (&before["status"], &before["waiting_on"]), "the notice moved its run past the review: {after}");
+    assert_eq!((&after["status"], &after["waiting_on"]), (&before["status"], &before["waiting_on"]), "the notice moved its run: {after}");
 }

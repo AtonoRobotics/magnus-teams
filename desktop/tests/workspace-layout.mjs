@@ -26,7 +26,7 @@ try {
   const shared=await page.evaluate(()=>App.inbox.find(i=>i.kind==='shared'));
   assert.ok(shared?.can_respond,'actual shared inbox item is dismissible');assert.equal(await page.evaluate(()=>needsMe().length),1);
   await page.getByRole('link',{name:/^Needs you, 1 decisions$/}).click();assert.equal(await page.locator('[data-needs]').count(),1);assert.equal(await page.locator(`[data-needs="${shared.id}"]`).count(),0);
-  await page.locator(`[data-needs="${process.env.MAGNUS_REVIEW_ITEM}"]`).getByRole('button',{name:'Accept',exact:true}).click();await until(id=>App.tasks.some(t=>t.task_id===id && t.status==='completed'),process.env.MAGNUS_REVIEW_TASK);assert.equal(await page.evaluate(()=>needsMe().length),0);
+  const q=page.locator(`[data-needs="${process.env.MAGNUS_QUESTION_ITEM}"]`);await q.locator('textarea').fill('The header');await q.getByRole('button',{name:'Send answer',exact:true}).click();await until(id=>App.tasks.some(t=>t.task_id===id && t.status==='completed'),process.env.MAGNUS_QUESTION_TASK);assert.equal(await page.evaluate(()=>needsMe().length),0);
   await page.getByRole('link',{name:'Activity',exact:true}).click();await page.locator('details[data-key=other] > summary').click();await page.locator(`article[data-id="${shared.id}"]`).waitFor();
   assert.equal(await page.evaluate(async id=>(await Magnus.api('GET','/v1/inbox')).items.find(i=>i.id===id).status,shared.id),'open','viewing Activity cannot decide or dismiss the item');
   await page.getByRole('button',{name:'Close work',exact:true}).click();

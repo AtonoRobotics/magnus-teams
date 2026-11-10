@@ -61,7 +61,7 @@ async fn a_looping_run_is_reset_and_recovers_and_without_the_module_runs_to_its_
     // On: cut back after the same call returned the same result 4 times; the
     // model sees the note instead of the loop, and finishes.
     let t = dana.wait_settled(&on).await;
-    assert_eq!(t["waiting_on"], "review", "{t}");
+    assert_eq!(t["status"], "completed", "{t}");
     let k = kinds(&dana, &on_run).await;
     assert_eq!(k.iter().filter(|k| *k == "context_reset").count(), 1, "{k:?}");
     let after = m.requests().into_iter().find(|c| c.text().contains(NOTE)).expect("the model never saw the note");
@@ -111,7 +111,7 @@ async fn a_run_lost_again_escalates_to_the_stronger_model() {
     // Reset once, lost again: escalated, with a fresh context, and the
     // stronger model finishes.
     let t = dana.wait_settled(&on).await;
-    assert_eq!(t["waiting_on"], "review", "{t}");
+    assert_eq!(t["status"], "completed", "{t}");
     let k = kinds(&dana, &on_run).await;
     assert_eq!((k.iter().filter(|k| *k == "context_reset").count(), k.iter().filter(|k| *k == "escalated").count()), (2, 1), "{k:?}");
     let strong: Vec<_> = m.requests().into_iter().filter(|c| c.body["model"] == "claude-strong").collect();
@@ -186,10 +186,10 @@ async fn the_verifier_catches_work_its_own_report_overstates() {
     // Its reads went through the boundary.
     assert!(mail.calls_to("list_sent").len() >= 2, "the verifier did not read the world");
 
-    // Off: the same overstated report goes to a person.
+    // Off: the same overstated report completes, unconfirmed.
     let (off, _) = trial(&dana, "ver", "send", "Email bob hello.", json!({ "verifier": false })).await;
     let t = dana.wait_settled(&off).await;
-    assert_eq!(t["waiting_on"], "review", "{t}");
+    assert_eq!(t["status"], "completed", "{t}");
 }
 
 /// The reviewer's ablation: on, a send to the wrong recipient never leaves;

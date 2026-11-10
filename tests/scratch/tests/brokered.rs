@@ -30,8 +30,7 @@ async fn sign_in_to(api: &Api, connector: &str) {
 /// `p` asks for a task and accepts what it did once it is done.
 async fn run(p: &Api, text: &str) {
     let t = p.submit(text).await;
-    let review = p.wait_item(&t, "review").await;
-    assert!(p.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    p.wait_status(&t, &["completed"]).await;
     assert_eq!(p.wait_settled(&t).await["status"], "completed");
 }
 

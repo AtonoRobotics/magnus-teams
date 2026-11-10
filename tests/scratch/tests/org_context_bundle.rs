@@ -75,7 +75,7 @@ async fn magnus_writes_the_bundle_through_the_kernel_which_checks_every_write_an
     let app = Appliance::start(Spec::default(), &m).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     let a = alice.submit(ALICE).await;
-    alice.wait_item(&a, "review").await;
+    alice.wait_status(&a, &["completed"]).await;
     // Each step's result, as Magnus saw it.
     let result = |task: &'static str, turn: usize| {
         let m = &m;
@@ -110,7 +110,7 @@ async fn magnus_writes_the_bundle_through_the_kernel_which_checks_every_write_an
     assert!(r.text.starts_with("---\n") && r.text.contains("title: Acme") && r.text.contains("hubspot_id: '42'") && r.text.contains("Acme's record is in HubSpot."), "{}", r.text);
 
     let b = bob.submit(BOB).await;
-    bob.wait_item(&b, "review").await;
+    bob.wait_status(&b, &["completed"]).await;
     // Bob cannot see Acme (drawn from a record only Alice's grant read), nor
     // Alice's own notes; the index he sees has no link to Acme; a search
     // does not find it; the type, drawn from nothing outside, he reads.
@@ -167,7 +167,7 @@ async fn an_org_document_from_private_content_is_its_writers_alone_whatever_it_c
     // Her file is untrusted and private, so the write waits for her (Rule of Two).
     let ask = alice.wait_item(&task, "approval").await;
     assert!(alice.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
     let wrote = m.requests().into_iter().find(|c| c.body.to_string().contains(PAY) && c.turn() == 2).map(|c| c.last_results()[0].clone()).unwrap();
     assert!(!wrote.is_error && wrote.text.contains("wrote /people/finance.md"), "{}", wrote.text);
 
@@ -176,7 +176,7 @@ async fn an_org_document_from_private_content_is_its_writers_alone_whatever_it_c
         let (m, bob) = (&m, &bob);
         async move {
             let b = bob.submit(BOB_PAY).await;
-            bob.wait_item(&b, "review").await;
+            bob.wait_status(&b, &["completed"]).await;
             let runs: Vec<_> = m.requests().into_iter().filter(|c| c.body.to_string().contains(BOB_PAY)).collect();
             let at = |turn: usize| runs.iter().filter(|c| c.turn() == turn).nth(n).map(|c| c.last_results()[0].clone()).unwrap();
             (at(2), at(3))
@@ -229,12 +229,12 @@ async fn an_org_document_written_with_its_persons_memory_in_context_is_theirs_al
     let (st, v) = alice.post("/v1/relationship", json!({ "action": "add", "text": "Alice is wary of Acme since her complaint (relnote-acme)." })).await;
     assert!(st.is_success(), "{v}");
     let a = alice.submit(VENDORS).await;
-    alice.wait_item(&a, "review").await;
+    alice.wait_status(&a, &["completed"]).await;
     let wrote = m.requests().into_iter().find(|c| c.body.to_string().contains(VENDORS) && c.turn() == 2).map(|c| c.last_results()[0].clone()).unwrap();
     assert!(!wrote.is_error && wrote.text.contains("wrote /people/vendors.md"), "{}", wrote.text);
 
     let b = bob.submit(BOB_VENDORS).await;
-    bob.wait_item(&b, "review").await;
+    bob.wait_status(&b, &["completed"]).await;
     let read = m.requests().into_iter().find(|c| c.body.to_string().contains(BOB_VENDORS) && c.turn() == 2).map(|c| c.last_results()[0].clone()).unwrap();
     assert!(read.is_error && read.text.contains("no such document"), "bob read what alice's run wrote with her notes in its context: {}", read.text);
     let (st, d) = control(&app, "GET", "/v1/admin/knowledge/doc?path=/people/vendors.md", Value::Null).await;
@@ -285,7 +285,7 @@ async fn a_version_put_back_keeps_the_taint_and_the_reader_it_was_written_with()
     let task = v["task_id"].as_str().or(v["id"].as_str()).unwrap().to_string();
     let ask = alice.wait_item(&task, "approval").await;
     assert!(alice.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    let review = alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
 
     let doc = || control(&app, "GET", "/v1/admin/knowledge/doc?path=/people/finance.md", Value::Null);
     let remove = || control(&app, "DELETE", "/v1/admin/knowledge/doc", json!({ "sub": "admin-1", "path": "/people/finance.md" }));
@@ -300,7 +300,7 @@ async fn a_version_put_back_keeps_the_taint_and_the_reader_it_was_written_with()
             assert!(d["label"]["untrusted"] == true && d["label"]["private"] == true, "{how}: it came back clean: {d}");
             assert!(d["sources"].as_array().unwrap().iter().any(|s| s == "private:library"), "{how}: it lost what its run read: {d}");
             let b = bob.submit(BOB_PAY).await;
-            bob.wait_item(&b, "review").await;
+            bob.wait_status(&b, &["completed"]).await;
             let read = m.requests().into_iter().filter(|c| c.body.to_string().contains(BOB_PAY) && c.turn() == 2).nth(n).map(|c| c.last_results()[0].clone()).unwrap();
             assert!(read.is_error && read.text.contains("no such document"), "{how}: bob read what alice's file said: {}", read.text);
         }
@@ -310,12 +310,11 @@ async fn a_version_put_back_keeps_the_taint_and_the_reader_it_was_written_with()
     // Alice puts her task in the trash; the document removed, Bob's run
     // writes a new one from nothing private, and an admin undoes that: what
     // comes back is hers again, not Bob's.
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
     let (st, v) = alice.post("/v1/trash", json!({ "item": task })).await;
     assert!(st.is_success(), "{v}");
     assert_eq!(remove().await.0, 200);
     let b = bob.submit(BOB_REWRITES).await;
-    bob.wait_item(&b, "review").await;
+    bob.wait_status(&b, &["completed"]).await;
     let (_, d) = doc().await;
     assert_eq!(d["writer"], "bob", "{d}");
     let (_, a) = control(&app, "GET", "/v1/admin/knowledge/activity", Value::Null).await;
@@ -428,7 +427,7 @@ async fn a_hidden_documents_link_leaves_with_its_text_whatever_its_form() {
 
     let bob = app.api("bob");
     let b = bob.submit(READS).await;
-    bob.wait_item(&b, "review").await;
+    bob.wait_status(&b, &["completed"]).await;
     let read = m.requests().into_iter().find(|c| c.body.to_string().contains(READS) && c.turn() == 2).map(|c| c.last_results()[0].clone()).unwrap();
     assert!(!read.is_error && read.text.contains("[handbook](/people/handbook.md)"), "{}", read.text);
     for hidden in ["Carol", "payroll", "finance.md"] {
@@ -472,7 +471,7 @@ async fn an_entity_moved_by_merging_types_keeps_its_taint_and_its_reader() {
     let task = v["task_id"].as_str().or(v["id"].as_str()).unwrap().to_string();
     let ask = alice.wait_item(&task, "approval").await;
     assert!(alice.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
     let (st, before) = control(&app, "GET", "/v1/admin/knowledge/doc?path=/entities/customer/acme.md", Value::Null).await;
     assert_eq!(st, 200, "{before}");
     assert_eq!(before["writer"], "alice", "{before}");
@@ -510,7 +509,7 @@ async fn a_type_an_admin_made_stable_is_changed_by_no_run_of_magnus() {
 
     let alice = app.api("alice");
     let t = alice.submit(REWRITES).await;
-    alice.wait_item(&t, "review").await;
+    alice.wait_status(&t, &["completed"]).await;
     for turn in [2, 3] {
         let r = m.requests().into_iter().find(|c| c.body.to_string().contains(REWRITES) && c.turn() == turn).map(|c| c.last_results()[0].clone()).unwrap();
         assert!(r.is_error && r.text.contains("stable type changes only"), "Magnus changed a stable type (turn {turn}): {}", r.text);
@@ -566,7 +565,7 @@ async fn a_conventions_verifications_are_the_kernels_record_and_no_write_of_magn
     let doc = || control(&app, "GET", "/v1/admin/knowledge/doc?path=/conventions/sales/discounts.md", Value::Null);
 
     let t = alice.submit(NOTES).await;
-    alice.wait_item(&t, "review").await;
+    alice.wait_status(&t, &["completed"]).await;
     let r = result(NOTES, 2);
     assert!(!r.is_error, "a new convention with no verification was refused: {}", r.text);
     let r = result(NOTES, 3);
@@ -582,7 +581,7 @@ async fn a_conventions_verifications_are_the_kernels_record_and_no_write_of_magn
         control(&app, "POST", "/v1/admin/knowledge/doc", json!({ "sub": "carol", "path": "/conventions/sales/discounts.md", "frontmatter": fm, "body": d["body"] })).await;
     assert_eq!(st, 200, "{v}");
     let t = alice.submit(REWRITES).await;
-    alice.wait_item(&t, "review").await;
+    alice.wait_status(&t, &["completed"]).await;
     let r = result(REWRITES, 2);
     assert!(r.is_error && r.text.contains("kernel's record"), "Magnus dropped the record of a review: {}", r.text);
     let r = result(REWRITES, 3);
@@ -652,12 +651,12 @@ async fn the_writer_shares_a_writer_only_document_in_conversation() {
     let task = v["task_id"].as_str().or(v["id"].as_str()).unwrap().to_string();
     let ask_approval = alice.wait_item(&task, "approval").await;
     assert!(alice.respond(ask_approval["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
 
     // Bob looks: refused and unfound, until Alice shares it in conversation.
     let bob_looks = || async {
         let b = bob.submit(BOB_PAY).await;
-        bob.wait_item(&b, "review").await;
+        bob.wait_status(&b, &["completed"]).await;
         let runs: Vec<_> = m.requests().into_iter().filter(|c| c.body.to_string().contains(BOB_PAY)).collect();
         let at = |turn: usize| runs.iter().filter(|c| c.turn() == turn).last().map(|c| c.last_results()[0].clone()).unwrap();
         (at(2), at(3))

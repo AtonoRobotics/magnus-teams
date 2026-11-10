@@ -82,8 +82,7 @@ async fn slack_posts_as_alice_only_once_she_approves_reaching_only_slack() {
     assert!(ask.to_string().contains("post_message"), "{ask}");
     assert!(slack.requests().is_empty(), "Slack was called before Alice approved: {:?}", slack.calls("/api"));
     assert!(alice.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(slack.calls("/api"), [("POST".to_string(), "/chat.postMessage".to_string())]);
     let sent = serde_json::from_str::<Value>(&slack.requests()[0].body).unwrap();

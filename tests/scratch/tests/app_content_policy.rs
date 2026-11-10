@@ -61,7 +61,7 @@ async fn filing_an_apps_private_content_in_the_knowledge_base_is_decided_by_poli
 
     // From her calendar: refused by the rule, and nothing filed.
     let task = alice.submit(FROM_CALENDAR).await;
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
     let refused: String = m.requests().iter().filter(|c| c.body.to_string().contains(FROM_CALENDAR)).map(|c| c.text()).collect();
     assert!(refused.contains("Denied (policy)") && refused.contains("forbids knowledge_add"), "filing was not refused by the policy: {refused}");
     let (_, kb) = alice.get("/v1/knowledge?q=offsite").await;
@@ -69,7 +69,7 @@ async fn filing_an_apps_private_content_in_the_knowledge_base_is_decided_by_poli
 
     // From the public web: filed.
     let task = alice.submit(FROM_WEB).await;
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
     let (_, kb) = alice.get("/v1/knowledge?q=office+closes").await;
     let entries: Vec<Value> = kb["entries"].as_array().cloned().unwrap_or_default();
     assert_eq!(entries.len(), 1, "the web's content was not filed: {kb}");

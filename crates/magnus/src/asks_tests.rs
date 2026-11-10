@@ -139,10 +139,17 @@ fn no_ask_outside_the_four_can_be_produced() {
             }
             let text = std::fs::read_to_string(&path).unwrap();
             assert!(!text.contains("item_kind: \"approval\""), "{} makes an approval card outside asks.rs", path.display());
-            // An item kind is never made again, though an old one is still read.
-            for gone in
-                ["item_kind: \"contract_change\"", "\"contract_change\".into()", "\"kernel:audience\"", "\"kernel:web_lookups\"", "\"kernel:local_change\"", "\"unknown_outcome\""]
-            {
+            // These are never made again, though an old item is still read;
+            // nor is a task's criteria put to the person (checking is internal).
+            for gone in [
+                "item_kind: \"contract_change\"",
+                "\"contract_change\".into()",
+                "suspend_on(rid, \"review\"",
+                "\"kernel:audience\"",
+                "\"kernel:web_lookups\"",
+                "\"kernel:local_change\"",
+                "\"unknown_outcome\"",
+            ] {
                 assert!(!text.contains(gone), "{} still raises {gone}", path.display());
             }
         }

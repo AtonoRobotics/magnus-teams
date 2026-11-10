@@ -49,12 +49,10 @@ if (phase === "before") {
     await click(xpath("//nav//*[self::a or self::button][@aria-label='Needs you' or starts-with(@aria-label,'Needs you,') or starts-with(normalize-space(),'Needs you')]"));
     const card = "//aside[@id='detail']//article[contains(@class,'approval')]";
     await click(button("Allow", card));
-    await seen("Allowed.");
-    await click(button("Accept", "//aside[@id='detail']//article[contains(@class,'review')]"));
     // The update has just restarted the app. On build-box-beta the rest of
     // the installed-app tests were still up, and 60s was not enough
     // (run 41969612463).
-    await seen("Accepted.", 120_000);
+    await seen("Allowed.", 120_000);
   });
   await d.close();
   console.log("update finished");

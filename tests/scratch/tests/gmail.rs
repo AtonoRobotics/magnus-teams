@@ -129,8 +129,7 @@ async fn gmail_sends_a_draft_only_once_the_person_approves_it_reaching_only_gmai
     );
     approve(&alice, &ask).await;
 
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(calls(&gmail), [read.clone(), read, ("POST".to_string(), "/drafts/send".to_string())]);
     assert_eq!(serde_json::from_str::<Value>(&gmail.requests()[2].body).unwrap(), json!({ "id": "d1" }));
@@ -216,8 +215,7 @@ async fn having_read_mail_gmail_labels_and_drafts_without_asking_and_asks_only_b
     assert!(raw.starts_with("To: bob@example.com\r\nSubject: The plan\r\n"), "{raw}");
     approve(&alice, &ask).await;
 
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(calls(&gmail), [get("/threads"), post("/threads/t1/modify"), post("/drafts"), get("/drafts/d1"), get("/drafts/d1"), post("/drafts/send")]);
     only_gmail(&app, &gmail, &provider);
@@ -288,8 +286,7 @@ async fn a_draft_changed_after_its_card_asks_again_showing_the_change() {
     assert!(!calls(&gmail).contains(&send), "the changed draft was sent on the old card's approval");
     approve(&alice, &second).await;
 
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(calls(&gmail).iter().filter(|c| **c == send).count(), 1);
     only_gmail(&app, &gmail, &provider);
@@ -344,8 +341,7 @@ async fn a_change_to_a_part_the_card_does_not_show_asks_again() {
     assert!(!calls(&gmail).contains(&send), "an email changed only in an attachment's bytes was sent on the old approval");
 
     approve(&alice, &third).await;
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert_eq!(calls(&gmail).iter().filter(|c| **c == send).count(), 1);
     only_gmail(&app, &gmail, &provider);
@@ -439,8 +435,7 @@ async fn gmail_s_tools_from_its_hosted_server_are_offered_from_its_image() {
         calls(&gmail).contains(&("POST".to_string(), "/drafts".to_string())).then_some(())
     })
     .await;
-    let review = alice.wait_item(&task, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&task, &["completed"]).await;
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert!(offered(&m, "Draft Bob a note."));
     // No tool was put to anyone, first sight, change or image.

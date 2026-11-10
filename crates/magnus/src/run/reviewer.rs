@@ -103,7 +103,7 @@ impl Kernel {
 
     /// The reviewer's part of completion: what it holds is recorded, what
     /// it flags or cannot tell stays for the person. Returns the criteria
-    /// still unchecked. It never fails the work: doubt goes to the person.
+    /// still unchecked. It never fails the work: doubt stays unconfirmed, in the log.
     pub(crate) async fn reviewer_on_completion(&self, run: &Run, goal: &str, criteria: Vec<Value>, summary: &str) -> Result<Vec<Value>> {
         let asked = self.asked(run).await?;
         let text = format!(

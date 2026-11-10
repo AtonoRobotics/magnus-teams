@@ -47,7 +47,7 @@ async fn run_with(app_tools: usize) -> (Vec<Value>, FakeMcp) {
         assert_eq!(alice.put(&format!("/v1/connectors/ops/tools/{t}"), json!({ "risk": "read" })).await.0, 204, "{t}");
     }
     let task = alice.submit("What is on my calendar?").await;
-    alice.wait_item(&task, "review").await;
+    alice.wait_status(&task, &["completed"]).await;
     let bodies = seen.lock().unwrap().clone();
     (bodies, ops)
 }

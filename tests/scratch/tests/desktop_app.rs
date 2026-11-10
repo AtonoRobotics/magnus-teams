@@ -803,7 +803,7 @@ async fn the_installed_app_updates_itself_from_the_appliance_while_a_task_waits(
         .iter()
         .map(|r| r.get(0))
         .collect();
-    assert_eq!(stops, ["approval", "review"], "the task was stopped other than for the person's approval and review");
+    assert_eq!(stops, ["approval"], "the task was stopped other than for the person's approval");
 }
 
 /// One workspace (owner, 2026-10-30): research started in a conversation,
@@ -848,8 +848,8 @@ async fn research_approval_result_file_and_schedule_happen_in_one_conversation_i
     let t = &tasks["tasks"][0];
     assert_eq!(t["status"], "completed", "{tasks}");
     assert!(t["thread"].is_string(), "the task did not come from the conversation: {t}");
-    let decided: Vec<_> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval" || i["kind"] == "review").collect();
-    assert_eq!(decided.len(), 2, "{decided:?}");
+    let decided: Vec<_> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval").collect();
+    assert_eq!(decided.len(), 1, "{decided:?}");
     assert!(decided.iter().all(|i| i["resolution"]["by"] == format!("person:{PERSON}") && i["thread"] == t["thread"]), "{decided:?}");
     let (_, sc) = alice.get("/v1/schedules").await;
     assert_eq!(sc["schedules"][0]["daily_at"], "09:00", "{sc}");

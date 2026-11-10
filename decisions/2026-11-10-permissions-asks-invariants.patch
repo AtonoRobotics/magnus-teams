@@ -1,3 +1,25 @@
+Spec rev 140 ("Permissions and tasks") changes what two invariant tests
+encode. Apply from the repository root with `git apply` this file; see
+decisions/2026-11-10-permissions-asks.md.
+
+inv4_taint::private_data_sent_to_a_wider_audience_asks encodes the audience
+ask (private data to a wider audience, without untrusted input), which rev 140
+deletes: only private data going to a new destination after untrusted input
+asks (case 3). The test passes today only because the scripted model cannot
+answer Auto Review. Its replacement makes the same post after an untrusted
+page, and checks the card offers neither a task-wide Allow nor Allow always.
+
+inv7_verify::a_criterion_without_a_check_goes_to_the_person_for_review sends
+criteria to the person, an ask outside the four. Rev 140: "That checking is
+internal: the person sees the result, not criteria or contracts." The kernel
+path is removed; the replacement checks the task completes, nothing is put to
+the person, and the criterion is recorded as unconfirmed.
+
+The contract-change hunk of docs/proposals/invariant-tests-tightened.patch
+(criteria_changed_after_work_begins_need_an_approved_contract_change) is
+obsolete: rev 140 has no contract change put to the person; a change after
+the work began is refused (tests/scratch/tests/contract_freeze.rs).
+
 --- a/tests/invariants/tests/inv4_taint.rs
 +++ b/tests/invariants/tests/inv4_taint.rs
 @@ -194,21 +194,28 @@
@@ -29,6 +51,42 @@
      assert_eq!(w.chat.effects("post"), 0);
 +    assert_eq!(card["ask"]["allow_scope"], "once", "case 3 offered a task-wide Allow: {card}");
 +    assert_eq!(card["ask"]["offers"], json!(["allow", "dont_allow"]), "case 3 offered Allow always: {card}");
+ }
+ 
+ #[tokio::test(flavor = "multi_thread")]
+--- a/tests/invariants/tests/inv7_verify.rs
++++ b/tests/invariants/tests/inv7_verify.rs
+@@ -82,23 +82,20 @@
+     assert_ne!(t["status"], "completed", "the report was trusted over the world: {t}");
+ }
+ 
++/// Checking is internal (spec rev 140): a criterion no check can confirm is
++/// never put to the person. The task completes with the result, and the
++/// criterion is recorded as unconfirmed for the developer view.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn a_criterion_without_a_check_goes_to_the_person_for_review() {
+-    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("review rejected")])).await;
++async fn a_criterion_without_a_check_is_never_put_to_the_person() {
++    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("unexpected turn")])).await;
+     let app = Appliance::start(Spec::default(), &model).await;
+     let alice = app.api("alice");
+ 
+-    let accepted = alice.submit("Write me a poem.").await;
+-    let review = alice.wait_item(&accepted, "review").await;
+-    assert_eq!(alice.task(&accepted).await["status"], "suspended");
+-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+-    alice.wait_status(&accepted, &["completed"]).await;
+-
+-    let rejected = alice.submit("Write me another poem.").await;
+-    let review = alice.wait_item(&rejected, "review").await;
+-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "reject", "text": "too short" })).await.is_success());
+-    let t = alice.wait_settled(&rejected).await;
+-    assert_eq!(t["status"], "failed", "a rejected review must go back to the agent, which decides: {t}");
++    let id = alice.submit("Write me a poem.").await;
++    let t = alice.wait_settled(&id).await;
++    assert_eq!(t["status"], "completed", "{t}");
++    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "review"), "the person was asked to review criteria");
++    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the unconfirmed criterion is not recorded");
  }
  
  #[tokio::test(flavor = "multi_thread")]

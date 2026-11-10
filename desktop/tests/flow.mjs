@@ -120,12 +120,6 @@ await step("approve under Needs you", async () => {
   await shot("approval card");
   await card.getByRole("button", { name: "Allow", exact: true }).click();
   await page.getByText("Allowed.").waitFor({ timeout: T });
-  // A criterion no check can settle comes back as a review card.
-  const review = panel.locator("article.item.review").first();
-  await review.waitFor({ timeout: T });
-  await shot("review card");
-  await review.getByRole("button", { name: "Accept" }).click();
-  await page.getByText("Accepted.").waitFor({ timeout: T });
 });
 
 await step("see the outcome, not how it was checked", async () => {

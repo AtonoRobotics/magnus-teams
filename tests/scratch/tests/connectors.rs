@@ -205,7 +205,7 @@ async fn the_owner_adds_an_app_each_person_signs_in_with_their_own_account_and_t
     let before = m.requests().len();
     let t = carol.submit("Put the standup on my calendar.").await;
     let done = carol.wait_settled(&t).await;
-    assert_eq!(done["waiting_on"], "review", "{done}");
+    assert_eq!(done["status"], "completed", "{done}");
     assert_eq!((cal.calls("create_event"), cal.calls("list_events")), (1, 1));
     let offered: Vec<String> = m.requests()[before..].iter().flat_map(|c| c.offered_tools()).collect();
     assert!(offered.contains(&"calendar__create_event".to_string()) && !offered.iter().any(|t| t == "calendar__delete_all"), "{offered:?}");

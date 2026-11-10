@@ -557,7 +557,7 @@ async fn a_client_that_prefers_http2_is_answered_over_https() {
     assert_eq!(r.version(), reqwest::Version::HTTP_11, "the appliance agreed to HTTP/2");
 }
 
-/// The whole operator flow: plan, a review card, and an outcome with its
+/// The whole operator flow: plan, no review card, and an outcome with its
 /// composition and evidence. (It had a policy-asked approval before spec
 /// rev 140; asks are covered in asks.rs.)
 #[tokio::test(flavor = "multi_thread")]
@@ -597,12 +597,8 @@ async fn a_plan_a_review_and_the_outcome_carries_its_view() {
     let alice = app.api("alice");
     let id = alice.submit("Remember that Q3 revenue was 41.7M.").await;
     // Writing its own memory is inside Magnus: nothing asks (spec rev 140;
-    // a policy's ask is no longer an ask). The run goes on to its review.
-    let review = alice.wait_item(&id, "review").await;
-    // A review is not an approval: it does not interrupt (the run waits, but
-    // the card is about checking, not acting) unless the run is paused on it.
-    assert!(review["blocking"].is_boolean());
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    // a policy's ask is no longer an ask), and checking is internal: the
+    // run completes with nothing put to the person.
     let done = alice.wait_status(&id, &["completed"]).await;
     assert_eq!(done["outcome_view"][0]["type"], "stat");
     assert_eq!(done["spoken"], "Q3 revenue was 41.7 million, up from 38.2.");

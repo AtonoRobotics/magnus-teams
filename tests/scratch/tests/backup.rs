@@ -65,7 +65,7 @@ async fn a_backup_restores_the_log_and_the_vault_after_both_are_lost() {
     assert!(p.to_string().contains("mail__send"), "the policy was not restored: {p}");
     let t2 = alice.submit("Read my inbox again.").await;
     let done = alice.wait_settled(&t2).await;
-    assert_eq!(done["waiting_on"], "review", "{done}");
+    assert_eq!(done["status"], "completed", "{done}");
     assert_eq!(mail.calls_to("list_inbox").len(), 2, "the app's credential did not come back");
 
     // A restore never writes over a log that has history.

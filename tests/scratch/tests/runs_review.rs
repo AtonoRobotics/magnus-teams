@@ -1,14 +1,12 @@
 //! Regressions from the review of master (2026-10-29), runs and chat:
 //! - the memory pass shows a run only the facts its own taint covers, so an
 //!   untrusted fact is never filed again as a clean one;
-//! - two memory passes on one run both keep what they file;
 //! - the verifier never passes a criterion whose check could not run;
 //! - a requested task that failed is reported even when another succeeded;
 //! - writing memory does not start the work, so the contract stays open.
 
 use magnus_invariants::model::Script;
 use magnus_invariants::*;
-use magnus_scratch::*;
 use serde_json::{json, Value};
 
 const CHAT: &str = "talking with the person you work for in a chat";
@@ -75,43 +73,6 @@ async fn the_memory_pass_never_files_an_untrusted_fact_as_a_clean_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_second_memory_pass_on_the_same_run_keeps_what_it_files() {
-    let m = FakeModel::start(script(|c| async move {
-        if c.body["system"].to_string().contains(PASS) {
-            let (_, known) = c.text().split_once("Already remembered").map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or_default();
-            return if !known.contains("tea") {
-                tool("memory_write", json!({ "fact": "The person drinks tea." }))
-            } else if !known.contains("Lisbon") {
-                tool("memory_write", json!({ "fact": "The person lives in Lisbon." }))
-            } else {
-                Reply::Text(String::new())
-            };
-        }
-        match c.turn() {
-            0 => contract_unchecked("write a note", "the note reads well"),
-            _ => complete("written"),
-        }
-    }))
-    .await;
-    let app = Appliance::start(Spec::default(), &m).await;
-    let alice = app.api("alice");
-    let t = alice.submit("Write a note.").await;
-    // Review, rejected: the run resumes and ends in review again, so the
-    // pass runs twice on one run.
-    let item = alice.wait_item(&t, "review").await;
-    assert_eq!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "reject", "text": "again" })).await.as_u16(), 200);
-    eventually("the first fact", PATIENCE, || async { memories(&alice).await.iter().any(|f| f["fact"].as_str().unwrap_or_default().contains("tea")).then_some(()) }).await;
-    eventually("a second review", PATIENCE, || async {
-        alice.inbox().await.into_iter().find(|i| i["kind"] == "review" && i["status"] == "open" && i["task_id"] == json!(t) && i["id"] != item["id"])
-    })
-    .await;
-    eventually("the second pass's fact is kept", PATIENCE, || async {
-        memories(&alice).await.iter().any(|f| f["fact"].as_str().unwrap_or_default().contains("Lisbon")).then_some(())
-    })
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn the_verifier_never_passes_a_criterion_whose_check_could_not_run() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
@@ -138,8 +99,10 @@ async fn the_verifier_never_passes_a_criterion_whose_check_could_not_run() {
     let deny = "forbid(principal, action, resource == Tool::\"mail__list_sent\");";
     assert!(alice.put_policy("org", &org_policy(deny)).await.is_success());
     let done = alice.wait_settled(&t).await;
-    assert_ne!(done["status"], "completed", "the verifier passed a criterion whose check was refused: {done}");
-    assert_eq!(done["waiting_on"], "review", "{done}");
+    // Checking is internal (spec rev 140): the task completes, and the
+    // refused check leaves the criterion unconfirmed, never passed.
+    assert_eq!(done["status"], "completed", "{done}");
+    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the verifier passed a criterion whose check was refused");
 }
 
 #[tokio::test(flavor = "multi_thread")]

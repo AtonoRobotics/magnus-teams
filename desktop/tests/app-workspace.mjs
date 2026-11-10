@@ -96,13 +96,8 @@ await step("approve in the conversation; Needs you follows", async () => {
   await gone("the approval under Needs you", `${panel}//article[@data-id='${approval}']`);
 });
 
-await step("accept the outcome's review in the conversation", async () => {
-  const review = `${thread}//div[@data-for-task]//article[contains(@class,'review')]`;
-  const id = await d.attr(xpath(review), "data-id");
-  await xpath(`${panel}//article[@data-id='${id}']`);
-  await click(button("Accept", review));
-  await d.seen("Accepted.");
-  await gone("the review under Needs you", `${panel}//article[@data-id='${id}']`);
+await step("the outcome completes with nothing more to decide", async () => {
+  // Checking is internal (spec rev 140): no review card follows the work.
   await until("Needs you to count 0", async () => (await count()) === "0" || null);
   await xpath(`${task}[@data-status='completed']`);
 });

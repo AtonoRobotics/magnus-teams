@@ -150,9 +150,9 @@ async fn add_billable(app: &mut Appliance, chat: &BillableChat) {
 }
 
 /// A task whose completion spends its last dollar: the verifier has nothing
-/// to judge with, so the criterion goes to the person, not to a call (#319).
+/// to judge with, so the criterion stays unconfirmed, with no call (#319).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_verifier_with_no_dollars_left_judges_nothing_and_the_person_reviews() {
+async fn a_verifier_with_no_dollars_left_judges_nothing() {
     let chat = BillableChat::start(Arc::new(|_, turn| match turn {
         0 => plain(vec![pair(contract_unchecked("do the work", "the work is done"))]),
         _ => spending(vec![pair(complete("done"))]),
@@ -166,7 +166,7 @@ async fn a_verifier_with_no_dollars_left_judges_nothing_and_the_person_reviews()
     assert_eq!(st.as_u16(), 201, "{v}");
     let t = alice.wait_settled(v["task_id"].as_str().unwrap()).await;
     assert!(chat.asked_with("You verify a task's work").is_empty(), "the verifier was asked with no dollars left: {t}");
-    assert_eq!((t["status"].as_str(), t["waiting_on"].as_str()), (Some("suspended"), Some("review")), "the criterion did not go to the person: {t}");
+    assert_eq!(t["status"], "completed", "the unverified criterion did not stay unconfirmed: {t}");
 }
 
 /// A run that ends with its dollars spent files no memory: the pass is

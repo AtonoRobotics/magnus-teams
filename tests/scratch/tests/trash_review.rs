@@ -28,7 +28,8 @@ fn model() -> Script {
             };
         }
         match c.turn() {
-            0 => contract_unchecked("write it", "it is written"),
+            0 => tool("ask_principal", json!({ "question": "Which tone?" })),
+            1 => contract_unchecked("write it", "it is written"),
             _ => complete("written"),
         }
     })
@@ -40,8 +41,8 @@ async fn a_removed_task_takes_its_notes_and_answers_and_leaves_the_backups() {
     let mut app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let t = alice.submit("Write about TASK-CANARY-3e1.").await;
-    let review = alice.wait_item(&t, "review").await;
-    assert_eq!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept", "text": "ANSWER-CANARY-77a" })).await.as_u16(), 200);
+    let q = alice.wait_item(&t, "question").await;
+    assert_eq!(alice.respond(q["id"].as_str().unwrap(), json!({ "decision": "answer", "text": "ANSWER-CANARY-77a" })).await.as_u16(), 200);
     alice.wait_settled(&t).await;
     let (st, v) = alice.post(&format!("/v1/tasks/{t}/verdict"), json!({ "verdict": "partly", "note": "NOTE-CANARY-9b2" })).await;
     assert!(st.is_success(), "{v}");

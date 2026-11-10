@@ -226,9 +226,11 @@ async fn unchecked_criteria_go_to_the_reviewer_before_the_person() {
 
     let (flags, _) = trial(&dana, "rev", "flags", "Summarize the mail.", json!({ "reviewer": true })).await;
     let t = dana.wait_settled(&flags).await;
-    assert_eq!(t["waiting_on"], "review", "a flagged criterion did not stay for the person: {t}");
-    let card = dana.wait_item(&flags, "review").await;
-    assert!(card.to_string().contains("reviewer"), "the review card does not carry the reviewer's reason: {card}");
+    // Checking is internal (spec rev 140): a flagged criterion stays
+    // unconfirmed, and nothing is put to the person.
+    assert_eq!(t["status"], "completed", "{t}");
+    assert!(dana.inbox().await.iter().all(|i| i["kind"] != "review"), "a flagged criterion was put to the person");
+    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the criterion was not recorded as unconfirmed");
 }
 
 /// A once approval covers one flagged send: the bypass consumes it, so a
@@ -301,7 +303,8 @@ async fn the_completion_reviewer_sees_the_runs_tool_results() {
     let (t, _) = trial(&dana, "rev", "evidence", "Email bob hello.", json!({ "reviewer": true })).await;
 
     let done = dana.wait_settled(&t).await;
-    assert_eq!(done["waiting_on"], "review", "the overstated report did not stay for the person: {done}");
+    assert_eq!(done["status"], "completed", "{done}");
+    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the overstated report was confirmed");
     let reviews: Vec<_> = m.requests().into_iter().filter(|c| c.offered_tools().contains(&"review".to_string())).collect();
     assert!(!reviews.is_empty(), "the reviewer was never asked");
     assert!(reviews.iter().any(|c| c.text().contains("mail__list_sent")), "the reviewer never saw the run's tool results");

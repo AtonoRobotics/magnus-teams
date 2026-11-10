@@ -75,11 +75,10 @@ async fn each_look_draws_the_workspace_as_the_references_do() {
     let (st, v) = alice.post("/v1/chat", json!({ "text": ASK, "project": p["id"] })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     alice.wait_settled(v["task_id"].as_str().unwrap()).await;
-    // The trip is done: its review accepted.
+    // The trip is done.
     let trip = eventually("the trip task", PATIENCE, || async { alice.tasks().await["tasks"].as_array().unwrap().iter().find(|t| t["text"] == TRIP).cloned() }).await;
     let id = trip["task_id"].as_str().unwrap().to_string();
-    let review = alice.wait_item(&id, "review").await;
-    assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
+    alice.wait_status(&id, &["completed"]).await;
     assert_eq!(alice.wait_settled(&id).await["status"], "completed");
     let suppliers = eventually("the supplier search waits on its approval", PATIENCE, || async {
         alice.tasks().await["tasks"].as_array().unwrap().iter().find(|t| t["text"] == SUPPLIERS && t["waiting_on"] == "approval").cloned()
