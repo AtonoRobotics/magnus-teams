@@ -174,6 +174,7 @@ async fn run(cfg: Config) -> Result<()> {
     // Before anything this process spawns: the inherited socket must not be
     // handed to an adapter, and the harness is already holding its own copy.
     let inherited = take_listen_fd(&listen)?;
+    crate::reap::reap_inherited();
     let k = crate::kernel::Kernel::boot(cfg).await?;
     let plain = match inherited {
         Some(l) => l,
