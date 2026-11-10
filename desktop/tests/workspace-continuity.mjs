@@ -53,9 +53,13 @@ try {
  assert.equal(await page.locator('#msg').inputValue(),'First retained draft');
  // Text typed while a send is in flight survives its acknowledgement.
  let releaseSend,accepted,posts=0;const sendHeld=new Promise(resolve=>releaseSend=resolve);
- await page.route('**/v1/chat',async route=>{if(route.request().method()!=='POST')return route.continue();posts++;const response=await route.fetch();accepted=await response.json();await sendHeld;await route.fulfill({response});});
+ // The send is held before it reaches the server: Playwright's own fetch of a
+ // held request (route.fetch) sometimes reached the server twice, so the
+ // server held two conversations for one send and the page showed the other.
+ await page.route('**/v1/chat',async route=>{if(route.request().method()!=='POST')return route.continue();posts++;await sendHeld;await route.continue();});
+ const acknowledged=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname==='/v1/chat');
  await page.locator('#send').click();await until(()=>document.querySelector('#send').disabled);
- await page.locator('#msg').fill('Newer text while sending');releaseSend();
+ await page.locator('#msg').fill('Newer text while sending');releaseSend();accepted=await(await acknowledged).json();
  await page.waitForURL(/#\/chat\//);await until(()=>document.querySelector('#msg')?.value==='Newer text while sending');assert.equal(posts,1);
  await page.unroute('**/v1/chat');await page.locator('#msg').fill('');
  // A lost reply says the outcome is not confirmed, keeps the text and never resends.

@@ -130,8 +130,20 @@ async fn a_person_s_card_for_gmail_says_what_magnus_can_do_in_plain_words() {
     assert!(allows[0].starts_with("Reads: ") && allows[0].contains("search threads"), "{allows:?}");
     assert!(allows.iter().any(|l| l.starts_with("Changes that can be undone: ") && l.contains("create draft")), "{allows:?}");
     assert!(c["recent"].as_array().unwrap().is_empty() && c["connected_at"].is_null(), "{c}");
+    // What the card says is its text; field names such as `needs_token`
+    // (cb594a7, for a connector Magnus built) are the app's, never shown.
+    fn words(v: &Value, out: &mut String) {
+        match v {
+            Value::String(s) => out.push_str(&format!("{s}\n")),
+            Value::Array(a) => a.iter().for_each(|x| words(x, out)),
+            Value::Object(o) => o.values().for_each(|x| words(x, out)),
+            _ => {}
+        }
+    }
+    let mut said = String::new();
+    words(&c, &mut said);
     for word in ["oauth", "scope", "token", "mcp", "http", "port", "googleapis"] {
-        assert!(!c.to_string().to_lowercase().contains(word), "carol's card says {word:?}: {c}");
+        assert!(!said.to_lowercase().contains(word), "carol's card says {word:?}: {c}");
     }
 }
 

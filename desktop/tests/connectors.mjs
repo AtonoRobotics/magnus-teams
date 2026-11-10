@@ -75,7 +75,9 @@ await step("a connector the server cannot sign anyone in to yet says so when its
   await page.getByRole("heading", { name: "Apps", level: 1 }).waitFor({ timeout: T });
   const off = page.locator(".lc-act.off").first();
   if (!await off.count()) { console.log("     every connector is ready on this server: nothing to click"); return; }
-  await off.click();
+  // aria-disabled tells a screen reader it is not ready; a click still
+  // reaches it, which Playwright only does when told to.
+  await off.click({ force: true });
   await page.getByText("can't be connected on this server yet", { exact: false }).waitFor({ timeout: T });
 });
 

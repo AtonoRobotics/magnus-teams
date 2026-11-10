@@ -122,7 +122,10 @@ async fn a_file_uploaded_into_a_project_is_used_by_a_task_there_and_its_output_l
             if !is_chat(&c) {
                 return task.get(c.turn()).cloned().unwrap_or_else(|| tool("task_fail", json!({ "reason": "script exhausted" })));
             }
-            let asked = c.messages().first().map(|m| m.to_string()).unwrap_or_default().contains("Total the prices");
+            // Only the person's message starts the task: the turn that returns
+            // its outcome names it too (decisions/2026-11-09-outcomes-return-to-the-agent.md).
+            let first = c.messages().first().map(|m| m.to_string()).unwrap_or_default();
+            let asked = first.contains("Total the prices") && !first.contains("This turn is not a message from the person");
             match (asked, c.turn()) {
                 (true, 0) => tool("create_task", json!({ "title": "Total the prices", "text": "Total the prices in prices.csv." })),
                 (true, _) => Reply::Text("Started; it shows here as it goes.".into()),

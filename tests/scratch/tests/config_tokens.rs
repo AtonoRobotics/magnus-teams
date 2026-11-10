@@ -40,7 +40,7 @@ async fn config_tokens_work_only_on_this_machines_plain_listener() {
     // Over HTTPS it does not, even from this machine.
     let (st, v) = me(https.clone(), key.clone()).await;
     assert_eq!(st, 401, "the config's token worked over HTTPS: {v}");
-    assert!(v["error"].as_str().unwrap_or_default().contains("only on the appliance itself"), "{v}");
+    assert!(v["error"].as_str().unwrap_or_default().contains("only on the server itself"), "{v}");
 
     // A person signed in over HTTPS uses their session there as before.
     assert!(set_password(&app, "carol", PASSWORD));

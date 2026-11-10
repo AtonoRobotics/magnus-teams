@@ -4,7 +4,7 @@
 //   being typed in when the other copy is redrawn;
 // - a decision in Settings > Connectors is sent once;
 // - every conversation in a project sits under it;
-// - backups on the appliance's own disk are said to be there;
+// - backups on the server's own disk are said to be there;
 // - after a sign-out, the next person's Library is not filtered by the last
 //   person's search.
 //
@@ -69,9 +69,9 @@ await step("every conversation in a project sits under it", async () => {
   if (nested !== Number(threads)) throw new Error(`${nested} of the project's ${threads} conversations sit under it`);
 });
 
-await step("backups on the appliance's own disk are said to be there", async () => {
+await step("backups on the server's own disk are said to be there", async () => {
   await settings("Data and privacy");
-  await page.locator("[data-backup-disk]", { hasText: "appliance's own disk" }).waitFor({ timeout: T });
+  await page.locator("[data-backup-disk]", { hasText: "server's own disk" }).waitFor({ timeout: T });
 });
 
 await step("a decision in Settings > Connectors is sent once", async () => {
