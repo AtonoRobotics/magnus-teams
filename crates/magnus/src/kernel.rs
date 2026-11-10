@@ -11,7 +11,7 @@ use crate::sandbox::Sandboxes;
 use crate::state::{State, Status};
 use crate::vault::Vault;
 use crate::web::Web;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,9 +31,8 @@ pub(crate) fn resolve_person(cfg: &Config, accounts: &crate::accounts::Accounts,
 
 pub struct Kernel {
     pub cfg: Config,
-    pub(crate) log: Log,
-    state: Mutex<State>,
-    write: tokio::sync::Mutex<()>,
+    pub(crate) log: Arc<Log>,
+    writer: crate::commit::Writer,
     /// Held while a person's decision is checked and recorded, so an inbox
     /// item or a chat card is decided once however many answers race in, and
     /// a change of roles keeps an owner however many race in.
@@ -147,6 +146,7 @@ impl Kernel {
         let devices = crate::devices::Devices::open(&cfg.appliance.state_dir)?;
         let oidc = cfg.sign_in.oidc.clone().map(|o| crate::oidc::Provider::new(o, vault.clone())).transpose()?;
         let adapters = Adapters::new(&cfg.appliance.state_dir, vault.clone(), &cfg.adapters);
+        let writer = crate::commit::Writer::new(log, state, cfg!(debug_assertions).then(|| cfg.appliance.state_dir.clone()));
         let live_text = Arc::new(Live { tx: tokio::sync::broadcast::channel(1024).0, so_far: Mutex::new(HashMap::new()) });
         let k = Arc::new(Kernel {
             web: Web::new(&cfg.web),
@@ -159,9 +159,8 @@ impl Kernel {
             accounts,
             devices,
             oidc,
-            log,
-            state: Mutex::new(state),
-            write: tokio::sync::Mutex::new(()),
+            log: writer.log.clone(),
+            writer,
             decide: tokio::sync::Mutex::new(()),
             notes: tokio::sync::Mutex::new(()),
             drivers: Mutex::new(HashSet::new()),
@@ -201,12 +200,12 @@ impl Kernel {
     /// Ready events for the log, under the write lock: a secret typed into
     /// chat is masked so it is never written (spec, Typed secrets), and each
     /// document version is numbered, never shared, counting on after removal.
-    fn number<'a>(&self, evs: impl Iterator<Item = &'a mut Ev>) {
+    fn number<'a>(&self, s: &State, evs: impl Iterator<Item = &'a mut Ev>) {
         let mut last: HashMap<String, u32> = HashMap::new();
         for ev in evs {
             crate::typed_secrets::mask_event(ev);
             if let Ev::BundleWritten { path, version, .. } = ev {
-                let n = last.get(path.as_str()).copied().unwrap_or_else(|| self.read(|s| s.bundle_last.get(path.as_str()).copied().unwrap_or(0))) + 1;
+                let n = last.get(path.as_str()).copied().unwrap_or_else(|| s.bundle_last.get(path.as_str()).copied().unwrap_or(0)) + 1;
                 last.insert(path.clone(), n);
                 *version = n;
             }
@@ -214,55 +213,44 @@ impl Kernel {
     }
 
     /// Append an event, then apply it. Only correctness writes come here (K6).
-    pub async fn emit(&self, actor: &str, mut ev: Ev) -> Result<Event> {
-        let _g = self.write.lock().await;
-        self.number(std::iter::once(&mut ev));
+    pub async fn emit(&self, actor: &str, ev: Ev) -> Result<Event> {
         let t = Instant::now();
-        let owner = self.read(|s| s.content_owner(&ev, &HashMap::new()));
-        let e = self.log.append(actor, &ev, owner.as_deref()).await?;
-        #[cfg(debug_assertions)]
-        self.crash_after(std::iter::once(&ev));
+        let e = self.emit_all(vec![(actor, ev)]).await?.pop().context("the log gave back no event")?;
         let us = t.elapsed().as_micros() as u64;
-        {
-            let mut c = self.capture.lock().unwrap();
-            c.appends += 1;
-            c.total_us += us;
-            c.max_us = c.max_us.max(us);
-            c.recent.push_back(us);
-            if c.recent.len() > 2000 {
-                c.recent.pop_front();
-            }
+        let mut c = self.capture.lock().unwrap();
+        c.total_us += us;
+        c.max_us = c.max_us.max(us);
+        c.recent.push_back(us);
+        if c.recent.len() > 2000 {
+            c.recent.pop_front();
         }
-        self.state.lock().unwrap().apply(&e);
         Ok(e)
     }
 
     /// Append several events, each with its actor, in one write and apply
     /// them together: no reader sees some of them without the rest, and no
-    /// crash leaves some of them out.
+    /// crash leaves some of them out. Each document version is numbered and
+    /// a secret typed into chat masked under the write lock (`number`).
     pub async fn emit_all(&self, mut evs: Vec<(&str, Ev)>) -> Result<Vec<Event>> {
-        let _g = self.write.lock().await;
-        self.number(evs.iter_mut().map(|(_, e)| e));
-        let owners = self.read(|s| {
-            // A run started in this batch is the person's of its TaskCreated.
-            let mut runs = HashMap::new();
-            evs.iter()
-                .map(|(_, ev)| {
-                    if let Ev::TaskCreated { run, person, .. } = ev {
-                        runs.insert(run.clone(), person.clone());
-                    }
-                    s.content_owner(ev, &runs)
-                })
-                .collect::<Vec<_>>()
-        });
-        let es = self.log.append_all(&evs, &owners).await?;
-        #[cfg(debug_assertions)]
-        self.crash_after(evs.iter().map(|(_, e)| e));
+        let es = self
+            .writer
+            .write(|s| {
+                self.number(s, evs.iter_mut().map(|(_, e)| e));
+                // A run started in this batch is the person's of its TaskCreated.
+                let mut runs = HashMap::new();
+                let owners = evs
+                    .iter()
+                    .map(|(_, ev)| {
+                        if let Ev::TaskCreated { run, person, .. } = ev {
+                            runs.insert(run.clone(), person.clone());
+                        }
+                        s.content_owner(ev, &runs)
+                    })
+                    .collect();
+                crate::commit::Batch { evs: evs.into_iter().map(|(a, e)| (a.to_string(), e)).collect(), owners }
+            })
+            .await?;
         self.capture.lock().unwrap().appends += es.len() as u64;
-        let mut s = self.state.lock().unwrap();
-        for e in &es {
-            s.apply(e);
-        }
         Ok(es)
     }
 
@@ -297,24 +285,6 @@ impl Kernel {
         self.debug_gate("release-gate", "release-gated", schedule).await;
     }
 
-    /// Debug builds only, for the crash tests: the process ends at once,
-    /// as a crash would, right after a write that put an event of the kind
-    /// named in `<state_dir>/crash-after` in the log, and before anything
-    /// else happens. The file goes first, so the next start runs clean.
-    /// Release builds, the only ones shipped, have none of this.
-    #[cfg(debug_assertions)]
-    fn crash_after<'a>(&self, mut evs: impl Iterator<Item = &'a Ev>) {
-        let path = self.cfg.appliance.state_dir.join("crash-after");
-        let Ok(kind) = std::fs::read_to_string(&path) else { return };
-        if evs.any(|e| serde_json::to_value(e).is_ok_and(|v| v["kind"] == kind.trim())) {
-            let _ = std::fs::remove_file(&path);
-            eprintln!("crash-after: ending the process after a {} was written", kind.trim());
-            // SAFETY: _exit ends the process without running anything more,
-            // which is the crash this stands for.
-            unsafe { libc::_exit(70) };
-        }
-    }
-
     pub async fn run_events(&self, run: &str) -> Result<Vec<Event>> {
         self.log.run_events(run).await
     }
@@ -324,7 +294,7 @@ impl Kernel {
     }
 
     pub fn read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
-        f(&self.state.lock().unwrap())
+        f(&self.writer.state.lock().unwrap())
     }
 
     /// A person as every decision sees them: from the config, with the

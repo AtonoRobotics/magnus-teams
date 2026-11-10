@@ -1155,7 +1155,7 @@ function describeChange(c) {
 // inbox; then every view that shows them is drawn again from what was read.
 async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects"})[k],path,k);
-  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Appliance", "/v1/health"), pollInbox()]);
+  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox()]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks
   // (owner, 2026-11-07): developers see them in the run inspector.
@@ -2881,7 +2881,7 @@ function connectorBody(c) {
   const can = L.abilities?.length ? L.abilities : c.allows || [];
   const go = st === "connecting"
     ? `<p class="lc-note">Finish signing in on ${esc(provider(c))}'s page, then come back here. <button class="link" data-act="connect-page" data-url="${esc(Connecting[c.name] || "")}">Open it again</button></p>`
-    : c.ready === false ? `<p class="small muted">${esc(c.title)} is not ready on this appliance yet.</p>`
+    : c.ready === false ? `<p class="small muted">${esc(c.title)} is not ready on this server yet.</p>`
     : `<button class="primary cp-connect" data-act="connect" data-app="${esc(c.name)}">${st === "needs_attention" ? `Sign in to ${esc(c.title)} again` : `Connect ${esc(c.title)}`}</button>`;
   return `${head}<h3>What Magnus can do with ${esc(c.title)}</h3>${can.length ? `<ul class="cp-list">${can.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : `<p class="empty">Nothing yet: your organisation has not chosen what Magnus may do with it.</p>`}
     ${L.asks?.length ? `<h3>What it asks for</h3><ul class="cp-list">${L.asks.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
