@@ -42,6 +42,8 @@ const MAX_FOLDERS: usize = 32;
 const ASK_EVERY_TIME: &str = "kernel:local_ask";
 const CHANGE_NEEDS_A_RULE: &str = "kernel:local_change";
 const BOTH: Label = Label { untrusted: true, private: true };
+/// Marks a job the person asked for themselves.
+pub(crate) const BY_PERSON: &str = "by_person";
 
 /// A tool the kernel carries out away from the run's own computer.
 pub(crate) fn is_far_tool(tool: &str) -> bool {
@@ -99,6 +101,8 @@ pub struct Computer {
 #[derive(Default, Clone, Debug)]
 pub struct Ledger {
     computers: BTreeMap<String, Computer>,
+    /// What Magnus wrote on them, for the person to see, keep or delete.
+    pub files: crate::local_files::Files,
 }
 
 impl Ledger {
@@ -133,6 +137,18 @@ impl Line {
     fn holds(&self, job: &str) -> bool {
         self.jobs.iter().any(|j| j["id"] == json!(job))
     }
+
+    /// The next job for the machine. While the person is at it, only their
+    /// own (a download, a delete they asked for) goes; the agent's wait.
+    fn hand_out(&mut self, resumed: bool) -> Option<Value> {
+        let at = if self.active && !resumed { self.jobs.iter().position(|j| j[BY_PERSON] == json!(true)) } else { (!self.jobs.is_empty()).then_some(0) };
+        let mut job = self.jobs.remove(at?)?;
+        if resumed || job[BY_PERSON] == json!(true) {
+            job["resumed"] = json!(true);
+        }
+        self.out.insert(job["id"].as_str().unwrap_or_default().to_string(), job.clone());
+        Some(job)
+    }
 }
 
 static LINES: LazyLock<Mutex<BTreeMap<String, Line>>> = LazyLock::new(Default::default);
@@ -142,7 +158,7 @@ fn line<T>(id: &str, f: impl FnOnce(&mut Line) -> T) -> T {
     f(all.entry(id.to_string()).or_default())
 }
 
-fn online(id: &str) -> bool {
+pub(crate) fn online(id: &str) -> bool {
     line(id, |l| l.polls > 0 || !l.waiting.is_empty() || l.seen.is_some_and(|t| t.elapsed() < ONLINE_GRACE))
 }
 
@@ -184,6 +200,37 @@ pub(crate) fn may_send(a: &Action, f: &Facts) -> bool {
 /// The folder an action touches, when it names one.
 fn touched(a: &Action) -> Option<&str> {
     a.input["path"].as_str().or_else(|| a.input["cwd"].as_str())
+}
+
+/// Hands a job to the machine and waits for its answer. With no answer,
+/// whether it never ran.
+pub(crate) async fn run_on(computer: &str, mut job: Value) -> (Option<(bool, String)>, bool) {
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    job["id"] = json!(id);
+    let (done, mut answer) = oneshot::channel();
+    let wake = line(computer, |l| {
+        l.waiting.insert(id.clone(), done);
+        l.jobs.push_back(job);
+        l.wake.clone()
+    });
+    wake.notify_one();
+    let started = Instant::now();
+    let result = loop {
+        match tokio::time::timeout(JOB_WAIT, &mut answer).await {
+            Ok(r) => break r.ok(),
+            Err(_) if started.elapsed() < YIELD_WAIT && line(computer, |l| l.active && l.holds(&id)) => continue,
+            Err(_) => break None,
+        }
+    };
+    // Taken back so that it cannot run later, when nobody is waiting.
+    let never_ran = line(computer, |l| {
+        l.waiting.remove(&id);
+        l.out.remove(&id);
+        let queued = l.holds(&id);
+        l.jobs.retain(|j| j["id"] != json!(id));
+        queued
+    });
+    (result, never_ran)
 }
 
 impl Kernel {
@@ -237,34 +284,15 @@ impl Kernel {
             Ok(c) => c,
             Err(why) => return Ok((why, true, None)),
         };
-        let id = uuid::Uuid::new_v4().simple().to_string();
         let mut job = a.input.clone();
-        job["id"] = json!(id);
         job["op"] = json!(a.tool.trim_start_matches("local_").trim_end_matches("_file"));
-        let (done, answer) = oneshot::channel();
-        let wake = line(&computer.id, |l| {
-            l.waiting.insert(id.clone(), done);
-            l.jobs.push_back(job);
-            l.wake.clone()
-        });
-        wake.notify_one();
-        let mut answer = answer;
-        let started = Instant::now();
-        let result = loop {
-            match tokio::time::timeout(JOB_WAIT, &mut answer).await {
-                Ok(r) => break r.ok(),
-                Err(_) if started.elapsed() < YIELD_WAIT && line(&computer.id, |l| l.active && l.holds(&id)) => continue,
-                Err(_) => break None,
+        job[BY_PERSON] = json!(false);
+        let (result, never_ran) = run_on(&computer.id, job).await;
+        if let (Some((true, _)), Some(path)) = (&result, a.input["path"].as_str()) {
+            if let Some(c) = crate::local_files::Change::of_tool(&a.tool, &computer, path) {
+                self.emit("kernel", crate::events::Ev::LocalFile(c)).await?;
             }
-        };
-        // Taken back so that it cannot run later, when nobody is waiting.
-        let never_ran = line(&computer.id, |l| {
-            l.waiting.remove(&id);
-            l.out.remove(&id);
-            let queued = l.holds(&id);
-            l.jobs.retain(|j| j["id"] != json!(id));
-            queued
-        });
+        }
         Ok(match result {
             Some((true, text)) if a.tool == "local_capture" => match text.strip_prefix(IMAGE) {
                 Some(image) => ("The capture is attached.".to_string(), false, Some(json!({ "image_b64": image }))),
@@ -333,6 +361,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/local/computers/{id}/next", get(next))
         .route("/v1/local/computers/{id}/result", post(result))
         .route("/v1/local/computers/{id}/resume", post(resume))
+        .merge(crate::local_files::router())
 }
 
 type K = State<Arc<Kernel>>;
@@ -344,7 +373,7 @@ struct Connect {
     mode: Mode,
 }
 
-fn mine(k: &Kernel, person: &str, id: &str) -> Option<Computer> {
+pub(crate) fn mine(k: &Kernel, person: &str, id: &str) -> Option<Computer> {
     k.read(|s| s.local.of(person)).into_iter().find(|c| c.id == id)
 }
 
@@ -353,7 +382,11 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
-    let view: Vec<Value> = k.read(|s| s.local.of(&p.id)).into_iter().map(|c| json!({ "online": online(&c.id), "in_use": line(&c.id, |l| l.active), "computer": c })).collect();
+    let view: Vec<Value> = k
+        .read(|s| s.local.of(&p.id))
+        .into_iter()
+        .map(|c| json!({ "online": online(&c.id), "in_use": line(&c.id, |l| l.active), "files": k.read(|s| s.local.files.of(&c.id)), "computer": c }))
+        .collect();
     Json(view).into_response()
 }
 
@@ -413,15 +446,7 @@ async fn next(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query
     loop {
         let (job, wake) = line(&id, |l| {
             let resumed = l.resume_until.is_some_and(|t| t > Instant::now());
-            let job = if l.active && !resumed { None } else { l.jobs.pop_front() };
-            let job = job.map(|mut j| {
-                if resumed {
-                    j["resumed"] = json!(true);
-                }
-                l.out.insert(j["id"].as_str().unwrap_or_default().to_string(), j.clone());
-                j
-            });
-            (job, l.wake.clone())
+            (l.hand_out(resumed), l.wake.clone())
         });
         if let Some(job) = job {
             return Json(job).into_response();
@@ -526,5 +551,18 @@ mod tests {
         x.removed = true;
         l.apply(&x);
         assert!(l.of("a").is_empty());
+    }
+
+    #[test]
+    fn the_persons_own_job_goes_while_they_are_at_the_machine() {
+        let mut l = Line { active: true, ..Line::default() };
+        l.jobs.push_back(json!({ "id": "agent", "op": "write", BY_PERSON: false }));
+        l.jobs.push_back(json!({ "id": "theirs", "op": "read", BY_PERSON: true }));
+        let job = l.hand_out(false).unwrap();
+        assert_eq!(job["id"], "theirs");
+        assert_eq!(job["resumed"], true, "the machine would bounce it as busy");
+        assert!(l.hand_out(false).is_none(), "the agent's job went while the person was there");
+        l.active = false;
+        assert_eq!(l.hand_out(false).unwrap()["id"], "agent");
     }
 }

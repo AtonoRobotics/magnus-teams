@@ -166,8 +166,7 @@ pub enum Ev {
     ConsoleSettings {
         idle_minutes: i64,
         session_hours: i64,
-        /// The subnets it takes connections from, as an admin set them
-        /// under Operations › Network (None: the config's).
+        /// The subnets it takes connections from, as an admin set them under Operations › Network (None: the config's).
         #[serde(default)]
         allow: Option<Vec<String>>,
     },
@@ -185,6 +184,7 @@ pub enum Ev {
     Rule(crate::rules::Change),
     SubAgent(crate::sub_agents::SubAgent),
     LocalComputer(crate::local::Computer),
+    LocalFile(crate::local_files::Change),
     Team(crate::team::Change),
     Push(crate::push::Change),
     /// A fresh screenshot for a run after a person handed its computer back.

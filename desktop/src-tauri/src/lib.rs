@@ -4,6 +4,7 @@
 //! or tool credentials; approvals are made here, outside the agent's context.
 
 mod display;
+mod files;
 mod frames;
 mod local;
 mod look;
@@ -13,6 +14,7 @@ mod store;
 mod update;
 
 use base64::Engine;
+use files::file_path;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -339,18 +341,6 @@ async fn api(app: State<'_, App>, method: String, path: String, body: Option<Val
 
 /// Bytes come only from a file: a task's delivered output, a library file,
 /// or a chat message exported as one.
-fn file_path(path: &str) -> Res<()> {
-    allowed(path)?;
-    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    let output = parts.len() == 5 && parts[1] == "tasks" && parts[3] == "outputs";
-    let library = parts.len() == 3 && parts[1] == "files" && !parts[2].is_empty();
-    let export = parts.len() == 6 && parts[1] == "chat" && parts[3] == "entries" && parts[5] == "export";
-    if !(output || library || export) {
-        return Err("not a file".into());
-    }
-    Ok(())
-}
-
 async fn file_response(app: &App, path: &str) -> Res<reqwest::Response> {
     file_path(path)?;
     let (url, c, token) = app.session()?;
@@ -758,13 +748,6 @@ mod tests {
         }
         assert!(allowed("/v1/inbox").is_ok());
         assert!(allowed("/v1/tasks?status=open").is_ok());
-        assert!(file_path("/v1/tasks/t1/outputs/o1").is_ok());
-        assert!(file_path("/v1/files/file_1").is_ok());
-        assert!(file_path("/v1/chat/th1/entries/a:t1/export").is_ok());
-        assert!(file_path("/v1/chat/th1/entries/a:t1/share").is_err());
-        assert!(file_path("/v1/tasks/t1").is_err());
-        assert!(file_path("/v1/files").is_err());
-        assert!(file_path("/v1/files/file_1/info").is_err());
     }
 
     #[test]

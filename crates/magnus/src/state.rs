@@ -1376,6 +1376,7 @@ impl State {
             Ev::Rule(c) => self.rules.apply(c),
             Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::LocalComputer(c) => self.local.apply(c),
+            Ev::LocalFile(c) => self.local.files.apply(c),
             Ev::Team(c) => self.team.apply(c),
             Ev::Push(c) => self.push.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),

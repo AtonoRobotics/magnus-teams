@@ -33,6 +33,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}/files", get(read_file).put(write_file).delete(delete_file))
         .route("/v1/computers/{id}/listing", get(listing))
         .route("/v1/computers/{id}/files/raw", get(raw_file))
+        .route("/v1/computers/{id}/export", get(super::export::export))
         .route("/v1/computers/{id}/screen", get(screen))
         .route("/v1/computers/{id}/destinations", post(add_destination))
         .route("/v1/computers/{id}/pages", post(open_page))

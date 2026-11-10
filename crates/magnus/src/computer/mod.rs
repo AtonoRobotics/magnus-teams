@@ -7,6 +7,7 @@ mod client;
 mod devview;
 mod driving;
 mod egress;
+mod export;
 mod identity;
 mod idle;
 mod lifecycle;

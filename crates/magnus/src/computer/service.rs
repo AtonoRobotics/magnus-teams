@@ -18,7 +18,7 @@ const BOOT_POLL: Duration = Duration::from_millis(200);
 const QUEUE_POLL: Duration = Duration::from_secs(5);
 const ID_BYTES: usize = 16;
 const MAX_LABEL_CHARS: usize = 200;
-const USER_FILES: &str = "/workspace/";
+pub(super) const USER_FILES: &str = "/workspace/";
 const MAX_HOST_CHARS: usize = 253;
 /// Where the guest looks for certificate authorities to trust.
 const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.crt";
@@ -56,7 +56,7 @@ pub(super) fn new_id() -> String {
 }
 
 /// Only under the volume's mount point, and no way back out of it.
-fn user_path(path: &str) -> Result<&str, Refused> {
+pub(super) fn user_path(path: &str) -> Result<&str, Refused> {
     if !path.starts_with(USER_FILES) || path.len() == USER_FILES.len() || path.split('/').any(|p| p == "..") {
         return Err(Refused::Invalid(format!("a file on a computer is under {USER_FILES}")));
     }

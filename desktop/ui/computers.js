@@ -54,7 +54,42 @@ async function thisComputerSection() {
         <label>Folders, one per line<textarea id="lc-folders" rows="3" placeholder="/home/me/Projects"></textarea></label>
         <label>When the agent wants to work here<select id="lc-mode"><option value="ask">Ask me each time</option><option value="allow">Allow it</option><option value="never">Never</option></select></label>
         <div class="row"><button type="button" class="primary" data-act="local-connect">Connect</button></div></form>`;
-  return `<h2>This computer</h2>${rows ? `<table class="t"><tbody>${rows}</tbody></table>` : `<p class="empty">No computer of yours is connected.</p>`}${connect}`;
+  return `<h2>This computer</h2>${rows ? `<table class="t"><tbody>${rows}</tbody></table>` : `<p class="empty">No computer of yours is connected.</p>`}${known.map(madeThere).join("")}${connect}`;
+}
+
+/** The files Magnus wrote on one of the person's own computers, to keep or delete.
+ * @param {{computer: {id: string, name: string}, online: boolean, files?: {path: string, at: string}[]}} k */
+function madeThere({ computer: c, online, files = [] }) {
+  if (!files.length) return "";
+  const id = esc(c.id);
+  return `<div class="card flat" data-local-files="${id}"><h3>Files Magnus made on ${esc(c.name)}</h3>
+    ${online ? "" : `<p class="small muted">${esc(c.name)} is offline. Open Magnus on it to download or delete these.</p>`}
+    <div class="row files-bar"><button data-act="local-files-save" data-id="${id}">Download selected</button><button data-act="local-files-delete" data-id="${id}">Delete selected</button></div>
+    <table class="t files"><tbody>${files.map(f => `<tr data-path="${esc(f.path)}"><td><input type="checkbox" data-local-pick aria-label="Select ${esc(f.path)}"></td><td>${esc(f.path)}</td>
+      <td class="small faint n">${esc(when(f.at))}</td><td><button class="link" data-act="local-file-save" data-id="${id}">Download</button> <button class="link danger" data-act="local-file-delete" data-id="${id}">Delete</button></td></tr>`).join("")}</tbody></table></div>`;
+}
+
+/** The paths an action on Magnus's files on this computer is for: its row, or the ones picked. */
+function madePaths(b) {
+  const row = b.closest("tr[data-path]");
+  if (row) return [row.dataset.path];
+  return $$("[data-local-pick]:checked", b.closest("[data-local-files]")).map(p => p.closest("tr").dataset.path);
+}
+
+async function madeAction(b, id) {
+  const paths = madePaths(b), base = `/v1/local/computers/${enc(id)}/files`, q = p => `?path=${encodeURIComponent(p)}`;
+  if (!paths.length) { toast("Pick the files first."); return false; }
+  if (b.dataset.act.endsWith("-save")) {
+    let failed = 0;
+    for (const p of paths) { try { await Magnus.download(`${base}/raw${q(p)}`, p.split("/").pop()); } catch (e) { failed++; if (paths.length === 1) throw e; } }
+    toast(failed ? `${failed} could not be downloaded.` : paths.length === 1 ? "Downloaded." : `${paths.length} files downloaded.`);
+    return false;
+  }
+  if (!confirm(`Delete ${paths.length === 1 ? paths[0] : `${paths.length} files`} from this computer? This cannot be undone.`)) return false;
+  let failed = 0;
+  for (const p of paths) { try { await api("DELETE", `${base}${q(p)}`); } catch (e) { failed++; if (paths.length === 1) throw e; } }
+  toast(failed ? `${failed} could not be deleted.` : "Deleted.");
+  return true;
 }
 
 async function thisComputerAction(b, main) {
@@ -69,6 +104,7 @@ async function thisComputerAction(b, main) {
     case "local-stop": await Magnus.localStop(); return true;
     case "local-resume": await api("POST", `/v1/local/computers/${enc(id)}/resume`, {}); toast("The agent will go on."); return true;
     case "local-remove": await Magnus.localStop(); await api("DELETE", `/v1/local/computers/${enc(id)}`); return true;
+    case "local-files-save": case "local-files-delete": case "local-file-save": case "local-file-delete": return madeAction(b, id);
   }
   return false;
 }
@@ -256,7 +292,7 @@ function computerFiles(body, id, base, hash) {
     let entries;
     try { ({ entries } = await api("GET", `${base}/listing${q(at)}`)); } catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
     if (!stillAt(hash)) return;
-    body.innerHTML = `<div class="row files-bar"><span>${crumbs()}</span><button data-bulk disabled>Delete selected</button></div>
+    body.innerHTML = `<div class="row files-bar"><span>${crumbs()}</span><button data-bulk-save disabled>Download selected</button><button data-bulk disabled>Delete selected</button><button class="link" data-save-all>Download everything</button></div>
       ${entries.length ? `<table class="t files"><tbody>${entries.map(f => `<tr data-file="${esc(f.name)}" data-dir="${f.dir ? 1 : ""}">
         <td><input type="checkbox" data-pick aria-label="Select ${esc(f.name)}"></td><td><button class="link" data-browse>${esc(f.name)}${f.dir ? "/" : ""}</button></td>
         <td class="small faint n">${f.dir ? "" : esc(size(f.size))}</td><td class="small faint n">${esc(when(new Date(f.modified * 1000).toISOString()))}</td>
@@ -283,7 +319,14 @@ function computerFiles(body, id, base, hash) {
     const row = e.target.closest("tr[data-file]");
     if (e.target.closest("[data-browse]") && row) { if (row.dataset.dir) { at = `${pathOf(row)}/`; return draw(); } return open(pathOf(row)); }
     if (e.target.closest("[data-save]") && row) { try { await Magnus.download(`${base}/files/raw${q(pathOf(row))}`, row.dataset.file); toast("Downloaded."); } catch (err) { toast(err.message); } return; }
-    if (e.target.closest("[data-pick]")) { $("[data-bulk]", body).disabled = !$$("[data-pick]:checked", body).length; return; }
+    if (e.target.closest("[data-pick]")) { const none = !$$("[data-pick]:checked", body).length; $("[data-bulk]", body).disabled = none; $("[data-bulk-save]", body).disabled = none; return; }
+    // Many files leave as one archive; nothing picked is the whole volume with its apps.
+    const archive = e.target.closest("[data-bulk-save]") ? $$("[data-pick]:checked", body).map(p => { const r = p.closest("tr"); return `${pathOf(r)}${r.dataset.dir ? "/" : ""}`; }) : e.target.closest("[data-save-all]") ? [] : null;
+    if (archive) {
+      toast("Packing the files…");
+      try { const saved = await Magnus.download(`${base}/export?paths=${encodeURIComponent(archive.join("\n"))}`, `${id}-files.tar`); toast(saved ? `Saved to ${saved}.` : "Downloaded."); } catch (err) { toast(err.message); }
+      return;
+    }
     if (e.target.closest("[data-bulk]")) {
       const rows = $$("[data-pick]:checked", body).map(p => p.closest("tr"));
       if (!confirm(`Delete ${rows.length} item${rows.length === 1 ? "" : "s"}? They are also removed from backups.`)) return;

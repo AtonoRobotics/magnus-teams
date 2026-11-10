@@ -245,7 +245,7 @@ impl Kernel {
         let grants = if chat { self.grant_section(run).await? } else { String::new() };
         // Their open commitments, as they stood when it started (#236).
         let commitments = self.commitment_section(run).await?;
-        let deleted = self.read(|s| s.computers.deletion_section(&run.person, run.created_at));
+        let deleted = self.read(|s| format!("{}{}", s.computers.deletion_section(&run.person, run.created_at), s.local.files.deletion_section(&run.person, run.created_at)));
         let sections =
             format!("{}{}{}{grants}{commitments}{deleted}", section(&notes, &recent), crate::reactions::section(&reactions, &open), crate::suggestions::section(&ledger));
         Ok((sections, (!notes.is_empty()).then_some(version)))
