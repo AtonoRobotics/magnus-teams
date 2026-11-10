@@ -68,6 +68,17 @@ await step("sign in", async () => {
   await page.getByRole("link", { name: /^Needs you/ }).waitFor({ timeout: T });
 });
 
+// A server without a provider's client secret yet (a new one, 2026-11-09):
+// the plus on those connectors did nothing at all when clicked. It says why.
+await step("a connector the server cannot sign anyone in to yet says so when its plus is clicked", async () => {
+  await page.getByRole("link", { name: "Apps", exact: true }).click();
+  await page.getByRole("heading", { name: "Apps", level: 1 }).waitFor({ timeout: T });
+  const off = page.locator(".lc-act.off").first();
+  if (!await off.count()) { console.log("     every connector is ready on this server: nothing to click"); return; }
+  await off.click();
+  await page.getByText("can't be connected on this server yet", { exact: false }).waitFor({ timeout: T });
+});
+
 await step("the Library is the catalog: Google's apps under Popular, each a card with a plus to connect", async () => {
   await page.getByRole("link", { name: "Apps", exact: true }).click();
   await page.getByRole("heading", { name: "Apps", level: 1 }).waitFor({ timeout: T });

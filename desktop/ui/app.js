@@ -2784,7 +2784,7 @@ function connectorAction(c) {
     case "needs_attention": return `<button class="lc-act warn" data-act="connect" data-app="${esc(c.name)}" aria-label="Sign in to ${name} again">${SVG.again}</button>`;
     case "local": return `<button class="primary lc-enable" data-act="connect" data-app="${esc(c.name)}">Enable</button>`;
     default: return c.ready === false
-      ? `<span class="lc-act off" title="Not ready on this server yet" aria-label="${name} is not ready on this appliance yet">${SVG.plus}</span>`
+      ? `<button class="lc-act off" aria-disabled="true" data-act="connect" data-app="${esc(c.name)}" title="Not ready on this server yet" aria-label="${name} is not ready on this server yet">${SVG.plus}</button>`
       : `<button class="lc-act" data-act="connect" data-app="${esc(c.name)}" aria-label="Connect ${name}">${SVG.plus}</button>`;
   }
 }
@@ -2944,11 +2944,17 @@ function onThisComputer(u) {
 }
 
 async function connectApp(name) {
-  if (!Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
   // Slack's registered address is https. The desktop listens on the handoff,
   // and the sign-in tells Slack the https address, which the exchange repeats.
   let card = (Lib.all || []).find(c => c.name === name);
   if (!card) { try { card = await api("GET", `/v1/connectors/${enc(name)}`); } catch { card = null; } }
+  // A click on a connector this server cannot sign anyone in to yet used to
+  // do nothing at all (2026-11-09): say why instead.
+  if (card && card.ready === false) {
+    toast(`${card.title || name} can't be connected on this server yet: Alpha Vector has not set up its sign-in here. Ask your organisation's owner.`);
+    return;
+  }
+  if (!Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
   const listenAt = card && (card.handoff || (onThisComputer(card.redirect_uri) ? card.redirect_uri : null));
   const caught = await Magnus.loopbackOpen(listenAt || null);
   const redirect = card && card.redirect_uri && !onThisComputer(card.redirect_uri) ? card.redirect_uri : caught;
