@@ -525,7 +525,7 @@ impl Kernel {
             if let Some(s) = &t.client.client_secret {
                 form.push(("client_secret", s.clone()));
             }
-            let r = http().post(&t.client.token_endpoint).form(&form).send().await;
+            let r = crate::token_endpoint::post(&http(), &t.client.token_endpoint, &form).send().await;
             let v: Value = match r {
                 Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
                 Ok(r) => {
@@ -765,7 +765,7 @@ impl Kernel {
         if let Some(s) = &c.client_secret {
             form.push(("client_secret", s.clone()));
         }
-        let r = http().post(&c.token_endpoint).form(&form).send().await?;
+        let r = crate::token_endpoint::post(&http(), &c.token_endpoint, &form).send().await?;
         if !r.status().is_success() {
             let status = r.status();
             // A kept client the provider dropped: the next sign-in registers.

@@ -77,6 +77,7 @@ pub mod suggestions;
 pub(crate) mod task_budget;
 pub mod team;
 pub mod tls;
+pub(crate) mod token_endpoint;
 pub mod tools;
 mod tools_identity;
 pub mod tools_ui;

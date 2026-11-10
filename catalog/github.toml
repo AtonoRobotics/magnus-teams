@@ -1,0 +1,124 @@
+id = "github"
+version = "1.0.0"
+name = "GitHub"
+summary = "Magnus can read your GitHub repositories, issues, pull requests and code, and open, comment on, commit to or merge them with your approval."
+# The Library's card and page (connectors spec, Catalog and connector
+# manifests; Library): who makes it, its category chip, what Magnus can do
+# with it, each scope in plain words (in the order of `scopes`), and what it
+# can and cannot do here, from its tools. `letters` and `tint` draw its tile
+# until the provider's own mark is in its listing.
+publisher = "GitHub"
+category = "code"
+abilities = ["Find a repository, issue, pull request or file when you ask about it", "Read a pull request's changes, reviews and comments", "Open and update issues and pull requests, comment and review, when you allow it", "Commit, merge and delete, when you allow each one"]
+asks = ["Read and change your repositories, public and private, with their code, issues and pull requests, when you allow it", "See your organisations and teams"]
+can = "Read your repositories, issues, pull requests, commits and releases, and open, comment on, commit to or merge them when you allow each one"
+cannot = "Change anything without asking you first, or reach an organisation whose owners have not approved Magnus"
+letters = "Gh"
+tint = "#24292F"
+# GitHub's remote server (github/github-mcp-server, docs/remote-server.md),
+# streamable HTTP. Its protected-resource metadata names
+# https://github.com/login/oauth, whose metadata offers PKCE (S256) and no
+# dynamic registration, so Magnus signs in with Alpha Vector's OAuth app,
+# a confidential client: the release provisions its ID and secret
+# (`GH_OAUTH_*`). No `redirect_uri`: an OAuth app whose callback is
+# http://127.0.0.1/callback accepts that address on any port (GitHub's
+# loopback rule), which is the desktop's free-port sign-in. An organisation
+# that restricts OAuth apps shows nothing of its own until an owner approves
+# the app there.
+kind = "remote"
+endpoint = "https://api.githubcopilot.com/mcp/"
+# Issues, comments, pull requests and commits reach each repository's
+# collaborators and watchers and, in a public repository, anyone. What
+# comes back is the person's repositories, written by others.
+audience = "public"
+label = "private+untrusted"
+registration = "preregistered"
+provider = "github"
+# GitHub publishes no revocation endpoint: the person removes Magnus here.
+remove_access = "https://github.com/settings/applications"
+# What the default toolsets' tools challenge for (the server's README, "OAuth
+# Challenge Scopes"): `repo` for nearly all, `read:org` for teams, issue
+# types and fields. `workflow` (a commit touching .github/workflows) and
+# `delete_repo` are asked for only when a call needs them: the server
+# answers with a scope challenge, and Magnus asks the person with a card.
+scopes = ["repo", "read:org"]
+
+# The tools api.githubcopilot.com/mcp/ lists with its default toolsets
+# (context, repos, issues, pull_requests, users), and the copilot toolset's,
+# from github/github-mcp-server README.md and docs/remote-server.md (read
+# 2026-11-10). The opt-in toolsets (actions, code_security, dependabot,
+# discussions, gists, git, governance, labels, notifications, orgs,
+# projects, secret_protection, security_advisories, stargazers,
+# copilot_spaces, github_support_docs_search) are named by no manifest and
+# so stay hidden.
+[tools]
+# context
+get_me = "read"
+get_teams = "read"
+get_team_members = "read"
+ui_get = "read"
+# repos
+get_commit = "read"
+get_file_contents = "read"
+get_latest_release = "read"
+get_release_by_tag = "read"
+get_tag = "read"
+list_branches = "read"
+list_commits = "read"
+list_releases = "read"
+list_repository_collaborators = "read"
+list_tags = "read"
+search_code = "read"
+search_commits = "read"
+search_repositories = "read"
+# A branch is removed as easily as it was made, and reaches no one.
+create_branch = "reversible_write"
+# A fork is the person's own copy, deleted at will.
+fork_repository = "reversible_write"
+# A new repository may be public the moment it exists.
+create_repository = "irreversible"
+# A commit may land on a default branch that deploys, and stays in the
+# history (and in every clone) even when reverted.
+create_or_update_file = "irreversible"
+push_files = "irreversible"
+delete_file = "irreversible"
+delete_repository = "irreversible"
+# issues
+get_label = "read"
+issue_read = "read"
+list_issue_fields = "read"
+list_issue_types = "read"
+list_issues = "read"
+search_issues = "read"
+# Creating an issue or a comment notifies the repository's watchers, which
+# cannot be taken back; `issue_write` also closes and reopens.
+issue_write = "irreversible"
+add_issue_comment = "irreversible"
+# Editing a comment or a sub-issue link notifies no one and is undone by
+# editing it back.
+update_issue_comment = "reversible_write"
+sub_issue_write = "reversible_write"
+# pull_requests
+list_pull_requests = "read"
+pull_request_read = "read"
+search_pull_requests = "read"
+# A comment on the person's own pending review is seen by no one until the
+# review is submitted.
+add_comment_to_pending_review = "reversible_write"
+# Also closes, changes the base and requests reviewers, who are notified.
+update_pull_request = "irreversible"
+# Merges the base branch into the pull request's branch; reverted by a
+# commit on that branch.
+update_pull_request_branch = "reversible_write"
+create_pull_request = "irreversible"
+add_reply_to_pull_request_comment = "irreversible"
+# Submits (approves, requests changes) or deletes a review.
+pull_request_review_write = "irreversible"
+merge_pull_request = "irreversible"
+# users
+search_users = "read"
+# copilot: each starts Copilot's coding agent or review, which spends the
+# account's Copilot requests and Actions minutes.
+assign_copilot_to_issue = "financial"
+request_copilot_review = "financial"
+create_pull_request_with_copilot = "financial"
