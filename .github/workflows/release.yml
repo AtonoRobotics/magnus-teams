@@ -59,6 +59,9 @@ jobs:
         run: |
           sh release/ensure-windows-target.sh
           sh release/ensure-nsis-tools.sh
+          # The AppImage's runtime, pinned and verified, not downloaded
+          # mid-bundle (decisions/2026-11-08-516-appimage-runtime.md).
+          export LDAI_RUNTIME_FILE="$(sh release/ensure-appimage-runtime.sh)"
           c="{\"version\":\"$MAGNUS_VERSION\"}"
           export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_FILE")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
           (cd desktop/src-tauri && cargo tauri build --bundles deb,appimage --config "$c")

@@ -480,6 +480,21 @@ fn the_release_job_checks_out_the_history_publish_compares_against() {
     assert!(step.contains("fetch-depth: 0"), "the release checkout fetches all history: {step}");
 }
 
+/// Release run 42741994831 (2026-11-09): the AppImage failed to bundle
+/// ("failed to run linuxdeploy") because the release job let the bundler
+/// fetch the moving AppImage runtime mid-build, which the pinned runtime
+/// (release/ensure-appimage-runtime.sh) exists to prevent.
+#[test]
+fn the_release_bundles_the_appimage_with_the_pinned_runtime() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/release.yml");
+    let workflow = std::fs::read_to_string(path).unwrap();
+    let (pinned, bundled) = (
+        workflow.find("LDAI_RUNTIME_FILE=\"$(sh release/ensure-appimage-runtime.sh)\"").expect("the release pins the AppImage runtime"),
+        workflow.find("--bundles deb,appimage").unwrap(),
+    );
+    assert!(pinned < bundled, "pinned before the AppImage is bundled");
+}
+
 /// The new magnus-teams server (2026-11-09) never had Google's or Slack's
 /// client secret: only the admin console's deploy provisioned them, and the
 /// release never ran it, so no one could connect those apps. The release
