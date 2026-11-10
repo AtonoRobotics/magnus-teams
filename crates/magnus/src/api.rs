@@ -961,7 +961,8 @@ pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crat
     v["project"] = if mine { crate::library::project_ref(s, &t.task_id) } else { Value::Null };
     v["waiting_item"] = json!(r.waiting_item);
     v["ended_at"] = json!(r.ended_at);
-    v["group"] = if let Some(sc) = t.schedule.as_ref().and_then(|id| s.schedules.get(id)) {
+    // A scheduled run's sub-agents are grouped under its schedule.
+    v["group"] = if let Some(sc) = s.authority(&t.run_id).and_then(|a| a.schedule.as_ref()).and_then(|id| s.schedules.get(id)) {
         json!({ "kind": "schedule", "id": sc.id, "title": words.title(sc.seq).unwrap_or_else(|| words.text(sc.seq).to_string()) })
     } else if let Some((c, turn)) =
         t.chat.as_ref().and_then(|c| c.from_run.as_ref().and_then(|f| s.runs.get(f)).and_then(|r| s.tasks.get(&r.task)).map(|turn| (c, crate::outcomes::person_turn(s, turn))))
@@ -2221,6 +2222,8 @@ async fn add_schedule(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respon
                 until,
                 max_runs,
                 scope: None,
+                // Set up in settings, outside a conversation: its own thread.
+                thread: None,
             },
         )
         .await

@@ -51,16 +51,16 @@ impl Kernel {
                 run_id,
                 "budget",
                 format!("Stopped after {} model calls, the task's limit.", run.loop_calls()),
-                json!({ "model_calls": run.loop_calls(), "limit": budget.max_model_calls, "usd": run.usd }),
+                json!({ "model_calls": run.loop_calls(), "limit": budget.max_model_calls, "usd": run.spent_usd() }),
             )
             .await?;
             return Ok(false);
         }
         // Dollars are spent by model calls, failed ones too: one past the
         // limit stops the run before the next is paid for.
-        if run.usd >= budget.max_usd {
+        if run.spent_usd() >= budget.max_usd {
             let why = crate::boundary::budget_used(&run);
-            self.suspend_with_notice(run_id, "budget", format!("Stopped: {why}."), json!({ "actions": run.actions, "usd": run.usd })).await?;
+            self.suspend_with_notice(run_id, "budget", format!("Stopped: {why}."), json!({ "actions": run.actions, "usd": run.spent_usd() })).await?;
             return Ok(false);
         }
         // A task under a grant also stops once the grant's budget for its
@@ -82,7 +82,7 @@ impl Kernel {
     /// path below.
     async fn clamped_max_tokens(self: &Arc<Self>, run_id: &str, adapter: &str, model: &str, input_tokens: u64, max_tokens: u32) -> Result<Option<u32>> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(None) };
-        let left = run.config.budget.max_usd - run.usd;
+        let left = run.config.budget.max_usd - run.spent_usd();
         let (input_usd, output_usd) = match self.adapters.quote(adapter, model, input_tokens, max_tokens).await {
             Ok(q) => q,
             Err(e) => {
@@ -94,7 +94,8 @@ impl Kernel {
             Some(n) => Ok(Some(n)),
             None => {
                 let why = format!("Stopped: the next model call (about ${:.2} worst case) would pass the task's ${:.2} limit.", input_usd + output_usd, run.config.budget.max_usd);
-                self.suspend_with_notice(run_id, "budget", why, json!({ "usd": run.usd, "limit": run.config.budget.max_usd, "next_call_usd": input_usd + output_usd })).await?;
+                self.suspend_with_notice(run_id, "budget", why, json!({ "usd": run.spent_usd(), "limit": run.config.budget.max_usd, "next_call_usd": input_usd + output_usd }))
+                    .await?;
                 Ok(None)
             }
         }

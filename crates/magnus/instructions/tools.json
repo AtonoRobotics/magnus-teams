@@ -40,7 +40,7 @@
   "browser_as_screenshot": "Take a screenshot of the identity's browser.",
   "browser_sign_in": "Sign in to an identity's site on the open login page. Uses the saved login if there is one, otherwise asks the person through a secure form. You never see the password.",
   "open_attachment": "Read an attachment that came from outside. It opens in its own sandbox with no network and nothing of the person's, and what it extracts comes back as data.",
-  "start_sub_agent": "Start a sub-agent on part of the work. It gets its own context, your goal, and a share of your budget. It holds no more authority than you, and its result comes back to you as data. It returns when it finishes.",
+  "start_sub_agent": "Start a sub-agent on part of the work. It gets its own context, your goal, and a share of your budget. It works under your authority: your grant, the scope the person confirmed, your project and the approvals you were given, so it needs no grant of its own and never more than you hold. Name tools to give it only some of yours. Its result comes back to you as data. It returns when it finishes.",
   "computer_screenshot": "Take a screenshot of your sandbox's desktop (1280x800). Start desktop apps with sandbox_exec, for example `libreoffice --calc /workspace/x.xlsx &`.",
   "computer_click": "Click at a position on the sandbox desktop. Returns a screenshot.",
   "computer_type": "Type text on the sandbox desktop. Returns a screenshot.",

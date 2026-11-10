@@ -172,16 +172,18 @@ impl Kernel {
     /// instruction), the conversation it carries, or a task's text when they
     /// gave it themselves (not a schedule's).
     async fn said_in(&self, run: &Run, magnus: bool) -> anyhow::Result<Vec<String>> {
-        let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(vec![]) };
+        // A sub-agent's person spoke to the run at its top: its goal is the parent's words.
+        let top = self.requester_run(run);
+        let Some(task) = self.read(|s| s.tasks.get(&top.task).cloned()) else { return Ok(vec![]) };
         let mut said = vec![];
         if let Some(c) = &task.chat {
             let roles: &[&str] = if magnus { &["person", "you"] } else { &["person"] };
             said.extend(c.conversation.iter().filter(|m| roles.iter().any(|r| m["role"] == *r)).filter_map(|m| m["text"].as_str().map(String::from)));
             if c.turn && c.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) {
-                said.push(self.asked(run).await?);
+                said.push(self.asked(&top).await?);
             }
         } else if task.schedule.is_none() {
-            said.push(self.asked(run).await?);
+            said.push(self.asked(&top).await?);
         }
         if magnus {
             // What Magnus has said in this run so far.

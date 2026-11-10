@@ -432,8 +432,7 @@ pub enum Ev {
         person: String,
         prefs: Value,
     },
-    /// A person deleted entries from a thread: views leave them out; the
-    /// log keeps them.
+    /// A person deleted entries from a thread: views leave them out; the log keeps them.
     ChatHidden {
         person: String,
         thread: String,
@@ -568,6 +567,9 @@ pub enum Ev {
         /// What the person confirmed each run does, on the chat card.
         #[serde(default)]
         scope: Option<String>,
+        /// The conversation it was set up in, where its runs post (none: its own thread).
+        #[serde(default)]
+        thread: Option<String>,
     },
     /// A due schedule started no run because its last one is still open:
     /// running, or waiting on someone. The next is due as usual.
@@ -576,12 +578,10 @@ pub enum Ev {
         task: String,
         reason: String,
     },
-    /// A schedule is over: it reached its end or its run count, or one of
-    /// its own runs ended it.
+    /// A schedule is over: it reached its end or its run count, or one of its own runs ended it.
     ScheduleEnded {
         id: String,
-        /// Why: the kernel's words, or what the run that ended it wrote
-        /// (content, removed with that run).
+        /// Why: the kernel's words, or what the run that ended it wrote (content, removed with that run).
         #[serde(default)]
         reason: String,
         /// The run that ended it, when one did.

@@ -23,9 +23,9 @@ pub(crate) fn derived(prefix: &str, key: &str) -> String {
     format!("{prefix}_{}", &hex::encode(sha2::Sha256::digest(key.as_bytes()))[..32])
 }
 
-/// The thread a schedule's runs post to: one of its own, so recurring output
-/// never buries the conversation it was set up in (behavior spec, Tasks and
-/// schedules in conversation). The person can reply in it like any other.
+/// A schedule's own thread: where the runs of one set up outside a
+/// conversation post (`schedule_thread::of`). The person can reply in it
+/// like any other.
 pub fn schedule_thread(schedule: &str) -> String {
     format!("schedule-{schedule}")
 }
@@ -637,6 +637,8 @@ impl Kernel {
                         max_runs: d["max_runs"].as_u64().map(|m| m as u32),
                         // The person agreed to the card's scope, so each run is told it.
                         scope: d["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
+                        // Its runs post in this conversation (owner, 2026-11-10).
+                        thread: task.chat.as_ref().filter(|c| c.turn).map(|c| c.thread.clone()),
                     },
                 )
                 .await?;

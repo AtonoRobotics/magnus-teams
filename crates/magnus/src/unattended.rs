@@ -46,7 +46,9 @@ impl Kernel {
             s.items
                 .values()
                 .filter(|i| {
-                    let unattended = i.task.as_ref().and_then(|t| s.tasks.get(t)).is_some_and(|t| t.schedule.is_some() || t.background());
+                    // A sub-agent's ask is as unattended as the run at its top.
+                    let top = i.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| s.authority(&t.run_id));
+                    let unattended = top.is_some_and(|t| t.schedule.is_some() || t.background());
                     expired(i, unattended, now, expiry)
                 })
                 .cloned()

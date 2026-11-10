@@ -69,6 +69,7 @@ pub mod rules;
 pub mod run;
 pub mod safety;
 pub mod sandbox;
+pub mod schedule_thread;
 pub mod settings;
 pub mod spawn;
 pub mod speech;

@@ -219,7 +219,7 @@ pub fn may_use(person: &Person, c: &crate::config::Connector) -> bool {
 /// tells the person.
 pub fn budget_used(run: &Run) -> String {
     let b = &run.config.budget;
-    format!("budget used: {} of {} actions, ${:.2} of ${:.2}", run.actions, b.max_actions, run.usd, b.max_usd)
+    format!("budget used: {} of {} actions, ${:.2} of ${:.2}", run.actions, b.max_actions, run.spent_usd(), b.max_usd)
 }
 
 /// The prompt's tokens from the kernel's bytes: the fallback when the
@@ -342,7 +342,7 @@ impl Kernel {
         max_tokens: u32,
     ) -> Option<u32> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return None };
-        let left = run.config.budget.max_usd - run.usd;
+        let left = run.config.budget.max_usd - run.spent_usd();
         let input_tokens = match self.adapters.estimate_prompt(adapter, model, system, messages.clone(), tools.clone()).await {
             Ok(n) => n,
             Err(e) => {
@@ -483,10 +483,10 @@ impl Kernel {
 
         // 3. Budget.
         let b = &run.config.budget;
-        if a.issuer == Issuer::Model && (run.actions >= b.max_actions || run.usd >= b.max_usd) {
+        if a.issuer == Issuer::Model && (run.actions >= b.max_actions || run.spent_usd() >= b.max_usd) {
             let why = budget_used(&run);
             self.decision(a, "ask", "budget", &why, None).await?;
-            self.suspend_with_notice(&a.run, "budget", format!("Stopped: {why}."), json!({ "actions": run.actions, "usd": run.usd })).await?;
+            self.suspend_with_notice(&a.run, "budget", format!("Stopped: {why}."), json!({ "actions": run.actions, "usd": run.spent_usd() })).await?;
             return Ok(Verdict::Suspended);
         }
 
@@ -909,13 +909,14 @@ impl Kernel {
         let found = self.read(|s| {
             // The person allowed this task's web lookups, or, in chat, this
             // conversation's: any web read, not only the one first asked about.
-            let thread = |task: &str| s.tasks.get(task).and_then(|t| t.chat.as_ref()).filter(|c| c.turn).map(|c| c.thread.clone());
+            // A sub-agent holds what was approved for each run above it.
+            let (mine, thread) = (s.lineage(&run.id), |task: &str| s.tasks.get(task).and_then(|t| t.chat.as_ref()).filter(|c| c.turn).map(|c| c.thread.clone()));
             let allowed = s.approvals.iter().find(|ap| {
                 lookup
                     && ap.person == run.person
                     && ap.scope == "task"
                     && ap.reason.as_deref() == Some(WEB_LOOKUPS)
-                    && (ap.task == run.task || thread(&ap.task).is_some_and(|t| Some(t) == thread(&run.task)))
+                    && (mine.contains(&ap.task) || thread(&ap.task).is_some_and(|t| mine.iter().any(|m| thread(m).as_ref() == Some(&t))))
             });
             if let Some(ap) = allowed {
                 return vec![ap.clone()];
@@ -932,8 +933,8 @@ impl Kernel {
                         // A source is approved for its own host only.
                         && (ap.reason.as_deref() != Some(crate::rule_effects::NEW_SOURCE) || ap.input_hash.as_deref() == Some(hash))
                         && match ap.scope.as_str() {
-                            "once" => !ap.used && ap.task == run.task && ap.input_hash.as_deref() == Some(hash),
-                            "task" => ap.task == run.task,
+                            "once" => !ap.used && mine.contains(&ap.task) && ap.input_hash.as_deref() == Some(hash),
+                            "task" => mine.contains(&ap.task),
                             "window" => ap.until.is_some_and(|u| u > now),
                             "standing" => true,
                             _ => false,
@@ -1204,7 +1205,7 @@ impl Kernel {
     pub(crate) fn covering_grant(&self, run: &Run, f: &Facts) -> Option<String> {
         let now = chrono::Utc::now();
         let (g, spent) = self.read(|s| {
-            let g = s.tasks.get(&run.task).and_then(|t| t.grant.as_ref()).and_then(|id| s.grants.get(id)).filter(|g| g.person == run.person && g.revoked.is_none())?;
+            let g = s.authority(&run.id).and_then(|t| t.grant.as_ref()).and_then(|id| s.grants.get(id)).filter(|g| g.person == run.person && g.revoked.is_none())?;
             Some((g.clone(), crate::grants::spent(s, g, now)))
         })?;
         if spent >= g.max_usd {
@@ -1228,6 +1229,8 @@ impl Kernel {
     /// a tool's result, the model's words (a chat task's text is the
     /// model's) or a schedule's text.
     async fn named_by_person(&self, run: &Run) -> Result<std::collections::BTreeSet<String>> {
+        // A sub-agent's: its requester's, never its goal (the parent's words).
+        let run = &self.requester_run(run);
         let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(Default::default()) };
         let said: Vec<String> = match &task.chat {
             Some(c) if !c.turn => c.conversation.iter().filter(|m| m["role"] == "person").filter_map(|m| m["text"].as_str().map(String::from)).collect(),
@@ -1785,7 +1788,7 @@ impl Kernel {
     /// it when the task started.
     fn project_file(&self, run: &str, name: &str) -> Option<crate::state::LibFile> {
         self.read(|s| {
-            let t = s.runs.get(run).and_then(|r| s.tasks.get(&r.task))?;
+            let t = s.with_authority(run)?;
             t.project.as_ref()?.files.iter().filter_map(|id| s.files.get(id)).filter(|f| f.name == name).last().cloned()
         })
     }

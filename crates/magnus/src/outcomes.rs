@@ -184,8 +184,12 @@ impl Kernel {
     /// its failure puts no notice of its own in their inbox (K24 holds
     /// through the thread): each attempt the agent is handling would. A
     /// scheduled run keeps its notice: nobody is in its thread when it fails.
+    /// A sub-agent's outcome returns to its parent, as its tool's result.
     pub(crate) fn outcome_returns(&self, run: &str) -> bool {
         self.read(|s| {
+            if s.sub_agents.get(run).is_some() {
+                return true;
+            }
             let Some(r) = s.runs.get(run).filter(|r| r.config.module(MODULE)) else { return false };
             let Some(t) = s.tasks.get(&r.task).filter(|t| t.schedule.is_none()) else { return false };
             t.chat.as_ref().is_some_and(|c| !s.trash.contains_key(&c.thread) && !s.removed_threads.contains(&c.thread))

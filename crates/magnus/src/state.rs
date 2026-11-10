@@ -122,6 +122,8 @@ pub struct Run {
     pub aux_calls: u32,
     pub actions: u32,
     pub usd: f64,
+    /// What its sub-agents spent, against its budget (`Run::spent_usd`).
+    pub sub_usd: f64,
     pub intents: HashMap<String, Intent>,
     pub wait_until: Option<DateTime<Utc>>,
     pub summary: Option<String>,
@@ -521,6 +523,8 @@ pub struct Schedule {
     pub resumed: Option<DateTime<Utc>>,
     /// Why it is over, once it is: an ended schedule stays, marked.
     pub ended: Option<String>,
+    /// The conversation it was set up in, if any: where its runs post (`schedule_thread::of`).
+    pub thread: Option<String>,
 }
 
 /// A person's standing authority over a category of their own work
@@ -1137,13 +1141,10 @@ impl State {
         ends.iter().take_while(|(_, failed)| *failed).count() as u32
     }
 
-    /// A model call's cost, charged to the grant the run's task runs
-    /// under, if any (#280).
+    /// A model call's cost, charged to the grant the run acts under, if
+    /// any (#280), and to the runs above a sub-agent (`sub_agents::charge`).
     fn charge_grant(&mut self, run: &str, at: DateTime<Utc>, usd: f64) {
-        let grant = self.runs.get(run).and_then(|r| self.tasks.get(&r.task)).and_then(|t| t.grant.clone());
-        if let Some(g) = grant.and_then(|g| self.grants.get_mut(&g)) {
-            g.charges.push((at, usd));
-        }
+        self.charge(run, at, usd);
     }
 
     /// Take an item out of every view, into the trash.
@@ -1643,7 +1644,7 @@ impl State {
             Ev::PersonTurnedOff { person, .. } => {
                 self.turned_off.insert(person.clone());
             }
-            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, .. } => {
+            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, thread, .. } => {
                 self.schedules.insert(
                     id.clone(),
                     Schedule {
@@ -1667,6 +1668,7 @@ impl State {
                         paused_by_admin: false,
                         resumed: None,
                         ended: None,
+                        thread: thread.clone(),
                     },
                 );
                 if let Some(c) = card {
@@ -1986,6 +1988,7 @@ impl State {
                         aux_calls: 0,
                         actions: 0,
                         usd: 0.0,
+                        sub_usd: 0.0,
                         intents: HashMap::new(),
                         wait_until: None,
                         summary: None,

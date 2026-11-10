@@ -702,10 +702,16 @@ impl Kernel {
                             label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),
                             project: self.read(|s| s.project_of(&sc.id)),
                             scope: w.opt(sc.seq, "scope"),
-                            // Each run posts to the schedule's own thread, where its outcome
-                            // returns to the agent too (outcomes.rs), so recurring output does
-                            // not bury the conversation it was set up in (behavior spec).
-                            chat: Some(crate::events::ChatOrigin { thread: crate::chat::schedule_thread(&sc.id), turn: false, from_run: None, conversation: vec![], opener: None }),
+                            // Each run posts in the conversation the schedule was set up in, where
+                            // its outcome wakes the agent too (outcomes.rs); one set up elsewhere,
+                            // or before that was recorded, in its own thread (owner, 2026-11-10).
+                            chat: Some(crate::events::ChatOrigin {
+                                thread: self.read(|s| crate::schedule_thread::of(s, &sc)),
+                                turn: false,
+                                from_run: None,
+                                conversation: vec![],
+                                opener: None,
+                            }),
                             // A confirmed schedule runs on its own: the verifier judges the criteria
                             // no code checks, and only what it cannot judge goes to its person
                             // (owner, 2026-11-02; invariant 7 holds).
@@ -843,7 +849,7 @@ impl Kernel {
 
     /// Whether a run is Magnus's own background work (`Task::background`).
     pub fn is_background(&self, run: &str) -> bool {
-        self.read(|s| s.runs.get(run).and_then(|r| s.tasks.get(&r.task)).is_some_and(|t| t.background()))
+        self.read(|s| s.authority(run).is_some_and(|t| t.background()))
     }
 
     /// A notice in the person's inbox (something ended or stopped, with the

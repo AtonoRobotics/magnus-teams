@@ -7,7 +7,7 @@
 #   ci/on-strix-beta.sh acceptance ci/acceptance.sh autonomy   one suite
 #
 # Suites:
-#   autonomy    the five autonomy scenarios (spec rev 133, "Autonomy is
+#   autonomy    the six autonomy scenarios (spec rev 133, "Autonomy is
 #               tested like safety"), tests/scratch/tests/autonomy.rs
 #   injection   prompt injection, tests/scratch/tests/injection.rs
 #   update      signed updates, tests/scratch/tests/update.rs

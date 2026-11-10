@@ -147,7 +147,7 @@ impl Kernel {
     pub async fn context_with(&self, run: &Run) -> anyhow::Result<(String, Vec<Message>, Option<u32>, bool)> {
         let given = self.given_files(&run.task).await?;
         let (task, attachments, refs) = self.read(|s| {
-            let task = s.tasks.get(&run.task).cloned();
+            let task = s.with_authority(&run.id);
             let mut files = s.attachments.get(&run.task).cloned().unwrap_or_default();
             files.extend(given);
             // The project's reference files, as they were when the task started.
@@ -333,14 +333,10 @@ impl Kernel {
             specs.extend(tools::chat_specs().into_iter().filter(|t| t.name == "propose_task"));
         }
         // project_read only where there are reference files to read.
-        if !self.read(|s| s.tasks.get(&run.task).and_then(|t| t.project.as_ref()).is_some_and(|p| !p.files.is_empty())) {
+        if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {
             specs.retain(|t| t.name != "project_read");
         }
         specs.extend(self.far_specs(&run.person));
-        let limited = self.read(|s| s.sub_agents.get(&run.id).map(|c| c.tools.clone())).filter(|t| !t.is_empty());
-        if let Some(allowed) = &limited {
-            specs.retain(|t| allowed.contains(&t.name));
-        }
         let apps = self.app_tool_specs(run).await;
         if apps.len() > tools::LOAD_ALL && !every {
             let found = self.found_tools(run);
@@ -349,6 +345,8 @@ impl Kernel {
         } else {
             specs.extend(apps);
         }
+        // A sub-agent: what it and each run above it were given, and its records.
+        self.read(|s| specs.retain(|t| tools::RECORDS.contains(&t.name.as_str()) || s.sub_agents.refusal(&run.id, &t.name).is_none()));
         self.team_scoped(run, specs)
     }
 
@@ -671,7 +669,7 @@ impl Kernel {
             // A scheduled run may not set up another schedule: schedules
             // would breed (2026-10-30, a test schedule's run proposed a second
             // one, and both ran for hours). It may end its own.
-            "propose_schedule" if self.read(|s| s.tasks.get(&run.task).and_then(|t| t.schedule.clone())).is_some() => {
+            "propose_schedule" if self.read(|s| s.authority(&run.id).and_then(|t| t.schedule.clone())).is_some() => {
                 self.result(rid, call_id, "A scheduled task cannot set up another schedule. To stop this one, use end_schedule. A retry will not help.", true).await?
             }
             "propose_schedule" => match crate::api::rule_for(input, self.cfg.schedules.min_every_minutes).and_then(|r| crate::api::end_for(input).map(|e| (r, e))) {

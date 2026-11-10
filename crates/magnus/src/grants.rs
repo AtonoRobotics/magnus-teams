@@ -89,8 +89,12 @@ impl Kernel {
     pub fn grant_spent(&self, run: &str) -> Option<Spent> {
         let now = chrono::Utc::now();
         self.read(|s| {
-            let r = s.runs.get(run).filter(|r| !r.past_grant)?;
-            let g = s.tasks.get(&r.task).and_then(|t| t.grant.as_ref()).and_then(|g| s.grants.get(g))?;
+            // A sub-agent spends its parent's grant, resumed past it when the
+            // run at the top was.
+            s.runs.get(run).filter(|r| !r.past_grant)?;
+            let top = s.authority(run)?;
+            s.runs.get(&top.run_id).filter(|r| !r.past_grant)?;
+            let g = top.grant.as_ref().and_then(|g| s.grants.get(g))?;
             let spent = spent(s, g, now);
             (spent >= g.max_usd).then(|| Spent { grant: g.id.clone(), spent, max: g.max_usd, period: g.period.clone() })
         })

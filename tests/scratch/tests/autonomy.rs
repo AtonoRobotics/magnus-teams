@@ -1,13 +1,16 @@
 //! Autonomy is tested like safety (spec rev 133). Each release candidate's
-//! acceptance runs these five scenarios end to end, and a release that fails
+//! acceptance runs these six scenarios end to end, and a release that fails
 //! one does not ship:
 //!
 //! 1. a chat request any chat agent could do is done in the chat, with no
 //!    task and no approval;
-//! 2. a schedule fires with nobody present and posts its result;
+//! 2. a schedule fires with nobody present and posts its result in the
+//!    conversation it was set up in;
 //! 3. a task that fails wakes its agent, which retries and reports;
 //! 4. an event from a connected app leads to a suggestion or an action;
-//! 5. a review proposes work from what it read.
+//! 5. a review proposes work from what it read;
+//! 6. a scheduled run uses sub-agents (owner, 2026-11-10), and a failing
+//!    scheduled run wakes the agent in the conversation it was set up in.
 //!
 //! Each drives a real server with the scripted model and fake apps, and
 //! asserts on what the person would see. Each also checks that the plumbing
@@ -23,6 +26,9 @@ use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[path = "autonomy/scheduled_sub_agents.rs"]
+mod scheduled_sub_agents;
 
 const CHAT: &str = "talking with the person you work for in a chat";
 const REVIEW: &str = "reviewing one person's state";
@@ -318,16 +324,15 @@ async fn a_chat_request_is_done_in_the_chat_with_no_task_and_no_approval() {
 /// 2. A schedule fires with nobody present and posts its result. The person
 /// sets it up and leaves; nothing touches the server until the run and its
 /// outcome turn are over. The result and the agent's report are in the
-/// schedule's own thread.
+/// conversation the schedule was set up in (owner, 2026-11-10), and the
+/// schedule has no thread of its own.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
     const ASK: &str = "Every morning, tell me what's new in my inbox.";
     const RUN: &str = "Summarise what is new in my inbox.";
     const SUMMARY: &str = "One new message: the CFO sent the Q3 numbers.";
     const REPORT: &str = "This morning's inbox: one message, the CFO's Q3 numbers (revenue 41.7M).";
-    // "Every morning" is due at the start of the minute after next, in the
-    // server's local time, so it fires once while the test runs.
-    let at = (chrono::Local::now() + chrono::Duration::minutes(2)).format("%H:%M").to_string();
+    let at = due_soon();
     let m = FakeModel::start(script(move |c| {
         let at = at.clone();
         async move {
@@ -351,41 +356,60 @@ async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
     let app = Appliance::start(proactive_on().app("mail", &mail, "public", "private", &[("list_inbox", "read")]), &m).await;
     let alice = app.api("alice");
     let b = before(&alice).await;
-    let (origin, turn) = chat(&alice, ASK).await;
-    alice.wait_settled(&turn).await;
-    let card = entries(&alice, &origin).await.into_iter().find(|e| e["kind"] == "schedule_card").expect("no schedule card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
-    assert!(st.is_success(), "{v}");
-
+    let origin = schedule_in_chat(&alice, ASK).await;
     // Nobody is present: no request reaches the server until the run has
     // ended and its outcome turn has answered.
-    let start = std::time::Instant::now();
-    while !m.requests().iter().any(|c| run_of(c) == Run::Outcome) {
-        assert!(start.elapsed() < SCHEDULE_PATIENCE, "the schedule for {} did not run and report:\n{}", card["daily_at"], story(&m));
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-
-    let (_, s) = alice.get("/v1/schedules").await;
-    let id = s["schedules"][0]["id"].as_str().expect("no schedule").to_string();
-    let thread = format!("schedule-{id}");
-    let e = wait("the report in the schedule's thread", PATIENCE, &m, &alice, || async {
-        let e = entries(&alice, &thread).await;
-        e.iter().any(|e| e["kind"] == "answer" && e["text"] == REPORT).then_some(e)
-    })
-    .await;
-    let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result in the schedule's thread: {e:?}"));
+    until_outcome(&m).await;
+    let e = in_origin(&m, &alice, &origin, REPORT).await;
+    let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result where the schedule was set up: {e:?}"));
     assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("completed"), Some(SUMMARY)), "{result}");
-    assert!(!e.iter().any(|e| e["kind"] == "message"), "the thread shows a message nobody wrote: {e:?}");
+    assert_eq!(e.iter().filter(|e| e["kind"] == "message").count(), 1, "the conversation shows a message nobody wrote: {e:?}");
     assert!(!e.iter().any(|e| e.to_string().contains(OUTCOME)), "the server's turn text is shown to the person: {e:?}");
-    // The conversation it was set up in gets none of it.
-    let o = entries(&alice, &origin).await;
-    assert!(!o.iter().any(|e| e["kind"] == "result" || e["kind"] == "tasks" || e["text"] == REPORT), "the run posted where the schedule was set up: {o:?}");
-    // The one run is the person's task, grouped under its schedule.
+    // The one run is the person's task, grouped under its schedule, and the
+    // schedule has no thread of its own.
     let tasks = visible_tasks(&alice).await;
     assert_eq!(tasks.len(), 1, "{tasks:?}");
     assert_eq!(tasks[0]["group"]["kind"], "schedule", "{tasks:?}");
     let run = tasks[0]["task_id"].as_str().unwrap().to_string();
-    only(&alice, &b, &[&run], &[], &[&origin, &thread]).await;
+    assert_eq!(alice.task(&run).await["thread"], origin.as_str(), "the run did not post where the schedule was set up");
+    only(&alice, &b, &[&run], &[], &[&origin]).await;
+}
+
+/// Wait for the agent's report in the conversation a schedule was set up
+/// in: the run's result and the outcome turn's answer post there.
+async fn in_origin(m: &FakeModel, api: &Api, origin: &str, report: &str) -> Vec<Value> {
+    wait("the report where the schedule was set up", PATIENCE, m, api, || async {
+        let e = entries(api, origin).await;
+        e.iter().any(|e| e["kind"] == "answer" && e["text"] == report).then_some(e)
+    })
+    .await
+}
+
+/// Set up a schedule in a new conversation, due at the start of the minute
+/// after next, and confirm its card. Returns the conversation.
+async fn schedule_in_chat(api: &Api, ask: &str) -> String {
+    let (origin, turn) = chat(api, ask).await;
+    api.wait_settled(&turn).await;
+    let card = entries(api, &origin).await.into_iter().find(|e| e["kind"] == "schedule_card").expect("no schedule card");
+    let (st, v) = api.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
+    assert!(st.is_success(), "{v}");
+    origin
+}
+
+/// When "every morning" is due: the start of the minute after next, in the
+/// server's local time, so it fires once while the test runs.
+fn due_soon() -> String {
+    (chrono::Local::now() + chrono::Duration::minutes(2)).format("%H:%M").to_string()
+}
+
+/// Nobody is present: nothing reaches the server until a run has ended and
+/// its outcome turn has been asked.
+async fn until_outcome(m: &FakeModel) {
+    let start = std::time::Instant::now();
+    while !m.requests().iter().any(|c| run_of(c) == Run::Outcome) {
+        assert!(start.elapsed() < SCHEDULE_PATIENCE, "the schedule did not run and report:\n{}", story(m));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }
 
 /// 3. A task that fails wakes its agent, which retries within the grant the

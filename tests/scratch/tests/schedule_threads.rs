@@ -1,9 +1,9 @@
-//! Each schedule run posts to the schedule's own thread (behavior spec,
-//! Tasks and schedules in conversation: "Each schedule run posts to the
-//! schedule's own thread, so recurring output doesn't bury the
-//! conversation"). The thread is in the person's list, holds each run and
-//! its result, takes a reply like any other, and the conversation the
-//! schedule was set up in gets none of it.
+//! Where a schedule's runs post (owner, 2026-11-10; spec rev 140: "its
+//! outcome returns as a new turn to the agent in the conversation where the
+//! work or schedule started"). A schedule set up in a conversation posts each
+//! run's result there. One set up outside a conversation, in settings, posts
+//! in a thread of its own, which is in the person's list and takes a reply
+//! like any other.
 
 use magnus_invariants::*;
 use magnus_scratch::*;
@@ -13,8 +13,8 @@ use std::time::Duration;
 const CHAT: &str = "talking with the person you work for in a chat";
 const SWEEP: &str = "Sweep the shared mailbox for invoices.";
 
-#[tokio::test(flavor = "multi_thread")]
-async fn each_schedule_run_posts_to_the_schedules_own_thread() {
+/// Every run fails with nothing found; a chat turn sets up the schedule.
+async fn sweeping() -> (FakeModel, Appliance) {
     let m = FakeModel::start(script(|c| async move {
         if c.body["system"].to_string().contains(CHAT) {
             let first = c.messages().first().cloned().unwrap_or_default();
@@ -34,6 +34,24 @@ async fn each_schedule_run_posts_to_the_schedules_own_thread() {
         c.insert("schedules".into(), toml::Value::Table(t));
     })
     .await;
+    (m, app)
+}
+
+/// The first run's result in a thread, once it is there.
+async fn result_in(api: &Api, thread: &str) -> serde_json::Value {
+    eventually("the run's result in the thread", Duration::from_secs(120), || async {
+        let (st, c) = api.get(&format!("/v1/chat/{thread}")).await;
+        if !st.is_success() {
+            return None;
+        }
+        c["entries"].as_array().unwrap().iter().find(|e| e["kind"] == "result").cloned()
+    })
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_schedule_set_up_in_a_conversation_posts_its_runs_there() {
+    let (_m, app) = sweeping().await;
     let alice = app.api("alice");
     let (st, v) = alice.post("/v1/chat", json!({ "text": "Every minute, sweep the shared mailbox for invoices." })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
@@ -44,27 +62,35 @@ async fn each_schedule_run_posts_to_the_schedules_own_thread() {
     let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
     assert!(st.is_success(), "{v}");
     let schedule = eventually("the schedule", PATIENCE, || async { alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().first().cloned() }).await;
-    let thread = format!("schedule-{}", schedule["id"].as_str().unwrap());
 
-    // Its first run posts its result in the schedule's own thread.
-    let result = eventually("the run's result in the schedule's thread", Duration::from_secs(120), || async {
-        let (st, c) = alice.get(&format!("/v1/chat/{thread}")).await;
-        if !st.is_success() {
-            return None;
-        }
-        c["entries"].as_array().unwrap().iter().find(|e| e["kind"] == "result").cloned()
-    })
-    .await;
+    // Its first run posts its result in the conversation it was set up in.
+    let result = result_in(&alice, &origin).await;
     assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("failed"), Some("No invoices today.")), "{result}");
     assert_eq!(result["text"], SWEEP, "{result}");
+    // It has no thread of its own.
+    let own = format!("schedule-{}", schedule["id"].as_str().unwrap());
+    let (_, list) = alice.get("/v1/chat").await;
+    assert!(!list["threads"].as_array().unwrap().iter().any(|t| t["thread"] == own.as_str()), "the schedule set up in chat has a thread of its own: {list}");
+    // Nobody else sees it.
+    assert_eq!(app.api("bob").get(&format!("/v1/chat/{origin}")).await.0.as_u16(), 404);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_schedule_set_up_in_settings_posts_in_its_own_thread() {
+    let (_m, app) = sweeping().await;
+    let alice = app.api("alice");
+    let (st, schedule) = alice.post("/v1/schedules", json!({ "text": SWEEP, "every_minutes": 1 })).await;
+    assert!(st.is_success(), "{schedule}");
+    let id = schedule["id"].as_str().or(schedule["schedule"].as_str()).unwrap_or_else(|| panic!("no schedule id: {schedule}")).to_string();
+    let thread = format!("schedule-{id}");
+
+    let result = result_in(&alice, &thread).await;
+    assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("failed"), Some("No invoices today.")), "{result}");
     // The thread is in the person's list, under what the schedule does.
     let (_, list) = alice.get("/v1/chat").await;
     let listed =
         list["threads"].as_array().unwrap().iter().find(|t| t["thread"] == thread.as_str()).cloned().unwrap_or_else(|| panic!("the schedule's thread is not listed: {list}"));
     assert!(listed["title"].as_str().is_some_and(|t| t.contains("Sweep the shared mailbox")), "{listed}");
-    // The conversation it was set up in gets none of its runs.
-    let (_, c) = alice.get(&format!("/v1/chat/{origin}")).await;
-    assert!(!c["entries"].as_array().unwrap().iter().any(|e| e["kind"] == "result" || e["kind"] == "tasks"), "a run posted to the conversation the schedule came from: {c}");
     // The person can reply in it.
     let (st, v) = alice.post("/v1/chat", json!({ "text": "Thanks, keep going.", "thread": thread })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
