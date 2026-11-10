@@ -1,8 +1,10 @@
 //! What a person's own rules do at the boundary. A block stops the action
 //! before anything is asked. An ask first goes to the person, whatever a
 //! policy permit, a grant, an allow rule or Auto Review would say, because
-//! ask first wins over allow. A new source for the person's computer goes
-//! to the person too, who grants it to the task or for good.
+//! ask first wins over allow. A new source for the person's computer is a
+//! boundary action like any other: an allow rule naming its host or Auto
+//! Review clears it for the task, and only when neither does is the person
+//! asked, who grants it to the task or for good.
 use crate::boundary::{Action, Facts, Shown, Verdict};
 use crate::kernel::Kernel;
 use crate::policy::{self, ToolFacts};
@@ -20,8 +22,11 @@ pub const SOURCE_TOOL: &str = "add_computer_destination";
 type Ask = Option<(String, Option<String>)>;
 
 /// Asks only a person may answer: neither a rule, a grant nor Auto Review.
-pub fn person_only(rule: Option<&str>) -> bool {
-    rule.is_some_and(|r| r == crate::auto_review::ASKED || r == NEW_SOURCE || r.starts_with(PERSON_RULE))
+/// Their own ask-first rule, Auto Review's own ask, and every payment
+/// (spec: payments are approved every time). A new source is not one: a
+/// rule or Auto Review clears it like any boundary action.
+pub fn person_only(rule: Option<&str>, risk: crate::tools::Risk) -> bool {
+    risk == crate::tools::Risk::Financial || rule.is_some_and(|r| r == crate::auto_review::ASKED || r.starts_with(PERSON_RULE))
 }
 
 /// The approval card's question.
@@ -118,12 +123,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_person_answers_their_rules_asks_and_new_sources() {
-        assert!(person_only(Some("person_rule:rule-1")));
-        assert!(person_only(Some(NEW_SOURCE)));
-        assert!(person_only(Some(crate::auto_review::ASKED)));
-        assert!(!person_only(Some("default:ask")));
-        assert!(!person_only(None));
+    fn only_a_person_answers_their_ask_first_rules_and_payments() {
+        use crate::tools::Risk;
+        let w = Risk::Irreversible;
+        assert!(person_only(Some("person_rule:rule-1"), w));
+        assert!(person_only(Some(crate::auto_review::ASKED), w));
+        assert!(person_only(Some("default:ask"), Risk::Financial), "a payment was left to Auto Review");
+        assert!(person_only(None, Risk::Financial), "a payment was left to Auto Review");
+        assert!(!person_only(Some(NEW_SOURCE), Risk::ReversibleWrite), "a new source skipped rules and Auto Review");
+        assert!(!person_only(Some("default:ask"), w));
+        assert!(!person_only(None, w));
+    }
+
+    /// A rule names a source by its host, so an allow rule can cover it.
+    #[test]
+    fn a_source_is_matched_by_its_host() {
+        let a = Action {
+            run: "r".into(),
+            call_id: "c".into(),
+            step_id: "s".into(),
+            tool: SOURCE_TOOL.into(),
+            input: serde_json::json!({ "host": "Data.Example" }),
+            issuer: crate::boundary::Issuer::Model,
+        };
+        assert_eq!(crate::rules::destinations_of(&a, None), vec!["data.example".to_string()]);
+        let alice: crate::config::Person = serde_json::from_value(serde_json::json!({ "id": "alice", "groups": [] })).unwrap();
+        let facts = ToolFacts { name: SOURCE_TOOL, app: "computer", risk: crate::tools::Risk::ReversibleWrite, audience: crate::tools::Audience::Public };
+        let allow = crate::rules::compile("alice", "computer", SOURCE_TOOL, &["data.example".into()], false, Effect::Allow).unwrap();
+        assert!(policy::rule_covers(&allow.cedar, &alice, &facts, "data.example").unwrap());
+        assert!(!policy::rule_covers(&allow.cedar, &alice, &facts, "other.example").unwrap());
     }
 
     fn rule(id: &str, effect: Effect, tool: &str, to: &[&str], accepted: bool) -> Rule {

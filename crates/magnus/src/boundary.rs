@@ -973,7 +973,7 @@ impl Kernel {
             }
             return Ok(Gate::Pass);
         }
-        let person_only = lookup || crate::rule_effects::person_only(rule.as_deref());
+        let person_only = lookup || crate::rule_effects::person_only(rule.as_deref(), f.risk);
         let why = match self.clear_ask(a, run, f, &rule, shown, &hash, kernel_ask, person_only).await? {
             crate::auto_review::Cleared::Gate(g) => return Ok(g),
             crate::auto_review::Cleared::Ask(reason) => reason.unwrap_or_else(|| why.to_string()),

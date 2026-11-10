@@ -1,6 +1,7 @@
 //! Sources a task may use from the person's computer. A host the computer
-//! cannot reach yet is a new source: the person approves it for this task
-//! alone, or always. A source granted to a task is reachable only while
+//! cannot reach yet is a new source: an allow rule naming it or Auto Review
+//! grants it to this task, and otherwise the person approves it for this
+//! task alone, or always. A source granted to a task is reachable only while
 //! that task runs; one allowed always joins the computer's destinations.
 use super::service::checked_host;
 use super::Change;

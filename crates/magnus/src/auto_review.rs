@@ -1,7 +1,9 @@
 //! Auto Review: an independent model that answers a policy ask with allow,
 //! deny or ask, so a person is asked only about what it cannot clear. It has
-//! no switch. It never clears the kernel's own asks about private data, and
-//! when it fails to answer the person is asked, as if it had said so.
+//! no switch. Every ask goes to it except a payment, the person's own
+//! ask-first rule, and the floor: the kernel's own asks about private data,
+//! which it reaches only where a rule already covers them. When it fails to
+//! answer the person is asked, as if it had said so.
 
 use crate::boundary::{is_reviewed_send, Action, Facts, Gate, Shown, Verdict as Outcome};
 use crate::kernel::Kernel;
@@ -73,6 +75,30 @@ pub(crate) enum Standing {
     Schedule(String),
     Grant(String),
     Rule(String),
+}
+
+/// Who answers an ask that no approval covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Route {
+    /// Only a person: a payment, their own ask-first rule, Auto Review's own ask.
+    Person,
+    /// A rule, grant or schedule covers an action that sends nothing out.
+    Covered,
+    /// Auto Review decides, and a person is asked only if it asks.
+    Review,
+}
+
+/// The route for an ask: `floor` is whether the kernel itself asked about
+/// private data, `sends` whether the action leaves Magnus
+/// (`is_reviewed_send`), `covered` whether a rule, grant or schedule does.
+pub(crate) fn route(person_only: bool, floor: bool, sends: bool, covered: bool) -> Route {
+    if person_only || (floor && !covered) {
+        return Route::Person;
+    }
+    if covered && !sends {
+        return Route::Covered;
+    }
+    Route::Review
 }
 
 /// After the reviewer: a gate, or the person must be asked (and why).
@@ -151,11 +177,12 @@ fn remember(key: String, verdict: &Verdict) {
 
 impl Kernel {
     /// What covers this action without a person, by deterministic match only.
-    fn what_covers(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, kernel_ask: bool) -> Option<Standing> {
+    /// `narrow`: only a rule covers it (the kernel's own asks, a new source).
+    fn what_covers(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, narrow: bool) -> Option<Standing> {
         if let Some(id) = self.covering_rule(a, run, f, shown) {
             return Some(Standing::Rule(id));
         }
-        if kernel_ask || f.risk == crate::tools::Risk::Financial {
+        if narrow || f.risk == crate::tools::Risk::Financial {
             return None;
         }
         // A schedule's confirmation (owner, 2026-11-02) and a grant (#235)
@@ -187,7 +214,8 @@ impl Kernel {
 
     /// An ask no approval answers: what covers it, then Auto Review. The
     /// kernel's own asks (private data to a wider audience) reach the
-    /// reviewer only when an accepted rule already covers them.
+    /// reviewer only when an accepted rule already covers them. Any other
+    /// ask goes to Auto Review, which clears it where policy delegates.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn clear_ask(
         &self,
@@ -200,23 +228,23 @@ impl Kernel {
         kernel_ask: bool,
         person_only: bool,
     ) -> Result<Cleared> {
-        if person_only {
-            return Ok(Cleared::Ask(None));
-        }
-        let standing = self.what_covers(a, run, f, shown, kernel_ask);
-        if !is_reviewed_send(a, f) {
-            return Ok(match standing {
-                Some(s) => {
+        let source = rule.as_deref() == Some(crate::rule_effects::NEW_SOURCE);
+        let standing = if person_only { None } else { self.what_covers(a, run, f, shown, kernel_ask || source) };
+        match route(person_only, kernel_ask, is_reviewed_send(a, f), standing.is_some()) {
+            Route::Person => return Ok(Cleared::Ask(None)),
+            Route::Covered => {
+                if let Some(s) = standing {
                     self.record_standing(a, run, rule, s).await?;
-                    Cleared::Gate(Gate::Pass)
                 }
-                None => Cleared::Ask(None),
-            });
+                return Ok(Cleared::Gate(Gate::Pass));
+            }
+            Route::Review => {}
         }
-        if kernel_ask && standing.is_none() {
-            return Ok(Cleared::Ask(None));
-        }
-        let said = if standing.is_some() { "covered by a rule or grant" } else { "the organisation's policy asks" };
+        let said = match (&standing, source) {
+            (Some(_), _) => "covered by a rule or grant",
+            (None, true) => "a new source the person's computer cannot reach yet",
+            (None, false) => "the organisation's policy asks",
+        };
         Ok(match self.auto_review(a, run, shown, hash, said).await? {
             Verdict::Deny(reason) => Cleared::Gate(Gate::Stop(self.deny(a, "auto_review", &reason, false, rule.clone()).await?)),
             Verdict::Ask(reason) => Cleared::Ask(Some(reason)),
@@ -346,6 +374,21 @@ mod tests {
         ] {
             assert_ne!(base, other);
         }
+    }
+
+    /// Every ask goes to Auto Review except a person-only one (a payment,
+    /// an ask-first rule) and the floor, which a covering rule must reach
+    /// first. An ask on an action that sends nothing out used to skip the
+    /// reviewer and go straight to the person.
+    #[test]
+    fn every_ask_but_a_payment_an_ask_first_and_the_floor_goes_to_auto_review() {
+        assert_eq!(route(false, false, false, false), Route::Review, "a policy ask that sends nothing out skipped Auto Review");
+        assert_eq!(route(false, false, true, false), Route::Review);
+        assert_eq!(route(false, false, true, true), Route::Review, "a covered send went unreviewed");
+        assert_eq!(route(false, false, false, true), Route::Covered);
+        assert_eq!(route(true, false, true, true), Route::Person, "a person-only ask was cleared");
+        assert_eq!(route(false, true, true, false), Route::Person, "the floor was cleared without a rule");
+        assert_eq!(route(false, true, true, true), Route::Review);
     }
 
     #[test]

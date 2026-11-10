@@ -181,7 +181,11 @@ pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String
 }
 
 /// Where an action goes, as a rule would name it. Empty means it cannot match.
+/// A new source is named by its host.
 pub(crate) fn destinations_of(a: &Action, shown: Option<&Shown>) -> Vec<String> {
+    if a.tool == crate::rule_effects::SOURCE_TOOL {
+        return a.input["host"].as_str().map(normalized).filter(|h| !h.is_empty()).into_iter().collect();
+    }
     match shown {
         Some(s) => s.recipients.values().flatten().map(|r| normalized(r)).collect(),
         None => crate::tools::addresses(&a.input),
