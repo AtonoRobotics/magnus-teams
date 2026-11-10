@@ -30,3 +30,12 @@ assert.equal((limited.match(/<tr>/g)||[]).length,201,'preview must keep its conf
 assert.ok(limited.includes('The first 200 of 1000 rows; the rest are in the file.'));
 assert.equal((markdown(largeTable).match(/<tr>/g)||[]).length,1001,'ordinary answers do not acquire a file preview cap');
 console.log('Markdown file table previews preserve the row bound and remainder notice');
+
+// A secret the server hid when it was typed into chat shows masked, and the
+// rest of the message stays escaped.
+const {maskedText}=ctx.renderer;
+const shown=maskedText('pay <b>now</b> with [hidden card number ending 4242], password: [hidden password]');
+assert.ok(shown.includes('&lt;b&gt;now'));assert.ok(!shown.includes('[hidden'));
+assert.ok(shown.includes('class="masked-secret"'));assert.ok(shown.includes('•••• 4242'));assert.ok(shown.includes('(hidden password)'));
+assert.equal(maskedText('[hidden <script>]'),'[hidden &lt;script&gt;]');
+console.log('typed secrets: hidden values show masked, with the rest escaped');

@@ -74,6 +74,7 @@ mod tools_identity;
 pub mod tools_ui;
 pub mod totp;
 pub mod trash;
+pub mod typed_secrets;
 pub mod ui;
 pub mod ui_actions;
 pub mod unattended;

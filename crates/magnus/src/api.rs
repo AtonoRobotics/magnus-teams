@@ -1220,8 +1220,8 @@ async fn chat_post(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response 
         Ok(x) => x,
         Err(r) => return r,
     };
-    match k.chat_say(&p.id, text, b["thread"].as_str().map(String::from), model, None, files, project).await {
-        Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task }))).into_response(),
+    match k.chat_say(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, None, files, project).await {
+        Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task, "hidden": crate::typed_secrets::mask(&text).hidden }))).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => internal(e),
     }

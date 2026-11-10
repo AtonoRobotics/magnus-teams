@@ -50,6 +50,8 @@ serde_json = "1"
 sha2 = "0.10"
 stacker = "0.1"
 thiserror = "2"
+# Finding secrets a person types into chat, to mask them.
+regex = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4"] }

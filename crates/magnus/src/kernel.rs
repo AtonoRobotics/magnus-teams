@@ -18,10 +18,9 @@ use std::time::{Duration, Instant};
 
 pub const HARNESS_VERSION: &str = concat!("magnus-", env!("CARGO_PKG_VERSION"));
 
-/// The record a sign-in resolves: the config first, the appliance's own
-/// directory when the config does not know them. A local person arrives
-/// with no token, no groups and no roles: a member, nothing more. Split
-/// out so tests reach it without booting a kernel (which needs Postgres).
+/// The record a sign-in resolves: the config first, else the server's own
+/// directory, where a local person has no token, groups or roles: a member,
+/// nothing more. Split out so tests reach it without a kernel (Postgres).
 pub(crate) fn resolve_person(cfg: &Config, accounts: &crate::accounts::Accounts, id: &str) -> Option<Person> {
     if let Some(p) = cfg.person(id) {
         return Some(p.clone());
@@ -199,12 +198,13 @@ impl Kernel {
         Ok(k)
     }
 
-    /// Number each document version here, under the write lock: writes at
-    /// once never share a number, and a path removed and written again
-    /// counts on from its last.
+    /// Ready events for the log, under the write lock: a secret typed into
+    /// chat is masked so it is never written (spec, Typed secrets), and each
+    /// document version is numbered, never shared, counting on after removal.
     fn number<'a>(&self, evs: impl Iterator<Item = &'a mut Ev>) {
         let mut last: HashMap<String, u32> = HashMap::new();
         for ev in evs {
+            crate::typed_secrets::mask_event(ev);
             if let Ev::BundleWritten { path, version, .. } = ev {
                 let n = last.get(path.as_str()).copied().unwrap_or_else(|| self.read(|s| s.bundle_last.get(path.as_str()).copied().unwrap_or(0))) + 1;
                 last.insert(path.clone(), n);

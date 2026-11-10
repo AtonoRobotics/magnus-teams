@@ -6,6 +6,10 @@
 
 const Compose = (() => {
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  // A secret the server hid when someone typed it into chat (spec, Typed
+  // secrets) shows as a masked value, with what it was for screen readers.
+  /** @param {string} s @returns {string} HTML */
+  const maskedText = s => esc(s).replace(/\[hidden ([A-Za-z ]+?)(?: ending (\d{4}))?\]/g, (_, what, last) => `<span class="masked-secret" title="Hidden ${what}: it is not kept, and Magnus never sees it">••••${last ? ` ${last}` : ""}<span class="sr"> (hidden ${what})</span></span>`);
   const fmt = v => typeof v === "number" ? (Math.abs(v) >= 1000 ? v.toLocaleString() : String(Math.round(v * 1000) / 1000)) : esc(v);
 
   function frame(c, inner) {
@@ -362,5 +366,5 @@ const Compose = (() => {
       <style>:root{${vars(tokens)}}${fontCss || ""}${CSS}${markdownStyles}</style></head><body>${body}</body></html>`;
   }
 
-  return { documentFor, TEXT, markdown, safeUrl, markdownStyles };
+  return { documentFor, TEXT, markdown, safeUrl, markdownStyles, maskedText };
 })();

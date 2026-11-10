@@ -1438,6 +1438,8 @@ function wireComposer(thread, project, record) {
     try {
       const response=await api("POST","/v1/chat",body);
       if (epoch !== MessageDrafts.epoch()) return;
+      // A secret typed into chat was hidden by the server: say so, and where a sign-in belongs.
+      if (response?.hidden?.length) toast(`Magnus hid the ${[...new Set(response.hidden)].join(" and ")} in your message: it is not kept, and Magnus never sees it. When Magnus needs a sign-in, it asks for it through a secure form.`, 8000);
       // Clear what was sent; anything typed or attached meanwhile stays.
       if (record.text.trim()===text) { record.text=""; record.selection=[0,0]; }
       record.files=record.files.filter(f=>!files.includes(f));
@@ -1954,7 +1956,7 @@ function entry(e, ui = {}) {
     case "message": return ui.editing === e.id
       ? `<div class="msg me editing"><label class="sr" for="edit-${esc(e.id)}">Edit and resend</label><textarea id="edit-${esc(e.id)}" rows="3" data-draft="edit-${esc(e.id)}"></textarea>
         <div class="row small"><button class="primary" data-msg-act="edit-send">Send</button><button class="link" data-msg-act="edit-cancel">Cancel</button></div></div>`
-      : `<div class="msg me"><div class="small faint">You · ${esc(when(e.at))}</div><div>${esc(e.text)}</div>${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}</div>`;
+      : `<div class="msg me"><div class="small faint">You · ${esc(when(e.at))}</div><div>${Compose.maskedText(e.text)}</div>${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}</div>`;
     case "opener": return `<div class="msg magnus" data-opener><div class="small faint">Magnus · ${esc(when(e.at))}</div><div class="small muted">${e.app_title ? `You connected ${esc(e.app_title)}, so I had a look at what I could take over there.` : "You are new here, so I had a look at what I could take over for you."}</div></div>`;
     case "answer": return `<div class="msg magnus" data-answer data-task="${esc(e.task_id)}"><div class="small faint">Magnus${e.model ? ` · ${esc(e.model.model)}` : ""} · ${esc(when(e.at))}</div><div class="answer-body">${Compose.markdown(e.text || "")}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}</div>`;
     case "turn": return e.status === "failed" || e.status === "cancelled"

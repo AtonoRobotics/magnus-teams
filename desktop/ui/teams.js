@@ -46,7 +46,7 @@ function teamChannels(main, body, ws, base, w, hash, more) {
   const draw = async () => {
     const [messages, whispers] = await Promise.all([api("GET", `${at}/messages`), api("GET", `${at}/whispers`).catch(() => [])]);
     if (location.hash !== hash) return false;
-    const box = $("#messages", body), html = messages.map(m => `<div class="msg ${m.sender === "agent" ? "magnus" : ""}"><div class="small faint">${esc(m.sender === "agent" ? "Team agent" : m.sender)}${m.requester ? ` for ${esc(m.requester)}` : ""}</div><div class="pre">${esc(m.text)}</div></div>`).join("") || `<p class="empty">No messages yet.</p>`;
+    const box = $("#messages", body), html = messages.map(m => `<div class="msg ${m.sender === "agent" ? "magnus" : ""}"><div class="small faint">${esc(m.sender === "agent" ? "Team agent" : m.sender)}${m.requester ? ` for ${esc(m.requester)}` : ""}</div><div class="pre">${Compose.maskedText(m.text)}</div></div>`).join("") || `<p class="empty">No messages yet.</p>`;
     if (box._html !== html) { box.innerHTML = box._html = html; box.scrollTop = box.scrollHeight; }
     const mine = whispers.map(x => `<div class="msg" data-whisper="${esc(x.task)}"><div class="pre">${esc(x.text || "Working on it…")}</div>${x.done && !x.shared && x.text ? `<button data-share="${esc(x.task)}">Post to the channel</button>` : x.shared ? `<span class="small faint">Posted</span>` : ""}</div>`).join("") || `<p class="small faint">Nothing yet.</p>`;
     const held = $("#whispers", body);

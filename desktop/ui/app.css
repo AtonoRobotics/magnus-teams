@@ -33,6 +33,7 @@ h3 { font-size: 12px; letter-spacing: 0; color: var(--muted); margin: 18px 0 8px
 p { margin: 6px 0; }
 .muted { color: var(--muted); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.masked-secret { font-family: ui-monospace, monospace; letter-spacing: .1em; padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
 .faint { color: var(--faint); }
 .small { font-size: 13px; }
 .num { font-variant-numeric: tabular-nums; }
