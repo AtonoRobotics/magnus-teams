@@ -31,7 +31,7 @@ const WITHHELD: &str =
 const NOT_SCREENED: &str =
     "[Withheld on arrival: this content could not be screened for instructions aimed at you, so it was not shown to you. Reading it again, or a smaller part of it, may work.]";
 const DOWNLOAD_READERS: [&str; 2] = ["sandbox_exec", "sandbox_read_file"];
-const REVISE: &str = "If it can be fixed, change it and send it again: a revised version goes to the person for approval.";
+const REVISE: &str = "If it can be fixed, change it and send it again: a revised version is reviewed again, told why the first was blocked. The same message stays blocked.";
 /// Page text like this is trying to steer the agent.
 const INJECTION_PHRASES: [&str; 8] = [
     "ignore previous instructions",
@@ -141,7 +141,10 @@ fn blocked_key(run: &str, tool: &str) -> String {
 }
 
 /// What to do with a send made after one like it was blocked: the same
-/// message stays blocked, and a changed one goes to the person.
+/// message stays blocked, and a changed one is reviewed again with the reason
+/// for the block beside it. A rewrite asks the person only when the review
+/// judges it outside what was asked, as any action does (spec rev 140, "What
+/// still asks").
 pub(crate) enum Resubmission {
     Unchanged(String),
     Revised(String),
@@ -156,28 +159,11 @@ pub(crate) fn resubmission(run: &str, tool: &str, hash: &str) -> Option<Resubmis
     })
 }
 
-/// A block, remembered so what follows it goes to a person.
+/// A block, remembered so the same message stays blocked and a rewrite is
+/// reviewed knowing why.
 pub(crate) fn blocked(run: &str, tool: &str, hash: &str, reason: &str) -> String {
     remember(&BLOCKED, blocked_key(run, tool), (hash.to_string(), reason.to_string()));
     format!("{reason}. {REVISE}")
-}
-
-impl From<Resubmission> for SendVerdict {
-    fn from(r: Resubmission) -> SendVerdict {
-        match r {
-            Resubmission::Unchanged(why) => SendVerdict::Block(why),
-            Resubmission::Revised(why) => SendVerdict::Flag(why),
-        }
-    }
-}
-
-impl From<Resubmission> for Verdict {
-    fn from(r: Resubmission) -> Verdict {
-        match r {
-            Resubmission::Unchanged(why) => Verdict::Deny(why),
-            Resubmission::Revised(why) => Verdict::Ask(why),
-        }
-    }
 }
 
 /// What the monitor made of one model reply.
@@ -446,10 +432,11 @@ mod tests {
     }
 
     #[test]
-    fn a_blocked_message_comes_back_only_changed_and_to_a_person() {
+    fn a_blocked_message_comes_back_only_changed_and_reviewed_again() {
         assert!(resubmission("run-a", "mail__send", "first").is_none());
         let told = blocked("run-a", "mail__send", "first", "it has a card number");
-        assert!(told.contains("revised version"), "{told}");
+        assert!(told.contains("revised version is reviewed again"), "{told}");
+        assert!(!told.contains("person") && !told.contains("approval"), "a rewrite is not one of the four asks: {told}");
         assert!(matches!(resubmission("run-a", "mail__send", "first"), Some(Resubmission::Unchanged(_))));
         assert!(matches!(resubmission("run-a", "mail__send", "second"), Some(Resubmission::Revised(_))));
         assert!(resubmission("run-b", "mail__send", "second").is_none());

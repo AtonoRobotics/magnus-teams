@@ -61,9 +61,9 @@ fn reviewer_script(agent: Script) -> Script {
 }
 
 /// A blocked send never leaves: the agent is told why, the person sees a
-/// notice on the task, and a corrected send goes through once the person
-/// approves it: a rewrite of a blocked message is not the reviewer's alone
-/// to judge (decisions/2026-11-09-safety-model-checks.md).
+/// notice on the task, and a corrected send is reviewed again, told why the
+/// first was blocked, and goes out without asking anyone: a rewrite is not
+/// one of the four asks (spec rev 140, "What still asks").
 #[tokio::test(flavor = "multi_thread")]
 async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     let mail = mcp::mail().start().await;
@@ -84,21 +84,19 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     let dana = app.api("dana");
     let (t, run) = trial(&dana, "rev", "block", "Email bob hello.", json!({ "reviewer": true })).await;
 
-    let card = dana.wait_item(&t, "approval").await;
-    assert_eq!(card["details"]["input"]["to"], "bob@corp.example", "the person is not asked about the corrected send: {card}");
-    let why = ask_reasoning(&dana, &run, card["id"].as_str().unwrap_or_default()).await;
-    assert!(why["why"].as_str().unwrap_or_default().contains("revises a message that was blocked"), "the developer view does not say it revises a blocked send: {why}");
-    assert!(!card.to_string().contains("revises a message"), "the person's card shows the reviewer's reasoning: {card}");
-    assert!(mail.calls_to("send").is_empty(), "a send left before the person approved the rewrite");
-    assert!(dana.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    eventually("the approved rewrite is sent", PATIENCE, || async { (!mail.calls_to("send").is_empty()).then_some(()) }).await;
+    eventually("the reviewed rewrite is sent", PATIENCE, || async { (!mail.calls_to("send").is_empty()).then_some(()) }).await;
     let done = dana.wait_settled(&t).await;
     let open = dana.open_items(&t, "approval").await;
     assert_eq!(done["status"], "completed", "the run did not finish after the block: {done}\nstill asking: {open:?}");
     let sends = mail.calls_to("send");
     assert_eq!(sends.len(), 1, "the blocked send left, or the retry did not: {sends:?}");
     assert_eq!(sends[0].args["to"], "bob@corp.example", "the wrong send went through: {sends:?}");
-    assert_eq!(reviewer_replies(&dana, &run).await, 2, "the blocked send and the completion review are judged and recorded; the rewrite went to the person");
+    let asked: Vec<Value> = dana.inbox().await.into_iter().filter(|i| i["task_id"] == t.as_str() && i["kind"] == "approval").collect();
+    assert!(asked.is_empty(), "the person was asked about a rewrite the reviewer passed: {asked:?}");
+    let (_, log) = dana.get(&format!("/v1/dev/runs/{run}/log")).await;
+    let judged = log["events"].as_array().unwrap().iter().filter(|e| e["kind"] == "reviewer_reply" && e["body"]["purpose"] == "send").count();
+    assert_eq!(judged, 2, "the blocked send and its rewrite are each judged by the reviewer: {log}");
+    assert_eq!(reviewer_replies(&dana, &run).await, 3, "the blocked send, the rewrite and the completion review are judged and recorded");
     let notices: Vec<Value> = dana.inbox().await.into_iter().filter(|i| i["kind"] == "notice").collect();
     assert!(
         notices.iter().any(|n| n["summary"].as_str().is_some_and(|s| s.contains("did not send") && s.contains("mallory"))),
@@ -106,7 +104,7 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     );
     let (_, reg) = dana.get("/v1/dev/modules").await;
     let rev = reg["modules"].as_array().unwrap().iter().find(|m| m["name"] == "reviewer").unwrap().clone();
-    assert_eq!(rev["acted"], 2, "the module acted on the blocked send and the completion, not on the checks beside it: {reg}");
+    assert_eq!(rev["acted"], 3, "the module acted on the blocked send, the rewrite and the completion, not on the checks beside it: {reg}");
 }
 
 /// A flagged send waits for the person: their approval sends it, without

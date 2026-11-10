@@ -79,15 +79,18 @@ impl Kernel {
     /// connector says; otherwise the call's own input.
     pub(crate) async fn review_send(&self, run: &Run, tool: &str, input: &Value, shown: Option<&Shown>) -> Result<SendVerdict> {
         let hash = shown.map_or_else(|| crate::boundary::input_hash(tool, input), |s| s.hash(tool, input));
-        if let Some(again) = crate::safety::resubmission(&run.id, tool, &hash) {
-            return Ok(again.into());
-        }
+        // A rewrite of a blocked send is judged again, told why the first was blocked.
+        let revises = match crate::safety::resubmission(&run.id, tool, &hash) {
+            Some(crate::safety::Resubmission::Unchanged(why)) => return Ok(SendVerdict::Block(why)),
+            Some(crate::safety::Resubmission::Revised(note)) => format!("\n\nNote: {note}"),
+            None => String::new(),
+        };
         let asked = self.asked(run).await?;
         let where_to = match shown {
             Some(s) => format!("recipients:\n{}\ncontent:\n{}", serde_json::to_string_pretty(&s.recipients)?, serde_json::to_string_pretty(&s.content)?),
             None => format!("input:\n{}", serde_json::to_string_pretty(input)?),
         };
-        let text = format!("The person asked:\n\n{asked}\n\nThe send to judge: {tool}\n\n{where_to}");
+        let text = format!("The person asked:\n\n{asked}\n\nThe send to judge: {tool}\n\n{where_to}{revises}");
         let msg = Message { role: Role::User, content: vec![Block::Text { text: super::clip(&text) }], state: None };
         let tools = vec![review_tool(json!({ "verdict": { "type": "string", "enum": ["pass", "flag", "block"] }, "reason": { "type": "string" } }), &["verdict", "reason"])];
         let Some(blocks) = self.reviewer_call(run, SEND_PURPOSE, SEND, vec![msg], tools).await? else { return Ok(SendVerdict::Unavailable) };
