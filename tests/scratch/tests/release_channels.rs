@@ -524,6 +524,27 @@ fn the_release_provisions_the_provider_secrets_after_the_server_updates() {
     }
 }
 
+/// Every script the release job runs is committed executable: a fresh
+/// checkout runs it as committed (the first release with the provider
+/// secrets step, 2026-11-09: "release/provision-registrations.sh: Permission
+/// denied").
+#[test]
+fn every_script_the_release_runs_is_committed_executable() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    let out = Command::new("git").args(["ls-files", "-s", "release"]).current_dir(&root).output().unwrap();
+    let index = String::from_utf8(out.stdout).unwrap();
+    let mut checked = 0;
+    for line in index.lines() {
+        let (mode, path) = (line.split_whitespace().next().unwrap(), line.split('\t').nth(1).unwrap());
+        if path.ends_with(".sh") && workflow.contains(&format!("{path} ")) {
+            assert_eq!(mode, "100755", "{path} is run by the release job but committed without its execute bit");
+            checked += 1;
+        }
+    }
+    assert!(checked >= 3, "found the scripts the release job runs ({checked})");
+}
+
 fn base64_decode(s: &str) -> Vec<u8> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.decode(s).unwrap()
