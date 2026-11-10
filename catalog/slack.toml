@@ -1,15 +1,15 @@
 id = "slack"
 version = "1.0.0"
 name = "Slack"
-summary = "Magnus can search and read your Slack messages, and send one as you when you allow it."
+summary = "Magnus can search and read your Slack messages, and send one as you when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests). `letters` and `tint` draw its tile until Slack's own mark is
 # in its listing.
 publisher = "Slack"
 category = "email"
-abilities = ["Find a message when you ask about it", "Read a channel, a direct message or a thread", "Send a message as you, when you allow it"]
+abilities = ["Find a message when you ask about it", "Read a channel, a direct message or a thread", "Send a message as you, when your request needs it"]
 asks = ["Search your messages", "Read messages in public channels you are in", "See the public channels you are in", "Read messages in private channels you are in", "See the private channels you are in", "Read your direct messages", "See who you message directly", "Read your group direct messages", "See your group direct messages", "Send messages as you", "See people's names"]
-can = "Search and read channels and direct messages you are in, and send a message as you when you allow it"
+can = "Search and read channels and direct messages you are in, and send a message as you when your request needs it"
 cannot = "Delete a message, start a channel, or read a conversation you are not in"
 letters = "Sl"
 tint = "#4A154B"

@@ -1,7 +1,7 @@
 id = "asana"
 version = "1.0.0"
 name = "Asana"
-summary = "Magnus can find and read your Asana tasks, projects, portfolios and tables, and create, update or comment on them with your approval."
+summary = "Magnus can find and read your Asana tasks, projects, portfolios and tables, and create, update or comment on them when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,10 +9,10 @@ summary = "Magnus can find and read your Asana tasks, projects, portfolios and t
 # until the provider's own mark is in its listing.
 publisher = "Asana"
 category = "work"
-abilities = ["Find a task, project or person when you ask about one", "Read a task, its comments and history, and how a project or portfolio is going", "Create and update tasks, projects and table records, when you allow it", "Comment and post project status updates, when you allow each one"]
-asks = ["Work in one Asana workspace as you: read what you can see there, and change it when you allow it"]
+abilities = ["Find a task, project or person when you ask about one", "Read a task, its comments and history, and how a project or portfolio is going", "Create and update tasks, projects and table records, when your request needs it", "Comment and post project status updates, when you allow each one"]
+asks = ["Work in one Asana workspace as you: read what you can see there, and change it when your request needs it"]
 can = "Search and read the tasks, projects, portfolios, people and tables you can see in the workspace you pick, and create, update, comment on or delete them when you allow each one"
-cannot = "See anything you cannot see in Asana, work in a workspace other than the one you pick when you sign in, or change anything without asking you first"
+cannot = "See anything you cannot see in Asana, work in a workspace other than the one you pick when you sign in, or change anything you did not ask for without asking you first"
 letters = "As"
 tint = "#C0474A"
 kind = "remote"

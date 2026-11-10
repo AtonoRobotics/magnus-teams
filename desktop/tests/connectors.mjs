@@ -153,7 +153,7 @@ await step("a connector opens to what Magnus can do with it and what it asks for
   await page.locator("[data-connector=google-gmail]").getByRole("link", { name: "Gmail" }).click();
   const d = page.locator(".cp");
   await d.getByRole("heading", { name: "Gmail", exact: true }).waitFor({ timeout: T });
-  for (const t of ["What Magnus can do with Gmail", "What it asks for", "Write drafts, replies and forwards, and send one when you allow it", "Read, write, send and label your email"]) await d.getByText(t, { exact: true }).first().waitFor({ timeout: T });
+  for (const t of ["What Magnus can do with Gmail", "What it asks for", "Write drafts, replies and forwards, and send one when your request needs it", "Read, write, send and label your email"]) await d.getByText(t, { exact: true }).first().waitFor({ timeout: T });
   await d.getByText("by Google · Reviewed by Alpha Vector").waitFor({ timeout: T });
   await d.getByText("You sign in on Google's own page. Magnus never sees your password, and you can disconnect at any time.").waitFor({ timeout: T });
   await d.getByRole("button", { name: "Connect Gmail" }).waitFor({ timeout: T });

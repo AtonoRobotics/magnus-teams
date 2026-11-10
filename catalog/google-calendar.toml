@@ -1,7 +1,7 @@
 id = "google-calendar"
 version = "1.0.0"
 name = "Google Calendar"
-summary = "Magnus can read your calendars and events, find times that work, and add or change events with your approval."
+summary = "Magnus can read your calendars and events, find times that work, and add or change events when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,9 +9,9 @@ summary = "Magnus can read your calendars and events, find times that work, and 
 # until the provider's own mark is in its listing.
 publisher = "Google"
 category = "email"
-abilities = ["Tell you what is on your calendar", "Find a time that works", "Add, move or cancel events, and answer invitations, when you allow it"]
+abilities = ["Tell you what is on your calendar", "Find a time that works", "Add, move or cancel events, and answer invitations, when your request needs it"]
 asks = ["See and change your calendars and events, and when you are free"]
-can = "Read your calendars and events, find times when people are free, and add, change, cancel or answer events (it asks you before each)"
+can = "Read your calendars and events, find times when people are free, and add, change, cancel or answer events (each is checked against what you asked for)"
 cannot = "Share a calendar or change who can see it"
 letters = "Ca"
 tint = "#2F5BD3"

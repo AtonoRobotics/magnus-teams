@@ -1,7 +1,7 @@
 id = "supabase"
 version = "1.0.0"
 name = "Supabase"
-summary = "Magnus can look into your Supabase projects, their tables, logs, advice and functions, and query your data with your approval, never changing it."
+summary = "Magnus can look into your Supabase projects, their tables, logs, advice and functions, and query your data when your request needs it, never changing it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it

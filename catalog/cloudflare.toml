@@ -1,7 +1,7 @@
 id = "cloudflare"
 version = "1.0.0"
 name = "Cloudflare"
-summary = "Magnus can answer from Cloudflare's documentation, look into how your Cloudflare accounts are set up, and run requests in your account with your approval."
+summary = "Magnus can answer from Cloudflare's documentation, look into how your Cloudflare accounts are set up, and run requests in your account when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,10 +9,10 @@ summary = "Magnus can answer from Cloudflare's documentation, look into how your
 # until the provider's own mark is in its listing.
 publisher = "Cloudflare"
 category = "code"
-abilities = ["Answer questions from Cloudflare's documentation", "Find the right Cloudflare request for a job", "Look into your accounts and their settings", "Make a change in your account, when you allow it"]
+abilities = ["Answer questions from Cloudflare's documentation", "Find the right Cloudflare request for a job", "Look into your accounts and their settings", "Make a change in your account, when your request needs it"]
 asks = ["See your Cloudflare profile", "Stay connected until you disconnect", "See your accounts and their settings"]
 can = "Search Cloudflare's documentation and its requests, and run requests in your account when you allow each one"
-cannot = "Run anything in your account without asking you first, or reach more than you allow on Cloudflare's own page when you sign in"
+cannot = "Run anything in your account you did not ask for without asking you first, or reach more than you allow on Cloudflare's own page when you sign in"
 letters = "Cf"
 tint = "#B4530A"
 kind = "remote"

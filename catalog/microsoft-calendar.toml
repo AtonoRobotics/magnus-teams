@@ -1,7 +1,7 @@
 id = "microsoft-calendar"
 version = "1.0.0"
 name = "Outlook Calendar"
-summary = "Magnus can read your Outlook calendars and events, and add or change events and answer invitations with your approval."
+summary = "Magnus can read your Outlook calendars and events, and add or change events and answer invitations when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,9 +9,9 @@ summary = "Magnus can read your Outlook calendars and events, and add or change 
 # until the provider's own mark is in its listing.
 publisher = "Microsoft"
 category = "email"
-abilities = ["Tell you what is on your calendar", "Add or move events, and answer invitations, when you allow it"]
+abilities = ["Tell you what is on your calendar", "Add or move events, and answer invitations, when your request needs it"]
 asks = ["See and change your calendars and events", "Stay connected, so you do not sign in again each hour"]
-can = "Read your calendars and events, and add or change events and answer invitations (it asks you before each)"
+can = "Read your calendars and events, and add or change events and answer invitations (each is checked against what you asked for)"
 cannot = "Cancel or delete an event, or share a calendar or change who can see it"
 letters = "Ca"
 tint = "#0F6CBD"

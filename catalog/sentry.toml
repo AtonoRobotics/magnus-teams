@@ -1,7 +1,7 @@
 id = "sentry"
 version = "1.0.0"
 name = "Sentry"
-summary = "Magnus can look into your errors, traces, logs and replays in Sentry, and resolve or assign issues with your approval."
+summary = "Magnus can look into your errors, traces, logs and replays in Sentry, and resolve or assign issues when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,10 +9,10 @@ summary = "Magnus can look into your errors, traces, logs and replays in Sentry,
 # until the provider's own mark is in its listing.
 publisher = "Sentry"
 category = "code"
-abilities = ["Find the errors behind a problem you describe", "Read an issue, its events, traces, logs and replays", "Ask Sentry's own debugger for the cause of an issue, when you allow it", "Resolve, assign or ignore issues, when you allow it"]
+abilities = ["Find the errors behind a problem you describe", "Read an issue, its events, traces, logs and replays", "Ask Sentry's own debugger for the cause of an issue, when your request needs it", "Resolve, assign or ignore issues, when your request needs it"]
 asks = ["See your organisation's projects, issues, events, traces and logs", "Resolve, assign and comment on issues"]
 can = "Search and read your issues, events, traces, logs, replays and profiles, and update issues or run Sentry's other operations when you allow each one"
-cannot = "Change anything in Sentry without asking you first, or reach more than you allow on Sentry's own page when you sign in"
+cannot = "Change anything in Sentry you did not ask for without asking you first, or reach more than you allow on Sentry's own page when you sign in"
 letters = "Se"
 tint = "#362D59"
 kind = "remote"

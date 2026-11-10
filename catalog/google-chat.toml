@@ -1,7 +1,7 @@
 id = "google-chat"
 version = "2.0.0"
 name = "Google Chat"
-summary = "Magnus can find your conversations, read and search them, and send, edit or delete your messages when you allow it."
+summary = "Magnus can find your conversations, read and search them, and send, edit or delete your messages when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,9 +9,9 @@ summary = "Magnus can find your conversations, read and search them, and send, e
 # until the provider's own mark is in its listing.
 publisher = "Google"
 category = "email"
-abilities = ["Find a conversation or a decision when you ask about it", "Catch you up on spaces you have been away from", "Send, edit or delete your messages, when you allow it"]
+abilities = ["Find a conversation or a decision when you ask about it", "Catch you up on spaces you have been away from", "Send, edit or delete your messages, when your request needs it"]
 asks = ["See your spaces and conversations", "See who is in your spaces", "Read your messages, and send, edit and delete yours", "Identify your Google account to verify which messages are yours"]
-can = "Find your conversations and who is in them, read and search their messages, and send, edit or delete yours (it asks you before each)"
+can = "Find your conversations and who is in them, read and search their messages, and send, edit or delete yours (each is checked against what you asked for)"
 cannot = "Start a conversation, or add or remove people"
 letters = "Ch"
 tint = "#1A7F64"

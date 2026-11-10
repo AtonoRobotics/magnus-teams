@@ -1,7 +1,7 @@
 id = "shopify"
 version = "1.0.0"
 name = "Shopify"
-summary = "Magnus can look into your Shopify store's products, orders, customers, stock and sales, and change products, prices, stock and discounts with your approval."
+summary = "Magnus can look into your Shopify store's products, orders, customers, stock and sales, and change products, prices, stock and discounts when your request needs it."
 # Held out of the shipped catalog (`catalog.rs`, HELD): Shopify's server
 # signs clients in only by a client ID metadata document, which Magnus does
 # not have yet (decisions/2026-11-10-asana-and-shopify.md). Checked like
@@ -14,10 +14,10 @@ summary = "Magnus can look into your Shopify store's products, orders, customers
 # until the provider's own mark is in its listing.
 publisher = "Shopify"
 category = "work"
-abilities = ["Answer questions about your store's orders, customers, stock and sales", "Find a product or collection and read its details", "Change products, collections and stock, when you allow it", "Set prices and create discount codes, when you allow each one"]
+abilities = ["Answer questions about your store's orders, customers, stock and sales", "Find a product or collection and read its details", "Change products, collections and stock, when your request needs it", "Set prices and create discount codes, when you allow each one"]
 asks = ["See your store's sales reports", "See all your store's orders, older ones too", "Read and change your store's orders", "Read and change your products and collections", "Read and change your stock levels", "Read and change your customers", "Create discounts", "Put products and collections on your online store", "Create digital products"]
 can = "Read your store's products, collections, orders, customers, stock and sales reports, and change products, collections, stock, prices and discounts when you allow each one"
-cannot = "Refund an order, change your live theme or your staff, switch to another of your stores, or change anything without asking you first"
+cannot = "Refund an order, change your live theme or your staff, switch to another of your stores, or change anything you did not ask for without asking you first"
 letters = "Sh"
 tint = "#007A5A"
 kind = "remote"

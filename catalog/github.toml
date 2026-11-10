@@ -1,7 +1,7 @@
 id = "github"
 version = "1.0.0"
 name = "GitHub"
-summary = "Magnus can read your GitHub repositories, issues, pull requests and code, and open, comment on, commit to or merge them with your approval."
+summary = "Magnus can read your GitHub repositories, issues, pull requests and code, and open, comment on, commit to or merge them when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,10 +9,10 @@ summary = "Magnus can read your GitHub repositories, issues, pull requests and c
 # until the provider's own mark is in its listing.
 publisher = "GitHub"
 category = "code"
-abilities = ["Find a repository, issue, pull request or file when you ask about it", "Read a pull request's changes, reviews and comments", "Open and update issues and pull requests, comment and review, when you allow it", "Commit, merge and delete, when you allow each one"]
-asks = ["Read and change your repositories, public and private, with their code, issues and pull requests, when you allow it", "See your organisations and teams"]
+abilities = ["Find a repository, issue, pull request or file when you ask about it", "Read a pull request's changes, reviews and comments", "Open and update issues and pull requests, comment and review, when your request needs it", "Commit, merge and delete, when you allow each one"]
+asks = ["Read and change your repositories, public and private, with their code, issues and pull requests, when your request needs it", "See your organisations and teams"]
 can = "Read your repositories, issues, pull requests, commits and releases, and open, comment on, commit to or merge them when you allow each one"
-cannot = "Change anything without asking you first, or reach an organisation whose owners have not approved Magnus"
+cannot = "Change anything you did not ask for without asking you first, or reach an organisation whose owners have not approved Magnus"
 letters = "Gh"
 tint = "#24292F"
 # GitHub's remote server (github/github-mcp-server, docs/remote-server.md),

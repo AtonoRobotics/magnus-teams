@@ -1,7 +1,7 @@
 id = "gitlab"
 version = "1.0.0"
 name = "GitLab"
-summary = "Magnus can read your GitLab projects, issues, merge requests, code and pipelines, and open, comment on, commit to or merge them with your approval."
+summary = "Magnus can read your GitLab projects, issues, merge requests, code and pipelines, and open, comment on, commit to or merge them when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,10 +9,10 @@ summary = "Magnus can read your GitLab projects, issues, merge requests, code an
 # until the provider's own mark is in its listing.
 publisher = "GitLab"
 category = "code"
-abilities = ["Find an issue, merge request or file when you ask about it", "Read a merge request's changes and how its pipelines went", "Open and update issues and merge requests, comment and review, when you allow it", "Commit, merge and run pipelines, when you allow each one"]
-asks = ["Work in GitLab as you: read your projects, and change them when you allow it"]
+abilities = ["Find an issue, merge request or file when you ask about it", "Read a merge request's changes and how its pipelines went", "Open and update issues and merge requests, comment and review, when your request needs it", "Commit, merge and run pipelines, when you allow each one"]
+asks = ["Work in GitLab as you: read your projects, and change them when your request needs it"]
 can = "Read your projects, issues, merge requests, code and pipelines, and open, comment on, commit to, merge or run them when you allow each one"
-cannot = "Change anything without asking you first, or answer GitLab Duo when it asks for your approval"
+cannot = "Change anything you did not ask for without asking you first, or answer GitLab Duo when it asks for your approval"
 letters = "Gl"
 tint = "#B8401A"
 kind = "remote"

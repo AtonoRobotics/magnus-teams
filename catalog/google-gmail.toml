@@ -1,7 +1,7 @@
 id = "google-gmail"
 version = "1.3.0"
 name = "Gmail"
-summary = "Magnus can search and read your email, write drafts and send one when you allow it, and file, label or trash messages."
+summary = "Magnus can search and read your email, write drafts and send one when your request needs it, and file, label or trash messages."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,9 +9,9 @@ summary = "Magnus can search and read your email, write drafts and send one when
 # until the provider's own mark is in its listing.
 publisher = "Google"
 category = "email"
-abilities = ["Find an email or a thread when you ask about it", "Summarize long threads and catch you up", "Write drafts, replies and forwards, and send one when you allow it", "Label, file or trash messages"]
+abilities = ["Find an email or a thread when you ask about it", "Summarize long threads and catch you up", "Write drafts, replies and forwards, and send one when your request needs it", "Label, file or trash messages"]
 asks = ["Read, write, send and label your email"]
-can = "Read, write, send, reply to and forward your email (it asks you before each send), and label, file or trash messages"
+can = "Read, write, send, reply to and forward your email (each send is checked against what you asked for), and label, file or trash messages"
 cannot = "Delete an email for good"
 letters = "Gm"
 tint = "#B3261E"

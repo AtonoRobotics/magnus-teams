@@ -1,7 +1,7 @@
 id = "microsoft-outlook"
 version = "1.0.0"
 name = "Outlook"
-summary = "Magnus can search and read your Outlook email, write drafts and replies, and send one when you allow it."
+summary = "Magnus can search and read your Outlook email, write drafts and replies, and send one when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -9,9 +9,9 @@ summary = "Magnus can search and read your Outlook email, write drafts and repli
 # until the provider's own mark is in its listing.
 publisher = "Microsoft"
 category = "email"
-abilities = ["Find an email when you ask about it", "Read messages and catch you up", "Write drafts and replies, and send one when you allow it"]
+abilities = ["Find an email when you ask about it", "Read messages and catch you up", "Write drafts and replies, and send one when your request needs it"]
 asks = ["Read your email and write drafts", "Send email as you", "Stay connected, so you do not sign in again each hour"]
-can = "Read and search your email, and write drafts and replies, and send a draft (it asks you before each send)"
+can = "Read and search your email, and write drafts and replies, and send a draft (each send is checked against what you asked for)"
 cannot = "Delete, move or file email, or change your mailbox settings"
 letters = "Ol"
 tint = "#0F6CBD"

@@ -125,7 +125,7 @@ async fn a_person_s_card_for_gmail_says_what_magnus_can_do_in_plain_words() {
     let (st, c) = app.api("carol").get("/v1/connectors/google-gmail").await;
     assert!(st.is_success(), "{c}");
     assert_eq!((c["title"].as_str(), c["state"].as_str()), (Some("Gmail"), Some("available")), "{c}");
-    assert_eq!(c["summary"], "Magnus can search and read your email, write drafts and send one when you allow it, and file, label or trash messages.", "{c}");
+    assert_eq!(c["summary"], "Magnus can search and read your email, write drafts and send one when your request needs it, and file, label or trash messages.", "{c}");
     let allows: Vec<String> = c["allows"].as_array().unwrap().iter().map(|l| l.as_str().unwrap().to_string()).collect();
     assert!(allows[0].starts_with("Reads: ") && allows[0].contains("search threads"), "{allows:?}");
     assert!(allows.iter().any(|l| l.starts_with("Changes that can be undone: ") && l.contains("create draft")), "{allows:?}");

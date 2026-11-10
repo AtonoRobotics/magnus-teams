@@ -268,7 +268,21 @@ mod tests {
         }
     }
 
+    /// What a card tells the person matches rev 140: connecting grants the
+    /// app's use, and a write or send asks only when it is outside what was
+    /// asked (decisions/2026-11-10-catalog-says-what-asks.md).
+    fn promises_only_the_four_asks(m: &super::Manifest) {
+        let texts = [&m.summary, &m.can, &m.cannot].into_iter().chain(&m.abilities).chain(&m.asks);
+        for t in texts {
+            for old in ["with your approval", "when you allow it", "asks you before each", "without asking you first"] {
+                let fits = old == "without asking you first" && t.contains("you did not ask for without asking you first");
+                assert!(fits || !t.contains(old), "{}: \"{t}\" promises an ask rev 140 removed", m.id);
+            }
+        }
+    }
+
     fn well_formed(m: &super::Manifest, registrations: &[&str]) {
+        promises_only_the_four_asks(m);
         assert!(!m.id.contains("__") && m.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'), "{}", m.id);
         assert_eq!(super::kind_problem(m), None);
         assert!(registrations.contains(&m.registration.as_str()), "{}", m.id);

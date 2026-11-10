@@ -1,7 +1,7 @@
 id = "vercel"
 version = "1.0.0"
 name = "Vercel"
-summary = "Magnus can look into your Vercel projects, deployments, logs and errors, and deploy, change settings or roll back with your approval."
+summary = "Magnus can look into your Vercel projects, deployments, logs and errors, and deploy, change settings or roll back when your request needs it."
 # The Library's card and page (connectors spec, Catalog and connector
 # manifests; Library): who makes it, its category chip, what Magnus can do
 # with it, each scope in plain words (in the order of `scopes`), and what it
@@ -12,7 +12,7 @@ category = "code"
 abilities = ["Find a project or deployment when you ask about it", "Read build logs, runtime logs and errors to find what went wrong", "Deploy, promote or roll back, when you allow each one", "Change domains, environment variables and settings, when you allow each one"]
 asks = ["Know who you are on Vercel", "Stay connected until you disconnect"]
 can = "Read your projects, deployments, logs, errors, domains and analytics, and deploy, roll back or change settings when you allow each one"
-cannot = "Change anything without asking you first, buy anything without your approval, or reach a team you did not grant on Vercel's own page when you sign in"
+cannot = "Change anything you did not ask for without asking you first, buy anything without asking you each time, or reach a team you did not grant on Vercel's own page when you sign in"
 letters = "Ve"
 tint = "#000000"
 # Vercel's remote server (vercel.com/docs/mcp/vercel-mcp), streamable HTTP.
