@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 const CARD_NAME: &str = "payments/card";
 const RULE: &str = "kernel:saved_card";
+const MONEY_RULE: &str = "kernel:payment";
 const MIN_CONTEXT_CHARS: usize = 100;
 const MAX_CONTEXT_CHARS: usize = 2000;
 /// Link gives a person 30 minutes, then the request is `expired`.
@@ -213,10 +214,24 @@ fn value_of<'a>(card: &'a Card, field: &str, expiry: &'a str) -> Option<(std::bo
     })
 }
 
+/// Any other action that moves money (a connector tool classed financial)
+/// asks the person every time, whatever the policy permits: only
+/// `purchase_request` and `purchase_fill` have an approval of their own (in
+/// Link, or the saved card's ask).
+pub(crate) fn money_ask(tool: &str, risk: Risk) -> Option<(String, Option<String>)> {
+    (risk == Risk::Financial && !BUILTINS.iter().any(|b| b.name == tool))
+        .then(|| (format!("{tool} moves money, and every payment is the person's to approve"), Some(MONEY_RULE.to_string())))
+}
+
 impl Kernel {
+    /// The ask every payment gets, whatever the policy says.
+    pub(crate) fn payment_ask(&self, a: &Action, risk: Risk) -> Option<(String, Option<String>)> {
+        self.saved_card_ask(a).or_else(|| money_ask(&a.tool, risk))
+    }
+
     /// A saved card has no limit of its own, so its every fill is asked about,
     /// whatever the policy says. The approval covers this one action.
-    pub(crate) fn saved_card_ask(&self, a: &Action) -> Option<(String, Option<String>)> {
+    fn saved_card_ask(&self, a: &Action) -> Option<(String, Option<String>)> {
         if a.tool != "purchase_fill" {
             return None;
         }
@@ -436,6 +451,20 @@ mod tests {
     fn a_page_address_comes_from_the_snapshots_first_line() {
         assert_eq!(address_in("URL: https://shop.test/pay\nTitle: Pay\n\nbutton"), Some("https://shop.test/pay"));
         assert_eq!(address_in("Title: x"), None);
+    }
+
+    /// A connector's financial tool asks the person even where the policy
+    /// permits it; before, a permit left it to Auto Review alone. Link
+    /// purchases and saved-card fills keep their own approval.
+    #[test]
+    fn every_payment_outside_purchases_asks_the_person_whatever_the_policy() {
+        let (why, rule) = money_ask("crm__pay", Risk::Financial).expect("a permitted payment went unasked");
+        assert!(why.contains("crm__pay"));
+        assert_eq!(rule.as_deref(), Some(MONEY_RULE));
+        assert!(MONEY_RULE.starts_with("kernel:"), "a broader approval could cover a payment");
+        assert!(money_ask("crm__update", Risk::Irreversible).is_none());
+        assert!(money_ask("purchase_request", Risk::Financial).is_none(), "a Link purchase was asked twice");
+        assert!(money_ask("purchase_fill", Risk::Financial).is_none());
     }
 
     #[test]
