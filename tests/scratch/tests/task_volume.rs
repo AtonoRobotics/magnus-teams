@@ -103,10 +103,10 @@ async fn a_batch_of_requests_prioritises_actionable_tasks_without_page_scrolling
                     return Reply::Text("Started.".into());
                 }
                 if said.starts_with("Every") || said.starts_with("Each") {
-                    return tool("create_schedule", json!({ "title": "Weekly invoice summary", "text": said, "every_minutes": 10080, "scope": "Reads invoices; sends nothing." }));
+                    return tool("create_schedule", json!({ "title": "Weekly invoice summary", "goal": said, "every_minutes": 10080 }));
                 }
                 return match starts.get(said.as_str()).filter(|s| !s.is_empty()) {
-                    Some(s) => tools(s.iter().map(|(title, kind)| ("create_task", json!({ "title": title, "text": format!("{title}. MARK-{kind}") }))).collect()),
+                    Some(s) => tools(s.iter().map(|(title, kind)| ("create_task", json!({ "title": title, "goal": format!("{title}. MARK-{kind}") }))).collect()),
                     None => Reply::Text("Here is the answer.".into()),
                 };
             }
@@ -172,15 +172,8 @@ async fn a_batch_of_requests_prioritises_actionable_tasks_without_page_scrolling
     assert!(in_offsite.iter().all(|t| t["group"]["kind"] == "chat" && t["group"]["thread"] == offsite.as_str()));
     assert!(tasks.iter().filter(|t| t["text"].as_str().unwrap().contains("Draft the customer newsletter")).all(|t| t["group"].is_null()));
     assert!(tasks.iter().any(|t| t["title"] == "Typed task"), "a typed task did not take its contract's title");
-    // Confirm one proposed schedule, so the Schedules view has one.
-    let threads = alice.get("/v1/chat").await.1;
-    let sched_thread =
-        threads["threads"].as_array().unwrap().iter().find(|t| t["title"].as_str().unwrap().starts_with("Every Monday")).unwrap()["thread"].as_str().unwrap().to_string();
-    let card = alice.get(&format!("/v1/chat/{sched_thread}")).await.1["entries"].as_array().unwrap().iter().find(|e| e["kind"] == "schedule_card").unwrap()["card"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(alice.post(&format!("/v1/chat/cards/{card}"), json!({ "decision": "confirm" })).await.0.is_success());
+    // The schedules asked for are set up at once, so the Schedules view has them.
+    assert!(!alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().is_empty(), "a schedule asked for in chat was not set up");
 
     let out = tokio::process::Command::new("node")
         .arg(workspace_root().join("desktop/tests/volume.mjs"))

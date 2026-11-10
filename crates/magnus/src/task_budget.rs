@@ -35,15 +35,6 @@ pub(crate) fn scheduled(server: &Budget, _stored: Option<&Budget>) -> Budget {
     for_task(server)
 }
 
-/// A task under a grant: the server's per-task limit, its dollars no more
-/// than what is left of the grant this period. The grant's figure is the
-/// person's own, not the model's.
-pub(crate) fn under_grant(server: &Budget, left_usd: f64) -> Budget {
-    let mut b = for_task(server);
-    b.max_usd = b.max_usd.min(left_usd);
-    b
-}
-
 /// A background wake (a proactive review, a watch poll): the per-task
 /// budget, not a smaller one of its own.
 pub(crate) fn for_wake(server: &Budget) -> Budget {
@@ -86,13 +77,6 @@ mod tests {
         assert!(same(&scheduled(&server(), None), &server()));
         let card = serde_json::json!({ "max_model_calls": 3, "max_actions": 1, "max_usd": 0.5 });
         assert!(same(&approved(&server(), &card), &server()), "the card's estimate capped the schedule");
-    }
-
-    #[test]
-    fn a_grant_lowers_only_the_dollars_and_only_to_what_is_left() {
-        let b = under_grant(&server(), 2.5);
-        assert_eq!((b.max_model_calls, b.max_actions, b.max_usd), (300, 500, 2.5));
-        assert!(same(&under_grant(&server(), 80.0), &server()), "a grant raised the server's limit");
     }
 
     /// No chat tool lets the model set a task's or a schedule's budget.

@@ -41,7 +41,7 @@ async fn the_owner_judges_trials_and_sees_others_tasks_but_not_their_chats() {
     let m = FakeModel::start(script(|c| async move {
         if c.body["system"].to_string().contains(CHAT) {
             return match c.turn() {
-                0 => tool("create_task", json!({ "title": "Find a lawyer", "text": "Find a divorce lawyer near Lisbon." })),
+                0 => tool("create_task", json!({ "title": "Find a lawyer", "goal": "Find a divorce lawyer near Lisbon." })),
                 _ => Reply::Text("Started.".into()),
             };
         }

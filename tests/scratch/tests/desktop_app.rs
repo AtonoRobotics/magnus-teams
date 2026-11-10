@@ -830,11 +830,8 @@ async fn research_approval_result_file_and_schedule_happen_in_one_conversation_i
             let first = c.messages().first().cloned().unwrap_or_default();
             let said = first["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).unwrap_or_default().to_string();
             match (said.as_str(), c.turn()) {
-                (RESEARCH, 0) => tool("create_task", json!({ "title": "Q3 revenue summary", "text": TASK })),
-                (SCHEDULE, 0) => tool(
-                    "create_schedule",
-                    json!({ "title": "Morning finance check", "text": "Read the finance page and note Q3 revenue.", "daily_at": "09:00", "scope": "Reads one web page; sends nothing." }),
-                ),
+                (RESEARCH, 0) => tool("create_task", json!({ "title": "Q3 revenue summary", "goal": TASK })),
+                (SCHEDULE, 0) => tool("create_schedule", json!({ "title": "Morning finance check", "goal": "Read the finance page and note Q3 revenue.", "daily_at": "09:00" })),
                 _ => Reply::Text("Started; it shows here as it goes.".into()),
             }
         }
@@ -997,7 +994,7 @@ async fn completed_work_links_remain_operable_while_native_content_resizes() {
             let first = c.messages().first().cloned().unwrap_or_default();
             let text = first["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).unwrap_or_default();
             if text == "Create anchor work" && c.turn() == 0 {
-                return tool("create_task", json!({"title":"Anchor work","text":"Show a readable result"}));
+                return tool("create_task", json!({"title":"Anchor work","goal":"Show a readable result"}));
             }
             return Reply::Text("Recorded in the actual conversation.".into());
         }

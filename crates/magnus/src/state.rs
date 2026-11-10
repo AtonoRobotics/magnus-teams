@@ -348,7 +348,7 @@ impl Task {
 
 /// What a background run may put in front of its person: what it produced
 /// for them. Anything else about it is its own plumbing (owner, 2026-11-07).
-pub const BACKGROUND_OUTPUTS: [&str; 5] = ["observation", "interrupt", "schedule_proposal", "task_proposal", "message"];
+pub const BACKGROUND_OUTPUTS: [&str; 6] = ["observation", "interrupt", "suggestion", "schedule_proposal", "task_proposal", "message"];
 
 #[derive(Clone, Debug)]
 pub struct Item {

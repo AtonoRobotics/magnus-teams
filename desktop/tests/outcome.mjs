@@ -56,12 +56,12 @@ await step("the itinerary is on the page in full", async () => {
   if (await page.getByRole("tab", { name: "Result" }).getAttribute("aria-selected") !== "true") throw new Error("not on the result");
 });
 
-await step("then the summary, evidence and cost; the steps a tab away", async () => {
-  const order = await page.evaluate(() => ["iframe.composed", "[data-summary]", "[data-done-line]", "[data-cost]"].map(q => {
+await step("then the summary and cost; the steps a tab away", async () => {
+  const order = await page.evaluate(() => ["iframe.composed", "[data-summary]", "[data-cost]"].map(q => {
     const el = document.querySelector(`#detail ${q}`);
     return el ? el.getBoundingClientRect().top : null;
   }));
-  if (order.some(y => y === null) || order.some((y, i) => i && y <= order[i - 1])) throw new Error(`out of order (deliverable, summary, evidence, cost): ${order}`);
+  if (order.some(y => y === null) || order.some((y, i) => i && y <= order[i - 1])) throw new Error(`out of order (deliverable, summary, cost): ${order}`);
   await page.locator("#detail [data-summary]", { hasText: "Nothing was booked." }).waitFor({ timeout: T });
   await page.getByRole("tab", { name: "Steps" }).click();
   await page.locator("#detail .call").first().waitFor({ timeout: T });

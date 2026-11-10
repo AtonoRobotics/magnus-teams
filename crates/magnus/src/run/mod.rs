@@ -29,6 +29,8 @@ use std::time::{Duration, Instant};
 /// logs.
 pub const INSTRUCTIONS: &str = concat!(include_str!("../../instructions/agent.md"), "\n", include_str!("../../instructions/character.md"));
 pub(crate) const MAX_RESULT_IN_CONTEXT: usize = 40_000;
+/// A contract change once work has started: the criteria stand (spec rev 140: checking is internal, never asked).
+pub(crate) const FROZEN: &str = "The contract was not changed: work has started, so its criteria are frozen. Finish against them, or call task_fail saying what is not done; the outcome returns to the conversation, which can try another way.";
 
 /// What a chat turn runs under: answer, start a task, propose a schedule,
 /// or ask.
@@ -101,12 +103,13 @@ fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool) -> String
     s
 }
 
-/// What a run is told about its scope: a schedule's run keeps to what
-/// the person confirmed; a one-off task from an accepted card was
-/// approved for its scope, not scheduled (#271).
+/// What a run is told about its scope: a schedule's run keeps to what the
+/// person set it up to do (spec rev 140: asking grants the work it
+/// describes); a one-off task from an accepted card was approved for its
+/// scope, not scheduled (#271).
 fn scope_line(scheduled: bool, scope: &str) -> String {
     if scheduled {
-        format!("The person confirmed this schedule for this scope; keep to it: {scope}")
+        format!("The person set up this schedule to do this; keep to it: {scope}")
     } else {
         format!("The person approved this task for this scope; keep to it: {scope}")
     }
@@ -185,7 +188,7 @@ impl Kernel {
         if let Some(index) = self.index_for(run) {
             first.push(Block::Text { text: index });
         }
-        first.push(Block::Text { text: said });
+        first.push(Block::Text { text: said.clone() });
         // A schedule's run keeps to the scope the person confirmed for it;
         // a one-off task from an accepted card was approved, not scheduled.
         if let Some(scope) = scope {
@@ -208,9 +211,8 @@ impl Kernel {
             first.push(Block::Text { text: t });
         }
         if let Some(c) = chat.as_ref().filter(|c| !c.turn && !c.conversation.is_empty()) {
-            first.push(Block::Text {
-                text: format!("This task was started from a chat with the person. Write its contract from what they said there:\n\n{}", transcript(&c.conversation)),
-            });
+            // The goal is one line; the conversation says the rest (spec rev 138).
+            first.push(Block::Text { text: crate::task_goal::from_chat(&said, &transcript(&c.conversation)) });
         }
         first.extend(crate::attachment::prompt_blocks(&attachments));
         let playbook = self.playbook_for(run);
@@ -327,10 +329,9 @@ impl Kernel {
         if chat {
             specs.retain(|t| crate::chat_work::offered_in_chat(&t.name));
             specs.extend(tools::chat_specs());
-        }
-        // A review proposes tasks to the inbox, having no thread (#393).
-        if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.review)) {
-            specs.extend(tools::chat_specs().into_iter().filter(|t| t.name == "propose_task"));
+        } else {
+            // A task or a review suggests work to the inbox, having no thread (#393).
+            specs.extend(tools::chat_specs().into_iter().filter(|t| t.name == "suggest"));
         }
         // project_read only where there are reference files to read.
         if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {
@@ -565,18 +566,9 @@ impl Kernel {
         }
         match name {
             "task_contract" => match self.validate_contract_tools(input).await {
-                // Work has started: the change goes to the person, old and new
-                // side by side, and only an approved version counts (K37).
-                Ok(labelled) if run.contract_frozen.is_some() => {
-                    let (item, ev) = self.item_event(
-                        run,
-                        "contract_change",
-                        format!("The agent asks to change the done-criteria of: {}", run.contract.as_ref().and_then(|c| c["goal"].as_str()).unwrap_or("the task")),
-                        json!({ "call_id": call_id, "version": run.contract_version, "old": run.contract, "new": self.with_conversation(run, labelled) }),
-                    );
-                    self.suspend_on(rid, "contract_change", item, ev).await?;
-                    return Ok(Flow::Stop);
-                }
+                // Work has started: the criteria stay as they are. Checking is
+                // internal (spec rev 140), so no change goes to the person.
+                Ok(_) if run.contract_frozen.is_some() => self.result(rid, call_id, FROZEN, true).await?,
                 Ok(labelled) => {
                     let version = run.contract_version + 1;
                     let mut note = self_checked_note(&labelled);
@@ -589,7 +581,7 @@ impl Kernel {
                     self.emit("model", Ev::Contract { run: rid.into(), version, contract: labelled, approved_by: None }).await?;
                     let frozen = if run.work_started {
                         self.emit("kernel", Ev::ContractFrozen { run: rid.into(), version }).await?;
-                        " Work has started, so it is frozen: a later change goes to the person for approval."
+                        " Work has started, so it is frozen: it cannot change."
                     } else {
                         ""
                     };
@@ -666,31 +658,6 @@ impl Kernel {
                     (_, Err(e)) => self.result(rid, call_id, format!("The policy does not parse: {e}. A retry with the same text will not help."), true).await?,
                 }
             }
-            // A scheduled run may not set up another schedule: schedules
-            // would breed (2026-10-30, a test schedule's run proposed a second
-            // one, and both ran for hours). It may end its own.
-            "propose_schedule" if self.read(|s| s.authority(&run.id).and_then(|t| t.schedule.clone())).is_some() => {
-                self.result(rid, call_id, "A scheduled task cannot set up another schedule. To stop this one, use end_schedule. A retry will not help.", true).await?
-            }
-            "propose_schedule" => match crate::api::rule_for(input, self.cfg.schedules.min_every_minutes).and_then(|r| crate::api::end_for(input).map(|e| (r, e))) {
-                Ok(((every, daily), (until, max_runs))) => {
-                    if let Some(denied) = self.loop_deny(run, "suggest", None) {
-                        self.result(rid, call_id, format!("{denied}. A retry will not help."), true).await?;
-                    } else {
-                        let text = input["text"].as_str().unwrap_or_default().to_string();
-                        let item = self
-                            .item(
-                                run,
-                                "schedule_proposal",
-                                format!("The worker proposes a recurring task: {text}"),
-                                json!({ "text": text, "every_minutes": every, "daily_at": daily, "until": until, "max_runs": max_runs, "call_id": call_id }),
-                            )
-                            .await?;
-                        self.result(rid, call_id, format!("Proposal {item} sent to the person. Nothing is scheduled until they accept it."), false).await?;
-                    }
-                }
-                Err(m) => self.result(rid, call_id, format!("{m}. A retry with the same values will not help."), true).await?,
-            },
             "end_schedule" => match self
                 .read(|s| s.tasks.get(&run.task).and_then(|t| t.schedule.clone()).filter(|id| s.schedules.contains_key(id)).map(|id| (id.clone(), s.schedules[&id].clone())))
             {
@@ -1159,8 +1126,7 @@ mod tests {
     /// #393): tasks proposed to the inbox, automations as schedules.
     #[test]
     fn review_names_only_tools_a_review_can_use() {
-        assert!(REVIEW_INSTRUCTIONS.contains("propose_task"), "reviews can propose tasks to the inbox");
-        assert!(REVIEW_INSTRUCTIONS.contains("propose_schedule"), "reviews can propose automations");
+        assert!(REVIEW_INSTRUCTIONS.contains("`suggest`") && !REVIEW_INSTRUCTIONS.contains("propose_task"), "reviews suggest work to the inbox");
         assert!(REVIEW_INSTRUCTIONS.contains("observe"), "waiting news goes out as observations");
     }
 
@@ -1204,11 +1170,11 @@ mod tests {
         }
     }
 
-    /// A schedule's run is told the person confirmed its schedule; a
-    /// one-off task is told it was approved, without the word (#271).
+    /// A schedule's run is told the person set its schedule up; a one-off
+    /// task is told it was approved, without the word (#271).
     #[test]
     fn scope_wording_names_a_schedule_only_for_one() {
-        assert_eq!(scope_line(true, "Reads the web."), "The person confirmed this schedule for this scope; keep to it: Reads the web.");
+        assert_eq!(scope_line(true, "Reads the web."), "The person set up this schedule to do this; keep to it: Reads the web.");
         let one_off = scope_line(false, "Reads the web.");
         assert_eq!(one_off, "The person approved this task for this scope; keep to it: Reads the web.");
         assert!(!one_off.contains("schedule"), "{one_off}");

@@ -141,7 +141,7 @@ pub async fn provider_with(model: &FakeModel, ids: &[&str]) -> String {
 pub fn starts(ask: &'static str, title: &'static str) -> impl Fn(&str, usize) -> Reply + Send + Sync + 'static {
     move |said, turn| {
         if turn == 0 && said == ask {
-            tool("create_task", json!({ "title": title, "text": format!("{title}.") }))
+            tool("create_task", json!({ "title": title, "goal": format!("{title}.") }))
         } else {
             Reply::Text("Started.".into())
         }
@@ -223,7 +223,7 @@ impl Flow {
                 let first = c.messages().first().cloned().unwrap_or_default();
                 let said = first["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).unwrap_or_default().to_string();
                 match (said == TASK, c.turn()) {
-                    (true, 0) => tool("create_task", json!({ "title": "Q3 revenue summary", "text": TASK })),
+                    (true, 0) => tool("create_task", json!({ "title": "Q3 revenue summary", "goal": TASK })),
                     (true, _) => Reply::Text("Started; it shows here as it goes.".into()),
                     _ => Reply::Text(CHAT_ANSWER.into()),
                 }

@@ -21,7 +21,7 @@ async fn a_task_from_chat_shows_its_deliverable_in_the_conversation() {
     let mut m = FakeModel::start(script(|c| async move {
         if c.body["system"].to_string().contains(CHAT) {
             return match c.turn() {
-                0 => tool("create_task", json!({ "title": "San Diego trip for two", "text": TRIP })),
+                0 => tool("create_task", json!({ "title": "San Diego trip for two", "goal": TRIP })),
                 _ => Reply::Text("I've started the trip plan; it posts here when it's done.".into()),
             };
         }

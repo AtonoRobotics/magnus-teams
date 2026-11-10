@@ -330,7 +330,7 @@ const STATUS = {
 };
 const WAITING = {
   approval: "waiting for an approval", review: "waiting for your review", question: "waiting for your answer", budget: "paused: budget reached",
-  contract_change: "waiting for you to decide on a change to its done-criteria",
+  contract_change: "waiting to go on",
   provider: "paused: the model provider is unavailable", usage_limit: "paused: model usage limit", auth: "paused: sign in to the model again",
   monitor: "waiting for you: the safety monitor held an action", secure_form: "waiting for you to sign in", payment: "waiting for you to approve a purchase", takeover: "paused: you have control of the computer", takeover_request: "waiting for you to take over the computer",
   kill_switch: "stopped by the kill switch", timer: "waiting until a set time", invalid_request: "paused: the model rejected the request",
@@ -343,7 +343,7 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","schedule_proposal","task_proposal","tool_change","deletion_request","endorsement","tool_review"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","tool_change","deletion_request","endorsement","tool_review"]);
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -1616,13 +1616,7 @@ async function showThread(main, thread) {
   $("#thread", main).onclick = async e => {
     const m = e.target.closest("[data-msg-act]");
     if (m) { try { await msgAct(m, m.closest("[data-entry]")); } catch (err) { toast(err.message); m.disabled = false; } return; }
-    if (e.target.closest("[data-act=change-schedule]")) {
-      const box = $("#msg");
-      box.value = "Change the schedule: ";
-      box.focus();
-      box.setSelectionRange(box.value.length, box.value.length);
-      return;
-    }
+
     // The live cards' buttons act directly, not through Magnus.
     const ta = e.target.closest("[data-task-act]"), sa = e.target.closest("[data-sched-act]");
     if (ta || sa) {
@@ -1650,15 +1644,14 @@ async function showThread(main, thread) {
     const card = b.closest("[data-card]").dataset.card, decision = b.dataset.decide;
     // Decline asks for the reason first; Magnus reads it before suggesting again.
     if (decision === "decline-open" || decision === "decline-cancel") { ui.declining = decision === "decline-open" ? card : null; return draw(); }
-    if (decision === "handle-open" || decision === "handle-cancel") { ui.handling = decision === "handle-open" ? card : null; return draw(); }
     const body = { decision };
-    // "Handle things like this", or a grant card accepted: the grant as the person set it in the form.
+    // A grant card accepted: the grant as the person set it in the form.
     const box = b.closest("[data-card]");
-    if (decision === "handle" || (box.matches(".grant") && decision === "confirm")) {
+    if (box.matches(".grant") && decision === "confirm") {
       Object.assign(body, readGrantForm(box));
       if (!body.apps.length) return toast("Choose at least one app.");
     }
-    const no = decision === "decline" || decision === "dismiss";
+    const no = decision === "decline";
     if (no) {
       body.reason = ($(`#why-${CSS.escape(card)}`, main)?.value || "").trim();
       if (!body.reason) return toast("Say why, so Magnus knows.");
@@ -1666,8 +1659,8 @@ async function showThread(main, thread) {
     b.disabled = true;
     try {
       const r = await api("POST", `/v1/chat/cards/${enc(card)}`, body);
-      toast(no ? (decision === "dismiss" ? "Dismissed." : "Declined.") : decision === "later" ? "Not now." : decision === "handle" ? "Started. Things like this are handled from now on." : r.grant ? "Granted." : r.task ? "Started." : "Scheduled.");
-      ui.declining = null; ui.handling = null; delete drafts[`why-${card}`];
+      toast(no ? "Declined." : decision === "later" ? "Not now." : r.grant ? "Granted." : r.task ? "Started." : "Scheduled.");
+      ui.declining = null; delete drafts[`why-${card}`];
       for (const k of Object.keys(drafts)) if (k.startsWith(`g-${card}-`)) delete drafts[k];
       await refresh();
     } catch (err) { toast(err.message); b.disabled = false; }
@@ -1768,15 +1761,14 @@ function scheduleText(sc) {
   const last = sc.last;
   return `${sc.ended ? `Ended: ${sc.ended}` : sc.paused ? `Paused: ${sc.paused}` : `Next run ${until(sc.next)}`} · ${sc.last_failed ? `Last firing could not start: ${sc.last_failed.error}` : last ? `Last result: ${(STATUS[last.status] || ["", last.status])[1]}, ${when(last.ended_at || last.created_at)}` : "No results yet"}`;
 }
-// A card's answers: accept, Not now, or Decline, which asks for the reason.
-// A task proposal is approved or dismissed (with the reason), not put off;
-// neither is a grant card (`later` false).
-function cardActs(e, ui, accept, more = "", proposal = false, later = !proposal) {
-  const no = proposal ? "Dismiss" : "Decline";
+// A card's answers: accept (one tap, which grants the work), Not now, or
+// Decline, which asks for the reason. A grant card is not put off (`later`
+// false).
+function cardActs(e, ui, accept, later = true) {
   if (ui.declining === e.card) return `<div class="row cc-act decline-why"><label class="sr" for="why-${esc(e.card)}">Why not?</label>
-    <input id="why-${esc(e.card)}" data-draft="why-${esc(e.card)}" placeholder="Why not? Magnus reads this before ${proposal ? "proposing" : "suggesting"} again">
-    <button class="primary" data-decide="${no.toLowerCase()}">${no}</button><button class="link" data-decide="decline-cancel">Cancel</button></div>`;
-  return `<div class="row cc-act"><button class="primary" data-decide="${proposal ? "approve" : "confirm"}">${esc(accept)}</button>${more}${later ? `<button data-decide="later">Not now</button>` : ""}<button class="link" data-decide="decline-open">${no}</button></div>`;
+    <input id="why-${esc(e.card)}" data-draft="why-${esc(e.card)}" placeholder="Why not? Magnus reads this before suggesting again">
+    <button class="primary" data-decide="decline">Decline</button><button class="link" data-decide="decline-cancel">Cancel</button></div>`;
+  return `<div class="row cc-act"><button class="primary" data-decide="confirm">${esc(accept)}</button>${later ? `<button data-decide="later">Not now</button>` : ""}<button class="link" data-decide="decline-open">Decline</button></div>`;
 }
 
 // A grant's fields as a form (#235): the kind of work, the apps it covers,
@@ -1815,11 +1807,9 @@ function evidenceList(e, label) {
 
 // What became of a card that is no longer open, other than a schedule it made.
 function cardOutcome(e) {
-  const p = e.kind === "proposal_card";
-  if (e.state === "declined") return `<p class="small"><span class="chip">${p ? "Dismissed" : "Declined"}</span> ${esc(e.title || "")}${e.reason ? ` <span class="muted">· ${esc(e.reason)}</span>` : ""}</p>`;
+  if (e.state === "declined") return `<p class="small"><span class="chip">Declined</span> ${esc(e.title || "")}${e.reason ? ` <span class="muted">· ${esc(e.reason)}</span>` : ""}</p>`;
   if (e.state === "later") return `<p class="small"><span class="chip">Not now</span> ${esc(e.title || "")}</p>`;
-  const handled = e.granted ? ` <span class="chip ok">Handled from now on</span> <a class="small" href="#/settings/data">Your grants</a>` : "";
-  if (e.started) return `<p class="small"><span class="chip ok">${p ? "Approved" : "Accepted"}</span> ${esc(e.title || "")} <a href="#/task/${enc(e.started)}" data-open="task:${esc(e.started)}">See the task</a>${handled}</p>`;
+  if (e.started) return `<p class="small"><span class="chip ok">Accepted</span> ${esc(e.title || "")} <a href="#/task/${enc(e.started)}" data-open="task:${esc(e.started)}">See the task</a></p>`;
   if (e.kind === "grant_card" && e.granted) return `<p class="small"><span class="chip ok">Granted</span> ${esc(e.title || "")} <a href="#/settings/data">See it in Settings</a></p>`;
   return "";
 }
@@ -1939,7 +1929,7 @@ const ICONS = {
 function msgActions(e, ui) {
   if (!e.id || e.kind === "sub_agents") return "";
   const mine = e.kind === "message", magnus = e.kind === "answer" || e.kind === "turn";
-  const said = ["answer", "turn", "result", "tasks", "proposal_card", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"].includes(e.kind);
+  const said = ["answer", "turn", "result", "tasks", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"].includes(e.kind);
   const id = `message-menu-${enc(e.id)}`, reading = voice.entry === e.id;
   const button = (a, label) => `<button class="icon" data-msg-act="${a}"${a==="listen" || a==="hush" ? ` data-voice-entry="${esc(e.id)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
   const primary = mine ? button("edit", "Edit") : button("copy", "Copy response") + (e.kind === "answer" && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : "");
@@ -1986,40 +1976,16 @@ function entry(e, ui = {}) {
         <p class="small muted">It acts for you (${esc(e.acts_for)}), with your access; what it needs from you shows under Needs you.</p>${taintNote(e.taint)}
         ${cardActs(e, ui, "Accept")}</div>`;
     }
-    case "proposal_card": {
-      if (e.state !== "open") return `<div data-card="${esc(e.card)}">${cardOutcome(e)}</div>`;
-      const n = e.needs || {}, part = (label, html) => `<div class="sugg-part"><span class="small muted">${label}</span>${html}</div>`;
-      return `<div class="confirm chatcard suggestion proposal" data-card="${esc(e.card)}"><div class="cc-head"><span class="st sch">${icon("tasks")}</span><strong>${esc(e.title)}</strong></div>
-        ${part("Noticed", `<p class="cc-text">${esc(e.noticed?.what)} <span class="small muted">(${esc(e.noticed?.where)})</span></p>`)}
-        ${part("Outcome", `<p class="cc-text">${esc(e.outcome)}</p>`)}
-        ${part("Why now", `<p class="cc-text">${esc(e.why_now)}</p>`)}
-        ${e.changed ? `<p class="small"><strong>What changed:</strong> ${esc(e.changed)}</p>` : ""}
-        ${part("Needs", `<ul class="sugg-list">${(n.permissions || []).map(x => `<li>${esc(x)}</li>`).join("")}<li class="num">About $${esc(n.estimated_cost_usd)} (estimated)</li>${n.input ? `<li>From you: ${esc(n.input)}</li>` : ""}</ul>`)}
-        ${evidenceList(e, "Seen in")}
-        <p class="small muted">It acts for you (${esc(e.acts_for)}), with your access, and spends no more than this; what it needs from you shows under Needs you.</p>${taintNote(e.taint)}
-        ${ui.handling === e.card ? `<div class="sugg-part" data-handle>${grantForm(e.card, e.handle || {}, e.your_apps)}
-          <p class="small muted">This task starts now, and from now on Magnus handles work like it without asking, within these limits and your organisation's policy. Change or revoke it in Settings.</p>
-          <div class="row cc-act"><button class="primary" data-decide="handle">Handle from now on</button><button class="link" data-decide="handle-cancel">Cancel</button></div></div>`
-          : cardActs(e, ui, "Approve", `<button data-decide="handle-open">Handle things like this</button>`, true)}</div>`;
-    }
     case "grant_card": {
       if (e.state !== "open") return `<div data-card="${esc(e.card)}">${cardOutcome(e)}</div>`;
       return `<div class="confirm chatcard suggestion grant" data-card="${esc(e.card)}"><div class="cc-head"><span class="st sch">${icon("tasks")}</span><strong>Let Magnus handle this on its own?</strong></div>
         <p class="cc-text">${esc(e.why)}</p>
         ${grantForm(e.card, e, e.your_apps)}
         <p class="small muted">Tasks Magnus starts for this go ahead without asking, as you (${esc(e.acts_for)}), within these limits and your organisation's policy; it reports every action. Change or revoke it in Settings.</p>${taintNote(e.taint)}
-        ${cardActs(e, ui, "Accept", "", false, false)}</div>`;
+        ${cardActs(e, ui, "Accept", false)}</div>`;
     }
-    case "schedule_card": {
-      const b = e.budget || {};
-      if (e.state !== "open") return `<div data-card="${esc(e.card)}">${e.state === "confirmed" ? scheduleLine(e) : cardOutcome(e)}</div>`;
-      return `<div class="confirm chatcard" data-card="${esc(e.card)}"><div class="cc-head"><span class="st sch">${icon("calendar")}</span><strong>Start this schedule?</strong></div>
-        <p class="cc-text">${esc(e.text)}</p>
-        <div class="tiles"><div><span>When</span><strong>${esc(rule(e))}</strong></div><div><span>What</span><strong>${esc(e.scope || "")}</strong></div><div><span>Ends</span><strong>${esc(ends(e))}</strong></div>
-          <div><span>Budget</span><strong class="num">Up to $${esc(b.max_usd)} a run</strong><span class="small">${esc(b.max_model_calls)} model calls, ${esc(b.max_actions)} actions</span></div></div>
-        <p class="small muted">It acts for you (${esc(e.acts_for)}), with your access; what it needs from you shows under Needs you.</p>${taintNote(e.taint)}
-        ${cardActs(e, ui, "Start schedule", `<button data-act="change-schedule">Change</button>`)}</div>`;
-    }
+    // A schedule set up at the person's request: shown as set, with no confirmation (spec rev 140).
+    case "schedule_card": return `<div data-card="${esc(e.card)}">${scheduleLine(e)}</div>`;
     default: return "";
   }
 }
@@ -2033,7 +1999,7 @@ route(/^#\/chat\/([^/]+)$/, async (main, thread) => {
 
 const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
-  policy_proposal: "Policy proposal", schedule_proposal: "Recurring task proposal", task_proposal: "Task proposal", tool_change: "Changed tool", tool_review: "New app's tools",
+  policy_proposal: "Policy proposal", suggestion: "Suggestion", tool_change: "Changed tool", tool_review: "New app's tools",
   monitor: "Safety monitor", secure_form: "Secure sign-in", takeover_request: "Take over", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
@@ -2079,27 +2045,6 @@ function taintNote(t) {
   return `<p class="small muted">This task ${parts.join(" and ")}.</p>`;
 }
 
-// A contract as the person reads it: the goal, then each criterion with the
-// check the appliance will run for it, in full.
-function checkText(ch) {
-  if (!ch) return `<span class="faint">no check: you review it</span>`;
-  const exp = (ch.expect || []).map(e => `${e.pointer || "(whole result)"} ${"equals" in e ? `equals ${JSON.stringify(e.equals)}` : `contains ${JSON.stringify(e.contains)}`}`).join("; ");
-  return `<span class="mono">${esc(ch.tool)}</span> ${fieldValue(ch.input)}<div class="small">expects ${esc(exp)}</div>`;
-}
-// Where a check's verdict comes from, as the kernel labelled it when the
-// contract was recorded.
-function assuranceChip(cr) {
-  if (cr.assurance === "appliance-verified") return ` <span class="chip ok" title="The sandbox image's own tools, or the server's comparison against the expected values in this contract, decide it">appliance-verified</span>`;
-  if (cr.assurance === "self-checked") return ` <span class="chip warn" title="${esc((cr.assurance_why || []).join("; "))}">self-checked</span><div class="small faint">Its check runs code the agent wrote: ${esc((cr.assurance_why || []).join("; "))}</div>`;
-  return "";
-}
-function contractView(c, label) {
-  if (!c) return `<div class="small faint">${esc(label)}: none</div>`;
-  return `<div aria-label="${esc(label)}"><div class="small muted">${esc(label)}</div><p><strong>${esc(c.goal || "")}</strong></p>
-    ${c.conversation?.length ? `<details class="small"><summary>From the chat</summary>${c.conversation.map(m => `<div><span class="muted">${esc(m.role)}:</span> ${esc(m.text)}</div>`).join("")}</details>` : ""}
-    <ol class="small">${(c.criteria || []).map(cr => `<li><div>${esc(cr.description || cr.id)} <span class="faint mono">${esc(cr.id)}</span>${assuranceChip(cr)}</div>${checkText(cr.check)}</li>`).join("")}</ol></div>`;
-}
-
 function buttons(i, list) {
   if (!i.can_respond) return `<p class="small faint">Waiting for someone with the right role to decide.</p>`;
   return `<div class="row" style="margin-top:12px">${list.map(([d, label, cls, extra]) => `<button class="${cls || ""}" data-item="${esc(i.id)}" data-decision="${d}" ${extra || ""}>${esc(label)}</button>`).join("")}</div>`;
@@ -2143,12 +2088,10 @@ function card(i, composed) {
         <div class="row" style="margin-top:8px"><button class="primary" data-item="${esc(i.id)}" data-decision="answer">Send answer</button></div>` : buttons(i, [])}`;
       break;
     }
+    // Asked before rev 140, when checking became internal: the criteria
+    // stand whatever is answered, and the task goes on against them.
     case "contract_change":
-      body = `<p class="small">The work has started, so the criteria are frozen. The agent wants to replace them. Only criteria you approve decide when the task is done.</p>
-        <div class="sidebyside">${contractView(d.old, `Now (version ${d.version})`)}${contractView(d.new, "Proposed")}</div>
-        ${taintNote(d.taint)}
-        ${i.can_respond ? `<textarea rows="2" data-draft="cc-${esc(i.id)}" placeholder="If you keep the current contract, say why (the agent sees this)" style="margin-top:10px"></textarea>` : ""}
-        ${buttons(i, [["approve", "Approve the change", "primary"], ["reject", "Keep the current contract"]])}`;
+      body = `<p class="small">This task no longer needs you here: it goes on against the criteria it set.</p>${buttons(i, [["reject", "Continue", "primary"]])}`;
       break;
     case "review": {
       const crit = (d.criteria || []).map(c => `<li>${esc(c.description || c.id || c)}${c.unchecked_reason ? `<div class="small faint">Its check could not run: ${esc(c.unchecked_reason)}</div>` : ""}</li>`).join("");
@@ -2177,23 +2120,17 @@ function card(i, composed) {
         ${d.rationale ? `<p>${esc(d.rationale)}</p>` : ""}<div class="what"><pre>${esc(d.cedar)}</pre></div>${taintNote(d.taint)}
         ${buttons(i, [["accept", "Add this rule", "primary"], ["reject", "Reject"]])}`;
       break;
-    case "schedule_proposal":
-      body = `<div class="what"><div class="field"><span>Task</span><span>${esc(d.text)}</span></div>
-        <div class="field"><span>When</span><span>${d.every_minutes ? `every ${esc(d.every_minutes)} minutes` : `daily at ${esc(d.daily_at)}`}</span></div>
-        <div class="field"><span>Ends</span><span>${esc(ends(d))}</span></div></div>${taintNote(d.taint)}
-        ${buttons(i, [["accept", "Schedule it", "primary"], ["reject", "Reject"]])}`;
+    // Magnus's own idea from a task or a review: one tap starts it (spec rev
+    // 140). Proposals from before then read as suggestions.
+    case "suggestion": {
+      const timed = d.every_minutes || d.daily_at;
+      body = `<div class="what"><div class="field"><span>${timed ? "Each run" : "Task"}</span><span>${esc(d.plan || d.text)}</span></div>
+        ${timed ? `<div class="field"><span>When</span><span>${esc(rule(d))}</span></div><div class="field"><span>Ends</span><span>${esc(ends(d))}</span></div>` : ""}
+        ${(d.permissions || d.needs?.permissions || []).length ? `<div class="field"><span>May</span><span>${esc((d.permissions || d.needs?.permissions).join("; "))}</span></div>` : ""}</div>
+        ${(d.evidence || []).length ? `<div class="evidence"><div class="small muted">Why</div><ul class="small">${(d.evidence || []).map(c => `<li>${esc(c.title || c.tool || c.call || "")}: “${esc(c.shows)}”</li>`).join("")}</ul></div>` : ""}${taintNote(d.taint)}
+        ${buttons(i, [["accept", timed ? "Schedule it" : "Start it", "primary"], ["reject", "Dismiss"]])}`;
       break;
-    case "task_proposal":
-      body = `<div class="what"><div class="field"><span>Task</span><span>${esc(d.title)}</span></div>
-        <div class="field"><span>Does</span><span>${esc(d.text)}</span></div>
-        <div class="field"><span>Noticed</span><span>${esc(d.noticed?.what)} (${esc(d.noticed?.where)})</span></div>
-        <div class="field"><span>Outcome</span><span>${esc(d.outcome)}</span></div>
-        <div class="field"><span>Why now</span><span>${esc(d.why_now)}</span></div>
-        <div class="field"><span>Needs</span><span>${esc((d.needs?.permissions || []).join("; "))}</span></div>
-        <div class="field"><span>May spend</span><span>$${esc(d.budget?.max_usd)}</span></div></div>
-        ${(d.evidence || []).length ? `<div class="evidence"><div class="small muted">Evidence</div><ul class="small">${(d.evidence || []).map(c => `<li>${esc(c.title || c.call || "")}: “${esc(c.shows)}”</li>`).join("")}</ul></div>` : ""}${taintNote(d.taint)}
-        ${buttons(i, [["accept", "Start this task", "primary"], ["reject", "Dismiss"]])}`;
-      break;
+    }
     case "message":
       body = `${taintNote(d.taint)}${buttons(i, [["dismiss", "Dismiss"]])}`;
       break;
@@ -2454,45 +2391,6 @@ function needsView(composed) {
 
 // ---------- Task detail ----------
 
-function criteria(t) {
-  if (!t.criteria?.length) return `<p class="empty">No contract yet.</p>`;
-  return t.criteria.map(c => {
-    const cls = c.verified === true ? "pass" : c.verified === false ? "fail" : "none";
-    const person = String(c.verified_by || "").startsWith("person:") ? String(c.verified_by).slice(7) : null;
-    const state = c.verified === true ? (person ? `<span class="chip ok">confirmed by ${esc(person)}</span>` : `<span class="chip ok">holds</span>`)
-      : c.verified === false ? `<span class="chip bad">does not hold</span>` : c.check ? `<span class="chip">not checked yet</span>` : `<span class="chip warn">no check: needs a person</span>`;
-    const by = c.verified_by && !person ? `<span class="small faint"> · checked by the server</span>` : "";
-    const label = c.assurance ? ` <span class="chip ${c.assurance === "self-checked" ? "warn" : ""}" title="${esc((c.assurance_why || []).join("; "))}">${esc(c.assurance)}</span>` : "";
-    return `<div class="evidence ${cls}"><div class="spread"><span>${esc(c.description)}</span><span>${state}${by}${label}</span></div>
-      ${c.check ? `<div class="small muted" style="margin-top:4px">Check: <span class="mono">${esc(c.check.tool)}</span> ${esc(JSON.stringify(c.check.input || {}))}</div>` : ""}
-      ${c.evidence !== undefined && c.evidence !== null ? `<details><summary class="small">Evidence</summary>${fieldValue(c.evidence)}</details>` : ""}</div>`;
-  }).join("");
-}
-
-function glance(t) {
-  const cs = t.criteria || [];
-  const byPerson = c => String(c.verified_by || "").startsWith("person:");
-  const world = cs.filter(c => c.verified === true && !byPerson(c)).length;
-  const people = cs.filter(c => c.verified === true && byPerson(c)).length;
-  const failed = cs.filter(c => c.verified === false).length;
-  const open = cs.length - world - people - failed;
-  const parts = [];
-  if (world) parts.push(`${world} of ${cs.length} criteria checked against the world`);
-  if (people) parts.push(`${people} confirmed by a person`);
-  if (failed) parts.push(`${failed} do not hold`);
-  if (open) parts.push(`${open} not yet checked`);
-  return parts.join(", ");
-}
-
-// "Done: 3 appliance-verified, 1 self-checked" for a finished task.
-function doneLine(t) {
-  const a = t.assurance;
-  if (t.status !== "completed" || !a) return "";
-  const parts = [`${a.appliance_verified} appliance-verified`, `${a.self_checked} self-checked`];
-  if (a.by_person) parts.push(`${a.by_person} confirmed by a person`);
-  return `<p class="small" data-done-line>Done: ${esc(parts.join(", "))}</p>`;
-}
-
 function plan(t) {
   const units = t.plan?.units || [];
   if (!units.length) return `<p class="empty">The agent has not written a plan.</p>`;
@@ -2501,14 +2399,8 @@ function plan(t) {
   // active or pending was simply not marked done.
   const ended = ["completed", "failed", "cancelled"].includes(t.status);
   const status = u => (ended && (!u.status || u.status === "active" || u.status === "pending")) ? ["", "not marked done"] : [mark[u.status] || "", u.status || "pending"];
-  return `<p class="small faint">Version ${esc(t.plan_version)}. Statuses are the agent's own account; the contract's checks are the evidence.</p>
+  return `<p class="small faint">Version ${esc(t.plan_version)}. Statuses are the agent's own account.</p>
     <table class="t"><tbody>${units.map(u => { const [cls, label] = status(u); return `<tr><td class="mono small">${esc(u.id)}</td><td>${esc(u.goal)}<div class="small muted">Done when ${esc(u.done_when)}</div></td><td><span class="chip ${cls}" data-unit-status="${esc(label)}">${esc(label)}</span></td></tr>`; }).join("")}</tbody></table>`;
-}
-
-function contractSection(t) {
-  if (!t.contract) return `<p class="empty">The agent has not written a contract.</p>`;
-  const state = t.contract_approved_by ? `approved by ${String(t.contract_approved_by).replace(/^person:/, "")}` : t.contract_frozen ? "frozen when the work started" : "not frozen yet: the work has not started";
-  return `<p class="small faint">Version ${esc(t.contract_version)} · ${esc(state)}</p>${contractView(t.contract, "Done-criteria and their checks")}`;
 }
 
 function trace(tl) {
@@ -2678,7 +2570,9 @@ function appOfferCard(e, theirs = true) {
 }
 
 // A task: its request, the decisions it waits on (the same cards as in its
-// conversation), then its outcome, its contract and plan, or its trace.
+// conversation), then its outcome, what was asked and its plan, or its
+// trace. How the agent checked its work is internal (spec rev 140): it is in
+// the developer view and the run inspector, not here.
 async function taskView(id, composed) {
   const [t, tl] = await Promise.all([api("GET", `/v1/tasks/${enc(id)}`), Panel.layer === "trace" ? api("GET", `/v1/tasks/${enc(id)}/timeline`) : null]);
   const running = t.status === "running";
@@ -2691,26 +2585,23 @@ async function taskView(id, composed) {
   const items = App.inbox.filter(i => i.task_id === id && i.status === "open");
   const view = deliverable(t);
   const files = latestOutputs(t);
-  const cs = t.criteria || [];
-  const checked = cs.filter(c => c.verified === true && !String(c.verified_by || "").startsWith("person:")).length;
   const cost = Number.isFinite(t.usage?.cost_usd) ? `$${t.usage.cost_usd.toFixed(2)}` : null;
   // The result leads with the deliverable, then its files, the person's
-  // verdict, and the evidence; what it cost closes it.
+  // verdict; what it cost closes it.
   const outcome = `${view.length ? `<iframe class="composed" sandbox="allow-same-origin" title="The deliverable" id="pview"></iframe>` : running ? "" : `<p class="empty">No result yet.</p>`}
     ${t.spoken && App.canReadAloud ? `<div class="row" style="margin:10px 0"><button type="button" class="icon-btn" data-act="${voice.entry===`task:${id}` ? "hush" : "speak"}" data-voice-entry="task:${esc(id)}" aria-label="${voice.entry===`task:${id}` ? "Stop reading" : "Read aloud"}" data-tooltip="${voice.entry===`task:${id}` ? "Stop reading" : "Read aloud"}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[voice.entry===`task:${id}` ? "hush" : "listen"]}</svg></button></div>` : ""}
     ${files.length ? `<div class="frows">${files.map(f => fileRow(f, t.project)).join("")}</div>` : ""}
     ${t.outcome_view && t.summary ? `<h3>Summary</h3><p data-summary>${esc(t.summary)}</p>` : ""}
-    <h3>Verification</h3>${doneLine(t)}<details class="verification-detail" data-key="checks:${esc(id)}" ${cs.some(c=>c.verified===false) ? "open" : ""}><summary>${esc(glance(t) || "No checks available")}</summary><div class="checklist">${criteria(t)}</div></details>
     ${ENDED.includes(t.status) ? `<details data-work-feedback data-key="feedback:${esc(id)}"><summary>Feedback</summary>${verdictBar(t.task_id, t.verdict)}</details>` : ""}
     ${cost ? `<p class="foot-note num" data-cost>${cost}</p>` : ""}
     ${t.model?.name || Number.isFinite(t.usage?.model_calls) || Number.isFinite(t.usage?.actions) ? `<details data-key="usage:${esc(id)}"><summary>Execution details</summary><p class="small muted">${[t.model?.name,Number.isFinite(t.usage?.model_calls) ? `${t.usage.model_calls} model calls` : null,Number.isFinite(t.usage?.actions) ? `${t.usage.actions} actions` : null].filter(Boolean).map(esc).join(" · ")}</p></details>` : ""}`;
   const contract = `<h3>Request</h3><p class="request">${esc(t.text)}</p>
     ${t.files?.length ? `<p class="small"><span class="muted">Your files:</span> ${t.files.map(fileChip).join(" ")}</p>` : ""}
-    <h3>Contract</h3>${contractSection(t)}<h3>Plan</h3>${plan(t)}`;
+    <h3>Plan</h3>${plan(t)}`;
   const layers = { outcome, contract, trace: tl ? trace(tl) : "" };
   const [, pill] = standing({ ...t, waiting_item: items.find(i => i.can_respond)?.id });
   const head = `<h2 class="ptitle" data-task="${esc(t.task_id)}">${esc(t.title || t.text)}</h2>
-    <div class="row small dh-sub">${pill}${cs.length ? `<span class="checks">${icon("shield")}<span class="num">${checked} of ${cs.length} checks verified by the appliance</span></span>` : ""}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : ""}</div>`;
+    <div class="row small dh-sub">${pill}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : ""}</div>`;
   const body = `${items.map(i => card(i, composed)).join("")}
     ${(t.app_offers || []).filter(o => o.state !== "connected").map(appOfferCard).join("")}
     ${running ? `<div class="live" id="plive" aria-live="polite">${esc(Panel.liveText) || `<span class="faint">Working…</span>`}</div>` : ""}

@@ -338,8 +338,8 @@ async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
         async move {
             match run_of(&c) {
                 Run::Chat => match c.turn() {
-                    0 => tool("create_schedule", json!({ "title": "Morning inbox", "text": RUN, "daily_at": at, "scope": "Reads the inbox; sends nothing." })),
-                    _ => say("Confirm the card and I'll do it."),
+                    0 => tool("create_schedule", json!({ "title": "Morning inbox", "goal": RUN, "daily_at": at })),
+                    _ => say("It is set up."),
                 },
                 Run::Task => match c.turn() {
                     0 => contract_checked("summarise the inbox", "mail__list_inbox", json!({}), "/messages/0/subject", json!("Q3 numbers")),
@@ -385,14 +385,14 @@ async fn in_origin(m: &FakeModel, api: &Api, origin: &str, report: &str) -> Vec<
     .await
 }
 
-/// Set up a schedule in a new conversation, due at the start of the minute
-/// after next, and confirm its card. Returns the conversation.
+/// Ask for a schedule in a new conversation, due at the start of the minute
+/// after next. Asking sets it up (spec rev 140): its card shows it set,
+/// with nothing to confirm. Returns the conversation.
 async fn schedule_in_chat(api: &Api, ask: &str) -> String {
     let (origin, turn) = chat(api, ask).await;
     api.wait_settled(&turn).await;
     let card = entries(api, &origin).await.into_iter().find(|e| e["kind"] == "schedule_card").expect("no schedule card");
-    let (st, v) = api.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
-    assert!(st.is_success(), "{v}");
+    assert_eq!(card["state"], "confirmed", "the schedule waits on a confirmation: {card}");
     origin
 }
 
@@ -432,14 +432,14 @@ permit(principal, action == Action::"request_approval", resource);
     let m = FakeModel::start(script(move |c| {
         let g = g.clone();
         async move {
-            let retry = |title: &str| tool("create_task", json!({ "title": title, "text": "Mark CRM record 42 done; check the lock first." }));
+            let retry = |title: &str| tool("create_task", json!({ "title": title, "goal": "Mark CRM record 42 done; check the lock first." }));
             match run_of(&c) {
                 Run::Chat if said(&c).starts_with("grant:") => match c.turn() {
                     0 => tool("propose_grant", serde_json::from_str(&said(&c)["grant:".len()..]).unwrap()),
                     _ => say("The card awaits you."),
                 },
                 Run::Chat => match c.turn() {
-                    0 => tool("create_task", json!({ "title": "Close CRM record 42", "text": "Mark CRM record 42 done.", "grant": g.lock().unwrap().clone() })),
+                    0 => tool("create_task", json!({ "title": "Close CRM record 42", "goal": "Mark CRM record 42 done.", "grant": g.lock().unwrap().clone() })),
                     _ => say("On it. I'll tell you here how it went."),
                 },
                 Run::Task => match c.turn() {
@@ -561,12 +561,10 @@ async fn an_event_from_a_connected_app_leads_to_a_suggestion() {
             match c.turn() {
                 0 => tool("mail__list_inbox", json!({})),
                 1 => tool(
-                    "propose_task",
+                    "suggest",
                     json!({
-                        "title": TITLE, "text": "Reply to Dana (dana@vendor.example) that Thursday 15:00 works, and move the call in the calendar.",
-                        "noticed": { "what": "Dana asked to move your call to Thursday 15:00", "where": "your inbox, just now" },
-                        "outcome": "The call is on Thursday 15:00 and Dana knows.", "why_now": "She is waiting for an answer.",
-                        "needs": { "permissions": ["Sends one email to Dana", "Changes one calendar event"], "estimated_cost_usd": 0.3 },
+                        "title": TITLE, "goal": "Reply to Dana (dana@vendor.example) that Thursday 15:00 works, and move the call in the calendar.",
+                        "permissions": ["Sends one email to Dana", "Changes one calendar event"],
                         "evidence": [{ "call": call_id(&c, "mail__list_inbox"), "shows": "Dana's new message asks to move the call to Thursday 15:00." }],
                     }),
                 ),
@@ -600,7 +598,7 @@ async fn an_event_from_a_connected_app_leads_to_a_suggestion() {
     );
     push(&url).await;
     let item =
-        wait("the review's suggestion", PUSH_PATIENCE, &m, &bob, || async { bob.inbox().await.into_iter().find(|i| i["kind"] == "task_proposal" && i["status"] == "open") }).await;
+        wait("the review's suggestion", PUSH_PATIENCE, &m, &bob, || async { bob.inbox().await.into_iter().find(|i| i["kind"] == "suggestion" && i["status"] == "open") }).await;
 
     let prompts = woke.lock().unwrap().clone();
     assert!(prompts.len() == 1 && prompts[0].contains("1 new in mail"), "the review was not woken by the new message: {prompts:?}");
@@ -609,12 +607,12 @@ async fn an_event_from_a_connected_app_leads_to_a_suggestion() {
     let read = m.requests().into_iter().find(|c| run_of(c) == Run::Review && c.turn() == 1 && opening(c).contains("new in mail")).expect("no read");
     assert!(read.last_results().iter().any(|r| r.text.contains("Thursday 15:00")), "the review did not read the new message");
     // The push and its read are the server's own work, never the person's.
-    only(&bob, &b, &[], &["task_proposal"], &[]).await;
+    only(&bob, &b, &[], &["suggestion"], &[]).await;
 }
 
 /// 5. A review proposes work grounded in what it read. Magnus's own review
-/// reads the person's inbox, finds a request with a deadline, and proposes a
-/// task citing that read. The proposal waits in the inbox; nothing starts.
+/// reads the person's inbox, finds a request with a deadline, and suggests a
+/// task citing that read. The suggestion waits in the inbox; nothing starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_review_proposes_work_from_what_it_read() {
     const TITLE: &str = "Send Dana the signed contract";
@@ -631,12 +629,10 @@ async fn a_review_proposes_work_from_what_it_read() {
             match c.turn() {
                 0 => tool("mail__list_inbox", json!({})),
                 1 => tool(
-                    "propose_task",
+                    "suggest",
                     json!({
-                        "title": TITLE, "text": "Find the signed contract and send it back to Dana (dana@vendor.example) before Friday, as she asked.",
-                        "noticed": { "what": "Dana asked for the signed contract back by Friday", "where": "your inbox" },
-                        "outcome": "Dana has the signed contract before Friday.", "why_now": "Her deadline is Friday.",
-                        "needs": { "permissions": ["Reads your mail and files", "Sends one email to Dana"], "estimated_cost_usd": 0.5 },
+                        "title": TITLE, "goal": "Find the signed contract and send it back to Dana (dana@vendor.example) before Friday, as she asked.",
+                        "permissions": ["Reads your mail and files", "Sends one email to Dana"],
                         "evidence": [{ "call": call_id(&c, "mail__list_inbox"), "shows": "Dana's email asks for the signed contract by Friday." }],
                     }),
                 ),
@@ -655,7 +651,7 @@ async fn a_review_proposes_work_from_what_it_read() {
 
     // The scenario starts with the server: its first review is the one under test.
     let b = Before { tasks: BTreeSet::new(), items: BTreeSet::new(), threads: BTreeSet::new() };
-    let item = wait("the review's proposal", PATIENCE, &m, &bob, || async { bob.inbox().await.into_iter().find(|i| i["kind"] == "task_proposal" && i["status"] == "open") }).await;
+    let item = wait("the review's proposal", PATIENCE, &m, &bob, || async { bob.inbox().await.into_iter().find(|i| i["kind"] == "suggestion" && i["status"] == "open") }).await;
     let d = &item["details"];
     assert_eq!(d["title"], TITLE, "{item}");
     // Grounded: its evidence is the read the review made, and that read
@@ -666,5 +662,5 @@ async fn a_review_proposes_work_from_what_it_read() {
     let review = item["task_id"].as_str().or(item["task"].as_str()).unwrap_or_else(|| panic!("the proposal names no review: {item}"));
     assert_eq!(bob.task(review).await["review"], true, "the proposal did not come from a review");
     // Nothing started, and the person sees only the proposal.
-    only(&bob, &b, &[], &["task_proposal"], &[]).await;
+    only(&bob, &b, &[], &["suggestion"], &[]).await;
 }

@@ -17,7 +17,7 @@ fn said(c: &Conversation) -> String {
 }
 
 fn schedule(every: u64, daily: &str) -> Reply {
-    tool("create_schedule", json!({ "title": "System test", "text": "Run a system test.", "scope": "Posts a short confirmation.", "every_minutes": every, "daily_at": daily }))
+    tool("create_schedule", json!({ "title": "System test", "goal": "Run a system test.", "every_minutes": every, "daily_at": daily }))
 }
 
 async fn notices(api: &Api) -> Vec<Value> {
@@ -47,8 +47,8 @@ async fn failures_reach_the_inbox_and_every_schedule_firing_shows() {
     // The empty field is no longer read as a second timing.
     let (_, v) = alice.post("/v1/chat", json!({ "text": "Schedule a system test every 5 minutes." })).await;
     let done = alice.wait_settled(v["task_id"].as_str().unwrap()).await;
-    let card = m.requests().iter().flat_map(|c| c.messages()).filter_map(|msg| msg.to_string().contains("A card for this schedule").then_some(())).count();
-    assert!(card > 0, "the schedule was refused: {done}");
+    let set = m.requests().iter().flat_map(|c| c.messages()).filter_map(|msg| msg.to_string().contains("is set up").then_some(())).count();
+    assert!(set > 0, "the schedule was refused: {done}");
 
     // A requested schedule that never came about is in the inbox.
     let (_, v) = alice.post("/v1/chat", json!({ "text": "Schedule a system test every minute." })).await;

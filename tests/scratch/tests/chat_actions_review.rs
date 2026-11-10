@@ -30,7 +30,7 @@ fn model() -> Script {
             let s = said(&c);
             return match c.turn() {
                 0 if s.contains("CRM") => tool("crm__get_record", json!({ "id": "42" })),
-                0 if s.contains("Book") => tool("create_task", json!({ "title": "Book the room", "text": "Book the meeting room for Friday." })),
+                0 if s.contains("Book") => tool("create_task", json!({ "title": "Book the room", "goal": "Book the meeting room for Friday." })),
                 _ => Reply::Text(format!("Answer to: {s}")),
             };
         }

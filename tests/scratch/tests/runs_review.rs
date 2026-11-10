@@ -147,8 +147,8 @@ async fn a_failed_requested_task_is_reported_even_when_another_started() {
     let m = FakeModel::start(script(|c| async move {
         if c.body["system"].to_string().contains(CHAT) {
             return match c.turn() {
-                0 if said(&c).contains("two things") => tool("create_task", json!({ "title": "Book the venue", "text": "Book the venue for Friday." })),
-                1 if said(&c).contains("two things") => tool("create_task", json!({ "title": "Order the cake", "text": "" })),
+                0 if said(&c).contains("two things") => tool("create_task", json!({ "title": "Book the venue", "goal": "Book the venue for Friday." })),
+                1 if said(&c).contains("two things") => tool("create_task", json!({ "title": "Order the cake", "goal": "" })),
                 _ => Reply::Text("I started the venue; I couldn't start the cake.".into()),
             };
         }

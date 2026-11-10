@@ -73,7 +73,7 @@ fn plan(name: &str) -> Vec<Reply> {
 /// The person's messages drive each chat turn:
 /// - `grant:{...}` puts a grant card with those fields;
 /// - `run plan=<p> grant=<g>` starts a task doing plan p under grant g;
-/// - `propose plan=<p>` reads record 42 and proposes a task doing plan p;
+/// - `propose plan=<p>` reads record 42 and suggests a task doing plan p;
 /// - `revoke grant=<g>` revokes grant g.
 ///
 /// A task does its plan after its contract; the memory pass writes nothing.
@@ -115,7 +115,7 @@ fn model() -> model::Script {
         }
         if text.starts_with("run ") {
             let p = arg(&text, "plan").unwrap();
-            let mut input = json!({ "title": format!("Do {p}"), "text": format!("Do the work: plan={p}.") });
+            let mut input = json!({ "title": format!("Do {p}"), "goal": format!("Do the work: plan={p}.") });
             if let Some(g) = arg(&text, "grant") {
                 input["grant"] = json!(g);
             }
@@ -129,12 +129,10 @@ fn model() -> model::Script {
             return match c.turn() {
                 0 => tool("crm__get_record", json!({ "id": "42" })),
                 1 => tool(
-                    "propose_task",
+                    "suggest",
                     json!({
-                        "title": format!("Close record 42 ({p})"), "text": format!("Mark record 42 done: plan={p}."),
-                        "noticed": { "what": "Record 42 is still open", "where": "the CRM" },
-                        "outcome": "Record 42 marked done.", "why_now": "It was finished yesterday.",
-                        "needs": { "permissions": ["Changes record 42 in the CRM"], "estimated_cost_usd": 0.5 },
+                        "title": format!("Close record 42 ({p})"), "goal": format!("Mark record 42 done: plan={p}."),
+                        "permissions": ["Changes record 42 in the CRM"],
                         "evidence": [{ "call": call_of(&c, "crm__get_record"), "shows": "Record 42 is open." }],
                     }),
                 ),
@@ -259,43 +257,32 @@ fn after(m: &FakeModel, text: &str) -> Conversation {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn handling_things_like_this_sets_a_grant_whose_tasks_go_ahead_and_approving_a_proposal_sets_none() {
+async fn a_grant_sets_standing_authority_whose_tasks_go_ahead_and_accepting_a_suggestion_sets_none() {
     let w = world().await;
     let alice = w.app.api("alice");
 
-    // "Handle things like this" on a proposal: a grant from its defaults,
-    // and its task starts under it.
-    let thread = chat(&alice, "propose plan=update").await;
-    let card = wait_entry(&alice, &thread, "proposal_card").await;
-    let h = &card["handle"];
-    // The default is the server's per-task limit, never a multiple of the model's estimate.
-    assert_eq!((&h["title"], &h["apps"], &h["allow"], &h["period"], h["max_usd"].as_f64()), (&card["title"], &json!(["crm"]), &json!([]), &json!("week"), Some(50.0)), "{card}");
-    assert!(card["your_apps"].as_array().is_some_and(|a| a.iter().any(|x| x["name"] == "crm")), "{card}");
-    let id = card["card"].as_str().unwrap().to_string();
-    assert_eq!(decide(&w.app.api("bob"), &id, json!({ "decision": "handle" })).await.0, 404, "someone else handled the card");
-    let (st, v) = decide(&alice, &id, json!({ "decision": "handle" })).await;
-    assert_eq!(st, 200, "{v}");
-    let (task, g) = (v["task"].as_str().expect("no task").to_string(), v["grant"].as_str().expect("no grant").to_string());
-    assert_eq!(decide(&alice, &id, json!({ "decision": "handle" })).await.0, 409, "a card was handled twice");
-    // Changing record 42 asks under the owner's policy; under the grant it goes ahead.
+    // A grant the person accepted: a task under it goes ahead.
+    let title = "Keep the CRM current";
+    let g = grant(&alice, fields(title, &["crm"], 50.0)).await;
+    let task = run(&alice, "update", Some(&g)).await.expect("no task under the grant");
     went_ahead(&alice, &w.crm, "update_record", 0, &task).await;
-    let card = wait_entry(&alice, &thread, "proposal_card").await;
-    assert_eq!((&card["state"], &card["started"], &card["granted"]), (&json!("confirmed"), &json!(task), &json!(g)), "{card}");
     let gr = grant_of(&alice, &g).await;
-    assert_eq!((&gr["title"], &gr["apps"], &gr["allow"], &gr["period"], gr["max_usd"].as_f64()), (&card["title"], &json!(["crm"]), &json!([]), &json!("week"), Some(50.0)), "{gr}");
+    assert_eq!((&gr["title"], &gr["apps"], &gr["allow"], &gr["period"], gr["max_usd"].as_f64()), (&json!(title), &json!(["crm"]), &json!([]), &json!("week"), Some(50.0)), "{gr}");
     let cedar = gr["cedar"].as_str().unwrap();
     assert!(cedar.contains("permit(principal == Person::\"alice\"") && cedar.contains("resource in App::\"crm\"") && cedar.contains("resource.risk == \"financial\""), "{cedar}");
     assert_eq!(gr["still_asks"].as_array().map(|a| a.len()), Some(3), "{gr}");
     assert_eq!((&gr["actions"][0]["tool"], &gr["actions"][0]["task"]), (&json!("crm__update_record"), &json!(task)), "the action is not listed under the grant: {gr}");
     assert!(gr["spent"].as_f64().is_some_and(|s| s > 0.0), "{gr}");
 
-    // Approving a proposal sets no grant: its task asks.
+    // Accepting a suggestion starts its work and sets no grant.
     let thread = chat(&alice, "propose plan=update").await;
-    let card = wait_entry(&alice, &thread, "proposal_card").await;
-    let (st, v) = decide(&alice, card["card"].as_str().unwrap(), json!({ "decision": "approve" })).await;
+    let card = wait_entry(&alice, &thread, "suggestion_card").await;
+    assert!(card.get("handle").is_none(), "the suggestion still offers to handle things like this: {card}");
+    let (st, v) = decide(&alice, card["card"].as_str().unwrap(), json!({ "decision": "accept" })).await;
     assert_eq!(st, 200, "{v}");
-    asked(&alice, Some(&w.crm), "update_record", v["task"].as_str().unwrap()).await;
-    assert_eq!(grants(&alice).await.len(), 1, "approving a proposal set a grant");
+    let accepted = v["task"].as_str().expect("no task").to_string();
+    alice.wait_settled(&accepted).await;
+    assert_eq!(grants(&alice).await.len(), 1, "accepting a suggestion set a grant");
 
     // A later task under the grant: Magnus knows it, and the task goes ahead.
     let later = run(&alice, "update", Some(&g)).await.expect("no task under the grant");

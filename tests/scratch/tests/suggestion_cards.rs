@@ -5,7 +5,8 @@
 //! accepts it (a task or a schedule starts), puts it off ("Not now"), or
 //! declines it with a reason. Every card and its answer are in the ledger
 //! that later runs of theirs read; a declined one comes back only with what
-//! changed. A schedule card is a suggestion too.
+//! changed. A schedule the person asks for is not a suggestion: it is set
+//! up at once (spec rev 140), and is not put to them again.
 
 use magnus_invariants::*;
 use serde_json::{json, Value};
@@ -51,7 +52,7 @@ fn ledger_card(sys: &str) -> String {
 }
 
 fn suggestion(evidence: Value, extra: Value) -> Value {
-    let mut v = json!({ "title": TITLE, "plan": PLAN, "evidence": evidence, "permissions": ["Reads your invoices", "Sends nothing"] });
+    let mut v = json!({ "title": TITLE, "goal": PLAN, "evidence": evidence, "permissions": ["Reads your invoices", "Sends nothing"] });
     for (k, x) in extra.as_object().cloned().unwrap_or_default() {
         v[k] = x;
     }
@@ -184,7 +185,7 @@ async fn evidence_that_points_at_nothing_real_is_refused() {
         let cite = |e: Value| tool("suggest", suggestion(json!([e]), json!({})));
         match (said, turn) {
             ("Cite a call that never was.", 0) => cite(json!({ "call": "toolu_never_made", "shows": "x" })),
-            ("Cite a card.", 0) => tool("create_schedule", json!({ "text": "Summarise the news.", "daily_at": "07:30", "scope": "Reads the web." })),
+            ("Cite a card.", 0) => tool("create_schedule", json!({ "title": "News", "goal": "Summarise the news.", "daily_at": "07:30" })),
             ("Cite a card.", 1) => cite(json!({ "call": last_call(c), "shows": "x" })),
             ("Cite Bob's task.", 0) => cite(json!({ "task": theirs.lock().unwrap().clone(), "shows": "x" })),
             (s, 0) if s.starts_with("Cite my own task") => cite(json!({ "task": s.rsplit(' ').next().unwrap(), "shows": "You asked for this before." })),
@@ -361,47 +362,38 @@ async fn timing_given_is_checked_as_a_schedules() {
     assert_eq!((&card["every_minutes"], &card["daily_at"], &card["until"], &card["max_runs"]), (&Value::Null, &Value::Null, &Value::Null, &Value::Null), "{card}");
 }
 
+/// A schedule the person asks for is set up at once: its card shows it set,
+/// it cannot be put off or declined as a suggestion, and later turns read it
+/// as done at their request, not as a suggestion awaiting an answer.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_schedule_card_is_a_suggestion_put_off_or_declined_with_a_reason() {
+async fn a_schedule_asked_for_is_set_up_and_not_put_to_the_person_as_a_suggestion() {
     let m = FakeModel::start(model(|said, turn, _| match (said, turn) {
-        (s, 0) if s.starts_with("Every") => {
-            tool("create_schedule", json!({ "title": s, "text": "Summarise the news (sched-plan-9).", "daily_at": "07:30", "scope": "Searches the web; sends nothing." }))
-        }
-        _ => Reply::Text("Confirm the card.".into()),
+        (s, 0) if s.starts_with("Every") => tool("create_schedule", json!({ "title": s, "goal": "Summarise the news (sched-plan-9).", "daily_at": "07:30" })),
+        _ => Reply::Text("It is set up.".into()),
     }))
     .await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
-    let (thread, turn) = chat(&alice, "Every morning, the news.").await;
+    let (thread, _) = chat(&alice, "Every morning, the news.").await;
     let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
-    assert_eq!(card["plan"], "Summarise the news (sched-plan-9).");
-    assert_eq!(card["permissions"], json!(["Searches the web; sends nothing."]));
-    assert_eq!((&card["evidence"][0]["task"], &card["evidence"][0]["shows"]), (&json!(turn), &json!("you asked for it")), "{card}");
-    let id = card["card"].as_str().unwrap().to_string();
-    let (st, v) = decide(&alice, &id, json!({ "decision": "later" })).await;
-    assert_eq!(st, 200, "{v}");
-    assert_eq!(decide(&alice, &id, json!({ "decision": "confirm" })).await.0, 409, "a card put off was decided again");
-    assert_eq!(wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await["state"], "later");
-
-    let (thread, _) = chat(&alice, "Every evening, the weather.").await;
-    let id = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await["card"].as_str().unwrap().to_string();
-    assert_eq!(decide(&alice, &id, json!({ "decision": "decline" })).await.0, 400, "declined without a reason");
-    assert_eq!(decide(&alice, &id, json!({ "decision": "decline", "reason": REASON })).await.0, 200);
-    let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
-    assert_eq!((&card["state"], &card["reason"]), (&json!("declined"), &json!(REASON)), "{card}");
     let (_, s) = alice.get("/v1/schedules").await;
-    assert!(s["schedules"].as_array().unwrap().is_empty(), "{s}");
-    // The thread's next turn reads the answer, and the ledger has both cards.
-    let text = "Why not?";
+    let list = s["schedules"].as_array().unwrap();
+    assert_eq!(list.len(), 1, "{s}");
+    assert_eq!((&card["state"], &card["schedule"], &card["plan"]), (&json!("confirmed"), &list[0]["id"], &json!("Summarise the news (sched-plan-9).")), "{card}");
+    let id = card["card"].as_str().unwrap().to_string();
+    for d in [json!({ "decision": "later" }), json!({ "decision": "decline", "reason": REASON }), json!({ "decision": "confirm" })] {
+        assert_eq!(decide(&alice, &id, d.clone()).await.0, 409, "a schedule set up at her request was answered as a card: {d}");
+    }
+    assert_eq!(wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await["state"], "confirmed");
+    // The thread's next turn reads it as set up at her request; the ledger of suggestions leaves it out.
+    let text = "Thanks.";
     let (st, v) = alice.post("/v1/chat", json!({ "text": text, "thread": thread })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     alice.wait_settled(v["task_id"].as_str().unwrap()).await;
     let c = request(&m, text, 0);
     let conversation = serde_json::to_string(&c.messages()).unwrap();
-    assert!(conversation.contains("Proposed a schedule (declined: ") && conversation.contains("why-dec-42"), "the conversation does not carry the answer: {conversation}");
-    let sys = system(&c);
-    assert!(sys.contains(LEDGER) && sys.contains("you proposed the schedule \"Every evening, the weather.\""), "{sys}");
-    assert!(sys.contains("not now"), "{sys}");
+    assert!(conversation.contains("Set up the schedule") && !conversation.contains("Proposed a schedule"), "the conversation does not read it as set up: {conversation}");
+    assert!(!system(&c).contains("you proposed the schedule"), "the schedule is in the ledger of suggestions");
 }
 
 /// Accepting an untimed suggestion starts a one-off task: its context says
@@ -409,10 +401,7 @@ async fn a_schedule_card_is_a_suggestion_put_off_or_declined_with_a_reason() {
 /// a schedule's run keeps its own wording (#271).
 #[tokio::test(flavor = "multi_thread")]
 async fn an_accepted_suggestion_starts_a_task_approved_for_its_scope_not_a_schedule() {
-    let m = FakeModel::start(model(|said, turn, c| match said {
-        _ => read_then_suggest(turn, c, json!({})),
-    }))
-    .await;
+    let m = FakeModel::start(model(|_, turn, c| read_then_suggest(turn, c, json!({})))).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let (thread, _) = chat(&alice, "What could you take off my plate?").await;
@@ -426,5 +415,5 @@ async fn an_accepted_suggestion_starts_a_task_approved_for_its_scope_not_a_sched
     assert!(!asked.is_empty(), "the task never asked");
     let first = serde_json::to_string(&asked[0].messages()).unwrap();
     assert!(first.contains("approved this task for this scope"), "the task was not told it was approved: {first}");
-    assert!(!first.contains("confirmed this schedule"), "the one-off task was told it is a schedule: {first}");
+    assert!(!first.contains("this schedule"), "the one-off task was told it is a schedule: {first}");
 }

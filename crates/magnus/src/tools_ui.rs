@@ -21,7 +21,6 @@ pub const RECORDS: &[&str] = &[
     "task_fail",
     "ask_principal",
     "propose_policy",
-    "propose_schedule",
     "end_schedule",
     "wait_until",
     "notify",

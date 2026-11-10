@@ -128,31 +128,25 @@ await step("approve under Needs you", async () => {
   await page.getByText("Accepted.").waitFor({ timeout: T });
 });
 
-await step("see the outcome with its evidence", async () => {
+await step("see the outcome, not how it was checked", async () => {
   await page.locator("#thread [data-chat-task][data-status=completed]").waitFor({ timeout: T });
   await page.locator("#thread [data-chat-task] a.rg-row").click();
   await panel.locator(".detail-head .chip", { hasText: "Done" }).waitFor({ timeout: T });
-  await panel.locator(".verification-detail > summary").click();
-  await panel.locator(".evidence.pass").first().waitFor({ timeout: T });
-  const holds = await panel.locator(".evidence.pass .chip.ok", { hasText: "holds" }).count();
-  if (!holds) throw new Error("no criterion shows that it holds in the world");
-  const confirmed = await panel.locator(".evidence.pass .chip.ok", { hasText: `confirmed by ${person}` }).count();
-  if (!confirmed) throw new Error("the reviewed criterion does not say who confirmed it");
-  await panel.getByText("1 of 2 checks verified by the appliance").waitFor({ timeout: T });
-  // The outcome says where each verdict came from (the kernel's labels).
-  await panel.getByText("Done: 1 appliance-verified, 0 self-checked, 1 confirmed by a person").waitFor({ timeout: T });
-  await panel.locator(".evidence.pass details").first().click();
-  await panel.locator(".evidence.pass pre").first().waitFor({ timeout: T });
+  // Checking is internal (spec rev 140): no criteria, checks or contract.
+  for (const gone of [".verification-detail", "[data-done-line]", ".evidence.pass"]) {
+    if (await panel.locator(gone).count()) throw new Error(`the person sees how the work was checked: ${gone}`);
+  }
+  if (await panel.getByText(/checks verified|appliance-verified|done-criteria/i).count()) throw new Error("the person sees the checks");
   const frame = page.frameLocator("#detail iframe.composed");
   await frame.locator("body").getByText(/\S/).first().waitFor({ timeout: T });
   // The deliverable leads, with the delivered file shown in full, before the
-  // summary, the evidence and the cost.
+  // summary and the cost.
   await frame.getByText("Q3 revenue: 41.7M, up from 38.2M in Q2.").waitFor({ timeout: T });
-  const order = await page.evaluate(() => ["iframe.composed", "[data-summary]", "[data-done-line]", "[data-cost]"].map(q => {
+  const order = await page.evaluate(() => ["iframe.composed", "[data-summary]", "[data-cost]"].map(q => {
     const el = document.querySelector(`#detail ${q}`);
     return el ? el.getBoundingClientRect().top : null;
   }));
-  if (order.some(y => y === null) || order.some((y, i) => i && y <= order[i - 1])) throw new Error(`the outcome is out of order (deliverable, summary, evidence, cost): ${order}`);
+  if (order.some(y => y === null) || order.some((y, i) => i && y <= order[i - 1])) throw new Error(`the outcome is out of order (deliverable, summary, cost): ${order}`);
   // The composed outcome cannot run scripts.
   const sandbox = await panel.locator("iframe.composed").getAttribute("sandbox");
   if (sandbox === null || /allow-scripts/.test(sandbox)) throw new Error(`the outcome frame may run scripts: ${sandbox}`);

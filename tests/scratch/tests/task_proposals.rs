@@ -1,26 +1,23 @@
-//! Task proposals (behavior spec, Suggestions and proposals; behavior.md
-//! step 4; #254). In chat Magnus proposes one task with `propose_task`: a
-//! card with what it noticed and where, the outcome, why now, and what the
-//! task needs (permissions, an estimated cost, any input), refused when a
-//! field is missing, the estimate is out of bounds, or its evidence points
-//! at nothing real. The person approves it (the task starts for them on
-//! the server's per-task budget; the estimate is only shown) or dismisses it with a reason, which later
-//! runs read in the ledger; a dismissed one comes back only with what
-//! changed. It is not put off.
+//! Task proposals are suggestions (spec rev 140, Permissions and tasks).
+//! `propose_task` and `propose_schedule` are gone: what the person asks for
+//! is started at once (`create_task`, `create_schedule`), and Magnus's own
+//! ideas go through `suggest`. From a chat turn a suggestion is a card in
+//! the thread; from a task or a review, which have no thread, it is a
+//! `suggestion` in the person's inbox. Either way one accept starts it, on
+//! the server's per-task budget, with the suggesting run's taint; nothing
+//! starts before that, and only the person it was put to can accept it.
 
 use magnus_invariants::*;
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const CHAT: &str = "talking with the person you work for in a chat";
 const PASS: &str = "You keep the person's long-term memory";
-const LEDGER: &str = "# Your suggestions to this person and their answers";
 const TITLE: &str = "Chase the overdue invoice";
-const TEXT: &str = "Draft a reminder to Acme about invoice 1042, overdue by two weeks (task-prop-31).";
-const OUTCOME: &str = "A reminder ready to send (outcome-prop-8).";
-const REASON: &str = "Acme paid yesterday (why-dis-57).";
-const ESTIMATE: f64 = 0.75;
+const GOAL: &str = "Draft a reminder to Acme about invoice 1042 (task-prop-31).";
+const FIRST: &str = "Close CRM record 42.";
+const SECOND: &str = "Look over my invoices.";
 /// The harness's per-task `max_usd`.
 const SERVER_LIMIT: f64 = 50.0;
 
@@ -44,61 +41,12 @@ fn read_call(c: &Conversation) -> Value {
     blocks.into_iter().find(|b| b["type"] == "tool_use" && b["name"] == "list_tasks").map(|b| b["id"].clone()).expect("no list_tasks call")
 }
 
-/// The first card id the ledger in the system context names.
-fn ledger_card(sys: &str) -> String {
-    let at = sys.find(LEDGER).and_then(|l| sys[l..].find("card_").map(|i| l + i)).unwrap_or_else(|| panic!("no card in the ledger: {sys}"));
-    sys[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect()
-}
-
-/// A complete proposal citing this turn's `list_tasks` call, with `extra`
-/// set over it (null removes a field).
-fn proposal(c: &Conversation, extra: Value) -> Value {
-    let mut v = json!({
-        "title": TITLE, "text": TEXT,
-        "noticed": { "what": "Invoice 1042 to Acme is two weeks overdue", "where": "your Tasks" },
-        "outcome": OUTCOME, "why_now": "Their payment run is on Friday.",
-        "needs": { "permissions": ["Reads your invoices", "Drafts an email; sends nothing"], "estimated_cost_usd": ESTIMATE, "input": "Who at Acme to write to" },
-        "evidence": [{ "call": read_call(c), "shows": "The invoice task is still open." }],
-    });
+fn suggestion(evidence: Value, extra: Value) -> Value {
+    let mut v = json!({ "title": TITLE, "goal": GOAL, "evidence": evidence, "permissions": ["Reads your invoices", "Drafts an email; sends nothing"] });
     for (k, x) in extra.as_object().cloned().unwrap_or_default() {
-        if x.is_null() {
-            v.as_object_mut().unwrap().remove(&k);
-        } else {
-            v[k] = x;
-        }
+        v[k] = x;
     }
     v
-}
-
-/// Chat turns follow `chat` (what the person said, the turn, the request);
-/// the memory pass writes nothing; a task states a contract and ends.
-fn model(chat: impl Fn(&str, usize, &Conversation) -> Reply + Send + Sync + 'static) -> model::Script {
-    let chat = Arc::new(chat);
-    script(move |c| {
-        let chat = chat.clone();
-        async move {
-            let sys = system(&c);
-            if sys.contains(PASS) {
-                return Reply::Text(String::new());
-            }
-            if !sys.contains(CHAT) {
-                return match c.turn() {
-                    0 => contract_unchecked("do the proposed work", "it is done"),
-                    _ => fail("done"),
-                };
-            }
-            chat(&said(&c), c.turn(), &c)
-        }
-    })
-}
-
-/// Read the person's tasks, then propose with that call as evidence.
-fn read_then_propose(turn: usize, c: &Conversation, extra: Value) -> Reply {
-    match turn {
-        0 => tool("list_tasks", json!({})),
-        1 => tool("propose_task", proposal(c, extra)),
-        _ => Reply::Text("The card awaits you.".into()),
-    }
 }
 
 async fn chat(api: &Api, text: &str) -> (String, String) {
@@ -109,175 +57,133 @@ async fn chat(api: &Api, text: &str) -> (String, String) {
     (v["thread"].as_str().unwrap_or_default().to_string(), task)
 }
 
-async fn entries(api: &Api, thread: &str) -> Vec<Value> {
-    let (st, v) = api.get(&format!("/v1/chat/{thread}")).await;
-    assert!(st.is_success(), "{v}");
-    v["entries"].as_array().cloned().unwrap_or_default()
-}
-
 /// Wait until the thread has an entry matching `f`.
 async fn wait_entry(api: &Api, thread: &str, f: impl Fn(&Value) -> bool) -> Value {
     for _ in 0..600 {
-        if let Some(e) = entries(api, thread).await.into_iter().find(|e| f(e)) {
-            return e;
+        let (_, v) = api.get(&format!("/v1/chat/{thread}")).await;
+        if let Some(e) = v["entries"].as_array().into_iter().flatten().find(|e| f(e)) {
+            return e.clone();
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    panic!("no such entry in the thread: {:?}", entries(api, thread).await);
+    panic!("no such entry in the thread {thread}");
 }
 
-fn card_of(e: &Value) -> bool {
-    e["kind"] == "proposal_card"
-}
-
-async fn decide(api: &Api, card: &str, body: Value) -> (u16, Value) {
-    let (st, v) = api.post(&format!("/v1/chat/cards/{card}"), body).await;
-    (st.as_u16(), v)
-}
-
-/// The request the model was given after the call it made in the turn
-/// answering `text`, at `turn`.
-fn request(m: &FakeModel, text: &str, turn: usize) -> Conversation {
-    m.requests().into_iter().find(|c| c.turn() == turn && said(c) == text && system(c).contains(CHAT)).unwrap_or_else(|| panic!("no request at turn {turn} for {text:?}"))
-}
-
+/// In chat the proposal tools are not offered, and a call to one is
+/// refused; a suggestion is a card the person accepts with one action,
+/// which starts one task for them on the server's per-task budget.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_proposal_citing_what_it_read_becomes_a_card_and_approving_it_starts_one_task_within_the_estimate() {
-    let m = FakeModel::start(model(|_, turn, c| read_then_propose(turn, c, json!({})))).await;
-    let app = Appliance::start(Spec::default(), &m).await;
-    let alice = app.api("alice");
-    let (thread, _) = chat(&alice, "Anything I should deal with?").await;
-    let card = wait_entry(&alice, &thread, card_of).await;
-    assert_eq!((&card["state"], &card["title"], &card["text"], &card["outcome"]), (&json!("open"), &json!(TITLE), &json!(TEXT), &json!(OUTCOME)), "{card}");
-    assert_eq!(card["noticed"], json!({ "what": "Invoice 1042 to Acme is two weeks overdue", "where": "your Tasks" }), "{card}");
-    assert_eq!(card["why_now"], "Their payment run is on Friday.", "{card}");
-    assert_eq!(card["needs"]["permissions"], json!(["Reads your invoices", "Drafts an email; sends nothing"]), "{card}");
-    assert_eq!((card["needs"]["estimated_cost_usd"].as_f64(), &card["needs"]["input"]), (Some(ESTIMATE), &json!("Who at Acme to write to")), "{card}");
-    assert_eq!(card["evidence"][0]["tool"], "list_tasks", "the evidence is not resolved to what was read: {card}");
-    assert_eq!(card["scope"], "Reads your invoices; Drafts an email; sends nothing", "{card}");
-    assert_eq!(card["budget"]["max_usd"].as_f64(), Some(SERVER_LIMIT), "the card's budget is not the server's: {card}");
-    assert_eq!(card["acts_for"], "alice");
-    let id = card["card"].as_str().unwrap();
-    let before = alice.tasks().await["tasks"].as_array().unwrap().len();
-
-    // Only the person it was put to decides it; approving it starts one task for them.
-    assert_eq!(decide(&app.api("bob"), id, json!({ "decision": "approve" })).await.0, 404, "someone else approved the card");
-    let (st, v) = decide(&alice, id, json!({ "decision": "approve" })).await;
-    assert_eq!(st, 200, "{v}");
-    let task = v["task"].as_str().expect("no task started").to_string();
-    assert_eq!(decide(&alice, id, json!({ "decision": "approve" })).await.0, 409, "a card was approved twice");
-    assert_eq!(decide(&alice, id, json!({ "decision": "dismiss", "reason": REASON })).await.0, 409, "an approved card was dismissed");
-    let t = alice.wait_settled(&task).await;
-    assert_eq!(t["person"], "alice", "the task does not act for the person: {t}");
-    assert_eq!(alice.tasks().await["tasks"].as_array().unwrap().len(), before + 1, "approving it twice started two tasks");
-    // It runs on the server's per-task limit; the estimate never caps it (spec rev 133).
-    let t = alice.task(&task).await;
-    assert_eq!(t["budget"]["max_usd"].as_f64(), Some(SERVER_LIMIT), "the task is capped at the model's estimate: {t}");
-    let card = wait_entry(&alice, &thread, card_of).await;
-    assert_eq!((&card["state"], &card["started"]), (&json!("confirmed"), &json!(task)), "{card}");
-    // Its result posts to the thread.
-    let result = wait_entry(&alice, &thread, |e| e["kind"] == "result").await;
-    assert_eq!(result["task_id"], task.as_str());
-    let theirs = |c: &Conversation| !system(c).contains(CHAT) && !system(c).contains(PASS);
-    assert!(m.requests().iter().any(|c| theirs(c) && c.text().contains("task-prop-31")), "the task does not carry the proposal's text");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_proposal_missing_a_field_or_with_a_bad_estimate_or_evidence_is_refused() {
-    let m = FakeModel::start(model(|_, turn, c| {
-        let bad = |extra: Value| tool("propose_task", proposal(c, extra));
-        let needs = |cost: Value| json!({ "needs": { "permissions": ["Reads your invoices"], "estimated_cost_usd": cost } });
-        match turn {
-            0 => tool("list_tasks", json!({})),
-            1 => bad(json!({ "why_now": null })),
-            2 => bad(json!({ "noticed": { "what": "An overdue invoice", "where": " " } })),
-            3 => bad(json!({ "needs": { "permissions": [], "estimated_cost_usd": ESTIMATE } })),
-            4 => bad(needs(json!(0))),
-            5 => bad(needs(json!(51.0))),
-            6 => bad(json!({ "evidence": [{ "call": "toolu_never_made", "shows": "x" }] })),
-            _ => Reply::Text("Done.".into()),
+async fn in_chat_a_suggestion_is_accepted_with_one_action_and_the_proposal_tools_are_gone() {
+    let m = FakeModel::start(script(|c| async move {
+        let sys = system(&c);
+        if sys.contains(PASS) {
+            return Reply::Text(String::new());
+        }
+        if !sys.contains(CHAT) {
+            return match c.turn() {
+                0 => contract_unchecked("do the suggested work", "it is done"),
+                _ => fail("done"),
+            };
+        }
+        match c.turn() {
+            0 => tool("propose_task", json!({ "title": TITLE, "text": GOAL })),
+            1 => tool("list_tasks", json!({})),
+            2 => tool("suggest", suggestion(json!([{ "call": read_call(&c), "shows": "The invoice task is still open." }]), json!({}))),
+            _ => Reply::Text("The card awaits you.".into()),
         }
     }))
     .await;
-    // The appliance's limit per task is $50 (Spec::default).
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
-    let text = "Anything I should deal with?";
-    let (thread, _) = chat(&alice, text).await;
-    for (turn, why) in [(2, "why_now"), (3, "noticed"), (4, "needs.permissions"), (5, "estimated_cost_usd"), (6, "estimated_cost_usd"), (7, "evidence item 1")] {
-        let r = request(&m, text, turn).last_results();
-        assert!(r[0].is_error && r[0].text.starts_with("No card") && r[0].text.contains(why) && r[0].text.contains("will not help"), "turn {turn}: {r:?}");
+    let (thread, _) = chat(&alice, "Anything I should deal with?").await;
+    let chat_turns: Vec<Conversation> = m.requests().into_iter().filter(|c| system(c).contains(CHAT)).collect();
+    for t in ["propose_task", "propose_schedule"] {
+        assert!(!chat_turns[0].offered_tools().iter().any(|n| n == t), "{t} is still offered in chat");
     }
-    assert!(!entries(&alice, &thread).await.iter().any(card_of), "a card was made");
+    let refused = &chat_turns.iter().find(|c| c.turn() == 1).expect("turn 1").last_results()[0];
+    assert!(refused.is_error, "propose_task was carried out: {}", refused.text);
+    let card = wait_entry(&alice, &thread, |e| e["kind"] == "suggestion_card").await;
+    assert_eq!((&card["state"], &card["title"], &card["plan"]), (&json!("open"), &json!(TITLE), &json!(GOAL)), "{card}");
+    assert!(!thread.is_empty() && !wait_entry(&alice, &thread, |e| e["kind"] == "suggestion_card").await["card"].is_null());
+    let id = card["card"].as_str().unwrap();
+    assert_eq!(alice.tasks().await["tasks"].as_array().unwrap().len(), 0, "work started before it was accepted");
+    let path = format!("/v1/chat/cards/{id}");
+    assert_eq!(app.api("bob").post(&path, json!({ "decision": "accept" })).await.0.as_u16(), 404, "someone else accepted the card");
+    // Accepting twice at once starts one task.
+    let answers = futures::future::join_all((0..6).map(|_| alice.post(&path, json!({ "decision": "accept" })))).await;
+    let ok: Vec<&Value> = answers.iter().filter(|(st, _)| st.is_success()).map(|(_, v)| v).collect();
+    assert_eq!(ok.len(), 1, "{answers:?}");
+    let task = ok[0]["task"].as_str().expect("no task started").to_string();
+    let t = alice.wait_settled(&task).await;
+    assert_eq!(t["person"], "alice", "{t}");
+    assert_eq!(alice.task(&task).await["budget"]["max_usd"].as_f64(), Some(SERVER_LIMIT), "the task is not on the server's budget");
+    assert_eq!(alice.tasks().await["tasks"].as_array().unwrap().len(), 1, "one accept started more than one task");
 }
 
+/// A task has no thread: its suggestion goes to the person's inbox, and one
+/// accept starts the work with the suggesting run's taint. A suggestion of
+/// a schedule sets the schedule up on that one accept.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_dismissal_needs_a_reason_which_later_runs_read_in_the_ledger_and_a_proposal_is_not_put_off() {
-    let m = FakeModel::start(model(|said, turn, c| match said {
-        s if s.contains("deal with") => read_then_propose(turn, c, json!({})),
-        _ => Reply::Text("Understood.".into()),
+async fn a_task_suggests_work_to_the_inbox_and_one_accept_starts_it() {
+    let first: Arc<Mutex<String>> = Arc::default();
+    let f = first.clone();
+    let m = FakeModel::start(script(move |c| {
+        let f = f.clone();
+        async move {
+            let sys = system(&c);
+            if sys.contains(PASS) {
+                return Reply::Text(String::new());
+            }
+            let ev = || json!([{ "task": f.lock().unwrap().clone(), "shows": "Record 42 is closed; the invoice is not." }]);
+            match (said(&c).as_str(), c.turn()) {
+                (FIRST, 0) => contract_unchecked("close it", "closed"),
+                (FIRST, _) => fail("done"),
+                (SECOND, 0) => contract_unchecked("look over invoices", "looked"),
+                (SECOND, 1) => tool("suggest", suggestion(ev(), json!({}))),
+                (SECOND, 2) => tool("suggest", suggestion(ev(), json!({ "title": "Weekly invoice check", "goal": "Check the invoices (sched-sug-5).", "every_minutes": 10080 }))),
+                (SECOND, _) => fail("done"),
+                (GOAL, 0) => contract_unchecked("draft it", "drafted"),
+                _ => fail("done"),
+            }
+        }
     }))
     .await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
-    let (thread, _) = chat(&alice, "Anything I should deal with?").await;
-    let id = wait_entry(&alice, &thread, card_of).await["card"].as_str().unwrap().to_string();
+    let t1 = alice.submit(FIRST).await;
+    *first.lock().unwrap() = t1.clone();
+    alice.wait_settled(&t1).await;
+    let t2 = alice.submit(SECOND).await;
+    alice.wait_settled(&t2).await;
+    let offered = m.requests().into_iter().find(|c| said(c) == SECOND).expect("the task ran").offered_tools();
+    assert!(offered.iter().any(|t| t == "suggest") && !offered.iter().any(|t| t == "propose_schedule" || t == "propose_task"), "{offered:?}");
+    let items: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "suggestion" && i["status"] == "open").collect();
+    assert_eq!(items.len(), 2, "{items:?}");
+    let once = items.iter().find(|i| i["details"]["every_minutes"].is_null()).expect("the one-off suggestion");
+    let weekly = items.iter().find(|i| i["details"]["every_minutes"] == 10080).expect("the schedule suggestion");
+    assert_eq!(once["details"]["evidence"][0]["task"], t1.as_str(), "{once}");
     let before = alice.tasks().await["tasks"].as_array().unwrap().len();
-    let (st, v) = decide(&alice, &id, json!({ "decision": "later" })).await;
-    assert!(st == 400 && v["error"].as_str().is_some_and(|e| e.contains("approved or dismissed")), "a proposal was put off: {st} {v}");
-    assert_eq!(decide(&alice, &id, json!({ "decision": "dismiss" })).await.0, 400, "dismissed without a reason");
-    assert_eq!(decide(&alice, &id, json!({ "decision": "dismiss", "reason": "  " })).await.0, 400, "dismissed with a blank reason");
-    assert_eq!(decide(&app.api("bob"), &id, json!({ "decision": "dismiss", "reason": REASON })).await.0, 404, "someone else dismissed the card");
-    let (st, v) = decide(&alice, &id, json!({ "decision": "dismiss", "reason": REASON })).await;
-    assert_eq!(st, 200, "{v}");
-    assert_eq!(decide(&alice, &id, json!({ "decision": "approve" })).await.0, 409, "a dismissed card was approved");
-    let card = wait_entry(&alice, &thread, card_of).await;
-    assert_eq!((&card["state"], &card["reason"]), (&json!("declined"), &json!(REASON)), "{card}");
-    assert_eq!(alice.tasks().await["tasks"].as_array().unwrap().len(), before, "a dismissed proposal started its task");
+    assert!(alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().is_empty(), "scheduled before it was accepted");
 
-    // The thread's next turn reads the dismissal; so does her next run elsewhere, in the ledger.
-    let text = "Why not?";
-    let (st, v) = alice.post("/v1/chat", json!({ "text": text, "thread": thread })).await;
-    assert_eq!(st.as_u16(), 201, "{v}");
-    alice.wait_settled(v["task_id"].as_str().unwrap()).await;
-    let conversation = serde_json::to_string(&request(&m, text, 0).messages()).unwrap();
-    assert!(conversation.contains("Proposed the task") && conversation.contains("why-dis-57"), "the conversation does not carry the dismissal: {conversation}");
-    let text = "How is the week?";
-    chat(&alice, text).await;
-    let sys = system(&request(&m, text, 0));
-    let ledger = &sys[sys.find(LEDGER).unwrap_or_else(|| panic!("no ledger: {sys}"))..];
-    let line = ledger.lines().find(|l| l.contains(&format!("{id}: "))).unwrap_or_else(|| panic!("{id} is not in the ledger: {ledger}"));
-    assert!(line.contains("you proposed the task") && line.contains(TITLE) && line.contains("outcome-prop-8"), "{line}");
-    assert!(line.contains("they dismissed it") && line.contains("why-dis-57"), "{line}");
-    assert!(ledger.contains("proposals"), "the ledger does not say it holds proposals: {ledger}");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_dismissed_proposal_comes_back_only_with_what_changed() {
-    let m = FakeModel::start(model(|said, turn, c| match (said, turn) {
-        (s, _) if s.contains("deal with") => read_then_propose(turn, c, json!({})),
-        (_, 0) => tool("list_tasks", json!({})),
-        (_, 1) => tool("propose_task", proposal(c, json!({ "title": "  chase the OVERDUE invoice " }))),
-        (_, 2) => tool("propose_task", proposal(c, json!({ "again": ledger_card(&system(c)) }))),
-        (_, 3) => tool("propose_task", proposal(c, json!({ "again": ledger_card(&system(c)), "changed": "Their payment bounced (chg-prop-4)." }))),
-        _ => Reply::Text("The card awaits you.".into()),
-    }))
+    // Only its person accepts it; one accept starts the task.
+    let path = |i: &Value| format!("/v1/inbox/{}", i["id"].as_str().unwrap());
+    assert!(!app.api("bob").post(&path(once), json!({ "decision": "accept" })).await.0.is_success(), "someone else accepted it");
+    let (st, v) = alice.post(&path(once), json!({ "decision": "accept" })).await;
+    assert!(st.is_success(), "{v}");
+    let started = eventually("the accepted suggestion's task", Duration::from_secs(60), || {
+        let alice = alice.clone();
+        async move { alice.tasks().await["tasks"].as_array().unwrap().iter().find(|t| t["text"] == GOAL).cloned() }
+    })
     .await;
-    let app = Appliance::start(Spec::default(), &m).await;
-    let alice = app.api("alice");
-    let (thread, _) = chat(&alice, "Anything I should deal with?").await;
-    let id = wait_entry(&alice, &thread, card_of).await["card"].as_str().unwrap().to_string();
-    assert_eq!(decide(&alice, &id, json!({ "decision": "dismiss", "reason": REASON })).await.0, 200);
+    let t = alice.task(started["task_id"].as_str().unwrap()).await;
+    assert_eq!((&t["person"], t["budget"]["max_usd"].as_f64()), (&json!("alice"), Some(SERVER_LIMIT)), "{t}");
+    assert_eq!(alice.tasks().await["tasks"].as_array().unwrap().len(), before + 1);
 
-    let text = "Look at the invoices again.";
-    let (thread, _) = chat(&alice, text).await;
-    // The same title, without again: refused, naming the dismissed card.
-    let r = request(&m, text, 2).last_results();
-    assert!(r[0].is_error && r[0].text.contains(&id) && r[0].text.contains("changed"), "{r:?}");
-    // With again but not what changed: refused.
-    let r = request(&m, text, 3).last_results();
-    assert!(r[0].is_error && r[0].text.contains("changed"), "{r:?}");
-    // With both: a card that shows what changed.
-    let card = wait_entry(&alice, &thread, card_of).await;
-    assert_eq!((&card["again"], &card["changed"], &card["state"]), (&json!(id), &json!("Their payment bounced (chg-prop-4)."), &json!("open")), "{card}");
+    // The schedule is set up on its one accept.
+    let (st, v) = alice.post(&path(weekly), json!({ "decision": "accept" })).await;
+    assert!(st.is_success(), "{v}");
+    let (_, s) = alice.get("/v1/schedules").await;
+    let list = s["schedules"].as_array().unwrap();
+    assert_eq!(list.len(), 1, "{s}");
+    assert_eq!((&list[0]["title"], &list[0]["every_minutes"], &list[0]["person"]), (&json!("Weekly invoice check"), &json!(10080), &json!("alice")), "{s}");
 }

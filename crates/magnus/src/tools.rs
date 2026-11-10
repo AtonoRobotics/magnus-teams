@@ -196,16 +196,14 @@ pub const BUILTINS: &[Builtin] = &[
     // offered only those it found with this (connectors spec: tools searched
     // across connectors and full schemas loaded on demand).
     Builtin { name: "find_tools", app: "apps", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // Chat only: start a task for the person, or show them a schedule to
-    // confirm. Neither leaves the appliance; the task carries the turn's taint.
+    // Chat only: start a task, or set up a schedule, at the person's request
+    // (spec rev 140: asking grants the work). Both carry the turn's taint.
     Builtin { name: "create_task", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "create_schedule", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // An automation suggestion: a card the person accepts (a task or a
-    // schedule starts), puts off or declines. Nothing happens until they accept.
+    // Magnus's own idea, from chat, a task or a review: a card the person
+    // accepts with one action (a task or a schedule starts), puts off or
+    // declines. Nothing happens until they accept.
     Builtin { name: "suggest", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // A task proposal: a card for one task the person approves (it starts,
-    // within the cost they approved) or dismisses. Nothing starts until then.
-    Builtin { name: "propose_task", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
     // A grant card, when the person asked for standing authority over a
     // kind of their work (#235): nothing is granted until they accept it.
     // Revoking one of theirs at their word only narrows what Magnus may do.
@@ -326,14 +324,14 @@ pub fn chat_specs() -> Vec<ToolSpec> {
         ToolSpec {
             name: "create_task".into(),
             description: d("create_task"),
-            input_schema: obj(json!({ "title": { "type": "string" }, "text": { "type": "string" }, "grant": { "type": "string" } }), &["title", "text"]),
+            input_schema: obj(json!({ "goal": { "type": "string" }, "title": { "type": "string" }, "grant": { "type": "string" } }), &["goal", "title"]),
         },
         ToolSpec {
             name: "create_schedule".into(),
             description: d("create_schedule"),
             input_schema: obj(
-                json!({ "title": { "type": "string" }, "text": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" }, "scope": { "type": "string" } }),
-                &["title", "text", "scope"],
+                json!({ "title": { "type": "string" }, "goal": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" } }),
+                &["title", "goal"],
             ),
         },
         ToolSpec {
@@ -342,34 +340,13 @@ pub fn chat_specs() -> Vec<ToolSpec> {
             input_schema: obj(
                 json!({
                     "title": { "type": "string" },
-                    "plan": { "type": "string" },
-                    "evidence": evidence.clone(),
+                    "goal": { "type": "string" },
+                    "evidence": evidence,
                     "permissions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
                     "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" },
                     "again": { "type": "string" }, "changed": { "type": "string" }
                 }),
-                &["title", "plan", "evidence", "permissions"],
-            ),
-        },
-        ToolSpec {
-            name: "propose_task".into(),
-            description: d("propose_task"),
-            input_schema: obj(
-                json!({
-                    "title": { "type": "string" },
-                    "text": { "type": "string" },
-                    "noticed": { "type": "object", "properties": { "what": { "type": "string" }, "where": { "type": "string" } }, "required": ["what", "where"] },
-                    "outcome": { "type": "string" },
-                    "why_now": { "type": "string" },
-                    "needs": { "type": "object", "properties": {
-                        "permissions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-                        "estimated_cost_usd": { "type": "number" },
-                        "input": { "type": "string" }
-                    }, "required": ["permissions", "estimated_cost_usd"] },
-                    "evidence": evidence,
-                    "again": { "type": "string" }, "changed": { "type": "string" }
-                }),
-                &["title", "text", "noticed", "outcome", "why_now", "needs", "evidence"],
+                &["title", "goal", "evidence", "permissions"],
             ),
         },
         ToolSpec {
@@ -508,14 +485,6 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
             name: "propose_policy".into(),
             description: d("propose_policy"),
             input_schema: obj(json!({ "layer": { "type": "string" }, "cedar": { "type": "string" }, "rationale": { "type": "string" } }), &["layer", "cedar", "rationale"]),
-        },
-        ToolSpec {
-            name: "propose_schedule".into(),
-            description: d("propose_schedule"),
-            input_schema: obj(
-                json!({ "text": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" } }),
-                &["text"],
-            ),
         },
         ToolSpec { name: "end_schedule".into(), description: d("end_schedule"), input_schema: obj(json!({ "reason": { "type": "string" } }), &["reason"]) },
         ToolSpec {

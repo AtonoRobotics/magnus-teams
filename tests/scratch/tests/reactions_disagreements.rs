@@ -132,7 +132,7 @@ async fn started_tasks_and_cards_take_reactions() {
                 return Reply::Text("Done.".into());
             }
             match c.turn() {
-                0 => tool("create_task", json!({ "title": "Filing", "text": "File the notes." })),
+                0 => tool("create_task", json!({ "title": "Filing", "goal": "File the notes." })),
                 1 => tool("offer_app", json!({ "name": n.lock().unwrap().clone(), "why": "To find a time your team is free" })),
                 _ => Reply::Text("All set.".into()),
             }

@@ -105,7 +105,7 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 }
 
 /// The appliance's own chat tools (`create_task`, `create_schedule`, `suggest`,
-/// `propose_task`, `propose_grant`, `revoke_grant`, the task and schedule controls), never
+/// `propose_grant`, `revoke_grant`, the task and schedule controls), never
 /// a connector's, whatever the connector is called.
 /// The Rule of Two asks before a web lookup; one approval covers a task's
 /// lookups (or a conversation's).
@@ -171,10 +171,10 @@ fn render_thread(messages: &[Value]) -> String {
 
 pub(crate) fn is_chat_tool(f: &Facts) -> bool {
     // Sharing is the one bundle write that belongs to conversation, as the
-    // controls do (#299): the person's say after seeing the text. A task
-    // proposal is not chat-only: a run with no thread puts it in the
-    // inbox instead (#393).
-    f.connector.is_none() && (f.app == "chat" || f.name == "bundle_share") && f.name != "propose_task"
+    // controls do (#299): the person's say after seeing the text. A
+    // suggestion is not chat-only: from a task or a review it goes to the
+    // inbox instead (spec rev 140; #393).
+    f.connector.is_none() && (f.app == "chat" || f.name == "bundle_share") && f.name != "suggest"
 }
 
 /// A send the reviewer judges: the model's own action, changing the world
@@ -980,7 +980,8 @@ impl Kernel {
         // the person's approval goes back to the model, which can put it in
         // front of them as a suggestion instead.
         if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background())) {
-            let reason = format!("{why}. This is background work, so no one is asked to approve it; if it is worth doing, suggest it to the person (observe, or propose_schedule for recurring work) and finish");
+            let reason =
+                format!("{why}. This is background work, so no one is asked to approve it; if it is worth doing, suggest it to the person (observe, or suggest) and finish");
             return Ok(Gate::Stop(self.deny(a, "approval", &reason, false, rule).await?));
         }
         self.decision(a, "ask", "approval", &why, rule.clone()).await?;
@@ -1601,9 +1602,8 @@ impl Kernel {
                 }
                 "web_search" => Ok((self.web.search(&s("query")).await?, false, None)),
                 "create_task" => self.chat_task(a, key).await,
-                "create_schedule" => Ok(self.chat_card(a, key)),
+                "create_schedule" => self.chat_schedule(a, key).await,
                 "suggest" => self.suggest(a, key).await,
-                "propose_task" => self.propose_task(a, key).await,
                 "propose_grant" => Ok(self.propose_grant(a, key)),
                 "revoke_grant" => Ok(self.revoke_grant_tool(&a.run, &a.input).await),
                 "find_tools" => {

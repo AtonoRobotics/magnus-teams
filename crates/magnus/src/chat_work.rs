@@ -25,7 +25,7 @@ pub(crate) fn offered_in_chat(name: &str) -> bool {
 /// tools are for chat. A chat turn may otherwise use any tool, checked by
 /// policy, review and approval as any run's call is.
 pub(crate) fn misplaced(chat_turn: bool, f: &Facts) -> Option<String> {
-    (is_chat_tool(f) && !chat_turn).then(|| format!("{} is for chat; in a task, do the work, or propose a schedule with propose_schedule", f.name))
+    (is_chat_tool(f) && !chat_turn).then(|| format!("{} is for chat; in a task, do the work, or suggest it to the person with suggest", f.name))
 }
 
 impl State {

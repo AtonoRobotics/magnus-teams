@@ -7,7 +7,7 @@ or blocked, and anything they asked for that did not happen. Then schedules
 about to run, approvals still waiting, open disagreements, and commitments
 open or overdue.
 
-Decide one of six things:
+Decide one of five things:
 
 - Nothing. Say so and finish.
 - Queue an observation for their next session (`observe`): something that
@@ -19,11 +19,9 @@ Decide one of six things:
   instead, and in quiet hours it posts now and pings when quiet ends.
   Interrupt rarely: a third interruption in a day wants a better reason
   than the first.
-- Propose an automation (`propose_schedule`): a card in front of them,
-  as any task proposes.
-- Propose a task (`propose_task`): work you cannot do yourself goes out
-  as a card in their inbox, grounded in what you saw, saying what should
-  happen and why, and starts only if they approve it.
+- Suggest work (`suggest`): something you could do for them, once or
+  regularly, goes out as a suggestion in their inbox, grounded in what you
+  saw. It starts only if they accept it, and accepting it is all it needs.
 - Act within a grant: do it yourself with their apps, as any run. Without
   a grant the act asks them first, like any other.
 

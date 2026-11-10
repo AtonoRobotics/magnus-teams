@@ -127,8 +127,6 @@ aside.detail[hidden] { display: none; }
 .detail-head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.015em; }
 .dh-sub { margin-top: 6px; gap: 8px; font-size: 13px; color: var(--muted); }
 .dh-sub .chip { padding: 2px 9px; }
-.checks { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
-.checks svg.ic { width: 14px; height: 14px; color: var(--ok-icon); }
 .ptitle { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.015em; }
 .request { margin: 6px 0 10px; }
 .needs-item .where { margin: 14px 0 -4px; }

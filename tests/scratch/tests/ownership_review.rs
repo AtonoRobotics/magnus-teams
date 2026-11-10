@@ -65,13 +65,17 @@ async fn releasing_the_kill_switch_tells_each_person_whose_run_it_stopped() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_proposed_schedule_never_gets_more_than_a_run_is_given() {
+async fn a_suggested_schedule_never_gets_more_than_a_run_is_given() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
             0 => contract_unchecked("watch the inbox", "the inbox was read"),
             1 | 2 => tool("mail__list_inbox", json!({})),
-            3 => tool("propose_schedule", json!({ "text": "Summarise the inbox.", "every_minutes": 60, "max_runs": 1 })),
+            3 => {
+                let read = c.messages().into_iter().flat_map(|m| m["content"].as_array().cloned().unwrap_or_default()).find(|b| b["type"] == "tool_use" && b["name"] == "mail__list_inbox");
+                let evidence = json!([{ "call": read.map(|b| b["id"].clone()), "shows": "New mail keeps arriving." }]);
+                tool("suggest", json!({ "title": "Inbox summary", "goal": "Summarise the inbox.", "every_minutes": 60, "max_runs": 1, "permissions": ["Reads your inbox"], "evidence": evidence }))
+            }
             _ => complete("Done."),
         }
     }))
@@ -85,7 +89,7 @@ async fn a_proposed_schedule_never_gets_more_than_a_run_is_given() {
     let n = alice.wait_item(&t, "notice").await;
     assert_eq!(n["details"]["reason"], "budget", "{n}");
     assert!(alice.respond(n["id"].as_str().unwrap(), json!({ "decision": "extend" })).await.is_success());
-    let p = alice.wait_item(&t, "schedule_proposal").await;
+    let p = alice.wait_item(&t, "suggestion").await;
     assert!(alice.respond(p["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
     let s = alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().iter().find(|s| s["text"] == "Summarise the inbox.").cloned().expect("not scheduled");
     assert_eq!(s["budget"]["max_model_calls"], 3, "the run's extension became every scheduled run's: {s}");

@@ -122,11 +122,6 @@ pub fn over(base: &Value, over: &Value) -> Value {
     v
 }
 
-/// The app a tool belongs to, by its name (`<app>__<tool>`).
-fn app_of(tool: &str) -> Option<&str> {
-    tool.split_once("__").map(|(a, _)| a)
-}
-
 impl Kernel {
     /// The names of the apps `person` may use: what a grant may cover.
     fn app_names(&self, person: &Person) -> Vec<String> {
@@ -186,24 +181,6 @@ impl Kernel {
             label: label.filter(|l| l.untrusted || l.private),
         };
         self.emit(actor, ev).await.map(|_| ())
-    }
-
-    /// What "Handle things like this" on a task proposal starts from: its
-    /// title, the person's apps its evidence read, nothing lifted, a week,
-    /// and the server's per-task limit: the model's estimate is shown on
-    /// the card, never made the cap (spec rev 133).
-    pub(crate) fn handle_defaults(&self, person: &str, d: &Value) -> Value {
-        let mine = self.person(person).map(|p| self.app_names(&p)).unwrap_or_default();
-        let mut apps: Vec<String> = vec![];
-        for e in d["evidence"].as_array().into_iter().flatten() {
-            if let Some(a) = e["tool"].as_str().and_then(app_of).filter(|a| mine.iter().any(|m| m == a)) {
-                if !apps.iter().any(|x| x == a) {
-                    apps.push(a.into());
-                }
-            }
-        }
-        let max_usd = crate::task_budget::for_task(&self.cfg.budget).max_usd;
-        json!({ "title": d["title"], "apps": apps, "allow": [], "period": "week", "max_usd": max_usd })
     }
 
     /// The person's apps as a grant form offers them: name and title.

@@ -45,8 +45,8 @@ fn opening(c: &Conversation) -> bool {
     system(c).contains(CHAT) && said(c).contains(OPENS)
 }
 
-/// An opener reads (the app's events, or the person's tasks) and puts a
-/// suggestion and a task proposal citing that read; any other chat turn
+/// An opener reads (the app's events, or the person's tasks) and puts two
+/// suggestions citing that read; any other chat turn
 /// answers in a line; a task states a contract and ends; the memory pass
 /// writes nothing.
 fn model() -> model::Script {
@@ -70,17 +70,11 @@ fn model() -> model::Script {
             0 => tool(read, json!({})),
             1 => tool(
                 "suggest",
-                json!({ "title": SUGGESTED, "plan": "Each Monday, lay out the week.", "evidence": evidence(), "permissions": ["Reads your calendar", "Sends nothing"] }),
+                json!({ "title": SUGGESTED, "goal": "Each Monday, lay out the week.", "evidence": evidence(), "permissions": ["Reads your calendar", "Sends nothing"] }),
             ),
             2 => tool(
-                "propose_task",
-                json!({
-                    "title": PROPOSED, "text": "Draft a reminder to Acme about invoice 1042.",
-                    "noticed": { "what": "Invoice 1042 is overdue", "where": "your Tasks" },
-                    "outcome": "A reminder ready to send.", "why_now": "Their payment run is on Friday.",
-                    "needs": { "permissions": ["Drafts an email; sends nothing"], "estimated_cost_usd": 0.5 },
-                    "evidence": evidence(),
-                }),
+                "suggest",
+                json!({ "title": PROPOSED, "goal": "Draft a reminder to Acme about invoice 1042.", "evidence": evidence(), "permissions": ["Drafts an email; sends nothing"] }),
             ),
             _ => Reply::Text("I'm Magnus. I had a look around; two cards await you.".into()),
         }
@@ -128,8 +122,8 @@ async fn entries(api: &Api, thread: &str) -> Vec<Value> {
     v["entries"].as_array().cloned().unwrap_or_default()
 }
 
-fn card<'a>(es: &'a [Value], kind: &str) -> &'a Value {
-    es.iter().find(|e| e["kind"] == kind).unwrap_or_else(|| panic!("no {kind} in {es:?}"))
+fn card<'a>(es: &'a [Value], title: &str) -> &'a Value {
+    es.iter().find(|e| e["kind"] == "suggestion_card" && e["title"] == title).unwrap_or_else(|| panic!("no card {title} in {es:?}"))
 }
 
 async fn decide(api: &Api, card: &Value, body: Value) -> Value {
@@ -163,7 +157,7 @@ async fn a_first_sign_in_opens_one_conversation_whose_cards_cite_what_it_read_an
     assert!(!es.iter().any(|e| e["kind"] == "message"), "the opener shows as the person's message: {es:?}");
     assert!(!json!(es).to_string().contains(OPENS), "the thread shows the opener's instruction: {es:?}");
     // Its cards cite what its turn read.
-    let (sug, prop) = (card(&es, "suggestion_card").clone(), card(&es, "proposal_card").clone());
+    let (sug, prop) = (card(&es, SUGGESTED).clone(), card(&es, PROPOSED).clone());
     for c in [&sug, &prop] {
         assert_eq!((&c["state"], &c["evidence"][0]["tool"], &c["acts_for"]), (&json!("open"), &json!("list_tasks"), &json!("carol")), "{c}");
     }
@@ -233,7 +227,7 @@ async fn connecting_an_app_the_first_time_opens_one_conversation_that_reads_it_a
     assert!(!json!(es).to_string().contains(OPENS), "the thread shows the opener's instruction: {es:?}");
     // Its run read the app, and its cards cite that read.
     assert_eq!(cal.calls("list_events"), before + 1, "the opener did not read the app");
-    let sug = card(&es, "suggestion_card");
+    let sug = card(&es, SUGGESTED);
     assert!(sug["evidence"][0]["tool"].as_str().unwrap_or_default().contains("list_events"), "{sug}");
     assert_eq!(offered(&carol).await.len(), 2);
 

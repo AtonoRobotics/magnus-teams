@@ -52,13 +52,11 @@ await step("approve under Needs you", async () => {
   await seen("Accepted.");
 });
 
-await step("see the outcome with its evidence, beside the conversation", async () => {
+await step("see the outcome beside the conversation, with no checks shown", async () => {
   await click(xpath("//div[@id='thread']//li[@data-chat-task][@data-status='completed']//a"));
   await xpath("//aside[@id='detail']//div[contains(@class,'detail-head')]//span[contains(@class,'chip') and normalize-space()='Done']");
-  const verification=await run("return !!document.querySelector('#detail details.verification-detail:not([open])')");
-  if(verification)await click(css('#detail details.verification-detail > summary'));
-  await xpath("//div[contains(@class,'evidence') and contains(@class,'pass')]//span[normalize-space()='holds']");
-  await xpath(`//div[contains(@class,'evidence') and contains(@class,'pass')]//span[normalize-space()='confirmed by ${person}']`);
+  // Checking is internal (spec rev 140): the person sees the result, not its criteria.
+  if (await run("return !!document.querySelector('#detail .checks, #detail details.verification-detail, #detail .evidence.pass')")) throw new Error("the task view shows its checks to the person");
   const sandbox = await run("return document.querySelector('iframe.composed')?.getAttribute('sandbox')");
   if (sandbox === null || /allow-scripts/.test(sandbox)) throw new Error(`the outcome frame may run scripts: ${sandbox}`);
   await until("the composed outcome", () => run("const f = document.querySelector('iframe.composed'); return f && f.contentDocument && f.contentDocument.body.innerText.includes('41.7M')"));

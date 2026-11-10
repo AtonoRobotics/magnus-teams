@@ -26,7 +26,7 @@ fn model() -> Script {
         if c.body["system"].to_string().contains(CHAT) {
             return match c.turn() {
                 0 => tool("crm__get_record", json!({ "id": "42" })),
-                1 => tool("create_task", json!({ "title": "File the note", "text": "File the record note in the knowledge base." })),
+                1 => tool("create_task", json!({ "title": "File the note", "goal": "File the record note in the knowledge base." })),
                 _ => Reply::Text("Started.".into()),
             };
         }

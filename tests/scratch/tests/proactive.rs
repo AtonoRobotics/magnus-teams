@@ -546,12 +546,12 @@ async fn a_review_interruption_stays_open_after_the_sweep() {
     .await;
 }
 
-/// A review proposes a task the person approves into a real task (#393):
-/// the proposal lands in the inbox (not the thread), grounded in the
-/// cited evidence, and accepting starts the task with the approved budget
-/// while rejecting leaves no such task behind.
+/// A review suggests work from what it read (#393; spec rev 140): the
+/// suggestion lands in the inbox (not a thread), grounded in the cited
+/// evidence, and one accept starts the task on the server's budget while
+/// rejecting leaves no such task behind.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_review_proposes_a_task_the_person_approves() {
+async fn a_review_suggests_a_task_the_person_accepts() {
     let prior = Arc::new(Mutex::new(String::new()));
     let task_id = prior.clone();
     let m = FakeModel::start(script(move |c| {
@@ -565,17 +565,12 @@ async fn a_review_proposes_a_task_the_person_approves() {
             if !said.contains("coming up") {
                 return done("Reviewed quietly.");
             }
-            let proposal = |title: &str, text: &str| {
+            let proposal = |title: &str, goal: &str| {
                 tool(
-                    "propose_task",
+                    "suggest",
                     json!({
-                        "title": title, "text": text,
-                        "noticed": { "what": "stale backup index", "where": "backups app" },
-                        "outcome": "a fresh backup index", "why_now": "backups overlap the morning run",
-                        "needs": {
-                            "permissions": ["Reads the backup index", "Rebuilds the backup index"],
-                            "estimated_cost_usd": 1.5
-                        },
+                        "title": title, "goal": goal,
+                        "permissions": ["Reads the backup index", "Rebuilds the backup index"],
                         "evidence": [{ "task": task_id.lock().unwrap().clone(), "shows": "bob asked about backups before" }],
                     }),
                 )
@@ -593,22 +588,20 @@ async fn a_review_proposes_a_task_the_person_approves() {
     *prior.lock().unwrap() = bob.submit("Check the backups.").await;
     trigger_review(&bob, json!({ "working_hours": { "start": "00:00", "end": "00:00" }, "quiet_hours": away_from_now() })).await;
 
-    // Both proposals land in the inbox, grounded and budgeted.
+    // Both suggestions land in the inbox, grounded and on the server's budget.
     let me = bob.clone();
-    let items = eventually("two task proposals", Duration::from_secs(60), || {
+    let items = eventually("two suggestions", Duration::from_secs(60), || {
         let me = me.clone();
         async move {
-            let open: Vec<_> = me.inbox().await.into_iter().filter(|i| i["kind"] == "task_proposal" && i["status"] == "open").collect();
+            let open: Vec<_> = me.inbox().await.into_iter().filter(|i| i["kind"] == "suggestion" && i["status"] == "open").collect();
             (open.len() == 2).then_some(open)
         }
     })
     .await;
     for item in &items {
         let details = &item["details"];
-        assert!(details["evidence"].as_array().is_some_and(|e| !e.is_empty()), "ungrounded proposal: {item}");
-        // The estimate is shown; the task's budget is the server's (spec rev 133).
-        assert_eq!(details["needs"]["estimated_cost_usd"], 1.5, "the estimate is not shown: {item}");
-        assert_eq!(details["budget"]["max_usd"], 50.0, "the estimate capped the proposal: {item}");
+        assert!(details["evidence"].as_array().is_some_and(|e| !e.is_empty()), "ungrounded suggestion: {item}");
+        assert_eq!(details["budget"]["max_usd"], 50.0, "the suggestion is not on the server's budget: {item}");
     }
     // The review that proposed them ran on the per-task budget, not a small wake budget of its own.
     let review = items[0]["task_id"].as_str().expect("the proposal names no review task");

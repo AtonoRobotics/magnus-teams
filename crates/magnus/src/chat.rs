@@ -115,7 +115,7 @@ impl Kernel {
             }
         });
         let mut v: Vec<_> = by.into_iter().filter(|(id, _)| !self.thread_gone(id)).collect();
-        v.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
+        v.sort_by_key(|x| std::cmp::Reverse(x.1 .1));
         v.into_iter()
             .map(|(id, (started, updated, first))| {
                 let project = self.read(|s| s.project_of(&id).and_then(|p| s.projects.get(&p)).map(|p| json!({ "id": p.id, "name": p.name })));
@@ -136,7 +136,7 @@ impl Kernel {
         let entries = self.entries_with(person, thread, &Default::default()).unwrap_or_default();
         entries
             .iter()
-            .filter(|e| e["task_id"] == turn && e["state"] == "open" && matches!(e["kind"].as_str(), Some("suggestion_card" | "proposal_card" | "schedule_card")))
+            .filter(|e| e["task_id"] == turn && e["state"] == "open" && e["kind"] == "suggestion_card")
             .map(|e| json!({ "card": e["card"], "kind": e["kind"], "title": e["title"].as_str().filter(|t| !t.is_empty()).or(e["text"].as_str()) }))
             .collect()
     }
@@ -225,31 +225,25 @@ impl Kernel {
                     let mut e = d.clone();
                     e["id"] = json!(format!("c:{card}"));
                     e["task_id"] = json!(t.task_id);
-                    e["kind"] = json!(if d["proposal"] == true {
-                        "proposal_card"
-                    } else if d["grant"] == true {
-                        "grant_card"
-                    } else if d["suggestion"] == true {
-                        "suggestion_card"
-                    } else {
-                        "schedule_card"
-                    });
+                    e["kind"] = json!(card_kind(&d, state));
+                    if d["proposal"] == true {
+                        // A task proposal recorded before rev 140 reads as a suggestion.
+                        e["plan"] = d["text"].clone();
+                        e["permissions"] = d["needs"]["permissions"].clone();
+                    }
                     e["state"] = json!(state);
                     e["schedule"] = made["schedule"].clone();
                     e["started"] = made["started"].clone();
                     e["reason"] = made["reason"].clone();
-                    // The grant it set: accepted, or a proposal handled from now on (#235).
+                    // The grant it set, when accepted (#235).
                     e["granted"] = made["granted"].clone();
                     if d["proposal"] == true || d["grant"] == true {
                         if let Some(g) = self.read(|s| s.grants.values().find(|g| g.card.as_deref() == Some(card.as_str())).map(|g| g.id.clone())) {
                             e["granted"] = json!(g);
                         }
-                        // What a grant form offers: the person's apps, and for a proposal its defaults.
-                        if state == "open" {
+                        // What a grant form offers: the person's apps.
+                        if state == "open" && d["grant"] == true {
                             e["your_apps"] = self.grant_apps(person);
-                            if d["proposal"] == true {
-                                e["handle"] = self.handle_defaults(person, &d);
-                            }
                         }
                     }
                     e["acts_for"] = json!(t.person);
@@ -284,7 +278,7 @@ impl Kernel {
         for (from, (at, tasks)) in started {
             out.push((at, 1, json!({ "id": format!("t:{from}"), "kind": "tasks", "from_run": from, "tasks": tasks, "at": at })));
         }
-        out.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        out.sort_by_key(|x| (x.0, x.1));
         let (hidden, trashed) = self.read(|s| {
             (s.hidden.get(thread).cloned().unwrap_or_default(), s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>())
         });
@@ -381,25 +375,10 @@ impl Kernel {
                         ),
                     ),
                     "result" => ("task result", format!("{} ({}): {}", text("title"), text("status"), text("summary"))),
-                    "schedule_card" => ("you", format!("Proposed a schedule ({}): {}", answered(&e), text("text"))),
+                    "schedule_card" => ("you", format!("Set up the schedule {} at their request: {}", text("schedule"), text("text"))),
                     "suggestion_card" => {
                         let changed = e["changed"].as_str().map(|c| format!(" (again: {c})")).unwrap_or_default();
                         ("you", format!("Suggested {} ({}, card {}): {}{changed}", text("title"), answered(&e), text("card"), text("plan")))
-                    }
-                    "proposal_card" => {
-                        let changed = e["changed"].as_str().map(|c| format!(" (again: {c})")).unwrap_or_default();
-                        let handled = e["granted"].as_str().map(|g| format!(" They chose to have things like this handled from now on: grant {g}.")).unwrap_or_default();
-                        (
-                            "you",
-                            format!(
-                                "Proposed the task {} ({}, card {}): {} Outcome: {}{changed}{handled}",
-                                text("title"),
-                                answered(&e),
-                                text("card"),
-                                text("text"),
-                                text("outcome")
-                            ),
-                        )
                     }
                     "grant_card" => {
                         let list = |k: &str| e[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ");
@@ -427,13 +406,16 @@ impl Kernel {
     }
 
     /// `create_task` from a chat turn: the task starts at once for the
-    /// person, carries the conversation, the turn's taint and the turn's
-    /// model, and posts its result to the thread.
+    /// person with its one-line goal, carries the conversation, the turn's
+    /// taint and the turn's model, and posts its result to the thread.
     pub(crate) async fn chat_task(self: &Arc<Self>, a: &Action, key: &str) -> Result<(String, bool, Option<Value>)> {
-        let text = a.input["text"].as_str().map(str::trim).unwrap_or_default().to_string();
+        let text = match crate::task_goal::goal_of(&a.input) {
+            Ok(goal) => goal,
+            Err(why) => return Ok((why, true, None)),
+        };
         let title = a.input["title"].as_str().map(str::trim).unwrap_or_default().to_string();
-        if text.is_empty() || title.is_empty() {
-            return Ok(("create_task needs the task's text and a short title. A retry without them will not help.".into(), true, None));
+        if title.is_empty() {
+            return Ok(("create_task needs a short title. A retry without one will not help.".into(), true, None));
         }
         let Some((task, run)) = self.read(|s| s.runs.get(&a.run).and_then(|r| s.tasks.get(&r.task).map(|t| (t.clone(), r.clone())))) else {
             anyhow::bail!("unknown run {}", a.run)
@@ -465,11 +447,10 @@ impl Kernel {
         let Some(chat) = task.chat.clone() else { anyhow::bail!("task {} is not from chat", task.task_id) };
         let (task_id, run_id) = (derived("task", key), derived("run", key));
         if !self.read(|s| s.tasks.contains_key(&task_id)) {
-            let mut conversation = chat.conversation.clone();
             // An opener's text is the appliance's instruction, not something the person asked.
-            if chat.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) {
-                conversation.push(json!({ "role": "person", "text": self.asked(run).await? }));
-            }
+            let asked = if chat.opener.is_none() && self.read(|s| s.outcomes.of(&task.task_id).is_none()) { Some(self.asked(run).await?) } else { None };
+            let said: Vec<String> = run.replies.iter().map(|r| r.text()).filter(|t| !t.is_empty()).collect();
+            let conversation = crate::task_goal::carried(chat.conversation.clone(), asked, &said.join("\n\n"));
             let o = NewRun {
                 chat: Some(ChatOrigin { thread: chat.thread.clone(), turn: false, from_run: Some(run.id.clone()), conversation, opener: None }),
                 label: Some(Label { untrusted: run.untrusted, private: run.private }),
@@ -486,51 +467,15 @@ impl Kernel {
         Ok(task_id)
     }
 
-    /// `create_schedule` from a chat turn: a card in the thread with the
-    /// timing, scope and budget. Nothing is scheduled until the person
-    /// confirms it.
-    pub(crate) fn chat_card(&self, a: &Action, key: &str) -> (String, bool, Option<Value>) {
-        if !self.read(|s| s.runs.get(&a.run).and_then(|r| s.tasks.get(&r.task)).is_some_and(|t| t.is_chat_turn())) {
-            return ("create_schedule is for chat; in a task, use propose_schedule.".into(), true, None);
-        }
-        let text = a.input["text"].as_str().map(str::trim).unwrap_or_default();
-        let scope = a.input["scope"].as_str().map(str::trim).unwrap_or_default();
-        if text.is_empty() || scope.is_empty() {
-            return ("create_schedule needs text and scope. A retry without them will not help.".into(), true, None);
-        }
-        let (every, daily) = match crate::api::rule_for(&a.input, self.cfg.schedules.min_every_minutes) {
-            Ok(r) => r,
-            Err(m) => return (format!("{m}. A retry with the same values will not help."), true, None),
-        };
-        // Each run's limit is the server's per-task budget, never the model's.
-        let budget = crate::task_budget::for_task(&self.cfg.budget);
-        let (until, max_runs) = match crate::api::end_for(&a.input) {
-            Ok(r) => r,
-            Err(m) => return (format!("{m}. A retry with the same values will not help."), true, None),
-        };
-        let card = derived("card", key);
-        let title = a.input["title"].as_str().map(str::trim).filter(|t| !t.is_empty());
-        // A suggestion too (#253): its plan, permissions, and the request it answers as its evidence.
-        let turn = self.read(|s| s.runs.get(&a.run).map(|r| r.task.clone())).unwrap_or_default();
-        let evidence = json!([{ "task": turn, "shows": "you asked for it" }]);
-        let data = json!({ "card": card, "text": text, "title": title, "every_minutes": every, "daily_at": daily, "until": until, "max_runs": max_runs, "scope": scope, "budget": budget, "plan": text, "permissions": [scope], "evidence": evidence });
-        (format!("A card for this schedule ({card}) is in the thread. Nothing is scheduled until the person confirms it."), false, Some(data))
-    }
-
-    /// The person who started the thread answers a card: accept (or
-    /// confirm), later ("Not now"), or decline with their reason. An
-    /// accepted schedule acts for them (K54), within the server's per-task budget, and
-    /// its runs start with the taint the turn had; an accepted suggestion
-    /// without timing starts a task for them as `create_task` would. A task
-    /// proposal is approved (it starts as such a suggestion does) or
-    /// dismissed with their reason; it is not put off (#254).
-    ///
-    /// A proposal may instead be handled from now on (`handle`, "Handle
-    /// things like this"): the person sets a grant over that kind of work,
-    /// from the fields in `body` over the card's defaults, and its task
-    /// starts under it. A grant card (`propose_grant`) is accepted, with
-    /// any changes of the person's in `body`, setting the grant, or
-    /// declined with their reason (#235).
+    /// The person who started the thread answers a card: accept (one
+    /// action, which grants the work it describes), later ("Not now"), or
+    /// decline with their reason. An accepted schedule acts for them (K54),
+    /// within the server's per-task budget, and its runs start with the
+    /// taint the turn had; an accepted suggestion without timing starts a
+    /// task for them as `create_task` would. A task proposal recorded before
+    /// rev 140 is answered as a suggestion. A grant card (`propose_grant`) is
+    /// accepted, with any changes of the person's in `body`, setting the
+    /// grant, or declined with their reason (#235).
     pub async fn decide_card(self: &Arc<Self>, person: &str, card: &str, decision: &str, reason: Option<&str>, body: &Value) -> Result<std::result::Result<Value, CardRefusal>> {
         let _decide = self.decide.lock().await;
         let found = self.read(|s| {
@@ -542,25 +487,15 @@ impl Kernel {
         });
         let Some((task, run, d)) = found else { return Ok(Err(CardRefusal::NotFound)) };
         let actor = format!("person:{person}");
-        let decision = match (d["proposal"] == true, d["grant"] == true, decision) {
-            (true, _, "approve" | "accept" | "confirm") => "accept",
-            (true, _, "handle") => "handle",
-            (true, _, "dismiss" | "decline") => "decline",
-            (true, _, other) => {
-                return Ok(Err(CardRefusal::Invalid(format!(
-                    "a task proposal is approved or dismissed (with a reason), or handled from now on under a grant (handle), not {other}"
-                ))))
-            }
-            (false, true, "accept" | "confirm" | "approve") => "grant",
-            (false, true, "decline" | "dismiss") => "decline",
-            (false, true, other) => return Ok(Err(CardRefusal::Invalid(format!("a grant card is accepted or declined (with a reason), not {other}")))),
-            (false, false, d) => d,
+        let decision = match (d["grant"] == true, decision) {
+            (true, "accept" | "confirm" | "approve") => "grant",
+            (true, "decline" | "dismiss") => "decline",
+            (true, other) => return Ok(Err(CardRefusal::Invalid(format!("a grant card is accepted or declined (with a reason), not {other}")))),
+            (false, "accept" | "confirm" | "approve") => "accept",
+            (false, "dismiss") => "decline",
+            (false, d) => d,
         };
-        // A proposal handled whose grant was set but whose task had not
-        // started (the appliance stopped between them) finishes now.
-        let prior = self.read(|s| s.cards.get(card).map(|c| c.answer.clone()));
-        let resumed = decision == "handle" && matches!(prior, Some(crate::state::Answer::Granted(_)));
-        if prior.is_some() && !resumed {
+        if self.read(|s| s.cards.contains_key(card)) {
             return Ok(Err(CardRefusal::Decided));
         }
         // The card's words are the model's, carrying the turn's taint; a
@@ -568,29 +503,6 @@ impl Kernel {
         let turn_label = Label { untrusted: run.untrusted, private: run.private };
         let label_for = || if body["title"].as_str().is_some_and(|t| t.trim() != d["title"].as_str().unwrap_or_default().trim()) { None } else { Some(turn_label) };
         match decision {
-            "handle" => {
-                let Some(who) = self.person(person) else { return Ok(Err(CardRefusal::NotFound)) };
-                let id = derived("grant", &format!("card:{card}"));
-                if !resumed {
-                    let fields = match self.grant_fields(&who, &crate::grants::over(&self.handle_defaults(person, &d), body)) {
-                        Ok(f) => f,
-                        Err(why) => return Ok(Err(CardRefusal::Invalid(why))),
-                    };
-                    let label = label_for();
-                    self.set_grant(&actor, person, &id, &fields, Some(card.into()), label).await?;
-                }
-                let left = match self.grant_for_task(person, &id) {
-                    Ok((_, left)) => left,
-                    Err(why) => return Ok(Err(CardRefusal::Invalid(why))),
-                };
-                let plan = d["text"].as_str().unwrap_or_default().to_string();
-                let title = d["title"].as_str().unwrap_or_default().to_string();
-                let budget = crate::task_budget::under_grant(&crate::task_budget::approved(&self.cfg.budget, &d["budget"]), left);
-                let more = NewRun { budget: Some(budget), scope: d["scope"].as_str().map(String::from), grant: Some(id.clone()), ..Default::default() };
-                let started = self.task_from_turn(&actor, &task, &run, &format!("card:{card}"), plan, title, more).await?;
-                self.emit(&actor, Ev::CardAccepted { card: card.into(), person: person.into(), task: started.clone() }).await?;
-                Ok(Ok(json!({ "task": started, "grant": id })))
-            }
             "grant" => {
                 let Some(who) = self.person(person) else { return Ok(Err(CardRefusal::NotFound)) };
                 let fields = match self.grant_fields(&who, &crate::grants::over(&d, body)) {
@@ -607,7 +519,7 @@ impl Kernel {
                 self.set_grant(&actor, person, &id, &fields, Some(card.into()), label).await?;
                 Ok(Ok(json!({ "grant": id })))
             }
-            "confirm" | "accept" if !crate::suggestions::timed(&d) => {
+            "accept" if !crate::suggestions::timed(&d) => {
                 let plan = d["plan"].as_str().or(d["text"].as_str()).unwrap_or_default().to_string();
                 let title = d["title"].as_str().unwrap_or_default().to_string();
                 let more =
@@ -616,7 +528,7 @@ impl Kernel {
                 self.emit(&actor, Ev::CardAccepted { card: card.into(), person: person.into(), task: started.clone() }).await?;
                 Ok(Ok(json!({ "task": started })))
             }
-            "confirm" | "accept" => {
+            "accept" => {
                 let id = new_id("sched");
                 // No budget of its own: each run takes the server's per-task
                 // limit when it fires, never the figure on the card.
@@ -661,6 +573,20 @@ impl Kernel {
             }
             other => Ok(Err(CardRefusal::Invalid(format!("decision is accept (or confirm), later or decline, not {other}")))),
         }
+    }
+}
+
+/// The kind a card's entry has in the thread. A schedule set up at the
+/// person's request shows as set; every other card that is not a grant is a
+/// suggestion, including the cards recorded before rev 140: a task proposal,
+/// and a schedule card still waiting to be confirmed.
+pub(crate) fn card_kind(d: &Value, state: &str) -> &'static str {
+    if d["grant"] == true {
+        "grant_card"
+    } else if d["schedule"].is_string() || (d["suggestion"] != true && d["proposal"] != true && state == "confirmed") {
+        "schedule_card"
+    } else {
+        "suggestion_card"
     }
 }
 
@@ -717,7 +643,7 @@ pub(crate) fn recent_runs(s: &crate::state::State, person: &str, except: Option<
             ok.then_some((at, t, r))
         })
         .collect();
-    eligible.sort_by(|a, b| b.0.cmp(&a.0));
+    eligible.sort_by_key(|x| std::cmp::Reverse(x.0));
     let mut out = vec![];
     let mut used = 0;
     for (at, t, r) in eligible {

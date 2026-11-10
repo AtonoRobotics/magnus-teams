@@ -21,26 +21,31 @@ async fn tasks_and_schedules_are_live_cards_in_their_conversation() {
     let m = FakeModel::start(script(move |c| {
         let until = until.clone();
         async move {
-        let body = c.body.to_string();
-        if c.body["system"].to_string().contains(CHAT) {
-            let first = c.messages().first().cloned().unwrap_or_default();
-            let said = first["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).unwrap_or_default().to_string();
-            return match (said.as_str(), c.turn()) {
-                (s, 0) if s.contains("offsite") => tool("create_task", json!({ "title": "Offsite plan", "text": PLAN })),
-                (s, 0) if s.contains("parking") => tool("create_task", json!({ "title": "Parking memo", "text": MEMO })),
-                (s, 0) if s.contains("plants") => tool("create_schedule", json!({ "title": "Water the plants", "text": "Remind me to water the plants.", "daily_at": "07:30", "scope": "Sends me a reminder; changes nothing." })),
-                (s, 0) if s.contains("stars") => tool("create_schedule", json!({ "title": "Count the stars", "text": "Count the stars, once.", "every_minutes": 60, "until": until.clone(), "scope": "Looks out of the window; changes nothing." })),
-                _ => Reply::Text("On it.".into()),
-            };
+            let body = c.body.to_string();
+            if c.body["system"].to_string().contains(CHAT) {
+                let first = c.messages().first().cloned().unwrap_or_default();
+                let said = first["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).unwrap_or_default().to_string();
+                return match (said.as_str(), c.turn()) {
+                    (s, 0) if s.contains("offsite") => tool("create_task", json!({ "title": "Offsite plan", "goal": PLAN })),
+                    (s, 0) if s.contains("parking") => tool("create_task", json!({ "title": "Parking memo", "goal": MEMO })),
+                    (s, 0) if s.contains("plants") => {
+                        tool("create_schedule", json!({ "title": "Water the plants", "goal": "Remind me to water the plants.", "daily_at": "07:30" }))
+                    }
+                    (s, 0) if s.contains("stars") => {
+                        tool("create_schedule", json!({ "title": "Count the stars", "goal": "Count the stars, once.", "every_minutes": 60, "until": until.clone() }))
+                    }
+                    _ => Reply::Text("On it.".into()),
+                };
+            }
+            if body.contains(PLAN) {
+                return match c.turn() {
+                    0 => tool("ask_principal", json!({ "question": "Which weekend?" })),
+                    _ => tool("task_fail", json!({ "reason": "The venue list is not in yet." })),
+                };
+            }
+            tool("ask_principal", json!({ "question": "Which lot?" }))
         }
-        if body.contains(PLAN) {
-            return match c.turn() {
-                0 => tool("ask_principal", json!({ "question": "Which weekend?" })),
-                _ => tool("task_fail", json!({ "reason": "The venue list is not in yet." })),
-            };
-        }
-        tool("ask_principal", json!({ "question": "Which lot?" }))
-    }}))
+    }))
     .await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
@@ -72,19 +77,17 @@ async fn tasks_and_schedules_are_live_cards_in_their_conversation() {
     let (plan, memo) = (find(PLAN).await, find(MEMO).await);
     let question = alice.wait_item(&plan, "question").await;
     alice.wait_item(&memo, "question").await;
-    // The schedule is confirmed on its card.
+    // The schedule was set up when she asked; its card is live.
     let (_, c) = alice.get(&format!("/v1/chat/{thread}")).await;
     let card = c["entries"].as_array().unwrap().iter().find(|e| e["kind"] == "schedule_card").cloned().expect("no schedule card");
-    assert!(alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await.0.is_success());
-    // A second schedule, ending soon: confirmed, then over before the
+    assert_eq!(card["state"], "confirmed", "the schedule waits on a confirmation: {card}");
+    // A second schedule, ending soon: set up, then over before the
     // browser opens. Its card says it ended, with why (#264).
     say("Every hour, count the stars.", Some(thread.clone())).await;
     let (_, c) = alice.get(&format!("/v1/chat/{thread}")).await;
     let stars = c["entries"].as_array().unwrap().iter().filter(|e| e["kind"] == "schedule_card").cloned().collect::<Vec<_>>();
     let stars = stars.iter().find(|e| e["card"] != card["card"]).cloned().expect("no stars schedule card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", stars["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
-    assert_eq!(st.as_u16(), 200, "{v}");
-    let ended = v["schedule"].as_str().expect("no schedule confirmed").to_string();
+    let ended = stars["schedule"].as_str().unwrap_or_else(|| panic!("no schedule set up: {stars}")).to_string();
     eventually("the stars schedule to end", std::time::Duration::from_secs(150), || async {
         let (_, s) = alice.get("/v1/schedules").await;
         s["schedules"].as_array().unwrap().iter().find(|x| x["id"] == ended && !x["ended"].is_null()).map(|_| ())

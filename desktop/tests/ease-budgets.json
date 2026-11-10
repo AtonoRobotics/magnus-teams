@@ -24,7 +24,7 @@
     "create a schedule": {
       "steps": 3,
       "navigations": 0,
-      "how": "type the request, Send, Start schedule"
+      "how": "type the request, Send; asking sets it up"
     }
   }
 }

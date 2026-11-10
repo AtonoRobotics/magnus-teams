@@ -1,10 +1,9 @@
 //! Chat: a message is a run without a contract that ends with its answer.
-//! The model decides what each message is: an answer, a task, a schedule
-//! for the person to confirm, or a question. Tool use goes through the
-//! boundary with taint; tasks started from chat appear in Tasks, carry the
-//! conversation and post their result to the thread; schedules need the
-//! person's confirmation on a card and act for them. All of it survives a
-//! restart.
+//! The model decides what each message is: an answer, a task, a schedule,
+//! or a question. Tool use goes through the boundary with taint; tasks
+//! started from chat appear in Tasks, carry the conversation and post their
+//! result to the thread; a schedule the person asks for is set up at once
+//! and acts for them. All of it survives a restart.
 
 use magnus_invariants::{mcp, *};
 use serde_json::{json, Value};
@@ -183,7 +182,7 @@ async fn a_chat_turn_does_the_work_itself() {
             ]),
             _ => say("I can't do that here."),
         },
-        vec![tool("create_task", json!({ "text": "sneaky" }))],
+        vec![tool("create_task", json!({ "goal": "sneaky" }))],
     ))
     .await;
     let app = Appliance::start(Spec::default(), &m).await;
@@ -215,7 +214,7 @@ async fn a_task_from_chat_starts_carries_the_conversation_and_posts_its_result()
     let m = FakeModel::start(model(
         |said, turn| match (said, turn) {
             ("Compare the three cheapest EU cloud GPU offers for me.", 0) => {
-                tool("create_task", json!({ "title": "Compare EU GPU offers", "text": "Compare the three cheapest EU cloud GPU offers." }))
+                tool("create_task", json!({ "title": "Compare EU GPU offers", "goal": "Compare the three cheapest EU cloud GPU offers." }))
             }
             (_, 0) => say("Noted."),
             _ => say("Started: I'll post the comparison here."),
@@ -239,7 +238,7 @@ async fn a_task_from_chat_starts_carries_the_conversation_and_posts_its_result()
     assert_eq!(t["person"], "alice", "the task does not act for the person");
     assert!(t["contract"]["conversation"].to_string().contains("cheapest EU cloud GPU"), "the contract does not carry the conversation: {t}");
     let first = m.requests().into_iter().find(|c| !is_chat(c)).unwrap();
-    assert!(first.text().contains("started from a chat"), "the task's context does not carry the conversation");
+    assert!(first.text().contains("to this goal: Compare the three") && first.text().contains("offers for me."), "the task's context does not carry the conversation");
     let result = wait_entry(&alice, &thread, |e| e["kind"] == "result").await;
     assert_eq!(result["summary"], "Offer B is cheapest at 1.10/h.");
     // The next turn knows the result.
@@ -259,7 +258,7 @@ async fn a_task_from_chat_inherits_the_turns_taint() {
     let m = FakeModel::start(model(
         move |_, turn| match turn {
             0 => tool("web_fetch", json!({ "url": url })),
-            1 => tool("create_task", json!({ "title": "Summarise and email page", "text": "Summarise the page and email it to me." })),
+            1 => tool("create_task", json!({ "title": "Summarise and email page", "goal": "Summarise the page and email it to me." })),
             _ => say("Started."),
         },
         vec![simple_contract(), tool("mail__list_inbox", json!({})), tool("mail__send", json!({ "to": "alice@corp.example", "subject": "summary", "body": "..." }))],
@@ -279,14 +278,16 @@ async fn a_task_from_chat_inherits_the_turns_taint() {
     assert!(alice.inbox().await.iter().any(|i| i["id"] == item), "the thread does not link to the inbox item");
 }
 
-/// A schedule shows one card in chat and exists only once its creator
-/// confirms it; it acts for them within the card's budget.
+/// A schedule the person asks for is set up at once, for them, with nothing
+/// to confirm (spec rev 140: asking grants the work). The thread shows it as
+/// set, nobody can answer it as a card, and each run takes the server's
+/// per-task budget, not a figure of the model's.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_schedule_from_chat_needs_its_creators_confirmation() {
+async fn a_schedule_the_person_asks_for_is_set_up_at_once() {
     let m = FakeModel::start(model(
         |_, turn| match turn {
-            0 => tool("create_schedule", json!({ "text": "Summarise new EU AI regulation news.", "daily_at": "07:30", "scope": "Searches the web and writes a summary; sends nothing.", "budget": { "max_usd": 0.5 } })),
-            _ => say("Confirm the card and I'll do it each morning."),
+            0 => tool("create_schedule", json!({ "title": "EU AI news", "goal": "Summarise new EU AI regulation news.", "daily_at": "07:30", "budget": { "max_usd": 0.5 } })),
+            _ => say("Set up: each morning at 07:30."),
         },
         vec![],
     ))
@@ -295,24 +296,17 @@ async fn a_schedule_from_chat_needs_its_creators_confirmation() {
     let alice = app.api("alice");
     let (thread, turn) = chat(&alice, "Every morning, summarise new EU AI regulation news for me.", None).await;
     alice.wait_settled(&turn).await;
-    let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
-    assert_eq!(card["state"], "open");
-    assert_eq!(card["daily_at"], "07:30");
-    assert_eq!(card["budget"]["max_usd"], 50.0, "the model's $0.50 capped the schedule, not the server's per-task budget");
-    assert!(card["budget"]["max_model_calls"].is_number(), "the card does not show the whole budget: {card}");
-    assert_eq!(card["acts_for"], "alice");
-    let (_, s) = alice.get("/v1/schedules").await;
-    assert!(s["schedules"].as_array().unwrap().is_empty(), "scheduled before confirmation: {s}");
-    let id = card["card"].as_str().unwrap();
-    assert_eq!(app.api("bob").post(&format!("/v1/chat/cards/{id}"), json!({ "decision": "confirm" })).await.0.as_u16(), 404, "someone else confirmed the card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{id}"), json!({ "decision": "confirm" })).await;
-    assert!(st.is_success(), "{v}");
-    assert_eq!(alice.post(&format!("/v1/chat/cards/{id}"), json!({ "decision": "confirm" })).await.0.as_u16(), 409, "a card was confirmed twice");
     let (_, s) = alice.get("/v1/schedules").await;
     let list = s["schedules"].as_array().unwrap();
-    assert_eq!(list.len(), 1, "{s}");
-    assert_eq!(list[0]["person"], "alice");
-    assert_eq!(wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await["state"], "confirmed");
+    assert_eq!(list.len(), 1, "the schedule the person asked for was not set up: {s}");
+    assert_eq!((&list[0]["person"], &list[0]["title"], &list[0]["daily_at"]), (&json!("alice"), &json!("EU AI news"), &json!("07:30")), "{s}");
+    assert!(list[0]["budget"].is_null() || list[0]["budget"]["max_usd"] == 50.0, "the model's $0.50 capped the schedule: {s}");
+    let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
+    assert_eq!((&card["state"], &card["schedule"]), (&json!("confirmed"), &list[0]["id"]), "{card}");
+    let id = card["card"].as_str().unwrap();
+    assert_eq!(app.api("bob").post(&format!("/v1/chat/cards/{id}"), json!({ "decision": "confirm" })).await.0.as_u16(), 404, "someone else answered it");
+    assert_eq!(alice.post(&format!("/v1/chat/cards/{id}"), json!({ "decision": "decline", "reason": "x" })).await.0.as_u16(), 409, "a set schedule was answered as a card");
+    assert_eq!(alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().len(), 1);
 }
 
 /// Restart while a chat-created task is running: it resumes and posts its
@@ -405,9 +399,9 @@ async fn a_schedule_from_chat_fires_after_a_restart() {
     let m = FakeModel::start(model(
         move |_, turn| {
             if turn == 0 {
-                tool("create_schedule", json!({ "text": "Check the status page.", "daily_at": card_at, "scope": "Reads one web page." }))
+                tool("create_schedule", json!({ "goal": "Check the status page.", "daily_at": card_at }))
             } else {
-                say("Confirm the card.")
+                say("Set up.")
             }
         },
         vec![simple_contract(), tool("task_complete", json!({ "summary": "All systems normal.", "deliverable": [{ "type": "text", "text": "All systems normal." }] }))],
@@ -417,8 +411,7 @@ async fn a_schedule_from_chat_fires_after_a_restart() {
     let alice = app.api("alice");
     let (thread, turn) = chat(&alice, "Check the status page every day at that time.", None).await;
     alice.wait_settled(&turn).await;
-    let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
-    assert!(alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await.0.is_success());
+    assert_eq!(wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await["state"], "confirmed");
     app.restart().await;
     let alice = app.api("alice");
     assert!(alice.tasks().await["tasks"].as_array().unwrap().is_empty(), "fired before it was due");
@@ -453,7 +446,7 @@ async fn a_schedule_from_chat_fires_after_a_restart() {
 /// it is refused and nothing starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_task_from_chat_needs_a_title() {
-    let m = FakeModel::start(model(|_, turn| if turn == 0 { tool("create_task", json!({ "text": "Write the report." })) } else { say("Done.") }, vec![])).await;
+    let m = FakeModel::start(model(|_, turn| if turn == 0 { tool("create_task", json!({ "goal": "Write the report." })) } else { say("Done.") }, vec![])).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let alice = app.api("alice");
     let (_, turn) = chat(&alice, "Write me the report.", None).await;
@@ -463,37 +456,13 @@ async fn a_task_from_chat_needs_a_title() {
     assert!(alice.tasks().await["tasks"].as_array().unwrap().is_empty(), "a task started without a title");
 }
 
-/// Confirms that race in decide a card once: one schedule, one success
-/// (from the closed PR #1).
-#[tokio::test(flavor = "multi_thread")]
-async fn a_card_confirmed_twice_at_once_makes_one_schedule() {
-    let m = FakeModel::start(model(
-        |_, turn| match turn {
-            0 => tool("create_schedule", json!({ "text": "Summarise the news.", "daily_at": "07:30", "scope": "Searches the web; sends nothing." })),
-            _ => say("Confirm the card."),
-        },
-        vec![],
-    ))
-    .await;
-    let app = Appliance::start(Spec::default(), &m).await;
-    let alice = app.api("alice");
-    let (thread, turn) = chat(&alice, "Every morning, summarise the news.", None).await;
-    alice.wait_settled(&turn).await;
-    let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
-    let path = format!("/v1/chat/cards/{}", card["card"].as_str().unwrap());
-    let answers = futures::future::join_all((0..8).map(|_| alice.post(&path, json!({ "decision": "confirm" })))).await;
-    assert_eq!(answers.iter().filter(|(st, _)| st.is_success()).count(), 1, "{answers:?}");
-    let (_, s) = alice.get("/v1/schedules").await;
-    assert_eq!(s["schedules"].as_array().unwrap().len(), 1, "{s}");
-}
-
 /// Answers that race on one inbox item decide it once (from the closed
 /// PR #1, where this was part of the thread-taint test).
 #[tokio::test(flavor = "multi_thread")]
 async fn an_approval_answered_twice_at_once_is_decided_once() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(model(
-        |_, turn| if turn == 0 { tool("create_task", json!({ "title": "Email Bob the agenda", "text": "Email Bob the agenda." })) } else { say("Started.") },
+        |_, turn| if turn == 0 { tool("create_task", json!({ "title": "Email Bob the agenda", "goal": "Email Bob the agenda." })) } else { say("Started.") },
         vec![simple_contract(), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "Agenda", "body": "1. Budget" }))],
     ))
     .await;
@@ -532,16 +501,14 @@ async fn a_contract_cannot_claim_a_conversation() {
     assert!(t["contract"]["conversation"].is_null(), "a forged conversation is on the contract: {t}");
 }
 
-/// The scope the person confirmed on the card reaches each run, beside the
-/// task's own words (from the closed PR #1, where it was added to the
-/// schedule's text).
+/// A schedule's runs start on their own, with its one-line goal, and the
+/// conversation that set it up is not restated in it.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_confirmed_schedule_carries_its_scope() {
-    const SCOPE: &str = "Searches the web; sends nothing.";
+async fn a_schedule_runs_its_goal_with_nobody_present() {
     let m = FakeModel::start(model(
         |_, turn| match turn {
-            0 => tool("create_schedule", json!({ "text": "Summarise the news.", "every_minutes": 1, "scope": SCOPE })),
-            _ => say("Confirm the card."),
+            0 => tool("create_schedule", json!({ "goal": "Summarise the news.", "every_minutes": 1 })),
+            _ => say("Set up."),
         },
         vec![],
     ))
@@ -557,16 +524,13 @@ async fn a_confirmed_schedule_carries_its_scope() {
     let alice = app.api("alice");
     let (thread, turn) = chat(&alice, "Every minute, summarise the news.", None).await;
     alice.wait_settled(&turn).await;
-    let card = wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
-    assert!(st.is_success(), "{v}");
+    wait_entry(&alice, &thread, |e| e["kind"] == "schedule_card").await;
     let run = eventually("the schedule's first run asks the model", Duration::from_secs(100), || {
         let m = m.clone();
         async move { m.requests().into_iter().find(|c| !is_chat(c) && c.turn() == 0 && c.offered_tools().iter().any(|t| t == "task_contract")) }
     })
     .await;
     assert!(run.text().contains("Summarise the news."), "{}", run.text());
-    assert!(run.text().contains(SCOPE), "the scheduled run was not told the card's scope: {}", run.text());
 }
 
 use chrono::Timelike;
@@ -578,7 +542,7 @@ use chrono::Timelike;
 async fn a_person_chooses_the_model_for_a_task_and_a_chat_message() {
     let mut m = FakeModel::start(model(
         |said, turn| match (said, turn) {
-            ("Look into it properly.", 0) => tool("create_task", json!({ "title": "Research it", "text": "Research it." })),
+            ("Look into it properly.", 0) => tool("create_task", json!({ "title": "Research it", "goal": "Research it." })),
             _ => say("Done."),
         },
         vec![simple_contract(), tool("task_complete", json!({ "summary": "done", "deliverable": [{ "type": "text", "text": "done" }] }))],
@@ -643,10 +607,8 @@ async fn a_request_set_compares_models_in_chat_and_takes_the_persons_judgment() 
     let mail = mcp::mail().start().await;
     let mut m = FakeModel::start(model(
         |said, turn| match (said, turn) {
-            ("Email Bob the agenda.", 0) => tool("create_task", json!({ "title": "Email Bob the agenda", "text": "Email Bob the agenda." })),
-            ("Every Monday, summarise my invoices.", 0) => {
-                tool("create_schedule", json!({ "title": "Invoice summary", "text": "Summarise my invoices.", "every_minutes": 10080, "scope": "Reads invoices." }))
-            }
+            ("Email Bob the agenda.", 0) => tool("create_task", json!({ "title": "Email Bob the agenda", "goal": "Email Bob the agenda." })),
+            ("Every Monday, summarise my invoices.", 0) => tool("create_schedule", json!({ "title": "Invoice summary", "goal": "Summarise my invoices.", "every_minutes": 10080 })),
             ("Chase the invoices.", 0) => say("Which month do you mean?"),
             (_, 0) => say("Eight."),
             _ => say("Started."),

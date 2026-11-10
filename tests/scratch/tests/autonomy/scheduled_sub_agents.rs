@@ -29,7 +29,7 @@ const COVERED: &str = "covered by a rule or grant";
 async fn a_scheduled_run_uses_sub_agents() {
     const ASK: &str = "Every morning, update the release notes, with the implementation, independent tests and a review each done by a sub-agent.";
     const RUN: &str = "Update the release notes in my notes app, using sub-agents.";
-    const SCOPE: &str = "Writes the release notes in the notes app; sends nothing.";
+
     const IMPLEMENT: &str = "Implementation: write the release notes as a note titled Release notes.";
     const TESTS: &str = "Independent tests: check on your own that the release notes note is there and complete.";
     const REVIEW: &str = "Review: review the release notes note.";
@@ -46,8 +46,8 @@ async fn a_scheduled_run_uses_sub_agents() {
             let o = opening(&c);
             match run_of(&c) {
                 Run::Chat => match c.turn() {
-                    0 => tool("create_schedule", json!({ "title": "Release notes", "text": RUN, "daily_at": at, "scope": SCOPE })),
-                    _ => say("Confirm the card and I'll do it every morning."),
+                    0 => tool("create_schedule", json!({ "title": "Release notes", "goal": RUN, "daily_at": at })),
+                    _ => say("It is set up for every morning."),
                 },
                 Run::Task if o.contains(IMPLEMENT) => match c.turn() {
                     0 => checked("the release notes are written"),
@@ -101,8 +101,10 @@ async fn a_scheduled_run_uses_sub_agents() {
 
     // The run started its sub-agents with no grant: the tool takes none.
     let runs = m.requests();
-    let parent = |turn: usize| runs.iter().find(|c| run_of(c) == Run::Task && opening(c).contains(RUN) && c.turn() == turn).expect("the run went no further").last_results();
-    let schema = runs.iter().find(|c| run_of(c) == Run::Task && opening(c).contains(RUN)).map(|c| c.body["tools"].clone()).unwrap_or_default();
+    // The run itself: a sub-agent's opening carries the schedule's goal too, as its scope.
+    let is_run = |c: &Conversation| run_of(c) == Run::Task && opening(c).contains(RUN) && ![IMPLEMENT, TESTS, REVIEW, OUTSIDE].iter().any(|g| opening(c).contains(g));
+    let parent = |turn: usize| runs.iter().find(|c| is_run(c) && c.turn() == turn).expect("the run went no further").last_results();
+    let schema = runs.iter().find(|c| is_run(c)).map(|c| c.body["tools"].clone()).unwrap_or_default();
     let spec = schema.as_array().into_iter().flatten().find(|t| t["name"] == "start_sub_agent").cloned().expect("start_sub_agent was not offered to the scheduled run");
     assert!(spec.to_string().contains("\"goal\"") && !spec.to_string().contains("\"grant\""), "start_sub_agent takes a grant: {spec}");
     assert!(m.requested_calls().iter().filter(|(n, _)| n == "start_sub_agent").all(|(_, i)| i.get("grant").is_none()));
@@ -116,14 +118,10 @@ async fn a_scheduled_run_uses_sub_agents() {
     assert!(r.len() == 1 && r[0].is_error && r[0].text.contains("is not a tool you hold"), "a sub-agent was given a tool its parent lacks: {r:?}");
     assert!(!runs.iter().any(|c| opening(c).contains(OUTSIDE) && run_of(c) == Run::Task), "the refused sub-agent ran");
 
-    // Each worked under the scope the person confirmed for the schedule.
+    // Each worked under what the person set the schedule up to do.
     for goal in [IMPLEMENT, TESTS, REVIEW] {
         let first = runs.iter().find(|c| run_of(c) == Run::Task && opening(c).contains(goal)).unwrap_or_else(|| panic!("no sub-agent for {goal}"));
-        assert!(
-            opening(first).contains(&format!("The person confirmed this schedule for this scope; keep to it: {SCOPE}")),
-            "a sub-agent lost the schedule's scope: {}",
-            opening(first)
-        );
+        assert!(opening(first).contains(&format!("The person set up this schedule to do this; keep to it: {RUN}")), "a sub-agent lost the schedule's scope: {}", opening(first));
     }
     // The implementation changed the note under the schedule's confirmation,
     // which Auto Review saw covering it: no approval, and no grant of its own.
@@ -161,8 +159,8 @@ async fn a_failing_scheduled_run_wakes_the_agent_where_it_was_set_up() {
         async move {
             match run_of(&c) {
                 Run::Chat => match c.turn() {
-                    0 => tool("create_schedule", json!({ "title": "Morning inbox", "text": RUN, "daily_at": at, "scope": "Reads the inbox; sends nothing." })),
-                    _ => say("Confirm the card and I'll do it."),
+                    0 => tool("create_schedule", json!({ "title": "Morning inbox", "goal": RUN, "daily_at": at })),
+                    _ => say("It is set up."),
                 },
                 Run::Task => match c.turn() {
                     0 => contract_checked("summarise the inbox", "mail__list_inbox", json!({}), "/messages/0/subject", json!("Q3 numbers")),

@@ -2,7 +2,7 @@
 //! do not match the spec and references exactly"). The appliance is set up
 //! with the scene of the Magnus Workspace references (a project's
 //! conversation whose request became a finished trip, a supplier search
-//! waiting on an approval, and a weekly schedule to confirm, with the trip
+//! waiting on an approval, and a weekly schedule set up, with the trip
 //! open beside it); `desktop/tests/looks.mjs` opens it in each look the
 //! references draw (light solid, light glass, dark glass) and Settings >
 //! Appearance, and checks every element's values against the references'.
@@ -30,10 +30,10 @@ async fn each_look_draws_the_workspace_as_the_references_do() {
         if system.contains(CHAT) {
             return if said(&c).contains("carbon fiber tube suppliers") || c.body["messages"].to_string().contains("carbon fiber tube suppliers") {
                 match c.turn() {
-                    0 => tool("create_task", json!({ "title": "San Diego trip for two", "text": TRIP })),
-                    1 => tool("create_task", json!({ "title": "Carbon fiber tube suppliers", "text": SUPPLIERS })),
-                    2 => tool("create_schedule", json!({ "title": "AI regulation digest", "text": "Send me the latest on AI regulation in California.", "every_minutes": 10080, "scope": "Reads the web; sends you one message." })),
-                    _ => Reply::Text("I've split that into two tasks and a weekly schedule. The trip is ready — it's open on the right. The supplier search needs one approval, and the schedule needs your OK.".into()),
+                    0 => tool("create_task", json!({ "title": "San Diego trip for two", "goal": TRIP })),
+                    1 => tool("create_task", json!({ "title": "Carbon fiber tube suppliers", "goal": SUPPLIERS })),
+                    2 => tool("create_schedule", json!({ "title": "AI regulation digest", "goal": "Send me the latest on AI regulation in California.", "every_minutes": 10080 })),
+                    _ => Reply::Text("I've split that into two tasks and a weekly schedule. The trip is ready — it's open on the right. The supplier search needs one approval, and the schedule is set up.".into()),
                 }
             } else {
                 Reply::Text("Noted.".into())

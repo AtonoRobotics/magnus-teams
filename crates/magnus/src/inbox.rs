@@ -83,8 +83,17 @@ pub fn blocking(s: &State, i: &Item) -> bool {
     i.resolution.is_none() && i.run.as_ref().and_then(|r| s.runs.get(r)).is_some_and(|r| r.status == Status::Suspended && r.waiting_item.as_deref() == Some(&i.id))
 }
 
+/// An item's kind as it is answered and shown now. A task or schedule
+/// proposal from before rev 140 is a suggestion: one accept starts it.
+pub(crate) fn inbox_kind(kind: &str) -> &str {
+    match kind {
+        "task_proposal" | "schedule_proposal" => "suggestion",
+        k => k,
+    }
+}
+
 pub fn render(s: &State, p: &Person, i: &Item) -> Value {
-    let tier = match i.kind.as_str() {
+    let tier = match inbox_kind(&i.kind) {
         "approval" => i.details["risk"].as_str().unwrap_or("unknown").to_string(),
         k => k.to_string(),
     };
@@ -93,7 +102,7 @@ pub fn render(s: &State, p: &Person, i: &Item) -> Value {
     let thread = i.task.as_ref().and_then(|t| s.tasks.get(t)).filter(|t| t.person == p.id).and_then(|t| t.chat.as_ref()).map(|c| c.thread.clone());
     json!({
         "id": i.id,
-        "kind": i.kind,
+        "kind": inbox_kind(&i.kind),
         "task_id": i.task,
         "thread": thread,
         "run_id": i.run,
@@ -141,7 +150,7 @@ impl Kernel {
         // A task an approval started is driven from now.
         let mut started: Option<String> = None;
 
-        match (item.kind.as_str(), decision.as_str()) {
+        match (inbox_kind(&item.kind), decision.as_str()) {
             ("approval", "approve") => {
                 let scope = body["scope"].as_str().unwrap_or("once").to_string();
                 if !["once", "task", "window", "standing"].contains(&scope.as_str()) {
@@ -263,21 +272,12 @@ impl Kernel {
                 evs.extend(reply(&run, &call_id, msg, true, Label::PRINCIPAL));
                 evs.extend(self.resume(&run));
             }
-            ("contract_change", "approve") => {
-                let version = self.read(|s| s.runs.get(&run).map(|r| r.contract_version)).unwrap_or(0) + 1;
+            // A contract change asked before rev 140, when checking became
+            // internal: whatever the answer, the frozen criteria stand and
+            // the run goes on against them.
+            ("contract_change", _) => {
                 evs.push((&actor, resolve(None)));
-                evs.push((&actor, Ev::Contract { run: run.clone(), version, contract: item.details["new"].clone(), approved_by: Some(actor.clone()) }));
-                evs.extend(reply(&run, &call_id, format!("The person approved the contract change. Version {version} is in force, and frozen."), false, Label::PRINCIPAL));
-                evs.extend(self.resume(&run));
-            }
-            ("contract_change", "reject") => {
-                evs.push((&actor, resolve(None)));
-                let msg = format!(
-                    "The person kept the contract (version {}){}. Its criteria still decide when the task is done: finish against them, or call task_fail.",
-                    item.details["version"],
-                    text.as_ref().map(|t| format!(": {t}")).unwrap_or_default()
-                );
-                evs.extend(reply(&run, &call_id, msg, true, Label::PRINCIPAL));
+                evs.extend(reply(&run, &call_id, crate::run::FROZEN, true, Label::PRINCIPAL));
                 evs.extend(self.resume(&run));
             }
             ("question", "answer") => {
@@ -296,10 +296,11 @@ impl Kernel {
                 evs.push((&actor, resolve(None)));
                 evs.push((&actor, Ev::PolicySet { layer, cedar: next }));
             }
-            // A schedule a worker proposed starts with the proposing run's
+            // A suggestion of a schedule starts with the suggesting run's
             // taint, as a chat card's does; each run takes the server's
-            // per-task budget when it fires (spec rev 133).
-            ("schedule_proposal", "accept") => {
+            // per-task budget when it fires (spec rev 133). Accepting it is
+            // all it needs (spec rev 140).
+            ("suggestion", "accept") if crate::suggestions::timed(&item.details) => {
                 let from = self.read(|s| item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| Label { untrusted: r.untrusted, private: r.private }));
                 evs.push((&actor, resolve(None)));
                 evs.push((
@@ -313,20 +314,20 @@ impl Kernel {
                         budget: None,
                         card: None,
                         label: from,
-                        title: None,
+                        title: item.details["title"].as_str().map(String::from),
                         until: serde_json::from_value(item.details["until"].clone()).ok().flatten(),
                         max_runs: item.details["max_runs"].as_u64().map(|m| m as u32),
-                        scope: None,
+                        scope: item.details["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
                         // Accepted from the inbox, outside a conversation: its own thread.
                         thread: None,
                     },
                 ));
             }
-            // A task a review proposed starts as a chat card's does: the
-            // server's per-task budget (never the estimate), the card's
-            // scope and title, the proposing run's model and taint, and it
-            // starts now (#393).
-            ("task_proposal", "accept") => {
+            // A task a task or a review suggested starts as a chat card's
+            // does: the server's per-task budget, the card's scope and
+            // title, the suggesting run's model and taint, and it starts now
+            // (#393).
+            ("suggestion", "accept") => {
                 if self.read(|s| s.kill_switch) {
                     return Ok(Answer::Conflict("the kill switch is engaged"));
                 }
@@ -393,8 +394,7 @@ impl Kernel {
             ("deletion_request", "done") | ("deletion_request", "decline") => {
                 evs.push((&actor, resolve(None)));
             }
-            ("schedule_proposal", "reject")
-            | ("task_proposal", "reject")
+            ("suggestion", "reject" | "decline" | "dismiss")
             | ("policy_proposal", "reject")
             | ("notice", "dismiss")
             | ("message", "dismiss")

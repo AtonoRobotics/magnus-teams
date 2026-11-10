@@ -20,7 +20,7 @@ async fn sweeping() -> (FakeModel, Appliance) {
             let first = c.messages().first().cloned().unwrap_or_default();
             let said = first["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).unwrap_or_default().to_string();
             return match (said.contains("invoices"), c.turn()) {
-                (true, 0) => tool("create_schedule", json!({ "title": "Invoice sweep", "text": SWEEP, "every_minutes": 1, "scope": "Reads the shared mailbox; changes nothing." })),
+                (true, 0) => tool("create_schedule", json!({ "title": "Invoice sweep", "goal": SWEEP, "every_minutes": 1 })),
                 _ => Reply::Text("Noted.".into()),
             };
         }
@@ -59,8 +59,7 @@ async fn a_schedule_set_up_in_a_conversation_posts_its_runs_there() {
     alice.wait_settled(v["task_id"].as_str().unwrap()).await;
     let (_, c) = alice.get(&format!("/v1/chat/{origin}")).await;
     let card = c["entries"].as_array().unwrap().iter().find(|e| e["kind"] == "schedule_card").cloned().expect("no schedule card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "confirm" })).await;
-    assert!(st.is_success(), "{v}");
+    assert_eq!(card["state"], "confirmed", "the schedule waits on a confirmation: {card}");
     let schedule = eventually("the schedule", PATIENCE, || async { alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().first().cloned() }).await;
 
     // Its first run posts its result in the conversation it was set up in.

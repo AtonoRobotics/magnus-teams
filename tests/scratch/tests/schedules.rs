@@ -117,7 +117,10 @@ async fn a_scheduled_run_cannot_set_up_a_schedule_and_its_schedule_waits_for_it(
         match c.turn() {
             0 => simple_contract(),
             // What the test schedule's run did on 2026-10-30.
-            1 => tool("propose_schedule", json!({ "text": "Tidy the folders.", "every_minutes": 1 })),
+            1 => tool(
+                "suggest",
+                json!({ "title": "Tidy", "goal": "Tidy the folders.", "every_minutes": 1, "permissions": ["Moves mail"], "evidence": [{ "task": "t", "shows": "x" }] }),
+            ),
             2 => tool("ask_principal", json!({ "question": "Archive the old threads too?" })),
             _ => done("Swept the mailbox."),
         }
@@ -136,8 +139,8 @@ async fn a_scheduled_run_cannot_set_up_a_schedule_and_its_schedule_waits_for_it(
             .await;
     let item = alice.wait_item(&first, "question").await;
     let refused = m.requests().into_iter().find(|c| c.body.to_string().contains("Sweep the mailbox.") && c.turn() == 2).expect("the run went on after proposing").last_results();
-    assert!(refused[0].is_error && refused[0].text.contains("cannot set up another schedule"), "a scheduled run proposed a schedule: {}", refused[0].text);
-    assert!(!alice.inbox().await.iter().any(|i| i["kind"] == "schedule_proposal"), "a proposal reached the inbox");
+    assert!(refused[0].is_error && refused[0].text.contains("cannot suggest another schedule"), "a scheduled run suggested a schedule: {}", refused[0].text);
+    assert!(!alice.inbox().await.iter().any(|i| i["kind"] == "suggestion"), "a suggestion reached the inbox");
 
     // Its run waits on alice, so the schedule pauses until she answers
     // (owner, 2026-10-30), says why, and cannot be resumed past it.
@@ -325,17 +328,21 @@ async fn deleting_an_ended_schedule_leaves_its_last_run_going() {
     assert!(t["summary"].as_str().unwrap_or_default().contains("the source was empty"), "{t}");
 }
 
-/// A schedule a run proposes runs on the server's per-task budget, and
-/// its runs start with that run's taint.
+/// A schedule a run suggests is set up on the person's one accept, runs on
+/// the server's per-task budget, and its runs start with that run's taint.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_proposed_schedule_runs_on_the_servers_budget_with_the_proposers_taint() {
+async fn a_suggested_schedule_runs_on_the_servers_budget_with_the_suggesters_taint() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
         let b = c.body.to_string();
         match c.turn() {
             0 => simple_contract(),
             1 if b.contains("Watch the inbox.") => tool("mail__list_inbox", json!({})),
-            2 if b.contains("Watch the inbox.") => tool("propose_schedule", json!({ "text": "Summarise the inbox.", "every_minutes": 1, "max_runs": 1 })),
+            2 if b.contains("Watch the inbox.") => {
+                let read = c.messages().into_iter().flat_map(|m| m["content"].as_array().cloned().unwrap_or_default()).find(|b| b["type"] == "tool_use" && b["name"] == "mail__list_inbox");
+                let evidence = json!([{ "call": read.map(|b| b["id"].clone()), "shows": "New mail arrives every minute." }]);
+                tool("suggest", json!({ "title": "Inbox summary", "goal": "Summarise the inbox.", "every_minutes": 1, "max_runs": 1, "permissions": ["Reads your inbox"], "evidence": evidence }))
+            }
             _ => done("Done."),
         }
     }))
@@ -344,7 +351,7 @@ async fn a_proposed_schedule_runs_on_the_servers_budget_with_the_proposers_taint
     every_minute(&mut app, 3).await;
     let alice = app.api("alice");
     let t = alice.submit("Watch the inbox.").await;
-    let item = alice.wait_item(&t, "schedule_proposal").await;
+    let item = alice.wait_item(&t, "suggestion").await;
     assert_eq!(alice.wait_settled(&t).await["status"], "completed");
     let proposer = alice.task(&t).await;
     assert_eq!(proposer["taint"], json!({ "untrusted": true, "private": true }), "{proposer}");
@@ -352,7 +359,7 @@ async fn a_proposed_schedule_runs_on_the_servers_budget_with_the_proposers_taint
 
     assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
     let (_, v) = alice.get("/v1/schedules").await;
-    let s = v["schedules"].as_array().unwrap().iter().find(|s| s["text"] == "Summarise the inbox.").cloned().expect("the accepted proposal is not scheduled");
+    let s = v["schedules"].as_array().unwrap().iter().find(|s| s["text"] == "Summarise the inbox.").cloned().expect("the accepted suggestion is not scheduled");
     let id = s["id"].as_str().unwrap().to_string();
     assert_eq!(s["max_runs"], 1, "{s}");
     // The server's budget changes later; each run takes the server's

@@ -115,14 +115,12 @@ await step("read the result beside the conversation", async () => {
     await click(xpath(`${result}//a[normalize-space()='See the outcome']`));
     await until("the composed outcome", () => run("const f = document.querySelector('#detail iframe.composed'); return f && f.contentDocument && f.contentDocument.body.innerText.includes('41.7M')"));
   });
-  // The panel leads with the deliverable, under the task's title and checks.
+  // The panel leads with the deliverable, under the task's title. Checking
+  // is internal (spec rev 140): no criteria or checks are shown.
   await xpath(`${panel}//div[contains(@class,'detail-head')]//h2[normalize-space()='Q3 revenue summary']`);
-  await xpath(`${panel}//div[contains(@class,'detail-head')]//span[contains(@class,'checks')]`);
   await xpath(`${panel}//div[contains(@class,'seg')]//button[@aria-selected='true' and normalize-space()='Result']`);
-  const verification=await run("return !!document.querySelector('#detail details.verification-detail:not([open])')");
-  if(verification)await click(css('#detail details.verification-detail > summary'));
-  await xpath(`${panel}//div[contains(@class,'evidence') and contains(@class,'pass')]//span[normalize-space()='holds']`);
-  await xpath(`${panel}//div[contains(@class,'evidence') and contains(@class,'pass')]//span[normalize-space()='confirmed by ${person}']`);
+  const shown = await run("return !!document.querySelector('#detail .checks, #detail details.verification-detail, #detail .evidence.pass')");
+  if (shown) throw new Error("the task view shows its checks to the person");
 });
 
 await step("download the file from the conversation", async () => {
@@ -143,8 +141,8 @@ await step("find the file by searching", async () => {
 await step("create a schedule in the conversation", async () => {
   await measure("create a schedule", async () => {
     await say(schedule);
+    // Asking set it up: the card shows it scheduled, with nothing to confirm.
     const card = `${thread}//div[@data-card]`;
-    await click(button("Start schedule", card));
     await xpath(`${card}//span[contains(@class,'chip') and normalize-space()='Scheduled']`);
   });
 });

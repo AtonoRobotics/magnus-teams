@@ -127,7 +127,7 @@ async fn a_file_uploaded_into_a_project_is_used_by_a_task_there_and_its_output_l
             let first = c.messages().first().map(|m| m.to_string()).unwrap_or_default();
             let asked = first.contains("Total the prices") && !first.contains("This turn is not a message from the person");
             match (asked, c.turn()) {
-                (true, 0) => tool("create_task", json!({ "title": "Total the prices", "text": "Total the prices in prices.csv." })),
+                (true, 0) => tool("create_task", json!({ "title": "Total the prices", "goal": "Total the prices in prices.csv." })),
                 (true, _) => Reply::Text("Started; it shows here as it goes.".into()),
                 _ => Reply::Text("Noted.".into()),
             }
