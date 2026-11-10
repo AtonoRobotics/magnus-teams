@@ -774,7 +774,7 @@ async fn the_installed_app_updates_itself_from_the_appliance_while_a_task_waits(
         async move { (std::fs::read(&app).ok()? == new).then_some(()) }
     })
     .await;
-    let whats_new = d.config().join("app.magnus.desktop/whats-new.json");
+    let whats_new = d.config().join("app.magnus.teams/whats-new.json");
     let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(&whats_new).expect("what's new was not kept for after the restart")).unwrap();
     assert_eq!((kept["version"].as_str(), kept["notes"].as_str()), (Some(fresh.as_str()), Some(notes.as_str())), "{kept}");
     // The copy the app restarted, outside the session.

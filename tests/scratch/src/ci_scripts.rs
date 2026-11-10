@@ -89,6 +89,23 @@ fn the_invariants_run_one_at_a_time_with_a_chromium() {
     assert!(test.ends_with(&format!("|{}", chrome.display())), "the invariants get no Chromium: {test}");
 }
 
+/// The teams desktop app is its own app: magnus-claude's is "Magnus",
+/// `app.magnus.desktop`, and with the same identity one install replaced the
+/// other and both read one settings folder (2026-11-10: the owner's app was
+/// magnus-claude's, 0.7.1-test.1070, and never got Teams or Computers). The
+/// release copies the packages Tauri names after the product.
+#[test]
+fn the_desktop_app_is_not_magnus_claudes() {
+    let conf: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root().join("desktop/src-tauri/tauri.conf.json")).unwrap()).unwrap();
+    let (name, id) = (conf["productName"].as_str().unwrap(), conf["identifier"].as_str().unwrap());
+    assert_ne!(id, "app.magnus.desktop", "the identifier is magnus-claude's app's");
+    assert_ne!(name, "Magnus", "the product name is magnus-claude's app's");
+    let release = std::fs::read_to_string(root().join(".github/workflows/release.yml")).unwrap();
+    for built in [format!("bundle/appimage/{name}_${{MAGNUS_VERSION}}_amd64.AppImage"), format!("bundle/nsis/{name}_${{MAGNUS_VERSION}}_x64-setup.exe")] {
+        assert!(release.contains(&built), "the release does not copy {built}, which the build writes");
+    }
+}
+
 #[test]
 fn the_copy_does_not_keep_times_cargo_would_skip() {
     let (_, rsync) = run("ci-test-one", &["true"]);

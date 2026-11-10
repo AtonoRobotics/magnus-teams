@@ -67,8 +67,10 @@ jobs:
           (cd desktop/src-tauri && cargo tauri build --bundles deb,appimage --config "$c")
           (cd desktop/src-tauri && cargo tauri build --runner cargo --target x86_64-pc-windows-gnu --bundles nsis --config "$c")
           mkdir -p dist
-          cp desktop/src-tauri/target/release/bundle/appimage/Magnus_${MAGNUS_VERSION}_amd64.AppImage dist/
-          cp desktop/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/Magnus_${MAGNUS_VERSION}_x64-setup.exe dist/
+          # Built as "Magnus Teams" (its own app, not magnus-claude's "Magnus");
+          # published under names with no space.
+          cp "desktop/src-tauri/target/release/bundle/appimage/Magnus Teams_${MAGNUS_VERSION}_amd64.AppImage" "dist/Magnus_${MAGNUS_VERSION}_amd64.AppImage"
+          cp "desktop/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/Magnus Teams_${MAGNUS_VERSION}_x64-setup.exe" "dist/Magnus_${MAGNUS_VERSION}_x64-setup.exe"
 
       - name: Publish the desktop app
         run: |

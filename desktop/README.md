@@ -31,7 +31,7 @@ cargo tauri build --bundles deb,appimage
 
 The `.deb` also carries `magnus-local`, the agent that works on this computer once the person connects it, so bundling builds it first.
 
-This writes `target/release/bundle/deb/Magnus_<version>_amd64.deb` and `target/release/bundle/appimage/Magnus_<version>_amd64.AppImage`.
+This writes `target/release/bundle/deb/Magnus Teams_<version>_amd64.deb` and `target/release/bundle/appimage/Magnus Teams_<version>_amd64.AppImage`.
 
 Windows, cross-built on Linux. It needs `rustup target add x86_64-pc-windows-gnu`, mingw-w64 and NSIS:
 
@@ -39,7 +39,7 @@ Windows, cross-built on Linux. It needs `rustup target add x86_64-pc-windows-gnu
 cargo tauri build --runner cargo --target x86_64-pc-windows-gnu --bundles nsis
 ```
 
-This writes `target/x86_64-pc-windows-gnu/release/bundle/nsis/Magnus_<version>_x64-setup.exe`. The installer installs for the current user, and brings the WebView2 runtime if the machine lacks it.
+This writes `target/x86_64-pc-windows-gnu/release/bundle/nsis/Magnus Teams_<version>_x64-setup.exe`. The installer installs for the current user, and brings the WebView2 runtime if the machine lacks it.
 
 ## Before the first sign-in (owner, on the appliance)
 

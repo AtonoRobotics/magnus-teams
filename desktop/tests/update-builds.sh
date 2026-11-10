@@ -22,7 +22,7 @@ next="${v%.*}.$(( ${v##*.} + 1 ))"
 for build in "old $v" "new $next"; do
   set -- $build
   cargo tauri build --bundles appimage --config "{\"version\":\"$2\",\"plugins\":{\"updater\":{\"pubkey\":\"$(cat "$t/test.key.pub")\"}}}"
-  cp "target/release/bundle/appimage/Magnus_$2_amd64.AppImage" "$t/$1.AppImage"
-  cp "target/release/bundle/appimage/Magnus_$2_amd64.AppImage.sig" "$t/$1.AppImage.sig"
+  cp "target/release/bundle/appimage/Magnus Teams_$2_amd64.AppImage" "$t/$1.AppImage"
+  cp "target/release/bundle/appimage/Magnus Teams_$2_amd64.AppImage.sig" "$t/$1.AppImage.sig"
 done
 echo "$next" > "$t/new.version"
