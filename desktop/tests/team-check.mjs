@@ -14,7 +14,7 @@ const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
   UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
-  icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Screen: { last: {} }, Magnus: {},
+  icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },
   document: { addEventListener: () => {} }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
@@ -141,6 +141,11 @@ assert.match(board, /href="#\/team\/w\/c\/c1\/t\/m1">From the conversation/, "a 
 assert.match(board, /data-new-task="todo"/, "a task cannot be added by typing");
 assert.doesNotMatch(sandbox.boardHtml([], "w", name, false), /data-new-task/, "a guest can add tasks");
 assert.match(sandbox.progressBar({ done: 1, total: 4 }), /aria-valuenow="25"/);
+const overview = sandbox.overviewHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w");
+assert.match(overview, /data-team-screen="pc1"/, "the panel does not show the team computer's screen");
+assert.match(overview, /Magnus is working for Dana/, "the panel does not say whom the agent works for");
+assert.match(overview, /data-take-over="pc1"/, "the team computer cannot be taken over from the panel");
+assert.match(overview, /notes\.md/);
 
 // The command menu: making things by typing their name, asking the agent,
 // settings for the channel, and search.

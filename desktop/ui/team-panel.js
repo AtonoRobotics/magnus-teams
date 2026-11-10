@@ -7,6 +7,8 @@
  * @typedef {{ project: ?Object, channels: string[], files: Array<{ name: string, size: number, by: string, by_name: string, project: ?string }>, tasks: TeamTask[], work: Array<{ task: string, channel: string, requester: string, requester_name: string, waiting: boolean, steps: number }>, members: Array<{ id: string, name: string }>, knowledge: number, progress: ?{ done: number, total: number }, computer: ?string }} TeamPanelData
  */
 
+/** The last look at each team computer's screen, so a redraw keeps it. */
+const TeamScreens = {};
 const TEAM_STATUSES = [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]];
 const TEAM_PROJECT_TABS = [["overview", "Overview"], ["board", "Board"], ["files", "Files"], ["knowledge", "Knowledge"], ["members", "Members"]];
 
@@ -49,7 +51,7 @@ function overviewHtml(d, ws) {
   const link = tab => project ? teamHref(ws, { kind: "project", id: project, tab }) : "";
   const doing = d.tasks.filter(t => t.status !== "done").slice(0, 5);
   const status = d.work.length ? `${esc(home.agent.name)} is working ${d.work[0].waiting ? `and waiting for ${esc(d.work[0].requester_name)}` : `for ${esc(d.work[0].requester_name)}`}` : "Ready";
-  return `<section class="team-card"><h3>Team computer</h3>${d.computer ? `<div class="team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${Screen.last[d.computer] ? ` src="${Screen.last[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div>
+  return `<section class="team-card"><h3>Team computer</h3>${d.computer ? `<div class="team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${TeamScreens[d.computer] ? ` src="${TeamScreens[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div>
       <div class="row small"><a href="#/computer/${enc(d.computer)}/screen">Watch</a>${home.role === "guest" ? "" : `<button class="link" data-take-over="${esc(d.computer)}">Take control</button>`}</div></div>` : `<p class="small faint">No team computer is running.</p>`}</section>
     <section class="team-card"><h3>Agents at work</h3>${d.work.length ? `<ul class="team-work">${d.work.map(w => `<li><a href="${teamHref(ws, { kind: "channel", id: w.channel })}">${esc(home.agent.name)}</a> <span class="small faint">for ${esc(w.requester_name)}${w.waiting ? " · waiting on an ask" : ` · step ${w.steps + 1}`}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing running.</p>`}</section>
     <section class="team-card"><h3>Tasks ${project ? `<a class="small" href="${link("board")}">Board</a>` : ""}</h3>${d.progress ? progressBar(d.progress) : ""}${doing.length ? `<ul class="team-mini">${doing.map(t => `<li><span>${esc(t.title)}</span><span class="chip${t.status === "doing" ? " run" : ""}">${t.status === "doing" ? "Doing" : "To do"}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing open.</p>`}</section>
@@ -79,9 +81,9 @@ const TeamPanel = {
     if (!id) return;
     try {
       const { image_b64 } = await api("GET", `/v1/computers/${enc(id)}/screen`);
-      Screen.last[id] = `data:image/png;base64,${image_b64}`;
+      TeamScreens[id] = `data:image/png;base64,${image_b64}`;
       const img = $(`[data-team-screen="${id}"]`, el);
-      if (img) img.src = Screen.last[id];
+      if (img) img.src = TeamScreens[id];
     } catch { /* asleep or busy: the next refresh looks again */ }
   },
 
