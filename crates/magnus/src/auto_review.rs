@@ -5,6 +5,7 @@
 //! delegates to it, and the shipped default delegates.
 
 use crate::boundary::{Action, Facts, Shown};
+use crate::config::Person;
 use crate::kernel::Kernel;
 use crate::state::Run;
 use anyhow::Result;
@@ -83,6 +84,11 @@ fn document(a: &Action, effect: &str, destination: &Value, asked: &str, rules: &
         .to_string()
 }
 
+/// The texts of the layers `policy::decide` reads for this person and task.
+fn applicable_texts(policies: &std::collections::BTreeMap<String, String>, person: &Person, task: Option<&str>) -> Vec<String> {
+    crate::policy::layers_for(policies, person, task).into_iter().map(|(_, text)| text).collect()
+}
+
 fn cache_key(person: &str, tool: &str, destination: &Value, content_hash: &str, taint: (bool, bool), rule_version: &str, standing: &str) -> String {
     let mut h = Sha256::new();
     for part in [person, tool, &destination.to_string(), content_hash, &format!("{taint:?}"), rule_version, standing] {
@@ -141,11 +147,22 @@ impl Kernel {
         }
     }
 
+    /// The policy layers that apply to this person, in their words: the
+    /// organisation's, their groups', their own and the task's. Never another
+    /// person's own layer (spec rev 140: Auto Review sees the person's rules).
+    fn policy_texts(&self, person: &str, task: Option<&str>) -> Vec<String> {
+        let policies = self.read(|s| s.policies.clone());
+        match self.person(person) {
+            Some(p) => applicable_texts(&policies, &p, task),
+            None => vec![policies.get("org").cloned().unwrap_or_else(|| crate::policy::DEFAULT_ORG.to_string())],
+        }
+    }
+
     /// A credential leaving through the proxy, which no run may have asked
     /// for. Anything but a clear allow keeps the credential home.
     pub(crate) async fn review_credential_use(&self, person: &str, computer: &str, method: &str, host: &str, path: &str) -> Verdict {
         let standing = "covered by a credential the person issued for this host";
-        let rules: Vec<String> = self.read(|s| s.policies.values().cloned().collect());
+        let rules = self.policy_texts(person, None);
         let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
         let destination = json!({ "host": host, "method": method, "path": path, "computer": computer });
         let key = cache_key(person, "credential_use", &destination, "", (false, false), &version, standing);
@@ -179,7 +196,7 @@ impl Kernel {
         let standing = standing.as_str();
         let destination = shown.map_or_else(|| Value::String(a.tool.clone()), Shown::details);
         // The organisation's policies and the person's own rules, in their words.
-        let mut rules: Vec<String> = self.read(|s| s.policies.values().cloned().collect());
+        let mut rules = self.policy_texts(&run.person, Some(&run.task));
         rules.extend(self.rule_texts(&run.person));
         let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
         let key = cache_key(&run.person, &a.tool, &destination, content_hash, (run.untrusted, run.private), &version, standing);
@@ -214,6 +231,26 @@ mod tests {
 
     fn review(decision: &str, reason: &str) -> Vec<Block> {
         vec![Block::ToolCall { id: "1".into(), name: "review".into(), input: json!({ "decision": decision, "reason": reason }) }]
+    }
+
+    /// Auto Review reads the layers that apply to the person it acts for:
+    /// never another person's own layer, nor a group they are not in.
+    #[test]
+    fn the_review_reads_only_the_persons_own_layers() {
+        let policies: std::collections::BTreeMap<String, String> = [
+            ("org", "org-text"),
+            ("group/finance", "finance-text"),
+            ("group/sales", "sales-text"),
+            ("user/alice", "alice-text"),
+            ("user/bob", "bob-text"),
+            ("task/t1", "task-text"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let alice = Person { id: "alice".into(), name: String::new(), token: None, groups: vec!["finance".into()], roles: vec![] };
+        assert_eq!(applicable_texts(&policies, &alice, Some("t1")), ["org-text", "finance-text", "alice-text", "task-text"]);
+        assert_eq!(applicable_texts(&std::collections::BTreeMap::new(), &alice, None), [crate::policy::DEFAULT_ORG]);
     }
 
     /// Spec rev 140: Auto Review sees the action's target, effect and content.
