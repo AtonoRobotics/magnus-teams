@@ -803,7 +803,8 @@ impl Kernel {
     /// whom, where known.
     pub async fn standing(&self, c: &Connector, person: &str) -> (Standing, Option<i64>, Option<String>) {
         if c.credential.is_none() || c.auth.as_deref() != Some(OAUTH) {
-            return (if self.connected(c, person) { Standing::Connected } else { Standing::Available }, None, None);
+            let connected = self.connected(c, person) && !crate::consent::awaits_connect(self, c);
+            return (if connected { Standing::Connected } else { Standing::Available }, None, None);
         }
         let Ok(Some(raw)) = self.vault.get(&connection_name(&c.name, person)) else { return (Standing::Available, None, None) };
         let t: Option<Tokens> = serde_json::from_str(raw.expose()).ok();
@@ -999,15 +1000,12 @@ impl Kernel {
                 let at = key.as_ref().and_then(|k| changed.get(k)).map(|(_, at)| *at);
                 let signed_in = vault.iter().filter(|n| n.starts_with(&format!("{}__", credential_name(&c.name)))).count();
                 let last_used = people.iter().filter_map(|p| self.recent_uses(&c.name, p, 1).first().and_then(|u| u["at"].as_str().map(String::from))).max();
-                // A catalog app's tools are classified by its signed manifest;
-                // one added by its address waits for the owner's review.
-                let unreviewed = !c.catalog && c.tools.is_empty();
+                // Its tools are accepted when someone connects it (spec rev
+                // 140): nothing waits on an admin's review.
                 let status = if !on {
                     "off"
                 } else if kind != "none" && !set {
                     "needs_credential"
-                } else if unreviewed {
-                    "needs_review"
                 } else {
                     "ready"
                 };
@@ -1362,10 +1360,8 @@ async fn list(AxState(k): K, h: HeaderMap) -> Response {
                 Ok(ts) => (
                     ts.iter()
                         .map(|t| {
-                            json!({
-                                "name": t.name, "description": t.description, "annotations": t.annotations,
-                                "risk": c.tools.get(&t.name).map(|x| x.risk.clone()), "suggested": suggested_risk(&t.annotations),
-                            })
+                            // No description: it is screened, not shown (spec rev 140).
+                            json!({ "name": t.name, "risk": c.tools.get(&t.name).map(|x| x.risk.clone()), "suggested": suggested_risk(&t.annotations) })
                         })
                         .collect(),
                     None,
@@ -1530,8 +1526,10 @@ async fn sign_in_complete(AxState(k): K, h: HeaderMap, Path(name): Path<String>,
     let (Some(state), Some(code)) = (b["state"].as_str(), b["code"].as_str()) else { return err(StatusCode::BAD_REQUEST, "state and code are required") };
     match k.connector_sign_in_complete(&name, &p.id, state, code, b["iss"].as_str()).await {
         Ok(()) => {
-            // Connected for the first time: Magnus opens a conversation about it.
+            // Connected for the first time: Magnus opens a conversation about
+            // it, and the tools its connect screen covered are classed.
             k.open_after_connect(&p.id, &name);
+            k.signed_in_after_consent(&name, &p.id).await;
             StatusCode::NO_CONTENT.into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, &format!("{e:#}")),

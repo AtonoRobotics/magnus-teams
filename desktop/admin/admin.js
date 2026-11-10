@@ -729,7 +729,7 @@ async function policyView(box, id) {
 // organisation's credential is set, rotated or revoked. A credential is
 // never shown, only whether it is set and when.
 
-const CONN_STATUS = { ready: ["ok", "Ready"], needs_credential: ["warn", "Needs its credential"], needs_review: ["warn", "Tools not reviewed"], off: ["", "Off"] };
+const CONN_STATUS = { ready: ["ok", "Ready"], needs_credential: ["warn", "Needs its credential"], off: ["", "Off"] };
 const SIGN_IN = { own_account: "Each person's own account", org_key: "The organisation's key", none: "No sign-in" };
 const AUDIENCE = [["private", "Only the person"], ["internal", "People in the organisation"], ["public", "Anyone"]];
 const LABEL = [["principal", "Trusted, not private"], ["private", "Private"], ["untrusted", "Untrusted"], ["private+untrusted", "Private and untrusted"]];
@@ -764,7 +764,7 @@ function drawConnectors(box) {
   const q = $("#conn-q", box).value.trim().toLowerCase(), f = $("#conn-f", box).value;
   const all = box.conns || [];
   const rows = all.filter(c => (!q || `${c.title} ${c.name}`.toLowerCase().includes(q))
-    && (!f || (f === "attention" && (c.status === "needs_credential" || c.status === "needs_review")) || (f === "off" && !c.enabled) || (f === "used" && c.last_used)));
+    && (!f || (f === "attention" && c.status === "needs_credential") || (f === "off" && !c.enabled) || (f === "used" && c.last_used)));
   el.innerHTML = rows.length ? `<div class="ad-scroll"><table class="t small"><thead><tr><th>App</th><th>Status</th><th>Sign-in</th><th>Scopes</th><th>Credential</th><th class="n">Signed in</th><th>Last used</th></tr></thead><tbody>${rows.map(c => {
       const [cls, label] = CONN_STATUS[c.status] || ["", c.status];
       return `<tr class="click" data-href="#/security/connectors/${esc(c.name)}" tabindex="0">

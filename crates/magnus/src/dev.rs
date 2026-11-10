@@ -458,6 +458,7 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
             }
             Ev::Suspended { reason, item, .. } => harness.push(json!({ "seq": e.seq, "kind": "suspended", "issuer": who, "text": reason, "item": item })),
             Ev::Resumed { .. } => harness.push(json!({ "seq": e.seq, "kind": "resumed", "issuer": who })),
+            Ev::Tools(crate::tool_gate::Change::Screened { tool, verdict, finding, .. }) => harness.push(json!({ "seq": e.seq, "kind": "tool_screen", "issuer": who, "text": format!("{tool}: {verdict} {finding}") })),
             Ev::Completed { summary, .. } => harness.push(json!({ "seq": e.seq, "kind": "completed", "issuer": who, "text": summary })),
             Ev::Failed { reason, by, .. } => harness.push(json!({ "seq": e.seq, "kind": "failed", "issuer": issuer_of(by), "text": reason })),
             Ev::Cancelled { .. } => harness.push(json!({ "seq": e.seq, "kind": "cancelled", "issuer": who })),

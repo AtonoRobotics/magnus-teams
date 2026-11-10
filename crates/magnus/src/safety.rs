@@ -70,6 +70,16 @@ impl Settings {
     }
 }
 
+/// What a tool definition's screen found.
+pub enum Screen {
+    /// The model that passed it.
+    Passed(String),
+    /// What it found, and the model, when one found it.
+    Failed(String, Option<String>),
+    /// No model was set, or none answered; the fixed phrases found nothing.
+    Unanswered,
+}
+
 /// Flags text from outside that tries to give orders.
 pub fn screened(text: String, untrusted: bool) -> String {
     if !untrusted {
@@ -310,8 +320,27 @@ impl Kernel {
         }
     }
 
+    /// A tool definition's words, screened before the agent reads them as
+    /// inbound content is (spec rev 140): by the model that screens what
+    /// comes in, else the independent monitor's, and the fixed phrases.
+    pub(crate) async fn screen_definition(&self, run: Option<&str>, words: &str) -> Screen {
+        let lower = words.to_lowercase();
+        if let Some(p) = INJECTION_PHRASES.iter().find(|p| lower.contains(*p)) {
+            return Screen::Failed(format!("it says \"{p}\""), None);
+        }
+        let Some(spec) = self.cfg.safety.inbound_model.clone().or_else(|| self.cfg.safety.monitor_model.clone()) else { return Screen::Unanswered };
+        if words.len() > MAX_SCREENED_BYTES {
+            return Screen::Unanswered;
+        }
+        match self.ask_screen(run.unwrap_or_default(), "tool_screen", &spec, words, None).await {
+            Some((true, finding)) => Screen::Failed(finding, Some(spec)),
+            Some((false, _)) => Screen::Passed(spec),
+            None => Screen::Unanswered,
+        }
+    }
+
     /// Whether this content tries to steer the agent. `None`: no answer.
-    async fn ask_screen(&self, run: &str, spec: &str, text: &str, image: Option<&str>) -> Option<(bool, String)> {
+    async fn ask_screen(&self, run: &str, purpose: &str, spec: &str, text: &str, image: Option<&str>) -> Option<(bool, String)> {
         let (adapter, model) = spec.split_once('/')?;
         let mut content = vec![Block::Text { text: json!({ "content": text }).to_string() }];
         if let Some(i) = image {
@@ -324,10 +353,13 @@ impl Kernel {
             .ok()?;
         let input = tool_input(&out.blocks, "screen")?;
         let found = input["injection"].as_bool()?;
-        if let Err(e) =
-            self.emit("reviewer", Ev::ReviewerReply { run: run.to_string(), purpose: "inbound_screen".into(), model: spec.to_string(), blocks: out.blocks, usage: out.usage }).await
-        {
-            tracing::warn!("the screen on {run}: {e:#}");
+        // A screen outside any run is in the developer view's tool screens.
+        if !run.is_empty() {
+            if let Err(e) =
+                self.emit("reviewer", Ev::ReviewerReply { run: run.to_string(), purpose: purpose.into(), model: spec.to_string(), blocks: out.blocks, usage: out.usage }).await
+            {
+                tracing::warn!("the screen on {run}: {e:#}");
+            }
         }
         Some((found, input["finding"].as_str().unwrap_or_default().to_string()))
     }
@@ -350,7 +382,7 @@ impl Kernel {
         let verdict = match remembered(&SCREENED, &key) {
             Some(flagged) => Some(flagged),
             None if text.len() > MAX_SCREENED_BYTES => None,
-            None => match self.ask_screen(run, &spec, &text, image.as_deref()).await {
+            None => match self.ask_screen(run, "inbound_screen", &spec, &text, image.as_deref()).await {
                 Some((flagged, finding)) => {
                     remember(&SCREENED, key, flagged);
                     if flagged {

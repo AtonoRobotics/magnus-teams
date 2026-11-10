@@ -343,7 +343,7 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","tool_change","deletion_request","endorsement","tool_review"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","app_tools","deletion_request","endorsement"]);
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -1999,7 +1999,7 @@ route(/^#\/chat\/([^/]+)$/, async (main, thread) => {
 
 const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
-  policy_proposal: "Policy proposal", suggestion: "Suggestion", tool_change: "Changed tool", tool_review: "New app's tools",
+  policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed",
   monitor: "Safety monitor", secure_form: "Secure sign-in", takeover_request: "Take over", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
@@ -2138,10 +2138,6 @@ function card(i, composed) {
     case "interrupt":
       body = `${d.why ? `<p>${esc(d.why)}</p>` : ""}${d.evidence ? `<div class="evidence"><div class="small muted">Evidence</div>${fieldValue(d.evidence)}</div>` : ""}${d.notify_at && Date.parse(d.notify_at) > Date.now() ? `<p class="small faint">Pings ${esc(when(d.notify_at))}.</p>` : ""}${taintNote(d.taint)}${buttons(i, [["dismiss", "Dismiss"]])}`;
       break;
-    case "tool_change":
-      body = `<div class="what"><div class="field"><span>Tool</span><span class="mono">${esc(d.tool)}</span></div><div class="field"><span>New description</span>${fieldValue(d.description)}</div><div class="field"><span>Inputs</span>${fieldValue(d.input_schema)}</div></div>
-        ${buttons(i, [["approve", "Accept the change", "primary"], ["reject", "Keep it blocked"]])}`;
-      break;
     case "shared":
       body = `<div class="msg magnus"><div class="small faint">${esc(d.speaker)} · ${esc(when(d.at))}</div><div class="pre">${esc(d.text)}</div></div>${taintNote(d.taint)}
         ${buttons(i, [["dismiss", "Dismiss"]])}`;
@@ -2179,9 +2175,9 @@ function card(i, composed) {
     case "payment":
       body = paymentCard(i);
       break;
-    case "tool_review":
-      body = `<div class="what">${(d.tools || []).map(t => `<div class="field"><span class="mono">${esc(t.tool)}</span>${fieldValue(t.description)}</div>`).join("")}</div>
-        ${buttons(i, [["approve", "Let the agent read these", "primary"], ["reject", "Reject"]])}`;
+    // One card per app, never per tool, and never a description (spec rev 140).
+    case "app_tools":
+      body = appToolsCard(i);
       break;
     default:
       body = `<div class="what">${fieldValue(d)}</div>`;
@@ -2345,7 +2341,7 @@ async function respond(btn, root) {
   try {
     await api("POST", `/v1/inbox/${enc(id)}`, body);
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
-    toast({ endorse: "It is now a company fact.", approve: "Approved.", reject: decision === "reject" ? "Done." : "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled." }[decision] || "Done.");
+    toast({ endorse: "It is now a company fact.", approve: "Approved.", reject: decision === "reject" ? "Done." : "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }
@@ -2775,7 +2771,7 @@ function connectorBody(c) {
     ? `<p class="lc-note">Finish signing in on ${esc(provider(c))}'s page, then come back here. <button class="link" data-act="connect-page" data-url="${esc(Connecting[c.name] || "")}">Open it again</button></p>`
     : c.ready === false ? `<p class="small muted">${esc(c.title)} is not ready on this server yet.</p>`
     : `<button class="primary cp-connect" data-act="connect" data-app="${esc(c.name)}">${st === "needs_attention" ? `Sign in to ${esc(c.title)} again` : `Connect ${esc(c.title)}`}</button>`;
-  return `${head}<h3>What Magnus can do with ${esc(c.title)}</h3>${can.length ? `<ul class="cp-list">${can.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : `<p class="empty">Nothing yet: your organisation has not chosen what Magnus may do with it.</p>`}
+  return `${head}<h3>What Magnus can do with ${esc(c.title)}</h3>${can.length ? `<ul class="cp-list">${can.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : `<p class="empty">Connecting shows what Magnus can read, change and send in it.</p>`}
     ${L.asks?.length ? `<h3>What it asks for</h3><ul class="cp-list">${L.asks.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}
     <p class="cp-lock">${SVG.lock}<span>You sign in on ${esc(provider(c))}'s own page. Magnus never sees your password, and you can disconnect at any time.</span></p>${go}`;
 }
@@ -2857,7 +2853,12 @@ async function connectApp(name) {
     toast(`${card.title || name} can't be connected on this server yet: Alpha Vector has not set up its sign-in here. Ask your organisation's owner.`);
     return;
   }
-  if (!Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
+  // The one screen connecting shows; accepting it is all the approval Magnus
+  // needs to use the app (spec rev 140). Signing in again needs no new one.
+  const again = card && card.state === "needs_attention", signsIn = !card || card.signs_in !== false;
+  if (signsIn && !Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
+  if (!again && !await consentToConnect(name)) return;
+  if (!signsIn) { toast("Connected."); connectorsChanged(); return; }
   const listenAt = card && (card.handoff || (onThisComputer(card.redirect_uri) ? card.redirect_uri : null));
   const caught = await Magnus.loopbackOpen(listenAt || null);
   const redirect = card && card.redirect_uri && !onThisComputer(card.redirect_uri) ? card.redirect_uri : caught;
@@ -3105,14 +3106,10 @@ async function modelsSection(main) {
 // The organisation's apps: the whole catalog, already set up, and any
 // server the admin added (in the admin console, never here). Nothing here
 // asks for a client ID, secret or address (connectors spec rev 46, "What
-// the user sees"); each person connects from their Library. The owner
-// decides what an added server's tools may do; a tool left "not offered"
-// is never shown to the worker.
-const RISKS = [["", "Not offered"], ["read", "Reads only"], ["reversible_write", "Changes things (undoable)"], ["irreversible", "Changes things (cannot undo)"], ["financial", "Moves money"], ["prohibited", "Never"]];
-// A tool whose definition changed is blocked until the owner accepts it;
-// the decision is the inbox item's, shown again on its connector.
-const changesFor = name => App.inbox.filter(i => i.status === "open" && (i.kind === "tool_change" && String(i.details?.tool).startsWith(`${name}__`)
-  || i.kind === "tool_review" && (i.details?.tools || []).some(t => String(t.tool).startsWith(`${name}__`))));
+// the user sees"); each person connects from their Library, through its
+// connect screen, and no tool is reviewed on its own (spec rev 140). An
+// added server's card for new tools that change or send shows here too.
+const changesFor = name => App.inbox.filter(i => i.status === "open" && i.kind === "app_tools" && i.details?.app === name);
 async function connectorsSection(main) {
   const draw = async () => {
     const { connectors } = await api("GET", "/v1/connectors");
@@ -3121,19 +3118,7 @@ async function connectorsSection(main) {
           <span class="row">${c.source === "config" ? `<span class="chip">set in the config file</span>` : c.source === "catalog" ? `<span class="chip">from the catalog</span>` : `<button class="link" data-act="remove" data-app="${esc(c.name)}">Remove for everyone</button>`}</span></div>
         <div class="small muted">${esc(c.summary)}</div>
         ${changesFor(c.name).map(i => card(i, [])).join("")}
-        ${c.tools.length ? `<table class="t small" style="margin-top:10px"><thead><tr><th>Tool</th><th>What the app says it does</th><th>May</th></tr></thead><tbody>
-          ${c.tools.map(t => `<tr><td class="mono">${esc(t.name)}</td><td class="muted">${esc(t.description)}</td>
-            <td><select data-tool="${esc(t.name)}" data-app="${esc(c.name)}" aria-label="What ${esc(t.name)} may do" ${c.source === "app" ? "" : "disabled"}>
-              ${RISKS.map(([v, l]) => `<option value="${v}" ${(t.risk || "") === v ? "selected" : ""}>${esc(l)}${v && v === t.suggested && !t.risk ? " (the app's hint)" : ""}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table>`
-          : c.signed_in ? "" : `<p class="small">Connect it in Apps to see its tools and choose what each may do.</p>`}
       </div>`).join("") || `<p class="empty">No apps yet.</p>`}`);
-  };
-  main.onchange = async e => {
-    const s = e.target.closest("select[data-tool]"); if (!s) return;
-    try {
-      await api("PUT", `/v1/connectors/${enc(s.dataset.app)}/tools/${enc(s.dataset.tool)}`, { risk: s.value || null });
-      toast(s.value ? `${s.dataset.tool}: ${RISKS.find(r => r[0] === s.value)[1].toLowerCase()}.` : `${s.dataset.tool} is not offered to the worker.`);
-    } catch (err) { toast(err.message); draw(); }
   };
   main.onclick = async e => {
     const it = e.target.closest("button[data-item]");

@@ -187,6 +187,7 @@ pub enum Ev {
     LocalFile(crate::local_files::Change),
     Team(crate::team::Change),
     Push(crate::push::Change),
+    Tools(crate::tool_gate::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {
         run: String,
@@ -357,7 +358,7 @@ pub enum Ev {
         connector: String,
         set: bool,
     },
-    /// The owner classified one of an app's tools (None: not offered).
+    /// One of an app's tools classed, at its connect or by the owner (None: not offered).
     ToolClassified {
         connector: String,
         tool: String,
@@ -767,18 +768,17 @@ pub enum Ev {
         adapter: String,
         model: String,
     },
-    /// A tool definition approved for use, pinned by hash (B10).
+    /// Retired (spec rev 140: definitions are screened, `Tools`): a tool
+    /// definition pinned by hash, `approved` once the owner reviewed its text.
     ToolPinned {
         tool: String,
         hash: String,
         description: String,
         input_schema: Value,
-        /// Whether the owner has reviewed this definition's text. Unreviewed
-        /// descriptions are third-party text and never reach the model.
         #[serde(default)]
         approved: bool,
     },
-    /// A tool's definition no longer matches its pin; it is disabled.
+    /// Retired as `ToolPinned` is: a definition changed, awaiting review.
     ToolChanged {
         tool: String,
         hash: String,
@@ -1385,7 +1385,7 @@ impl Ev {
             | DraftScoped { run, .. }
             | ReviewWoken { run, .. }
             | Output { run, .. } => Some(run),
-            Item { run, .. } | ScheduleEnded { run, .. } => run.as_deref(),
+            Item { run, .. } | ScheduleEnded { run, .. } | Tools(crate::tool_gate::Change::Screened { run, .. }) => run.as_deref(),
             _ => None,
         }
     }

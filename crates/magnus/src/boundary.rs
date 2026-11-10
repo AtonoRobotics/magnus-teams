@@ -465,12 +465,8 @@ impl Kernel {
                     )
                     .await;
             }
-            if let Err(why) = self.check_pin(c, &f, &person).await {
-                return self.deny(a, "identify", &why, true, None).await;
-            }
-            let (pinned, changed) = self.read(|s| (s.pins.contains_key(&a.tool), s.changed.contains_key(&a.tool)));
-            if changed || !pinned {
-                return self.deny(a, "identify", &format!("{}'s definition changed and is disabled until the owner re-approves it", a.tool), false, None).await;
+            if let Err((why, retry)) = self.check_pin(c, &f, &person, &a.run).await {
+                return self.deny(a, "identify", &why, retry, None).await;
             }
         }
 
@@ -699,18 +695,17 @@ impl Kernel {
         }
     }
 
-    async fn check_pin(&self, c: &Connector, f: &Facts, person: &str) -> std::result::Result<(), String> {
+    /// The live definition, screened right before acting, so one changed
+    /// after it was listed cannot run unscreened (spec rev 140). The error
+    /// says whether trying again may work.
+    async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
         let secret = self.connector_secret(c, person).await.ok().flatten();
-        let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| format!("could not read {}'s tool definitions ({e})", f.app))?;
-        let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err(format!("{} no longer offers {}", f.app, f.remote)) };
-        match self.pin(c, &f.name, t).await {
-            Ok(true) => {
-                let _ = self.review_item(&f.app, std::slice::from_ref(&f.name)).await;
-                Ok(())
-            }
-            Ok(false) => Ok(()),
-            Err(e) => Err(format!("could not record the tool definition: {e}")),
+        let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+        let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err((format!("{} no longer offers {}", f.app, f.remote), true)) };
+        if let Err(e) = self.pin(c, &f.name, t, Some(run).filter(|r| !r.is_empty())).await {
+            return Err((format!("could not screen the tool definition: {e}"), true));
         }
+        self.tool_refusal(&f.name).map_or(Ok(()), |why| Err((why, false)))
     }
 
     async fn lease(&self, a: &Action, f: &Facts) -> Result<Gate> {
@@ -1386,12 +1381,8 @@ impl Kernel {
         if !has_rights(person, &rf) {
             return Err(format!("{} does not have access to {} (identity-provider groups), so who {} goes to cannot be read. {nothing}", person.id, f.app, a.tool));
         }
-        if let Err(why) = self.check_pin(c, &rf, &person.id).await {
+        if let Err((why, _)) = self.check_pin(c, &rf, &person.id, &a.run).await {
             return Err(format!("{why}, so who {} goes to cannot be read. {nothing}", a.tool));
-        }
-        let (pinned, changed) = self.read(|s| (s.pins.contains_key(&rf.name), s.changed.contains_key(&rf.name)));
-        if changed || !pinned {
-            return Err(format!("{}'s definition changed and is disabled until the owner re-approves it, so who {} goes to cannot be read. {nothing}", rf.name, a.tool));
         }
         let preview = Action {
             run: a.run.clone(),
@@ -1486,13 +1477,8 @@ impl Kernel {
             tracing::warn!("sent mail for {}: no access to {}", person.id, f.app);
             return Ok(false);
         }
-        if let Err(why) = self.check_pin(c, &rf, &person.id).await {
+        if let Err((why, _)) = self.check_pin(c, &rf, &person.id, "").await {
             tracing::warn!("sent mail for {}: {why}", person.id);
-            return Ok(false);
-        }
-        let (pinned, changed) = self.read(|s| (s.pins.contains_key(&rf.name), s.changed.contains_key(&rf.name)));
-        if changed || !pinned {
-            tracing::warn!("sent mail for {}: {read_name} is not pinned", person.id);
             return Ok(false);
         }
         let query = s.query.replace("{address}", address);

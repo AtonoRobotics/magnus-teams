@@ -395,15 +395,14 @@ async fn gmail_s_refusals_reach_the_boundary_as_what_they_mean() {
     only_gmail(&app, &gmail, &provider);
 }
 
-/// Gmail's tools its old hosted server had too were pinned under that
-/// server's definitions, and one of them changed there, so it waits on the
-/// owner. The brokered image's definitions differ, but they come from the
-/// image the manifest names by digest, checked before every boot: they are
-/// the next manifest version, not a change after it was signed (connectors
-/// spec: a changed tool reaches the agent "by the next manifest version").
-/// So `create_draft` is offered and runs at once, its description awaiting
-/// the owner's review as any first sight's, and the hosted server's change
-/// card is put away. While Gmail was remote, the change disabled the tool.
+/// Gmail's tools its old hosted server had too were screened under that
+/// server's definitions, and one of them changed there; with no model to
+/// screen the change, the tool is held back, and nothing is put to anyone
+/// (spec rev 140). The brokered image's definitions differ, but they come
+/// from the image the manifest names by digest, checked before every boot:
+/// they ship with a release and are accepted with it (connectors spec: a
+/// changed tool reaches the agent "by the next manifest version"). So
+/// `create_draft` is offered and runs at once, the hold put away.
 #[tokio::test(flavor = "multi_thread")]
 async fn gmail_s_tools_from_its_hosted_server_are_offered_from_its_image() {
     let gmail = StandInGmail::start().await;
@@ -429,9 +428,7 @@ async fn gmail_s_tools_from_its_hosted_server_are_offered_from_its_image() {
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     let second = alice.submit("Look at my mail again.").await;
     alice.wait_settled(&second).await;
-    assert!(!offered(&m, "Look at my mail again."), "a remote tool was offered after its definition changed");
-    let change =
-        eventually("the hosted server's change card", std::time::Duration::from_secs(60), || async { alice.inbox().await.into_iter().find(|i| i["kind"] == "tool_change") }).await;
+    assert!(!offered(&m, "Look at my mail again."), "a remote tool was offered after its definition changed unscreened");
 
     let (provider, _image) = brokered_gmail(&mut app, &gmail).await;
     let task = alice.submit("Draft Bob a note.").await;
@@ -446,13 +443,9 @@ async fn gmail_s_tools_from_its_hosted_server_are_offered_from_its_image() {
     assert!(alice.respond(review["id"].as_str().unwrap(), json!({ "decision": "accept" })).await.is_success());
     assert_eq!(alice.wait_settled(&task).await["status"], "completed");
     assert!(offered(&m, "Draft Bob a note."));
+    // No tool was put to anyone, first sight, change or image.
     let inbox = alice.inbox().await;
-    let open: Vec<&Value> = inbox.iter().filter(|i| i["kind"] == "tool_change" && i["status"] == "open").collect();
-    assert!(open.is_empty(), "a change card is still open: {open:?}");
-    let put_away = inbox.iter().find(|i| i["id"] == change["id"]).unwrap();
-    assert_eq!(put_away["resolution"]["decision"], "superseded", "{put_away}");
-    // One review for the hosted server's first sight, one for the image's.
-    let reviews = inbox.iter().filter(|i| i["kind"] == "tool_review" && i.to_string().contains("gmail__create_draft")).count();
-    assert_eq!(reviews, 2, "the image's description was not put to the owner to review");
+    let tools: Vec<&Value> = inbox.iter().filter(|i| ["tool_change", "tool_review", "app_tools"].contains(&i["kind"].as_str().unwrap_or_default())).collect();
+    assert!(tools.is_empty(), "a tool was put to the owner: {tools:?}");
     only_gmail(&app, &gmail, &provider);
 }

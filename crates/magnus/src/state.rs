@@ -381,14 +381,6 @@ pub struct Approval {
     pub risk: Option<String>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Pin {
-    pub hash: String,
-    pub description: String,
-    pub input_schema: Value,
-    pub approved: bool,
-}
-
 /// A knowledge entry's record. What it says (its text, source, evidence
 /// and value) is not kept here: it is read from the content store when the
 /// entry is indexed, and every reader reads it from the index, as the
@@ -999,9 +991,9 @@ pub struct State {
     /// One-a-day wake marks (a coming-up schedule, a due commitment).
     pub wake_marks: HashMap<String, String>,
     pub model: Option<(String, String)>,
-    pub pins: HashMap<String, Pin>,
-    /// Tools whose live definition differs from the pin, with the open item.
-    pub changed: HashMap<String, (String, Pin)>,
+    /// App tool definitions as screened, those held back, and who connected
+    /// which app through its connect screen (spec rev 140).
+    pub tools: crate::tool_gate::Ledger,
     pub secrets: HashSet<String>,
     pub memory: Vec<MemoryEntry>,
     /// The company knowledge base; its searchable index is in Postgres.
@@ -1444,6 +1436,7 @@ impl State {
             }
             Ev::ConnectorRemoved { name } => {
                 self.connectors.remove(name);
+                self.tools.consents.remove(name);
             }
             Ev::RegistrationSet { provider, set } => {
                 self.credential_changed.insert(format!("registration:{provider}"), (*set, e.at));
@@ -1898,14 +1891,9 @@ impl State {
                 self.model = Some((adapter.clone(), model.clone()));
                 self.version_changes.push((e.seq, e.at, "model".into(), format!("{adapter}/{model}")));
             }
-            Ev::ToolPinned { tool, hash, description, input_schema, approved } => {
-                self.pins.insert(tool.clone(), Pin { hash: hash.clone(), description: description.clone(), input_schema: input_schema.clone(), approved: *approved });
-                self.changed.remove(tool);
-            }
-            Ev::ToolChanged { tool, hash, description, input_schema, item } => {
-                self.changed
-                    .insert(tool.clone(), (item.clone(), Pin { hash: hash.clone(), description: description.clone(), input_schema: input_schema.clone(), approved: false }));
-            }
+            Ev::ToolPinned { tool, hash, description, input_schema, approved } => self.tools.pinned(tool, hash, description, input_schema, *approved),
+            Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
+            Ev::Tools(c) => self.tools.apply(e.at, c),
             Ev::TaskCreated { task, run, person, config, attachments, experiment, chat, label, files, project, grant, .. } => {
                 // Playbook items the run starts with carry the taint of the
                 // runs that wrote them (I2, M1), and a task from chat that of
@@ -2282,7 +2270,11 @@ impl State {
                         summary: summary.clone(),
                         details: details.clone(),
                         created_at: e.at,
-                        resolution: None,
+                        // A retired review of tool descriptions waits on no one
+                        // now: definitions are screened (spec rev 140).
+                        resolution: crate::consent::RETIRED_KINDS
+                            .contains(&item_kind.as_str())
+                            .then(|| ("superseded".into(), None, Some(crate::consent::RETIRED_TEXT.into()), "kernel".into())),
                     },
                 );
                 // A delivered interruption counts against the person's day

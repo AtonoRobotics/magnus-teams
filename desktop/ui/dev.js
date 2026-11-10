@@ -270,11 +270,22 @@ route(/^#\/dev\/system$/, async main => {
 
 // ---------- Policy ----------
 
+// Every app tool definition screened for instructions aimed at the agent
+// before it saw it, and the tools a screen holds back (spec rev 140): here,
+// never in front of the person.
+const SCREEN_CHIP = { passed: "ok", phrases: "", release: "ok", known: "ok", failed: "bad", unscreened: "warn" };
+function toolScreens(ts) {
+  const rows = (ts.screens || []).slice(0, 50);
+  return `<h2>Tool screens</h2>${(ts.held || []).length ? `<p class="small">Held back: ${ts.held.map(h => `<span class="mono">${esc(h.tool)}</span> (${esc(h.verdict)}${h.finding ? `: ${esc(h.finding)}` : ""})`).join(", ")}</p>` : `<p class="small muted">No tool is held back.</p>`}
+    ${rows.length ? `<table class="t small" data-tool-screens><thead><tr><th>Tool</th><th>Screen</th><th>Found</th><th>When</th></tr></thead><tbody>${rows.map(s => `<tr><td class="mono">${esc(s.tool)}</td><td><span class="chip ${SCREEN_CHIP[s.verdict] || ""}">${esc(s.verdict)}</span>${s.model ? ` <span class="faint">${esc(s.model)}</span>` : ""}</td><td>${esc(s.finding || "")}</td><td>${s.run ? `<a href="#/dev/run/${enc(s.run)}">${esc(when(s.at))}</a>` : esc(when(s.at))}</td></tr>`).join("")}</tbody></table>` : ""}`;
+}
+
 route(/^#\/dev\/policy$/, async main => {
   if (devOnly(main)) return;
   const picked = {};
   const draw = async () => {
     const p = await api("GET", "/v1/dev/policy");
+    const ts = await api("GET", "/v1/dev/tool-screens").catch(() => ({ screens: [], held: [] }));
     paint(main, `<h1>Policy</h1><p class="muted">Each layer's versions, who owns it, and what the agent has proposed. Only the owner of a layer can accept a proposal for it.</p>
       <h2>Proposals</h2>${p.proposals.length ? p.proposals.map(x => `<div class="card"><div class="spread"><span><span class="mono">${esc(x.layer)}</span> · ${x.status === "waiting" ? `<span class="chip warn">waiting for ${esc(x.waiting_for.join(", ") || "nobody holds this role")}</span>` : `<span class="chip">${esc(x.decision?.decision)} by ${esc(x.decision?.by)}</span>`}</span>
         <span class="small faint">${x.run ? `<a href="#/dev/run/${enc(x.run)}">from run</a> · ` : ""}${esc(when(x.created_at))}</span></div>
@@ -288,7 +299,8 @@ route(/^#\/dev\/policy$/, async main => {
       }).join("")}
       <h2>Measured reliability by tool</h2><p class="small muted">How each tool's calls were decided, how often they errored, and how the runs that used it ended.</p>
       <table class="t"><thead><tr><th>Tool</th><th class="n">Allowed</th><th class="n">Asked</th><th class="n">Denied</th><th class="n">Calls</th><th class="n">Call success</th><th class="n">Runs completed</th></tr></thead><tbody>
-      ${p.scopes.map(s => `<tr><td class="mono small">${esc(s.tool)}</td><td class="n">${s.decided.allow}</td><td class="n">${s.decided.ask}</td><td class="n">${s.decided.deny}</td><td class="n">${s.calls}</td><td class="n">${pct(s.call_success)}</td><td class="n">${drillLink(`runs using ${s.tool}`, s.runs, pct(s.runs_completed))}</td></tr>`).join("")}</tbody></table>`);
+      ${p.scopes.map(s => `<tr><td class="mono small">${esc(s.tool)}</td><td class="n">${s.decided.allow}</td><td class="n">${s.decided.ask}</td><td class="n">${s.decided.deny}</td><td class="n">${s.calls}</td><td class="n">${pct(s.call_success)}</td><td class="n">${drillLink(`runs using ${s.tool}`, s.runs, pct(s.runs_completed))}</td></tr>`).join("")}</tbody></table>
+      ${toolScreens(ts)}`);
   };
   main.onclick = e => { const b = e.target.closest("button[data-layer]"); if (b) { picked[b.dataset.layer] = Number(b.dataset.v); draw(); } };
   await draw();

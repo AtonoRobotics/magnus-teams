@@ -1,5 +1,5 @@
-//! Autonomy is tested like safety (spec rev 133). Each release candidate's
-//! acceptance runs these six scenarios end to end, and a release that fails
+//! Autonomy is tested like safety (spec rev 133, rev 140). Each release candidate's
+//! acceptance runs these seven scenarios end to end, and a release that fails
 //! one does not ship:
 //!
 //! 1. a chat request any chat agent could do is done in the chat, with no
@@ -10,7 +10,8 @@
 //! 4. an event from a connected app leads to a suggestion or an action;
 //! 5. a review proposes work from what it read;
 //! 6. a scheduled run uses sub-agents (owner, 2026-11-10), and a failing
-//!    scheduled run wakes the agent in the conversation it was set up in.
+//!    scheduled run wakes the agent in the conversation it was set up in;
+//! 7. connecting an app needs no further approval to use it (spec rev 140).
 //!
 //! Each drives a real server with the scripted model and fake apps, and
 //! asserts on what the person would see. Each also checks that the plumbing
@@ -190,8 +191,8 @@ async fn threads(api: &Api) -> BTreeSet<String> {
     v["threads"].as_array().into_iter().flatten().filter_map(|t| t["thread"].as_str().map(String::from)).collect()
 }
 
-/// What the person had before the scenario began: setting up (an app's tool
-/// review for the owner, a grant's conversation) is not the scenario.
+/// What the person had before the scenario began: setting up (a grant's
+/// conversation, the one Magnus opens about a new app) is not the scenario.
 struct Before {
     tasks: BTreeSet<String>,
     items: BTreeSet<String>,
@@ -202,8 +203,8 @@ fn ids(v: &[Value], key: &str) -> BTreeSet<String> {
     v.iter().filter_map(|x| x[key].as_str().map(String::from)).collect()
 }
 
-/// Once the server's first reviews have ended (they list each app's tools,
-/// which puts any tool review before the owner), what the person has.
+/// Once the server's first reviews have ended (they list and screen each
+/// app's tools), what the person has.
 async fn before(api: &Api) -> Before {
     reviews_settled(api).await;
     Before { tasks: ids(&visible_tasks(api).await, "task_id"), items: ids(&api.inbox().await, "id"), threads: threads(api).await }
@@ -663,4 +664,71 @@ async fn a_review_proposes_work_from_what_it_read() {
     assert_eq!(bob.task(review).await["review"], true, "the proposal did not come from a review");
     // Nothing started, and the person sees only the proposal.
     only(&bob, &b, &[], &["suggestion"], &[]).await;
+}
+
+/// Connect `app` as the desktop app does (spec rev 140): its one connect
+/// screen, accepted, then the person's own sign-in. The screen accepted.
+async fn connect(api: &Api, app: &str) -> Value {
+    let terms = magnus_scratch::accept_connect_screen(api, app).await;
+    let (st, v) = api.post(&format!("/v1/connectors/{app}/sign-in"), json!({ "redirect_uri": "http://127.0.0.1:9/callback" })).await;
+    assert!(st.is_success(), "{v}");
+    let (code, state) = magnus_scratch::FakeOAuthApp::browse(v["authorize_url"].as_str().unwrap_or_default()).await;
+    assert_eq!(api.post(&format!("/v1/connectors/{app}/sign-in/complete"), json!({ "state": state, "code": code })).await.0, 204);
+    terms
+}
+
+/// 7. Connecting an app needs no further approval to use it (spec rev 140,
+/// "Connecting an app grants its use"). The organisation adds a calendar by
+/// its address, deciding nothing about its tools; the person connects it
+/// through its one screen and signs in. A chat request then reads the
+/// calendar and adds an event to it: nothing is asked, no tool is reviewed,
+/// and no approval reaches the person, before the request or during it.
+#[tokio::test(flavor = "multi_thread")]
+async fn connecting_an_app_needs_no_further_approval_to_use_it() {
+    const ASK: &str = "What's on my calendar? Put lunch with Bob on it for Friday.";
+    const ANSWER: &str = "Your calendar was clear, so I added \"Lunch with Bob\" on Friday.";
+    let m = FakeModel::start(script(|c| async move {
+        if run_of(&c) != Run::Chat || !said(&c).contains(ASK) {
+            return background(&c);
+        }
+        match c.turn() {
+            0 => tool("calendar__list_events", json!({})),
+            1 => tool("calendar__create_event", json!({ "title": "Lunch with Bob, Friday" })),
+            _ => say(ANSWER),
+        }
+    }))
+    .await;
+    let cal = magnus_scratch::FakeOAuthApp::start(3600).await;
+    let app = Appliance::start(proactive_on(), &m).await;
+    let alice = app.api("alice");
+    let (st, v) = alice.post("/v1/connectors", json!({ "name": "calendar", "url": cal.url, "audience": "private", "label": "private" })).await;
+    assert!(st.is_success(), "{v}");
+    let b = before(&alice).await;
+
+    // The one screen, in plain words, with nothing to decide per tool.
+    let terms = connect(&alice, "calendar").await;
+    for part in ["reads", "changes", "risks"] {
+        assert!(terms[part].is_array(), "the connect screen has no {part}: {terms}");
+    }
+    assert!(terms["risks"].to_string().contains("Magnus can use all of it"), "the screen does not say what connecting grants: {terms}");
+    // The conversation Magnus opens about a newly connected app is not the scenario.
+    let connected = before(&alice).await;
+
+    let (thread, turn) = chat(&alice, ASK).await;
+    let t = alice.wait_settled(&turn).await;
+    assert_eq!(t["status"], "completed", "{t}\n-- the model saw:\n{}\n-- the inbox: {:?}", story(&m), alice.inbox().await);
+    // Both tools ran at once: the read, and the write the request needs.
+    for turn in [1, 2] {
+        let r = m.requests().into_iter().find(|c| run_of(c) == Run::Chat && said(c).contains(ASK) && c.turn() == turn).expect("the turn went no further").last_results();
+        assert!(r.len() == 1 && !r[0].is_error, "the chat turn's call {turn} was refused or failed: {r:?}\n{}", story(&m));
+    }
+    let made: Vec<String> = cal.state.lock().unwrap().calls.iter().map(|(n, _)| n.clone()).collect();
+    assert!(made.contains(&"list_events".to_string()) && made.contains(&"create_event".to_string()), "the calendar was not used: {made:?}");
+    let e = entries(&alice, &thread).await;
+    assert_eq!(kinds(&e), ["message", "answer"], "{e:?}");
+    // Nothing reached the person from connecting to the answer: no tool
+    // review, no card for the app, no approval, no task.
+    let reached: Vec<Value> = alice.inbox().await.into_iter().filter(|i| !b.items.contains(i["id"].as_str().unwrap_or_default())).collect();
+    assert!(reached.is_empty(), "connecting and using the app put something before the person: {reached:?}");
+    only(&alice, &connected, &[], &[], &[&thread]).await;
 }

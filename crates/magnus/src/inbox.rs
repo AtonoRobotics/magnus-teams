@@ -38,7 +38,7 @@ pub fn may_respond(s: &State, p: &Person, i: &Item) -> bool {
         "approval" if named_approvers(s, i).is_some() => named_approvers(s, i).is_some_and(|named| named.contains(&p.id)),
         "approval" => p.is_owner() || p.has_role(&format!("approver:{}", i.details["risk"].as_str().unwrap_or_default())),
         "policy_proposal" => may_set_policy(p, i.details["layer"].as_str().unwrap_or_default()),
-        "tool_change" | "tool_review" | "deletion_request" => p.is_owner(),
+        crate::consent::APP_TOOLS | "deletion_request" => p.is_owner(),
         // A message shared with someone is theirs alone, the owner's too.
         "shared" => i.person == p.id,
         // Only someone with the role who may read the entry makes it a company fact.
@@ -149,6 +149,8 @@ impl Kernel {
         let mut endorsed = None;
         // A task an approval started is driven from now.
         let mut started: Option<String> = None;
+        // An app its card disconnects is removed once the decision is written.
+        let mut removed: Option<String> = None;
 
         match (inbox_kind(&item.kind), decision.as_str()) {
             ("approval", "approve") => {
@@ -399,8 +401,6 @@ impl Kernel {
             | ("notice", "dismiss")
             | ("message", "dismiss")
             | ("shared", "dismiss")
-            | ("tool_change", "reject")
-            | ("tool_review", "reject")
             | ("observation", "dismiss")
             | ("interrupt", "dismiss") => {
                 evs.push((&actor, resolve(None)));
@@ -438,38 +438,15 @@ impl Kernel {
                     evs.extend(self.resume(&run));
                 }
             }
-            ("tool_change", "approve") => {
+            // A third-party server's new tools that change or send: kept
+            // under the app's connect consent, or the app removed (spec rev 140).
+            (crate::consent::APP_TOOLS, "keep") => {
                 evs.push((&actor, resolve(None)));
-                evs.push((
-                    &actor,
-                    Ev::ToolPinned {
-                        tool: item.details["tool"].as_str().unwrap_or_default().into(),
-                        hash: item.details["hash"].as_str().unwrap_or_default().into(),
-                        description: item.details["description"].as_str().unwrap_or_default().into(),
-                        input_schema: item.details["input_schema"].clone(),
-                        approved: true,
-                    },
-                ));
+                evs.extend(crate::consent::kept(&item).into_iter().map(|e| (actor.as_str(), e)));
             }
-            ("tool_review", "approve") => {
+            (crate::consent::APP_TOOLS, "disconnect") => {
                 evs.push((&actor, resolve(None)));
-                for t in item.details["tools"].as_array().cloned().unwrap_or_default() {
-                    let name = t["tool"].as_str().unwrap_or_default().to_string();
-                    // Approve only definitions that are still the pinned ones.
-                    let current = self.read(|s| s.pins.get(&name).map(|p| p.hash.clone()));
-                    if current.as_deref() == t["hash"].as_str() {
-                        evs.push((
-                            &actor,
-                            Ev::ToolPinned {
-                                tool: name,
-                                hash: t["hash"].as_str().unwrap_or_default().into(),
-                                description: t["description"].as_str().unwrap_or_default().into(),
-                                input_schema: t["input_schema"].clone(),
-                                approved: true,
-                            },
-                        ));
-                    }
-                }
+                removed = item.details["app"].as_str().map(String::from);
             }
             (kind, d) => return Ok(Answer::Invalid(format!("{d:?} is not a decision for a {kind} item"))),
         }
@@ -488,6 +465,11 @@ impl Kernel {
         }
         if let Some(entry) = endorsed {
             self.index_id(&entry).await?;
+        }
+        if let Some(app) = removed {
+            if let Err((_, why)) = self.remove_connector(&actor, &app).await {
+                tracing::warn!("disconnect {app} from its card: {why}");
+            }
         }
         Ok(Answer::Ok)
     }

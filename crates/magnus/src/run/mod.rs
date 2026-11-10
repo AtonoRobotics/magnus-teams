@@ -6,7 +6,6 @@ mod agent_loop;
 mod loop_calls;
 pub mod lost;
 mod memory;
-mod pins;
 pub(crate) mod reviewer;
 mod verify;
 
@@ -310,7 +309,7 @@ impl Kernel {
     }
 
     /// Tools offered to the run's next model call: run records, built-ins,
-    /// and the person's classified app tools with pinned definitions.
+    /// and the person's classified app tools with screened definitions.
     /// A chat turn is offered every built-in action and the chat tools.
     pub async fn tools_for(&self, run: &Run) -> Vec<ToolSpec> {
         self.offered(run, false).await
@@ -393,7 +392,7 @@ impl Kernel {
     }
 
     /// Every tool of the person's connected apps this run may use, with its
-    /// definition as reviewed.
+    /// definition as screened.
     async fn app_tool_specs(&self, run: &Run) -> Vec<ToolSpec> {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
@@ -409,7 +408,12 @@ impl Kernel {
             if live.is_none() && self.refused_apps.lock().unwrap().contains_key(&crate::connectors::connection_name(&c.name, &run.person)) {
                 continue;
             }
-            let mut fresh = vec![];
+            // Tools a third-party server added since it was connected.
+            if let Some(l) = &live {
+                if let Err(e) = self.tools_added(&c, l).await {
+                    tracing::warn!("tools added to {}: {e:#}", c.name);
+                }
+            }
             for (remote, class) in &c.tools {
                 let name = format!("{}__{remote}", c.name);
                 let Some(f) = boundary::facts(self, &name) else { continue };
@@ -421,56 +425,25 @@ impl Kernel {
                 if f.risk == Risk::Prohibited || !boundary::has_rights(&person, &f) {
                     continue;
                 }
+                // Screened before the agent sees it; only a failed screen
+                // holds it back (spec rev 140).
                 if let Some(t) = live.as_ref().and_then(|l| l.iter().find(|t| &t.name == remote)) {
-                    match self.pin(&c, &name, t).await {
-                        Ok(true) => fresh.push(name.clone()),
-                        Ok(false) => {}
-                        Err(e) => tracing::warn!("pin {name}: {e:#}"),
+                    if let Err(e) = self.pin(&c, &name, t, Some(&run.id)).await {
+                        tracing::warn!("screen {name}: {e:#}");
                     }
                 }
-                let usable = self.read(|s| s.pins.get(&name).cloned().filter(|_| !s.changed.contains_key(&name)));
+                let usable = self.read(|s| s.tools.pins.get(&name).cloned().filter(|_| s.tools.refusal(&name).is_none()));
                 if let Some(p) = usable {
-                    let spec = if p.approved {
+                    let spec = if p.shown {
                         ToolSpec { name, description: p.description, input_schema: p.input_schema }
                     } else {
-                        ToolSpec {
-                            description: format!("{remote} on {} ({}). The app's own description awaits the owner's review.", c.name, class.risk),
-                            input_schema: strip_descriptions(&p.input_schema),
-                            name,
-                        }
+                        ToolSpec { description: format!("{remote} on {} ({}).", c.name, class.risk), input_schema: strip_descriptions(&p.input_schema), name }
                     };
                     specs.push(spec);
                 }
             }
-            if !fresh.is_empty() {
-                if let Err(e) = self.review_item(&c.name, &fresh).await {
-                    tracing::warn!("tool review item for {}: {e:#}", c.name);
-                }
-            }
         }
         specs
-    }
-
-    /// Ask the owner to review the text of newly seen tool definitions.
-    pub(crate) async fn review_item(&self, app: &str, tools: &[String]) -> Result<()> {
-        let list: Vec<Value> = self.read(|s| {
-            tools.iter().filter_map(|t| s.pins.get(t).map(|p| json!({ "tool": t, "hash": p.hash, "description": p.description, "input_schema": p.input_schema }))).collect()
-        });
-        let owner = self.owners().first().map(|p| p.id.clone()).unwrap_or_default();
-        self.emit(
-            "kernel",
-            Ev::Item {
-                id: new_id("item"),
-                item_kind: "tool_review".into(),
-                task: None,
-                run: None,
-                person: owner,
-                summary: format!("Review the tool descriptions of {app} ({} new). Until you do, the worker sees only their names and inputs.", list.len()),
-                details: json!({ "app": app, "tools": list }),
-            },
-        )
-        .await?;
-        Ok(())
     }
 
     /// An app's tools as it lists them now, to `person` (through their own

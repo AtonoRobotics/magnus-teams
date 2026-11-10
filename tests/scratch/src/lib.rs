@@ -28,6 +28,16 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::path::PathBuf;
 
+/// Connect an app as the desktop app does (spec rev 140): read its connect
+/// screen and accept it. The screen it accepted.
+pub async fn accept_connect_screen(api: &Api, app: &str) -> Value {
+    let (st, terms) = api.get(&format!("/v1/connectors/{app}/terms")).await;
+    assert!(st.is_success(), "{app}'s connect screen: {terms}");
+    let (st, v) = api.post(&format!("/v1/connectors/{app}/consent"), json!({ "terms": terms["terms"] })).await;
+    assert!(st.is_success(), "accepting {app}'s connect screen: {v}");
+    terms
+}
+
 pub const PERSON: &str = "alice";
 pub const PASSWORD: &str = "correct horse battery";
 pub const CHAT_QUESTION: &str = "What was Q3 revenue?";

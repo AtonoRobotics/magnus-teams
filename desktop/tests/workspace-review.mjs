@@ -9,8 +9,8 @@
 //   person's search.
 //
 // MAGNUS_URL; MAGNUS_PERSON, MAGNUS_PASSWORD (the owner); MAGNUS_OTHER,
-// MAGNUS_OTHER_PASSWORD (another person); MAGNUS_ITEM (an open tool_change
-// item); MAGNUS_PROJECT_THREADS (conversations in the owner's project);
+// MAGNUS_OTHER_PASSWORD (another person); MAGNUS_ITEM (an open app_tools
+// card); MAGNUS_PROJECT_THREADS (conversations in the owner's project);
 // MAGNUS_OTHER_FILE (a file of the other person's); MAGNUS_CHROMIUM.
 import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
@@ -78,7 +78,7 @@ await step("a decision in Settings > Connectors is sent once", async () => {
   const sent = [];
   page.on("request", r => { if (r.method() === "POST" && r.url().endsWith(`/v1/inbox/${item}`)) sent.push(r.url()); });
   await settings("Connectors");
-  await page.locator(`button[data-item="${item}"][data-decision="approve"]`).first().click();
+  await page.locator(`button[data-item="${item}"][data-decision="keep"]`).first().click();
   await page.waitForTimeout(2000);
   if (sent.length !== 1) throw new Error(`the decision was sent ${sent.length} times`);
   if (await page.getByText("already decided").count()) throw new Error("the person was told it was already decided");

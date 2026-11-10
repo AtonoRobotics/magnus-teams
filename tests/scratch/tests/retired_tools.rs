@@ -1,8 +1,8 @@
 //! A retired tool leaves the agent at once (connectors spec, Remote MCP
 //! connectors). Alice's calendar offers create_event to her run; once the
 //! app stops listing it, her next run is not offered it, though its
-//! definition stays pinned; listed again unchanged, it is offered again
-//! with no new review.
+//! definition stays screened; listed again unchanged, it is offered again
+//! with nothing asked of anyone (spec rev 140).
 
 use magnus_invariants::*;
 use magnus_scratch::FakeOAuthApp;
@@ -58,12 +58,12 @@ async fn a_tool_the_app_no_longer_lists_leaves_the_agent_at_once() {
     assert!(!after.contains(&"calendar__create_event".to_string()), "a retired tool is still offered: {after:?}");
     assert!(after.contains(&"calendar__list_events".to_string()), "{after:?}");
 
-    // Listed again, unchanged: offered again, with no new review.
-    let reviews = |alice: Api| async move { alice.inbox().await.into_iter().filter(|i| i["kind"] == "tool_review").count() };
+    // Listed again, unchanged: offered again, with no card for anyone.
+    let reviews = |alice: Api| async move { alice.inbox().await.len() };
     let had = reviews(alice.clone()).await;
     cal.state.lock().unwrap().retired.clear();
     tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
     let again = first_offer("And tomorrow?").await;
     assert!(again.contains(&"calendar__create_event".to_string()), "{again:?}");
-    assert_eq!(reviews(alice.clone()).await, had, "its return, unchanged, asked for a new review");
+    assert_eq!(reviews(alice.clone()).await, had, "its return, unchanged, put something before the owner");
 }
