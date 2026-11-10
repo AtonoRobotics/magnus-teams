@@ -608,8 +608,7 @@ async fn a_person_chooses_the_model_for_a_task_and_a_chat_message() {
     carol.wait_settled(&plain).await;
     assert_eq!(carol.task(&plain).await["model"]["name"], "claude-test");
 
-    // A chat message on the chosen model; the task it starts keeps it, and
-    // the next message in the same conversation may choose again.
+    // A chat message on the chosen model; the task it starts and the turn returning its outcome keep it, and the next message may choose again.
     let (st, v) = carol.post("/v1/chat", json!({ "text": "Look into it properly.", "model": other })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     let thread = v["thread"].as_str().unwrap().to_string();
@@ -618,10 +617,11 @@ async fn a_person_chooses_the_model_for_a_task_and_a_chat_message() {
     let tid = task["task_id"].as_str().unwrap();
     carol.wait_settled(tid).await;
     assert_eq!(carol.task(tid).await["model"]["name"], "claude-other", "the task did not keep the turn's model");
+    eventually("the outcome's answer", PATIENCE, || async { (entries(&carol, &thread).await.iter().filter(|e| e["kind"] == "answer").count() == 2).then_some(()) }).await;
     let (_, v) = carol.post("/v1/chat", json!({ "text": "Thanks.", "thread": thread })).await;
     carol.wait_settled(v["task_id"].as_str().unwrap()).await;
     let answers: Vec<Value> = entries(&carol, &thread).await.into_iter().filter(|e| e["kind"] == "answer").map(|e| e["model"]["model"].clone()).collect();
-    assert_eq!(answers, [json!("claude-other"), json!("claude-test")], "each answer names the model it ran on");
+    assert_eq!(answers, [json!("claude-other"), json!("claude-other"), json!("claude-test")], "each answer names the model it ran on");
 
     // A model no adapter offers, or an unknown adapter, is refused.
     for bad in [json!({ "adapter": "anthropic", "model": "nope" }), json!({ "adapter": "ghost", "model": "x" }), json!({ "adapter": "anthropic" })] {
