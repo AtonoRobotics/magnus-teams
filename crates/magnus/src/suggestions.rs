@@ -231,7 +231,7 @@ impl Kernel {
         }
         let max = self.cfg.budget.max_usd;
         let Some(cost) = needs["estimated_cost_usd"].as_f64().filter(|c| *c > 0.0 && *c <= max) else {
-            return Ok(Err(format!("needs.estimated_cost_usd must be above 0 and at most the appliance's {max}. A retry with the same estimate will not help.")));
+            return Ok(Err(format!("needs.estimated_cost_usd must be above 0 and at most the server's {max}. A retry with the same estimate will not help.")));
         };
         let (evidence, again, changed) = match self.grounded(run, input, &title).await? {
             Ok(g) => g,

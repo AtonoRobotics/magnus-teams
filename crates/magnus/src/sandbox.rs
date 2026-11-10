@@ -93,7 +93,7 @@ impl Sandboxes {
     /// Boot a VM whose files live in `dir`, creating its workspace disk if
     /// there is none.
     async fn launch_in(&self, dir: &Path, check: bool) -> Result<Arc<Vm>> {
-        let cfg = self.cfg.as_ref().ok_or_else(|| anyhow!("no sandbox is configured on this appliance"))?;
+        let cfg = self.cfg.as_ref().ok_or_else(|| anyhow!("no sandbox is configured on this server"))?;
         std::fs::create_dir_all(dir)?;
         let workspace = dir.join("workspace.ext4");
         if !workspace.exists() {

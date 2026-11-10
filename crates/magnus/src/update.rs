@@ -244,7 +244,7 @@ impl Kernel {
             std::fs::remove_file(pending_path(&self.cfg))?;
         } else if let Some((_, to, _)) = self.read(|s| s.updating.clone()) {
             // Stopped between suspending the tasks and the switch.
-            self.emit("kernel", Ev::UpdateFailed { to, reason: "the appliance stopped before the switch".into() }).await?;
+            self.emit("kernel", Ev::UpdateFailed { to, reason: "the server stopped before the switch".into() }).await?;
         }
         self.resume_updated().await
     }
@@ -596,7 +596,7 @@ async fn roll_back(AxState(k): K, h: HeaderMap) -> Response {
         Err(r) => return r,
     };
     let Some(to) = install_dir().ok().and_then(|d| std::fs::read_to_string(sibling(&d, ".prev").join("VERSION")).ok()) else {
-        return err(StatusCode::CONFLICT, "no earlier release is kept on this appliance");
+        return err(StatusCode::CONFLICT, "no earlier release is kept on this server");
     };
     let actor = format!("person:{}", p.id);
     tokio::spawn(async move {

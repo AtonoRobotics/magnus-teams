@@ -535,7 +535,7 @@ impl Kernel {
         }
         if let Some(v) = b["max_usd"].as_f64() {
             if v <= 0.0 || v > out.max_usd {
-                return Err(format!("max_usd must be above 0 and at most the appliance's {}", out.max_usd));
+                return Err(format!("max_usd must be above 0 and at most the server's {}", out.max_usd));
             }
             out.max_usd = v;
         }

@@ -180,7 +180,7 @@ mod tests {
         let url = format!("http://[::ffff:127.0.0.1]:{port}/");
         let refused = web(false).fetch(&url).await.expect_err("the mapped loopback address was fetched");
         assert!(refused.to_string().contains("private address"), "{refused}");
-        let (text, _) = web(true).fetch(&url).await.expect("a test appliance allows private networks");
+        let (text, _) = web(true).fetch(&url).await.expect("a test server allows private networks");
         assert!(text.ends_with("ok"), "{text}");
         for a in ["::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:169.254.169.254", "::ffff:192.168.1.1", "::ffff:100.64.0.1"] {
             assert!(private_ip(a.parse().unwrap()), "{a}");

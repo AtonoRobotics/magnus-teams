@@ -192,7 +192,7 @@ async fn require_device_cert(State(k): State<Arc<Kernel>>, req: Request, next: N
     let on = k.cfg.client_certs.is_some();
     let decision = match peer {
         Some(p) => crate::devices::admit(on, p, req.headers(), &method, &path, live),
-        None if on && tunnelish => Err("this device is not paired with the appliance"),
+        None if on && tunnelish => Err("this device is not paired with the server"),
         None => Ok(()),
     };
     if let Err(msg) = decision {
@@ -209,7 +209,7 @@ async fn config_tokens_on_this_machine(State(k): State<Arc<Kernel>>, req: Reques
         let plain = req.extensions().get::<Transport>() == Some(&Transport::Plain);
         let local = req.extensions().get::<axum::extract::ConnectInfo<SocketAddr>>().is_some_and(|c| c.0.ip().is_loopback());
         if !(plain && local) {
-            return err(StatusCode::UNAUTHORIZED, "This key works only on the appliance itself, over its local address. Sign in to use Magnus from elsewhere.");
+            return err(StatusCode::UNAUTHORIZED, "This key works only on the server itself, over its local address. Sign in to use Magnus from elsewhere.");
         }
     }
     next.run(req).await
@@ -297,7 +297,7 @@ fn device_error(e: crate::devices::IssueError) -> Response {
 }
 
 fn cloudflare_of(k: &Kernel) -> Result<crate::devices::Cloudflare, Response> {
-    let Some(cfg) = k.cfg.client_certs.clone() else { return Err(err(StatusCode::NOT_FOUND, "this appliance does not issue device certificates")) };
+    let Some(cfg) = k.cfg.client_certs.clone() else { return Err(err(StatusCode::NOT_FOUND, "this server does not issue device certificates")) };
     if k.vault.is_sealed() {
         return Err(err(StatusCode::CONFLICT, "The kill switch is on, so a device certificate cannot be issued or revoked at Cloudflare until the owner releases it."));
     }
@@ -315,12 +315,12 @@ fn cloudflare_of(k: &Kernel) -> Result<crate::devices::Cloudflare, Response> {
 /// then the public name accepts the certificate.
 async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
     if k.cfg.client_certs.is_none() {
-        return err(StatusCode::NOT_FOUND, "this appliance does not issue device certificates");
+        return err(StatusCode::NOT_FOUND, "this server does not issue device certificates");
     }
     if crate::devices::is_tunnel(peer, &h) {
         return err(
             StatusCode::FORBIDDEN,
-            "Pair this computer from the appliance's own network. The public address accepts a computer that is already paired and does not hand out a certificate.",
+            "Pair this computer from the server's own network. The public address accepts a computer that is already paired and does not hand out a certificate.",
         );
     }
     if let Some(r) = refused_by_kill_switch(&k) {
@@ -621,7 +621,7 @@ async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectIn
     if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
         return r;
     }
-    let Some(o) = &k.oidc else { return err(StatusCode::NOT_FOUND, "this appliance signs in with a password") };
+    let Some(o) = &k.oidc else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
     if !may_begin(&k, peer) {
         return too_many_begins();
     }
@@ -644,7 +644,7 @@ async fn device_poll(State(k): K, Extension(t): Extension<Transport>, ConnectInf
     if let Err(r) = over_tls(&k, t, peer) {
         return r;
     }
-    let Some(o) = &k.oidc else { return err(StatusCode::NOT_FOUND, "this appliance signs in with a password") };
+    let Some(o) = &k.oidc else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
     match o.poll(&flow).await {
         Ok(polled) => provider_answered(&k, t, o.label(), polled, device_of(&k, peer, &h)).await,
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
@@ -711,7 +711,7 @@ async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectI
     if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
         return r;
     }
-    let Some(id) = k.identity() else { return err(StatusCode::NOT_FOUND, "this appliance signs in with a password") };
+    let Some(id) = k.identity() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
     let Some(redirect_uri) = b["redirect_uri"].as_str() else { return err(StatusCode::BAD_REQUEST, "name the redirect address") };
     if !may_begin(&k, peer) {
         return too_many_begins();
@@ -731,7 +731,7 @@ async fn browser_finish(State(k): K, Extension(t): Extension<Transport>, Connect
     if let Err(r) = over_tls(&k, t, peer) {
         return r;
     }
-    let Some(id) = k.identity() else { return err(StatusCode::NOT_FOUND, "this appliance signs in with a password") };
+    let Some(id) = k.identity() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
     let (Some(state), Some(code)) = (b["state"].as_str(), b["code"].as_str()) else { return err(StatusCode::BAD_REQUEST, "send the state and code that came back") };
     match id.finish(state, code, b["iss"].as_str()).await {
         Ok(polled) => provider_answered(&k, t, id.label(), polled, device_of(&k, peer, &h)).await,
@@ -2073,7 +2073,7 @@ async fn speak(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
     if let Err(r) = who(&k, &h).await {
         return r;
     }
-    let Some(cfg) = &k.cfg.read_aloud else { return err(StatusCode::SERVICE_UNAVAILABLE, "no read-aloud voice is installed on this appliance") };
+    let Some(cfg) = &k.cfg.read_aloud else { return err(StatusCode::SERVICE_UNAVAILABLE, "no read-aloud voice is installed on this server") };
     let Some(text) = b["text"].as_str().filter(|t| !t.trim().is_empty()) else { return err(StatusCode::BAD_REQUEST, "no text") };
     use crate::speech::SpeakError;
     match crate::speech::speak_limited(cfg, text).await {

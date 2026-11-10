@@ -75,7 +75,7 @@ fn prefix(net: &[u8], addr: &[u8], bits: u8) -> bool {
 /// `::`) and never loopback.
 pub fn listen_addrs(listen: &[String]) -> Result<Vec<SocketAddr>> {
     if listen.is_empty() {
-        bail!("admin.listen names no address: give the appliance's address on the organisation's network");
+        bail!("admin.listen names no address: give the server's address on the organisation's network");
     }
     listen
         .iter()

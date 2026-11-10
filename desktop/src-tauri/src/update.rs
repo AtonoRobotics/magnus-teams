@@ -41,11 +41,11 @@ pub fn can_update() -> Result<(), &'static str> {
 /// certificate, and the session to ask with, if signed in.
 fn source(app: &crate::App) -> Result<(url::Url, Option<String>, Option<String>), String> {
     let cfg = app.store.config();
-    let base = cfg.appliance.ok_or("not connected to an appliance")?;
+    let base = cfg.appliance.ok_or("not connected to a server")?;
     if !base.starts_with("https://") {
-        return Err("updates come only over the appliance's https address".into());
+        return Err("updates come only over the server's https address".into());
     }
-    let pin = cfg.pins.get(&base).cloned().ok_or("the appliance's certificate is not trusted yet")?;
+    let pin = cfg.pins.get(&base).cloned().ok_or("the server's certificate is not trusted yet")?;
     let token = app.store.token(&base);
     Ok((url::Url::parse(&format!("{base}/v1/updates/desktop/latest.json")).map_err(|e| e.to_string())?, Some(pin), token))
 }

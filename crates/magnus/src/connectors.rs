@@ -1135,7 +1135,7 @@ impl Kernel {
     /// the catalog's).
     pub fn added_connector(&self, name: &str) -> Result<Connector, Refusal> {
         if self.cfg.connectors.iter().any(|c| c.name == name) {
-            return Err(refusal(StatusCode::CONFLICT, "this app is set in the appliance's config file; change it there"));
+            return Err(refusal(StatusCode::CONFLICT, "this app is set in the server's config file; change it there"));
         }
         match self.read(|s| s.connectors.get(name).cloned()) {
             Some(c) => Ok(c),
@@ -1507,7 +1507,7 @@ async fn classify(AxState(k): K, h: HeaderMap, Path((name, tool)): Path<(String,
     // The sandbox is the appliance's own microVM: an app's tool acts at the
     // app, so classed so it would skip the contract and the Rule of Two.
     if risk.as_deref() == Some("sandbox") {
-        return err(StatusCode::BAD_REQUEST, "sandbox is the appliance's own microVM, never an app's tool: risk is read, reversible_write, irreversible, financial or prohibited");
+        return err(StatusCode::BAD_REQUEST, "sandbox is the server's own microVM, never an app's tool: risk is read, reversible_write, irreversible, financial or prohibited");
     }
     if let Err(e) = k.emit(&format!("person:{}", p.id), Ev::ToolClassified { connector: name, tool, risk }).await {
         return internal(e);

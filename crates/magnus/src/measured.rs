@@ -11,7 +11,7 @@ const COMPLAINT_REACTION: &str = "annoying";
 
 /// Panels with no source on this appliance yet, and why.
 const NOT_BUILT: [(&str, &str, &str); 2] = [
-    ("ontology", "Ontology check failures", "There is no ontology on this appliance yet (O1-O4), so nothing is checked against one."),
+    ("ontology", "Ontology check failures", "There is no ontology on this server yet (O1-O4), so nothing is checked against one."),
     ("ablations", "Per-module ablation results", "No removable module has an ablation run yet; the verifier is not built (A4, A10)."),
 ];
 

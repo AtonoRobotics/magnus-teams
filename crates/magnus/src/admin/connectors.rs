@@ -100,7 +100,7 @@ pub async fn remove(State(c): State<Arc<Console>>, Extension(a): Extension<Admin
         Err(r) => return r,
     };
     if now["source"] != "added" {
-        let why = if now["source"] == "config" { "This app is set in the appliance's config file; change it there." } else { "This app is in the catalog: turn it off instead." };
+        let why = if now["source"] == "config" { "This app is set in the server's config file; change it there." } else { "This app is in the catalog: turn it off instead." };
         return refuse(StatusCode::CONFLICT, "not_removable", why);
     }
     let before = json!({ "url": now["url"], "signed_in": now["signed_in"] });

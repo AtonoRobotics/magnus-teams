@@ -64,7 +64,7 @@ impl Browser {
         if alive {
             return Ok(());
         }
-        let cfg = self.cfg.as_ref().ok_or_else(|| anyhow!("no browser is configured on this appliance"))?;
+        let cfg = self.cfg.as_ref().ok_or_else(|| anyhow!("no browser is configured on this server"))?;
         let _ = std::fs::remove_file(&self.socket);
         let mut cmd = Command::new(&cfg.command[0]);
         cmd.args(&cfg.command[1..]).arg("--socket").arg(&self.socket);

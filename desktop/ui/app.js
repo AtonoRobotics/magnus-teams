@@ -964,7 +964,7 @@ async function go() {
 // ---------- sign-in ----------
 
 async function signInScreen(note) {
-  document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><p class="muted">Sign in to your appliance.</p><div class="card" id="si"></div></div>`;
+  document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><p class="muted">Sign in to your server.</p><div class="card" id="si"></div></div>`;
   const box = $("#si");
   // Signed in. Pair this computer for the public name once, on the private
   // address; a failure is said and sign-in still stands.
@@ -981,7 +981,7 @@ async function signInScreen(note) {
   const ask = async (stage, data = {}) => {
     if (stage === "address") {
       paint(box, `${note ? `<p class="small" style="color:var(--bad)">${esc(note)}</p>` : ""}
-        <form id="f"><label for="addr">Appliance address</label>
+        <form id="f"><label for="addr">Server address</label>
         <input id="addr" style="width:100%" placeholder="https://magnus.local:7443" value="${esc(data.url || localStorage.getItem("magnus.address") || "")}" required>
         <p class="small muted">The owner gives you this address.</p>
         <div class="row" style="margin-top:14px"><button class="primary">Continue</button></div></form>`);
@@ -998,15 +998,15 @@ async function signInScreen(note) {
       };
     } else if (stage === "pin") {
       const changed = data.status === "changed";
-      paint(box, `<h3>${changed ? "The appliance's certificate changed" : "Check the appliance"}</h3>
-        <p class="small">${changed ? "This is not the certificate you trusted before. Continue only if the owner told you it was replaced." : "This is the first connection to this appliance. Compare this fingerprint with the one the owner sees on the appliance."}</p>
+      paint(box, `<h3>${changed ? "The server's certificate changed" : "Check the server"}</h3>
+        <p class="small">${changed ? "This is not the certificate you trusted before. Continue only if the owner told you it was replaced." : "This is the first connection to this server. Compare this fingerprint with the one the owner sees on the server."}</p>
         <div class="fp" id="fp">${esc(data.fingerprint)}</div>
         <div class="row" style="margin-top:14px"><button class="${changed ? "danger" : "primary"}" id="ok">They match</button><button id="no">Cancel</button></div>`);
       $("#ok").onclick = async () => { await Magnus.trust(data.url, data.fingerprint); ask("method", data); };
       $("#no").onclick = () => ask("address", data);
     } else if (stage === "needs_device") {
       paint(box, `<h3>This computer is not paired</h3>
-        <p class="small">magnus.pyrallon.ai accepts only a computer that was paired with the appliance. Sign in once on the appliance's private address, the one on your network or Tailscale. This computer is paired then, and this address works after that, from anywhere.</p>
+        <p class="small">magnus.pyrallon.ai accepts only a computer that was paired with the server. Sign in once on the server's private address, the one on your network or Tailscale. This computer is paired then, and this address works after that, from anywhere.</p>
         <div class="row" style="margin-top:14px"><button id="back">Use a private address</button></div>`);
       $("#back").onclick = () => ask("address", {});
     } else if (stage === "paired") {
@@ -1071,12 +1071,12 @@ async function signInScreen(note) {
       paint(box, `<form id="f"><p class="small muted">${esc(data.url || location.origin)}</p>
         ${data.error ? `<p class="small" style="color:var(--bad)" role="alert">${esc(data.error)}</p>` : ""}
         ${machine
-          ? `<label for="otp">Enter the code \`magnus sign-in-code\` printed on the appliance</label><input id="otp" style="width:100%" autocomplete="one-time-code" maxlength="16" required autofocus>`
+          ? `<label for="otp">Enter the code \`magnus sign-in-code\` printed on the server</label><input id="otp" style="width:100%" autocomplete="one-time-code" maxlength="16" required autofocus>`
           : coding
           ? `<label for="otp">Enter the 6-digit code from your authenticator app</label><input id="otp" style="width:100%" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" required autofocus>`
           : `<label for="who">Username</label><input id="who" style="width:100%" autocomplete="username" value="${esc(data.person || localStorage.getItem("magnus.person") || "")}" required>
         <label for="pw">Password</label><input id="pw" type="password" style="width:100%" autocomplete="current-password" required>`}
-        <div class="row" style="margin-top:16px"><button class="primary" id="go">${coding ? "Continue" : "Sign in"}</button>${coding ? `<button type="button" class="link" id="again">Back</button>` : data.label ? `<button type="button" class="link" id="passkey">Use a passkey instead</button>` : ""}${Magnus.kind === "app" && !coding ? `<button type="button" class="link" id="back">Other appliance</button>` : ""}</div></form>`);
+        <div class="row" style="margin-top:16px"><button class="primary" id="go">${coding ? "Continue" : "Sign in"}</button>${coding ? `<button type="button" class="link" id="again">Back</button>` : data.label ? `<button type="button" class="link" id="passkey">Use a passkey instead</button>` : ""}${Magnus.kind === "app" && !coding ? `<button type="button" class="link" id="back">Other server</button>` : ""}</div></form>`);
       $("#back")?.addEventListener("click", () => ask("address", data));
       $("#again")?.addEventListener("click", () => ask("password", { ...data, error: undefined, password: undefined }));
       $("#passkey")?.addEventListener("click", () => ask("browser", { ...data, person: $("#who").value.trim() || undefined, error: undefined }));
@@ -1583,7 +1583,7 @@ async function showThread(main, thread) {
       }
       case "retry": b.disabled = true; await api("POST", path(id, "resend"), {}); return draw();
       case "branch": { const r = await api("POST", path(id, "branch"), {}); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; return; }
-      case "share": ui.people = (await api("GET", "/v1/directory")).people; if (!ui.people.length) return toast("Nobody else is on this appliance."); ui.sharing = id; return draw();
+      case "share": ui.people = (await api("GET", "/v1/directory")).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw();
       case "share-cancel": ui.sharing = null; return draw();
       case "share-send": {
         const to = $("[data-share-to]", el).value;
@@ -2086,7 +2086,7 @@ function checkText(ch) {
 // Where a check's verdict comes from, as the kernel labelled it when the
 // contract was recorded.
 function assuranceChip(cr) {
-  if (cr.assurance === "appliance-verified") return ` <span class="chip ok" title="The sandbox image's own tools, or the appliance's comparison against the expected values in this contract, decide it">appliance-verified</span>`;
+  if (cr.assurance === "appliance-verified") return ` <span class="chip ok" title="The sandbox image's own tools, or the server's comparison against the expected values in this contract, decide it">appliance-verified</span>`;
   if (cr.assurance === "self-checked") return ` <span class="chip warn" title="${esc((cr.assurance_why || []).join("; "))}">self-checked</span><div class="small faint">Its check runs code the agent wrote: ${esc((cr.assurance_why || []).join("; "))}</div>`;
   return "";
 }
@@ -2147,7 +2147,7 @@ function card(i, composed) {
     case "review": {
       const crit = (d.criteria || []).map(c => `<li>${esc(c.description || c.id || c)}${c.unchecked_reason ? `<div class="small faint">Its check could not run: ${esc(c.unchecked_reason)}</div>` : ""}</li>`).join("");
       body = `<p>${esc(d.summary)}</p>
-        <div class="evidence none"><div class="small muted">The appliance could not check these. Check them yourself:</div><ul>${crit}</ul></div>
+        <div class="evidence none"><div class="small muted">The server could not check these. Check them yourself:</div><ul>${crit}</ul></div>
         ${d.view ? `<iframe class="composed" sandbox="allow-same-origin" title="The outcome" data-view="${esc(i.id)}"></iframe>` : ""}
         ${taintNote(d.taint)}
         ${i.can_respond ? `<textarea rows="2" data-draft="rev-${esc(i.id)}" placeholder="If you send it back, say what is wrong" style="margin-top:10px"></textarea>` : ""}
@@ -2452,7 +2452,7 @@ function criteria(t) {
     const person = String(c.verified_by || "").startsWith("person:") ? String(c.verified_by).slice(7) : null;
     const state = c.verified === true ? (person ? `<span class="chip ok">confirmed by ${esc(person)}</span>` : `<span class="chip ok">holds</span>`)
       : c.verified === false ? `<span class="chip bad">does not hold</span>` : c.check ? `<span class="chip">not checked yet</span>` : `<span class="chip warn">no check: needs a person</span>`;
-    const by = c.verified_by && !person ? `<span class="small faint"> · checked by the appliance</span>` : "";
+    const by = c.verified_by && !person ? `<span class="small faint"> · checked by the server</span>` : "";
     const label = c.assurance ? ` <span class="chip ${c.assurance === "self-checked" ? "warn" : ""}" title="${esc((c.assurance_why || []).join("; "))}">${esc(c.assurance)}</span>` : "";
     return `<div class="evidence ${cls}"><div class="spread"><span>${esc(c.description)}</span><span>${state}${by}${label}</span></div>
       ${c.check ? `<div class="small muted" style="margin-top:4px">Check: <span class="mono">${esc(c.check.tool)}</span> ${esc(JSON.stringify(c.check.input || {}))}</div>` : ""}
@@ -2659,7 +2659,7 @@ function appOfferCard(e, theirs = true) {
   const act = e.state === "connected" ? `<span class="chip ok">Connected</span>`
     : !theirs ? `<span class="chip warn">${esc(STATE[e.state] || "Not in their Apps")}</span>`
     : e.state === "unavailable" ? `<span class="small muted">No longer in your Apps.</span>`
-    : e.ready === false ? `<span class="small muted">Not ready on this appliance yet.</span>`
+    : e.ready === false ? `<span class="small muted">Not ready on this server yet.</span>`
     : e.state === "needs_attention" ? `<button class="primary" data-act="connect" data-app="${esc(e.connector)}">Sign in to ${esc(e.title || "")} again</button>`
     : e.state === "needs_more_access" ? `<button class="primary" data-act="connect" data-app="${esc(e.connector)}">Approve more access</button>`
     : `<button class="primary" data-act="connect" data-app="${esc(e.connector)}">Connect ${esc(e.title || "")}</button>`;
@@ -2784,7 +2784,7 @@ function connectorAction(c) {
     case "needs_attention": return `<button class="lc-act warn" data-act="connect" data-app="${esc(c.name)}" aria-label="Sign in to ${name} again">${SVG.again}</button>`;
     case "local": return `<button class="primary lc-enable" data-act="connect" data-app="${esc(c.name)}">Enable</button>`;
     default: return c.ready === false
-      ? `<span class="lc-act off" title="Not ready on this appliance yet" aria-label="${name} is not ready on this appliance yet">${SVG.plus}</span>`
+      ? `<span class="lc-act off" title="Not ready on this server yet" aria-label="${name} is not ready on this appliance yet">${SVG.plus}</span>`
       : `<button class="lc-act" data-act="connect" data-app="${esc(c.name)}" aria-label="Connect ${name}">${SVG.plus}</button>`;
   }
 }
@@ -3128,7 +3128,7 @@ async function modelsSection(main) {
     const {adapters}=providers;
     const p = pick || cur.adapter, models = await catalog(p);
     const chosen = p === cur.adapter ? cur.model : null;
-    paint(main, `<h2>Models</h2><p class="muted">Connect providers here. Keys and sign-ins go to the appliance's vault; this app keeps none.</p>
+    paint(main, `<h2>Models</h2><p class="muted">Connect providers here. Keys and sign-ins go to the server's vault; this app keeps none.</p>
       <div class="card"><div class="small muted">New tasks run on</div><div class="mono" style="font-size:16px;margin:2px 0 10px">${esc(cur.adapter)} · ${esc(cur.model)}</div>
         <div class="row"><select id="madapter" aria-label="Provider" data-draft="model-provider">${adapters.map(a => `<option ${a.id === p ? "selected" : ""}>${esc(a.id)}</option>`).join("")}</select>
         ${models.ids ? `<select id="mname" aria-label="Model" data-draft="model-choice-${esc(p)}">${chosen && !models.ids.includes(chosen) ? `<option selected>${esc(chosen)}</option>` : ""}${models.ids.map(m => `<option ${m === chosen ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><button class="primary" data-act="use">Use this model</button>` : ""}</div>
@@ -3385,7 +3385,7 @@ async function updatesSection(el) {
         <div class="small muted">${st.ready ? `Magnus ${esc(st.ready.version)} is downloaded and checked.` : st.error ? `The last look failed: ${esc(st.error)}` : st.can_update ? esc(st.can_update) : "Up to date."}</div>
         ${st.ready ? `<h3>What's new in ${esc(st.ready.version)}</h3><div class="notes">${para(st.ready.notes)}</div>` : ""}
         ${notes ? `<h3>What's new in ${esc(notes.version)}</h3><div class="notes">${para(notes.notes)}</div>` : ""}</div>` : ""}
-      <div class="card" data-appliance-version><div class="spread"><div><strong>The appliance</strong> <span class="mono">${esc(ver.version)}</span></div>
+      <div class="card" data-appliance-version><div class="spread"><div><strong>The server</strong> <span class="mono">${esc(ver.version)}</span></div>
           ${appl?.latest && appl.latest.version !== ver.version ? `<button class="primary" data-act="install">Install ${esc(appl.latest.version)} now</button>` : ""}</div>
         ${appl ? `<div class="small muted">${appl.automatic ? "Updates install on their own." : "Updates install when you choose."}${appl.previous ? ` Rolls back to ${esc(appl.previous)} if one fails.` : ""}</div>
           ${appl.latest ? `<h3>What's new in ${esc(appl.latest.version)}</h3><div class="notes">${para(appl.latest.notes)}</div>` : ""}` : ""}</div>`);
@@ -3449,7 +3449,7 @@ async function dataSection(el) {
     const STATE = { done: ["ok", "done"], decline: ["bad", "declined"] };
     paint(el, `<h2>Data and privacy</h2>
       <div class="card"><label class="row toggle"><input type="checkbox" data-pref="feedback_consent" ${prefs.feedback_consent ? "checked" : ""}>
-        <span><span>Send problem reports</span><span class="small muted" style="display:block">When you report a problem, what you wrote and the task's record go to the people who build Magnus. Off: nothing leaves the appliance.</span></span></label></div>
+        <span><span>Send problem reports</span><span class="small muted" style="display:block">When you report a problem, what you wrote and the task's record go to the people who build Magnus. Off: nothing leaves the server.</span></span></label></div>
       <h3>How Magnus works with you</h3>
       <div class="card" data-relationship><p class="small muted">What you told Magnus about working with you: tone, what you delegated, standing decisions. Every task and chat of yours carries it; no one else sees it.</p>
         ${notes.map((n, i) => `<div class="row" data-note="${i}" style="margin-top:6px"><input aria-label="Note" value="${esc(n)}" style="flex:1"><button data-act="note-save">Save</button><button data-act="note-remove">Remove</button></div>`).join("") || `<p class="small faint">Nothing yet.</p>`}
@@ -3472,7 +3472,7 @@ async function dataSection(el) {
       ${backups ? `<h3>Backups</h3><div class="card"><div class="spread"><span class="small muted">${backups.files.length ? `${backups.files.length} kept for ${esc(backups.keep_days)} days` : "None yet."}${backups.latest ? ` · last ${esc(when(backups.latest.at))}${backups.latest.restored ? ", restored to check it" : `, <span style="color:var(--bad)">did not restore: ${esc(backups.latest.detail)}</span>`}` : ""}</span>
         <button data-act="backup">Back up now</button></div>
         ${backups.scrub_pending ? `<p class="small" data-backup-scrub style="color:var(--bad)">${backups.scrub_pending.erasures ? `${esc(backups.scrub_pending.erasures)} deleted ${backups.scrub_pending.erasures === 1 ? "person's" : "people's"} data is not fully erased: ` : ""}${esc(backups.scrub_pending.files.length)} ${backups.scrub_pending.files.length === 1 ? "backup still holds" : "backups still hold"} deleted data, since ${esc(when(backups.scrub_pending.since))}. Magnus tries again every hour and at start: ${esc(backups.scrub_pending.detail)}</p>` : ""}
-        ${backups.on_appliance_disk ? `<p class="small" data-backup-disk style="color:var(--warn)">They are on the appliance's own disk, so a lost disk loses them too: set <span class="mono">[backup] dir</span> to another disk, and keep a copy of the backup key off the appliance.</p>` : ""}</div>` : ""}`);
+        ${backups.on_appliance_disk ? `<p class="small" data-backup-disk style="color:var(--warn)">They are on the server's own disk, so a lost disk loses them too: set <span class="mono">[backup] dir</span> to another disk, and keep a copy of the backup key off the server.</p>` : ""}</div>` : ""}`);
   };
   el.onchange = async e => {
     const c = e.target.closest("input[data-pref]"); if (!c) return;
@@ -3562,13 +3562,13 @@ async function updateRequiredScreen(info) {
   if (updateScreen) return;
   stop();
   document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><h3>Update required</h3>
-    <p class="muted">${esc(info?.error || "The appliance needs a newer version of this app.")}</p><div class="card" id="ur"></div></div>`;
+    <p class="muted">${esc(info?.error || "The server needs a newer version of this app.")}</p><div class="card" id="ur"></div></div>`;
   const draw = async () => {
     let st = null;
     try { st = await Magnus.updateState(); } catch { /* shown below */ }
     const box = $("#ur");
     if (!box) return;
-    if (!st) paint(box, `<p>Open the appliance's address in a browser to use it until the app is updated.</p>`);
+    if (!st) paint(box, `<p>Open the server's address in a browser to use it until the app is updated.</p>`);
     else if (st.ready) paint(box, `<p>Magnus ${esc(st.ready.version)} is downloaded and checked.</p><div class="row"><button class="primary" data-act="restart-update">Restart to update</button></div>`);
     else if (st.can_update) paint(box, `<p>${esc(st.can_update)}</p>`);
     else paint(box, `<p>${st.error ? `The update could not be fetched: ${esc(st.error)}` : "Downloading the update…"}</p><div class="row"><button data-act="look">Try again</button></div>`);

@@ -72,7 +72,7 @@ fn consequence(i: &Item) -> Option<&'static str> {
     match i.details["risk"].as_str().unwrap_or_default() {
         "irreversible" => Some("This cannot be undone once it runs."),
         "financial" => Some("This spends or moves money and cannot be undone."),
-        "reversible_write" => Some("This changes data outside the appliance. It can be undone afterwards."),
+        "reversible_write" => Some("This changes data outside the server. It can be undone afterwards."),
         _ => None,
     }
 }

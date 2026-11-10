@@ -141,7 +141,7 @@ pub async fn serve(cfg: Config) -> Result<()> {
         certs: [
             ("The admin console's trusted certificate".to_string(), tls.trusted_path()),
             ("The admin console's certificate".to_string(), Some(a.tls_cert.clone())),
-            ("The appliance's certificate".to_string(), cfg.appliance.tls_cert.clone()),
+            ("The server's certificate".to_string(), cfg.appliance.tls_cert.clone()),
         ]
         .into_iter()
         .filter_map(|(what, p)| p.map(|p| (what, p)))

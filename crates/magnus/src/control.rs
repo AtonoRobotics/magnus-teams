@@ -907,7 +907,7 @@ async fn install_update(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> R
 /// Go back to the release kept; the switch happens after the answer.
 async fn roll_back_update(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
     let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who rolls it back".into())) };
-    let Some(to) = crate::update::previous_version() else { return ops_refused((StatusCode::CONFLICT, "no earlier release is kept on this appliance".into())) };
+    let Some(to) = crate::update::previous_version() else { return ops_refused((StatusCode::CONFLICT, "no earlier release is kept on this server".into())) };
     tokio::spawn(async move {
         if let Err(e) = k.roll_back(&actor).await {
             tracing::error!("roll back: {e:#}");

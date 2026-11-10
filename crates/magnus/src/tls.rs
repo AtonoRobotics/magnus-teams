@@ -29,13 +29,13 @@ pub fn load(state_dir: &Path, cert: Option<&Path>, key: Option<&Path>) -> Result
                 if !host.is_empty() {
                     names.push(host);
                 }
-                let generated = rcgen::generate_simple_self_signed(names).context("make the appliance certificate")?;
+                let generated = rcgen::generate_simple_self_signed(names).context("make the server certificate")?;
                 crate::vault::write_private(&k, generated.key_pair.serialize_pem().as_bytes())?;
                 std::fs::write(&c, generated.cert.pem())?;
             }
             (c, k)
         }
-        _ => anyhow::bail!("set both appliance.tls_cert and appliance.tls_key, or neither"),
+        _ => anyhow::bail!("set both server.tls_cert and server.tls_key, or neither"),
     };
     let chain: Vec<CertificateDer<'static>> =
         CertificateDer::pem_file_iter(&cert_path).with_context(|| format!("read {}", cert_path.display()))?.collect::<std::result::Result<_, _>>()?;

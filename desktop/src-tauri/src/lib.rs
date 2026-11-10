@@ -46,9 +46,9 @@ impl App {
     /// How the display's socket and the local agent reach the appliance.
     fn trust(&self) -> Res<(String, Option<String>, Option<(String, String)>)> {
         let cfg = self.store.config();
-        let url = cfg.appliance.ok_or("not connected to an appliance")?;
+        let url = cfg.appliance.ok_or("not connected to a server")?;
         if pin::is_public_appliance(&url) {
-            let device = self.store.device(&url).ok_or("this computer is not paired with the appliance yet")?;
+            let device = self.store.device(&url).ok_or("this computer is not paired with the server yet")?;
             return Ok((url, None, Some(device)));
         }
         let pinned = cfg.pins.get(&url).cloned();
@@ -63,7 +63,7 @@ impl App {
         }
         let mut tls = match device {
             Some((cert, key)) => pin::public_tls(&cert, &key)?,
-            None => pin::tls(Some(pinned.as_deref().ok_or("the appliance's certificate is not trusted yet")?))?,
+            None => pin::tls(Some(pinned.as_deref().ok_or("the server's certificate is not trusted yet")?))?,
         };
         tls.alpn_protocols = vec![b"http/1.1".to_vec()];
         Ok((url, Some(tls)))
@@ -82,12 +82,12 @@ impl App {
     fn conn(&self) -> Res<(String, reqwest::Client)> {
         use sha2::Digest;
         let cfg = self.store.config();
-        let url = cfg.appliance.ok_or("not connected to an appliance")?;
+        let url = cfg.appliance.ok_or("not connected to a server")?;
         let public = pin::is_public_appliance(&url);
-        let device = if public { Some(self.store.device(&url).ok_or("this computer is not paired with the appliance yet")?) } else { None };
+        let device = if public { Some(self.store.device(&url).ok_or("this computer is not paired with the server yet")?) } else { None };
         let pinned = if public { None } else { cfg.pins.get(&url).cloned() };
         if !public && url.starts_with("https://") && pinned.is_none() {
-            return Err("the appliance's certificate is not trusted yet".into());
+            return Err("the server's certificate is not trusted yet".into());
         }
         let mode = match &device {
             Some((cert, _)) => format!("device:{}", hex::encode(sha2::Sha256::digest(cert.as_bytes()))),
@@ -152,7 +152,7 @@ async fn restore(app: State<'_, App>) -> Res<Value> {
             let _ = body_of(r).await;
             app.store.clear_device(&url);
             app.store.clear_token(&url);
-            Ok(json!({ "note": "This computer is no longer paired with the appliance. Pair it again from the private address." }))
+            Ok(json!({ "note": "This computer is no longer paired with the server. Pair it again from the private address." }))
         }
         // The appliance no longer accepts this version; the updater still can reach it.
         Ok(r) if r.status().as_u16() == 426 => Ok(json!({ "update_required": body_of(r).await.1, "appliance": url })),
@@ -219,7 +219,7 @@ async fn trust(app: State<'_, App>, url: String, fingerprint: String) -> Res<()>
 async fn pair_device(app: State<'_, App>, public_url: String) -> Res<Value> {
     let public_url = normalize(&public_url)?;
     if !pin::is_public_appliance(&public_url) {
-        return Err("pair the public address of the appliance".into());
+        return Err("pair the public address of the server".into());
     }
     if app.store.device(&public_url).is_some() {
         return Ok(json!({ "already": true, "public_url": public_url }));
@@ -237,7 +237,7 @@ async fn pair_device(app: State<'_, App>, public_url: String) -> Res<Value> {
     if status >= 400 {
         return Err(message(&body, status));
     }
-    let certificate = body["certificate"].as_str().ok_or("the appliance sent no certificate")?;
+    let certificate = body["certificate"].as_str().ok_or("the server sent no certificate")?;
     app.store.set_device(&public_url, certificate, &key)?;
     Ok(json!({ "device": body["device"], "fingerprint": body["fingerprint"], "public_url": public_url }))
 }
@@ -270,7 +270,7 @@ async fn sign_in(app: State<'_, App>, person: String, password: String, code: Op
     if status >= 400 {
         return Err(message(&body, status));
     }
-    let token = body["token"].as_str().ok_or("the appliance sent no session")?;
+    let token = body["token"].as_str().ok_or("the server sent no session")?;
     app.store.set_token(&url, token)?;
     Ok(body["person"].clone())
 }
@@ -593,10 +593,10 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     if status >= 400 {
         return Err(message(&begun, status));
     }
-    let (Some(state), Some(page)) = (begun["state"].as_str(), begun["authorize_url"].as_str()) else { return Err("the appliance sent no sign-in page".into()) };
-    let page = url::Url::parse(page).map_err(|_| "the appliance sent a sign-in page that is not a link")?;
+    let (Some(state), Some(page)) = (begun["state"].as_str(), begun["authorize_url"].as_str()) else { return Err("the server sent no sign-in page".into()) };
+    let page = url::Url::parse(page).map_err(|_| "the server sent a sign-in page that is not a link")?;
     if page.scheme() != "https" && page.scheme() != "http" {
-        return Err("the appliance sent a sign-in page that is not a web link".into());
+        return Err("the server sent a sign-in page that is not a web link".into());
     }
     if !matches!(cancel.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)) {
         return Err(CANCELLED.into());
@@ -614,7 +614,7 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     if status >= 400 {
         return Err(message(&body, status));
     }
-    let token = body["token"].as_str().ok_or("the appliance sent no session")?;
+    let token = body["token"].as_str().ok_or("the server sent no session")?;
     // Kept only if this is still the sign-in under way, checked and stored
     // under one lock, so neither a Cancel nor a newer sign-in can come in
     // between. Otherwise its session is ended there and never stored, so it
@@ -795,6 +795,6 @@ mod tests {
         let (key, csr) = pin::begin_device().unwrap();
         assert!(key.contains("PRIVATE KEY"));
         assert!(csr.contains("BEGIN CERTIFICATE REQUEST"));
-        assert!(!csr.contains("PRIVATE KEY"), "the request sent to the appliance carried the key");
+        assert!(!csr.contains("PRIVATE KEY"), "the request sent to the server carried the key");
     }
 }

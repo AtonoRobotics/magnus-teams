@@ -8,7 +8,7 @@ use base64::Engine;
 use std::path::Path;
 
 pub async fn transcribe(speech: Option<&Speech>, state_dir: &Path, data_b64: &str) -> Result<String> {
-    let cfg = speech.ok_or_else(|| anyhow!("voice input is not installed on this appliance"))?;
+    let cfg = speech.ok_or_else(|| anyhow!("voice input is not installed on this server"))?;
     let (bin, model) = (&cfg.whisper, &cfg.model);
     let audio = base64::engine::general_purpose::STANDARD.decode(data_b64).context("audio is not base64")?;
     let dir = state_dir.join("speech").join(uuid::Uuid::new_v4().simple().to_string());

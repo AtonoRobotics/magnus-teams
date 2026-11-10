@@ -29,7 +29,7 @@ impl ServerCertVerifier for Pinned {
         let fp = fingerprint(end_entity);
         *self.seen.lock().unwrap() = Some(fp.clone());
         match &self.want {
-            Some(w) if *w != fp => Err(Error::General("the appliance's certificate is not the one you trusted".into())),
+            Some(w) if *w != fp => Err(Error::General("the server's certificate is not the one you trusted".into())),
             _ => Ok(ServerCertVerified::assertion()),
         }
     }
@@ -96,7 +96,7 @@ pub async fn look(url: &str) -> Result<String, String> {
     match (fp, r) {
         (Some(fp), _) => Ok(fp),
         (None, Err(e)) => Err(describe(&e)),
-        (None, Ok(_)) => Err("the appliance did not present a certificate".into()),
+        (None, Ok(_)) => Err("the server did not present a certificate".into()),
     }
 }
 

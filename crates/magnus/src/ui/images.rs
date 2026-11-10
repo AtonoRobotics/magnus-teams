@@ -105,7 +105,7 @@ async fn make(http: reqwest::Client, cfg: Settings, key: String, model: String, 
 impl Kernel {
     /// Starts one image and answers with its placeholder.
     pub(crate) async fn image_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let Some(cfg) = self.cfg.images.clone() else { return Ok(("This appliance has no image provider set up.".to_string(), true, None)) };
+        let Some(cfg) = self.cfg.images.clone() else { return Ok(("This server has no image provider set up.".to_string(), true, None)) };
         let prompt: String = a.input["prompt"].as_str().unwrap_or_default().chars().take(MAX_PROMPT_CHARS).collect();
         if prompt.trim().is_empty() {
             return Ok(("A prompt is required.".to_string(), true, None));

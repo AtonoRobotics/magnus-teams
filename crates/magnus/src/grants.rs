@@ -162,7 +162,7 @@ impl Kernel {
         }
         let period = v["period"].as_str().filter(|p| period_days(p).is_some()).ok_or("period is day, week or month")?.to_string();
         let cap = self.cfg.budget.max_usd;
-        let max_usd = v["max_usd"].as_f64().filter(|m| *m > 0.0 && *m <= cap).ok_or_else(|| format!("max_usd must be above 0 and at most the appliance's {cap}"))?;
+        let max_usd = v["max_usd"].as_f64().filter(|m| *m > 0.0 && *m <= cap).ok_or_else(|| format!("max_usd must be above 0 and at most the server's {cap}"))?;
         Ok(Fields { title: title.into(), apps, allow, period, max_usd })
     }
 

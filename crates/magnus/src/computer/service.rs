@@ -65,7 +65,7 @@ fn user_path(path: &str) -> Result<&str, Refused> {
 
 impl Kernel {
     pub(super) fn computer_socket(&self) -> Result<PathBuf, Refused> {
-        self.cfg.computer.as_ref().map(|c| c.socket.clone()).ok_or_else(|| Refused::Conflict("this appliance has no computers".into()))
+        self.cfg.computer.as_ref().map(|c| c.socket.clone()).ok_or_else(|| Refused::Conflict("this server has no computers".into()))
     }
 
     /// The person sees "no such computer" for one that is not theirs.

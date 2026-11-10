@@ -145,7 +145,7 @@ pub fn admit(on: bool, peer: SocketAddr, headers: &axum::http::HeaderMap, method
     if live {
         Ok(())
     } else {
-        Err("this device is not paired with the appliance")
+        Err("this device is not paired with the server")
     }
 }
 
@@ -486,7 +486,7 @@ mod tests {
         assert!(admit(true, local, &axum::http::HeaderMap::new(), &axum::http::Method::POST, "/v1/sign-in", false).is_ok(), "a local request was treated as the tunnel");
         assert!(admit(false, local, &headers, &axum::http::Method::GET, "/v1/me", false).is_ok());
         assert!(admit(true, local, &headers, &axum::http::Method::GET, "/v1/health", false).is_ok());
-        assert_eq!(admit(true, local, &headers, &axum::http::Method::POST, "/v1/sign-in", false).unwrap_err(), "this device is not paired with the appliance");
+        assert_eq!(admit(true, local, &headers, &axum::http::Method::POST, "/v1/sign-in", false).unwrap_err(), "this device is not paired with the server");
         assert!(admit(true, local, &headers, &axum::http::Method::GET, "/v1/me", true).is_ok());
         // A fingerprint header from the LAN does not make it a tunnel, and
         // does not have to be live.

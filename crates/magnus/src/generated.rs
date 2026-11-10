@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(d.check(false), Ok(()));
         d.base_url = "http://api.example.com".into();
         assert!(d.check(false).is_err());
-        assert!(d.check(true).is_ok(), "a test appliance may use http");
+        assert!(d.check(true).is_ok(), "a test server may use http");
         d.base_url = "https://user:secret@api.example.com".into();
         assert!(d.check(false).is_err());
         d.base_url = "https://api.example.com?key=abc".into();

@@ -155,7 +155,7 @@ pub async fn health(State(c): State<Arc<Console>>) -> Response {
         vec![json!({ "name": "Kernel", "up": kernel_up }), json!({ "name": "Event log (Postgres)", "up": k["log_up"] == true }), json!({ "name": "Admin console", "up": true })];
     match tunnel {
         Some(up) => services.push(json!({ "name": "Tunnel (cloudflared)", "up": up })),
-        None => services.push(json!({ "name": "Tunnel (cloudflared)", "up": null, "note": "not set up on this appliance" })),
+        None => services.push(json!({ "name": "Tunnel (cloudflared)", "up": null, "note": "not set up on this server" })),
     }
     Json(json!({
         "services": services,
