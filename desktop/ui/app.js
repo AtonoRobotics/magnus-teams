@@ -2012,31 +2012,6 @@ function fieldValue(v) {
   return `<pre>${esc(JSON.stringify(v, null, 2))}</pre>`;
 }
 
-// Exactly what will happen: every field of the call, nothing shortened (U6).
-function whatHappens(d) {
-  const input = d.input && typeof d.input === "object" && !Array.isArray(d.input) ? d.input : { input: d.input };
-  return `<div class="what" aria-label="What will happen">
-    <div class="field"><span>Action</span><span class="mono">${esc(d.tool)}</span></div>
-    ${d.app ? `<div class="field"><span>App</span><span>${esc(d.app)}</span></div>` : ""}
-    ${d.audience ? `<div class="field"><span>Who can see it</span><span>${esc(AUDIENCE[d.audience] || d.audience)}</span></div>` : ""}
-    ${destinationFields(d.destinations)}
-    ${Object.entries(input).map(([k, v]) => `<div class="field"><span>${esc(k)}</span>${fieldValue(v)}</div>`).join("")}
-  </div>`;
-}
-
-// Who it reaches and what it says, as the app has it (a draft's To, Cc,
-// Bcc, subject, text and attachments), read by the appliance, not taken
-// from what Magnus wrote.
-function destinationFields(ds) {
-  if (!ds) return "";
-  const label = k => esc(k[0].toUpperCase() + k.slice(1));
-  const to = Object.entries(ds.recipients || {}).filter(([, a]) => a.length)
-    .map(([k, a]) => `<div class="field"><span>${label(k)}</span><span>${a.map(esc).join(", ")}</span></div>`);
-  const content = Object.entries(ds.content || {}).filter(([, v]) => v !== null && v !== "" && !(Array.isArray(v) && !v.length))
-    .map(([k, v]) => `<div class="field"><span>${label(k)}</span>${Array.isArray(v) ? `<span>${v.map(f => esc(f.filename || f.name || JSON.stringify(f))).join(", ")}</span>` : fieldValue(v)}</div>`);
-  return to.concat(content).join("");
-}
-
 function taintNote(t) {
   if (!t || (!t.untrusted && !t.private)) return "";
   const parts = [];
@@ -2058,29 +2033,14 @@ function card(i, composed) {
   let body = "";
   if (i.status !== "open") {
     const r = i.resolution || {};
+    if (i.kind === "approval") return `<div class="card flat item approval">${head}${askResolved(i)}</div>`;
     return `<div class="card flat item ${esc(i.kind)} ${esc(tier)}">${head}<h4>${esc(i.summary)}</h4><p class="small muted">${esc(r.decision)}${r.scope ? ` (${esc(r.scope)})` : ""} by ${esc(String(r.by || "").replace(/^person:/, ""))}${r.text ? `: ${esc(r.text)}` : ""}</p></div>`;
   }
   switch (i.kind) {
-    case "approval": {
-      const onceOnly = String(d.rule || "").startsWith("kernel:") || d.reason === "unknown_outcome";
-      // Web lookups after reading private data: one answer for the whole
-      // task, or the whole conversation.
-      // A new source: for this task alone, or always (the person's own computer).
-      const source = d.rule === "new_source" ? String(d.input?.host || "this site") : "";
-      const list = source ? [["approve:task", `Allow ${source} for this task`, "primary"], ["approve:standing", `Always allow ${source}`]]
-        : d.web_lookups ? [["approve:task", `Allow web lookups for this ${d.web_lookups}`, "primary"], ["approve:once", "Allow this lookup only"]] : [["approve:once", "Approve once", "primary"]];
-      if (!onceOnly && !source) {
-        list.push(["approve:task", "Approve for this task"]);
-        list.push(["approve:window", "Approve for an hour"]);
-        if (isOwner()) list.push(["approve:standing", "Always allow"]);
-      }
-      list.push(["reject", "Deny"]);
-      body = `${i.app ? appOfferCard(i.app, i.person === App.me?.id) : ""}${i.consequence ? `<div class="consequence" role="note">${esc(i.consequence)}</div>` : ""}
-        ${whatHappens(d)}
-        ${d.why ? `<p class="small"><span class="muted">Why you are asked:</span> ${esc(d.why)}${d.rule && !String(d.rule).startsWith("kernel:") ? ` <span class="faint mono">(${esc(d.rule)})</span>` : ""}</p>` : ""}
-        ${taintNote(d.taint)}${buttons(i, list)}`;
-      break;
-    }
+    // An ask: the server's one sentence, the content one tap away, and
+    // its answers (asks.js). In the conversation the work came from too.
+    case "approval":
+      return `<article class="card item approval" data-id="${esc(i.id)}">${head}${i.app ? appOfferCard(i.app, i.person === App.me?.id) : ""}${askCard(i, i.can_respond)}</article>`;
     case "question": {
       const opts = Array.isArray(d.options) ? d.options : [];
       body = `${taintNote(d.taint)}${i.can_respond ? `${opts.length ? `<div class="row">${opts.map(o => `<button data-item="${esc(i.id)}" data-decision="answer" data-text="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}
@@ -2332,8 +2292,7 @@ async function respond(btn, root) {
   let [decision, scope] = btn.dataset.decision.split(":");
   const body = { decision };
   if (scope) body.scope = scope;
-  if (scope === "window") body.minutes = 60;
-  const box = $(`[data-draft="ans-${CSS.escape(id)}"]`, root) || $(`[data-draft="rev-${CSS.escape(id)}"]`, root) || $(`[data-draft="cc-${CSS.escape(id)}"]`, root);
+  const box = $(`[data-draft="ans-${CSS.escape(id)}"]`, root) || $(`[data-draft="rev-${CSS.escape(id)}"]`, root);
   if (btn.dataset.text) body.text = btn.dataset.text;
   else if (box && box.value.trim()) body.text = box.value.trim();
   if (decision === "answer" && !body.text) { toast("Write an answer first."); return; }
@@ -2341,7 +2300,7 @@ async function respond(btn, root) {
   try {
     await api("POST", `/v1/inbox/${enc(id)}`, body);
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
-    toast({ endorse: "It is now a company fact.", approve: "Approved.", reject: decision === "reject" ? "Done." : "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
+    toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }

@@ -46,8 +46,8 @@ await step("approve under Needs you", async () => {
   // The panel fades in; its text is read once it is shown.
   const what = await until("the card shown", async () => (await text(xpath(`${card}//div[@aria-label='What will happen']`))) || null);
   if (!what.includes("deliver_file")) throw new Error(`the card does not name the action: ${what}`);
-  await click(button("Approve once", card));
-  await seen("Approved.");
+  await click(button("Allow", card));
+  await seen("Allowed.");
   await click(button("Accept", "//aside[@id='detail']//article[contains(@class,'review')]"));
   await seen("Accepted.");
 });

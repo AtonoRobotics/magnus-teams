@@ -118,8 +118,8 @@ await step("approve under Needs you", async () => {
   const what = await card.getByLabel("What will happen").innerText();
   if (!/deliver_file/.test(what)) throw new Error(`the card does not name the action: ${what}`);
   await shot("approval card");
-  await card.getByRole("button", { name: "Approve once" }).click();
-  await page.getByText("Approved.").waitFor({ timeout: T });
+  await card.getByRole("button", { name: "Allow", exact: true }).click();
+  await page.getByText("Allowed.").waitFor({ timeout: T });
   // A criterion no check can settle comes back as a review card.
   const review = panel.locator("article.item.review").first();
   await review.waitFor({ timeout: T });

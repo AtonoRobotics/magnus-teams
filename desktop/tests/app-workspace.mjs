@@ -89,8 +89,8 @@ await step("Needs you counts it and holds the same card", async () => {
 
 await step("approve in the conversation; Needs you follows", async () => {
   await measure("approve", async () => {
-    await click(button("Approve once", `${thread}//article[@data-id='${approval}']`));
-    await d.seen("Approved.");
+    await click(button("Allow", `${thread}//article[@data-id='${approval}']`));
+    await d.seen("Allowed.");
   });
   await gone("the approval in the thread", `${thread}//article[@data-id='${approval}']`);
   await gone("the approval under Needs you", `${panel}//article[@data-id='${approval}']`);

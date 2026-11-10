@@ -101,13 +101,14 @@ route(/^#\/dev\/run\/([^/]+)$/, async (main, id) => {
         ${(st.attempts || []).filter(a => a.error).map(a => `<div class="evidence fail small">Attempt ${esc(a.attempt)}: ${esc(a.error.class)}: ${esc(a.error.message)}</div>`).join("")}
         <h3>What it did</h3>${st.reply ? `${st.reply.text ? `<p>${esc(st.reply.text)}</p>` : ""}
           ${(byStep[st.step] || []).map(a => `<div class="call"><span class="mono">${esc(a.tool)}</span> <span class="small faint">issued by ${esc(a.issuer || "model")}</span> ${decisionChips(a.decisions)}
+            ${(a.decisions || []).some(d => d.outcome !== "allow") ? `<div data-why>${decisionRows(a.decisions)}</div>` : ""}
             <details><summary class="small">Input and result</summary>${fieldValue(a.input)}${a.result ? `<div class="small muted" style="margin-top:6px">Result: ${esc(a.result.status)}${a.result.is_error ? " (error)" : ""}${a.result.label?.untrusted ? " · untrusted" : ""}${a.result.label?.private ? " · private" : ""}</div><pre>${esc(a.result.text)}</pre>` : `<p class="small faint">No result.</p>`}</details></div>`).join("")}
           ${st.reply.calls.filter(c => !r.actions.some(a => a.call_id === c.call_id)).map(c => `<div class="call"><span class="mono">${esc(c.tool)}</span> <span class="small faint">run record, issued by model</span></div>`).join("")}
           <p class="small faint">${st.reply.usage ? `${n4(st.reply.usage.input_tokens)} in · ${n4(st.reply.usage.output_tokens)} out · stop: ${esc(st.reply.stop)}` : ""}</p>` : `<p class="faint">No reply.</p>`}</div>`).join("")}
       <h2>Records</h2>
       ${r.records.length ? `<table class="t"><tbody>${r.records.map(x => `<tr><td class="n faint">${x.seq}</td><td>${esc(x.kind)}${x.version ? ` v${x.version}` : ""}</td><td class="small faint">${esc(x.issuer)}</td><td><details><summary class="small">Body</summary>${fieldValue(x.body || x.result)}</details></td></tr>`).join("")}</tbody></table>` : `<p class="empty">None.</p>`}
       <h2>What the harness did</h2>
-      ${r.harness.length ? `<table class="t"><thead><tr><th class="n">Seq</th><th>Event</th><th>Issued by</th><th>Detail</th></tr></thead><tbody>${r.harness.map(x => `<tr><td class="n faint">${x.seq}</td><td>${esc(x.kind)}</td><td class="small">${esc(x.issuer)}</td><td class="small">${x.criterion ? `${esc(x.criterion)}: ${x.passed ? "holds" : "does not hold"}` : esc(typeof x.text === "string" ? x.text : JSON.stringify(x.text ?? ""))}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">Nothing.</p>`}`);
+      ${r.harness.length ? `<table class="t"><thead><tr><th class="n">Seq</th><th>Event</th><th>Issued by</th><th>Detail</th></tr></thead><tbody>${r.harness.map(x => `<tr><td class="n faint">${x.seq}</td><td>${esc(x.kind)}</td><td class="small">${esc(x.issuer)}</td><td class="small">${x.criterion ? `${esc(x.criterion)}: ${x.passed ? "holds" : "does not hold"}` : esc(typeof x.text === "string" ? x.text : JSON.stringify(x.text ?? ""))}${askReasoning(x.reasoning)}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">Nothing.</p>`}`);
   };
   await draw();
   every(4000, draw);

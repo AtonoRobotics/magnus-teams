@@ -60,9 +60,9 @@ await step(decides ? "the approval carries the app's card, saying the person nee
     // where they stand, and makes the decision.
     await card.getByText("Needs signing in again", { exact: true }).waitFor({ timeout: T });
     if (await card.locator("button").count()) throw new Error("someone else's card offers a button");
-    await page.locator(`#detail [data-needs="${item}"] button[data-decision="approve:once"]`).waitFor({ timeout: T });
+    await page.locator(`#detail [data-needs="${item}"] button[data-offer="allow"]`).waitFor({ timeout: T });
   } else {
-    if(await page.locator(`#detail article[data-id="${item}"] button[data-decision="approve:once"]`).count())throw new Error("the requester can decide another person’s approval");
+    if(await page.locator(`#detail article[data-id="${item}"] button[data-offer="allow"]`).count())throw new Error("the requester can decide another person’s approval");
     await card.getByRole("button", { name: /^Sign in to .+ again$/ }).waitFor({ timeout: T });
   }
   const said = await card.innerText();
