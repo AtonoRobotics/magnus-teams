@@ -75,8 +75,12 @@ fn review_tool() -> ToolSpec {
     }
 }
 
-fn document(a: &Action, destination: &Value, asked: &str, rules: &[String], standing: &str, finding: Option<&str>) -> String {
-    json!({ "action": { "tool": a.tool, "destination": destination, "content": a.input }, "outgoing_classifier_finding": finding, "what_the_person_asked": asked, "their_rules": rules, "standing": standing }).to_string()
+/// What Auto Review reads (spec rev 140: "the request, the action's target,
+/// effect and content, and the person's rules"). The effect is the tool's
+/// class: what the action does to the world, read, reversible or not.
+fn document(a: &Action, effect: &str, destination: &Value, asked: &str, rules: &[String], standing: &str, finding: Option<&str>) -> String {
+    json!({ "action": { "tool": a.tool, "effect": effect, "destination": destination, "content": a.input }, "outgoing_classifier_finding": finding, "what_the_person_asked": asked, "their_rules": rules, "standing": standing })
+        .to_string()
 }
 
 fn cache_key(person: &str, tool: &str, destination: &Value, content_hash: &str, taint: (bool, bool), rule_version: &str, standing: &str) -> String {
@@ -164,7 +168,7 @@ impl Kernel {
 
     /// What Auto Review says about one boundary action. Anything but a
     /// clear answer is an ask.
-    pub(crate) async fn auto_review(&self, a: &Action, run: &Run, shown: Option<&Shown>, content_hash: &str, standing: &str) -> Result<Verdict> {
+    pub(crate) async fn auto_review(&self, a: &Action, f: &Facts, run: &Run, shown: Option<&Shown>, content_hash: &str, standing: &str) -> Result<Verdict> {
         // A rewrite of a blocked message is judged again, told why the first
         // was blocked; the same message stays blocked.
         let standing = match crate::safety::resubmission(&a.run, &a.tool, content_hash) {
@@ -186,7 +190,7 @@ impl Kernel {
         let Some(finding) = self.outgoing_finding(a, run).await else {
             return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
         };
-        let doc = document(a, &destination, &asked, &rules, standing, finding.as_deref());
+        let doc = document(a, f.risk.as_str(), &destination, &asked, &rules, standing, finding.as_deref());
         if doc.len() > MAX_DOCUMENT_BYTES {
             return Ok(Verdict::Ask("the action is too large for Auto Review to read".to_string()));
         }
@@ -210,6 +214,17 @@ mod tests {
 
     fn review(decision: &str, reason: &str) -> Vec<Block> {
         vec![Block::ToolCall { id: "1".into(), name: "review".into(), input: json!({ "decision": decision, "reason": reason }) }]
+    }
+
+    /// Spec rev 140: Auto Review sees the action's target, effect and content.
+    #[test]
+    fn the_document_names_the_actions_effect() {
+        let a =
+            Action { run: "r".into(), call_id: "c".into(), step_id: "s".into(), tool: "mail__send".into(), input: json!({ "body": "hi" }), issuer: crate::boundary::Issuer::Model };
+        let doc: Value = serde_json::from_str(&document(&a, "irreversible", &json!("bob@corp.example"), "email bob", &[], "asked for by the person", None)).unwrap();
+        assert_eq!(doc["action"]["effect"], "irreversible", "{doc}");
+        assert_eq!(doc["action"]["destination"], "bob@corp.example");
+        assert_eq!(doc["action"]["content"]["body"], "hi");
     }
 
     #[test]
