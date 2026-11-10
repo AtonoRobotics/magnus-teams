@@ -10,8 +10,9 @@ const PINNED_EVERY_MS = 3000;
 /** What a takeover is for, as the request names it. */
 const TAKEOVER_REASONS = { sso: "A single sign-on", passkey: "A passkey", captcha: "A CAPTCHA", other_device: "An approval on another device", security_key: "A hardware security key", password_change: "A password change", other: "A step only you can do" };
 
-/** Set by "Take control" anywhere; the computer's screen takes over as it opens. */
-const Screen = { takeOnOpen: null, last: {}, looking: null };
+/** Set by "Take control" anywhere; the computer's screen takes over as it
+ * opens. `pinned` is the screen pinned beside the conversation, if one is. */
+const Screen = { takeOnOpen: null, pinned: null };
 
 const taskName = id => { const t = App.tasks.find(x => x.task_id === id); return t ? (t.title || firstLine(t.text || "") || "a task") : "a task"; };
 
@@ -47,40 +48,73 @@ function takeoverRequestCard(i) {
     <button data-item="${esc(i.id)}" data-decision="done">I did it another way</button><button data-item="${esc(i.id)}" data-decision="decline">Decline</button></div>`;
 }
 
-// The screen pinned beside the conversation: it streams while it is open.
+/** How far a wake has got, in words. */
+const WAKE_WORDS = { starting: "Waking: starting it", booting: "Waking: starting its desktop", restoring: "Waking: restoring your apps and files" };
+
+/**
+ * What the screen says over its last screenshot, or "" while it is live.
+ * @param {{ status: string, waking?: { phase: string }|null, queue_position?: number }} c
+ * @param {{ waking?: { phase: string }|null, at?: string|null }|null} shot
+ */
+function screenCaption(c, shot) {
+  const waking = shot?.waking || c.waking;
+  if (c.status === "paused") return "Paused by the kill switch. Resume it to use it again.";
+  if (c.status === "queued") return `Waiting for room on the server${c.queue_position ? `, number ${c.queue_position} in line` : ""}. It wakes as soon as there is room.`;
+  if (waking) return WAKE_WORDS[waking.phase] || "Waking";
+  if (c.status !== "running") return `Asleep. It wakes when the agent or you use it.${shot?.at ? ` Last seen ${when(shot.at)}.` : ""}`;
+  return "";
+}
+
+/**
+ * Who holds control and whether the agent is paused, in one sentence.
+ * @param {{ status: string, controller: string|null, driving?: Driving }} c
+ * @param {boolean} holding this view holds the stream
+ */
+function controlWords(c, holding) {
+  const mine = holding || (!!c.controller && c.controller === App.me?.id);
+  if (mine) return { who: "person", mine, text: "You have control. The agent is paused." };
+  if (c.controller) return { who: "person", mine, text: `${c.controller} has control. The agent is paused.` };
+  if (c.status === "paused") return { who: "no_one", mine, text: "No one has control. The agent is paused by the kill switch." };
+  if (c.driving?.request) return { who: "no_one", mine, text: "No one has control. The agent is paused: it asks you to take over." };
+  if (c.status === "running" && c.driving?.by === "agent") return { who: "agent", mine, text: "The agent has control. It is working." };
+  return { who: "no_one", mine, text: "No one has control. The agent is not paused." };
+}
+
+/** The strip above the screen, the same on the computer's page and pinned. */
+function controlStrip(c, holding) {
+  const w = controlWords(c, holding);
+  const act = w.mine ? `<button class="primary" data-done>I'm done</button>` : c.status === "paused" ? "" : `<button class="primary" data-take>Take control</button>`;
+  return `<span class="chip ${w.who === "person" ? "warn" : w.who === "agent" ? "good" : ""}" data-control="${w.who}">${esc(w.text)}</span><span class="grow"></span>${act}<button data-full title="Full screen" aria-label="Full screen">Full screen</button>`;
+}
+
+// The screen pinned beside the conversation: the same frame and strip as
+// the computer's page, so a person takes control here without leaving the
+// conversation. Its markup never changes with the computer's state, so a
+// redraw of the panel never cuts a takeover off.
 PANEL_TITLES.computer = "Computer";
 PANELS.computer = async id => {
   const c = await api("GET", `/v1/computers/${enc(id)}`);
-  const running = c.status === "running";
-  const body = `<div class="row" data-pinned="${esc(id)}">${drivingLine(c) || `<span class="chip">${esc(c.status)}</span>`}</div>${takeoverAsk(c)}
-    ${running ? `<div class="pinned-screen"><img data-pinned-screen alt="The computer's screen"${Screen.last[id] ? ` src="${Screen.last[id]}"` : ""}></div>` : `<p class="empty">Start this computer to see its screen.</p>`}
-    <div class="row">${running && !c.controller ? `<button class="primary" data-take-over="${esc(id)}">Take control</button>` : ""}<a class="small" href="#/computer/${enc(id)}/screen">Open full screen</a></div>`;
-  return { body, after: () => running && pinnedLook(id) };
+  if (c.status !== "paused") api("POST", `/v1/computers/${enc(id)}/wake`, {}).catch(() => { /* The screen says how it stands. */ });
+  const body = `<div data-pinned="${esc(id)}" class="pinned-screen"></div><div class="row"><a class="small" href="#/computer/${enc(id)}/screen">Open the computer</a></div>`;
+  const after = el => {
+    const host = $(`[data-pinned="${CSS.escape(id)}"]`, el);
+    if (!host) return;
+    Screen.pinned = computerScreen(host, c, `/v1/computers/${enc(id)}`, () => Panel.what === `computer:${id}` && host.isConnected, { ask: true });
+  };
+  return { body, after };
 };
 
-/** One look loop per pinned computer, while it is pinned. */
-async function pinnedLook(id) {
-  if (Screen.looking === id) return;
-  Screen.looking = id;
-  while (Panel.what === `computer:${id}`) {
-    try {
-      const { image_b64 } = await api("GET", `/v1/computers/${enc(id)}/screen`);
-      Screen.last[id] = `data:image/png;base64,${image_b64}`;
-      const img = $("[data-pinned-screen]");
-      if (img && Panel.what === `computer:${id}`) img.src = Screen.last[id];
-    } catch { /* The next look may work. */ }
-    await new Promise(r => setTimeout(r, PINNED_EVERY_MS));
-  }
-  Screen.looking = null;
-}
-
-// "Take control" from a card, a banner or the pinned screen: the computer
-// opens full size and the person takes it.
+// "Take control" from a card or a banner: the computer's own page takes it
+// in place; anywhere else the pinned screen opens beside the conversation
+// and takes it there.
 document.addEventListener("click", e => {
   const b = e.target.closest("[data-take-over]");
   if (!b) return;
   e.preventDefault();
-  Screen.takeOnOpen = b.dataset.takeOver;
-  const to = `#/computer/${enc(b.dataset.takeOver)}/screen`;
-  if (location.hash === to) showComputer($("#main"), b.dataset.takeOver, "screen"); else location.hash = to;
+  const id = b.dataset.takeOver;
+  Screen.takeOnOpen = id;
+  if (location.hash.startsWith(`#/computer/${enc(id)}`)) { showComputer($("#main"), id, "screen"); return; }
+  const pinned = Screen.pinned;
+  if (pinned?.c.id === id && pinned.alive()) { Screen.takeOnOpen = null; pinned.take(); return; }
+  openPanel(`computer:${id}`, { history: true, focus: true, opener: b });
 });

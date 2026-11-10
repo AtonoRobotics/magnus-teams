@@ -39,7 +39,7 @@ impl Kernel {
     pub(crate) async fn add_destination_tool(&self, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let run = self.read(|s| s.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("unknown run {}", a.run))?;
         let person = self.person(&run.person).ok_or_else(|| anyhow!("the run has no person"))?;
-        let Some(id) = self.run_computer(&person.id) else { return Ok(("You have no running computer.".to_string(), true, None)) };
+        let Some(id) = self.run_computer(&person.id) else { return Ok(("You have no computer.".to_string(), true, None)) };
         let host = a.input["host"].as_str().unwrap_or_default();
         if self.source_allowed_always(a, &person.id) {
             return Ok(match self.add_computer_destination(&person, &id, host).await {

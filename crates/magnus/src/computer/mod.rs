@@ -15,6 +15,7 @@ mod routes;
 mod service;
 mod sources;
 mod takeover;
+mod wake;
 
 pub(crate) use driving::request_spec;
 pub use egress::migrate_sql;

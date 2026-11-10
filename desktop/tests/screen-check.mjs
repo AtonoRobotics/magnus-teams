@@ -44,6 +44,7 @@ assert.match(sandbox.takeoverRequestCard({ id: "i1", can_respond: false, details
 assert.equal(sandbox.PANEL_TITLES.computer, "Computer");
 const { body } = await sandbox.PANELS.computer("c");
 assert.deepEqual(calls[0], ["GET", "/v1/computers/c"]);
-assert.match(body, /data-pinned-screen/, "the pinned panel shows no screen");
-assert.match(body, /The agent is using it/);
+assert.match(body, /data-pinned="c"/, "the pinned panel shows no screen");
+assert.deepEqual(calls[1], ["POST", "/v1/computers/c/wake"], "pinning a computer did not wake it");
+// Its strip, state and screen are drawn by computerScreen, checked in computer-panel-check.mjs.
 console.log("screen ok");

@@ -9,8 +9,9 @@ route(/^#\/computer\/([^/]+)(?:\/([a-z]+))?$/, (main, id, tab) => showComputer(m
 const stillAt = hash => location.hash === hash;
 const bytesOf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const b64Of = bytes => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
-const STATE_WORDS = { running: ["good", "Running"], stopped: ["", "Stopped"], hibernated: ["", "Asleep"], queued: ["", "Waiting to start"], paused: ["warn", "Paused"], killed: ["bad", "Destroyed: your files are kept"] };
-const stateChip = c => { const [cls, word] = STATE_WORDS[c.status] || ["", c.status]; return `<span class="chip ${cls}">${esc(word)}</span> ${drivingLine(c)}${c.driving?.request ? ` <span class="chip warn">The agent asks you to take over</span>` : ""}`; };
+// Asleep or stopped, any use wakes it: nobody starts a computer by hand.
+const STATE_WORDS = { running: ["good", "Running"], stopped: ["", "Asleep"], hibernated: ["", "Asleep"], queued: ["warn", "Waiting for room on the server"], paused: ["warn", "Paused"], killed: ["", "Reset: rebuilt when it is next used"] };
+const stateChip = c => { const [cls, word] = c.waking ? ["warn", "Waking"] : STATE_WORDS[c.status] || ["", c.status]; return `<span class="chip ${cls}">${esc(word)}</span> ${drivingLine(c)}${c.driving?.request ? ` <span class="chip warn">The agent asks you to take over</span>` : ""}`; };
 
 async function showComputers(main) {
   const hash = location.hash;
@@ -126,7 +127,7 @@ const COMPUTER_ACTS = {
     const choice = await chooseReset();
     if (!choice) return null;
     const r = await api("POST", `${base}/reset`, { keep_files: choice === "keep" });
-    toast(choice === "keep" ? "Reset. Start the computer to rebuild it; its apps are installed again." : "Reset. This is a new, empty computer.");
+    toast(choice === "keep" ? "Reset. It is rebuilt when it is next used, with its apps installed again." : "Reset. This is a new, empty computer.");
     return r.id;
   },
   delete: async (base) => {
@@ -161,9 +162,12 @@ async function showComputer(main, id, tab) {
   const hash = location.hash, base = `/v1/computers/${enc(id)}`, TABS = [["screen", "Screen"], ["files", "Files"], ["activity", "Activity"]];
   const c = await api("GET", base);
   if (!stillAt(hash)) return;
+  // Opening it is a use, and any use wakes it: there is no Start button
+  // (spec rev 131, Lifecycle). The kill switch's pause stays until Resume.
+  if (c.status !== "paused") api("POST", `${base}/wake`, {}).catch(() => { /* The screen says how it stands. */ });
   const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>Computer</h1><div class="row"><span data-state>${stateChip(c)}</span>
-    ${["stopped", "hibernated", "paused", "killed"].includes(c.status) ? `<button class="primary" data-act="start">${c.status === "paused" ? "Resume" : "Start"}</button>` : ""}
-    ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button><button data-open="computer:${esc(id)}">Pin beside the conversation</button>` : ""}
+    ${c.status === "paused" ? `<button class="primary" data-act="start">Resume</button>` : ""}
+    ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}<button data-open="computer:${esc(id)}">Pin beside the conversation</button>
     ${c.status === "running" ? `<button class="danger" data-act="pause" title="The kill switch: freezes the computer and takes back every access it was given">Pause now</button>` : ""}
     <button data-act="reset">Reset…</button><button class="link danger" data-act="delete">Delete computer…</button></div>
     ${takeoverAsk(c)}<nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
@@ -188,81 +192,117 @@ async function showComputer(main, id, tab) {
   computerScreen(body, c, base, hash);
 }
 
-function computerScreen(body, c, base, hash) {
-  if (c.status !== "running") { body.innerHTML = `<p class="empty">Start this computer to see its screen.</p>`; return; }
-  // One frame for the screen, whoever drives (spec rev 131): the preview
-  // and the live display share it, and taking or handing back control never
-  // empties it.
-  body.innerHTML = `<div class="row" data-screen-bar></div><div class="screen"><img id="preview" alt="The computer's screen" title="Click to take control"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas></div><p class="small bad" id="display-error" hidden></p>`;
-  const view = { looking: true };
+/**
+ * The computer's screen with its control strip, on its page and pinned
+ * beside the conversation alike (spec rev 131, User takeover and handback).
+ * One frame holds the last screenshot, the live preview and the person's
+ * own stream: it shows something whether the computer sleeps, wakes, works
+ * or is in their hands, and taking or handing back control never empties
+ * it. The strip always says who holds control and whether the agent is
+ * paused, with Take control or I'm done, and Full screen.
+ * @param {HTMLElement} body
+ * @param {object} c the computer, as the server shows it
+ * @param {string} base
+ * @param {string|(() => boolean)} alive the page's hash, or whether the view is still shown
+ * @param {{ ask?: boolean }} [opts] ask: show the agent's takeover request here too
+ */
+function computerScreen(body, c, base, alive, opts = {}) {
+  if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
+  body.innerHTML = `<div class="row control-strip" data-screen-bar role="status"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen" title="Click to take control"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><p class="screen-caption" data-caption hidden></p></div><p class="small bad" id="display-error" hidden></p>`;
+  const preview = $("#preview", body);
+  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "" };
+  const take = async () => {
+    if (view.holding) return;
+    view.holding = true;
+    caption(view.c.status === "running" ? "" : "Waking it so you can take control");
+    let grant;
+    try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { view.holding = false; strip(); return toast(e.message); }
+    takeOver(body, view.c.id, base, grant, view, strip);
+  };
+  const handBack = async () => { try { await api("POST", `${base}/handback`, {}); toast("Handed back. The agent carries on."); } catch (e) { toast(e.message); } };
+  const caption = words => { const p = $("[data-caption]", body); if (p) { p.hidden = !words; p.textContent = words; } const f = $("[data-screen]", body); if (f) f.className = words ? "screen asleep" : "screen"; };
+  const strip = () => {
+    const bar = $("[data-screen-bar]", body);
+    if (!bar) return;
+    const html = controlStrip(view.c, view.holding);
+    if (html !== view.bar) { view.bar = html; bar.innerHTML = html; }
+    const t = $("[data-take]", body), d = $("[data-done]", body), f = $("[data-full]", body), ask = $("[data-ask-host]", body);
+    if (t) t.onclick = take;
+    if (d) d.onclick = () => view.done ? view.done() : handBack();
+    if (f) f.onclick = () => fullScreen($("[data-screen]", body));
+    if (ask) ask.innerHTML = takeoverAsk(view.c);
+    preview.onclick = view.holding || view.c.status === "paused" ? null : take;
+  };
+  view.strip = strip;
+  view.take = take;
+  // One look loop: the computer's state for the strip, and while no live
+  // stream is drawing, the screen (or, asleep, its last screenshot).
   const look = async () => {
-    while (view.looking && stillAt(hash)) {
-      try { const { image_b64 } = await api("GET", `${base}/screen`); if (view.looking) { const img = $("#preview", body); if (img) img.src = `data:image/png;base64,${image_b64}`; } } catch { /* The next look may work. */ }
+    view.looking = true;
+    while (view.alive()) {
+      try {
+        const [now, shot] = await Promise.all([api("GET", base).catch(() => null), view.live ? null : api("GET", `${base}/screen`)]);
+        if (now?.status) view.c = now;
+        if (shot?.status) view.c = { ...view.c, status: shot.status, waking: shot.waking };
+        if (shot?.image_b64 && !view.live) preview.src = `data:image/png;base64,${shot.image_b64}`;
+        strip();
+        if (!view.holding || view.c.status !== "running") caption(screenCaption(view.c, shot));
+      } catch { /* The next look may work. */ }
       await new Promise(r => setTimeout(r, PREVIEW_EVERY_MS));
     }
+    view.looking = false;
+    view.leave?.();
   };
-  const take = async () => {
-    let grant;
-    try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { return toast(e.message); }
-    takeOver(body, c.id, base, grant, hash, view, idle);
-  };
-  const idle = () => {
-    $("[data-screen-bar]", body).innerHTML = `<button class="primary" data-take>Take control</button>`;
-    $("[data-take]", body).onclick = take;
-    $("#preview", body).onclick = take;
-    if (!view.looking) { view.looking = true; look(); }
-  };
-  view.looking = false;
-  idle();
+  strip();
+  caption(screenCaption(c, null));
+  look();
   // Asked for from a card, a banner or the pinned screen.
   if (Screen.takeOnOpen === c.id) { Screen.takeOnOpen = null; take(); }
+  return view;
+}
+
+function fullScreen(frame) {
+  if (!frame) return;
+  if (document.fullscreenElement) document.exitFullscreen?.(); else frame.requestFullscreen?.().catch?.(() => toast("Full screen is not available here."));
 }
 
 // The person drives in the same frame until they say they are done. The
 // last preview stays until the stream draws its first frame, and comes back
 // if the stream fails, so the screen never disappears (2026-11-09: it went
 // blank on takeover).
-function takeOver(body, id, base, grant, hash, view, idle) {
-  $("[data-screen-bar]", body).innerHTML = `<span class="small muted">You have control. The agent is paused.</span><button class="primary" data-done>I'm done</button>`;
+function takeOver(body, id, base, grant, view, strip) {
   const preview = $("#preview", body), canvas = $("#display", body), ctx = canvas.getContext("2d");
-  preview.onclick = null;
-  let link, ended = false, painted = false;
-  const showLive = live => { canvas.hidden = !live; preview.hidden = live; };
+  view.holding = true;
+  view.c = { ...view.c, status: "running", controller: App.me?.id || view.c.controller, waking: null };
+  $("[data-caption]", body).hidden = true;
+  $("[data-screen]", body).className = "screen";
+  let link, ended = false;
+  const showLive = live => { view.live = live; canvas.hidden = !live; preview.hidden = live; };
   const failed = message => {
     const p = $("#display-error", body);
     if (p) { p.hidden = false; p.textContent = message; }
     showLive(false);
-    if (!view.looking) { view.looking = true; idleLook(); }
-  };
-  // While the stream has drawn nothing the preview keeps refreshing.
-  const idleLook = () => {
-    view.looking = false;
-    const again = async () => {
-      view.looking = true;
-      while (view.looking && !painted && stillAt(hash)) {
-        try { const { image_b64 } = await api("GET", `${base}/screen`); if (view.looking && !painted) preview.src = `data:image/png;base64,${image_b64}`; } catch { /* The next look may work. */ }
-        await new Promise(r => setTimeout(r, PREVIEW_EVERY_MS));
-      }
-    };
-    again();
   };
   const rfb = new Rfb({
     send: b => link.send(b),
     onSize: (w, h) => { canvas.width = w; canvas.height = h; },
     onRect: (x, y, w, h, rgba) => {
       ctx.putImageData(new ImageData(rgba, w, h), x, y);
-      if (!painted) { painted = true; view.looking = false; showLive(true); canvas.focus(); }
+      if (!view.live) { showLive(true); canvas.focus(); }
     },
     onCopy: (x, y, w, h, fromX, fromY) => ctx.drawImage(canvas, fromX, fromY, w, h, x, y, w, h),
     onError: failed,
   });
+  const gone = () => { if (!view.alive()) leave(); };
   const leave = async () => {
     if (ended) return;
     ended = true;
-    window.removeEventListener("hashchange", leave);
+    window.removeEventListener("hashchange", gone);
+    view.leave = null;
     link.close();
     try { await api("POST", `${base}/handback`, {}); toast("Handed back. The agent carries on."); } catch (e) { toast(e.message); }
   };
+  view.leave = leave;
   link = Magnus.displayOpen(id, grant.ticket, grant.protocol_prefix, b => rfb.feed(b), reason => { if (!ended) failed(reason || "The connection to the screen ended."); });
   const at = e => { const r = canvas.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * canvas.width / r.width), Math.round((e.clientY - r.top) * canvas.height / r.height)]; };
   const mask = e => (e.buttons & 1) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
@@ -271,14 +311,17 @@ function takeOver(body, id, base, grant, hash, view, idle) {
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => { if (rfb.key(e.key, down)) e.preventDefault(); });
   // Handing back keeps the last frame on screen as the preview.
-  $("[data-done]", body).onclick = async () => {
+  view.done = async () => {
     await leave();
-    if (painted) { try { preview.src = canvas.toDataURL(); } catch { /* The next look replaces it. */ } }
+    if (view.live) { try { preview.src = canvas.toDataURL(); } catch { /* The next look replaces it. */ } }
     showLive(false);
-    view.looking = false;
-    if (stillAt(hash)) idle();
+    view.holding = false;
+    view.done = null;
+    view.c = { ...view.c, controller: null };
+    if (view.alive()) strip();
   };
-  window.addEventListener("hashchange", leave);
+  window.addEventListener("hashchange", gone);
+  strip();
 }
 
 // ---------- the file explorer ----------

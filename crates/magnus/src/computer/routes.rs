@@ -27,6 +27,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers", get(list).post(create))
         .route("/v1/computers/{id}", get(one))
         .route("/v1/computers/{id}/start", post(start))
+        .route("/v1/computers/{id}/wake", post(wake))
         .route("/v1/computers/{id}/kill", post(kill))
         .route("/v1/computers/{id}/reset", post(reset))
         .route("/v1/computers/{id}/grants", post(grant))
@@ -131,6 +132,11 @@ async fn one(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
 async fn start(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     let p = person!(k, h);
     answered(k.start_computer(&p, &id).await)
+}
+
+async fn wake(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
+    let p = person!(k, h);
+    answered(k.wake_computer(&p, &id))
 }
 
 #[derive(Deserialize)]

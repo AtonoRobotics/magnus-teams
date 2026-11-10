@@ -159,7 +159,7 @@ impl Kernel {
             return Err(Refused::Invalid("that is not a file name".into()));
         }
         let file = self.outside_attachment(task, name).ok_or(Refused::NotFound("attachment"))?;
-        let computer = self.run_computer(&who.id).ok_or_else(|| Refused::Conflict("your computer is not running".into()))?;
+        let computer = self.run_computer(&who.id).ok_or_else(|| Refused::Conflict("you have no computer".into()))?;
         let path = format!("{SAVED_UNDER}/{name}");
         self.write_computer_file(who, &computer, &path, file["data_b64"].as_str().unwrap_or_default()).await?;
         Ok(json!({ "path": path }))

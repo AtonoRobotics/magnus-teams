@@ -96,6 +96,7 @@ impl Kernel {
             let shown = |c: &Computer| {
                 let mut v = json!(c);
                 v["driving"] = super::driving::driving(s, c);
+                v["waking"] = json!(super::wake::waking(&c.id));
                 if let Some(i) = queue.iter().position(|q| *q == c.id) {
                     v["queue_position"] = json!(i + 1);
                 }
@@ -110,6 +111,7 @@ impl Kernel {
         let (position, driving) = self.read(|s| (s.computers.queue().iter().position(|q| q.id == id), super::driving::driving(s, &c)));
         let mut v = json!(c);
         v["driving"] = driving;
+        v["waking"] = json!(super::wake::waking(id));
         if let Some(i) = position {
             v["queue_position"] = json!(i + 1);
         }
@@ -136,24 +138,23 @@ impl Kernel {
             }
             Status::Stopped | Status::Hibernated | Status::Killed => {}
         }
+        if !super::wake::claim(id) {
+            return Err(Refused::Conflict("the computer is already waking".into()));
+        }
         // Wake boots cold when there is no snapshot it can use.
-        let woke = match client::ask(&socket, json!({ "op": "wake", "id": id })).await {
-            Ok(v) => v,
-            Err(e) if client::at_capacity(&e) => {
-                self.record_computer(who, Change::Queued { id: id.into() }).await?;
-                let position = self.read(|s| s.computers.queue().len());
-                return Ok(json!({ "status": "queued", "queue_position": position }));
-            }
-            Err(e) => return Err(failed(e)),
-        };
-        self.record_computer(who, Change::Started { id: id.into() }).await?;
-        wait_for_guest(&socket, id).await.map_err(failed)?;
-        self.after_boot(&socket, id, &woke).await;
-        Ok(json!({ "status": "running", "resumed": woke["resumed"], "replayed": woke["overlay_fresh"] }))
+        self.wake_claimed(id, &format!("person:{}", who.id)).await
+    }
+
+    /// Opening a computer's screen or files wakes it, as any use does; the
+    /// person does not wait for the wake, and sees it go.
+    pub fn wake_computer(self: &Arc<Self>, who: &Person, id: &str) -> Result<Value, Refused> {
+        let c = self.opened_computer(who, id).or_else(|_| self.controlled_computer(who, id))?;
+        self.wake_in_background(id, &format!("person:{}", who.id));
+        Ok(json!({ "status": c.status, "waking": super::wake::waking(id) }))
     }
 
     /// A new overlay has none of the computer's apps yet.
-    async fn after_boot(&self, socket: &Path, id: &str, woke: &Value) {
+    pub(super) async fn after_boot(&self, socket: &Path, id: &str, woke: &Value) {
         if woke["resumed"] != true {
             // On every cold boot, so a CA change reaches an overlay that stayed.
             if let Err(e) = self.trust_computer_ca(socket, id).await {
@@ -287,6 +288,7 @@ impl Kernel {
         // The log has forgotten it, so its secrets go now, whatever the VM does.
         if delete_volume {
             super::lifecycle::forget_secrets(&self.vault, id).map_err(failed)?;
+            super::wake::forget_screen(id);
         }
         let req = match mode {
             KillMode::Pause if c.status == Status::Running => json!({ "op": "pause", "id": id }),
@@ -339,6 +341,10 @@ impl Kernel {
     /// is zeroed once the computer goes idle, where filling it harms no one.
     /// The host gets those blocks back as soon as the VM has stopped.
     pub(super) async fn zero_and_hibernate(&self, socket: &Path, c: &Computer) -> anyhow::Result<()> {
+        // Kept to show while it sleeps and wakes again.
+        if let Err(e) = super::wake::screenshot(socket, &c.id).await {
+            tracing::warn!("computer {}: no screenshot was kept before it slept: {e:#}", c.id);
+        }
         let zeroed = self.zero_deleted_blocks(socket, c).await;
         client::ask(socket, json!({ "op": "hibernate", "id": c.id })).await?;
         if zeroed {
@@ -451,21 +457,33 @@ pub fn schedule(k: Arc<Kernel>) {
             tick.tick().await;
             let next = k.read(|s| s.computers.queue().first().map(|c| c.id.clone()));
             let Some(id) = next else { continue };
+            if !super::wake::claim(&id) {
+                continue;
+            }
             match client::ask(&socket, json!({ "op": "wake", "id": id })).await {
                 Ok(woke) => {
                     if let Err(e) = k.emit("kernel", Ev::Computer(Change::Started { id: id.clone() })).await {
                         tracing::warn!("computer {id} started but could not be recorded: {e:#}");
                     }
+                    super::wake::set_phase(&id, super::wake::Phase::Booting);
                     let (k, socket) = (k.clone(), socket.clone());
                     tokio::spawn(async move {
                         match wait_for_guest(&socket, &id).await {
-                            Ok(()) => k.after_boot(&socket, &id, &woke).await,
+                            Ok(()) => {
+                                super::wake::set_phase(&id, super::wake::Phase::Restoring);
+                                k.after_boot(&socket, &id, &woke).await;
+                            }
                             Err(e) => tracing::warn!("computer {id} did not come up from the queue: {e:#}"),
                         }
+                        super::wake::release(&id);
                     });
                 }
-                Err(e) if client::at_capacity(&e) => {}
-                Err(e) => tracing::warn!("computer {id} could not start from the queue: {e:#}"),
+                Err(e) => {
+                    super::wake::release(&id);
+                    if !client::at_capacity(&e) {
+                        tracing::warn!("computer {id} could not start from the queue: {e:#}");
+                    }
+                }
             }
         }
     });

@@ -87,7 +87,7 @@ impl Kernel {
                 return Some("this run read data only its requester may see, and that never reaches the team's computer".to_string());
             }
             if self.team_computer(&t.workspace).is_none() {
-                return Some("this workspace has no computer running".to_string());
+                return Some("this workspace has no computer".to_string());
             }
         }
         (!in_team_run(&a.tool)).then(|| format!("{} is personal to a member and does not serve a team thread", a.tool))

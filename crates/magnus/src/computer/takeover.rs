@@ -5,6 +5,7 @@
 //! itself is reached with a short-lived, single-use ticket carried in a
 //! WebSocket subprotocol, never in a URL. Only the ticket's hash is kept.
 use super::service::failed;
+use super::wake::{act_and_capture, screenshot, Woken};
 use super::{client, Activity, Change, Computer, Ledger, OperatorSession, Owner, Status};
 use crate::config::Person;
 use crate::controls::Refused;
@@ -17,7 +18,6 @@ use rand::RngCore;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -26,8 +26,6 @@ const TICKET_BYTES: usize = 32;
 const MAX_LIVE_TICKETS: usize = 1024;
 pub(super) const TICKET_PROTOCOL_PREFIX: &str = "magnus.ticket.";
 pub(super) const DISPLAY_PROTOCOL: &str = "magnus.display";
-const SCREENSHOT_PATH: &str = "/tmp/magnus-shot.png";
-const CAPTURE_TIMEOUT_SECONDS: u64 = 60;
 const MAX_OPERATOR_MINUTES: i64 = 8 * 60;
 
 struct Ticket {
@@ -139,16 +137,16 @@ impl Kernel {
         self.read(|s| s.computers.get(id).filter(|c| c.role == super::Role::Computer && may_open(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
-    /// The running computer a person's run acts on, if they have one.
+    /// The computer a person's run acts on, if they have one: awake, or
+    /// asleep and woken by the use.
     pub(crate) fn run_computer(&self, person: &str) -> Option<String> {
-        self.read(|s| {
-            s.computers.all().find(|c| c.role == super::Role::Computer && c.status == Status::Running && c.owner == Owner::Person(person.to_string())).map(|c| c.id.clone())
-        })
+        let owner = Owner::Person(person.to_string());
+        self.read(|s| super::wake::pick(s.computers.all(), &owner))
     }
 
     pub(crate) fn team_computer(&self, workspace: &str) -> Option<String> {
         let owner = Owner::Workspace(workspace.to_string());
-        self.read(|s| s.computers.all().find(|c| c.role == super::Role::Computer && c.status == Status::Running && c.owner == owner).map(|c| c.id.clone()))
+        self.read(|s| super::wake::pick(s.computers.all(), &owner))
     }
 
     /// The computer a run acts on: its team's on a team request, its person's otherwise.
@@ -178,22 +176,8 @@ impl Kernel {
         uses && self.read(|s| s.computers.all().any(|c| Some(&c.id) == mine.as_ref() && c.controller.is_some()))
     }
 
-    async fn capture(&self, socket: &Path, id: &str) -> Result<String> {
-        self.act_and_capture(socket, id, "computer_screenshot", &json!({})).await
-    }
-
-    async fn act_and_capture(&self, socket: &Path, id: &str, tool: &str, input: &Value) -> Result<String> {
-        let command = crate::boundary::computer_command(tool, input)?;
-        let done = client::guest(socket, id, json!({ "op": "exec", "command": command, "timeout_s": CAPTURE_TIMEOUT_SECONDS })).await?;
-        if done["exit_code"] != json!(0) {
-            return Err(anyhow!("the desktop action failed: {}", done["stderr"].as_str().unwrap_or_default()));
-        }
-        let shot = client::guest(socket, id, json!({ "op": "read", "path": SCREENSHOT_PATH })).await?;
-        shot["data_b64"].as_str().map(String::from).ok_or_else(|| anyhow!("the computer did not return its screen"))
-    }
-
-    /// A desktop tool on the person's computer. `None`: they have none
-    /// running, and it goes to the run's own sandbox.
+    /// A desktop tool on the person's computer, woken for it if it sleeps.
+    /// `None`: they have no computer, and it goes to the run's own sandbox.
     pub(crate) async fn computer_tool(&self, run: &str, tool: &str, input: &Value) -> Result<Option<(String, bool, Option<Value>)>> {
         if tool == super::driving::REQUEST_TOOL {
             return self.request_takeover(run, input).await.map(Some);
@@ -203,13 +187,23 @@ impl Kernel {
         if held {
             return Ok(Some(("A person has control of this computer, so this was refused. Wait until they hand it back.".to_string(), true, None)));
         }
+        match self.wake_for_use(&id, &format!("run:{run}")).await {
+            Ok(Woken::Ready) => {}
+            Ok(Woken::Queued(n)) => return Ok(Some((format!("Your computer is waiting for room on the server (number {n} in line). Try again in a minute."), true, None))),
+            Err(e) => return Ok(Some((format!("Your computer could not wake: {e}"), true, None))),
+        }
         super::idle::touch(&id);
         let socket = self.computer_socket().map_err(|e| anyhow!("{e}"))?;
-        let image = self.act_and_capture(&socket, &id, tool, input).await?;
+        let image = act_and_capture(&socket, &id, tool, input).await?;
         Ok(Some(("Screenshot of your computer attached.".to_string(), false, Some(json!({ "image_b64": image })))))
     }
 
+    /// Taking control wakes a sleeping computer first.
     pub async fn start_takeover(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        self.opened_computer(who, id)?;
+        if let Woken::Queued(n) = self.wake_for_use(id, &format!("person:{}", who.id)).await? {
+            return Err(Refused::Conflict(format!("the computer is waiting for room on the server, number {n} in line")));
+        }
         let c = self.opened_computer(who, id)?;
         if c.status != Status::Running {
             return Err(Refused::Conflict("only a running computer can be taken over".into()));
@@ -240,7 +234,7 @@ impl Kernel {
             return Err(Refused::Conflict("no one holds this computer".into()));
         }
         let socket = self.computer_socket()?;
-        let frame = self.capture(&socket, id).await.ok();
+        let frame = screenshot(&socket, id).await.ok();
         let runs: Vec<(String, u32)> = self.read(|s| {
             runs_on(s, &c.owner)
                 .filter(|r| r.status == crate::state::Status::Suspended && matches!(r.reason.as_deref(), Some("takeover" | super::driving::REQUEST_REASON)))
@@ -320,15 +314,18 @@ impl Kernel {
     }
 
     /// A look at the screen, for the person. It is no use of the computer,
-    /// so it does not keep it awake.
+    /// so it neither keeps it awake nor wakes it. While it sleeps or wakes
+    /// the answer is its last screenshot and how far the wake has got.
     pub async fn computer_preview(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let c = self.opened_computer(who, id)?;
-        if c.status != Status::Running {
-            return Err(Refused::Conflict("the computer is not running".into()));
+        let waking = super::wake::waking(id);
+        if c.status != Status::Running || waking.is_some() {
+            let (image, at) = super::wake::last_screen(id).map_or((None, None), |(i, at)| (Some(i), Some(at)));
+            return Ok(json!({ "image_b64": image, "at": at, "status": c.status, "waking": waking, "last": true }));
         }
         let socket = self.computer_socket()?;
-        let image = self.capture(&socket, id).await.map_err(failed)?;
-        Ok(json!({ "image_b64": image }))
+        let image = screenshot(&socket, id).await.map_err(failed)?;
+        Ok(json!({ "image_b64": image, "status": c.status }))
     }
 
     pub async fn operator_screen(&self, who: &Person, id: &str) -> Result<Value, Refused> {
@@ -337,7 +334,7 @@ impl Kernel {
             return Err(Refused::Conflict("the computer is not running".into()));
         }
         let socket = self.computer_socket()?;
-        let image = self.capture(&socket, id).await.map_err(failed)?;
+        let image = screenshot(&socket, id).await.map_err(failed)?;
         Ok(json!({ "image_b64": image }))
     }
 

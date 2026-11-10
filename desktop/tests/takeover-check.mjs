@@ -4,63 +4,17 @@
 // stayed empty when the stream was slow or failed. computers.js runs here
 // against a small fake page, with the stream stubbed.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import vm from "node:vm";
+import { load, settle } from "./fake-screen.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
-
-// Elements the markup names (by id or data attribute), kept per page, so a
-// lookup finds what is on the page now and a replaced element is gone.
-class El {
-  constructor(page, tag, attrs) {
-    this.page = page; this.tag = tag; this.hidden = / hidden(\s|$|>)/.test(` ${attrs}`); this.src = ""; this.onclick = null; this.textContent = "";
-    this.width = 0; this.height = 0;
-  }
-  // Redrawing the page's body throws away everything that was on it.
-  set innerHTML(html) { this.html = html; if (this === this.page.body) this.page.els = {}; this.page.parse(html); }
-  get innerHTML() { return this.html; }
-  getContext() { return { putImageData() {}, drawImage() {} }; }
-  toDataURL() { return "data:frame"; }
-  focus() {}
-  addEventListener() {}
-  getBoundingClientRect() { return { left: 0, top: 0, width: 1, height: 1 }; }
-}
-class Page {
-  constructor() { this.els = {}; this.body = new El(this, "div", ""); }
-  parse(html) {
-    for (const [, tag, attrs] of html.matchAll(/<(\w+)([^>]*)>/g)) {
-      const el = new El(this, tag, attrs);
-      const id = attrs.match(/\bid="([^"]+)"/);
-      if (id) this.els[`#${id[1]}`] = el;
-      for (const [, name] of attrs.matchAll(/\b(data-[a-z-]+)/g)) this.els[`[${name}]`] = el;
-    }
-  }
-}
-const page = new Page();
-let rfb = null, closed = null;
-const calls = [];
-const sandbox = {
-  UI: {}, route: () => {}, location: { hash: "#/computer/c/screen" },
-  window: { addEventListener() {}, removeEventListener() {} }, document: { addEventListener() {} },
-  esc: s => String(s ?? ""), enc: encodeURIComponent, toast: () => {}, paint: () => {}, drivingLine: () => "", takeoverAsk: () => "",
-  Screen: { takeOnOpen: null },
-  $: sel => page.els[sel],
-  setTimeout: () => 0,
-  api: async (method, path) => {
-    calls.push(`${method} ${path}`);
-    if (path.endsWith("/screen")) return { image_b64: "LAST" };
+const { page, calls, stream, sandbox } = load({
+  reply: (method, path) => {
+    if (path.endsWith("/screen")) return { image_b64: "LAST", status: "running" };
     if (path.endsWith("/takeover")) return { ticket: "t", protocol_prefix: "p" };
     return {};
   },
-  Magnus: { displayOpen: (id, ticket, prefix, feed, onClose) => { closed = onClose; return { send() {}, close() {} }; } },
-  Rfb: class { constructor(o) { rfb = o; } feed() {} },
-  ImageData: class { constructor() {} },
-};
-sandbox.globalThis = sandbox;
-vm.runInNewContext(readFileSync(join(here, "../ui/computers.js"), "utf8"), sandbox);
-const settle = () => new Promise(r => setImmediate(r));
+});
+const rfb = new Proxy({}, { get: (_, k) => stream.rfb[k] });
+const closed = reason => stream.closed(reason);
 
 sandbox.computerScreen(page.body, { id: "c", status: "running" }, "/v1/computers/c", "#/computer/c/screen");
 await settle();
@@ -105,4 +59,10 @@ closed("The connection to the screen ended.");
 assert.equal(preview.hidden, false, "a failed stream left no screen");
 assert.equal(page.els["#display"].hidden, true);
 assert.equal(page.els["#display-error"].hidden, false);
+
+// The live display can fill the screen, and the strip offers it throughout.
+assert.ok(page.els["[data-full]"], "no Full screen");
+await page.els["[data-full]"].onclick();
+assert.equal(page.els["[data-screen]"].fullScreens, 1, "Full screen did not fill the screen with the display");
+assert.equal(page.els["#preview"], preview, "going full screen replaced the screen");
 console.log("takeover ok");
