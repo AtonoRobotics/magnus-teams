@@ -7,6 +7,7 @@ mod client;
 mod egress;
 mod identity;
 mod idle;
+mod lifecycle;
 mod routes;
 mod service;
 mod takeover;

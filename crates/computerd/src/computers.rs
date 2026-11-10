@@ -352,6 +352,11 @@ impl Computers {
         self.remove_network(id);
         let dir = self.computer(id);
         if delete_volume {
+            {
+                // Its backups hold the same files, so they go with them.
+                let _one_at_a_time = self.backing_up.lock().unwrap_or_else(|e| e.into_inner());
+                remove_if_there(&self.state("backups").join(id.as_str()))?;
+            }
             std::fs::remove_dir_all(&dir).context("delete the computer")
         } else {
             self.discard_snapshot_locked(id)?;
@@ -547,6 +552,32 @@ mod tests {
         assert!(cgroups.contains(&"cpu.max=150000 100000"), "{cgroups:?}");
         assert!(cgroups.contains(&"pids.max=128"), "{cgroups:?}");
         assert!(after(&args, "--resource-limit").contains(&"fsize=21474836480"));
+    }
+
+    #[test]
+    fn deleting_a_computer_deletes_its_backups_and_a_reset_keeps_them() {
+        use std::os::unix::fs::MetadataExt;
+        let state = tempfile::tempdir().unwrap();
+        let mut cfg = config();
+        cfg.state_dir = state.path().into();
+        let mut c = Computers::new(cfg);
+        c.cgroups = state.path().join("no-cgroups");
+        let uid = std::fs::metadata(state.path()).unwrap().uid();
+        for name in ["abc", "abd"] {
+            let id = ComputerId::parse(name).unwrap();
+            std::fs::create_dir_all(c.computer(&id)).unwrap();
+            std::fs::write(c.computer(&id).join("meta.json"), json!({ "uid": uid }).to_string()).unwrap();
+            std::fs::write(c.computer(&id).join(OVERLAY), b"system").unwrap();
+            std::fs::create_dir_all(state.path().join("backups").join(name)).unwrap();
+            std::fs::write(state.path().join("backups").join(name).join("key"), b"k").unwrap();
+        }
+        c.destroy(&ComputerId::parse("abd").unwrap(), false).unwrap();
+        assert!(state.path().join("backups/abd/key").exists(), "a reset that keeps the files lost their backups");
+        assert!(!state.path().join("computers/abd").join(OVERLAY).exists(), "a reset kept the old system");
+        c.destroy(&ComputerId::parse("abc").unwrap(), true).unwrap();
+        assert!(!state.path().join("backups/abc").exists(), "a deleted computer's backups were kept");
+        assert!(!state.path().join("computers/abc").exists());
+        assert!(state.path().join("backups/abd/key").exists(), "another computer's backups went");
     }
 
     #[test]

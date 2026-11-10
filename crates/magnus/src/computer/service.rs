@@ -270,6 +270,10 @@ impl Kernel {
         // Last, because deleting the volume forgets the computer.
         evs.push((actor.as_str(), Ev::Computer(Change::Killed { id: id.into(), mode, delete_volume })));
         self.emit_all(evs).await.map_err(failed)?;
+        // The log has forgotten it, so its secrets go now, whatever the VM does.
+        if delete_volume {
+            super::lifecycle::forget_secrets(&self.vault, id).map_err(failed)?;
+        }
         let req = match mode {
             KillMode::Pause if c.status == Status::Running => json!({ "op": "pause", "id": id }),
             KillMode::Pause => return Ok(json!({ "revoked": revoked })),
@@ -420,6 +424,7 @@ pub fn schedule(k: Arc<Kernel>) {
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(super::egress::serve(k.clone(), socket.clone()));
     super::idle::schedule(k.clone());
+    k.sweep_computer_secrets();
     tokio::spawn(async move {
         let killed: Vec<String> = k.read(|s| s.computers.all().filter(|c| c.status == Status::Killed).map(|c| c.id.clone()).collect());
         for id in killed {

@@ -127,6 +127,7 @@ impl Kernel {
         let _ = self.vault.remove(&seal_key_name(id));
         let _ = self.vault.remove(&password_name(id));
         let _ = self.vault.remove(&username_name(id));
+        let _ = super::lifecycle::forget_secrets(&self.vault, id);
         Ok(json!({ "deleted": id }))
     }
 

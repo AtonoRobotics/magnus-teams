@@ -9,7 +9,7 @@ route(/^#\/computer\/([^/]+)(?:\/([a-z]+))?$/, (main, id, tab) => showComputer(m
 const stillAt = hash => location.hash === hash;
 const bytesOf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const b64Of = bytes => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
-const STATE_WORDS = { running: ["good", "Running"], stopped: ["", "Stopped"], hibernated: ["", "Asleep"], queued: ["", "Waiting to start"], paused: ["warn", "Paused"], killed: ["bad", "Stopped for good"] };
+const STATE_WORDS = { running: ["good", "Running"], stopped: ["", "Stopped"], hibernated: ["", "Asleep"], queued: ["", "Waiting to start"], paused: ["warn", "Paused"], killed: ["bad", "Destroyed: your files are kept"] };
 const stateChip = c => { const [cls, word] = STATE_WORDS[c.status] || ["", c.status]; return `<span class="chip ${cls}">${esc(word)}</span>${c.controller ? ` <span class="chip warn">${esc(c.controller)} has control</span>` : ""}`; };
 
 async function showComputers(main) {
@@ -75,20 +75,71 @@ async function thisComputerAction(b, main) {
 
 // ---------- one computer ----------
 
+// What each control on a computer does. Each returns the computer to show
+// next: the same id, another one, "" for the list, or null to stay as it is.
+const COMPUTER_ACTS = {
+  start: async (base, id) => { await api("POST", `${base}/start`, {}); return id; },
+  hibernate: async (base, id) => { await api("POST", `${base}/hibernate`, {}); return id; },
+  // The kill switch: one step and no question, so it is as fast as it can be.
+  pause: async (base, id) => {
+    const r = await api("POST", `${base}/kill`, { mode: "pause" });
+    toast(`Paused. ${accessWord(r.revoked)} taken back. Resume when you are ready.`);
+    return id;
+  },
+  reset: async (base, id) => {
+    const choice = await chooseReset();
+    if (!choice) return null;
+    const r = await api("POST", `${base}/reset`, { keep_files: choice === "keep" });
+    toast(choice === "keep" ? "Reset. Start the computer to rebuild it; its apps are installed again." : "Reset. This is a new, empty computer.");
+    return r.id;
+  },
+  delete: async (base) => {
+    const sure = await ask("Delete this computer? It is stopped and everything on it is lost for good: your files in /workspace, its installed apps, its snapshots and backups, and every password and token the vault keeps for it. Any access it was given is taken back. This cannot be undone.", "Delete it and everything on it");
+    if (!sure) return null;
+    await api("POST", `${base}/kill`, { mode: "destroy", delete_volume: true });
+    toast("The computer and everything on it are deleted.");
+    return "";
+  },
+};
+const accessWord = n => n === 1 ? "1 access was" : n ? `${n} accesses were` : "No access was";
+
+// Reset asks which way: keep the person's files, or erase them too.
+function chooseReset() {
+  return new Promise(done => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    d.innerHTML = `<h3>Reset this computer?</h3>
+      <p>The computer is stopped and put back to a fresh system. Running programs, anything the agent changed outside your files, and every access it was given are lost. Its apps are installed again when it next starts.</p>
+      <p>You choose what happens to your files in /workspace:</p>
+      <div class="row"><button data-ask="no">Back</button><button class="primary" data-ask="keep">Reset and keep my files</button><button class="danger" data-ask="erase">Reset and erase my files</button></div>
+      <p class="small muted">Erasing your files also deletes the computer's backups and the passwords and tokens the vault keeps for it, and cannot be undone.</p>`;
+    d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
+    d.addEventListener("close", () => { d.remove(); done(["keep", "erase"].includes(d.returnValue) ? d.returnValue : null); });
+    document.body.append(d);
+    d.showModal();
+    $("[data-ask=no]", d).focus();
+  });
+}
+
 async function showComputer(main, id, tab) {
   const hash = location.hash, base = `/v1/computers/${enc(id)}`, TABS = [["screen", "Screen"], ["files", "Files"], ["activity", "Activity"]];
   const c = await api("GET", base);
   if (!stillAt(hash)) return;
   const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>Computer</h1><div class="row"><span data-state>${stateChip(c)}</span>
-    ${["stopped", "hibernated", "paused"].includes(c.status) ? `<button class="primary" data-act="start">Start</button>` : ""}
-    ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}</div>
+    ${["stopped", "hibernated", "paused", "killed"].includes(c.status) ? `<button class="primary" data-act="start">${c.status === "paused" ? "Resume" : "Start"}</button>` : ""}
+    ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}
+    ${c.status === "running" ? `<button class="danger" data-act="pause" title="The kill switch: freezes the computer and takes back every access it was given">Pause now</button>` : ""}
+    <button data-act="reset">Reset…</button><button class="link danger" data-act="delete">Delete computer…</button></div>
     <nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
   paint(main, head(c));
   const body = $("#computer-tab", main);
   main.onclick = async e => {
     const b = e.target.closest("[data-act]");
-    if (!b || !["start", "hibernate"].includes(b.dataset.act)) return;
-    try { await api("POST", `${base}/${b.dataset.act}`, {}); } catch (err) { return toast(err.message); }
+    if (!b || !COMPUTER_ACTS[b.dataset.act]) return;
+    let next = id;
+    try { next = await COMPUTER_ACTS[b.dataset.act](base, id); } catch (err) { return toast(err.message); }
+    if (next === null) return;
+    if (next !== id) { location.hash = next ? `#/computer/${enc(next)}` : "#/computer"; return; }
     main._html = null;
     showComputer(main, id, tab);
   };

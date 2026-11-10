@@ -10,6 +10,7 @@ pub(super) mod surrogate;
 
 pub use audit::migrate_sql;
 pub(super) use ca::certificate_pem;
+pub(super) use ca::{secret_name as ca_secret_name, SECRET_PREFIX as CA_SECRET_PREFIX};
 
 use super::client;
 use crate::kernel::Kernel;

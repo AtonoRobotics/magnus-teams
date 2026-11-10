@@ -27,6 +27,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}", get(one))
         .route("/v1/computers/{id}/start", post(start))
         .route("/v1/computers/{id}/kill", post(kill))
+        .route("/v1/computers/{id}/reset", post(reset))
         .route("/v1/computers/{id}/grants", post(grant))
         .route("/v1/computers/{id}/files", get(read_file).put(write_file).delete(delete_file))
         .route("/v1/computers/{id}/listing", get(listing))
@@ -141,6 +142,17 @@ struct Kill {
 async fn kill(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Kill>) -> Response {
     let p = person!(k, h);
     answered(k.kill_computer(&p, &id, b.mode, b.delete_volume).await)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reset {
+    keep_files: bool,
+}
+
+async fn reset(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Reset>) -> Response {
+    let p = person!(k, h);
+    answered(k.reset_computer(&p, &id, b.keep_files).await)
 }
 
 #[derive(Deserialize)]

@@ -13,8 +13,10 @@ struct Stored {
     key_pem: String,
 }
 
-fn secret_name(computer: &str) -> String {
-    format!("computer-ca-{computer}")
+pub(in crate::computer) const SECRET_PREFIX: &str = "computer-ca-";
+
+pub(in crate::computer) fn secret_name(computer: &str) -> String {
+    format!("{SECRET_PREFIX}{computer}")
 }
 
 fn ca_params(computer: &str) -> Result<CertificateParams> {
