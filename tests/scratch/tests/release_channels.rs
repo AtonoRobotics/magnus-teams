@@ -467,6 +467,19 @@ fn a_release_is_never_published_without_its_signatures() {
     assert_eq!(m["version"], "0.7.1-test.1");
 }
 
+/// First release run (2026-11-09): the workflow's checkout held one commit,
+/// so publish.sh could not see that main held the commit the test channel
+/// was built from, and refused a build that did hold it. The release job
+/// checks out the whole history.
+#[test]
+fn the_release_job_checks_out_the_history_publish_compares_against() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/release.yml");
+    let workflow = std::fs::read_to_string(path).unwrap();
+    let checkout = workflow.split("uses: actions/checkout").nth(1).expect("the release job checks out the repository");
+    let step = checkout.split("\n      - ").next().unwrap();
+    assert!(step.contains("fetch-depth: 0"), "the release checkout fetches all history: {step}");
+}
+
 fn base64_decode(s: &str) -> Vec<u8> {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.decode(s).unwrap()

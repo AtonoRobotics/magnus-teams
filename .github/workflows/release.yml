@@ -30,6 +30,10 @@ jobs:
       UPDATES: ${{ vars.MAGNUS_UPDATES_DIR }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # publish.sh asks git whether this build holds the commit a channel
+          # was built from; a one-commit clone cannot answer, and refuses.
+          fetch-depth: 0
 
       - name: Versions
         run: |
