@@ -154,36 +154,69 @@ async function showComputer(main, id, tab) {
 
 function computerScreen(body, c, base, hash) {
   if (c.status !== "running") { body.innerHTML = `<p class="empty">Start this computer to see its screen.</p>`; return; }
-  body.innerHTML = `<div class="row"><button class="primary" data-take>Take control</button></div><div class="screen"><img id="preview" alt="The computer's screen"></div>`;
-  let looking = true;
+  // One frame for the screen, whoever drives (spec rev 131): the preview
+  // and the live display share it, and taking or handing back control never
+  // empties it.
+  body.innerHTML = `<div class="row" data-screen-bar></div><div class="screen"><img id="preview" alt="The computer's screen" title="Click to take control"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas></div><p class="small bad" id="display-error" hidden></p>`;
+  const view = { looking: true };
   const look = async () => {
-    while (looking && stillAt(hash)) {
-      try { const { image_b64 } = await api("GET", `${base}/screen`); if (looking) { const img = $("#preview", body); if (img) img.src = `data:image/png;base64,${image_b64}`; } } catch { /* The next look may work. */ }
+    while (view.looking && stillAt(hash)) {
+      try { const { image_b64 } = await api("GET", `${base}/screen`); if (view.looking) { const img = $("#preview", body); if (img) img.src = `data:image/png;base64,${image_b64}`; } } catch { /* The next look may work. */ }
       await new Promise(r => setTimeout(r, PREVIEW_EVERY_MS));
     }
   };
-  look();
   const take = async () => {
     let grant;
     try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { return toast(e.message); }
-    looking = false;
-    takeOver(body, c.id, base, grant, hash);
+    takeOver(body, c.id, base, grant, hash, view, idle);
   };
-  $("[data-take]", body).onclick = take;
+  const idle = () => {
+    $("[data-screen-bar]", body).innerHTML = `<button class="primary" data-take>Take control</button>`;
+    $("[data-take]", body).onclick = take;
+    $("#preview", body).onclick = take;
+    if (!view.looking) { view.looking = true; look(); }
+  };
+  view.looking = false;
+  idle();
   // Asked for from a card, a banner or the pinned screen.
   if (Screen.takeOnOpen === c.id) { Screen.takeOnOpen = null; take(); }
 }
 
-// The person has the whole screen until they say they are done.
-function takeOver(body, id, base, grant, hash) {
-  body.innerHTML = `<div class="row"><span class="small muted">You have control. The agent is paused.</span><button class="primary" data-done>I'm done</button></div><div class="screen"><canvas id="display" tabindex="0" aria-label="The computer's screen"></canvas></div><p class="small bad" id="display-error" hidden></p>`;
-  const canvas = $("#display", body), ctx = canvas.getContext("2d");
-  let link, ended = false;
-  const failed = message => { const p = $("#display-error", body); if (p) { p.hidden = false; p.textContent = message; } };
+// The person drives in the same frame until they say they are done. The
+// last preview stays until the stream draws its first frame, and comes back
+// if the stream fails, so the screen never disappears (2026-11-09: it went
+// blank on takeover).
+function takeOver(body, id, base, grant, hash, view, idle) {
+  $("[data-screen-bar]", body).innerHTML = `<span class="small muted">You have control. The agent is paused.</span><button class="primary" data-done>I'm done</button>`;
+  const preview = $("#preview", body), canvas = $("#display", body), ctx = canvas.getContext("2d");
+  preview.onclick = null;
+  let link, ended = false, painted = false;
+  const showLive = live => { canvas.hidden = !live; preview.hidden = live; };
+  const failed = message => {
+    const p = $("#display-error", body);
+    if (p) { p.hidden = false; p.textContent = message; }
+    showLive(false);
+    if (!view.looking) { view.looking = true; idleLook(); }
+  };
+  // While the stream has drawn nothing the preview keeps refreshing.
+  const idleLook = () => {
+    view.looking = false;
+    const again = async () => {
+      view.looking = true;
+      while (view.looking && !painted && stillAt(hash)) {
+        try { const { image_b64 } = await api("GET", `${base}/screen`); if (view.looking && !painted) preview.src = `data:image/png;base64,${image_b64}`; } catch { /* The next look may work. */ }
+        await new Promise(r => setTimeout(r, PREVIEW_EVERY_MS));
+      }
+    };
+    again();
+  };
   const rfb = new Rfb({
     send: b => link.send(b),
-    onSize: (w, h) => { canvas.width = w; canvas.height = h; canvas.focus(); },
-    onRect: (x, y, w, h, rgba) => ctx.putImageData(new ImageData(rgba, w, h), x, y),
+    onSize: (w, h) => { canvas.width = w; canvas.height = h; },
+    onRect: (x, y, w, h, rgba) => {
+      ctx.putImageData(new ImageData(rgba, w, h), x, y);
+      if (!painted) { painted = true; view.looking = false; showLive(true); canvas.focus(); }
+    },
     onCopy: (x, y, w, h, fromX, fromY) => ctx.drawImage(canvas, fromX, fromY, w, h, x, y, w, h),
     onError: failed,
   });
@@ -201,7 +234,14 @@ function takeOver(body, id, base, grant, hash) {
   canvas.addEventListener("wheel", e => { const [x, y] = at(e), bit = e.deltaY < 0 ? 8 : 16; rfb.pointer(x, y, bit); rfb.pointer(x, y, 0); e.preventDefault(); }, { passive: false });
   canvas.addEventListener("contextmenu", e => e.preventDefault());
   for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => { if (rfb.key(e.key, down)) e.preventDefault(); });
-  $("[data-done]", body).onclick = async () => { await leave(); if (stillAt(hash)) showComputer($("#main"), id, "screen"); };
+  // Handing back keeps the last frame on screen as the preview.
+  $("[data-done]", body).onclick = async () => {
+    await leave();
+    if (painted) { try { preview.src = canvas.toDataURL(); } catch { /* The next look replaces it. */ } }
+    showLive(false);
+    view.looking = false;
+    if (stillAt(hash)) idle();
+  };
   window.addEventListener("hashchange", leave);
 }
 
