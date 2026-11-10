@@ -255,6 +255,12 @@ pub struct TeamRun {
     pub outside: bool,
 }
 
+impl From<TeamRun> for Change {
+    fn from(t: TeamRun) -> Change {
+        Change::Run { workspace: t.workspace, channel: t.channel, thread: t.thread, task: t.task, requester: t.requester, history: t.history, sub: t.sub, outside: t.outside }
+    }
+}
+
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Workspace {
     pub id: String,

@@ -120,6 +120,9 @@ pub struct NewRun {
     pub scope: Option<String>,
     /// The grant it runs under (#235).
     pub grant: Option<String>,
+    /// The team thread it serves, recorded with the task (its `task` is
+    /// filled in), so no call of it ever runs as its requester's own.
+    pub team: Option<crate::team::TeamRun>,
 }
 
 impl Kernel {
@@ -574,7 +577,8 @@ impl Kernel {
                 })
             })
         });
-        self.emit(
+        let team = o.team.map(|t| (actor, Ev::Team(crate::team::TeamRun { task: task.clone(), ..t }.into())));
+        let created = (
             actor,
             Ev::TaskCreated {
                 task: task.clone(),
@@ -592,8 +596,9 @@ impl Kernel {
                 scope: o.scope,
                 grant: o.grant,
             },
-        )
-        .await?;
+        );
+        // One write: no reader sees the task without its team thread.
+        self.emit_all(std::iter::once(created).chain(team).collect()).await?;
         self.wake(&run);
         Ok((task, run))
     }

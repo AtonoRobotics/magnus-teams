@@ -194,12 +194,9 @@ impl Kernel {
         let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");
         let others = shown.iter().any(|m| m.sender != person);
         let outside = self.read(|s| shown.iter().any(|m| s.team.role(workspace, &m.sender).is_some_and(|r| r == Role::Guest)));
-        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), ..Default::default() };
-        let (task, run) = self.create_run(actor, person, text, vec![], new_run).await?;
-        let change = Change::Run { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), requester: person.into(), history, sub: false, outside };
-        self.emit(actor, crate::events::Ev::Team(change)).await?;
-        self.wake(&run);
-        Ok((task, run))
+        let team = TeamRun { workspace: workspace.into(), channel: channel.into(), thread, task: String::new(), requester: person.into(), history, sub: false, outside };
+        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), team: Some(team), ..Default::default() };
+        self.create_run(actor, person, text, vec![], new_run).await
     }
 
     pub(crate) async fn team_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {

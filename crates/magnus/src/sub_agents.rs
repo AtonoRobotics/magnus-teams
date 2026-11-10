@@ -262,25 +262,14 @@ impl Kernel {
             model: Some((parent.config.adapter.clone(), parent.config.model.clone())),
             ids: Some((task.clone(), child.clone())),
             scope,
+            // A sub-agent of a team run is a team run from its first call.
+            team: self.team_of(&parent.task).map(|t| crate::team::TeamRun { sub: true, ..t }),
             ..Default::default()
         };
         // Recorded before the child starts: its first call already acts
         // within the parent's authority and its own limits.
         self.emit("kernel", crate::events::Ev::SubAgent(SubAgent { child: child.clone(), parent: a.run.clone(), tools })).await?;
         self.create_run(&format!("run:{}", a.run), &parent.person, ask.goal, vec![], o).await?;
-        if let Some(t) = self.team_of(&parent.task) {
-            let scope = crate::team::Change::Run {
-                workspace: t.workspace,
-                channel: t.channel,
-                thread: t.thread,
-                task: task.clone(),
-                requester: t.requester,
-                history: t.history,
-                sub: true,
-                outside: t.outside,
-            };
-            self.emit("kernel", crate::events::Ev::Team(scope)).await?;
-        }
         self.wake(&child);
         self.wait_for_child(&task, &child).await
     }

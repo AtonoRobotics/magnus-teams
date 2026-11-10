@@ -2,7 +2,7 @@
 //! authority, reporting to a channel. It runs in the background and asks
 //! no one, so anything it cannot do without asking does not happen.
 use super::routes::{member, new_id, send, Reply, K};
-use super::{Change, Role};
+use super::{Change, Role, TeamRun};
 use crate::api::err;
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
@@ -83,20 +83,18 @@ impl Kernel {
             s.team.all().flat_map(|w| w.routines.iter().filter(|(_, r)| r.due(now) && w.members.contains_key(&r.by)).map(|(id, r)| (w.id.clone(), id.clone(), r.clone()))).collect()
         });
         for (workspace, id, r) in due {
-            let (task, run) = self.create_run("poll", &r.by, r.text.clone(), vec![], NewRun::default()).await?;
-            let change = Change::Run {
+            let team = TeamRun {
                 workspace: workspace.clone(),
                 channel: r.channel.clone(),
                 thread: None,
-                task: task.clone(),
+                task: String::new(),
                 requester: r.by.clone(),
                 history: String::new(),
                 sub: false,
                 outside: false,
             };
-            self.emit("poll", Ev::Team(change)).await?;
+            let (task, _) = self.create_run("poll", &r.by, r.text.clone(), vec![], NewRun { team: Some(team), ..Default::default() }).await?;
             self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
-            self.wake(&run);
         }
         Ok(())
     }
