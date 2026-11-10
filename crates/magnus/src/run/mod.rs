@@ -6,6 +6,7 @@ mod agent_loop;
 mod loop_calls;
 pub mod lost;
 mod memory;
+mod pins;
 pub(crate) mod reviewer;
 mod verify;
 
@@ -508,63 +509,6 @@ impl Kernel {
         }
     }
 
-    /// Pin a tool definition on first sight; disable it if it later changes (B10).
-    /// Returns true when the definition was seen for the first time.
-    ///
-    /// A brokered connector's definitions come from the image its manifest
-    /// names by digest, checked before every boot, so they cannot change
-    /// after the manifest was signed: one that differs from its pin is the
-    /// next manifest version's (connectors spec: "by the next manifest
-    /// version"), seen for the first time, and any change waiting on the
-    /// owner for it is put away. A remote server's can change at any time.
-    pub(crate) async fn pin(&self, c: &crate::config::Connector, name: &str, t: &crate::apps::AppTool) -> Result<bool> {
-        let hash = crate::apps::definition_hash(t);
-        let (pinned, changed) = self.read(|s| (s.pins.get(name).map(|p| p.hash.clone()), s.changed.get(name).map(|(item, p)| (item.clone(), p.hash.clone()))));
-        let brokered = c.transport == crate::brokered::BROKERED;
-        match pinned {
-            Some(h) if brokered && h != hash => {
-                if let Some((item, _)) = changed {
-                    if self.read(|s| s.items.get(&item).is_some_and(|i| i.resolution.is_none())) {
-                        let text = format!(
-                            "{name}'s definition is now the one in the image {}'s manifest names by digest, so it is pinned as new and awaits only your review of its description.",
-                            c.name
-                        );
-                        self.emit("kernel", Ev::ItemResolved { id: item, decision: "superseded".into(), scope: None, text: Some(text) }).await?;
-                    }
-                }
-                self.emit("kernel", Ev::ToolPinned { tool: name.into(), hash, description: t.description.clone(), input_schema: t.input_schema.clone(), approved: false }).await?;
-                return Ok(true);
-            }
-            None => {
-                self.emit("kernel", Ev::ToolPinned { tool: name.into(), hash, description: t.description.clone(), input_schema: t.input_schema.clone(), approved: false }).await?;
-                return Ok(true);
-            }
-            Some(h) if h == hash => {}
-            Some(_) if changed.as_ref().map(|(_, h)| h.as_str()) == Some(hash.as_str()) => {}
-            Some(_) => {
-                let owner = self.owners().first().map(|p| p.id.clone()).unwrap_or_default();
-                let item = new_id("item");
-                // The new description is third-party text: it goes to the owner
-                // for review, never to the model.
-                self.emit(
-                    "kernel",
-                    Ev::Item {
-                        id: item.clone(),
-                        item_kind: "tool_change".into(),
-                        task: None,
-                        run: None,
-                        person: owner,
-                        summary: format!("The definition of {name} changed. It is disabled until you approve the new one."),
-                        details: json!({ "tool": name, "hash": hash, "description": t.description, "input_schema": t.input_schema }),
-                    },
-                )
-                .await?;
-                self.emit("kernel", Ev::ToolChanged { tool: name.into(), hash, description: t.description.clone(), input_schema: t.input_schema.clone(), item }).await?;
-            }
-        }
-        Ok(false)
-    }
-
     pub(crate) async fn result(&self, run: &str, call_id: &str, text: impl Into<String>, is_error: bool) -> Result<()> {
         self.emit(
             "kernel",
@@ -678,7 +622,8 @@ impl Kernel {
                 // A failure is never silent (K24): the person's inbox says so, with the evidence, in the same write.
                 // Background work's failure is told to the run inspector, not the person (owner, 2026-11-07).
                 let mut evs = vec![("model", Ev::Failed { run: rid.into(), reason: reason.clone(), by: "model".into() })];
-                if !self.is_background(rid) {
+                // One whose outcome returns to its thread is told there by the agent (outcomes.rs).
+                if !self.is_background(rid) && !self.outcome_returns(rid) {
                     evs.push((
                         "kernel",
                         self.notice_of(
@@ -942,9 +887,10 @@ impl Kernel {
         let rid = run.id.as_str();
         let run = self.read(|s| s.runs.get(rid).cloned()).unwrap_or_else(|| run.clone());
         // What the person asked for and did not happen is in the inbox too (K24), in the same write as the turn's end.
+        // In an outcome turn they asked nothing: a refused retry is the limit at work, which the answer reports.
         let unfinished = self.unfinished_chat_actions(&run);
         let mut evs = vec![("kernel", Ev::Completed { run: rid.into(), summary: answer, view: run.shown(), spoken: None })];
-        if !unfinished.is_empty() {
+        if !unfinished.is_empty() && !self.is_outcome_turn(&run.task) {
             evs.push(("kernel", self.notice_of(&run, format!("Not done: {}", self.title_of(&run).await), json!({ "reason": "chat_action_failed", "evidence": unfinished }))));
         }
         self.emit_all(evs).await?;

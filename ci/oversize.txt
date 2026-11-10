@@ -9,7 +9,7 @@ crates/magnus/src/dev.rs 1221
 crates/magnus/src/events.rs 1410
 crates/magnus/src/kernel.rs 1035
 crates/magnus/src/log.rs 803
-crates/magnus/src/run/mod.rs 1273
+crates/magnus/src/run/mod.rs 1218
 crates/magnus/src/state.rs 2799
 tests/scratch/tests/app.rs 839
 tests/scratch/tests/chat.rs 843
