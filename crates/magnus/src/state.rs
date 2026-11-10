@@ -117,6 +117,9 @@ pub struct Run {
     /// Apps whose private content this run has read.
     pub private_from: std::collections::BTreeSet<String>,
     pub model_calls: u32,
+    /// Of `model_calls`, those the kernel's own modules made (verifier,
+    /// reviewer, memory, extraction, read aloud, drafting): see `run::loop_calls`.
+    pub aux_calls: u32,
     pub actions: u32,
     pub usd: f64,
     pub intents: HashMap<String, Intent>,
@@ -1980,6 +1983,7 @@ impl State {
                             Default::default()
                         },
                         model_calls: 0,
+                        aux_calls: 0,
                         actions: 0,
                         usd: 0.0,
                         intents: HashMap::new(),
@@ -2046,6 +2050,7 @@ impl State {
                         r.reviewed += 1;
                     }
                     r.model_calls += 1;
+                    r.aux_calls += 1;
                     r.usd += usage.cost_usd;
                     r.tokens.input += usage.input_tokens;
                     r.tokens.output += usage.output_tokens;

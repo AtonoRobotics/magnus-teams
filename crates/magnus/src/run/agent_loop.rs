@@ -46,12 +46,12 @@ impl Kernel {
             return Ok(false);
         }
         let budget = &run.config.budget;
-        if run.model_calls >= budget.max_model_calls {
+        if run.loop_calls_spent() {
             self.suspend_with_notice(
                 run_id,
                 "budget",
-                format!("Stopped after {} model calls, the task's limit.", run.model_calls),
-                json!({ "model_calls": run.model_calls, "limit": budget.max_model_calls, "usd": run.usd }),
+                format!("Stopped after {} model calls, the task's limit.", run.loop_calls()),
+                json!({ "model_calls": run.loop_calls(), "limit": budget.max_model_calls, "usd": run.usd }),
             )
             .await?;
             return Ok(false);

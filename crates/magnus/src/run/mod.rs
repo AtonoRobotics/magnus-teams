@@ -3,6 +3,7 @@
 //! that the loop writes to the log itself (K21). Run records grant nothing.
 
 mod agent_loop;
+mod loop_calls;
 pub mod lost;
 mod memory;
 pub(crate) mod reviewer;
