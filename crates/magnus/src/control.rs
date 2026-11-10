@@ -83,7 +83,7 @@ pub async fn serve(k: Arc<Kernel>, l: tokio::net::UnixListener) -> Result<()> {
         .route("/v1/admin/knowledge/assembled", axum::routing::get(knowledge_assembled))
         .route("/v1/admin/connectors", axum::routing::get(connectors).post(add_connector))
         .route("/v1/admin/connectors/{name}", axum::routing::patch(connector_settings).delete(remove_connector))
-        .route("/v1/admin/connectors/{name}/credential", axum::routing::put(set_credential).delete(revoke_credential))
+        .merge(crate::registrations::routes())
         .route("/v1/admin/console-sign-in", post(console_sign_in))
         .route("/v1/admin/console-standing/{person}", axum::routing::get(console_standing))
         .with_state(k);
@@ -641,7 +641,7 @@ async fn console_standing(State(k): State<Arc<Kernel>>, axum::extract::Path(pers
     Json(json!({ "ok": ok })).into_response()
 }
 
-fn actor(b: &Value) -> Option<String> {
+pub(crate) fn actor(b: &Value) -> Option<String> {
     text(b, "actor")
 }
 
@@ -685,14 +685,14 @@ async fn end_session(State(k): State<Arc<Kernel>>, axum::extract::Path((sub, id)
 // operations, the same the app's owner routes use. Credentials go in and
 // never come out.
 
-fn done(r: Result<Value, crate::connectors::Refusal>) -> Response {
+pub(crate) fn done(r: Result<Value, crate::connectors::Refusal>) -> Response {
     match r {
         Ok(v) => Json(v).into_response(),
         Err((st, m)) => (st, Json(json!({ "error": m }))).into_response(),
     }
 }
 
-fn no_actor() -> Response {
+pub(crate) fn no_actor() -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who does this" }))).into_response()
 }
 
@@ -714,16 +714,6 @@ async fn connector_settings(State(k): State<Arc<Kernel>>, axum::extract::Path(na
 async fn remove_connector(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
     let Some(actor) = actor(&b) else { return no_actor() };
     done(k.remove_connector(&actor, &name).await)
-}
-
-async fn set_credential(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return no_actor() };
-    done(k.set_connector_credential(&actor, &name, b["value"].as_str().unwrap_or_default()).await)
-}
-
-async fn revoke_credential(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return no_actor() };
-    done(k.revoke_connector_credential(&actor, &name).await)
 }
 
 // One person, as root acts on them (admin console spec, Users): their

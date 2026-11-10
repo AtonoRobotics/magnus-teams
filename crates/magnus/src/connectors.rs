@@ -634,21 +634,10 @@ impl Kernel {
         // is the one Alpha Vector provisioned to this appliance.
         let shown = c.title.clone().unwrap_or_else(|| c.name.clone());
         let registered: Option<(String, Option<String>)> = match &c.registration {
-            Some(provider) => {
-                let client = crate::catalog::client(provider).ok_or_else(|| anyhow!("{} cannot be connected on this appliance yet", shown))?;
-                let secret = match client.needs_secret() {
-                    true => {
-                        let raw = self
-                            .vault
-                            .get(&crate::catalog::registration_name(provider))?
-                            .ok_or_else(|| anyhow!("{} cannot be connected on this appliance yet: Alpha Vector has not finished setting it up here", shown))?;
-                        let v: Value = serde_json::from_str(raw.expose()).context("stored registration")?;
-                        Some(v["client_secret"].as_str().ok_or_else(|| anyhow!("{} cannot be connected on this appliance yet", shown))?.to_string())
-                    }
-                    false => None,
-                };
-                Some((client.client_id.clone(), secret))
-            }
+            Some(provider) => Some(crate::registrations::client(&self.vault, provider).map_err(|e| {
+                tracing::warn!("{provider}'s client: {e:#}");
+                anyhow!("{} cannot be connected on this server yet: Alpha Vector has not finished setting it up here", shown)
+            })?),
             None => None,
         };
         // A client Magnus registered itself is kept and used again for
@@ -1221,12 +1210,7 @@ impl Kernel {
         if crate::catalog::client(provider).is_none_or(|c| !c.needs_secret()) {
             return Err(refusal(StatusCode::NOT_FOUND, "no catalog provider takes a secret by that name"));
         }
-        let secret = secret.trim();
-        if secret.is_empty() {
-            return Err(refusal(StatusCode::BAD_REQUEST, "give the provider's client secret"));
-        }
-        self.vault.put(&crate::catalog::registration_name(provider), &json!({ "client_secret": secret }).to_string()).map_err(failed)?;
-        self.emit(actor, Ev::RegistrationSet { provider: provider.to_string(), set: true }).await.map_err(failed)?;
+        self.provision_registration(actor, provider, None, Some(secret)).await?;
         Ok(json!({ "set": true }))
     }
 
@@ -1241,7 +1225,7 @@ impl Kernel {
                 for (other, _) in self.all_connectors().into_iter().filter(|(o, _)| o.registration.as_deref() == Some(p.as_str())) {
                     n += self.revoke_all(&other).await?;
                 }
-                self.vault.remove(&crate::catalog::registration_name(&p)).map_err(failed)?;
+                crate::registrations::clear_secret(&self.vault, &p).map_err(failed)?;
                 self.emit(actor, Ev::RegistrationSet { provider: p, set: false }).await.map_err(failed)?;
                 Ok(json!({ "sign_ins_revoked": n }))
             }

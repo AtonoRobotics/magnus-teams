@@ -61,6 +61,7 @@ pub mod proactive;
 pub mod push;
 pub mod reactions;
 pub mod recall;
+pub mod registrations;
 pub mod relationship;
 pub mod rule_effects;
 pub mod rules;

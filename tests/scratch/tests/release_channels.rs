@@ -511,17 +511,96 @@ fn the_server_release_installs_the_browser_packages_before_the_image() {
 /// The new magnus-teams server (2026-11-09) never had Google's or Slack's
 /// client secret: only the admin console's deploy provisioned them, and the
 /// release never ran it, so no one could connect those apps. The release
-/// provisions them from the repository's secrets after the server updates.
+/// provisions every catalog provider's client (2026-11-10: it gave only
+/// Google's and Slack's secrets, and no client ID), from the repository's
+/// secrets, after the server updates.
 #[test]
-fn the_release_provisions_the_provider_secrets_after_the_server_updates() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/release.yml");
-    let workflow = std::fs::read_to_string(path).unwrap();
+fn the_release_provisions_every_providers_client_after_the_server_updates() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let workflow = std::fs::read_to_string(root.join(".github/workflows/release.yml")).unwrap();
+    let script = std::fs::read_to_string(root.join("release/provision-registrations.sh")).unwrap();
     let (server, provision) =
         (workflow.find("release/to-appliance.sh").unwrap(), workflow.find("release/provision-registrations.sh").expect("the release provisions the provider secrets"));
     assert!(provision > server, "provisioned after the server runs the release's programs");
-    for var in ["GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}", "SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}"] {
-        assert!(workflow.contains(var), "the step is given {var}");
+    let catalog: toml::Table = std::fs::read_to_string(root.join("catalog/registrations.toml")).unwrap().parse().unwrap();
+    assert!(catalog.len() >= 6, "read the catalog's registrations");
+    for (provider, r) in &catalog {
+        let prefix =
+            script.lines().find_map(|l| l.strip_prefix(&format!("provision {provider} "))).unwrap_or_else(|| panic!("the script provisions {provider}")).trim().to_string();
+        let mut vars = vec![format!("{prefix}_CLIENT_ID")];
+        if r["kind"].as_str() != Some("public") {
+            vars.push(format!("{prefix}_CLIENT_SECRET"));
+        }
+        for v in vars {
+            assert!(workflow.contains(&format!("{v}: ${{{{ secrets.{v} }}}}")), "the step is given {v} for {provider}");
+        }
     }
+}
+
+/// The script sends each provider's client ID and secret to the server's
+/// control socket and prints, per provider, only whether the repository's ID
+/// matches the catalog's, and the answer: never a value.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
+    use std::sync::{Arc, Mutex};
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let catalog: toml::Table = std::fs::read_to_string(root.join("catalog/registrations.toml")).unwrap().parse().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("magnus.toml");
+    std::fs::write(&config, format!("[appliance]\nstate_dir = \"{}\"\n", dir.path().display())).unwrap();
+    let got: Arc<Mutex<Vec<(String, Value)>>> = Arc::default();
+    let seen = got.clone();
+    let app = axum::Router::new().route(
+        "/v1/admin/registrations/{provider}",
+        axum::routing::put(move |axum::extract::Path(p): axum::extract::Path<String>, axum::Json(b): axum::Json<Value>| {
+            let seen = seen.clone();
+            async move {
+                seen.lock().unwrap().push((p, b));
+                axum::Json(serde_json::json!({ "secret": true }))
+            }
+        }),
+    );
+    let l = tokio::net::UnixListener::bind(dir.path().join("control.sock")).unwrap();
+    tokio::spawn(async move { axum::serve(l, app).await });
+    let google = catalog["google"]["client_id"].as_str().unwrap();
+    let values = [
+        ("GOOGLE_DESKTOP_CLIENT_ID", google.to_string()),
+        ("GOOGLE_DESKTOP_CLIENT_SECRET", "secret-google-desktop".into()),
+        ("GH_OAUTH_CLIENT_ID", "id-github-teams".into()),
+        ("GH_OAUTH_CLIENT_SECRET", "secret-github".into()),
+        ("VERCEL_CLIENT_ID", "id-vercel-teams".into()),
+        ("VERCEL_CLIENT_SECRET", "secret-vercel-never-sent".into()),
+        ("SLACK_CLIENT_SECRET", "secret-slack".into()),
+        ("GOOGLE_WEB_CLIENT_ID", "id-google-web".into()),
+    ];
+    let mut cmd = tokio::process::Command::new(root.join("release/provision-registrations.sh"));
+    cmd.arg(&config);
+    for v in ["GOOGLE", "GOOGLE_DESKTOP", "GOOGLE_WEB", "MICROSOFT", "GH_OAUTH", "VERCEL", "SLACK", "SENTRY"] {
+        cmd.env_remove(format!("{v}_CLIENT_ID")).env_remove(format!("{v}_CLIENT_SECRET"));
+    }
+    cmd.env_remove("MICROSOFT_TENANT_ID");
+    for (k, v) in &values {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().await.unwrap();
+    let printed = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{printed}");
+    for (k, v) in &values {
+        // The catalog's own Google ID is public; every other value is not.
+        if *k != "GOOGLE_DESKTOP_CLIENT_ID" {
+            assert!(!printed.contains(v.as_str()), "{k}'s value was printed:\n{printed}");
+        }
+    }
+    for line in ["google: GOOGLE_DESKTOP_CLIENT_ID match", "github: GH_OAUTH_CLIENT_ID differs", "slack: SLACK_CLIENT_ID not set", "google: GOOGLE_WEB_CLIENT_ID differs"] {
+        assert!(printed.contains(line), "said {line:?}:\n{printed}");
+    }
+    let got = got.lock().unwrap().clone();
+    let body = |p: &str| got.iter().find(|(q, _)| q == p).map(|(_, b)| b.clone()).unwrap_or_else(|| panic!("{p} provisioned:\n{printed}"));
+    assert_eq!(body("google"), serde_json::json!({ "actor": "release", "client_id": google, "client_secret": "secret-google-desktop" }));
+    assert_eq!(body("github"), serde_json::json!({ "actor": "release", "client_id": "id-github-teams", "client_secret": "secret-github" }));
+    assert_eq!(body("vercel"), serde_json::json!({ "actor": "release", "client_id": "id-vercel-teams" }), "a public client is sent no secret");
+    assert_eq!(body("slack"), serde_json::json!({ "actor": "release", "client_secret": "secret-slack" }));
+    assert!(got.iter().all(|(p, _)| p != "microsoft" && p != "sentry"), "nothing set, nothing sent: {got:?}");
 }
 
 /// Every script the release job runs is committed executable: a fresh
