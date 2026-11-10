@@ -115,7 +115,8 @@ fn send(body: &str) -> Reply {
 /// been used stops it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_action_approval_covers_one_action() {
-    let model = start_checked(steps(vec![contract_unchecked("say hi twice", "said"), send("hello"), send("hello"), fail("done")])).await;
+    let model =
+        start_checked(steps(vec![contract_unchecked("say hi twice", "said"), send(magnus_scratch::OUTSIDE_THE_ASK), send(magnus_scratch::OUTSIDE_THE_ASK), fail("done")])).await;
     let mail = mcp::mail().start().await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");

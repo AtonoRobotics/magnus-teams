@@ -161,8 +161,9 @@ pub fn starts(ask: &'static str, title: &'static str) -> impl Fn(&str, usize) ->
 }
 
 /// What a model does for the flow's task: a contract with one criterion
-/// checked against the world and one only a person can judge, a plan, a
-/// file, its delivery (which asks), and a composed outcome.
+/// checked against the world and one no check can confirm, a plan, a file,
+/// its delivery, a mail Auto Review judges outside what was asked (which
+/// asks, spec rev 140), and a composed outcome.
 pub fn replies(page: String) -> Vec<Reply> {
     let check = json!({ "tool": "web_fetch", "input": { "url": page }, "expect": [{ "pointer": "/text", "contains": "41.7M" }] });
     vec![
@@ -180,6 +181,7 @@ pub fn replies(page: String) -> Vec<Reply> {
         ),
         tool("sandbox_write_file", json!({ "path": "summary.txt", "content": "Q3 revenue: 41.7M, up from 38.2M in Q2.\n" })),
         tool("deliver_file", json!({ "path": "summary.txt" })),
+        tool("mail__send", json!({ "to": FLOW_RECIPIENT, "subject": "Q3 revenue", "body": format!("Q3 revenue: 41.7M; {OUTSIDE_THE_ASK}.") })),
         tool(
             "task_complete",
             json!({
@@ -191,10 +193,14 @@ pub fn replies(page: String) -> Vec<Reply> {
     ]
 }
 
+/// Whom the flow's task mails, the one action of it that asks.
+pub const FLOW_RECIPIENT: &str = "bob@corp.example";
+
 pub struct Flow {
     pub app: Appliance,
     pub model: FakeModel,
     pub web: FakeWeb,
+    pub mail: magnus_invariants::mcp::FakeMcp,
 }
 
 pub fn set_password(app: &Appliance, person: &str, pw: &str) -> bool {
@@ -248,12 +254,12 @@ impl Flow {
     pub async fn start_with(web: FakeWeb, s: model::Script) -> Flow {
         let mut model = start_checked(s).await;
         model.url = provider(&model).await;
-        let app = Appliance::start(Spec::default(), &model).await;
-        // Ask before any file leaves a task, so the flow has an approval.
-        let ask = "forbid(principal, action == Action::\"execute\", resource == Tool::\"deliver_file\");";
-        assert!(app.api(PERSON).put_policy(&format!("user/{PERSON}"), ask).await.is_success());
+        // A mail app, so the flow has an ask: a send Auto Review judges
+        // outside what was asked (spec rev 140).
+        let mail = magnus_invariants::mcp::mail().start().await;
+        let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
         assert!(set_password(&app, PERSON, PASSWORD));
-        Flow { app, model, web }
+        Flow { app, model, web, mail }
     }
 
     /// Serve HTTPS as well, as a real appliance does. Returns its address and
@@ -289,9 +295,10 @@ impl Flow {
         let id = tasks["tasks"][0]["task_id"].as_str().unwrap().to_string();
         let full = alice.task(&id).await;
         assert_eq!(full["status"], "completed", "{full}");
-        assert_eq!(full["criteria"][0]["verified"], true);
-        assert_eq!(full["criteria"][0]["verified_by"], "kernel");
-        assert_eq!(full["criteria"][1]["verified_by"], format!("person:{PERSON}"));
+        // Checking is internal (spec rev 140): the criterion no check could
+        // confirm stays unconfirmed, and the person never reviewed it.
+        assert!(self.app.db.dump().await.contains("Not confirmed by any check: c2"), "the unchecked criterion was not recorded as unconfirmed");
+        assert_eq!(self.mail.effects("send"), 1, "the allowed mail was not sent once");
         let approvals: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "approval").collect();
         assert_eq!(approvals.len(), 1);
         assert_eq!(approvals[0]["resolution"]["by"], format!("person:{PERSON}"), "the approval was not made by the person");

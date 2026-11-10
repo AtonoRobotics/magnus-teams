@@ -4,8 +4,8 @@
 //! run until completion or it's stopped."). Its runs' policy asks are covered
 //! by its confirmation, for actions its person could approve themselves; the
 //! verifier judges the criteria no code checks, so no review waits on the
-//! person. Someone who could not approve the action is still asked, and a
-//! one-off task still asks as before.
+//! person. Under spec rev 140 an irreversible send the person asked for is
+//! not one of the four asks, whoever asked for it and however it started.
 
 use magnus_invariants::{mcp, *};
 use magnus_scratch::{reconfigure, start_checked};
@@ -64,13 +64,14 @@ async fn a_confirmed_schedule_runs_without_asking_again_within_its_persons_autho
     assert!(bob.open_items(&task, "approval").await.is_empty() && bob.open_items(&task, "review").await.is_empty(), "bob's scheduled run asked him");
     assert!(mail.effects("send") >= 1, "the scheduled send did not happen");
 
-    // Carol may not approve them: her schedule's run asks, as any task of hers.
+    // Carol's schedule, and a one-off task of Bob's, send without an ask:
+    // what the person asked for is within the ask (spec rev 140).
     let (st, v) = carol.post("/v1/schedules", json!({ "text": EMAIL, "every_minutes": 1 })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     let task = run(&carol).await;
-    carol.wait_item(&task, "approval").await;
-
-    // A one-off task of Bob's still asks before the irreversible send.
+    assert_eq!(carol.wait_settled(&task).await["status"], "completed");
+    assert!(carol.open_items(&task, "approval").await.is_empty(), "carol's scheduled run asked her");
     let one = bob.submit(EMAIL).await;
-    bob.wait_item(&one, "approval").await;
+    assert_eq!(bob.wait_settled(&one).await["status"], "completed");
+    assert!(bob.open_items(&one, "approval").await.is_empty(), "bob's one-off send asked him");
 }

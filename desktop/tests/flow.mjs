@@ -115,8 +115,8 @@ await step("approve under Needs you", async () => {
   await card.waitFor({ timeout: T });
   // The card says exactly what will happen, and that a task waits on it.
   await card.getByText("A task is waiting").waitFor({ timeout: T });
-  const what = await card.getByLabel("What will happen").innerText();
-  if (!/deliver_file/.test(what)) throw new Error(`the card does not name the action: ${what}`);
+  const what = await card.locator("[data-ask-sentence]").innerText();
+  if (!/bob@corp\.example/.test(what)) throw new Error(`the card does not say whom it mails: ${what}`);
   await shot("approval card");
   await card.getByRole("button", { name: "Allow", exact: true }).click();
   await page.getByText("Allowed.").waitFor({ timeout: T });

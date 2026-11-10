@@ -77,8 +77,8 @@ await step("the task's row shows its live status, and the approval it waits on f
   const card = `${thread}//div[@data-for-task='${id}']//article[contains(@class,'approval')]`;
   approval = await d.attr(xpath(card), "data-id");
   // New cards rise in; the text is read once the card is shown.
-  const what = await until("the card shown", async () => (await text(xpath(`${card}//div[@aria-label='What will happen']`))) || null);
-  if (!what.includes("deliver_file")) throw new Error(`the card does not name the action: ${what}`);
+  const what = await until("the card shown", async () => (await text(xpath(`${card}//p[@data-ask-sentence]`))) || null);
+  if (!what.includes("bob@corp.example")) throw new Error(`the card does not say whom it mails: ${what}`);
 });
 
 await step("Needs you counts it and holds the same card", async () => {
