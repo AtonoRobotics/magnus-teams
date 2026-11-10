@@ -664,9 +664,12 @@ body[data-navigation=drawer] .shell > main, body[data-navigation=drawer] .shell 
 .navigation-flyout .group { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
 .workspace-search { width: min(480px, calc(100vw - 32px)); background: var(--main); color: var(--fg); }
 .workspace-search form { display: flex; flex-direction: column; gap: 16px; }
-section.conv .thread, section.conv #banners { padding-left: max(16px, calc((100% - 696px) / 2)); padding-right: max(16px, calc((100% - 696px) / 2)); }
-/* Match the 696px reading column without applying pane-sized padding inside a capped wrapper. */
-section.conv #composer { max-width: 728px; padding-left: 16px; padding-right: 16px; }
+section.conv .thread { padding-left: max(16px, calc((100% - 696px) / 2)); padding-right: max(16px, calc((100% - 696px) / 2)); }
+/* Match the 696px reading column without applying pane-sized padding inside a capped wrapper.
+   The banners are capped too: padding sized from the pane inside them left a
+   wide window's notice a column one word wide. */
+section.conv #composer, section.conv #banners { max-width: 728px; padding-left: 16px; padding-right: 16px; }
+.banner-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .conv-head { padding: 12px 16px; }
 .conv-head select { max-width: min(160px, 38vw); }
 .entry, .detail-body { font-size: 15px; line-height: 1.5; }

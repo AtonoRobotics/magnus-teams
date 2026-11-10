@@ -89,6 +89,8 @@ const App = {
   projects: [],
   health: null,
   thread: null,
+  /** The person closed this session's "Updates since your last session" notice. */
+  feedDismissed: false,
   versions: null,
   update: null,
   timers: [],
@@ -1175,8 +1177,8 @@ function banners() {
   const el = $("#banners");
   if (!el) return;
   const v = App.versions, news = v ? v.changes.filter(c => c.seq > load("version", 0)) : [];
-  const sessionUpdates=App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length);
-  paint(el, `${sessionUpdates ? '<div class="banner small">Updates since your last session. <a href="#/activity" data-open="activity">View Activity</a></div>' : ""}${App.health?.kill_switch ? `<div class="banner bad"><strong>The kill switch is on.</strong> No task acts until the owner turns it off.</div>` : ""}
+  const sessionUpdates = !App.feedDismissed && App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length);
+  paint(el, `${sessionUpdates ? '<div class="banner small banner-row" role="status"><span>Updates since your last session. <a href="#/activity" data-open="activity">View Activity</a></span><button type="button" data-act="dismiss-updates">Dismiss</button></div>' : ""}${App.health?.kill_switch ? `<div class="banner bad"><strong>The kill switch is on.</strong> No task acts until the owner turns it off.</div>` : ""}
     ${news.length ? `<div class="banner" role="status"><strong>The agent changed since you last looked.</strong>
       <ul class="small" style="margin:6px 0">${news.map(c => `<li>${esc(describeChange(c))} <span class="faint">(${esc(when(c.at))})</span></li>`).join("")}</ul>
       <button data-act="seen-versions">Got it</button></div>` : ""}`);
@@ -1476,7 +1478,11 @@ async function chatLayout(main, thread, project) {
   paint(main, `<section class="conv"><header class="conv-head" id="conv-head"></header><div id="banners"></div><div id="thread" class="thread" aria-live="off"></div><button type="button" class="jump-latest" data-jump-latest hidden>New activity · Jump to latest</button><div id="composer"></div></section>`);
   convHead(thread, project);
   banners();
-  $("#banners", main).onclick = e => { if (e.target.closest("[data-act=seen-versions]")) { save("version", App.versions?.latest_seq ?? 0); banners(); } };
+  $("#banners", main).onclick = e => {
+    if (e.target.closest("[data-act=seen-versions]")) { save("version", App.versions?.latest_seq ?? 0); banners(); }
+    // Dismissing the updates notice, or opening Activity from it, closes it until the next session.
+    if (e.target.closest("[data-act=dismiss-updates], [data-open=activity]")) { App.feedDismissed = true; banners(); }
+  };
   const picker = await modelPicker();
   if (seq !== App.seq) return false;
   paint($("#composer", main), composer(thread ? "Reply, or give Magnus more to do" : "Ask anything, or give Magnus work to do", picker));
@@ -3459,6 +3465,7 @@ async function boot() {
   App.reported = new Set();
   App.reporting = new Set();
   App.feed = await api("POST", "/v1/home/opened", {}).catch(() => null);
+  App.feedDismissed = false;
   // Return-session details stay in Activity; informational arrivals do
   // not switch the selected region or hide the conversation's composer.
   banners();

@@ -45,6 +45,7 @@ jobs:
       - run: node desktop/tests/globals-check.mjs
       - run: node desktop/tests/asks-check.mjs
       - run: node desktop/tests/dev-reasoning-check.mjs
+      - run: node desktop/tests/banners-check.mjs
       - run: ci/ratchet.sh size
       - run: ci/ratchet.sh clippy
       - run: cargo test --workspace --lib --bins
