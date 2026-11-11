@@ -34,6 +34,8 @@ const appBridge = tauri && {
   async providerSignIn(loginHint) { return this.invoke("provider_sign_in", { loginHint: loginHint || null }); },
   async providerSignInCancel() { return this.invoke("provider_sign_in_cancel"); },
   async signOut() { return this.invoke("sign_out"); },
+  // Ask for a recovery email; the answer is the same whoever holds the address.
+  async forgotPassword(email) { return this.invoke("forgot_password", { email }); },
   async api(method, path, body) {
     const r = await this.invoke("api", { method, path, body: body === undefined ? null : body });
     if (r.status === 426) window.dispatchEvent(new CustomEvent("magnus-update-required", { detail: r.body }));
@@ -113,6 +115,7 @@ const webBridge = {
     return { person: body.person };
   },
   async signOut() { await this.api("POST", "/v1/sign-out", {}).catch(() => {}); },
+  async forgotPassword(email) { return this.api("POST", "/v1/password-reset/request", { email }); },
   async api(method, path, body) {
     const opts = { method, credentials: "same-origin", headers: { "x-magnus-client": "web" } };
     if (body !== undefined && body !== null) { opts.headers["content-type"] = "application/json"; opts.body = JSON.stringify(body); }

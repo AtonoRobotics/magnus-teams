@@ -1027,6 +1027,8 @@ async function signInScreen(note) {
         const m = await Magnus.signInMethod();
         ask("password", { ...data, public_url: m.public_url, label: m.method === "oidc" ? m.label : undefined });
       } catch (err) { note = err.message || String(err); ask(Magnus.kind === "app" ? "address" : "password", data); }
+    } else if (stage === "forgot") {
+      forgotPasswordStep(box, data, () => ask("password", { ...data, error: undefined }));
     } else if (stage === "browser") {
       // The provider's own page in the person's browser: for a passkey, the
       // first time, or when their account needs finishing there.
@@ -1082,10 +1084,11 @@ async function signInScreen(note) {
           ? `<label for="otp">Enter the 6-digit code from your authenticator app</label><input id="otp" style="width:100%" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" required autofocus>`
           : `<label for="who">Username</label><input id="who" style="width:100%" autocomplete="username" value="${esc(data.person || localStorage.getItem("magnus.person") || "")}" required>
         <label for="pw">Password</label><input id="pw" type="password" style="width:100%" autocomplete="current-password" required>`}
-        <div class="row" style="margin-top:16px"><button class="primary" id="go">${coding ? "Continue" : "Sign in"}</button>${coding ? `<button type="button" class="link" id="again">Back</button>` : data.label ? `<button type="button" class="link" id="passkey">Use a passkey instead</button>` : ""}${Magnus.kind === "app" && !coding ? `<button type="button" class="link" id="back">Other server</button>` : ""}</div></form>`);
+        <div class="row" style="margin-top:16px"><button class="primary" id="go">${coding ? "Continue" : "Sign in"}</button>${coding ? `<button type="button" class="link" id="again">Back</button>` : data.label ? `<button type="button" class="link" id="passkey">Use a passkey instead</button>` : `<button type="button" class="link" id="forgot">Forgot password?</button>`}${Magnus.kind === "app" && !coding ? `<button type="button" class="link" id="back">Other server</button>` : ""}</div></form>`);
       $("#back")?.addEventListener("click", () => ask("address", data));
       $("#again")?.addEventListener("click", () => ask("password", { ...data, error: undefined, password: undefined }));
       $("#passkey")?.addEventListener("click", () => ask("browser", { ...data, person: $("#who").value.trim() || undefined, error: undefined }));
+      $("#forgot")?.addEventListener("click", () => ask("forgot", { ...data, person: $("#who").value.trim() || undefined, error: undefined }));
       $("#f").onsubmit = async e => {
         e.preventDefault();
         const person = coding ? data.person : $("#who").value.trim();
@@ -3194,6 +3197,7 @@ async function accountSection(el) {
       <div class="card"><div class="spread"><div><strong>${esc(App.me.name)}</strong> <span class="faint">(${esc(App.me.id)})</span>
         <div class="small muted">Signed in to ${esc(App.appliance)}${App.me.roles?.length ? ` · roles: ${esc(App.me.roles.join(", "))}` : ""}${App.me.groups?.length ? ` · groups: ${esc(App.me.groups.join(", "))}` : ""}</div></div>
         <button data-act="sign-out">Sign out</button></div></div>
+      <div data-password></div>
       <h3>Devices</h3>
       ${sessions.length ? `<table class="t" data-devices><tbody>${sessions.map(x => `<tr data-session="${esc(x.id)}"><td>${x.client === "app" ? "Magnus app" : x.client === "browser" ? "Browser" : "Device"}${x.current ? ` <span class="chip ok">this device</span>` : ""}</td>
         <td class="small muted">signed in ${esc(when(x.created))} · until ${esc(new Date(x.expires).toLocaleDateString())}</td>
@@ -3205,6 +3209,8 @@ async function accountSection(el) {
             : `<input data-roles="${esc(p.id)}" aria-label="Roles of ${esc(p.name)}" value="${esc(p.roles.join(", "))}" placeholder="none">`}</td>
           <td>${p.roles_from === "provider" ? "" : `<button data-act="roles" data-id="${esc(p.id)}">Save</button>`}</td></tr>`).join("")}</tbody></table>
         <p class="small muted">Roles: owner (everything), developer (the developer views), approver:&lt;risk&gt; (approves actions of that risk). Separate several with commas.</p>` : ""}`);
+    const pw = $("[data-password]", el);
+    if (pw && !pw.childElementCount) await passwordCard(pw);
   };
   el.onclick = async e => {
     const b = e.target.closest("button[data-act]"); if (!b) return;

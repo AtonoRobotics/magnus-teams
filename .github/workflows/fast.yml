@@ -48,6 +48,7 @@ jobs:
       - run: node desktop/tests/dev-reasoning-check.mjs
       - run: node desktop/tests/banners-check.mjs
       - run: node desktop/tests/wording-check.mjs
+      - run: node desktop/tests/password-check.mjs
       - run: ci/ratchet.sh size
       - run: ci/ratchet.sh clippy
       - run: cargo test --workspace --lib --bins
