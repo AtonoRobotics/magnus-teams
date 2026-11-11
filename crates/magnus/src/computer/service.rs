@@ -460,6 +460,7 @@ async fn in_helper(socket: &Path, id: &str, req: Value) -> Result<Value> {
 pub fn schedule(k: Arc<Kernel>) {
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(super::egress::serve(k.clone(), socket.clone()));
+    super::service_version::schedule(socket.clone());
     super::idle::schedule(k.clone());
     super::one::schedule(k.clone());
     k.sweep_computer_secrets();

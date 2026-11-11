@@ -37,7 +37,19 @@ pub fn at_capacity(e: &anyhow::Error) -> bool {
     e.to_string().contains(AT_CAPACITY)
 }
 
+/// One request to computerd. One it is known not to serve is refused here,
+/// and one it cannot read comes back in plain words: computerd is older
+/// than this server (`service_version`).
 pub async fn ask(socket: &Path, req: Value) -> Result<Value> {
+    let op = req["op"].as_str().unwrap_or_default().to_string();
+    if super::service_version::known_to_lack(socket, &op).await {
+        return Err(super::service_version::outdated());
+    }
+    ask_unchecked(socket, req).await.map_err(|e| if super::service_version::is_bad_request(&e) { super::service_version::outdated() } else { e })
+}
+
+/// The request as it is, and computerd's answer as it is.
+pub(super) async fn ask_unchecked(socket: &Path, req: Value) -> Result<Value> {
     let reply = tokio::time::timeout(REPLY_WAIT, async {
         let mut s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
         s.write_all(format!("{req}\n").as_bytes()).await?;

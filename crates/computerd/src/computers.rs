@@ -241,7 +241,7 @@ impl Computers {
         Ok(())
     }
 
-    fn base_id(&self) -> Result<String> {
+    pub fn base_id(&self) -> Result<String> {
         Ok(std::fs::read_to_string(self.state("images").join(BASE_ID)).context("read the base image's id")?.trim().to_string())
     }
 

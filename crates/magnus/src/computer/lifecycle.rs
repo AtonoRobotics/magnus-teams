@@ -14,6 +14,10 @@ use crate::vault::Vault;
 use anyhow::Result;
 use serde_json::{json, Value};
 
+/// What the person is told when computerd is too old to erase a volume.
+pub(super) const ERASE_NEEDS_UPDATE: &str =
+    "Resetting this computer with its files erased needs the computer service on this server to be updated: it is older than Magnus. Nothing was changed. An administrator can see how in Admin › Operations.";
+
 /// The vault names that belong to one computer and to nothing else.
 fn belongs_to(name: &str, computer: &str) -> bool {
     name == super::egress::ca_secret_name(computer) || name.strip_prefix("surrogate/").and_then(|rest| rest.strip_prefix(computer)).is_some_and(|rest| rest.starts_with('/'))
@@ -80,6 +84,10 @@ impl Kernel {
             return Err(Refused::Denied("a volume is deleted only when the person it belongs to asks".into()));
         }
         let socket = self.computer_socket()?;
+        // Before the log says the files are gone: an older computerd cannot erase them.
+        if !super::service_version::serves(&socket, "erase_volume").await.map_err(super::service::failed)? {
+            return Err(Refused::Conflict(ERASE_NEEDS_UPDATE.into()));
+        }
         let id = c.id.as_str();
         let mut changes: Vec<Change> = c.grants.iter().filter(|g| !g.revoked).map(|g| Change::Revoked { id: id.into(), grant: g.id.clone() }).collect();
         let revoked = changes.len();

@@ -9,11 +9,40 @@ use tokio::net::UnixListener;
 type Asked = Arc<Mutex<Vec<Value>>>;
 /// While set, the server has no room: every wake is refused for capacity.
 type Full = Arc<std::sync::atomic::AtomicBool>;
+/// What computerd serves (crates/computerd/src/version.rs, `OPS`).
+const REAL_OPS: &[&str] = &[
+    "create",
+    "start",
+    "hibernate",
+    "wake",
+    "discard_snapshot",
+    "backup",
+    "egress_socket",
+    "capacity",
+    "whose",
+    "restore_backup",
+    "start_browser",
+    "zero_room",
+    "dig_holes",
+    "seal_volume",
+    "unseal_volume",
+    "start_helper",
+    "pause",
+    "resume",
+    "stop",
+    "destroy",
+    "erase_volume",
+    "status",
+    "list",
+    "connect",
+    "display",
+    "version",
+];
 
 /// Creates, wakes, destroys and erases at once; its guests answer every
 /// desktop action with a screenshot. As the real one, a computer whose
 /// overlay was thrown away (a destroy, an erase) wakes on a fresh one.
-fn fake_computerd(socket: &Path, full: Full) -> Asked {
+fn fake_computerd(socket: &Path, full: Full, old: Full) -> Asked {
     let asked: Asked = Arc::default();
     let listener = UnixListener::bind(socket).unwrap();
     let log = asked.clone();
@@ -23,6 +52,7 @@ fn fake_computerd(socket: &Path, full: Full) -> Asked {
             let log = log.clone();
             let fresh = fresh.clone();
             let full = full.clone();
+            let old = old.clone();
             tokio::spawn(async move {
                 let (r, mut w) = s.into_split();
                 let mut lines = BufReader::new(r).lines();
@@ -31,6 +61,11 @@ fn fake_computerd(socket: &Path, full: Full) -> Asked {
                     log.lock().unwrap().push(req.clone());
                     let id = req["id"].as_str().unwrap_or_default().to_string();
                     let reply = match req["op"].as_str().unwrap() {
+                        // Built before `version` and `erase_volume`, as the server's was on 2026-11-11.
+                        op @ ("version" | "erase_volume") if old.load(std::sync::atomic::Ordering::SeqCst) => {
+                            json!({ "ok": false, "error": format!("bad request: unknown variant `{op}`") })
+                        }
+                        "version" => json!({ "ok": true, "version": "0.0.0", "base_id": null, "ops": REAL_OPS }),
                         "wake" if full.load(std::sync::atomic::Ordering::SeqCst) => json!({ "ok": false, "error": "computerd already runs as many computers as it may" }),
                         "wake" => {
                             let new = fresh.lock().unwrap().remove(&id);
@@ -62,6 +97,7 @@ struct Server {
     k: Arc<Kernel>,
     asked: Asked,
     full: Full,
+    old: Full,
     db: String,
     _dir: tempfile::TempDir,
 }
@@ -86,7 +122,8 @@ async fn server() -> Server {
     c.batch_execute(&crate::accounts::migrate_sql("postgres")).await.unwrap();
     let socket = dir.path().join("computerd.sock");
     let full = Full::default();
-    let asked = fake_computerd(&socket, full.clone());
+    let old = Full::default();
+    let asked = fake_computerd(&socket, full.clone(), old.clone());
     let p = dir.path().join("magnus.toml");
     let state = dir.path().join("state");
     std::fs::write(
@@ -98,7 +135,7 @@ async fn server() -> Server {
     )
     .unwrap();
     let k = Kernel::boot(crate::config::Config::load(&p).unwrap()).await.unwrap();
-    Server { k, asked, full, db: name, _dir: dir }
+    Server { k, asked, full, old, db: name, _dir: dir }
 }
 
 impl Server {
@@ -235,6 +272,28 @@ async fn erasing_the_files_keeps_the_same_computer_with_an_empty_volume() {
     s.k.reset_computer(&mo, &id, false).await.unwrap();
     assert_eq!(s.asked("erase_volume").len(), 2);
     assert_eq!(s.computers_of(&person("mo")).len(), 1);
+    s.done().await;
+}
+
+/// The owner's Reset on 2026-11-11: the server had updated itself, its
+/// computerd had not, and "bad request" reached the person. Now the reset is
+/// refused in plain words before anything is recorded, and the computer
+/// keeps its files.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reset_an_older_computerd_cannot_do_is_refused_plainly_and_changes_nothing() {
+    let s = server().await;
+    s.k.reconcile_computers().await;
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    s.old.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mo = s.k.person("mo").unwrap();
+    let e = s.k.reset_computer(&mo, &id, false).await.unwrap_err();
+    assert_eq!(e.to_string(), super::super::lifecycle::ERASE_NEEDS_UPDATE);
+    assert!(!e.to_string().contains("bad request"));
+    assert!(s.asked("erase_volume").is_empty(), "computerd was asked anyway");
+    assert!(!s.k.read(|st| st.computers.get(&id).is_some_and(|c| c.status == Status::Killed)), "the reset was recorded though nothing was erased");
+    s.old.store(false, std::sync::atomic::Ordering::SeqCst);
+    s.k.reset_computer(&mo, &id, false).await.expect("once computerd is updated, the reset works without a restart");
+    assert_eq!(s.asked("erase_volume").len(), 1);
     s.done().await;
 }
 

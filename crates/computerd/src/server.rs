@@ -116,6 +116,10 @@ pub enum Request {
     Display {
         id: String,
     },
+    /// This build's release, base image and requests, for Magnus to compare
+    /// with the computerd it shipped with. A computerd older than this
+    /// request answers "bad request", which Magnus reads as older.
+    Version,
 }
 
 fn key(b64: &str) -> Result<[u8; crate::seal::KEY_BYTES]> {
@@ -182,6 +186,7 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
             json!({})
         }
         Request::Status { id: raw } => json!({ "state": c.status(&id(&raw)?)? }),
+        Request::Version => crate::version::answer(std::env::current_exe().ok().as_deref().and_then(std::path::Path::parent), c.base_id().ok()),
         Request::List => json!({ "computers": c.list()?.iter().map(|i| i.as_str().to_string()).collect::<Vec<_>>() }),
         Request::Connect { .. } | Request::Display { .. } => anyhow::bail!("a connection is handled by the connection itself"),
     })
@@ -306,5 +311,6 @@ mod tests {
         }
         assert!(serde_json::from_str::<Request>(r#"{"op":"destroy","id":"a","delete_volume":true}"#).is_ok());
         assert!(serde_json::from_str::<Request>(r#"{"op":"capacity"}"#).is_ok(), "the machine cannot be asked its capacity");
+        assert!(serde_json::from_str::<Request>(r#"{"op":"version"}"#).is_ok(), "the service cannot be asked its version");
     }
 }

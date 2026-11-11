@@ -36,4 +36,15 @@ same(ctx.calls.find(c => c[0] === "PUT"), ["PUT", "/v1/admin/updates/desktop-cha
 // A passed restore check says so.
 const ok = load("admin-ops.js", { "GET /v1/admin/updates": updates, "GET /v1/admin/backups": { ...backups, latest: { file: "b2", restored: true, detail: "", at: null } }, "GET /v1/admin/computers": computers, "GET /v1/admin/health": health });
 assert.match((await draw(ok, "operations")).html, /data-ops-restore-check class="">The latest backup restored in its check/);
+assert.doesNotMatch(el.html, /data-ops-computerd-behind/, "a computer service that is not behind was shown as behind");
+
+// A computer service older than the server says so, with the command that updates it.
+const command = "sudo sh /home/sam/.magnus-teams/bin/install-computerd.sh /home/sam/.magnus-teams/bin/magnus-computerd /v /r sam /s/updates/appliance";
+const behind = { ...computers, capacity: { ...computers.capacity, service: { checked: true, behind: true, version: null, expected: "0.2.6-test.81",
+  message: "The computer service is older than this server: computers may fail to start or reset until it is updated.", command } } };
+const old = load("admin-ops.js", { "GET /v1/admin/updates": updates, "GET /v1/admin/backups": backups, "GET /v1/admin/computers": behind, "GET /v1/admin/health": health });
+const oldHtml = (await draw(old, "operations")).html;
+assert.match(oldHtml, /The computer service is older than this server: computers may fail to start or reset until it is updated\./);
+assert.match(oldHtml, /It runs a release from before it could say; this server is 0\.2\.6-test\.81\./);
+assert.ok(oldHtml.includes(`<pre class="small mono">${command}</pre>`), "the command is not shown");
 console.log("admin ops check passed");

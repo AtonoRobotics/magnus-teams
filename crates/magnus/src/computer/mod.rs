@@ -17,6 +17,8 @@ mod one;
 pub(crate) use made::{make_for_person, tell_server};
 mod routes;
 mod service;
+mod service_version;
+pub(crate) use service_version::report as service_report;
 mod sources;
 mod takeover;
 mod wake;

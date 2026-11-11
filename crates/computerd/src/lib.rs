@@ -10,3 +10,4 @@ pub mod id;
 pub mod relay;
 pub mod seal;
 pub mod server;
+pub mod version;

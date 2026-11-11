@@ -51,14 +51,17 @@ async fn back_up(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -
 
 /// The computer service's count, or why it did not answer.
 pub async fn capacity(k: &Kernel) -> Value {
-    if k.cfg.computer.is_none() {
+    let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else {
         return json!({ "set_up": false });
-    }
-    match tokio::time::timeout(Duration::from_secs(CAPACITY_WAIT_SECONDS), k.computer_capacity()).await {
+    };
+    let mut v = match tokio::time::timeout(Duration::from_secs(CAPACITY_WAIT_SECONDS), k.computer_capacity()).await {
         Ok(Ok(v)) => json!({ "set_up": true, "answers": true, "live": v["live"], "max_live": v["max_live"], "computers": v["computers"], "max_computers": v["max_computers"] }),
         Ok(Err(e)) => json!({ "set_up": true, "answers": false, "error": e.to_string() }),
         Err(_) => json!({ "set_up": true, "answers": false, "error": "the computer service did not answer in time" }),
-    }
+    };
+    // Whether the service is as new as this server, as last asked.
+    v["service"] = crate::computer::service_report(&k.cfg, &socket);
+    v
 }
 
 /// Every computer, whose it is and what it is doing, and the machine's
@@ -112,7 +115,8 @@ async fn health(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) ->
     let o = body_json(o).await;
     let mut services = vec![json!({ "name": "Server", "up": true, "version": o["version"] }), json!({ "name": "Event log (Postgres)", "up": o["log_up"] == true })];
     if cap["set_up"] == true {
-        services.push(json!({ "name": "Computers", "up": cap["answers"] == true, "note": cap["error"] }));
+        let note = if cap["service"]["behind"] == true { cap["service"]["message"].clone() } else { cap["error"].clone() };
+        services.push(json!({ "name": "Computers", "up": cap["answers"] == true, "note": note }));
     }
     Json(json!({
         "services": services,

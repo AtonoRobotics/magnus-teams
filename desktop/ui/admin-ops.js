@@ -7,7 +7,8 @@
 /**
  * @typedef {{version: string, automatic: boolean, latest: ?{version: string, notes: ?string}, available: boolean, updating: ?{from: string, to: string, rollback: boolean}, last: ?{what: string, to: string, detail: string, at: string}, previous: ?string, desktop: {channels: Array<{channel: string, published: ?string, who: string}>, everyone: string}}} AdminUpdates
  * @typedef {{every_hours: number, keep_days: number, copy_to: ?string, latest: ?{file: string, restored: boolean, detail: string, at: string}, copy: ?{copied: boolean, detail: string, at: string}, files: Array<{file: string, bytes: number}>, scrub_pending: ?{files: string[], detail: string}}} AdminBackups
- * @typedef {{computers: Array<{id: string, person: ?string, workspace: ?string, status: string, controller: ?string}>, capacity: {set_up: boolean, answers?: boolean, live?: number, max_live?: number, computers?: number, max_computers?: number, error?: string}}} AdminComputers
+ * @typedef {{checked: boolean, behind: boolean, version?: ?string, expected: string, message?: string, command?: string}} AdminComputerService
+ * @typedef {{computers: Array<{id: string, person: ?string, workspace: ?string, status: string, controller: ?string}>, capacity: {set_up: boolean, answers?: boolean, live?: number, max_live?: number, computers?: number, max_computers?: number, error?: string, service?: AdminComputerService}}} AdminComputers
  * @typedef {{services: Array<{name: string, up: boolean, note?: ?string}>, host: {cpus: number, load: ?number, memory_used: ?number, disk_used: ?number}}} AdminHealth
  */
 
@@ -42,7 +43,11 @@ function opsBackups(b) {
 function opsComputers(c) {
   const cap = c.capacity;
   const head = !cap.set_up ? "No computers are set up on this server." : !cap.answers ? `The computer service is not answering: ${esc(cap.error || "")}` : `${cap.live} of ${cap.max_live} running; ${cap.computers} of ${cap.max_computers} exist.`;
-  return `<section class="card" data-ops-computers><h3>Computers and capacity</h3><p class="small">${head}</p>
+  const svc = cap.service;
+  // Root installs the computer service; the server cannot update it by itself.
+  const behind = svc?.behind ? `<div data-ops-computerd-behind><p class="small bad">${esc(svc.message || "")} It runs ${esc(svc.version || "a release from before it could say")}; this server is ${esc(svc.expected)}. On the server, run:</p>
+    <pre class="small mono">${esc(svc.command || "")}</pre></div>` : "";
+  return `<section class="card" data-ops-computers><h3>Computers and capacity</h3><p class="small">${head}</p>${behind}
     ${c.computers.length ? `<table class="t"><tbody>${c.computers.map(x => `<tr><td class="small mono">${esc(x.id)}</td><td class="small">${esc(x.person || x.workspace || "")}</td><td class="small">${esc(x.status)}${x.controller ? `, ${esc(x.controller)} has the screen` : ""}</td></tr>`).join("")}</tbody></table>` : ""}</section>`;
 }
 
