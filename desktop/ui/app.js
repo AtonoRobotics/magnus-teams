@@ -3197,7 +3197,7 @@ async function accountSection(el) {
       <div class="card"><div class="spread"><div><strong>${esc(App.me.name)}</strong> <span class="faint">(${esc(App.me.id)})</span>
         <div class="small muted">Signed in to ${esc(App.appliance)}${App.me.roles?.length ? ` · roles: ${esc(App.me.roles.join(", "))}` : ""}${App.me.groups?.length ? ` · groups: ${esc(App.me.groups.join(", "))}` : ""}</div></div>
         <button data-act="sign-out">Sign out</button></div></div>
-      <div data-password></div>
+      <div data-password></div><div data-mail></div>
       <h3>Devices</h3>
       ${sessions.length ? `<table class="t" data-devices><tbody>${sessions.map(x => `<tr data-session="${esc(x.id)}"><td>${x.client === "app" ? "Magnus app" : x.client === "browser" ? "Browser" : "Device"}${x.current ? ` <span class="chip ok">this device</span>` : ""}</td>
         <td class="small muted">signed in ${esc(when(x.created))} · until ${esc(new Date(x.expires).toLocaleDateString())}</td>
@@ -3210,7 +3210,7 @@ async function accountSection(el) {
           <td>${p.roles_from === "provider" ? "" : `<button data-act="roles" data-id="${esc(p.id)}">Save</button>`}</td></tr>`).join("")}</tbody></table>
         <p class="small muted">Roles: owner (everything), developer (the developer views), approver:&lt;risk&gt; (approves actions of that risk). Separate several with commas.</p>` : ""}`);
     const pw = $("[data-password]", el);
-    if (pw && !pw.childElementCount) await passwordCard(pw);
+    if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); }
   };
   el.onclick = async e => {
     const b = e.target.closest("button[data-act]"); if (!b) return;

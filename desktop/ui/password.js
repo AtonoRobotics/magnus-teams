@@ -91,3 +91,53 @@ function forgotPasswordStep(box, data, back) {
     }
   };
 }
+
+/**
+ * What the server says about its outgoing mail (owner only).
+ * @typedef {{ configured: boolean, host?: string, port?: number, from?: string, username?: string|null, credential?: string|null, password_set?: boolean, address: string|null }} MailStatus
+ */
+
+/**
+ * The owner's Email card in Settings → Account: where recovery emails come
+ * from, the mailbox password (it goes straight into the server's vault and
+ * is never shown again) and a test email. Hidden for everyone else.
+ * @param {HTMLElement|null} el
+ */
+async function mailCard(el) {
+  if (!el) return;
+  /** @type {MailStatus} */
+  let m;
+  try { m = await api("GET", "/v1/mail"); } catch { el.innerHTML = ""; return; }
+  if (!m.configured) {
+    el.innerHTML = `<h3>Email</h3><p class="small muted">This server sends no email, so "Forgot password?" cannot reach anyone. Outgoing mail is set up on the server itself.</p>`;
+    return;
+  }
+  el.innerHTML = `<h3>Email</h3>
+    <form class="card" data-mail-form>
+      <p class="small">Recovery emails come from <b>${esc(m.from || "")}</b> through ${esc(m.host || "")}:${esc(String(m.port || ""))}.
+        ${m.address ? `Yours go to <b>${esc(m.address)}</b>.` : `<span style="color:var(--bad)">Your account has no recovery address yet.</span>`}</p>
+      <p class="small" data-mail-note role="alert" hidden></p>
+      ${m.credential ? `<label for="mail-pw">Password for ${esc(m.username || m.from || "the mailbox")}</label>
+      <input id="mail-pw" type="password" style="width:100%" autocomplete="off" placeholder="${m.password_set ? "Saved. Enter a new one to replace it." : "Not saved yet"}">` : ""}
+      <div class="row">${m.credential ? `<button class="primary" data-mail-save>Save password</button>` : ""}<button type="button" data-mail-test>Send a test email</button></div>
+    </form>`;
+  const form = /** @type {HTMLFormElement} */ ($("[data-mail-form]", el));
+  const note = /** @type {HTMLElement} */ ($("[data-mail-note]", el));
+  const say = (/** @type {string} */ msg, bad = true) => { note.textContent = msg; note.hidden = !msg; note.style.color = bad ? "var(--bad)" : ""; };
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const input = /** @type {HTMLInputElement|null} */ ($("#mail-pw", form));
+    if (!input || !m.credential) return;
+    if (!input.value) return say("Enter the mailbox password.");
+    try {
+      await api("PUT", `/v1/secrets/${encodeURIComponent(m.credential)}`, { value: input.value });
+      input.value = ""; input.placeholder = "Saved. Enter a new one to replace it.";
+      say("Saved. Send a test email to check it.", false);
+    } catch (err) { say(err.message || String(err)); }
+  };
+  /** @type {HTMLButtonElement} */ ($("[data-mail-test]", form)).onclick = async () => {
+    say("Sending…", false);
+    try { const r = await api("POST", "/v1/mail/test", {}); say(`Sent to ${r.to}. Check that inbox (and its spam folder).`, false); }
+    catch (err) { say(err.message || String(err)); }
+  };
+}

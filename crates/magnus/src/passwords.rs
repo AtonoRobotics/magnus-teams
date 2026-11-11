@@ -18,7 +18,7 @@ use std::sync::Arc;
 type K = State<Arc<Kernel>>;
 
 pub fn router() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/account/password", get(rules).post(change)).route("/v1/password-reset/request", post(password_reset_request))
+    Router::new().route("/v1/account/password", get(rules).post(change)).route("/v1/password-reset/request", post(password_reset_request)).merge(crate::mail_settings::router())
 }
 
 /// Whether this person's password is kept here, and so changed here: with no

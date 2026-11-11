@@ -52,6 +52,7 @@ pub mod local_files;
 pub mod log;
 pub mod login_codes;
 pub mod mail_config;
+pub mod mail_settings;
 pub mod mailer;
 pub mod measured;
 pub mod oidc;
