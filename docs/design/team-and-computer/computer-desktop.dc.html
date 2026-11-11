@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The computer's desktop</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 1280px; height: 800px; overflow: hidden; font-family: Inter, system-ui, sans-serif; font-size: 13px; color: {{ text }}">
+
+<div style="position: absolute; left: 0; top: 0">
+<dc-import name="Wallpaper" theme="{{ theme }}" hint-size="1280px,800px"></dc-import>
+</div>
+
+<header style="position: absolute; left: 0; top: 0; right: 0; height: 34px; display: flex; align-items: center; gap: 4px; padding: 0 10px; background: {{ bar }}; border-bottom: 1px solid {{ border }}">
+<button style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: {{ text }}; font-weight: 600; font-size: 13px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="{{ accent }}"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"></path></svg>Magnus</button>
+<span style="width: 1px; height: 16px; background: {{ border }}; margin: 0 6px"></span>
+<button aria-label="Terminal" title="Terminal" style="position: relative; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: {{ termTab }}; color: {{ text }}; font-size: 12px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M12 15h5"></path></svg>Terminal</button>
+<button aria-label="Files" title="Files" style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: {{ filesTab }}; color: {{ text }}; font-size: 12px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Files</button>
+<button aria-label="Browser" title="Browser" style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: {{ muted }}; font-size: 12px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg>Browser</button>
+<span style="flex-grow: 1"></span>
+<span style="color: {{ muted }}; font-size: 12px; font-weight: 500">Wed 11 Nov   6:26</span>
+</header>
+
+<section aria-label="{{ windowTitle }} window" style="position: absolute; left: 10px; top: 44px; width: 640px; height: 746px; display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: {{ win }}; border: 1px solid {{ border }}; box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28)">
+<div style="height: 38px; flex: 0 0 38px; display: flex; align-items: center; padding: 0 8px 0 14px; background: {{ titlebar }}; border-bottom: 1px solid {{ border }}">
+<span style="flex: 1 1 0; color: {{ muted }}; font-size: 12px">{{ windowPath }}</span>
+<strong style="font-size: 13px; font-weight: 600">{{ windowTitle }}</strong>
+<span style="flex: 1 1 0; display: flex; justify-content: flex-end; gap: 2px">
+<button aria-label="Minimize" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: {{ muted }}; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"></path></svg></button>
+<button aria-label="Maximize" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: {{ muted }}; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></button>
+<button aria-label="Close" style="width: 28px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: {{ muted }}; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</span>
+</div>
+
+<sc-if value="{{ showTerminal }}" hint-placeholder-val="{{ true }}">
+<div style="flex-grow: 1; padding: 16px 18px; background: {{ term }}; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.7; color: {{ termText }}">
+<div><span style="color: {{ prompt }}">magnus@computer</span><span style="color: {{ muted }}">:~/alpha-feedback$</span> python3 -m venv .venv &amp;&amp; . .venv/bin/activate</div>
+<div><span style="color: {{ prompt }}">magnus@computer</span><span style="color: {{ muted }}">:~/alpha-feedback$</span> pip install pandas</div>
+<div style="color: {{ muted }}">Successfully installed pandas and 5 dependencies</div>
+<div><span style="color: {{ prompt }}">magnus@computer</span><span style="color: {{ muted }}">:~/alpha-feedback$</span> python3 summarize.py feedback.csv</div>
+<div style="color: {{ muted }}">Read 3 sources · wrote summary.md</div>
+<div><span style="color: {{ prompt }}">magnus@computer</span><span style="color: {{ muted }}">:~/alpha-feedback$</span> <span style="display: inline-block; width: 8px; height: 15px; vertical-align: -2px; background: {{ termText }}"></span></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ showFiles }}" hint-placeholder-val="{{ false }}">
+<div style="flex-grow: 1; display: flex; min-height: 0">
+<nav aria-label="Places" style="flex: 0 0 168px; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; background: {{ titlebar }}; border-right: 1px solid {{ border }}; font-size: 13px">
+<a href="#" style="padding: 6px 10px; border-radius: 7px; color: {{ text }}; text-decoration: none">Home</a>
+<a href="#" style="padding: 6px 10px; border-radius: 7px; color: {{ text }}; text-decoration: none">Documents</a>
+<a href="#" style="padding: 6px 10px; border-radius: 7px; color: {{ text }}; text-decoration: none">Downloads</a>
+<a href="#" style="padding: 6px 10px; border-radius: 7px; background: {{ selected }}; color: {{ accentText }}; font-weight: 600; text-decoration: none">Projects</a>
+<a href="#" style="padding: 6px 10px; border-radius: 7px; color: {{ text }}; text-decoration: none">Trash</a>
+</nav>
+<div style="flex-grow: 1; padding: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; align-content: start">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><svg aria-hidden="true" width="56" height="48" viewBox="0 0 56 48"><path d="M2 8a4 4 0 0 1 4-4h14l5 5h25a4 4 0 0 1 4 4v29a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4z" fill="{{ folder }}"></path></svg><span>charts</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><svg aria-hidden="true" width="44" height="52" viewBox="0 0 44 52"><path d="M4 4a3 3 0 0 1 3-3h20l13 13v34a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" fill="{{ doc }}" stroke="{{ border }}"></path><path d="M12 24h20M12 31h20M12 38h13" stroke="{{ accent }}" stroke-width="2.5" stroke-linecap="round"></path></svg><span>summary.md</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><svg aria-hidden="true" width="44" height="52" viewBox="0 0 44 52"><path d="M4 4a3 3 0 0 1 3-3h20l13 13v34a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" fill="{{ doc }}" stroke="{{ border }}"></path><path d="M12 24h20M12 31h20M12 38h20M22 21v20" stroke="{{ muted }}" stroke-width="2" stroke-linecap="round"></path></svg><span>feedback.csv</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><svg aria-hidden="true" width="44" height="52" viewBox="0 0 44 52"><path d="M4 4a3 3 0 0 1 3-3h20l13 13v34a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" fill="{{ doc }}" stroke="{{ border }}"></path><path d="M15 26l-4 5 4 5M29 26l4 5-4 5" stroke="{{ accent }}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg><span>summarize.py</span></div>
+</div>
+</div>
+</sc-if>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"view":{"editor":"enum","options":["terminal","files"],"default":"terminal"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+const theme = this.props.theme ?? 'dark';
+const files = (this.props.view ?? 'terminal') === 'files';
+const c = theme === 'light'
+? { text: '#111827', muted: '#5B6472', bar: '#FFFFFF', border: '#DCE1E8', win: '#FFFFFF', titlebar: '#F5F7FA', term: '#FBFCFE', termText: '#1F2937', prompt: '#1D4ED8', accent: '#2563EB', accentText: '#1D4ED8', selected: '#E8EFFE', tab: '#EEF1F5', folder: '#60A5FA', doc: '#FFFFFF' }
+: { text: '#E5E9F0', muted: '#9AA6BA', bar: '#0E1626', border: '#24314A', win: '#121B2C', titlebar: '#0F1828', term: '#0B1120', termText: '#D8DEE9', prompt: '#93B4FF', accent: '#3B82F6', accentText: '#BFD3FF', selected: '#1B2B4A', tab: '#1A2438', folder: '#3B82F6', doc: '#1A2438' };
+return {
+...c,
+theme,
+showTerminal: !files,
+showFiles: files,
+windowTitle: files ? 'Files' : 'Terminal',
+windowPath: files ? 'Home › Projects › alpha-feedback' : '~/alpha-feedback',
+termTab: files ? 'transparent' : c.tab,
+filesTab: files ? c.tab : 'transparent'
+};
+}
+}
+</script>
+</body>
+</html>

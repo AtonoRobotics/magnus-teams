@@ -16,5 +16,11 @@ not app code: the app stays plain JavaScript with no build step.
 - `create-without-forms.dc.html`: creating a project from the command menu and
   inviting people inline, with no step-by-step form.
 
-The spec sections they illustrate are "Workspace experience" and "User takeover
-and handback" in the Magnus Agent Computer spec. Where they differ, the spec wins.
+- `computer-desktop.dc.html` and `Wallpaper.dc.html`: the computer's own
+  desktop (XFCE themed to match the app, one top bar, Terminal, Files and
+  Browser) over the Magnus wallpaper, each in dark and light. The desktop
+  imports the wallpaper by that file name, so keep them together. Export the
+  wallpaper at 2x from the canvas for the base image.
+
+The spec sections they illustrate are "Workspace experience" "User takeover
+and handback" and "The desktop" in the Magnus Agent Computer spec. Where they differ, the spec wins.

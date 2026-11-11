@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Magnus wallpaper</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="position: relative; width: 1280px; height: 800px; overflow: hidden; background: {{ bg }}; font-family: Inter, system-ui, sans-serif">
+<svg aria-hidden="true" width="1280" height="800" viewBox="0 0 1280 800" style="position: absolute; left: 0; top: 0">
+<circle cx="900" cy="400" r="230" fill="none" stroke="{{ line }}" stroke-width="1.5"></circle>
+<circle cx="900" cy="400" r="340" fill="none" stroke="{{ line }}" stroke-width="1.5"></circle>
+<circle cx="900" cy="400" r="460" fill="none" stroke="{{ line }}" stroke-width="1.5"></circle>
+<circle cx="900" cy="400" r="590" fill="none" stroke="{{ lineFaint }}" stroke-width="1.5"></circle>
+<circle cx="684" cy="321" r="5" fill="{{ dot }}"></circle>
+<circle cx="1116" cy="479" r="4" fill="{{ dot }}"></circle>
+<circle cx="784" cy="81" r="4" fill="{{ dot }}"></circle>
+<circle cx="870" cy="739" r="6" fill="{{ accent }}"></circle>
+<circle cx="468" cy="557" r="5" fill="{{ dot }}"></circle>
+<circle cx="1130" cy="2" r="4" fill="{{ dot }}"></circle>
+<polygon points="900.0,250.0 937.0,349.0 1042.7,353.6 959.9,419.5 988.2,521.4 900.0,463.0 811.8,521.4 840.1,419.5 757.3,353.6 863.0,349.0" fill="{{ starFill }}" stroke="{{ accent }}" stroke-width="2.5" stroke-linejoin="round"></polygon>
+</svg>
+<div style="position: absolute; left: 56px; bottom: 48px; display: flex; align-items: center; gap: 10px; color: {{ mark }}; font-size: 20px; font-weight: 600; letter-spacing: 0.02em">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"></path></svg>Magnus
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+const dark = (this.props.theme ?? 'dark') !== 'light';
+return dark
+? { bg: '#0B1220', line: '#1C2840', lineFaint: '#141E33', dot: '#3B4A66', accent: '#3B82F6', starFill: '#0F1A2E', mark: '#5B6B87' }
+: { bg: '#F4F6FA', line: '#DCE3EE', lineFaint: '#E8EDF4', dot: '#B8C4D6', accent: '#2563EB', starFill: '#EAF0FB', mark: '#7A879B' };
+}
+}
+</script>
+</body>
+</html>
