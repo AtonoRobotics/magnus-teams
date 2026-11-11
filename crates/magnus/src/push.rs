@@ -17,6 +17,7 @@ use crate::api::{err, who};
 use crate::config::Watch;
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::push_subs::provider::Sub;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -48,17 +49,43 @@ pub enum Change {
     /// An app pushed for a person. Recorded once per outstanding push: more
     /// pushes before the poll that answers it add nothing.
     Received { person: String, app: String, at: DateTime<Utc> },
+    /// Magnus subscribed to the app's notifications for the person, at the
+    /// provider (decisions/2026-11-10-push-subscriptions.md).
+    Subscribed { person: String, app: String, sub: Sub, at: DateTime<Utc> },
+    /// The subscription was kept going: extended, or replaced by a new one.
+    Renewed { person: String, app: String, sub: Sub, at: DateTime<Utc> },
+    /// The subscription ended: deleted at the provider, or given up when it
+    /// could not be (it then ends there by itself at its end time).
+    Unsubscribed { person: String, app: String, why: String, at: DateTime<Utc> },
+    /// Subscribing or renewing failed; tried again after a wait.
+    SubscribeFailed { person: String, app: String, why: String, at: DateTime<Utc> },
 }
 
-/// The latest push not yet known to be answered, by person and app.
+/// The latest push not yet known to be answered, by person and app, and
+/// the subscriptions Magnus holds at providers.
 #[derive(Clone, Debug, Default)]
-pub struct Ledger(BTreeMap<(String, String), DateTime<Utc>>);
+pub struct Ledger {
+    received: BTreeMap<(String, String), DateTime<Utc>>,
+    subs: BTreeMap<(String, String), Sub>,
+    failed: BTreeMap<(String, String), DateTime<Utc>>,
+}
 
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {
             Change::Received { person, app, at } => {
-                self.0.insert((person.clone(), app.clone()), *at);
+                self.received.insert((person.clone(), app.clone()), *at);
+            }
+            Change::Subscribed { person, app, sub, .. } | Change::Renewed { person, app, sub, .. } => {
+                self.subs.insert((person.clone(), app.clone()), sub.clone());
+                self.failed.remove(&(person.clone(), app.clone()));
+            }
+            Change::Unsubscribed { person, app, .. } => {
+                self.subs.remove(&(person.clone(), app.clone()));
+                self.failed.remove(&(person.clone(), app.clone()));
+            }
+            Change::SubscribeFailed { person, app, at, .. } => {
+                self.failed.insert((person.clone(), app.clone()), *at);
             }
         }
     }
@@ -66,15 +93,29 @@ impl Ledger {
     /// Their pushes go with them: whoever is next known by their name
     /// starts with none.
     pub fn forget(&mut self, person: &str) {
-        self.0.retain(|(p, _), _| p != person);
+        self.received.retain(|(p, _), _| p != person);
+        self.subs.retain(|(p, _), _| p != person);
+        self.failed.retain(|(p, _), _| p != person);
     }
 
     pub fn get(&self, person: &str, app: &str) -> Option<DateTime<Utc>> {
-        self.0.get(&(person.to_string(), app.to_string())).copied()
+        self.received.get(&(person.to_string(), app.to_string())).copied()
     }
 
     pub fn all(&self) -> Vec<(String, String, DateTime<Utc>)> {
-        self.0.iter().map(|((p, a), t)| (p.clone(), a.clone(), *t)).collect()
+        self.received.iter().map(|((p, a), t)| (p.clone(), a.clone(), *t)).collect()
+    }
+
+    pub fn sub(&self, person: &str, app: &str) -> Option<Sub> {
+        self.subs.get(&(person.to_string(), app.to_string())).cloned()
+    }
+
+    pub fn subs(&self) -> Vec<(String, String, Sub)> {
+        self.subs.iter().map(|((p, a), s)| (p.clone(), a.clone(), s.clone())).collect()
+    }
+
+    pub fn failed(&self, person: &str, app: &str) -> Option<DateTime<Utc>> {
+        self.failed.get(&(person.to_string(), app.to_string())).copied()
     }
 }
 
@@ -187,7 +228,7 @@ impl Kernel {
     }
 
     /// The person's push address for an app, as a path on this server.
-    fn push_path(&self, person: &str, app: &str) -> anyhow::Result<String> {
+    pub(crate) fn push_path(&self, person: &str, app: &str) -> anyhow::Result<String> {
         let enc = |s: &str| url::form_urlencoded::byte_serialize(s.as_bytes()).collect::<String>();
         Ok(format!("/v1/push/{}/{}/{}", enc(app), enc(person), token(&self.push_key()?, person, app)))
     }
@@ -221,7 +262,10 @@ async fn receive(State(k): K, Path((app, person, given)): Path<(String, String, 
 }
 
 /// The person's push address for an app they use, to give the app as its
-/// notification address. Only apps with something watched have one.
+/// notification address. Only apps with something watched have one. `url`
+/// is the whole address on the server's public address, and null when it
+/// has none (a provider cannot reach a network address); `automatic` says
+/// Magnus subscribes for the person by itself.
 async fn address(State(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
     let p = match who(&k, &h).await {
         Ok(p) => p,
@@ -232,7 +276,11 @@ async fn address(State(k): K, h: HeaderMap, Path(name): Path<String>) -> Respons
         return err(StatusCode::NOT_FOUND, "Magnus does not watch anything in this app");
     }
     match k.push_path(&p.id, &c.name) {
-        Ok(path) => Json(json!({ "path": path, "watches": c.watch.iter().map(|w| w.tool.clone()).collect::<Vec<_>>() })).into_response(),
+        Ok(path) => {
+            let url = k.cfg.appliance.public_url.as_ref().map(|u| u.join(&path));
+            let watches: Vec<String> = c.watch.iter().map(|w| w.tool.clone()).collect();
+            Json(json!({ "path": path, "url": url, "automatic": k.push_automatic(&c), "watches": watches })).into_response()
+        }
         Err(_) => err(StatusCode::SERVICE_UNAVAILABLE, "the server cannot make push addresses now"),
     }
 }

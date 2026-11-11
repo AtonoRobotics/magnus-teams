@@ -112,10 +112,10 @@ pub struct Appliance {
     /// apps pin it on first connection.
     #[serde(default)]
     pub tls_listen: Option<String>,
-    #[serde(default)]
     pub tls_cert: Option<PathBuf>,
-    #[serde(default)]
     pub tls_key: Option<PathBuf>,
+    /// The server's https address on the internet, where providers send notifications; unset, none are subscribed to.
+    pub public_url: Option<crate::public_url::PublicUrl>,
 }
 
 /// The admin console's reach (admin console spec, Access): its hostname

@@ -138,6 +138,8 @@ impl crate::kernel::Kernel {
         }
         // Pushes that landed inside their gap poll once it passes.
         self.push_due(now).await;
+        // Subscriptions at providers kept to what they should be.
+        self.push_subs_due(now);
         let people: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
         for person in people {
             if self.read(|s| s.turned_off.contains(&person) || s.review_runs.values().any(|p| p == &person)) {

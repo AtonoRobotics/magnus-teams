@@ -875,6 +875,8 @@ impl Kernel {
     pub async fn disconnect(&self, app: &str, person: &str) -> Result<Option<(bool, String)>> {
         let name = connection_name(app, person);
         let Some(s) = self.vault.get(&name)? else { return Ok(None) };
+        // Its push subscription is ended first, while the sign-in still works.
+        self.unsubscribe_push(app, person).await;
         let (done, detail) = revoke(s.expose()).await;
         self.vault.remove(&name)?;
         self.live_tools.lock().await.remove(&name);
@@ -1435,7 +1437,7 @@ async fn card(k: &Kernel, c: &Connector, person: &str) -> Value {
         "state": standing.as_str(), "signed_in": standing == Standing::Connected, "signs_in": c.auth.as_deref() == Some(OAUTH),
         "connected_at": at.and_then(|s| chrono::DateTime::from_timestamp(s, 0)), "account": account, "last_used": last,
         // False only on an appliance Alpha Vector has not finished setting up.
-        "ready": k.provider_ready(c), "watched": !c.watch.is_empty(),
+        "ready": k.provider_ready(c), "watched": !c.watch.is_empty(), "instant": k.push_instant(c),
         // The address the desktop app listens on, when the provider
         // registered one exactly. Not shown.
         "redirect_uri": c.redirect_uri,
