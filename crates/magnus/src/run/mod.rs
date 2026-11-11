@@ -84,10 +84,19 @@ fn version_of(name: &str, text: &str) -> String {
 /// The harness section of a run's system context (#270): what wakes it,
 /// what it keeps, what bounds it, and only the capabilities offered —
 /// `search`, `sandbox` and `browser` as this appliance offers them.
-fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool) -> String {
+/// `watched` names the person's connected apps whose new items wake you,
+/// each with how often it is checked: what you are told is what the poller
+/// does, so asked whether you get their email, you answer from fact.
+fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool, watched: &[(String, u64)]) -> String {
     let mut s = format!(
         "\n\n# Your harness\n\nYou run on this appliance for {who}. You wake when they message you, submit a task, or when one of their schedules comes due; once, when they first start using Magnus, you open the conversation yourself.\n\nYou keep: what you remember across conversations (memory_search), their relationship notes, their open disagreements with you, your suggestion ledger, their open commitments, and your playbook lessons.\n\nYou are bound by the organisation's Cedar policies; some actions wait for the person's approval; and when the kill switch is on, nothing new starts until the owner releases it.\n"
     );
+    if watched.is_empty() {
+        s.push_str("\nNone of their connected apps is watched, so nothing new in them wakes you; you see their contents only when you read them.\n");
+    } else {
+        let list = watched.iter().map(|(app, m)| format!("{app} (checked every {m} minutes)")).collect::<Vec<_>>().join(", ");
+        s.push_str(&format!("\nYou also wake on your own when something new arrives in their connected apps: {list}, and at once where the service pushes a notification. Each arrival starts a review in which you read it and decide whether to tell them, suggest work, act within a grant, or stay quiet. So you do get notified of their new email and other items in these apps.\n"));
+    }
     if search {
         s.push_str("\nYou can search the web with web_search, and fetch any page with web_fetch.\n");
     } else {
@@ -305,7 +314,17 @@ impl Kernel {
     /// offered, so its opinions about itself rest on facts, not guesses.
     fn harness_context(&self, run: &Run) -> String {
         let who = self.person(&run.person).map(|p| if p.name.is_empty() { p.id.clone() } else { p.name.clone() }).unwrap_or_else(|| run.person.clone());
-        harness_text(&who, self.web.can_search(), self.sandboxes.available(), self.browser.available())
+        let mut watched: Vec<(String, u64)> = if self.cfg.proactive.on {
+            self.connectors()
+                .iter()
+                .filter(|c| self.connected(c, &run.person) && !self.lapsed(c, &run.person))
+                .filter_map(|c| c.watch.iter().filter_map(|w| w.poll_minutes).min().map(|m| (c.title.clone().unwrap_or_else(|| c.name.clone()), m.max(1))))
+                .collect()
+        } else {
+            vec![]
+        };
+        watched.sort();
+        harness_text(&who, self.web.can_search(), self.sandboxes.available(), self.browser.available(), &watched)
     }
 
     /// Tools offered to the run's next model call: run records, built-ins,
@@ -1089,18 +1108,30 @@ mod tests {
         assert!(REVIEW_INSTRUCTIONS.contains("observe"), "waiting news goes out as observations");
     }
 
+    /// Mail the person wrote to Magnus is answered now, not filed as a
+    /// suggestion they never see; its text stays untrusted.
+    #[test]
+    fn review_answers_mail_written_to_magnus() {
+        assert!(REVIEW_INSTRUCTIONS.contains("A message the person wrote to you"), "the review has no rule for mail written to Magnus");
+        assert!(REVIEW_INSTRUCTIONS.contains("Answer it now with\n`interrupt`"), "mail written to Magnus is not answered at once");
+        assert!(REVIEW_INSTRUCTIONS.contains("still untrusted data"), "mail written to Magnus is trusted");
+    }
+
     /// The harness section names only what is offered (#270): no web
     /// search, no sandbox, no browser without them.
     #[test]
     fn harness_names_only_what_is_offered() {
-        let bare = harness_text("bob", false, false, false);
+        let bare = harness_text("bob", false, false, false, &[]);
         assert!(bare.contains("for bob"), "{bare}");
+        assert!(bare.contains("nothing new in them wakes you"), "{bare}");
         assert!(bare.contains("You cannot search the web"), "{bare}");
         assert!(!bare.contains("You can search the web"), "{bare}");
         assert!(!bare.contains("fresh VM"), "{bare}");
         assert!(!bare.contains("browser tools"), "{bare}");
         assert!(bare.contains("kill switch"), "{bare}");
-        let full = harness_text("bob", true, true, true);
+        let full = harness_text("bob", true, true, true, &[("Gmail".into(), 5)]);
+        assert!(full.contains("Gmail (checked every 5 minutes)"), "the harness does not say their email wakes it: {full}");
+        assert!(full.contains("you do get notified of their new email"), "{full}");
         assert!(full.contains("You can search the web with web_search"), "{full}");
         assert!(full.contains("fresh VM"), "{full}");
         assert!(full.contains("browser tools"), "{full}");
