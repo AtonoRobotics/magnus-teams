@@ -342,8 +342,12 @@ dialog.ask p { margin: 0 0 16px; line-height: 1.45; }
 dialog.ask .row { justify-content: flex-end; gap: 8px; }
 .toast { background: var(--fg); color: var(--main); padding: 10px 16px; border-radius: 12px; font-weight: 550; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
 .empty { color: var(--muted); padding: 24px 0; }
-.stack { display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: var(--line); }
-.stack > span { display: block; height: 100%; }
+/* A column of a form's or card's parts, spaced evenly. (It was once a 14px
+   bar chart; nothing draws that any more, and every form that says stack
+   means this.) */
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.stack > label:not(:has(> input[type=checkbox], > input[type=radio])) { display: flex; flex-direction: column; gap: 4px; }
+.stack > label > input:not([type=checkbox]):not([type=radio]), .stack > label > select, .stack > label > textarea { width: 100%; box-sizing: border-box; }
 .panel .v { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .panel .u { color: var(--muted); font-size: 12px; }
 .panel button.link { font-size: 26px; font-weight: 650; }

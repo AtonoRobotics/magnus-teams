@@ -151,4 +151,16 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
   assert.match(vm.runInContext('stopText({ level: "person", target: "ada", by_name: "Sam", at: null })', clear), /Sam stopped your agents\./);
 }
 
+// The step-up sheet and every admin form lay out as a column: `.stack` is a
+// layout, not the 14px bar it once was, which squashed the whole sheet into
+// a strip nobody could type in.
+{
+  const css = read("app.css");
+  const rule = css.match(/(^|\n)\.stack\s*\{([^}]*)\}/);
+  assert.ok(rule, "app.css has no .stack rule");
+  assert.match(rule[2], /flex-direction:\s*column/, ".stack is not a column");
+  assert.doesNotMatch(rule[2], /(^|;)\s*(height|overflow)\s*:/, ".stack fixes a height or hides overflow, so forms using it are cut off");
+  assert.match(admin, /<form class="stack" data-step-up>/, "the step-up sheet is not laid out with .stack");
+}
+
 console.log("admin check passed");
