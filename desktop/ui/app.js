@@ -2088,6 +2088,8 @@ function card(i, composed) {
       // A schedule's own notice stands for no run to continue: its Resume does that.
       if (typeof d.reason === "string" && !d.reason.startsWith("schedule_") && i.run_id) list.push(["resume", "Continue", "primary"]);
       if (d.reason === "budget") list.push(["extend", "Double the budget and continue"]);
+      const askMore = typeof spendNoticeAction === "function" ? spendNoticeAction(d) : null;
+      if (askMore) list.push(askMore);
       list.push(["dismiss", "Dismiss"]);
       body = `<p class="small"><span class="muted">Why it stopped:</span> ${esc(d.reason)}</p>
         ${ev ? `<div class="evidence fail"><div class="small muted">Evidence</div>${fieldValue(ev)}</div>` : ""}${buttons(i, list)}`;
@@ -2308,6 +2310,8 @@ async function respond(btn, root) {
   if (btn.disabled) return;
   const id = btn.dataset.item;
   let [decision, scope] = btn.dataset.decision.split(":");
+  // Asking for more spend is not an answer to the notice: it opens the ask.
+  if (decision === "ask-more") { if (typeof askMoreFromNotice === "function") askMoreFromNotice(btn); return; }
   const body = { decision };
   if (scope) body.scope = scope;
   const box = $(`[data-draft="ans-${CSS.escape(id)}"]`, root) || $(`[data-draft="rev-${CSS.escape(id)}"]`, root);

@@ -181,6 +181,28 @@ function offerMoreSpend(body) {
   d.showModal();
 }
 
+/** A run stopped partway by a spent limit leaves a notice (reason
+ * "spend_limit", the stop as its evidence). Where the person can ask for
+ * more, the notice offers it: a button for app.js's notice card, or null.
+ * @param {{reason?: string, evidence?: SpendStop}} d the notice's details
+ * @returns {?[string, string, string, string]} */
+function spendNoticeAction(d) {
+  const s = d?.reason === "spend_limit" ? d.evidence : null;
+  if (!s || s.which !== "person" || !s.can_ask) return null;
+  return ["ask-more", "Ask for more", "", `data-spend="${esc(JSON.stringify(s))}"`];
+}
+
+/** The notice's Ask for more: the same sheet a refused start offers.
+ * @param {HTMLElement} btn the notice's button, carrying the stop */
+function askMoreFromNotice(btn) {
+  /** @type {?SpendStop} */
+  let s = null;
+  try { s = JSON.parse(btn.dataset.spend || "null"); } catch { s = null; }
+  if (!s) return;
+  const amounts = `${dollars(s.spent_usd)} of ${dollars(s.limit_usd)}`;
+  offerMoreSpend({ error: `You have reached your spend limit for this month (${amounts}). You can ask an admin for more.`, spend_limit: s });
+}
+
 registerAdminSection("spend", el => adminSpend(el));
 
 // Overview's card: this month against the server's limit, who has reached

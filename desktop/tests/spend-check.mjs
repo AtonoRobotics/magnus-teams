@@ -130,6 +130,27 @@ function harness(answers = {}) {
   assert.match(h.toasts.at(-1), /You will hear in your inbox/);
 }
 
+// A run stopped partway by a spent limit leaves a notice: where the person
+// can ask, the notice offers "Ask for more", which opens the same ask.
+{
+  assert.match(app, /const askMore = typeof spendNoticeAction === "function" \? spendNoticeAction\(d\) : null;\s*if \(askMore\) list\.push\(askMore\);/, "the stopped run's notice does not offer to ask for more");
+  assert.match(app, /if \(decision === "ask-more"\) \{ if \(typeof askMoreFromNotice === "function"\) askMoreFromNotice\(btn\); return; \}/, "Ask for more answers the notice instead of opening the ask");
+  const h = harness();
+  const stop = { which: "person", month: "2026-11", spent_usd: 20, limit_usd: 20, can_ask: true, pending: false };
+  const action = h.spendNoticeAction({ reason: "spend_limit", evidence: stop });
+  assert.equal(action?.[0], "ask-more");
+  assert.equal(action[1], "Ask for more");
+  assert.equal(h.spendNoticeAction({ reason: "spend_limit", evidence: { ...stop, can_ask: false, pending: true } }), null, "a second ask was offered while one waits");
+  assert.equal(h.spendNoticeAction({ reason: "spend_limit", evidence: { ...stop, which: "server", can_ask: false } }), null, "the server's limit offered an ask");
+  assert.equal(h.spendNoticeAction({ reason: "budget", evidence: stop }), null);
+  const form = element({ fields: { usd: "10", reason: "" } });
+  h.$ = (sel) => (sel === "dialog.spend-ask" ? null : sel === "form" ? form : element());
+  h.askMoreFromNotice({ dataset: { spend: JSON.stringify(stop) } });
+  assert.match(h.appended[0]?.innerHTML || "", /You have reached your spend limit for this month \(\$20\.00 of \$20\.00\)/, "Ask for more did not open the ask");
+  await form.onsubmit({ preventDefault() {} });
+  assert.deepEqual(plain(h.calls.at(-1)), ["POST", "/v1/spend/requests", { usd: 10, reason: "" }]);
+}
+
 // Admin → Models: providers, the default, and a rule per role and person.
 {
   const h = harness({
