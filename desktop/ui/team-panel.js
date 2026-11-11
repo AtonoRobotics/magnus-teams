@@ -8,7 +8,18 @@
  */
 
 /** The last look at each team computer's screen, so a redraw keeps it. */
-const TeamScreens = {};
+const TeamScreens = {}, TeamScreenCaptions = {};
+
+/**
+ * Where the team computer would be: an admin gives the team agent one in
+ * a click, and anyone else is told who can.
+ * @param {TeamHome} home
+ */
+function noTeamComputer(home) {
+  const admin = ["admin", "owner"].includes(home.role), agent = esc(home.agent.name);
+  return `<div class="team-screen"><div class="team-screen-none"><p class="small">${agent} has no computer of its own here yet. It works without one, but cannot browse or use apps for the team.</p>
+    ${admin ? `<button class="primary" data-team-computer-new>Give ${agent} a computer</button>` : `<p class="small faint">An admin of the workspace can give it one.</p>`}</div></div>`;
+}
 const TEAM_STATUSES = [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]];
 const TEAM_PROJECT_TABS = [["overview", "Overview"], ["board", "Board"], ["files", "Files"], ["knowledge", "Knowledge"], ["members", "Members"]];
 
@@ -51,8 +62,8 @@ function overviewHtml(d, ws) {
   const link = tab => project ? teamHref(ws, { kind: "project", id: project, tab }) : "";
   const doing = d.tasks.filter(t => t.status !== "done").slice(0, 5);
   const status = d.work.length ? `${esc(home.agent.name)} is working ${d.work[0].waiting ? `and waiting for ${esc(d.work[0].requester_name)}` : `for ${esc(d.work[0].requester_name)}`}` : "Ready";
-  return `<section class="team-card"><h3>Team computer</h3>${d.computer ? `<div class="team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${TeamScreens[d.computer] ? ` src="${TeamScreens[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div>
-      <div class="row small"><a href="#/computer/${enc(d.computer)}/screen">Watch</a>${home.role === "guest" ? "" : `<button class="link" data-take-over="${esc(d.computer)}">Take control</button>`}</div></div>` : `<p class="small faint">No team computer is running.</p>`}</section>
+  return `<section class="team-card"><h3>Team computer</h3>${d.computer ? `<div class="team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${TeamScreens[d.computer] ? ` src="${TeamScreens[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div><div class="small faint" data-team-screen-caption="${esc(d.computer)}">${esc(TeamScreenCaptions[d.computer] || "")}</div>
+      <div class="row small"><a href="#/computer/${enc(d.computer)}/screen">Watch</a>${home.role === "guest" ? "" : `<button class="link" data-take-over="${esc(d.computer)}">Take control</button>`}</div></div>` : noTeamComputer(home)}</section>
     <section class="team-card"><h3>Agents at work</h3>${d.work.length ? `<ul class="team-work">${d.work.map(w => `<li><a href="${teamHref(ws, { kind: "channel", id: w.channel })}">${esc(home.agent.name)}</a> <span class="small faint">for ${esc(w.requester_name)}${w.waiting ? " · waiting on an ask" : ` · step ${w.steps + 1}`}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing running.</p>`}</section>
     <section class="team-card"><h3>Tasks ${project ? `<a class="small" href="${link("board")}">Board</a>` : ""}</h3>${d.progress ? progressBar(d.progress) : ""}${doing.length ? `<ul class="team-mini">${doing.map(t => `<li><span>${esc(t.title)}</span><span class="chip${t.status === "doing" ? " run" : ""}">${t.status === "doing" ? "Doing" : "To do"}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing open.</p>`}</section>
     <section class="team-card"><h3>Recent files ${project ? `<a class="small" href="${link("files")}">All files</a>` : ""}</h3>${d.files.length ? `<ul class="team-mini">${d.files.slice(-5).reverse().map(f => `<li><span>${esc(f.name)}</span><span class="small faint">${esc(f.by_name)}</span></li>`).join("")}</ul>` : `<p class="small faint">No files yet. Drop one into the conversation.</p>`}</section>
@@ -79,6 +90,13 @@ const TeamPanel = {
   /** One look at the team computer's screen, each time the panel refreshes. */
   async look(el, id) {
     if (!id) return;
+    const c = await api("GET", `/v1/computers/${enc(id)}`).catch(() => null);
+    if (c && typeof screenCaption === "function") {
+      TeamScreenCaptions[id] = screenCaption(c, null);
+      const cap = $(`[data-team-screen-caption="${id}"]`, el);
+      if (cap) cap.textContent = TeamScreenCaptions[id];
+      if (c.status !== "running") return;
+    }
     try {
       const { image_b64 } = await api("GET", `/v1/computers/${enc(id)}/screen`);
       TeamScreens[id] = `data:image/png;base64,${image_b64}`;
@@ -232,3 +250,11 @@ document.addEventListener("drop", e => {
   TeamPanel.upload(e.dataTransfer.files);
 });
 document.addEventListener("dragover", e => { if (e.target.closest?.("[data-drop-files]")) e.preventDefault(); });
+// An admin gives the team agent its computer from the panel, wherever it shows.
+document.addEventListener("click", async e => {
+  const b = e.target.closest?.("[data-team-computer-new]");
+  if (!b || !Team.ws) return;
+  b.disabled = true;
+  try { await api("POST", "/v1/computers", { workspace: Team.ws }); toast(`${Team.home.agent.name} has its computer. It wakes when it is used.`); await refreshCenter($("#main"), Team.ws); }
+  catch (err) { toast(err.message); b.disabled = false; }
+});

@@ -106,6 +106,10 @@ await step("use a team", async () => {
   await page.locator("#tc-text").fill("Hello team");
   await composer().getByRole("button", { name: "Send" }).click();
   await page.locator("#tc-list", { hasText: "Hello team" }).waitFor();
+  // The workspace's own rail is the left column: the app's navigation folds
+  // to icons and its bar goes, so there is one rail, not two.
+  assert.equal(await page.evaluate(() => document.body.dataset.navigation), "compact", "the app's navigation stays open beside the team rail");
+  assert.equal(await page.locator("#workspace-bar").isVisible(), false, "the app's bar sits above the workspace");
 });
 
 await step("whisper and share it", async () => {

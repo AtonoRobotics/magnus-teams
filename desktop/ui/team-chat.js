@@ -32,17 +32,23 @@ function doingWords(tool) {
   return "Working";
 }
 
+/** A task's title as a card shows it: the ask, without the mention that made it. */
+function workTitle(text) {
+  const t = firstLine(text).replace(/^\s*@[\w.-]+[\s,:]*/, "").trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : firstLine(text);
+}
+
 /**
  * The agent's live card: what it is doing, for whom, and where the work is.
  * @param {TeamWork} w @param {(id: string) => string} name @param {string} ws @param {string} channel
  */
 function workCard(w, name, ws, channel) {
-  const who = name(w.requester);
+  const who = name(w.requester), title = workTitle(w.title);
   const line = w.status === "working" ? `${esc(doingWords(w.doing))} · step ${w.steps + 1}`
     : w.status === "waiting" ? `Waiting for ${esc(who)} to answer an ask`
     : w.status === "done" ? "Done" : w.status === "failed" ? `Could not finish${w.reason ? `: ${esc(w.reason)}` : ""}` : "Stopped";
   const thread = w.thread ? `<a class="small" href="${teamHref(ws, { kind: "channel", id: channel, thread: w.thread })}" data-open-thread="${esc(w.thread)}">Open its thread</a>` : "";
-  return `<div class="tm-work" data-status="${esc(w.status)}" data-task="${esc(w.task)}"><div class="tm-work-title">${w.status === "working" ? `<span class="team-spinner" aria-hidden="true"></span>` : ""}<strong>${esc(w.title)}</strong> <span class="small faint">for ${esc(who)}</span></div><div class="small">${line}</div>${thread}</div>`;
+  return `<div class="tm-work" data-status="${esc(w.status)}" data-task="${esc(w.task)}"><div class="tm-work-title">${w.status === "working" ? `<span class="team-spinner" aria-hidden="true"></span>` : ""}<strong>${esc(title)}</strong> <span class="small faint">for ${esc(who)}</span></div><div class="small">${line}</div>${thread}</div>`;
 }
 
 /** Text with mentions marked and files shown. People's words stay plain. */

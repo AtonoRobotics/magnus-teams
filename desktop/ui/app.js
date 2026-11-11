@@ -406,9 +406,11 @@ function sidebar() {
 // Fit is based on usable content width, independently of stored preferences.
 const Workspace = (() => {
   let expanded=false, region="conversation", forceExpanded=false, installed=false, restoreDrawer=true;
-  function fit(width, preferred="expanded", conversation=420, work=false) {
+  // A team workspace brings its own rail, so the app's navigation folds to
+  // icons there unless the person opens it.
+  function fit(width, preferred="expanded", conversation=420, work=false, team=false) {
     const mobile=width<760;
-    const temporary=work && !expanded && !forceExpanded && preferred==="expanded" && width-228<936;
+    const temporary=(work || team) && !expanded && !forceExpanded && preferred==="expanded" && (team || width-228<936);
     const nav=mobile ? "drawer" : preferred==="compact" || temporary ? "compact" : "expanded";
     const navWidth=mobile ? 0 : nav==="compact" ? 64 : 228, available=width-navWidth;
     const eligible=work && available>=936;
@@ -418,7 +420,9 @@ const Workspace = (() => {
   function update() {
     const shell=$(".shell"); if (!shell) return;
     const prefs=Theme.prefs(), work=!!Panel.what && !!App.workspace;
-    const m=fit(shell.clientWidth,prefs.navigation || "expanded",prefs.conversationWidthPx || 420,work);
+    const team=/^#\/team\//.test(location.hash);
+    const m=fit(shell.clientWidth,prefs.navigation || "expanded",prefs.conversationWidthPx || 420,work,team);
+    if(team)document.body.dataset.team="";else delete document.body.dataset.team;
     const prior=[...document.querySelectorAll("#thread, #detail .detail-body")].filter(el=>el.clientHeight).map(root=>{
       const rect=root.getBoundingClientRect(), nodes=[...root.querySelectorAll("[data-entry], iframe, h2, h3, p")], node=nodes.find(n=>n.getBoundingClientRect().bottom>rect.top);
       return {root,node,top:root.scrollTop,offset:node ? node.getBoundingClientRect().top-rect.top : 0,follow:root.id==="thread" && root.scrollHeight-root.scrollTop-root.clientHeight<=80};

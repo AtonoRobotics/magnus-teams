@@ -47,8 +47,8 @@ function teamHref(ws, place) {
 
 async function showTeams(main) {
   const list = await api("GET", "/v1/workspaces");
-  paint(main, `<h1>Teams</h1>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${esc(w.name)}</a> <span class="small faint">${esc(w.role)}</span></li>`).join("")}</ul>` : `<p class="empty">You are in no workspace yet. Type a name to start one; the team agent is in it from the start.</p>`}
-    <form class="row" id="new-team"><input id="team-name" placeholder="A new workspace's name" aria-label="Workspace name" autocomplete="off"><button class="primary">Create</button></form>`);
+  paint(main, `<div class="teams-page"><h1>Teams</h1><p class="small faint">Workspaces you share with other people and their agents. Your own conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(w.role)}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">You are in no workspace yet. Type a name to start one; the team agent is in it from the start.</p>`}
+    <form id="new-team"><input id="team-name" placeholder="Type a name to start a workspace" aria-label="Workspace name" autocomplete="off"><button class="primary">Create</button></form></div>`);
   main.onsubmit = async e => {
     if (e.target.id !== "new-team") return;
     e.preventDefault();

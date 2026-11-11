@@ -1,6 +1,17 @@
 /* The team workspace: rail, conversation and project panel. Colours come
    from app.css's tokens, so both themes follow. */
 #main.team-main { padding: 0; max-width: none; height: 100%; }
+/* A workspace fills the window beside the folded app navigation: its own
+   rail is the left column, so the app's bar above it goes. */
+body[data-team]:not([data-navigation=drawer]) .workspace-bar { display: none; }
+body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
+.teams-page { max-width: 640px; margin: 24px auto; padding: 0 16px; }
+.teams-page .team-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 24px; }
+.teams-page .team-list a { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); text-decoration: none; background: var(--surface); }
+.teams-page .team-list a:hover { background: var(--row-sel); }
+.teams-page .team-list .team-avatar { width: 36px; height: 36px; font-size: 14px; border-radius: 10px; }
+.teams-page form { display: flex; gap: 8px; }
+.teams-page form input { flex: 1; }
 .team-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; height: 100%; min-height: 0; }
 .team-rail, .team-side { overflow-y: auto; padding: 12px; border-color: var(--line); border-style: solid; border-width: 0; background: var(--side, var(--surface)); }
 .team-rail { border-right-width: 1px; display: flex; flex-direction: column; gap: 2px; }
@@ -67,6 +78,8 @@
 .dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .team-card { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .team-card h3 { font-size: 13px; margin: 0 0 6px; display: flex; justify-content: space-between; }
+.team-screen-none { aspect-ratio: 16 / 10; border-radius: 8px; background: var(--seg); padding: 12px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.team-screen-none p { margin: 0; }
 .team-screen img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; background: var(--seg); display: block; margin-bottom: 6px; }
 .team-mini, .team-work, .team-files, .team-people, .team-activity-list, .team-list { list-style: none; padding: 0; margin: 0; }
 .team-mini li, .team-files li, .team-people li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; }

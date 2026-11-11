@@ -146,6 +146,14 @@ assert.match(overview, /data-team-screen="pc1"/, "the panel does not show the te
 assert.match(overview, /Magnus is working for Dana/, "the panel does not say whom the agent works for");
 assert.match(overview, /data-take-over="pc1"/, "the team computer cannot be taken over from the panel");
 assert.match(overview, /notes\.md/);
+const noComputer = { project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null };
+assert.doesNotMatch(sandbox.overviewHtml(noComputer, "w"), /data-team-computer-new/, "a member who is not an admin is offered to set up the team computer");
+Team.home = { ...home, role: "admin" };
+assert.match(sandbox.overviewHtml(noComputer, "w"), /data-team-computer-new/, "an admin cannot give the team agent a computer from the panel");
+Team.home = home;
+assert.equal(sandbox.workTitle("@Magnus pull together the feedback\nmore"), "Pull together the feedback", "a work card's title keeps the mention that asked");
+assert.equal(sandbox.workTitle("Magnus, sum it up"), "Magnus, sum it up");
+assert.match(card, /<strong>Pull together the alpha feedback<\/strong>/);
 
 // The command menu: making things by typing their name, asking the agent,
 // settings for the channel, and search.
