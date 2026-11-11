@@ -167,7 +167,7 @@ const TeamCommand = {
         location.hash = teamHref(ws, { kind: "channel", id: c.id });
       }
       if (r.kind === "task") { await api("POST", `${base}/tasks`, { title: r.title, project: r.project || undefined }); toast("Added to the board."); TeamPanel.refresh(); }
-      if (r.kind === "invite") { const x = await api("POST", `${base}/invites`, { email: r.email }); toast(x.added ? `${r.email} is in.` : `Invite link for ${r.email}: ${inviteLink(x.code)}`, 8000); }
+      if (r.kind === "invite") { const x = await api("POST", `${base}/invites`, { email: r.email }); toast(inviteOutcome(r.email, x), 8000); }
       if (r.kind === "set" && place.kind === "channel") {
         await api("POST", `${base}/channels/${enc(place.id)}/${r.what}`, r.body);
         await loadHome(ws);

@@ -281,7 +281,7 @@ async fn admin_patch_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id
     // A recovery address: a string sets it, null or "" clears it.
     if let Some(email) = b.as_object().and_then(|o| o.get("email")) {
         let email = email.as_str().map(str::trim).filter(|e| !e.is_empty());
-        if email.is_some_and(|e| !invite_email(&e.to_lowercase())) {
+        if email.is_some_and(|e| !crate::invitations::valid_email(&e.to_lowercase())) {
             return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "That is not an email address." }))).into_response();
         }
         if let Err(e) = k.accounts.set_email(&id, &k.person(&id).map(|p| p.name).unwrap_or_default(), email).await {
@@ -437,40 +437,24 @@ async fn admin_invite(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Res
         Some("member") => crate::accounts::Role::Member,
         _ => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "The role is admin or member." }))).into_response(),
     };
-    if !invite_email(&email) || name.is_empty() || name.len() > 200 {
+    if !crate::invitations::valid_email(&email) || name.is_empty() || name.len() > 200 {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "An invitation needs an email address and a name." }))).into_response();
     }
-    let id: String = email.split('@').next().unwrap_or_default().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_' || *c == '-').collect();
-    if id.is_empty() || id.len() > 64 {
+    let Some(id) = crate::invitations::derive_id(&email) else {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "No person id derives from that address." }))).into_response();
-    }
+    };
     if k.person(&id).is_some() {
         return (StatusCode::CONFLICT, Json(json!({ "error": "taken", "message": format!("{id} is already a person here.") }))).into_response();
     }
-    match k.accounts.invite_person(&id, name, Some(&email), role).await.inspect(|_| k.computer_soon(crate::computer::Owner::Person(id.clone()))) {
+    match k.invite_account(&id, name, &email, role).await {
         Ok(token) => (
             StatusCode::CREATED,
             Json(json!({ "id": id, "email": email, "invite_token": token, "invite_expires": chrono::Utc::now() + chrono::Duration::days(crate::accounts::INVITE_DAYS) })),
         )
             .into_response(),
-        Err(e) => {
-            let message = format!("{e:#}");
-            if message.contains("already a person") {
-                return (StatusCode::CONFLICT, Json(json!({ "error": "taken", "message": message }))).into_response();
-            }
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": message }))).into_response()
-        }
+        Err((code, "taken", message)) => (code, Json(json!({ "error": "taken", "message": message }))).into_response(),
+        Err((code, _, message)) => (code, Json(json!({ "error": message }))).into_response(),
     }
-}
-
-fn invite_email(e: &str) -> bool {
-    let Some((user, host)) = e.split_once('@') else { return false };
-    !user.is_empty()
-        && host.contains('.')
-        && !host.starts_with('.')
-        && !host.ends_with('.')
-        && e.len() <= 254
-        && !e.chars().any(|c| c.is_whitespace() || c == '<' || c == '>' || c == ',')
 }
 
 /// Send the invitation again: a fresh token, shown once here; the old

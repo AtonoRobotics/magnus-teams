@@ -180,6 +180,17 @@ const guest = sandbox.commandsFor({ ...home, role: "guest" }, Team.place, "Launc
 assert.ok(!guest.includes("Create") && !guest.includes("Ask Magnus"), "a guest is offered to create or to have the agent act");
 assert.ok(!sandbox.commandsFor(home, Team.place, "ann@example.com").some(c => c.run.kind === "invite"), "a member who is not an admin is offered to invite");
 assert.ok(sandbox.commandsFor({ ...home, role: "admin" }, Team.place, "ann@example.com").some(c => c.run.kind === "invite"));
+// Inviting by email says what happened: emailed, never "send them this
+// link"; not emailed, says so and gives the link to send.
+const emailed = sandbox.inviteOutcome("ann@example.com", { invited: "ann", emailed: true, mail: true, link: "https://server/invite?token=t", path: "/invite?token=t" });
+assert.match(emailed, /Invitation emailed to ann@example\.com/);
+assert.doesNotMatch(emailed, /Send them this link/, "an emailed invitation still says to send the link");
+const failed = sandbox.inviteOutcome("ann@example.com", { invited: "ann", emailed: false, mail: true, email_error: "connection refused", link: "https://server/invite?token=t" });
+assert.match(failed, /could not be sent \(connection refused\)\. Send them this link yourself: https:\/\/server\/invite\?token=t/);
+const noMail = sandbox.inviteOutcome("ann@example.com", { invited: "ann", emailed: false, mail: false, link: null, path: "/invite?token=t" });
+assert.match(noMail, /does not send email[^]*Send them this link yourself: https:\/\/server\/invite\?token=t/, "with no mail the link to copy is missing");
+assert.match(sandbox.inviteOutcome("leo@example.com", { added: "leo" }), /leo@example\.com is in/);
+assert.equal(sandbox.serverLink({ code: "c", link: null, path: "/join?code=c" }), "https://server/join?code=c", "a copied link is not one a newcomer can open");
 const found = sandbox.foundItems({ messages: [{ channel: "c1", channel_name: "magnus-alpha", id: "m1", thread: null, sender: "dana", text: "the deck" }], tasks: [{ id: "t", title: "Deck", status: "todo", project: "p1" }], files: [], knowledge: [] }, home);
 assert.deepEqual(plain(found.map(f => f.run.place?.kind)), ["channel", "project"]);
 assert.equal(found[1].run.place.tab, "board");

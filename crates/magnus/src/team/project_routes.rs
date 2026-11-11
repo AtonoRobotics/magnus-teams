@@ -1,11 +1,11 @@
 //! Making things by typing their name, the task board, project files, the
-//! right panel and invites. Nothing here is a step-by-step form.
-use super::chat::{Chat, Invite, Origin, Status, Task};
+//! right panel. Invites are in `invites`. Nothing here is a step-by-step form.
+use super::chat::{Chat, Origin, Status, Task};
 use super::chat_routes::name_of;
 use super::knowledge::Project;
 use super::routes::{member, new_id, send, Reply, K};
 use super::{Change, Role, Workspace};
-use crate::api::{err, who};
+use crate::api::err;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::{bail, Result};
@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 const MAX_NAME_CHARS: usize = 80;
 const MAX_TASK_CHARS: usize = 500;
-const INVITE_LIFETIME_DAYS: i64 = 7;
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -30,8 +29,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/tasks/{id}", put(change_task).delete(remove_task))
         .route("/v1/workspaces/{ws}/files/{name}/project", post(file_project))
         .route("/v1/workspaces/{ws}/panel", axum::routing::get(panel))
-        .route("/v1/workspaces/{ws}/invites", post(invite))
-        .route("/v1/invites/{code}/join", post(join))
+        .merge(super::invites::router())
 }
 
 /// A channel name from whatever was typed: "Launch site" is `launch-site`.
@@ -249,55 +247,6 @@ async fn panel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Quer
         "knowledge": knowledge, "progress": progress.map(|(d, t)| json!({ "done": d, "total": t })), "computer": k.team_computer(&ws),
     }))
     .into_response()
-}
-
-#[derive(Deserialize)]
-struct NewInvite {
-    #[serde(default)]
-    email: Option<String>,
-    #[serde(default)]
-    role: Option<Role>,
-}
-
-/// By email: someone the server already knows joins at once; anyone else,
-/// and anyone with a link, joins with the code.
-async fn invite(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> Reply {
-    let (p, mine) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
-    let role = b.role.unwrap_or(Role::Member);
-    if role > mine {
-        return err(StatusCode::FORBIDDEN, "you cannot give a role above your own");
-    }
-    let email = b.email.map(|e| e.trim().to_lowercase()).filter(|e| !e.is_empty());
-    if let Some(e) = &email {
-        if !e.contains('@') {
-            return err(StatusCode::BAD_REQUEST, "that is not an email address");
-        }
-        let known = k.accounts.local_people().into_iter().find(|(_, lp)| lp.email.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(e)));
-        if let Some((person, _)) = known {
-            ok_or_return!(send(&k, &p, Change::Member { workspace: ws, person: person.clone(), role }).await);
-            return Json(json!({ "added": person })).into_response();
-        }
-    }
-    let invite = Invite { code: new_id(), role: Some(role), email, by: p.id.clone(), expires: Some(chrono::Utc::now() + chrono::Duration::days(INVITE_LIFETIME_DAYS)) };
-    let code = invite.code.clone();
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Invite { invite } }).await);
-    Json(json!({ "code": code })).into_response()
-}
-
-/// Whoever is signed in and holds a live code joins. A code for one
-/// address is used once; a link works until it expires.
-async fn join(State(k): K, h: HeaderMap, Path(code): Path<String>) -> Reply {
-    let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
-    let now = chrono::Utc::now();
-    let found = k.read(|s| s.team.all().find_map(|w| w.invite(&code, now).map(|i| (w.id.clone(), i.clone(), w.members.get(&p.id).copied()))));
-    let Some((ws, inv, already)) = found else { return err(StatusCode::NOT_FOUND, "that invite has ended") };
-    if already.is_none() {
-        ok_or_return!(send(&k, &p, Change::Member { workspace: ws.clone(), person: p.id.clone(), role: inv.role.unwrap_or(Role::Member) }).await);
-    }
-    if inv.email.is_some() {
-        ok_or_return!(send(&k, &p, Change::Chat { workspace: ws.clone(), chat: Chat::InviteEnded { code } }).await);
-    }
-    Json(json!({ "workspace": ws })).into_response()
 }
 
 #[cfg(test)]

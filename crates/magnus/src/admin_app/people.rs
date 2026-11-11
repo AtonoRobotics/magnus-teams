@@ -99,7 +99,8 @@ async fn set_role(k: &Arc<Kernel>, a: &Admin, id: &str, role: &str) -> Response 
 
 /// Invite someone by email: their account and a single-use link, which the
 /// admin passes on, and which goes to them by email when the server sends
-/// mail and the admin asked for it.
+/// mail and the admin asked for it. With no email, a single-use link for
+/// whoever opens it to make their own account (`account_links`).
 async fn invite(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Json(mut b): Json<Value>) -> Response {
     let role = b["role"].as_str().unwrap_or("member").to_string();
     if !super::roles::ROLES.contains(&role.as_str()) {
@@ -107,6 +108,10 @@ async fn invite(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Js
     }
     if let Some(r) = owner_only(&a, &role, false) {
         return r;
+    }
+    if b["email"].as_str().map(str::trim).unwrap_or_default().is_empty() {
+        let audit = Audit { action: "user_invited".into(), target: None, before: None, after: Some(json!({ "link": true, "role": role })) };
+        return audited(&k, &a, audit, crate::account_links::made(&k, &a.actor(), &role)).await;
     }
     b["role"] = json!(if matches!(role.as_str(), "owner" | "admin") { "admin" } else { "member" });
     let send = b["send"].as_bool().unwrap_or(false);
@@ -132,18 +137,14 @@ async fn invite(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Js
 
 /// The invitation's link, and whether it went out by email.
 async fn deliver(k: &Kernel, a: &Admin, v: &mut Value, send: bool) {
-    let link = v["invite_token"].as_str().and_then(|t| crate::passwords::link_base(&k.cfg).map(|base| format!("{base}{}?token={t}", super::invite_page::INVITE_PATH)));
+    let link = v["invite_token"].as_str().and_then(|t| crate::invitations::invite_link(&k.cfg, t));
     v["link"] = json!(link);
     v["emailed"] = json!(false);
     let (Some(link), Some(to), true) = (link, v["email"].as_str().map(String::from), send) else { return };
-    let text = format!(
-        "{} invited you to Magnus. Choose your password within {} days to start:\n\n{link}\n\nIf you did not expect this, ignore this email.",
-        a.name(),
-        crate::accounts::INVITE_DAYS
-    );
-    match crate::mailer::send(k, &to, "You are invited to Magnus", text).await {
-        Ok(sent) => v["emailed"] = json!(sent),
-        Err(e) => v["email_error"] = json!(format!("{e:#}")),
+    let sent = crate::invitations::email(k, &a.name(), &to, "Magnus", &link).await;
+    v["emailed"] = json!(sent.emailed);
+    if let Some(e) = sent.error {
+        v["email_error"] = json!(e);
     }
 }
 

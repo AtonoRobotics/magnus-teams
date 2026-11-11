@@ -254,7 +254,7 @@ function bindInvite(root, ws) {
     if (!email) return;
     try {
       const r = await api("POST", `/v1/workspaces/${enc(ws)}/invites`, { email });
-      $("[data-invite-result]", form).textContent = r.added ? `${email} is in.` : `Send them this link: ${inviteLink(r.code)}`;
+      $("[data-invite-result]", form).textContent = inviteOutcome(email, r);
       $("[data-invite-email]", form).value = "";
       loadHome(ws).catch(() => {});
     } catch (err) { toast(err.message); }
@@ -264,12 +264,28 @@ function bindInvite(root, ws) {
     if (!b) return;
     try {
       const r = await api("POST", `/v1/workspaces/${enc(ws)}/invites`, {});
-      const link = inviteLink(r.code);
+      const link = serverLink(r);
       try { await navigator.clipboard.writeText(link); toast("Link copied. It works for a week."); } catch { /* no clipboard here */ }
-      $("[data-invite-result]", b.closest("form")).textContent = link;
+      $("[data-invite-result]", b.closest("form")).textContent = `Anyone with this link can join for a week, with or without an account here: ${link}`;
     } catch (err) { toast(err.message); }
   });
 }
 
-/** An invite link people open in the app. */
-function inviteLink(code) { return `${location.origin}${location.pathname}#/join/${encodeURIComponent(code)}`; }
+/**
+ * @typedef {{ added?: string, already?: boolean, invited?: string, emailed?: boolean, mail?: boolean, email_error?: ?string, link?: ?string, path?: string, code?: string }} TeamInvited
+ */
+
+/** A link the server gave: whole when it knows its public address, else below the address this app talks to. @param {TeamInvited} r */
+function serverLink(r) {
+  if (r.link) return r.link;
+  const base = (globalThis.App?.appliance || location.origin).replace(/\/$/, "");
+  return `${base}${r.path || ""}`;
+}
+
+/** What inviting `email` did, said plainly: in at once, emailed, or the link to send when no email went. @param {string} email @param {TeamInvited} r */
+function inviteOutcome(email, r) {
+  if (r.added) return r.already ? `${email} is already in this workspace.` : `${email} is in. The workspace is in their app now.`;
+  if (r.emailed) return `Invitation emailed to ${email}. They join when they choose their password.`;
+  const why = r.email_error ? `The email to ${email} could not be sent (${r.email_error}).` : r.mail === false ? "This server does not send email yet, so nothing was emailed." : `No email went to ${email}.`;
+  return `${why} Send them this link yourself: ${serverLink(r)}`;
+}

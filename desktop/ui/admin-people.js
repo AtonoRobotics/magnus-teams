@@ -9,7 +9,7 @@
 
 /**
  * @typedef {{id: string, name: string, email: ?string, role: "owner"|"admin"|"member"|"guest", status: "invited"|"active"|"disabled", last_sign_in: ?string, sessions: number}} AdminPerson
- * @typedef {{id: string, email: ?string, invite_token: ?string, link: ?string, emailed: boolean, email_error?: string}} AdminInvite
+ * @typedef {{id?: string, email?: ?string, invite_token?: ?string, link: ?string, emailed: boolean, email_error?: string, by_link?: boolean, role?: string}} AdminInvite
  */
 
 const ADMIN_ROLES = [["owner", "Owner"], ["admin", "Admin"], ["member", "Member"], ["guest", "Guest: reads and chats only"]];
@@ -18,9 +18,13 @@ const ADMIN_DATA_KINDS = [["tasks", "Tasks"], ["chats", "Chats"], ["files", "Fil
 /** What the admin passes on after an invitation: the link, and whether it
  * went by email. @param {AdminInvite} r */
 function peopleInvited(r) {
-  const how = r.emailed ? "We emailed them the link." : r.email_error ? `The email did not go out (${esc(r.email_error)}).` : "Send them this link yourself.";
-  const link = r.link || (r.invite_token ? `Invitation code: ${r.invite_token}` : "");
-  return `<div class="banner" data-people-invited><p>${how} It works once.</p>${link ? `<p><input readonly class="mono" value="${esc(link)}" aria-label="Invitation link" data-people-link> <button type="button" data-people-copy>Copy</button></p>` : ""}</div>`;
+  if (!r.link) {
+    const then = r.by_link ? "make the link again" : "send them a new link from their row";
+    return `<div class="banner bad" data-people-invited><p>There is no link to give: this server has no public address set (public_url, or the mail settings' link base). Set it, then ${then}.</p></div>`;
+  }
+  const how = r.by_link ? `Whoever opens this link makes their own account${r.role ? ` as ${esc(r.role)}` : ""}, with their name, email address and password.`
+    : r.emailed ? "We emailed them the link." : r.email_error ? `The email did not go out (${esc(r.email_error)}). Send them this link yourself.` : "Send them this link yourself.";
+  return `<div class="banner" data-people-invited><p>${how} It works once.</p><p><input readonly class="mono" value="${esc(r.link)}" aria-label="Invitation link" data-people-link> <button type="button" data-people-copy>Copy</button></p></div>`;
 }
 
 /** @param {AdminPerson} p @param {boolean} owner whether the viewer is an owner */
@@ -45,11 +49,11 @@ function peopleRow(p, owner) {
 function peopleHtml(people, owner) {
   return `<h2>People</h2>
     <form class="row" data-people-invite>
-      <input name="name" placeholder="Name" aria-label="Name" required>
-      <input name="email" type="email" placeholder="Email address" aria-label="Email address" required>
+      <input name="name" placeholder="Name" aria-label="Name">
+      <input name="email" type="email" placeholder="Email address, or none for a link" aria-label="Email address, or none for a link">
       <select name="role" aria-label="Role">${ADMIN_ROLES.filter(([r]) => owner || r !== "owner").map(([r, l]) => `<option value="${r}"${r === "member" ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>
       <label class="small"><input type="checkbox" name="send" checked> Email the link</label>
-      <button class="primary">Invite</button>
+      <button class="primary">Invite</button><span class="small faint">With no email address, you get a link to send.</span>
     </form>
     <div data-people-note></div>
     <table class="t" data-people><thead><tr><th>Person</th><th>Role</th><th>Status</th><th></th></tr></thead>

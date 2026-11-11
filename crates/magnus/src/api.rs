@@ -83,13 +83,13 @@ pub(crate) async fn developer(k: &Kernel, h: &HeaderMap) -> Result<Person, Respo
 
 /// A browser sends the session cookie on its own, so a change made with the
 /// cookie must also carry a header another site's page cannot set. The
-/// recovery form is the exception: its authorization is the emailed
-/// token, which a plain form can carry, so a stale session cookie must
+/// recovery, invitation and join forms are the exception: each is authorized
+/// by its token or code, never the cookie, so a stale session cookie must
 /// not block it (#541).
 async fn cookie_guard(req: Request, next: Next) -> Response {
     let h = req.headers();
     let safe = matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
-    let recovery = *req.method() == Method::POST && req.uri().path() == "/reset";
+    let recovery = *req.method() == Method::POST && matches!(req.uri().path(), "/reset" | "/invite" | "/join");
     if !safe && !recovery && bearer(h).is_none() && cookie(h, SESSION_COOKIE).is_some() && h.get("x-magnus-client").is_none() {
         return err(StatusCode::FORBIDDEN, "missing x-magnus-client header");
     }
@@ -231,7 +231,7 @@ pub(crate) fn over_tls(k: &Kernel, t: Transport, peer: SocketAddr) -> Result<(),
 
 /// Open a session for a person and hand it over: to the app as a token,
 /// to a browser as an HttpOnly cookie the page cannot read.
-async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool, device: Option<&str>) -> Response {
+pub(crate) async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool, device: Option<&str>) -> Response {
     if let Err(e) = k.accounts.refresh_people().await {
         return internal(e);
     }
@@ -752,7 +752,7 @@ async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectI
     if password.chars().count() < k.cfg.sign_in.min_password_length {
         return err(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
-    match k.accounts.accept(token, password).await {
+    match k.accept_invitation(token, password).await.map(|a| a.map(|a| a.person)) {
         Ok(Some(person)) if k.cfg.person(&person).is_some() || k.accounts.is_local(&person) => Json(json!({ "person": person })).into_response(),
         Ok(_) => err(StatusCode::UNAUTHORIZED, "The invitation is wrong or expired."),
         Err(e) => internal(e),

@@ -61,6 +61,17 @@ same(ctx.calls.find(c => c[0] === "POST" && c[1] === "/v1/admin/people")[2], { n
 assert.match(ctx.$("[data-people-note]").html, /We emailed them the link\./);
 assert.match(ctx.$("[data-people-note]").html, /https:\/\/magnus\.example\/invite\?token=t/);
 
+// Invite by link, with no email: the link and who it makes; with no public
+// address, said plainly, never a raw code.
+const invited = r => vm.runInContext(`peopleInvited(${JSON.stringify(r)})`, ctx);
+const byLink = invited({ by_link: true, role: "member", link: "https://magnus.example/invite?link=c", emailed: false });
+assert.match(byLink, /makes their own account as member/);
+assert.match(byLink, /invite\?link=c/);
+const noBase = invited({ by_link: true, role: "member", link: null, emailed: false });
+assert.match(noBase, /no public address/, "a link-less server does not say why there is no link");
+assert.doesNotMatch(invited({ id: "x", invite_token: "t", link: null, emailed: false }), /Invitation code|>t</, "a raw invitation code is shown");
+assert.doesNotMatch(vm.runInContext("peopleHtml([], true)", ctx), /name="email"[^>]*required/, "an email address is still required, so there is no link-only invite");
+
 // Their data: said first, then read.
 await el.onclick({ target: node({ "data-people-act": "data" }, moRow) });
 const detail = ctx.$("[data-people-detail]");

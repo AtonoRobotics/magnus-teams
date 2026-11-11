@@ -14,6 +14,10 @@ mod agent;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
+#[cfg(test)]
+mod invite_tests;
+pub mod invites;
+mod join_page;
 mod kb_routes;
 pub(crate) mod knowledge;
 mod presence;

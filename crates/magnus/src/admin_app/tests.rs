@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 pub(super) const PASSWORD: &str = "a-long-admin-password";
 
-pub(super) struct Server {
-    pub(super) k: Arc<Kernel>,
-    base: String,
+pub(crate) struct Server {
+    pub(crate) k: Arc<Kernel>,
+    pub(crate) base: String,
     http: reqwest::Client,
     db: String,
     _dir: tempfile::TempDir,
@@ -49,6 +49,11 @@ async fn database() -> (String, String) {
 /// server's own directory, and mo is a member.
 /// `extra` adds routes beside the app's, given the kernel.
 pub(super) async fn server(extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>>) -> Server {
+    server_with("", extra).await
+}
+
+/// `server`, with more of the config after the people (a `[mail]`, say).
+pub(crate) async fn server_with(more: &str, extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>>) -> Server {
     let dir = tempfile::tempdir().unwrap();
     let (url, db) = database().await;
     let p = dir.path().join("magnus.toml");
@@ -57,7 +62,7 @@ pub(super) async fn server(extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>
         &p,
         format!(
             "[appliance]\nstate_dir = {state:?}\nlisten = \"127.0.0.1:0\"\n[database]\nurl = {url:?}\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n\
-             [[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n[[people]]\nid = \"ana\"\nname = \"Ana\"\nroles = [\"admin\"]\n[[people]]\nid = \"mo\"\nname = \"Mo\"\n"
+             [[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n[[people]]\nid = \"ana\"\nname = \"Ana\"\nroles = [\"admin\"]\n[[people]]\nid = \"mo\"\nname = \"Mo\"\n{more}"
         ),
     )
     .unwrap();
@@ -75,16 +80,16 @@ pub(super) async fn server(extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>
 }
 
 impl Server {
-    pub(super) async fn done(self) {
+    pub(crate) async fn done(self) {
         let admin = crate::log::connect(&pg()).await.unwrap();
         admin.batch_execute(&format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db)).await.unwrap();
     }
 
-    pub(super) async fn token(&self, person: &str) -> String {
+    pub(crate) async fn token(&self, person: &str) -> String {
         self.k.accounts.open_session(person, "browser", None).await.unwrap().1
     }
 
-    pub(super) async fn call(&self, token: &str, method: reqwest::Method, path: &str, body: Option<Value>) -> (u16, Value) {
+    pub(crate) async fn call(&self, token: &str, method: reqwest::Method, path: &str, body: Option<Value>) -> (u16, Value) {
         let mut r = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(token);
         if let Some(b) = body {
             r = r.json(&b);
@@ -94,15 +99,15 @@ impl Server {
         (status, r.json().await.unwrap_or(Value::Null))
     }
 
-    pub(super) async fn get(&self, token: &str, path: &str) -> (u16, Value) {
+    pub(crate) async fn get(&self, token: &str, path: &str) -> (u16, Value) {
         self.call(token, reqwest::Method::GET, path, None).await
     }
 
-    pub(super) async fn post(&self, token: &str, path: &str, body: Value) -> (u16, Value) {
+    pub(crate) async fn post(&self, token: &str, path: &str, body: Value) -> (u16, Value) {
         self.call(token, reqwest::Method::POST, path, Some(body)).await
     }
 
-    pub(super) fn audited(&self, action: &str) -> Vec<Value> {
+    pub(crate) fn audited(&self, action: &str) -> Vec<Value> {
         self.k.read(|s| s.audit.iter().map(|(_, _, v)| v.clone()).filter(|v| v["action"] == action).collect())
     }
 }

@@ -57,7 +57,7 @@ mod sections_tests;
 pub mod security;
 pub mod settings;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use crate::config::Person;
 use crate::kernel::Kernel;
