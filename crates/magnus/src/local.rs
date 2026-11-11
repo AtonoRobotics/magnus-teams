@@ -78,6 +78,11 @@ fn no_ceiling() -> Mode {
     Mode::Allow
 }
 
+/// The mode that holds: the person's own, made stricter by a ceiling, never looser.
+pub(crate) fn in_force(chosen: Mode, ceiling: Mode) -> Mode {
+    chosen.min(ceiling)
+}
+
 impl Default for Settings {
     fn default() -> Settings {
         Settings { ceiling: no_ceiling() }
@@ -249,13 +254,18 @@ impl Kernel {
         if touched(a).is_some_and(|p| !within(&computer.folders, p)) {
             return Some(Err(format!("that path is outside the folders {} granted", computer.name)));
         }
-        let workspaces = self.read(|s| s.team.local_ceiling(&person.id)).unwrap_or(Mode::Allow);
-        match computer.mode.min(self.cfg.local.ceiling).min(workspaces) {
+        match in_force(computer.mode, self.local_ceiling(&person.id)) {
             Mode::Never => Some(Err(format!("{} is set to never", computer.name))),
             // The person's own setting: ask first, case 4 of the four asks.
             Mode::Ask => Some(Ok((format!("{} asks before every action", computer.name), Some(crate::asks::LOCAL_ASK_FIRST.to_string())))),
             Mode::Allow => None,
         }
+    }
+
+    /// The strictest mode the admin and the person's teams allow them.
+    pub(crate) fn local_ceiling(&self, person: &str) -> Mode {
+        let workspaces = self.read(|s| s.team.local_ceiling(person)).unwrap_or(Mode::Allow);
+        self.cfg.local.ceiling.min(workspaces)
     }
 
     /// The tools that reach past this server: the person's computer, the team.
@@ -380,10 +390,13 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
+    // What holds on each, after the admin's and the teams' ceilings, so the
+    // person sees when theirs is made stricter (spec, Work on the user's desktop: Modes).
+    let ceiling = k.local_ceiling(&p.id);
     let view: Vec<Value> = k
         .read(|s| s.local.of(&p.id))
         .into_iter()
-        .map(|c| json!({ "online": online(&c.id), "in_use": line(&c.id, |l| l.active), "files": k.read(|s| s.local.files.of(&c.id)), "computer": c }))
+        .map(|c| json!({ "online": online(&c.id), "in_use": line(&c.id, |l| l.active), "files": k.read(|s| s.local.files.of(&c.id)), "in_force": in_force(c.mode, ceiling), "computer": c }))
         .collect();
     Json(view).into_response()
 }
@@ -521,6 +534,16 @@ mod tests {
     fn the_stricter_mode_is_the_lower_one() {
         assert_eq!(Mode::Allow.min(Mode::Ask), Mode::Ask);
         assert_eq!(Mode::Ask.min(Mode::Never), Mode::Never);
+    }
+
+    /// A team or admin ceiling only makes a computer's mode stricter, and the
+    /// list says the mode that holds (spec, Work on the user's desktop: Modes).
+    #[test]
+    fn a_ceiling_only_makes_the_mode_in_force_stricter() {
+        assert_eq!(in_force(Mode::Allow, Mode::Ask), Mode::Ask);
+        assert_eq!(in_force(Mode::Never, Mode::Allow), Mode::Never, "a looser ceiling loosened the person's own choice");
+        assert_eq!(in_force(Mode::Ask, Mode::Ask), Mode::Ask);
+        assert_eq!(json!(in_force(Mode::Allow, Mode::Never)), json!("never"), "the list does not say it as the page reads it");
     }
 
     #[test]

@@ -91,10 +91,11 @@ impl Kernel {
     }
 
     pub fn computers_of(&self, who: &Person) -> Value {
-        self.read(|s| {
+        let computers: Vec<Value> = self.read(|s| {
             let queue: Vec<&str> = s.computers.queue().iter().map(|c| c.id.as_str()).collect();
             let shown = |c: &Computer| {
                 let mut v = json!(c);
+                v["name"] = json!(super::driving::computer_name(s, c));
                 v["driving"] = super::driving::driving(s, c);
                 v["waking"] = json!(super::wake::waking(&c.id));
                 if let Some(i) = queue.iter().position(|q| *q == c.id) {
@@ -102,20 +103,22 @@ impl Kernel {
                 }
                 v
             };
-            json!({ "computers": s.computers.all().filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).map(shown).collect::<Vec<_>>() })
-        })
+            s.computers.all().filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).map(shown).collect()
+        });
+        json!({ "computers": computers.into_iter().map(|v| super::driving::with_names(self, v)).collect::<Vec<_>>() })
     }
 
     pub fn computer_json(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let c = self.controlled_computer(who, id)?;
-        let (position, driving) = self.read(|s| (s.computers.queue().iter().position(|q| q.id == id), super::driving::driving(s, &c)));
+        let (position, driving, name) = self.read(|s| (s.computers.queue().iter().position(|q| q.id == id), super::driving::driving(s, &c), super::driving::computer_name(s, &c)));
         let mut v = json!(c);
+        v["name"] = json!(name);
         v["driving"] = driving;
         v["waking"] = json!(super::wake::waking(id));
         if let Some(i) = position {
             v["queue_position"] = json!(i + 1);
         }
-        Ok(v)
+        Ok(super::driving::with_names(self, v))
     }
 
     /// Wakes or rebuilds a computer, or puts it in the queue at the limit.

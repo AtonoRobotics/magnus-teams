@@ -5,10 +5,11 @@
 //! in the person's inbox and decided like any other. The run waits on it.
 //! The person takes control and hands back, which closes it, or answers it
 //! from the card: done without taking control, or declined.
-use super::{takeover::runs_on, Computer};
+use super::{takeover::runs_on, Computer, Owner};
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::state::{Item, Run, State, Status as RunStatus};
+use crate::team::conversation::AGENT_NAME;
 use crate::tools::obj;
 use anyhow::Result;
 use magnus_adapter_proto::ToolSpec;
@@ -104,9 +105,41 @@ pub(super) fn driving(s: &State, c: &Computer) -> Value {
     json!({
         "by": by,
         "person": c.controller,
-        "runs": on_it.iter().map(|r| json!({ "run": r.id, "task": r.task, "status": r.status, "reason": r.reason })).collect::<Vec<_>>(),
+        "runs": on_it.iter().map(|r| { let (asker, sub) = asked_by(s, r); json!({ "run": r.id, "task": r.task, "status": r.status, "reason": r.reason, "agent": AGENT_NAME, "sub": sub, "for": asker }) }).collect::<Vec<_>>(),
         "request": request,
     })
+}
+
+/// Whom a run works for, and whether it is a sub-agent: a team run's
+/// requester, or the person whose own agent it is.
+fn asked_by(s: &State, r: &Run) -> (String, bool) {
+    match s.team.run_of(&r.task) {
+        Some(t) => (t.requester.clone(), t.sub),
+        None => (r.person.clone(), s.sub_agents.get(&r.id).is_some()),
+    }
+}
+
+/// What the computer is called where a person reads it: theirs, or their team's.
+pub(super) fn computer_name(s: &State, c: &Computer) -> String {
+    match &c.owner {
+        Owner::Person(_) => "Your computer".to_string(),
+        Owner::Workspace(w) => match s.team.workspace(w) {
+            Some(ws) => format!("{} team computer", ws.name),
+            None => "Team computer".to_string(),
+        },
+    }
+}
+
+/// The names of those a computer's runs work for, not their ids. Read after
+/// the state, since a name comes from the accounts.
+pub(super) fn with_names(k: &Kernel, mut v: Value) -> Value {
+    if let Some(runs) = v["driving"]["runs"].as_array_mut() {
+        for r in runs {
+            let id = r["for"].as_str().unwrap_or_default().to_string();
+            r["for_name"] = json!(k.person(&id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or(id));
+        }
+    }
+    v
 }
 
 impl Kernel {
@@ -179,6 +212,18 @@ mod tests {
         s.apply(&ev(6, "person:alice", json!({ "kind": "computer", "change": "takeover_ended", "id": "c", "by": "alice", "at": at })));
         s.apply(&ev(7, "kernel", json!({ "kind": "completed", "run": "r1" })));
         assert_eq!(driving(&s, &computer(&s))["by"], "no_one");
+    }
+
+    /// The client shows which agent is using the computer, and for whom
+    /// (spec, User takeover and handback: Status).
+    #[test]
+    fn a_run_on_it_names_its_agent_and_whom_it_works_for() {
+        let mut s = world();
+        let r = &driving(&s, &computer(&s))["runs"][0];
+        assert_eq!((r["agent"].clone(), r["for"].clone(), r["sub"].clone()), (json!(AGENT_NAME), json!("alice"), json!(false)), "{r}");
+        assert_eq!(computer_name(&s, &computer(&s)), "Your computer");
+        s.apply(&ev(5, "kernel", json!({ "kind": "sub_agent", "child": "r1", "parent": "r0", "tools": [] })));
+        assert_eq!(driving(&s, &computer(&s))["runs"][0]["sub"], json!(true), "a sub-agent is not said to be one");
     }
 
     #[test]
