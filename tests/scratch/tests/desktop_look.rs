@@ -43,9 +43,9 @@ struct Shot {
 
 impl Shot {
     fn from_png(bytes: &[u8]) -> Shot {
-        let mut reader = png::Decoder::new(bytes).read_info().expect("a PNG");
+        let mut reader = png::Decoder::new(bytes).read_info().unwrap_or_else(|e| panic!("not a PNG: {e}"));
         let mut buf = vec![0; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).expect("the PNG's pixels");
+        let info = reader.next_frame(&mut buf).unwrap_or_else(|e| panic!("the PNG's pixels: {e}"));
         assert_eq!((info.width as usize, info.height as usize), (WIDTH, HEIGHT), "the screen is not 1280x800");
         let step = match info.color_type {
             png::ColorType::Rgb => 3,
@@ -117,7 +117,7 @@ async fn screen(alice: &Api, id: &str) -> Vec<u8> {
         (st.is_success() && v["last"] != true).then(|| v["image_b64"].as_str().map(String::from)).flatten()
     })
     .await;
-    base64::engine::general_purpose::STANDARD.decode(image).expect("base64")
+    base64::engine::general_purpose::STANDARD.decode(image).unwrap_or_else(|e| panic!("the screenshot is not base64: {e}"))
 }
 
 /// The look of one theme, against its artboard and the app's colors.
