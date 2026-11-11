@@ -4,7 +4,7 @@ crates/magnus/src/boundary.rs 1709
 crates/magnus/src/chat.rs 810
 crates/magnus/src/config.rs 1346
 crates/magnus/src/connectors.rs 1637
-crates/magnus/src/control.rs 995
+crates/magnus/src/control.rs 993
 crates/magnus/src/dev.rs 1217
 crates/magnus/src/events.rs 1406
 crates/magnus/src/kernel.rs 1035

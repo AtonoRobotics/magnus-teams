@@ -8,6 +8,7 @@
 pub mod accounts;
 pub mod adapters;
 pub mod admin;
+pub mod admin_app;
 pub mod api;
 pub mod app_tools;
 pub mod apps;

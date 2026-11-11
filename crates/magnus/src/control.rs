@@ -23,7 +23,6 @@ pub fn socket_path(state_dir: &Path) -> PathBuf {
     state_dir.join("control.sock")
 }
 
-/// Serve the control socket until the kernel stops.
 /// Listen on the control socket, replacing one a previous process left.
 /// Bound before the appliance answers on the network, so nothing that has
 /// seen it answer finds the old socket (connection refused) instead.
@@ -38,7 +37,12 @@ pub fn bind(state_dir: &Path) -> Result<tokio::net::UnixListener> {
 }
 
 pub async fn serve(k: Arc<Kernel>, l: tokio::net::UnixListener) -> Result<()> {
-    let app = Router::new()
+    Ok(axum::serve(l, routes().with_state(k)).await?)
+}
+
+/// Every control route: the socket's, and the app's Admin section's in-process (`admin_app::mount`).
+pub(crate) fn routes() -> Router<Arc<Kernel>> {
+    Router::new()
         .route("/v1/audit", post(record).get(list))
         .route("/v1/kill-switch", post(switch).get(switch_state))
         .route("/v1/overview", axum::routing::get(overview))
@@ -86,9 +90,6 @@ pub async fn serve(k: Arc<Kernel>, l: tokio::net::UnixListener) -> Result<()> {
         .merge(crate::registrations::routes())
         .route("/v1/admin/console-sign-in", post(console_sign_in))
         .route("/v1/admin/console-standing/{person}", axum::routing::get(console_standing))
-        .with_state(k);
-    axum::serve(l, app).await?;
-    Ok(())
 }
 
 fn text(b: &Value, f: &str) -> Option<String> {
@@ -200,9 +201,6 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
     Json(v).into_response()
 }
 
-/// The person here whom the identity provider knows as `sub` (owner's
-/// ruling 3: people are bound to their provider's subject at their first
-/// sign-in through it). The console names people by their `sub`.
 /// A console path id to a person: a provider `sub` first, while the
 /// provider still binds people, else the id itself when it is a person here
 /// (#508: the console now addresses local ids).
