@@ -1,9 +1,9 @@
 # Sign in with the email address as well as the username
 
-A member (hartenfelsj) recovered her password twice, and the server recorded each
-new password, yet she could not sign in afterwards. Sign-in took only the
-username, while everything she had been sent ran on her email address: the
-invitation, the recovery request, the recovery link. Neither email named her
+A member (hartenfelsj) recovered their password twice, and the server recorded each
+new password, yet they could not sign in afterwards. Sign-in took only the
+username, while everything they had been sent ran on their email address: the
+invitation, the recovery request, the recovery link. Neither email named their
 username, and the invitation's last page already told people to "sign in with
 your email address or name". A wrong name is answered "The name or password is
 wrong", so the password got the blame.
