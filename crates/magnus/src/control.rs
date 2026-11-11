@@ -292,6 +292,16 @@ async fn admin_patch_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
         }
     }
+    // A recovery address: a string sets it, null or "" clears it.
+    if let Some(email) = b.as_object().and_then(|o| o.get("email")) {
+        let email = email.as_str().map(str::trim).filter(|e| !e.is_empty());
+        if email.is_some_and(|e| !invite_email(&e.to_lowercase())) {
+            return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "That is not an email address." }))).into_response();
+        }
+        if let Err(e) = k.accounts.set_email(&id, &k.person(&id).map(|p| p.name).unwrap_or_default(), email).await {
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
+        }
+    }
     if let Some(status) = b["status"].as_str() {
         let status = match status {
             "active" => crate::accounts::Status::Active,

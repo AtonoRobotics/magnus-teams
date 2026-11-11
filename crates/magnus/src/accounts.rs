@@ -28,6 +28,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio_postgres::Client;
+mod directory;
 mod password;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -699,20 +700,6 @@ impl Accounts {
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         self.refresh_local(c).await
-    }
-
-    /// Add a person to the appliance's own directory. Refuses a second
-    /// person with the id, and an id outside 1 to 64 letters, digits,
-    /// dots, dashes and underscores.
-    pub async fn add_person(&self, id: &str, name: &str, email: Option<&str>) -> Result<()> {
-        let id = key(id);
-        anyhow::ensure!(valid_person_id(&id), "a person id is 1 to 64 letters, digits, dots, dashes and underscores");
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("accounts connection")?;
-        let n = c.execute("INSERT INTO public.account_people (person, name, email) VALUES ($1, $2, $3) ON CONFLICT (person) DO NOTHING", &[&id, &name, &email]).await?;
-        anyhow::ensure!(n == 1, "{id} is already a person here");
-        self.refresh_local(c).await?;
-        Ok(())
     }
 
     /// Remove a local person and every local trace: the record, password,
