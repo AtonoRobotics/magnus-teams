@@ -195,6 +195,7 @@ async fn run(cfg: Config) -> Result<()> {
     crate::computer::schedule(k.clone());
     crate::unattended::schedule(k.clone());
     crate::team::schedule(k.clone());
+    crate::spend::schedule(k.clone());
     tokio::spawn(k.clone().sweep());
     // The admin console's way to the kernel: a local socket, never the
     // network, listening before the network is answered.

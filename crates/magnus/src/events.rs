@@ -82,10 +82,7 @@ impl RunConfig {
     /// A removable module's switch for this run. Runs from before modules
     /// were pinned had none of them, except the verifier's flag.
     pub fn module(&self, name: &str) -> bool {
-        match self.modules.get(name) {
-            Some(v) => *v,
-            None => name == "verifier" && self.verifier,
-        }
+        self.modules.get(name).copied().unwrap_or_else(|| name == "verifier" && self.verifier)
     }
 }
 
@@ -188,6 +185,7 @@ pub enum Ev {
     Team(crate::team::Change),
     Push(crate::push::Change),
     Tools(crate::tool_gate::Change),
+    Spend(crate::spend::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {
         run: String,
@@ -1335,6 +1333,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("commitment_changed", &["what", "to", "note"]),
     ("watched_seen", &["ids"]),
     ("rule", &["words"]),
+    ("spend", &["reason", "note"]),
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
 ];
 
@@ -1346,10 +1345,8 @@ pub fn content_fields(kind: &str) -> &'static [&'static str] {
 impl Ev {
     /// The version a document was written as (0 for any other event).
     pub fn bundle_version(&self) -> u32 {
-        match self {
-            Ev::BundleWritten { version, .. } => *version,
-            _ => 0,
-        }
+        let Ev::BundleWritten { version, .. } = self else { return 0 };
+        *version
     }
 
     pub fn run(&self) -> Option<&str> {

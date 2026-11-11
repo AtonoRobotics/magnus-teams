@@ -84,6 +84,7 @@ pub mod schedule_thread;
 pub mod settings;
 pub mod spawn;
 pub mod speech;
+pub mod spend;
 pub mod state;
 pub mod sub_agents;
 pub mod suggestions;

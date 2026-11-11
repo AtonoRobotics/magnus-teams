@@ -5,7 +5,7 @@
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
     let src = &src[src.find("pub enum Ev {").unwrap()..src.find("pub const CONTENT").unwrap()];
-    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "rule"].contains(k)) {
+    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "rule", "spend"].contains(k)) {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
         let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
         let body = &src[start..start + src[start..].find("\n    },").unwrap()];

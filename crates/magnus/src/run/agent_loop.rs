@@ -71,6 +71,12 @@ impl Kernel {
             self.suspend_with_notice(run_id, "grant_budget", why, json!({ "grant": g, "usd": spent, "limit": max })).await?;
             return Ok(false);
         }
+        // The month's spend limits, the person's and the server's, hold
+        // partway through a run too, whoever extended its budget (`spend`).
+        if let Err(stop) = self.read(|s| crate::spend::enforce::left_now(s, &run.person, chrono::Utc::now())) {
+            self.suspend_with_notice(run_id, "spend_limit", format!("Stopped: {stop}"), crate::spend::enforce::details(&stop)).await?;
+            return Ok(false);
+        }
         Ok(true)
     }
 

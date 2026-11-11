@@ -538,8 +538,10 @@ impl Kernel {
             None => (new_id("task"), new_id("run")),
         };
         let m = &self.cfg.model;
-        let (adapter, model) = o.model.clone().unwrap_or_else(|| self.default_model());
+        // The person's model access and the month's spend limits (`spend`).
+        let ((adapter, model), budget) = self.admit_run(person, o.model.clone(), o.budget.clone().unwrap_or_else(|| self.cfg.budget.clone())).await?;
         let (mut modules, escalate_to) = self.modules_for(&adapter, &model);
+        let escalate_to = self.escalation_for(person, escalate_to).await;
         modules.extend(o.modules.clone());
         crate::outcomes::mark(&mut modules, o.chat.as_ref());
         let config = crate::events::RunConfig {
@@ -547,7 +549,7 @@ impl Kernel {
             model,
             max_retries: m.max_retries,
             max_tokens: m.max_tokens,
-            budget: o.budget.unwrap_or_else(|| self.cfg.budget.clone()),
+            budget,
             verifier: modules.get("verifier").copied().unwrap_or(false),
             modules,
             escalate_to,

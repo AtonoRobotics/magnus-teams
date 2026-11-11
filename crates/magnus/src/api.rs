@@ -31,6 +31,9 @@ pub(crate) fn internal(e: anyhow::Error) -> Response {
     if let Some(k) = e.downcast_ref::<crate::kernel::KillSwitchOn>() {
         return err(StatusCode::CONFLICT, k.to_string());
     }
+    if let Some(r) = crate::spend::routes::refused(&e) {
+        return r;
+    }
     tracing::error!("api: {e:#}");
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
 }
@@ -167,8 +170,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .merge(crate::reactions::router())
         .merge(crate::grants::router().merge(crate::computer::router()).merge(crate::rules::router()))
         .merge(crate::commitments::router())
-        .merge(crate::knowledge::router())
-        .merge(crate::chat_actions::router())
+        .merge(crate::knowledge::router().merge(crate::chat_actions::router()).merge(crate::spend::routes::router()))
         .merge(crate::trash::router().merge(crate::admin_app::router(k.clone())))
         .layer(axum::middleware::from_fn(cookie_guard))
         .layer(axum::middleware::from_fn(crate::update::app_version))
@@ -2056,12 +2058,10 @@ async fn get_model(State(k): K, h: HeaderMap) -> Response {
 /// The models anyone signed in may choose for a task or a chat message,
 /// and the one used when they choose none.
 async fn models(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = who(&k, &h).await {
-        return r;
-    }
-    let (adapter, model) = k.default_model();
-    let list: Vec<Value> = k.models().await.into_iter().map(|(id, models)| json!({ "adapter": id, "models": models })).collect();
-    Json(json!({ "default": { "adapter": adapter, "model": model }, "adapters": list })).into_response()
+    let Ok(p) = who(&k, &h).await else { return err(StatusCode::UNAUTHORIZED, "sign in") };
+    let (default, lists) = k.models_for(&p.id).await;
+    let list: Vec<Value> = lists.into_iter().map(|(id, models)| json!({ "adapter": id, "models": models })).collect();
+    Json(json!({ "default": default.map(|(adapter, model)| json!({ "adapter": adapter, "model": model })), "adapters": list })).into_response()
 }
 
 /// Choose the model new tasks run on. Running tasks keep their pinned model (K9).

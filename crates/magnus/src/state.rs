@@ -996,6 +996,7 @@ pub struct State {
     /// App tool definitions as screened, those held back, and who connected
     /// which app through its connect screen (spec rev 140).
     pub tools: crate::tool_gate::Ledger,
+    pub spend: crate::spend::Ledger,
     pub secrets: HashSet<String>,
     pub memory: Vec<MemoryEntry>,
     /// The company knowledge base; its searchable index is in Postgres.
@@ -1896,6 +1897,7 @@ impl State {
             Ev::ToolPinned { tool, hash, description, input_schema, approved } => self.tools.pinned(tool, hash, description, input_schema, *approved),
             Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
             Ev::Tools(c) => self.tools.apply(e.at, c),
+            Ev::Spend(c) => self.spend.apply(e.at, c),
             Ev::TaskCreated { task, run, person, config, attachments, experiment, chat, label, files, project, grant, .. } => {
                 // Playbook items the run starts with carry the taint of the
                 // runs that wrote them (I2, M1), and a task from chat that of
