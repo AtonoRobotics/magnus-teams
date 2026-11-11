@@ -21,6 +21,8 @@ pub mod network;
 mod sealed;
 mod snapshot;
 mod sparse;
+mod sweep;
+mod took;
 pub use snapshot::Wake;
 
 pub const CGROUP_ROOT: &str = "/sys/fs/cgroup/magnus-computers";
@@ -89,6 +91,8 @@ pub enum Purpose {
 pub struct Computers {
     cfg: Config,
     cgroups: PathBuf,
+    /// Where `ip netns` keeps the computers' network namespaces.
+    netns_dir: PathBuf,
     /// One volume sealed or opened at a time.
     sealing: std::sync::Mutex<()>,
     /// One backup at a time, and without the lock that a kill needs.
@@ -97,7 +101,13 @@ pub struct Computers {
 
 impl Computers {
     pub fn new(cfg: Config) -> Computers {
-        Computers { cfg, cgroups: PathBuf::from(CGROUP_ROOT), sealing: std::sync::Mutex::new(()), backing_up: std::sync::Mutex::new(()) }
+        Computers {
+            cfg,
+            cgroups: PathBuf::from(CGROUP_ROOT),
+            netns_dir: PathBuf::from(network::NETNS_DIR),
+            sealing: std::sync::Mutex::new(()),
+            backing_up: std::sync::Mutex::new(()),
+        }
     }
 
     fn state(&self, rest: &str) -> PathBuf {
@@ -231,7 +241,7 @@ impl Computers {
 
     pub fn start(&self, id: &ComputerId, purpose: Purpose) -> Result<bool> {
         let _lock = self.lock()?;
-        self.boot_locked(id, purpose)
+        self.boot_locked(id, purpose, &mut took::Took::start())
     }
 
     fn may_start(&self, id: &ComputerId) -> Result<()> {
@@ -250,7 +260,7 @@ impl Computers {
     }
 
     /// A cold boot. True when the overlay is new, so its apps must be replayed.
-    fn boot_locked(&self, id: &ComputerId, purpose: Purpose) -> Result<bool> {
+    fn boot_locked(&self, id: &ComputerId, purpose: Purpose, took: &mut took::Took) -> Result<bool> {
         self.may_start(id)?;
         let mut meta = self.meta(id)?;
         let dir = self.computer(id);
@@ -268,12 +278,17 @@ impl Computers {
             if !dir.join(OVERLAY).exists() {
                 make_drive(&dir.join(OVERLAY), self.cfg.vm.overlay_gib, meta.uid, OVERLAY_LABEL)?;
                 fresh = true;
+                took.mark("new_overlay");
             }
+            // Recorded as the VM boots: a snapshot of it is valid on this
+            // base image and no other, whatever is installed by then.
             meta.overlay_base = Some(base);
             self.write_meta(id, &meta)?;
         }
         self.prepare_jail(id, meta.uid, purpose)?;
+        took.mark("prepare");
         self.launch(id, meta.uid, true, matches!(purpose, Purpose::Computer | Purpose::Browser))?;
+        took.mark("launch");
         Ok(fresh)
     }
 
@@ -346,6 +361,7 @@ impl Computers {
     pub fn stop(&self, id: &ComputerId) -> Result<()> {
         let _lock = self.lock_for_kill();
         kill_cgroup(&self.cgroup(id))?;
+        self.remove_network(id);
         remove_if_there(&self.jail(id))
     }
 
@@ -396,6 +412,7 @@ impl Computers {
         if jails.exists() {
             remove_if_there(&jails)?;
         }
+        self.sweep_networks();
         Ok(killed)
     }
 

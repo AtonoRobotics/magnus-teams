@@ -7,7 +7,9 @@ use super::*;
 use crate::forward::{GATEWAY, GUEST_NETMASK_BITS};
 
 const IP_TOOL: &str = "/usr/sbin/ip";
-const NETNS_DIR: &str = "/var/run/netns";
+pub(super) const NETNS_DIR: &str = "/var/run/netns";
+/// Every computer's namespace is named this and its id.
+pub(super) const NETNS_PREFIX: &str = "magnus-";
 pub const TAP: &str = "tap0";
 pub const GUEST_MAC: &str = "06:00:0a:c8:00:02";
 pub const EGRESS_DIR: &str = "egress";
@@ -21,11 +23,11 @@ fn ip(args: &[&str]) -> Result<()> {
 
 impl Computers {
     fn netns_name(&self, id: &ComputerId) -> String {
-        format!("magnus-{}", id.as_str())
+        format!("{NETNS_PREFIX}{}", id.as_str())
     }
 
     pub(super) fn netns_path(&self, id: &ComputerId) -> PathBuf {
-        Path::new(NETNS_DIR).join(self.netns_name(id))
+        self.netns_dir.join(self.netns_name(id))
     }
 
     pub fn proxy_socket(&self) -> PathBuf {
@@ -43,8 +45,11 @@ impl Computers {
         ip(&["-n", &name, "link", "set", TAP, "up"])
     }
 
+    /// Goes with the VM, and is made again at its next boot. What `ip netns
+    /// del` does: the namespace's mount goes, then its name. A forwarder
+    /// still in it keeps the namespace itself only until it sees its VM gone.
     pub(super) fn remove_network(&self, id: &ComputerId) {
-        let _ = ip(&["netns", "del", &self.netns_name(id)]);
+        remove_netns(&self.netns_path(id));
     }
 
     /// Started once the VM is up. It stops by itself when the VM has gone.
@@ -67,4 +72,13 @@ impl Computers {
         std::thread::spawn(move || child.wait());
         Ok(())
     }
+}
+
+/// A namespace's name, gone. Not mounted, or not root as in a test: the name
+/// still goes.
+pub(super) fn remove_netns(path: &Path) {
+    if let Ok(c) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) {
+        unsafe { libc::umount2(c.as_ptr(), libc::MNT_DETACH) };
+    }
+    let _ = std::fs::remove_file(path);
 }

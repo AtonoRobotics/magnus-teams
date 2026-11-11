@@ -6,7 +6,10 @@ After=local-fs.target
 ExecStart=/usr/local/lib/magnus/magnus-computerd serve
 Restart=always
 RestartSec=2
-# The VMs live in their own cgroup. Stopping this service must not touch them.
+# The VMs live in their own cgroups. Stopping this service must not touch
+# them, nor their forwarders and open screen connections, which stay in this
+# unit's cgroup: systemd's "left-over process" lines on a restart are those.
+# The new computerd reads the running VMs from their cgroups.
 KillMode=process
 
 [Install]

@@ -261,6 +261,11 @@ pub fn serve(cfg: Config) -> Result<()> {
     chown(&socket, Some(0), Some(gid)).context("give the socket to the magnus group")?;
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(SOCKET_MODE)).context("set the socket's mode")?;
     prepare_egress_dir(&computers, gid)?;
+    // The VMs a previous run started are still running and are known from
+    // their cgroups; what stopped ones left behind goes.
+    if let Err(e) = computers.sweep() {
+        eprintln!("magnus-computerd: {e:#}");
+    }
     let keeper = computers.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(BACKUP_EVERY);
