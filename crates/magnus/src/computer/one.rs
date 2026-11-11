@@ -50,6 +50,7 @@ impl Change {
             | Change::PageOpened { id, .. }
             | Change::PageClosed { id, .. }
             | Change::AppInstalled { id, .. }
+            | Change::HeldBySwitch { id, .. }
             | Change::AppRemoved { id, .. }
             | Change::ReplayFailed { id, .. }
             | Change::FileDeleted { id, .. }

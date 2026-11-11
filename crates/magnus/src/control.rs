@@ -61,6 +61,7 @@ pub(crate) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/people/{person}/schedules/{id}/{change}", post(person_schedule))
         .route("/v1/people/{person}/data/{what}", post(person_data))
         .route("/v1/people/{person}/erase", post(erase_person))
+        .route("/v1/people/{person}/computer", post(crate::computer::make_for_person))
         .route("/v1/admin/policy", axum::routing::get(policy_sets))
         .route("/v1/admin/policy/draft", post(policy_draft))
         .route("/v1/admin/policy/apply", post(policy_apply))

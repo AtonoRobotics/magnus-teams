@@ -23,6 +23,10 @@ use std::time::{Duration, Instant};
 const WAKE_WAIT: Duration = Duration::from_secs(5 * 60);
 /// How often a use waiting on another's wake looks again.
 const WAKE_POLL: Duration = Duration::from_millis(250);
+/// As long as an agent's use waits its turn for room on the server.
+pub(crate) const ROOM_WAIT_MINUTES: u64 = 15;
+/// How often a use waiting for room looks again.
+const ROOM_POLL: Duration = Duration::from_millis(500);
 
 /// What a use does with a computer in this state.
 #[derive(Debug, PartialEq, Eq)]
@@ -173,6 +177,23 @@ impl Kernel {
                 return Err(Refused::Failed("the computer did not wake in time".into()));
             }
             tokio::time::sleep(WAKE_POLL).await;
+        }
+    }
+
+    /// A use that finds no room on the server waits its turn, as the client
+    /// shows it in the queue, and goes on once the queue wakes the computer
+    /// (spec rev 142: the agent's first use wakes it). Only past `bound`
+    /// does it give up, saying so.
+    pub(crate) async fn wake_in_turn(&self, id: &str, actor: &str, bound: Duration) -> Result<(), Refused> {
+        let began = Instant::now();
+        loop {
+            match self.wake_for_use(id, actor).await? {
+                Woken::Ready => return Ok(()),
+                Woken::Queued(n) if began.elapsed() >= bound => {
+                    return Err(Refused::Failed(format!("the server had no room for it within {} minutes; it is number {n} in line and starts in its turn", bound.as_secs() / 60)));
+                }
+                Woken::Queued(_) => tokio::time::sleep(ROOM_POLL).await,
+            }
         }
     }
 

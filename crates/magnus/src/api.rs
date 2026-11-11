@@ -694,6 +694,7 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
                     return internal(e);
                 }
             }
+            k.computer_soon(crate::computer::Owner::Person(person.clone()));
             issue(k, t, &person, app, device.as_deref()).await
         }
         Polled::Failed(m) => err(StatusCode::GONE, m),
@@ -754,7 +755,10 @@ async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectI
         return err(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
     match k.accept_invitation(token, password).await.map(|a| a.map(|a| a.person)) {
-        Ok(Some(person)) if k.cfg.person(&person).is_some() || k.accounts.is_local(&person) => Json(json!({ "person": person })).into_response(),
+        Ok(Some(person)) if k.cfg.person(&person).is_some() || k.accounts.is_local(&person) => {
+            k.computer_soon(crate::computer::Owner::Person(person.clone()));
+            Json(json!({ "person": person })).into_response()
+        }
         Ok(_) => err(StatusCode::UNAUTHORIZED, "The invitation is wrong or expired."),
         Err(e) => internal(e),
     }
@@ -1644,6 +1648,7 @@ impl Kernel {
                 return Err((StatusCode::INTERNAL_SERVER_ERROR, json!({ "error": format!("{e:#}") })));
             }
             k.vault.unseal();
+            k.release_computers(&actor, crate::halts::SERVER_REASON).await;
             for r in stopped.iter().filter(|r| k.is_background(&r.id)) {
                 k.on_stop(&r.id, true).await;
             }
@@ -1703,6 +1708,7 @@ impl Kernel {
         // the records were written. After the suspensions, so no run opens a
         // page after it; a run continued later starts on a blank one.
         k.browser.close_all().await;
+        k.hold_computers(&actor, crate::halts::SERVER_REASON, None).await;
         if let Err(e) = recorded {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,

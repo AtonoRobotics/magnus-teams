@@ -283,6 +283,13 @@ async fn person_add(args: &[String]) -> Result<()> {
     let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
     accounts.add_person(&person, &name, arg(args, "--email").as_deref()).await?;
     eprintln!("added {person}");
+    // Their computer is there from now on: made by a running server at once,
+    // else by the server's start.
+    match crate::computer::tell_server(&cfg.appliance.state_dir, &person).await {
+        Ok(true) => eprintln!("made {person}'s computer"),
+        Ok(false) => eprintln!("the server makes {person}'s computer when it starts"),
+        Err(e) => eprintln!("the server makes {person}'s computer within a minute ({e:#})"),
+    }
     Ok(())
 }
 

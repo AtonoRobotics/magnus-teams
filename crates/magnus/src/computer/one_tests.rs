@@ -7,11 +7,13 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
 type Asked = Arc<Mutex<Vec<Value>>>;
+/// While set, the server has no room: every wake is refused for capacity.
+type Full = Arc<std::sync::atomic::AtomicBool>;
 
 /// Creates, wakes, destroys and erases at once; its guests answer every
 /// desktop action with a screenshot. As the real one, a computer whose
 /// overlay was thrown away (a destroy, an erase) wakes on a fresh one.
-fn fake_computerd(socket: &Path) -> Asked {
+fn fake_computerd(socket: &Path, full: Full) -> Asked {
     let asked: Asked = Arc::default();
     let listener = UnixListener::bind(socket).unwrap();
     let log = asked.clone();
@@ -20,6 +22,7 @@ fn fake_computerd(socket: &Path) -> Asked {
         while let Ok((s, _)) = listener.accept().await {
             let log = log.clone();
             let fresh = fresh.clone();
+            let full = full.clone();
             tokio::spawn(async move {
                 let (r, mut w) = s.into_split();
                 let mut lines = BufReader::new(r).lines();
@@ -28,6 +31,7 @@ fn fake_computerd(socket: &Path) -> Asked {
                     log.lock().unwrap().push(req.clone());
                     let id = req["id"].as_str().unwrap_or_default().to_string();
                     let reply = match req["op"].as_str().unwrap() {
+                        "wake" if full.load(std::sync::atomic::Ordering::SeqCst) => json!({ "ok": false, "error": "computerd already runs as many computers as it may" }),
                         "wake" => {
                             let new = fresh.lock().unwrap().remove(&id);
                             json!({ "ok": true, "resumed": !new, "overlay_fresh": new })
@@ -37,7 +41,7 @@ fn fake_computerd(socket: &Path) -> Asked {
                             json!({ "ok": true })
                         }
                         "write" => json!({}),
-                        "create" | "connect" | "ping" | "hibernate" => json!({ "ok": true }),
+                        "create" | "connect" | "ping" | "hibernate" | "pause" | "resume" => json!({ "ok": true }),
                         "exec" => json!({ "exit_code": 0 }),
                         "read" => json!({ "data_b64": "SHOT" }),
                         other => json!({ "ok": false, "error": format!("unexpected {other}") }),
@@ -57,6 +61,7 @@ fn pg() -> String {
 struct Server {
     k: Arc<Kernel>,
     asked: Asked,
+    full: Full,
     db: String,
     _dir: tempfile::TempDir,
 }
@@ -80,7 +85,8 @@ async fn server() -> Server {
     .unwrap();
     c.batch_execute(&crate::accounts::migrate_sql("postgres")).await.unwrap();
     let socket = dir.path().join("computerd.sock");
-    let asked = fake_computerd(&socket);
+    let full = Full::default();
+    let asked = fake_computerd(&socket, full.clone());
     let p = dir.path().join("magnus.toml");
     let state = dir.path().join("state");
     std::fs::write(
@@ -92,7 +98,7 @@ async fn server() -> Server {
     )
     .unwrap();
     let k = Kernel::boot(crate::config::Config::load(&p).unwrap()).await.unwrap();
-    Server { k, asked, db: name, _dir: dir }
+    Server { k, asked, full, db: name, _dir: dir }
 }
 
 impl Server {
@@ -314,5 +320,76 @@ async fn several_computers_become_the_one_used_last_and_the_person_is_told() {
     assert_eq!(s.asked("destroy").len(), destroyed.len(), "the next start deleted again");
     let told = s.k.read(|st| st.items.values().filter(|i| i.details["reason"] == "one_computer").count());
     assert_eq!(told, 1, "the person was told again");
+    s.done().await;
+}
+
+/// "Each stops new work and running work at once, including the agent's
+/// computer actions": the server's switch, a person's and an agent's pause
+/// the computer where it is, its person cannot resume it while the switch
+/// is on, and the release resumes it. A connector's switch leaves it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kill_switch_pauses_the_computer_and_its_release_resumes_it() {
+    use crate::halts::Scope;
+    let s = server().await;
+    s.k.use_computer(&person("mo"), "run:r1", "computer_screenshot", &json!({})).await.unwrap().unwrap();
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    let mo = s.k.person("mo").unwrap();
+    let ops = |op: &str| s.asked(op).iter().filter(|r| r["id"] == json!(id)).count();
+    let status = || s.computers_of(&person("mo"))[0].status;
+    for scope in [Some(Scope::Person("mo".into())), Some(Scope::Agent("person:mo".into())), None] {
+        let (paused, resumed) = (ops("pause"), ops("resume"));
+        match &scope {
+            Some(sc) => drop(s.k.scoped_switch("person:sam", "Sam", sc.clone(), true).await.unwrap()),
+            None => drop(s.k.kill_switch("person:sam", true).await.unwrap()),
+        }
+        assert_eq!((status(), ops("pause")), (Status::Paused, paused + 1), "{scope:?} did not pause the computer");
+        assert!(s.k.start_computer(&mo, &id).await.is_err(), "its person resumed it under {scope:?}");
+        match &scope {
+            Some(sc) => drop(s.k.scoped_switch("person:sam", "Sam", sc.clone(), false).await.unwrap()),
+            None => drop(s.k.kill_switch("person:sam", false).await.unwrap()),
+        }
+        assert_eq!((status(), ops("resume")), (Status::Running, resumed + 1), "releasing {scope:?} did not resume the computer");
+    }
+    s.k.scoped_switch("person:sam", "Sam", Scope::Connector("github".into()), true).await.unwrap();
+    assert_eq!(status(), Status::Running, "a connector's switch paused the computer");
+    s.done().await;
+}
+
+/// At capacity a tool call waits its turn in the queue and goes on once the
+/// queue starts the computer; only past its bound does it give up, saying so.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tool_call_at_capacity_waits_its_turn_and_goes_on() {
+    let s = server().await;
+    s.k.reconcile_computers().await;
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    s.full.store(true, std::sync::atomic::Ordering::SeqCst);
+    let gave_up = s.k.wake_in_turn(&id, "run:r0", Duration::from_secs(1)).await.unwrap_err();
+    assert!(gave_up.to_string().contains("no room"), "{gave_up}");
+    assert_eq!(s.computers_of(&person("mo"))[0].status, Status::Queued);
+    // Room comes: the queue starts it, as the server's queue does.
+    let (k, queued) = (s.k.clone(), id.clone());
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        k.emit("kernel", Ev::Computer(Change::Started { id: queued })).await.unwrap();
+    });
+    let done = s.k.use_computer(&person("mo"), "run:r1", "computer_screenshot", &json!({})).await.unwrap().unwrap();
+    assert_eq!((done.0.as_str(), done.1), ("Screenshot of your computer attached.", false), "{done:?}");
+    s.done().await;
+}
+
+/// `magnus person add` writes the directory from outside the server; the
+/// running server makes the new person's computer when told, at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_account_added_from_the_command_line_has_its_computer_at_once() {
+    let s = server().await;
+    let state = s.k.cfg.appliance.state_dir.clone();
+    std::fs::create_dir_all(&state).unwrap();
+    tokio::spawn(crate::control::serve(s.k.clone(), crate::control::bind(&state).unwrap()));
+    let outside = crate::accounts::Accounts::open(&s.k.cfg.database.url, s.k.cfg.sign_in.clone()).await.unwrap();
+    outside.add_person("lu", "Lu", None).await.unwrap();
+    assert!(super::super::tell_server(&state, "lu").await.unwrap(), "the running server was not reached");
+    assert_eq!(s.computers_of(&person("lu")).len(), 1, "the new person has no computer");
+    let stopped = tempfile::tempdir().unwrap();
+    assert!(!super::super::tell_server(stopped.path(), "lu").await.unwrap(), "a stopped server was taken for a running one");
     s.done().await;
 }

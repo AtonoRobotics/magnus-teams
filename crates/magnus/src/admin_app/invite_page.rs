@@ -74,7 +74,10 @@ async fn accept(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>
         return form(&token, Some(&format!("A password needs at least {} characters.", k.cfg.sign_in.min_password_length)));
     }
     match k.accept_invitation(&token, &password).await {
-        Ok(Some(a)) => signed_in(&k, t, &a.person, a.workspaces.first().map(String::as_str)).await,
+        Ok(Some(a)) => {
+            k.computer_soon(crate::computer::Owner::Person(a.person.clone()));
+            signed_in(&k, t, &a.person, a.workspaces.first().map(String::as_str)).await
+        }
         Ok(None) => shell("Invitation", "<h1>This invitation is spent or expired.</h1><p>Ask the person who invited you to send it again.</p>"),
         Err(e) => {
             tracing::error!("accepting an invitation: {e:#}");

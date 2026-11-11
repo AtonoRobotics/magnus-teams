@@ -199,10 +199,9 @@ impl Kernel {
         if held {
             return Ok(Some(("A person has control of this computer, so this was refused. Wait until they hand it back.".to_string(), true, None)));
         }
-        match self.wake_for_use(&id, actor).await {
-            Ok(Woken::Ready) => {}
-            Ok(Woken::Queued(n)) => return Ok(Some((format!("Your computer is waiting for room on the server (number {n} in line). Try again in a minute."), true, None))),
-            Err(e) => return Ok(Some((format!("Your computer could not wake: {e}"), true, None))),
+        let room = std::time::Duration::from_secs(super::wake::ROOM_WAIT_MINUTES * 60);
+        if let Err(e) = self.wake_in_turn(&id, actor, room).await {
+            return Ok(Some((format!("Your computer could not wake: {e}"), true, None)));
         }
         super::idle::touch(&id);
         let socket = self.computer_socket().map_err(|e| anyhow!("{e}"))?;

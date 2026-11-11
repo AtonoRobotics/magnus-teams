@@ -95,6 +95,10 @@ impl Kernel {
                 self.brokered.stop(Some(c), None).await;
             }
         }
+        // And the computers its work is on, paused where they are.
+        if let Some(owners) = self.computers_reached(&scope, &running) {
+            self.hold_computers(actor, &reason, Some(&owners)).await;
+        }
         Ok(json!({ "engaged": true, "level": scope.level(), "id": scope.id(), "stopped": running }))
     }
 
@@ -116,6 +120,7 @@ impl Kernel {
             evs.push(("kernel", self.notice_of(r, format!("Stopped by {}: {title}", scope.said()), why.clone())));
         }
         self.emit_all(evs).await.map_err(failed)?;
+        self.release_computers(actor, &reason).await;
         for r in stopped.iter().filter(|r| self.is_background(&r.id)) {
             self.on_stop(&r.id, true).await;
         }

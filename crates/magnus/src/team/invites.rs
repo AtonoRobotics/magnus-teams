@@ -190,6 +190,8 @@ async fn join(State(k): K, h: HeaderMap, Path(code): Path<String>) -> Reply {
     }
     if k.read(|s| s.team.role(&ws, &p.id)).is_none() {
         ok_or_return!(send(&k, &p, Change::Member { workspace: ws.clone(), person: p.id.clone(), role: inv.role.unwrap_or(Role::Member) }).await);
+        // A newcomer's own computer is there from the start too.
+        k.computer_soon(crate::computer::Owner::Person(p.id.clone()));
     }
     if inv.email.is_some() {
         ok_or_return!(send(&k, &p, Change::Chat { workspace: ws.clone(), chat: Chat::InviteEnded { code } }).await);

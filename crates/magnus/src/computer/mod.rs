@@ -8,10 +8,13 @@ mod devview;
 mod driving;
 mod egress;
 mod export;
+mod halt;
 mod identity;
 mod idle;
 mod lifecycle;
+mod made;
 mod one;
+pub(crate) use made::{make_for_person, tell_server};
 mod routes;
 mod service;
 mod sources;
@@ -266,6 +269,12 @@ pub enum Change {
     VolumeErased {
         id: String,
     },
+    /// A kill switch paused it (its `Killed` with `Pause` in the same
+    /// write); releasing that switch, `reason`, resumes it.
+    HeldBySwitch {
+        id: String,
+        reason: String,
+    },
 }
 
 /// One installed app, enough to install it again on a fresh overlay.
@@ -343,6 +352,8 @@ pub struct Computer {
     /// When the log last recorded anything of it: which one an owner with
     /// several keeps.
     pub last_used: Option<DateTime<Utc>>,
+    /// The kill switch whose release resumes it, while one holds it paused.
+    pub held_by: Option<String>,
 }
 
 /// Stands in for a credential the vault holds, at one host only.
@@ -438,6 +449,7 @@ impl Ledger {
                 role,
                 surrogates: vec![],
                 last_used: None,
+                held_by: None,
             },
         );
     }
@@ -490,6 +502,7 @@ impl Ledger {
                     c.status = Status::Running;
                     c.queued = None;
                     c.replay_error = None;
+                    c.held_by = None;
                 }
             }
             Change::Killed { id, mode, delete_volume } => {
@@ -543,6 +556,11 @@ impl Ledger {
             Change::Restored { .. } | Change::Kept { .. } => {}
             // What was on the old volume is gone, and so is what stood in
             // for a credential there; the apps stay, to be installed again.
+            Change::HeldBySwitch { id, reason } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.held_by = Some(reason.clone());
+                }
+            }
             Change::VolumeErased { id } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.deleted_files.clear();

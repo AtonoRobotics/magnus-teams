@@ -135,6 +135,9 @@ impl Kernel {
         match c.status {
             Status::Running => return Err(Refused::Conflict("the computer is already running".into())),
             Status::Queued => return Err(Refused::Conflict("the computer is already waiting to start".into())),
+            Status::Paused if c.held_by.as_deref().is_some_and(|r| self.switch_still_on(r)) => {
+                return Err(Refused::Conflict("a kill switch holds the computer; it resumes when the switch is released".into()));
+            }
             Status::Paused => {
                 client::ask(&socket, json!({ "op": "resume", "id": id })).await.map_err(failed)?;
                 self.record_computer(who, Change::Started { id: id.into() }).await?;
@@ -308,10 +311,17 @@ impl Kernel {
 
     /// The monitor's kill switch: a pause and every grant revoked, one step.
     pub(crate) async fn pause_computer_from_monitor(&self, id: &str) -> Result<()> {
+        self.pause_computer_as("monitor", id, None).await
+    }
+
+    /// A pause and every grant revoked, one step, with `also` in the same
+    /// write (a kill switch's mark).
+    pub(crate) async fn pause_computer_as(&self, actor: &str, id: &str, also: Option<Change>) -> Result<()> {
         let socket = self.computer_socket().map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let Some(c) = self.read(|s| s.computers.get(id).cloned()) else { return Ok(()) };
-        let mut evs: Vec<(&str, Ev)> = c.grants.iter().filter(|g| !g.revoked).map(|g| ("monitor", Ev::Computer(Change::Revoked { id: id.into(), grant: g.id.clone() }))).collect();
-        evs.push(("monitor", Ev::Computer(Change::Killed { id: id.into(), mode: KillMode::Pause, delete_volume: false })));
+        let mut evs: Vec<(&str, Ev)> = c.grants.iter().filter(|g| !g.revoked).map(|g| (actor, Ev::Computer(Change::Revoked { id: id.into(), grant: g.id.clone() }))).collect();
+        evs.push((actor, Ev::Computer(Change::Killed { id: id.into(), mode: KillMode::Pause, delete_volume: false })));
+        evs.extend(also.map(|ch| (actor, Ev::Computer(ch))));
         self.emit_all(evs).await?;
         client::ask(&socket, json!({ "op": "pause", "id": id })).await?;
         Ok(())
