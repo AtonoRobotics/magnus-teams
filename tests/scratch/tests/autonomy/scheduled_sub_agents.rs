@@ -13,8 +13,23 @@ permit(principal, action == Action::"execute", resource)
 permit(principal, action == Action::"request_approval", resource);
 "#;
 
-/// What Auto Review is told when a standing authority covers the action.
-const COVERED: &str = "covered by a grant or schedule";
+/// The reason, as the developer view shows it, of every allowed
+/// `notes__save` in the person's tasks.
+async fn saves_allowed(app: &Appliance, person: &Api) -> Vec<String> {
+    let dev = app.api(magnus_scratch::DEVELOPER);
+    let mut reasons = vec![];
+    for t in visible_tasks(person).await {
+        let id = t["task_id"].as_str().unwrap_or_default();
+        let Some(run) = person.task(id).await["run_id"].as_str().map(String::from) else { continue };
+        let (st, ins) = dev.get(&format!("/v1/dev/runs/{run}")).await;
+        assert!(st.is_success(), "the run inspector refused: {st} {ins}");
+        let actions = ins["actions"].as_array().cloned().unwrap_or_default();
+        let decisions = actions.iter().filter(|a| a["tool"] == "notes__save").flat_map(|a| a["decisions"].as_array().cloned().unwrap_or_default());
+        let allowed = decisions.filter(|d| d["outcome"] == "allow" && d["stage"] == "approval");
+        reasons.extend(allowed.filter_map(|d| d["reason"].as_str().map(String::from)));
+    }
+    reasons
+}
 
 /// 6. A scheduled run uses sub-agents. The person sets up a schedule in a
 /// conversation and leaves. Its run starts three sub-agents, for the
@@ -74,10 +89,8 @@ async fn a_scheduled_run_uses_sub_agents() {
                     _ => complete(SUMMARY),
                 },
                 Run::Outcome => say(REPORT),
-                // Auto Review checks every write. It clears a note's change
-                // only where a standing authority (the confirmed schedule)
-                // covers it; one the policy merely asks about it refuses.
-                Run::AutoReview if said(&c).contains(COVERED) => tool("review", json!({ "decision": "allow", "reason": "The confirmed schedule covers it." })),
+                // Auto Review refuses every change: one the schedule covers
+                // never reaches it, and one it does not cover stops here.
                 Run::AutoReview => tool("review", json!({ "decision": "deny", "reason": "Nothing the person set up covers changing notes." })),
                 _ => background(&c),
             }
@@ -86,7 +99,7 @@ async fn a_scheduled_run_uses_sub_agents() {
     .await;
     let notes = notes().start().await;
     let spec = proactive_on().app("notes", &notes, "private", "private", &[("save", "reversible_write"), ("list", "read")]);
-    let app = Appliance::start(spec, &m).await;
+    let app = Appliance::start(magnus_scratch::with_developer(spec), &m).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", NOTES_ASK).await.is_success());
     let b = before(&alice).await;
@@ -123,12 +136,20 @@ async fn a_scheduled_run_uses_sub_agents() {
         let first = runs.iter().find(|c| run_of(c) == Run::Task && opening(c).contains(goal)).unwrap_or_else(|| panic!("no sub-agent for {goal}"));
         assert!(opening(first).contains(&format!("The person set up this schedule to do this; keep to it: {RUN}")), "a sub-agent lost the schedule's scope: {}", opening(first));
     }
-    // The implementation changed the note under the schedule's confirmation,
-    // which Auto Review saw covering it: no approval, and no grant of its own.
+    // The implementation changed the note under the schedule's confirmation:
+    // no approval, and no grant of its own. A schedule answers for the person
+    // on a change that sends nothing out, without Auto Review
+    // (decisions/2026-11-10-permissions-asks.md, case 1), and Auto Review
+    // here refuses everything, so the change went ahead on the schedule alone.
     assert_eq!(notes.effects("save"), 1, "the implementation's change did not go ahead, or the review's did");
     assert_eq!(notes.world()["notes"][0], note());
-    let reviewed: Vec<&Conversation> = runs.iter().filter(|c| run_of(c) == Run::AutoReview).collect();
-    assert!(!reviewed.is_empty() && reviewed.iter().all(|c| said(c).contains(COVERED)), "a sub-agent's change was not covered by the schedule:\n{}", story(&m));
+    assert!(!runs.iter().any(|c| run_of(c) == Run::AutoReview), "Auto Review judged a change the schedule covers:\n{}", story(&m));
+    let saves = saves_allowed(&app, &alice).await;
+    assert!(
+        saves.len() == 1 && saves[0].starts_with("covered by the confirmed schedule sched_"),
+        "the implementation's change was not allowed as covered by the schedule: {saves:?}\n{}",
+        story(&m)
+    );
     // The run narrowed the review to reading: its write was refused.
     let review = runs.iter().find(|c| run_of(c) == Run::Task && opening(c).contains(REVIEW) && c.turn() == 2).expect("the review went no further").last_results();
     assert!(review.len() == 1 && review[0].is_error && review[0].text.contains("notes__save"), "the review wrote past its limit: {review:?}");
