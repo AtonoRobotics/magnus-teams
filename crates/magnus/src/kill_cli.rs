@@ -24,8 +24,12 @@ use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// How long the server has to answer on its control socket before
-/// `magnus kill` says it did not.
-pub const KILL_ANSWER_TIMEOUT_SECONDS: u64 = 30;
+/// `magnus kill` says it did not. A press stops every microVM and revokes
+/// each sign-in at its provider before it answers (each provider call may
+/// take 30 seconds), and one switch waits for another: giving up sooner
+/// would leave a press that happened unaudited. The operator can still stop
+/// waiting with Ctrl-C.
+pub const KILL_ANSWER_TIMEOUT_SECONDS: u64 = 300;
 
 /// The most of the server's answer read back: far above any it gives.
 pub const KILL_ANSWER_MAX_BYTES: u64 = 1024 * 1024;

@@ -20,7 +20,7 @@ event names the server's local operator (`server:<user>`), the admin audit
 records `kill_switch_engaged` or `kill_switch_released` with source `server`,
 and the banner says "<user> on the server stopped everything". Releasing from
 the server needs no step-up: reaching the socket already takes control of the
-server. If the server does not answer within 30 seconds, `magnus kill` says
+server. If the server does not answer within 5 minutes, `magnus kill` says
 so and changes nothing; stopping the service then stops everything. A deployed
 `magnus.toml` with an `[admin]` section still loads: the section is read,
 ignored, and a warning names it. See
