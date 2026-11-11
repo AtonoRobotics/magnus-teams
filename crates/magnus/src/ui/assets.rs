@@ -32,6 +32,12 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("admin-spend.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-spend.js")),
     ("admin-agents.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-agents.js")),
     ("admin.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/admin.css")),
+    ("admin-overview.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-overview.js")),
+    ("admin-people.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-people.js")),
+    ("admin-connectors.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-connectors.js")),
+    ("admin-rules.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-rules.js")),
+    ("admin-security.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-security.js")),
+    ("admin-ops.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-ops.js")),
 ];
 pub(crate) const FONTS: &[(&str, &[u8])] = &[
     ("inter-latin-wght-normal.woff2", include_bytes!("../../../../desktop/ui/fonts/inter-latin-wght-normal.woff2")),

@@ -50,6 +50,12 @@ jobs:
       - run: node desktop/tests/wording-check.mjs
       - run: node desktop/tests/password-check.mjs
       - run: node desktop/tests/admin-check.mjs
+      - run: node desktop/tests/admin-overview-check.mjs
+      - run: node desktop/tests/admin-people-check.mjs
+      - run: node desktop/tests/admin-connectors-check.mjs
+      - run: node desktop/tests/admin-rules-check.mjs
+      - run: node desktop/tests/admin-security-check.mjs
+      - run: node desktop/tests/admin-ops-check.mjs
       - run: node desktop/tests/spend-check.mjs
       - run: node desktop/tests/admin-agents-check.mjs
       - run: ci/ratchet.sh size

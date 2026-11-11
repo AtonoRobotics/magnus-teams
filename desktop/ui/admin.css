@@ -13,4 +13,18 @@
 #stop-banner .banner { margin: 0 0 6px; box-shadow: var(--shadow); }
 dialog.step-up form { gap: 12px; }
 dialog.step-up h2 { margin: 0; }
-@media (max-width: 760px) { .admin { padding: 12px 16px 24px; } }
+/* The sections (admin-overview.js, admin-people.js, admin-connectors.js,
+   admin-rules.js, admin-security.js, admin-ops.js). */
+.admin-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.admin-cards .card { margin: 0; }
+.admin-section .stat { margin: 4px 0; }
+.admin-section .stat strong { font-size: 1.6em; }
+.admin-section form.row { flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.admin-section table.t { width: 100%; }
+.admin-section td.row { gap: 6px; flex-wrap: wrap; }
+.admin-alerts, .admin-rules { padding-left: 18px; }
+.admin-alerts li, .admin-rules li { margin: 6px 0; }
+.admin-section dl dt { font-weight: 600; margin-top: 8px; }
+.admin-section dl dd { margin: 2px 0 0; }
+.admin-section pre { max-height: 360px; overflow: auto; white-space: pre-wrap; }
+@media (max-width: 760px) { .admin { padding: 12px 16px 24px; } .admin-section table.t { display: block; overflow-x: auto; } }
