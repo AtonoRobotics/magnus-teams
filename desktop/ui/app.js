@@ -12,6 +12,8 @@ const api = async (m,p,b) => {
   catch(error) {
     // A lost mutation reply does not establish whether its effect happened.
     // Keep authoritative error metadata (including send rejection handling).
+    // A spent limit of the person's own: offer to ask for more where it appears (admin-spend.js).
+    if(error.status===402 && error.body?.spend_limit && typeof offerMoreSpend==="function")offerMoreSpend(error.body);
     if(!["GET","HEAD","OPTIONS"].includes(m) && (!error.status || error.status>=500))
       throw Object.assign(new Error(`Outcome not confirmed. ${error.message || "Check the current state before trying again."}`),{status:error.status,body:error.body});
     throw error;
@@ -336,6 +338,7 @@ const WAITING = {
   provider: "paused: the model provider is unavailable", usage_limit: "paused: model usage limit", auth: "paused: sign in to the model again",
   monitor: "waiting for you: the safety monitor held an action", secure_form: "waiting for you to sign in", payment: "waiting for you to approve a purchase", takeover: "paused: you have control of the computer", takeover_request: "waiting for you to take over the computer",
   kill_switch: "stopped by the kill switch", timer: "waiting until a set time", invalid_request: "paused: the model rejected the request",
+  spend_limit: "paused: a monthly spend limit is reached",
 };
 const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class="chip ${c}">${esc(l)}</span>`; };
 
