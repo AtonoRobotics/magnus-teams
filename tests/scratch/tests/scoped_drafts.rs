@@ -1,8 +1,8 @@
-//! Scoped drafting (approvals spec, The approval model; #178). A reply is
-//! written where only its thread and the person's words can reach: the run
-//! reads threads A and B, its reply to A records only A among its sources,
-//! and a send of it to A's sender passes under content provenance, carrying
-//! nothing of B.
+//! A draft goes as the agent wrote it (spec rev 140, Permissions and tasks;
+//! decision 2026-11-11-drafts-go-as-written). The kernel once rewrote each
+//! reply from its thread and the person's words (#178) and let its send skip
+//! the ask; rev 140 has neither, so the run's own body is what is drafted,
+//! and a send after the run read untrusted mail asks the person.
 
 use magnus_invariants::{mcp, *};
 use magnus_scratch::start_checked;
@@ -88,20 +88,17 @@ async fn mail_app(model: &FakeModel) -> (FakeMcp, Appliance) {
     (mcp, app)
 }
 
-/// The run reads A and B and replies to A quoting B; the reply is written
-/// from A alone, records only A, and its send to Bob passes with no card.
+/// The run reads A and B and replies to A: the reply holds exactly the
+/// body the run wrote, no rewriting step runs, and the send to Bob waits on
+/// the person, since the run read Mallory's untrusted thread first.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_reply_is_written_from_its_thread_alone_and_sent_to_its_sender_without_asking() {
+async fn a_reply_holds_what_the_run_wrote_and_its_send_after_untrusted_mail_asks() {
     let model = start_checked(script(|c| async move {
-        // The scoped step: A alone in context, answered clean.
-        if c.text().contains("You write one mail draft") {
-            return Reply::Text("Q3 revenue was 41.7M (ALPHA-1).".into());
-        }
         match c.turn() {
             0 => contract_unchecked("answer the Q3 question", "it is answered"),
             1 => tool("mail__get_thread", json!({ "thread_id": "tA" })),
             2 => tool("mail__get_thread", json!({ "thread_id": "tB" })),
-            3 => tool("mail__reply_draft", json!({ "message_id": "mA", "body": "Quoting the other thread: SECRET-BETA-9 hunter2." })),
+            3 => tool("mail__reply_draft", json!({ "message_id": "mA", "body": "Q3 revenue was 41.7M. RUN-WROTE-THIS" })),
             4 => tool("mail__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("answered"),
         }
@@ -109,32 +106,15 @@ async fn a_reply_is_written_from_its_thread_alone_and_sent_to_its_sender_without
     .await;
     let (mail, app) = mail_app(&model).await;
     let alice = app.api("alice");
-    // The person's words name no address: only content clears Bob.
     let id = alice.submit("Answer the Q3 question.").await;
 
-    // The send passed or a card went up; on master it asks.
-    eventually("the send passed or asked", PATIENCE, || async { (mail.effects("send_draft") == 1 || !alice.open_items(&id, "approval").await.is_empty()).then_some(()) }).await;
-    assert_eq!(mail.effects("send_draft"), 1, "the send to A's sender asked");
+    eventually("the send asked", PATIENCE, || async { (!alice.open_items(&id, "approval").await.is_empty()).then_some(()) }).await;
+    assert_eq!(mail.effects("send_draft"), 0, "the send went without asking");
 
-    // Written from A alone: A in context, B nowhere in it.
-    let scoped: Vec<_> = model.requests().into_iter().filter(|c| c.text().contains("You write one mail draft")).collect();
-    assert_eq!(scoped.len(), 1, "no scoped drafting step ran");
-    assert!(scoped[0].text().contains("ALPHA-1"), "A is missing from the scoped context");
-    assert!(!scoped[0].text().contains("BETA-9") && !scoped[0].text().contains("hunter2"), "B reached the scoped context");
-
-    // Only A among its sources, Bob entitled (addresses live in the
-    // content store, beside the event).
+    let draft = mail.world()["drafts"]["d1"].clone();
+    assert_eq!(draft["body"], "Q3 revenue was 41.7M. RUN-WROTE-THIS", "the drafted body is not the run's: {draft}");
+    assert!(model.requests().iter().all(|c| !c.text().contains("You write one mail draft")), "a rewriting step ran");
     let db = app.db.admin().await;
-    let rows = db.query("SELECT e.body, c.body FROM public.events e LEFT JOIN public.content c ON c.seq = e.seq WHERE e.kind = 'draft_scoped'", &[]).await.unwrap();
-    assert_eq!(rows.len(), 1);
-    let (body, content): (Value, Value) = (rows[0].get(0), rows[0].get(1));
-    assert_eq!(&body["threads"], &json!(["tA"]), "{body}");
-    assert!(content["participants"].as_array().is_some_and(|p| p.iter().any(|x| x == "bob@corp.example")), "{content}");
-
-    // What went out is the scoped text, not the run's quoting body.
-    let sent = mail.world()["sent"][0].clone();
-    assert_eq!(sent["to"], "bob@corp.example", "{sent}");
-    assert!(sent["body"].as_str().is_some_and(|b| b.contains("ALPHA-1") && !b.contains("BETA-9")), "{sent}");
-    alice.wait_status(&id, &["completed"]).await;
-    assert_eq!(alice.wait_settled(&id).await["status"], "completed");
+    let rows = db.query("SELECT 1 FROM public.events WHERE kind = 'draft_scoped'", &[]).await.unwrap();
+    assert!(rows.is_empty(), "a draft was recorded as rewritten");
 }

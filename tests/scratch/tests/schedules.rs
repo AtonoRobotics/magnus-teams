@@ -381,6 +381,31 @@ async fn a_suggested_schedule_runs_on_the_servers_budget_with_the_suggesters_tai
     notice(&alice, "A schedule ended", &id).await;
 }
 
+/// Evidence as a strict-schema model writes it: the tool's name for the
+/// call and the unused task left empty. It names that tool's latest result,
+/// and the card goes up (run_cf3c9786… was refused for this and failed).
+#[tokio::test(flavor = "multi_thread")]
+async fn evidence_naming_a_tool_with_an_empty_task_is_accepted() {
+    let mail = mcp::mail().start().await;
+    let m = FakeModel::start(script(|c| async move {
+        match c.turn() {
+            0 => simple_contract(),
+            1 => tool("mail__list_inbox", json!({})),
+            2 => {
+                let evidence = json!([{ "call": "functions.mail__list_inbox", "task": "", "shows": "New mail arrives every minute." }]);
+                tool("suggest", json!({ "title": "Inbox summary", "goal": "Summarise the inbox.", "every_minutes": 15, "max_runs": 3, "permissions": ["Reads your inbox"], "evidence": evidence }))
+            }
+            _ => done("Done."),
+        }
+    }))
+    .await;
+    let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private+untrusted", &[("list_inbox", "read")]), &m).await;
+    let alice = app.api("alice");
+    let t = alice.submit("Watch the inbox.").await;
+    let item = alice.wait_item(&t, "suggestion").await;
+    assert_eq!(item["details"]["evidence"][0]["tool"], "mail__list_inbox", "{item}");
+}
+
 /// Past several sweep ticks after the gate lifts: a firing let through
 /// would have created its run.
 const SETTLE: Duration = Duration::from_secs(30);

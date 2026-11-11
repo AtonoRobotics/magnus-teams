@@ -10,11 +10,10 @@ use crate::config::{Connector, Person};
 use crate::events::Ev;
 use crate::kernel::{new_id, Kernel};
 use crate::policy::{self, Outcome, ToolFacts};
-use crate::state::{DraftSources, Intent, Run, Status};
+use crate::state::{Intent, Run, Status};
 use crate::tools::{self, Audience, Label, Risk};
 use crate::vault::redact;
 use anyhow::{anyhow, Result};
-use magnus_adapter_proto::{Block, Message, Role};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -110,60 +109,6 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 /// The rule on an approval card the send reviewer asked for: it flagged
 /// the send, and the person decides (#179).
 pub const REVIEWER_FLAG: &str = "reviewer:flag";
-
-/// The draft writes a scoped step rewrites: a reply, forward or new draft
-/// is written from its thread and the person's words alone (#178).
-const DRAFT_WRITES: &[&str] = &["create_draft", "reply_draft", "forward_draft", "update_draft"];
-
-/// Content provenance (#178): the draft was written from recorded threads
-/// and every recipient already holds them, so the send discloses nothing
-/// new. Empty sources clear nothing: their recipients are still the
-/// tainted run's choice.
-fn content_clears(sources: Option<&DraftSources>, recipients: &[&str]) -> bool {
-    match sources {
-        Some(s) if !s.threads.is_empty() => recipients.iter().all(|r| s.participants.iter().any(|p| p.eq_ignore_ascii_case(r))),
-        _ => false,
-    }
-}
-
-/// Every address on a thread's messages: who is entitled to what a reply
-/// written from it holds (#178).
-fn thread_participants(messages: &[Value]) -> Vec<String> {
-    let mut out = vec![];
-    for m in messages {
-        for k in ["from", "to", "cc", "bcc"] {
-            out.extend(tools::addresses(&m[k]));
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
-/// A thread as a scoped drafting step reads it.
-fn render_thread(messages: &[Value]) -> String {
-    let header = |m: &Value, k: &str| match &m[k] {
-        Value::Array(a) => a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "),
-        v => v.as_str().unwrap_or_default().to_string(),
-    };
-    messages
-        .iter()
-        .map(|m| {
-            format!(
-                "From: {}\nTo: {}\nCc: {}\nSubject: {}\n\n{}",
-                header(m, "from"),
-                header(m, "to"),
-                header(m, "cc"),
-                header(m, "subject"),
-                m["body"].as_str().unwrap_or_default().trim()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n---\n\n")
-        .chars()
-        .take(12000)
-        .collect()
-}
 
 pub(crate) fn is_chat_tool(f: &Facts) -> bool {
     // Sharing is the one bundle write that belongs to conversation, as the
@@ -575,26 +520,6 @@ impl Kernel {
             )
             .await?;
         }
-        // A draft is written from its thread and the person's words alone
-        // (#178): the call below carries the scoped body, and its result
-        // records the draft's sources. Anything the step cannot do leaves
-        // the run's text as-is, with no sources recorded, as before.
-        let mut scoped: Option<(Vec<String>, Vec<String>, magnus_adapter_proto::Usage)> = None;
-        let call_action;
-        let acting = if a.issuer == Issuer::Model && f.connector.is_some() && DRAFT_WRITES.contains(&f.remote.as_str()) && a.input.get("body").is_some_and(Value::is_string) {
-            match self.scoped_draft(a, &run, &f).await {
-                Some((body, threads, participants, usage)) => {
-                    scoped = Some((threads, participants, usage));
-                    let mut input = a.input.clone();
-                    input["body"] = json!(body);
-                    call_action = Action { run: a.run.clone(), call_id: a.call_id.clone(), step_id: a.step_id.clone(), tool: a.tool.clone(), input, issuer: a.issuer };
-                    &call_action
-                }
-                None => a,
-            }
-        } else {
-            a
-        };
         // memory_search returns content with the taint it was written under
         // (M1), taken from the same entries it returns: a second lookup could
         // miss a fact forgotten in between and label its text clean.
@@ -602,7 +527,7 @@ impl Kernel {
             let hits = self.memory_hits(&a.run, a.input["query"].as_str().unwrap_or_default()).await?;
             (Ok((memory_text(&hits), false, None)), Some(memory_taint(&hits)))
         } else {
-            (self.call(acting, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await, None)
+            (self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await, None)
         };
         let (label, sources) = if let Some(taint) = memory {
             taint
@@ -627,13 +552,6 @@ impl Kernel {
         };
         match out {
             Ok((text, is_error, data)) => {
-                if let Some((threads, participants, usage)) = scoped {
-                    if !is_error {
-                        if let Some(id) = data.as_ref().and_then(|d| d.get("draft_id").or_else(|| d.get("id"))).and_then(Value::as_str) {
-                            self.emit("kernel", Ev::DraftScoped { run: a.run.clone(), person: run.person.clone(), draft: id.to_string(), threads, participants, usage }).await?;
-                        }
-                    }
-                }
                 let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filter_login_codes) { crate::login_codes::strip(&t) } else { t };
                 let (text, data) = crate::attachment::lift(f.connector.as_ref().is_some_and(|c| c.filter_login_codes), filter(clean(&text)), data);
                 let data = data.map(|d| serde_json::from_str(&filter(clean(&d.to_string()))).unwrap_or(Value::Null));
@@ -841,21 +759,7 @@ impl Kernel {
             }
             _ => false,
         };
-        // Content provenance (#178): a scoped draft's send to its threads'
-        // participants discloses nothing new: its writing step never saw
-        // any other thread, and every recipient already holds these.
-        let content = match (&shown, &f.connector) {
-            (Some(s), Some(c)) => {
-                c.destinations.get(&f.remote).and_then(|d| a.input.get(&d.id)).and_then(Value::as_str).and_then(|id| self.read(|s| s.draft_sources.get(id).cloned())).is_some_and(
-                    |ds| {
-                        let to: Vec<&str> = s.recipients.values().flatten().map(String::as_str).collect();
-                        content_clears(Some(&ds), &to)
-                    },
-                )
-            }
-            _ => false,
-        };
-        if transmits && untrusted && private && !theirs && !content {
+        if transmits && untrusted && private && !theirs {
             // A web lookup's address can carry data out too (K34): its host is the destination.
             let why = if lookup {
                 "the work has read untrusted content and private data, and a web lookup's address can carry data out to a new destination"
@@ -963,111 +867,6 @@ impl Kernel {
     /// how (a draft's To, Cc and Bcc through `get_draft`, never the model's
     /// words), with the person's own sign-in. Whatever stops the read stops
     /// the action: nothing is sent to an address no one has seen.
-    /// The person's own words for a scoped step: their task's text and
-    /// their messages in its chat thread, if it has one (#178).
-    async fn request_words(&self, run: &Run) -> String {
-        let (seq, thread): (i64, Option<String>) =
-            self.read(|s| s.tasks.get(&run.task).map(|t| (t.seq, t.chat.as_ref().and_then(|c| c.turn.then(|| c.thread.clone())))).unwrap_or_default());
-        let mut words = vec![];
-        if let Ok(w) = self.words_of(&run.person, seq).await {
-            words.push(w.text(seq).to_string());
-        }
-        if let Some(thread) = thread {
-            if let Ok(Some(entries)) = self.thread_entries(&run.person, &thread).await {
-                words.extend(entries.iter().filter(|e| e["kind"] == "message").filter_map(|e| e["text"].as_str()).map(str::to_string));
-            }
-        }
-        words.into_iter().map(|w| w.trim().to_string()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join("\n\n").chars().take(8000).collect()
-    }
-
-    /// Read through the person's own sign-in for a scoped step, as the gate
-    /// reads a draft. None when it cannot be read.
-    async fn scoped_read(&self, c: &Connector, person: &str, app: &str, read: &str, args: &Value) -> Option<Value> {
-        let secret = match &c.credential {
-            Some(_) => self.connector_secret(c, person).await.ok()?,
-            None => None,
-        };
-        let bearer = secret.as_ref().map(|s| s.expose());
-        let out = self.connector_call(c, person, app, bearer, read, args).await.ok()?;
-        if out.is_error {
-            return None;
-        }
-        Some(out.structured.or_else(|| serde_json::from_str(&out.text).ok()).unwrap_or(Value::Null))
-    }
-
-    /// Write a draft's body from its thread and the person's words alone
-    /// (#178): the rewritten body, the threads it may hold, who is entitled
-    /// to them, and the call's cost. None when the step cannot run: the
-    /// run's text goes as-is, with no sources recorded, as before.
-    async fn scoped_draft(&self, a: &Action, run: &Run, f: &Facts) -> Option<(String, Vec<String>, Vec<String>, magnus_adapter_proto::Usage)> {
-        let c = f.connector.as_ref()?;
-        let mut prompt = String::new();
-        let (threads, participants) = match f.remote.as_str() {
-            "reply_draft" | "forward_draft" => {
-                let mid = a.input.get("message_id")?.as_str()?;
-                let msg = self.scoped_read(c, &run.person, &f.app, "get_message", &json!({ "message_id": mid })).await?;
-                let thread = msg.get("thread_id")?.as_str()?.to_string();
-                let thread_v = self.scoped_read(c, &run.person, &f.app, "get_thread", &json!({ "thread_id": thread })).await.unwrap_or(Value::Null);
-                let messages = thread_v.get("messages").and_then(Value::as_array).cloned().unwrap_or_else(|| vec![msg]);
-                prompt.push_str("The thread:\n\n");
-                prompt.push_str(&render_thread(&messages));
-                (vec![thread], thread_participants(&messages))
-            }
-            "update_draft" => {
-                let id = a.input.get("draft_id")?.as_str()?;
-                let prior = self.read(|s| s.draft_sources.get(id).cloned());
-                let existing = self.scoped_read(c, &run.person, &f.app, "get_draft", &json!({ "draft_id": id })).await.unwrap_or(Value::Null);
-                let text = existing.pointer("/message/body").or_else(|| existing.get("body")).and_then(Value::as_str).unwrap_or_default();
-                let (threads, participants, trusted) = match prior {
-                    Some(p) => (p.threads, p.participants, true),
-                    None => (vec![], vec![], false),
-                };
-                if !text.trim().is_empty() {
-                    prompt.push_str(if trusted {
-                        "The current draft:\n\n"
-                    } else {
-                        "The current draft (untrusted: it predates source recording; keep only what the request supports):\n\n"
-                    });
-                    prompt.push_str(text.trim());
-                }
-                (threads, participants)
-            }
-            _ => (vec![], vec![]),
-        };
-        prompt.push_str("\n\nThe person's request:\n\n");
-        prompt.push_str(&self.request_words(run).await);
-        let system = "You write one mail draft from the thread and request below. Use only what they contain: the thread's messages and the person's request. Answer with only the draft body, ready to send.";
-        let calls = self.read(|s| s.runs.get(&run.id).map(|r| r.model_calls)).unwrap_or(0);
-        if calls >= run.config.budget.max_model_calls || self.grant_spent(&run.id).is_some() {
-            return None;
-        }
-        let (adapter, model) = run.model();
-        let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: prompt }], state: None }];
-        let allowance = self.aux_max_tokens(&run.id, "draft", adapter, model, system, messages.clone(), vec![], run.config.max_tokens).await?;
-        let out = match self.adapters.complete(adapter, model, system, messages, vec![], allowance, |_| {}).await {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("scoped draft on {}: {e:?}", run.id);
-                return None;
-            }
-        };
-        let body: String = out
-            .blocks
-            .iter()
-            .filter_map(|b| match b {
-                Block::Text { text } => Some(text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("")
-            .trim()
-            .to_string();
-        if body.is_empty() {
-            return None;
-        }
-        Some((body, threads, participants, out.usage))
-    }
-
     async fn destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
         let Some((c, d)) = f.connector.as_ref().and_then(|c| c.destinations.get(&f.remote).map(|d| (c, d))) else { return Ok(None) };
         let nothing = format!("Nothing was sent to {}.", f.app);
@@ -1630,24 +1429,8 @@ pub fn media_type_for(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_output_for_budget, content_clears, may_use};
+    use super::{clamp_output_for_budget, may_use};
     use crate::config::{Connector, Person};
-    use crate::state::DraftSources;
-
-    /// Content provenance clears a send to the source threads'
-    /// participants, whatever their case; nobody else, and nothing without
-    /// recorded threads (#178).
-    #[test]
-    fn content_provenance_clears_only_participants() {
-        let sources = DraftSources { person: "alice".into(), threads: vec!["tA".into()], participants: vec!["bob@corp.example".into(), "alice@example.com".into()] };
-        assert!(content_clears(Some(&sources), &["bob@corp.example"]));
-        assert!(content_clears(Some(&sources), &["BOB@corp.example", "alice@example.com"]));
-        assert!(!content_clears(Some(&sources), &["mallory@evil.example"]));
-        assert!(!content_clears(Some(&sources), &["bob@corp.example", "mallory@evil.example"]));
-        assert!(!content_clears(None, &["bob@corp.example"]));
-        let bare = DraftSources { person: "alice".into(), threads: vec![], participants: vec![] };
-        assert!(!content_clears(Some(&bare), &["bob@corp.example"]));
-    }
 
     /// $10 a million output tokens, the 16000-token allowance: the full
     /// allowance when it fits, fewer when only fewer fit, none when the

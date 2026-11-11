@@ -261,9 +261,22 @@ impl Kernel {
     /// record), or a task of the person's not in the trash.
     async fn evidence(&self, run: &Run, e: &Value) -> anyhow::Result<Result<Value, String>> {
         let Some(shows) = e["shows"].as_str().map(str::trim).filter(|s| !s.is_empty()) else { return Ok(Err("does not say what it shows".into())) };
-        match (e["call"].as_str(), e["task"].as_str()) {
+        // Strict tool schemas make the model fill both fields, the unused
+        // one empty: an empty field names nothing.
+        let named = |k: &str| e[k].as_str().map(str::trim).filter(|s| !s.is_empty());
+        match (named("call"), named("task")) {
             (Some(call), None) => {
                 let r = self.read(|s| s.runs.get(&run.id).cloned()).unwrap_or_else(|| run.clone());
+                // A tool's name stands for its latest result read in this run.
+                let call = match r.intents.values().any(|i| i.call_id == call) {
+                    true => call.to_string(),
+                    false => {
+                        let tool = call.strip_prefix("functions.").unwrap_or(call);
+                        let latest = r.intents.values().filter(|i| i.tool == tool && r.results.get(&i.call_id).is_some_and(|x| !x.is_error)).max_by_key(|i| i.at);
+                        latest.map_or_else(|| call.to_string(), |i| i.call_id.clone())
+                    }
+                };
+                let call = call.as_str();
                 let tool = r.intents.values().find(|i| i.call_id == call).map(|i| i.tool.clone());
                 let read = r.results.get(call).is_some_and(|x| !x.is_error);
                 match tool.filter(|t| read && !CARDS.contains(&t.as_str()) && !crate::tools::RECORDS.contains(&t.as_str())) {

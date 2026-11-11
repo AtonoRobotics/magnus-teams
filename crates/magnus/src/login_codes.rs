@@ -55,6 +55,22 @@ fn without_codes(line: &str) -> String {
     if !CODE_WORDS.iter().any(|w| lower.contains(w)) {
         return line.to_string();
     }
+    // An email address is never a code, whatever its digits.
+    let mut out = String::new();
+    for (i, token) in line.split(' ').enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        if token.contains('@') && token.contains('.') {
+            out.push_str(token);
+        } else {
+            out.push_str(&without_codes_in(token));
+        }
+    }
+    out
+}
+
+fn without_codes_in(text: &str) -> String {
     let mut out = String::new();
     let mut word = String::new();
     let flush = |word: &mut String, out: &mut String| {
@@ -65,7 +81,7 @@ fn without_codes(line: &str) -> String {
         }
         word.clear();
     };
-    for c in line.chars() {
+    for c in text.chars() {
         if c.is_ascii_alphanumeric() {
             word.push(c);
         } else {
@@ -83,8 +99,29 @@ fn in_line(line: &str) -> String {
     parts.join(ESCAPED_NEWLINE)
 }
 
-/// Text as the agent may read it.
+/// Text as the agent may read it. A connector's JSON result is one line, so
+/// each of its strings is read on its own: a code word in a mail's body
+/// must not make the address or date beside it look like a code.
 pub fn strip(text: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(mut v) if v.is_object() || v.is_array() => {
+            strip_value(&mut v);
+            v.to_string()
+        }
+        _ => strip_text(text),
+    }
+}
+
+fn strip_value(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::String(s) => *s = strip(s),
+        serde_json::Value::Array(a) => a.iter_mut().for_each(strip_value),
+        serde_json::Value::Object(o) => o.values_mut().for_each(strip_value),
+        _ => {}
+    }
+}
+
+fn strip_text(text: &str) -> String {
     let cleaned: Vec<String> = text.split('\n').map(in_line).collect();
     cleaned.join("\n")
 }
@@ -98,6 +135,18 @@ mod tests {
         let out = strip("Your verification code is 482913. It expires soon.\nLunch on Friday works.");
         assert!(!out.contains("482913"), "{out}");
         assert!(out.contains("It expires soon") && out.contains("Lunch on Friday works."), "{out}");
+    }
+
+    /// A draft read back as one JSON line: "verification" in its body once
+    /// redacted the address and the date beside it (run_cf3c9786…).
+    #[test]
+    fn a_code_word_in_one_field_leaves_the_others_alone() {
+        let v = serde_json::json!({ "to": "frty130@gmail.com", "date": "Wed, 11 Nov 2026 04:36:11 -0800",
+            "body": "This email tests exact draft verification.\nYour verification code is 482913." });
+        let out = strip(&v.to_string());
+        assert!(out.contains("frty130@gmail.com") && out.contains("2026") && out.contains("-0800"), "{out}");
+        assert!(out.contains("exact draft verification") && !out.contains("482913"), "{out}");
+        assert!(strip("Your code is 482913, sent to frty130@gmail.com").contains("frty130@gmail.com"));
     }
 
     #[test]
