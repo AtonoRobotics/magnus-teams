@@ -45,7 +45,7 @@ pub fn with_role(roles: &[String], role: &str) -> Vec<String> {
 
 impl Kernel {
     /// Everyone the server keeps: the config's people and its own.
-    pub fn everyone(&self) -> Vec<String> {
+    pub fn server_people(&self) -> Vec<String> {
         let mut ids: std::collections::BTreeSet<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
         ids.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
         ids.into_iter().collect()
@@ -54,7 +54,7 @@ impl Kernel {
     /// The owners who are turned on, by id.
     pub async fn active_owners(&self) -> Vec<String> {
         let mut out = vec![];
-        for id in self.everyone() {
+        for id in self.server_people() {
             if self.person(&id).is_some_and(|p| p.is_owner()) && self.accounts.status(&id).await != crate::accounts::Status::Disabled {
                 out.push(id);
             }

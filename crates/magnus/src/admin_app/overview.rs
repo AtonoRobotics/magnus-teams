@@ -70,7 +70,7 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
     let alerts = alerts(&o, &k, host["disk_used"].as_f64(), &capacity);
     let invited = {
         let mut n = 0;
-        for id in k.everyone() {
+        for id in k.server_people() {
             if k.accounts.status(&id).await == crate::accounts::Status::Invited {
                 n += 1;
             }
@@ -81,7 +81,7 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
         "version": o["version"],
         "running": { "tasks": o["running_tasks"], "waiting": o["waiting_tasks"], "signed_in": o["signed_in"], "computers": o["microvms_running"] },
         "computers": capacity,
-        "people": { "total": k.everyone().len(), "invited": invited },
+        "people": { "total": k.server_people().len(), "invited": invited },
         "kill_switch": o["kill_switch"],
         "recent_errors": o["recent_errors"],
         "alerts": alerts,
