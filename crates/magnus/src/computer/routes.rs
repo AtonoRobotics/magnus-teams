@@ -5,7 +5,7 @@ use super::KillMode;
 use crate::api::who;
 use crate::grants::answered;
 use crate::kernel::Kernel;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -13,10 +13,6 @@ use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
-
-const DISPLAY_BUFFER_BYTES: usize = 64 * 1024;
 
 type K = State<Arc<Kernel>>;
 
@@ -349,34 +345,9 @@ async fn display(State(k): K, h: HeaderMap, Path(id): Path<String>, ws: WebSocke
     if h.contains_key("authorization") && who(&k, &h).await.map(|p| p.id != person).unwrap_or(true) {
         return crate::api::err(StatusCode::FORBIDDEN, "that ticket is not yours");
     }
+    let deflate = super::display::wants_deflate(offered);
     match k.display_stream(&id, &person).await {
-        Ok(stream) => ws.protocols([super::takeover::DISPLAY_PROTOCOL]).on_upgrade(move |socket| carry(socket, stream)),
+        Ok(stream) => ws.protocols(super::display::PROTOCOLS).on_upgrade(move |socket| super::display::carry(socket, stream, deflate, id)),
         Err(e) => answered(Err(e)),
-    }
-}
-
-/// Bytes both ways until either side stops.
-async fn carry(mut socket: WebSocket, mut stream: UnixStream) {
-    let mut buf = vec![0u8; DISPLAY_BUFFER_BYTES];
-    loop {
-        tokio::select! {
-            from_screen = stream.read(&mut buf) => match from_screen {
-                Ok(n) if n > 0 => {
-                    if socket.send(Message::Binary(buf[..n].to_vec().into())).await.is_err() {
-                        return;
-                    }
-                }
-                _ => return,
-            },
-            from_person = socket.recv() => match from_person {
-                Some(Ok(Message::Binary(b))) => {
-                    if stream.write_all(&b).await.is_err() {
-                        return;
-                    }
-                }
-                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Text(_))) => {}
-                _ => return,
-            },
-        }
     }
 }

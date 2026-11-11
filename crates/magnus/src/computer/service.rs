@@ -164,6 +164,8 @@ impl Kernel {
     pub(super) async fn after_boot(&self, socket: &Path, id: &str, woke: &Value) {
         self.apply_desktop_theme(socket, id).await;
         if woke["resumed"] != true {
+            // A resumed desktop is running already.
+            self.start_desktop(socket, id).await;
             // On every cold boot, so a CA change reaches an overlay that stayed.
             if let Err(e) = self.trust_computer_ca(socket, id).await {
                 tracing::warn!("computer {id} does not trust its proxy yet: {e:#}");
@@ -228,6 +230,9 @@ impl Kernel {
         if c.status != Status::Running {
             return Err(Refused::Conflict("only a running computer can hibernate".into()));
         }
+        let Some(_held) = super::wake::claim_hibernation(id) else {
+            return Err(Refused::Conflict("the computer is waking or already going to sleep".into()));
+        };
         self.zero_and_hibernate(&socket, &c).await.map_err(failed)?;
         self.record_computer(who, Change::Hibernated { id: id.into() }).await?;
         Ok(json!({ "status": "hibernated" }))

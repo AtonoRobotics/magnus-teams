@@ -71,7 +71,18 @@ pub(super) fn schedule(k: Arc<Kernel>) {
             let over = if run_limit > Duration::ZERO { over_run_limit(&ids, &held, run_limit, Instant::now()) } else { vec![] };
             let due = candidates.into_iter().filter(|id| idle_for(id) >= limit && !over.contains(id)).chain(over.iter().cloned()).collect::<Vec<_>>();
             for id in due {
-                let Some(c) = k.read(|s| s.computers.get(&id).cloned()) else { continue };
+                // No wake may start while it goes to sleep, and none may be
+                // under way: hibernating then would snapshot the VM a wake
+                // just booted, and the wake would fail.
+                let Some(_held) = super::wake::claim_hibernation(&id) else { continue };
+                // The list is as old as the hibernations ahead of this one,
+                // which take minutes on a slow disk: it must still be due.
+                let still_due = |s: &crate::state::State, c: &super::Computer| {
+                    c.status == Status::Running
+                        && c.controller.is_none()
+                        && (over.contains(&c.id) || (idle_for(&c.id) >= limit && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p))))
+                };
+                let Some(c) = k.read(|s| s.computers.get(&id).filter(|c| still_due(s, c)).cloned()) else { continue };
                 match k.zero_and_hibernate(&socket, &c).await {
                     Ok(()) => {
                         if let Err(e) = k.emit("kernel", Ev::Computer(Change::Hibernated { id: id.clone() })).await {

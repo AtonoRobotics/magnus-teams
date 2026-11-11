@@ -16,16 +16,38 @@
   class Rfb {
     // send(Uint8Array); onSize(w, h); onRect(x, y, w, h, rgba); onCopy(x, y, w, h, fromX, fromY);
     // onReady(); onError(message)
-    constructor(h) { this.h = h; this.buffer = new Uint8Array(0); this.step = this.version; this.width = 0; this.height = 0; }
+    constructor(h) { this.h = h; this.chunks = []; this.length = 0; this.step = this.version; this.width = 0; this.height = 0; }
 
+    // Bytes are kept as they came and joined only when a message spans
+    // them: joining on every feed copied a 4 MB frame once per 64 KB chunk.
     feed(bytes) {
-      const next = new Uint8Array(this.buffer.length + bytes.length);
-      next.set(this.buffer); next.set(bytes, this.buffer.length);
-      this.buffer = next;
+      if (bytes.length) { this.chunks.push(bytes); this.length += bytes.length; }
       try { while (this.step && this.step()); } catch (e) { this.step = null; this.h.onError?.(e.message); }
     }
-    have(n) { return this.buffer.length >= n; }
-    take(n) { const out = this.buffer.subarray(0, n); this.buffer = this.buffer.subarray(n); return out; }
+    have(n) { return this.length >= n; }
+    /** The first n bytes, which must be there, as one array; nothing is taken. */
+    peek(n) {
+      if (n === 0) return new Uint8Array(0);
+      if (this.chunks[0].length < n) {
+        const joined = new Uint8Array(n);
+        let at = 0;
+        while (at < n) {
+          const c = this.chunks.shift(), use = Math.min(c.length, n - at);
+          joined.set(c.subarray(0, use), at); at += use;
+          if (use < c.length) this.chunks.unshift(c.subarray(use));
+        }
+        this.chunks.unshift(joined);
+      }
+      return this.chunks[0].subarray(0, n);
+    }
+    take(n) {
+      const out = this.peek(n);
+      if (n === 0) return out;
+      this.chunks[0] = this.chunks[0].subarray(n);
+      if (!this.chunks[0].length) this.chunks.shift();
+      this.length -= n;
+      return out;
+    }
     view(bytes) { return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); }
 
     version() {
@@ -37,7 +59,7 @@
     }
     security() {
       if (!this.have(1)) return false;
-      const n = this.buffer[0];
+      const n = this.peek(1)[0];
       if (!this.have(1 + n)) return false;
       if (n === 0) throw new Error("the display refused the connection");
       const types = this.take(1 + n).subarray(1);
@@ -55,7 +77,7 @@
     }
     init() {
       if (!this.have(24)) return false;
-      const nameLength = this.view(this.buffer.subarray(20, 24)).getUint32(0);
+      const nameLength = this.view(this.peek(24).subarray(20, 24)).getUint32(0);
       if (!this.have(24 + nameLength)) return false;
       const head = this.view(this.take(24 + nameLength));
       this.width = head.getUint16(0); this.height = head.getUint16(2);
@@ -77,7 +99,7 @@
     }
     message() {
       if (!this.have(1)) return false;
-      switch (this.buffer[0]) {
+      switch (this.peek(1)[0]) {
         case MSG_UPDATE:
           if (!this.have(4)) return false;
           this.rects = this.view(this.take(4)).getUint16(2);
@@ -86,19 +108,19 @@
         case MSG_BELL: this.take(1); return true;
         case MSG_CUT: {
           if (!this.have(8)) return false;
-          const length = this.view(this.buffer.subarray(4, 8)).getUint32(0);
+          const length = this.view(this.peek(8).subarray(4, 8)).getUint32(0);
           if (!this.have(8 + length)) return false;
           this.take(8 + length);
           return true;
         }
         case MSG_COLORS: throw new Error("the display sent a colour map");
-        default: throw new Error(`the display sent message ${this.buffer[0]}`);
+        default: throw new Error(`the display sent message ${this.peek(1)[0]}`);
       }
     }
     rect() {
       if (this.rects === 0) { this.request(true); this.step = this.message; return true; }
       if (!this.have(RECT_HEADER_BYTES)) return false;
-      const v = this.view(this.buffer.subarray(0, RECT_HEADER_BYTES));
+      const v = this.view(this.peek(RECT_HEADER_BYTES));
       const [x, y, w, h, encoding] = [v.getUint16(0), v.getUint16(2), v.getUint16(4), v.getUint16(6), v.getInt32(8)];
       if (encoding === ENCODING_COPY) {
         if (!this.have(RECT_HEADER_BYTES + 4)) return false;
@@ -131,5 +153,22 @@
       this.h.send(m);
     }
   }
+
+  /** The subprotocol under which the server sends the screen deflated. */
+  Rfb.DEFLATE = "magnus.display.deflate";
+  /** Whether this browser can read a deflated screen. */
+  Rfb.canInflate = () => typeof root.DecompressionStream === "function";
+  /**
+   * For a screen sent deflated: one zlib stream over the whole connection,
+   * flushed at every chunk. Returns push(bytes); each push's bytes reach
+   * onBytes in order, as soon as they are inflated.
+   * @param {(bytes: Uint8Array) => void} onBytes
+   * @param {(message: string) => void} onError
+   */
+  Rfb.inflater = (onBytes, onError) => {
+    const stream = new root.DecompressionStream("deflate"), writer = stream.writable.getWriter(), reader = stream.readable.getReader();
+    (async () => { for (;;) { const { value, done } = await reader.read(); if (done) return; onBytes(value); } })().catch(e => onError(`the screen could not be read: ${e.message}`));
+    return bytes => { writer.write(bytes).catch(() => { /* The reader says why. */ }); };
+  };
   root.Rfb = Rfb;
 })(typeof window === "undefined" ? globalThis : window);

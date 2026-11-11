@@ -64,4 +64,50 @@ const refused = new sandbox.Rfb({ send() {}, onError: m => errors.push(m) });
 refused.feed(new TextEncoder().encode("RFB 003.008\n"));
 refused.feed(bytes([1, 2]));
 assert.match(errors.pop(), /password/);
+
+// A full frame in small chunks, as a slow link brings it: the bytes are
+// joined once, not once per chunk (a 4 MB frame was copied per 64 KB).
+{
+  let allocated = 0;
+  class Counted extends Uint8Array { constructor(...a) { super(...a); if (typeof a[0] === "number") allocated += a[0]; } }
+  const counted = { TextEncoder, Uint8Array: Counted, Uint8ClampedArray, DataView };
+  counted.globalThis = counted;
+  vm.runInNewContext(readFileSync(join(here, "../ui/rfb.js"), "utf8"), counted);
+  const [w, h] = [1280, 800];
+  let drawn = null;
+  const big = new counted.Rfb({ send() {}, onRect: (x, y, rw, rh, px) => { drawn = [rw, rh, px[0], px.length]; }, onError: m => errors.push(m) });
+  const handshake = bytes([...new TextEncoder().encode("RFB 003.008\n")], [1, 1], be32(0), be16(w), be16(h), new Array(16).fill(0), be32(0));
+  big.feed(Counted.from(handshake));
+  const frame = new Uint8Array(4 + 12 + w * h * 4).fill(7);
+  frame.set(bytes(header(1), be16(0), be16(0), be16(w), be16(h), be32(0)));
+  const CHUNK = 1024;
+  allocated = 0;
+  for (let at = 0; at < frame.length; at += CHUNK) big.feed(Counted.from(frame.subarray(at, at + CHUNK)));
+  assert.deepEqual(errors, []);
+  assert.deepEqual(drawn, [w, h, 7, w * h * 4], "the frame was not drawn");
+  // The chunks themselves, one join of the frame, and its pixels.
+  assert.ok(allocated < frame.length * 4, `feeding a frame allocated ${allocated} bytes for ${frame.length}`);
+}
+
+// A deflated screen: chunks of one zlib stream come out whole and in order.
+{
+  const { deflateSync } = await import("node:zlib");
+  const inflating = { DecompressionStream, Uint8Array, DataView, TextEncoder, Uint8ClampedArray };
+  inflating.globalThis = inflating;
+  vm.runInNewContext(readFileSync(join(here, "../ui/rfb.js"), "utf8"), inflating);
+  assert.ok(inflating.Rfb.canInflate());
+  const plain = Uint8Array.from({ length: 200000 }, (_, i) => (i % 512 < 8 ? i % 251 : 42));
+  const squeezed = deflateSync(plain);
+  const out = [];
+  let failure = null;
+  const push = inflating.Rfb.inflater(b => out.push(...b), m => { failure = m; });
+  for (let at = 0; at < squeezed.length; at += 333) push(squeezed.subarray(at, at + 333));
+  for (let i = 0; i < 100 && out.length < plain.length; i++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(failure, null);
+  assert.deepEqual(Uint8Array.from(out), plain, "the inflated screen is not the screen");
+  const broken = inflating.Rfb.inflater(() => {}, m => { failure = m; });
+  broken(Uint8Array.of(1, 2, 3, 4));
+  for (let i = 0; i < 100 && !failure; i++) await new Promise(r => setTimeout(r, 10));
+  assert.match(failure || "", /could not be read/, "a damaged screen stream was not reported");
+}
 console.log("rfb ok");

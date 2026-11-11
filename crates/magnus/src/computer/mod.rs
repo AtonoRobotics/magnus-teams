@@ -6,6 +6,7 @@ mod apps;
 mod client;
 mod desktop;
 mod devview;
+mod display;
 mod driving;
 mod egress;
 mod export;

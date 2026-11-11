@@ -55,6 +55,31 @@ fn only_one_use_wakes_a_computer_at_a_time_and_its_progress_shows() {
     release("w-one");
 }
 
+#[test]
+fn a_computer_going_to_sleep_does_not_wake_until_it_has_and_a_waking_one_does_not_sleep() {
+    // 2026-11-11: the idle hibernation waited on computerd's lock behind a
+    // wake, then snapshotted the VM the wake had just booted.
+    let held = claim_hibernation("w-sleep").expect("an idle computer could not hibernate");
+    assert!(!claim("w-sleep"), "a wake started while the computer was hibernating");
+    assert!(claim_hibernation("w-sleep").is_none(), "two hibernations of one computer");
+    assert!(busy("w-sleep"), "a use went ahead on a computer going to sleep");
+    assert!(waking("w-sleep").is_none(), "going to sleep was shown as waking");
+    drop(held);
+    assert!(!busy("w-sleep"));
+    assert!(claim("w-sleep"), "a hibernation that ended kept the computer from waking");
+    assert!(claim_hibernation("w-sleep").is_none(), "a computer hibernated in the middle of its wake");
+    release("w-sleep");
+}
+
+#[test]
+fn a_wake_is_logged_with_where_its_time_went() {
+    let woke = json!({ "resumed": false, "overlay_fresh": true, "took_ms": { "launch": 900, "new_overlay": 4000 }, "vm_ms": 5000, "guest_ms": 7000 });
+    let line = wake_words("w-log", &woke, Duration::from_millis(3000));
+    assert!(line.contains("booted cold on a new overlay in 15000 ms"), "{line}");
+    assert!(line.contains("computerd 5000 ms (launch 900 ms, new_overlay 4000 ms)"), "{line}");
+    assert!(line.contains("answered 7000 ms later") && line.contains("took 3000 ms"), "{line}");
+}
+
 #[tokio::test]
 async fn a_wake_records_the_start_then_waits_for_the_guest() {
     let d = tempfile::tempdir().unwrap();

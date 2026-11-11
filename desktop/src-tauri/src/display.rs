@@ -14,23 +14,37 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::Connector;
 
 const DISPLAY_PROTOCOL: &str = "magnus.display";
+/// The screen sent through one deflate stream; the page inflates it.
+const DEFLATE_PROTOCOL: &str = "magnus.display.deflate";
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+
+/// What the app offers: the deflated screen first when the page can read it.
+fn offered(prefix: &str, ticket: &str, deflate: bool) -> String {
+    if deflate {
+        format!("{prefix}{ticket}, {DEFLATE_PROTOCOL}, {DISPLAY_PROTOCOL}")
+    } else {
+        format!("{prefix}{ticket}, {DISPLAY_PROTOCOL}")
+    }
+}
 
 #[derive(Default)]
 pub struct Displays(Mutex<HashMap<String, mpsc::UnboundedSender<Vec<u8>>>>);
 
 #[tauri::command]
-pub async fn display_open(events: AppHandle, app: State<'_, App>, displays: State<'_, Displays>, handle: String, computer: String, ticket: String, prefix: String) -> Res<()> {
+#[allow(clippy::too_many_arguments)]
+pub async fn display_open(events: AppHandle, app: State<'_, App>, displays: State<'_, Displays>, handle: String, computer: String, ticket: String, prefix: String, deflate: Option<bool>) -> Res<()> {
     if computer.is_empty() || !computer.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err("not a computer id".into());
     }
     let (url, tls) = app.display_tls()?;
     let target = format!("{}/v1/computers/{computer}/display", url.replacen("http", "ws", 1));
     let mut request = target.into_client_request().map_err(|e| e.to_string())?;
-    let offered = format!("{prefix}{ticket}, {DISPLAY_PROTOCOL}");
+    let offered = offered(&prefix, &ticket, deflate.unwrap_or(false));
     request.headers_mut().insert("sec-websocket-protocol", HeaderValue::from_str(&offered).map_err(|e| e.to_string())?);
     let connector = tls.map(|t| Connector::Rustls(Arc::new(t)));
-    let (socket, _) = tokio_tungstenite::connect_async_tls_with_config(request, None, false, connector).await.map_err(|e| format!("The screen could not be opened: {e}"))?;
+    let (socket, response) = tokio_tungstenite::connect_async_tls_with_config(request, None, false, connector).await.map_err(|e| format!("The screen could not be opened: {e}"))?;
+    // An older server chooses the raw screen whatever is offered.
+    let z = response.headers().get("sec-websocket-protocol").and_then(|v| v.to_str().ok()) == Some(DEFLATE_PROTOCOL);
     let (to_screen, mut from_person) = mpsc::unbounded_channel::<Vec<u8>>();
     displays.0.lock().map_err(|e| e.to_string())?.insert(handle.clone(), to_screen);
     tokio::spawn(async move {
@@ -38,7 +52,7 @@ pub async fn display_open(events: AppHandle, app: State<'_, App>, displays: Stat
         let reason = loop {
             tokio::select! {
                 from_screen = stream.next() => match from_screen {
-                    Some(Ok(Message::Binary(b))) => { let _ = events.emit("display-bytes", json!({ "handle": handle, "b64": B64.encode(&b) })); }
+                    Some(Ok(Message::Binary(b))) => { let _ = events.emit("display-bytes", json!({ "handle": handle, "b64": B64.encode(&b), "z": z })); }
                     Some(Ok(_)) => {}
                     Some(Err(e)) => break Some(e.to_string()),
                     None => break None,
@@ -67,5 +81,16 @@ pub fn display_send(displays: State<'_, Displays>, handle: String, b64: String) 
 pub fn display_close(displays: State<'_, Displays>, handle: String) {
     if let Ok(mut d) = displays.0.lock() {
         d.remove(&handle);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_deflated_screen_is_offered_first_and_only_when_the_page_reads_it() {
+        assert_eq!(offered("magnus.ticket.", "t", true), "magnus.ticket.t, magnus.display.deflate, magnus.display");
+        assert_eq!(offered("magnus.ticket.", "t", false), "magnus.ticket.t, magnus.display");
     }
 }

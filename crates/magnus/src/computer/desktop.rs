@@ -20,6 +20,13 @@ pub(crate) fn theme_command(theme: Theme) -> String {
     format!("command -v magnus-desktop >/dev/null || exit 0; magnus-desktop theme {}", theme.name())
 }
 
+/// The guest command that starts the desktop and returns at once. Without
+/// it the desktop starts on the first screenshot or screen, so the person
+/// who opened the computer waits for XFCE after the wake.
+pub(crate) fn start_command() -> String {
+    "command -v magnus-desktop >/dev/null || exit 0; (magnus-desktop start >/dev/null 2>&1 &)".to_string()
+}
+
 /// The guest command that puts an installed app in the menu.
 pub(crate) fn app_command(name: &str) -> String {
     format!("command -v magnus-desktop >/dev/null || exit 0; magnus-desktop app-installed {}", shell_quote(name))
@@ -63,6 +70,14 @@ impl Kernel {
         }
     }
 
+    /// After a cold boot, with its look set: the desktop starts while the rest
+    /// of the wake goes on.
+    pub(super) async fn start_desktop(&self, socket: &Path, id: &str) {
+        if let Err(e) = run(socket, id, start_command()).await {
+            tracing::warn!("computer {id}'s desktop did not start early: {e:#}");
+        }
+    }
+
     /// An installed app, put in the desktop's menu.
     pub(super) async fn add_app_to_menu(&self, socket: &Path, id: &str, name: &str) {
         if let Err(e) = run(socket, id, app_command(name)).await {
@@ -80,5 +95,14 @@ mod tests {
         assert!(theme_command(Theme::Light).ends_with("magnus-desktop theme light"));
         assert!(theme_command(Theme::Dark).ends_with("magnus-desktop theme dark"));
         assert!(app_command("it's; rm -rf /").ends_with("app-installed 'it'\\''s; rm -rf /'"));
+    }
+
+    #[test]
+    fn the_desktop_starts_in_the_background_without_holding_the_command() {
+        let c = start_command();
+        assert!(c.contains("magnus-desktop start"), "{c}");
+        // Backgrounded with its output elsewhere, so the guest's exec returns
+        // at once instead of waiting for XFCE.
+        assert!(c.ends_with("(magnus-desktop start >/dev/null 2>&1 &)"), "{c}");
     }
 }

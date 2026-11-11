@@ -16,6 +16,14 @@ function errorOf(status, body) {
 
 const tauri = window.__TAURI__;
 
+/** Base64 to bytes with a plain loop: Uint8Array.from with a mapping
+ * function calls it once per byte, which a screen's chunks feel. */
+function bytesOfB64(b64) {
+  const s = atob(b64), out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
 const appBridge = tauri && {
   kind: "app",
   // A shell command fails with a plain string; the page shows `e.message`.
@@ -71,9 +79,17 @@ const appBridge = tauri && {
     const handle = crypto.randomUUID();
     const off = [];
     const end = reason => { off.splice(0).forEach(u => u()); onEnd(reason); };
-    tauri.event.listen("display-bytes", e => { if (e.payload.handle === handle) onBytes(Uint8Array.from(atob(e.payload.b64), c => c.charCodeAt(0))); }).then(u => off.push(u));
+    // The app says with each chunk whether the server chose the deflated screen.
+    let push = null;
+    const take = p => {
+      const bytes = bytesOfB64(p.b64);
+      if (!p.z) return onBytes(bytes);
+      push ||= Rfb.inflater(onBytes, reason => { this.invoke("display_close", { handle }).catch(() => {}); end(reason); });
+      push(bytes);
+    };
+    tauri.event.listen("display-bytes", e => { if (e.payload.handle === handle) take(e.payload); }).then(u => off.push(u));
     tauri.event.listen("display-end", e => { if (e.payload.handle === handle) end(e.payload.reason); }).then(u => off.push(u));
-    this.invoke("display_open", { handle, computer, ticket, prefix }).catch(e => end(String(e)));
+    this.invoke("display_open", { handle, computer, ticket, prefix, deflate: Rfb.canInflate() }).catch(e => end(String(e)));
     return {
       send: bytes => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); this.invoke("display_send", { handle, b64: btoa(s) }).catch(() => {}); },
       close: () => { off.splice(0).forEach(u => u()); this.invoke("display_close", { handle }).catch(() => {}); },
@@ -179,9 +195,13 @@ const webBridge = {
   async localState() { return null; },
   displayOpen(computer, ticket, prefix, onBytes, onEnd) {
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${scheme}//${location.host}/v1/computers/${encodeURIComponent(computer)}/display`, [prefix + ticket, "magnus.display"]);
+    // A server that knows the deflated screen chooses it; an older one sends it raw.
+    const offered = [prefix + ticket, ...(Rfb.canInflate() ? [Rfb.DEFLATE] : []), "magnus.display"];
+    const socket = new WebSocket(`${scheme}//${location.host}/v1/computers/${encodeURIComponent(computer)}/display`, offered);
     socket.binaryType = "arraybuffer";
-    socket.onmessage = e => onBytes(new Uint8Array(e.data));
+    let push = null;
+    socket.onopen = () => { if (socket.protocol === Rfb.DEFLATE) push = Rfb.inflater(onBytes, reason => { socket.onclose = null; socket.close(); onEnd(reason); }); };
+    socket.onmessage = e => (push || onBytes)(new Uint8Array(e.data));
     socket.onclose = () => onEnd();
     return { send: bytes => { if (socket.readyState === WebSocket.OPEN) socket.send(bytes); }, close: () => { socket.onclose = null; socket.close(); } };
   },

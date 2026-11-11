@@ -54,6 +54,9 @@ pub(super) enum Phase {
     Starting,
     Booting,
     Restoring,
+    /// Going to sleep. No wake starts until it has: a hibernation that took
+    /// the lock after a wake would snapshot the VM the wake just booted.
+    Hibernating,
 }
 
 impl Phase {
@@ -62,6 +65,7 @@ impl Phase {
             Phase::Starting => "starting",
             Phase::Booting => "booting",
             Phase::Restoring => "restoring",
+            Phase::Hibernating => "hibernating",
         }
     }
 }
@@ -72,15 +76,40 @@ type Since<T> = Mutex<Option<HashMap<String, (T, DateTime<Utc>)>>>;
 static WAKING: Since<Phase> = Mutex::new(None);
 static LAST_SCREEN: Since<String> = Mutex::new(None);
 
-/// Takes the wake of `id` for this caller; false when another already has it.
+/// Takes the wake of `id` for this caller; false when another already has
+/// it, or the computer is going to sleep.
 pub(super) fn claim(id: &str) -> bool {
+    claim_as(id, Phase::Starting)
+}
+
+fn claim_as(id: &str, phase: Phase) -> bool {
     let mut slot = WAKING.lock().unwrap_or_else(|e| e.into_inner());
     let map = slot.get_or_insert_with(HashMap::new);
     if map.contains_key(id) {
         return false;
     }
-    map.insert(id.to_string(), (Phase::Starting, Utc::now()));
+    map.insert(id.to_string(), (phase, Utc::now()));
     true
+}
+
+/// Takes the hibernation of `id`: none when it is waking or already going
+/// to sleep. No wake starts while the returned guard lives.
+pub(super) fn claim_hibernation(id: &str) -> Option<Held> {
+    claim_as(id, Phase::Hibernating).then(|| Held(id.to_string()))
+}
+
+/// Whether a wake or a hibernation of `id` is under way.
+pub(super) fn busy(id: &str) -> bool {
+    WAKING.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|m| m.contains_key(id))
+}
+
+/// A hibernation's hold on its computer, let go however it ends.
+pub(super) struct Held(String);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        release(&self.0);
+    }
 }
 
 pub(super) fn set_phase(id: &str, phase: Phase) {
@@ -96,7 +125,7 @@ pub(super) fn release(id: &str) {
 /// The wake under way, as the client shows it.
 pub(super) fn waking(id: &str) -> Option<Value> {
     let slot = WAKING.lock().unwrap_or_else(|e| e.into_inner());
-    slot.as_ref()?.get(id).map(|(p, since)| json!({ "phase": p.word(), "since": since }))
+    slot.as_ref()?.get(id).filter(|(p, _)| *p != Phase::Hibernating).map(|(p, since)| json!({ "phase": p.word(), "since": since }))
 }
 
 /// Ends the claim however the wake ends.
@@ -140,15 +169,46 @@ where
     Fut: std::future::Future<Output = Result<()>>,
 {
     set_phase(id, Phase::Starting);
-    let woke = match client::ask(socket, json!({ "op": "wake", "id": id })).await {
+    let asked = Instant::now();
+    let mut woke = match client::ask(socket, json!({ "op": "wake", "id": id })).await {
         Ok(v) => v,
         Err(e) if client::at_capacity(&e) => return Ok(Booted::AtCapacity),
         Err(e) => return Err(e),
     };
+    let vm_up = Instant::now();
     started().await?;
     set_phase(id, Phase::Booting);
     super::service::wait_for_guest(socket, id).await?;
+    woke[VM_MS] = json!(ms(vm_up.duration_since(asked)));
+    woke[GUEST_MS] = json!(ms(vm_up.elapsed()));
     Ok(Booted::Woke(woke))
+}
+
+/// Where `boot` puts how long computerd took and how long the guest then took
+/// to answer, beside computerd's own `took_ms`.
+const VM_MS: &str = "vm_ms";
+const GUEST_MS: &str = "guest_ms";
+
+fn ms(d: Duration) -> u64 {
+    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// One line for the log: how the computer woke and where the time went.
+pub(super) fn wake_words(id: &str, woke: &Value, setup: Duration) -> String {
+    let how = if woke["resumed"] == true {
+        "resumed from its snapshot"
+    } else if woke["overlay_fresh"] == true {
+        "booted cold on a new overlay"
+    } else {
+        "booted cold"
+    };
+    let steps = woke["took_ms"].as_object().map(|m| m.iter().map(|(k, v)| format!("{k} {v} ms")).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+    let (vm, guest) = (woke[VM_MS].as_u64().unwrap_or_default(), woke[GUEST_MS].as_u64().unwrap_or_default());
+    format!(
+        "computer {id} {how} in {} ms: computerd {vm} ms ({steps}), its agent answered {guest} ms later, and its look, trust and apps took {} ms",
+        vm + guest + ms(setup),
+        ms(setup)
+    )
 }
 
 /// What a use found once its wake was done.
@@ -162,10 +222,15 @@ impl Kernel {
     /// Wakes `id` if it sleeps and waits until it is up. `actor` is who the
     /// log says woke it.
     pub(crate) async fn wake_for_use(&self, id: &str, actor: &str) -> Result<Woken, Refused> {
-        let began = Instant::now();
+        let mut began = Instant::now();
         loop {
             let status = self.read(|s| s.computers.get(id).map(|c| c.status)).ok_or(Refused::NotFound("computer"))?;
-            let busy = waking(id).is_some();
+            // A use that finds it going to sleep waits, then wakes it; the
+            // wake's own time starts once the hibernation is done.
+            let busy = busy(id);
+            if busy && waking(id).is_none() {
+                began = Instant::now();
+            }
             match plan(status) {
                 Plan::Ready if !busy => return Ok(Woken::Ready),
                 Plan::Waiting => return Ok(Woken::Queued(self.queue_position(id))),
@@ -234,7 +299,9 @@ impl Kernel {
             }
             Booted::Woke(woke) => {
                 set_phase(id, Phase::Restoring);
+                let setup = Instant::now();
                 self.after_boot(&socket, id, &woke).await;
+                tracing::info!("{}", wake_words(id, &woke, setup.elapsed()));
                 super::idle::touch(id);
                 Ok(json!({ "status": "running", "resumed": woke["resumed"], "replayed": woke["overlay_fresh"] }))
             }
