@@ -174,6 +174,10 @@ impl Provider {
         Ok(Provider { cfg, vault, http, admin_http, discovery: tokio::sync::OnceCell::new(), pending: Mutex::new(BTreeMap::new()), code_flows: Mutex::new(BTreeMap::new()) })
     }
 
+    pub fn issuer(&self) -> &str {
+        &self.cfg.issuer
+    }
+
     /// What the sign-in button names.
     pub fn label(&self) -> String {
         self.cfg.label.clone().unwrap_or_else(|| url::Url::parse(&self.cfg.issuer).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_else(|| self.cfg.issuer.clone()))

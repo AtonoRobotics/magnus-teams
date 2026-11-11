@@ -236,7 +236,7 @@ impl Kernel {
             Err(e) => (false, format!("{e:#}")),
         };
         self.emit("kernel", Ev::BackupChecked { file: file.clone(), ok, detail: detail.clone() }).await?;
-        let removed = prune(&dir, self.cfg.backup.keep_days)?;
+        let removed = prune(&dir, self.backup_keep_days())?;
         // Off host, when a destination is configured: the directory as it
         // is now, pruned; a failed copy is recorded, not a failed backup.
         let (copied, copy_detail) = match self.cfg.backup.copy_to.clone().filter(|d| !d.trim().is_empty()) {
@@ -470,7 +470,7 @@ fn backing_up() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Backups past their keeping time, by the time in their name.
-fn prune(dir: &Path, keep_days: u32) -> Result<Vec<String>> {
+pub(crate) fn prune(dir: &Path, keep_days: u32) -> Result<Vec<String>> {
     let cutoff = chrono::Utc::now() - chrono::Duration::days(keep_days as i64);
     let mut removed = vec![];
     if !dir.exists() {
@@ -504,15 +504,15 @@ fn made_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
 pub fn schedule(k: Arc<Kernel>) {
     let every = k.cfg.backup.every_hours;
     let dir = k.cfg.backup_dir();
-    let keep = k.cfg.backup.keep_days;
     let fallback_secs = k.cfg.backup.fallback_wait_secs;
     let retry_secs = k.cfg.backup.retry_wait_secs;
-    let drop_old = move |dir: &Path| {
-        if let Err(e) = prune(dir, keep) {
+    // The window is read each round: an admin may change it (`retention.rs`).
+    let drop_old = |k: &Kernel, dir: &Path| {
+        if let Err(e) = prune(dir, k.backup_keep_days()) {
             tracing::error!("dropping old backups: {e:#}");
         }
     };
-    drop_old(&dir);
+    drop_old(&k, &dir);
     if every == 0 {
         return;
     }
@@ -524,7 +524,7 @@ pub fn schedule(k: Arc<Kernel>) {
             if let Err(e) = k.back_up("kernel:backup").await {
                 tracing::error!("scheduled backup: {e:#}");
             }
-            drop_old(&dir);
+            drop_old(&k, &dir);
             // A failing backup is tried again after the configured wait,
             // not at once.
             if let Some(wait) = retry_wait(newest(&dir), chrono::Utc::now(), period, retry_secs) {
@@ -662,7 +662,7 @@ pub fn status(k: &Kernel) -> Value {
     // Backups that still hold removed content, erased people's among it (#195).
     let pending =
         k.read(|s| s.scrub_pending.clone().map(|p| json!({ "files": p.files, "detail": p.detail, "since": p.at, "erasures": s.erasures.values().filter(|e| e.pending).count() })));
-    json!({ "dir": dir, "every_hours": c.every_hours, "keep_days": c.keep_days, "copy_to": c.copy_to, "on_appliance_disk": c.dir.is_none(), "latest": last, "copy": copy, "files": files, "scrub_pending": pending })
+    json!({ "dir": dir, "every_hours": c.every_hours, "keep_days": k.backup_keep_days(), "copy_to": c.copy_to, "on_appliance_disk": c.dir.is_none(), "latest": last, "copy": copy, "files": files, "scrub_pending": pending })
 }
 
 pub fn list(dir: &PathBuf) -> Vec<(String, u64)> {

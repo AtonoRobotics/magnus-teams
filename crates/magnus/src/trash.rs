@@ -96,7 +96,7 @@ impl Kernel {
     /// cannot be removed now does not hold back the others; it is tried
     /// again at the next round.
     pub async fn purge_trash(&self) -> Result<usize> {
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(self.cfg.trash.keep_days as i64);
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(self.trash_keep_days() as i64);
         let due: Vec<String> = self.read(|s| s.trash.iter().filter(|(_, t)| t.at <= cutoff).map(|(id, _)| id.clone()).collect());
         let mut removed = 0;
         let mut failed = vec![];
@@ -157,7 +157,7 @@ macro_rules! person {
 /// What is in the person's trash, newest first, and when each goes.
 async fn list(State(k): K, h: HeaderMap) -> Response {
     let p = person!(k, h);
-    let keep = chrono::Duration::days(k.cfg.trash.keep_days as i64);
+    let keep = chrono::Duration::days(k.trash_keep_days() as i64);
     // A trashed memory's title is its fact, and a task's, a message's or a
     // conversation's is what the person asked: recalled for the person.
     let seqs: Vec<i64> = k.read(|s| s.trash.values().filter(|t| t.person == p.id).filter_map(|t| t.memory().map(|m| m.seq)).collect());
@@ -185,7 +185,7 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
             .collect()
     });
     items.sort_by(|a, b| b["trashed_at"].as_str().cmp(&a["trashed_at"].as_str()));
-    Json(json!({ "items": items, "keep_days": k.cfg.trash.keep_days })).into_response()
+    Json(json!({ "items": items, "keep_days": k.trash_keep_days() })).into_response()
 }
 
 /// Move an item to the trash: `{"item": id}`.

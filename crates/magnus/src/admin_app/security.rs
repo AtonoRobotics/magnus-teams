@@ -4,9 +4,9 @@
 //! person granted developers access to their computer."
 //!
 //! The sign-in rules are the console's control route. How long things are
-//! kept is shown as the server keeps them: the trash and backup windows from
-//! the config, and the log, which is the permanent record. Changing them in
-//! the app is not built: see `decisions/2026-11-11-admin-sections.md`.
+//! kept is shown as the server keeps them: the trash and backup windows, which
+//! an admin sets within the purge window (`retention.rs`), and the log, which
+//! is the permanent record.
 
 use super::mount::{audited, body_json, control, Audit};
 use super::Admin;
@@ -30,6 +30,8 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/admin/audit/export", get(export))
         .route("/v1/admin/retention", get(retention))
         .route("/v1/admin/developer-access", get(developer_access))
+        .merge(super::retention::routes())
+        .merge(super::identity_provider::routes())
 }
 
 /// The sign-in rules, with the identity provider people sign in through.
@@ -39,7 +41,7 @@ async fn policy(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) ->
         return r;
     }
     let mut v = body_json(r).await;
-    v["identity_provider"] = json!(k.cfg.sign_in.oidc.as_ref().map(|o| o.issuer.clone()));
+    v["identity_provider"] = json!(k.oidc.get().map(|o| o.issuer().to_string()));
     Json(v).into_response()
 }
 
@@ -104,15 +106,17 @@ async fn export(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Ra
 
 /// How long chats, files and logs are kept, as this server keeps them.
 async fn retention(State(k): State<Arc<Kernel>>) -> Response {
+    let (trash, backup) = (k.trash_keep_days(), k.backup_keep_days());
     Json(json!({
-        "trash_days": k.cfg.trash.keep_days,
-        "backup_days": k.cfg.backup.keep_days,
+        "trash_days": trash,
+        "backup_days": backup,
         "purge_window_days": PURGE_WINDOW_DAYS,
+        "settable": super::retention::shown(&k),
         "kept": [
-            { "what": "chats", "how": format!("Until the person deletes them; deleted, they wait in the trash for {} days, then leave the backups within {PURGE_WINDOW_DAYS} days.", k.cfg.trash.keep_days) },
+            { "what": "chats", "how": format!("Until the person deletes them; deleted, they wait in the trash for {trash} days, then leave the backups within {PURGE_WINDOW_DAYS} days.") },
             { "what": "files", "how": format!("Until the person deletes them; deleted, they leave the live volume at once and backups and snapshots within {PURGE_WINDOW_DAYS} days.") },
             { "what": "logs", "how": "The event log is the permanent record of what happened. A person's content in it is deleted when they or an admin delete it; the record that it happened stays.".to_string() },
-            { "what": "backups", "how": format!("Each is kept {} days.", k.cfg.backup.keep_days) },
+            { "what": "backups", "how": format!("Each is kept {backup} days.") },
         ],
     }))
     .into_response()

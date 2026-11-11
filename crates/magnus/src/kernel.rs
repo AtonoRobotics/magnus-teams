@@ -46,7 +46,7 @@ pub struct Kernel {
     /// issued for them. Empty until device certificates are configured.
     pub devices: crate::devices::Devices,
     /// Sign-in through an identity provider, when one is configured.
-    pub oidc: Option<crate::oidc::Provider>,
+    pub oidc: crate::admin_app::identity_provider::Slot,
     pub adapters: Adapters,
     pub mcp: Mcp,
     pub web: Web,
@@ -147,7 +147,7 @@ impl Kernel {
         }
         let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
         let devices = crate::devices::Devices::open(&cfg.appliance.state_dir)?;
-        let oidc = cfg.sign_in.oidc.clone().map(|o| crate::oidc::Provider::new(o, vault.clone())).transpose()?;
+        let oidc = crate::admin_app::identity_provider::Slot::at_boot(&cfg, &state, vault.clone())?;
         let adapters = Adapters::new(&cfg.appliance.state_dir, vault.clone(), &cfg.adapters);
         let writer = crate::commit::Writer::new(log, state, cfg!(debug_assertions).then(|| cfg.appliance.state_dir.clone()));
         let live_text = Arc::new(Live { tx: tokio::sync::broadcast::channel(1024).0, so_far: Mutex::new(HashMap::new()) });
@@ -386,8 +386,8 @@ impl Kernel {
         ended
     }
 
-    pub fn identity(&self) -> Option<&dyn crate::identity::Identity> {
-        self.oidc.as_ref().map(|o| o as &dyn crate::identity::Identity)
+    pub fn identity(&self) -> Option<Arc<dyn crate::identity::Identity>> {
+        self.oidc.get().map(|o| o as Arc<dyn crate::identity::Identity>)
     }
 
     pub fn person(&self, id: &str) -> Option<Person> {

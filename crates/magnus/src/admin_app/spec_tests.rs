@@ -175,3 +175,47 @@ async fn an_admin_sets_the_servers_own_update_channel() {
     assert_eq!(put(&mo, "test").await.0, 403, "a member set the server's channel");
     s.done().await;
 }
+
+/// Security sets how long the trash and the backups keep things, within the
+/// purge window; a shorter window is swept at once, and the change is in the
+/// admin audit.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_admin_sets_how_long_things_are_kept_within_the_purge_window() {
+    let s = server(|_| Router::new()).await;
+    let dir = s.k.cfg.backup_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    let backup = |days_ago: i64| dir.join(format!("magnus-{}.backup", (Utc::now() - chrono::Duration::days(days_ago)).format("%Y%m%dT%H%M%S%.3fZ")));
+    let (old, recent) = (backup(3), backup(1));
+    for f in [&old, &recent] {
+        std::fs::write(f, "a backup").unwrap();
+    }
+    let sam = s.token("sam").await;
+    async fn put(s: &Server, t: &str, b: serde_json::Value) -> (u16, serde_json::Value) {
+        s.call(t, reqwest::Method::PUT, "/v1/admin/retention", Some(b)).await
+    }
+    let (st, v) = put(&s, &sam, json!({ "trash_days": 7, "backup_days": 2 })).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "retention changed with no step-up: {v}");
+    mark(&sam, Utc::now());
+    for bad in
+        [json!({ "trash_days": 31, "backup_days": 2 }), json!({ "trash_days": 7, "backup_days": 31 }), json!({ "trash_days": 0, "backup_days": 2 }), json!({ "trash_days": 7 })]
+    {
+        assert_eq!(put(&s, &sam, bad.clone()).await.0, 400, "taken: {bad}");
+    }
+    assert!(old.exists(), "a refused change swept");
+    let (st, v) = put(&s, &sam, json!({ "trash_days": 7, "backup_days": 2 })).await;
+    assert_eq!(st, 200, "{v}");
+    assert!(!old.exists(), "a backup past the new window was kept");
+    assert!(recent.exists(), "a backup inside the window was removed");
+    let set = s.audited("retention_set");
+    assert_eq!(set.len(), 1, "the change is not in the admin audit");
+    assert_eq!(set[0]["before"], json!({ "trash_days": 30, "backup_days": 30 }));
+    assert_eq!(set[0]["after"], json!({ "trash_days": 7, "backup_days": 2 }));
+    let (_, r) = s.get(&sam, "/v1/admin/retention").await;
+    assert_eq!((r["trash_days"].as_u64(), r["backup_days"].as_u64()), (Some(7), Some(2)), "{r}");
+    // The trash sweep and what a person is told go by it.
+    assert_eq!(s.k.trash_keep_days(), 7);
+    let mo = s.token("mo").await;
+    assert_eq!(s.get(&mo, "/v1/trash").await.1["keep_days"], 7);
+    assert_eq!(put(&s, &mo, json!({ "trash_days": 7, "backup_days": 2 })).await.0, 403, "a member set retention");
+    s.done().await;
+}

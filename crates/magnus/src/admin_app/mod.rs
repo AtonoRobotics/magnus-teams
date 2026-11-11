@@ -43,6 +43,9 @@
 pub mod agents;
 pub mod connectors;
 pub mod guard;
+pub mod identity_provider;
+#[cfg(test)]
+mod idp_tests;
 pub mod invite_page;
 pub mod kill;
 pub mod mount;
@@ -51,6 +54,7 @@ pub mod overview;
 pub mod overview_stops;
 pub mod people;
 pub mod remove;
+pub mod retention;
 pub mod roles;
 pub mod rules;
 #[cfg(test)]

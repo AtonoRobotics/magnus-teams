@@ -7,7 +7,7 @@
 /**
  * @typedef {{code_required: boolean, idle_minutes: number, max_hours: number, lockout_enabled: boolean, lockout_failures: number, lockout_wait_minutes: number, lockout_max_wait_minutes: number, lockout_permanent: boolean, identity_provider: ?string}} AdminSignIn
  * @typedef {{seq: number, at: string, admin: string, name: string, action: string, target: ?string, source: ?string}} AuditEntry
- * @typedef {{kept: Array<{what: string, how: string}>}} AdminRetention
+ * @typedef {{kept: Array<{what: string, how: string}>, purge_window_days?: number, settable?: {trash_days: number, backup_days: number, set_here: boolean, min_days: number, trash_days_max: number, backup_days_max: number}}} AdminRetention
  * @typedef {{computer: string, owner: {person?: string, workspace?: string}, operator: string, until: string, ended: boolean}} DevSession
  */
 
@@ -28,6 +28,20 @@ function signInHtml(p) {
     </form></section>`;
 }
 
+/** The identity provider, for an owner: settings, a test sign-in through
+ * it as themselves, then the switch (the server refuses one untested).
+ * @param {{source: string, settings: ?Record<string, ?string>, settable: string[], in_use: ?string}} idp */
+function idpHtml(idp) {
+  const v = idp.settings || {};
+  const labels = { issuer: "Issuer", client_id: "Client ID", person_claim: "Claim naming the person", scope: "Scope", label: "Name on the sign-in button", groups_claim: "Groups claim", roles_claim: "Roles claim", status_client: "Status client", status_credential: "Vault secret of the status client", status_admin_url: "Admin API address" };
+  return `<form class="stack" data-idp>
+      <h4>Identity provider</h4>
+      ${(idp.settable || []).map(k => `<label>${esc(labels[k] || k)} <input name="${esc(k)}" value="${esc(v[k] ?? "")}"></label>`).join("")}
+      <p class="small muted" data-idp-status>Test a sign-in through the provider as yourself before switching: a provider that cannot sign you in would lock you out.</p>
+      <div class="row"><button type="button" data-idp-test>Test sign-in</button><button type="button" class="primary" data-idp-use disabled>Use this provider</button>${idp.in_use ? `<button type="button" data-idp-off>Use passwords kept here</button>` : ""}</div>
+    </form>`;
+}
+
 /** @param {AuditEntry[]} rows */
 function auditHtml(rows) {
   return `<section class="card"><h3>Audit log</h3>
@@ -43,7 +57,20 @@ function auditRows(rows) {
 /** @param {AdminRetention} r */
 function retentionHtml(r) {
   return `<section class="card" data-retention><h3>How long things are kept</h3>
-    <dl>${(r.kept || []).map(k => `<dt>${esc(k.what[0].toUpperCase() + k.what.slice(1))}</dt><dd class="small">${esc(k.how)}</dd>`).join("")}</dl></section>`;
+    <dl>${(r.kept || []).map(k => `<dt>${esc(k.what[0].toUpperCase() + k.what.slice(1))}</dt><dd class="small">${esc(k.how)}</dd>`).join("")}</dl>
+    ${r.settable ? retentionForm(r.settable, r.purge_window_days) : ""}</section>`;
+}
+
+/** The two windows an admin sets, each within the purge window.
+ * @param {NonNullable<AdminRetention["settable"]>} s @param {number|undefined} purge */
+function retentionForm(s, purge) {
+  const n = (name, label, max) => `<label>${label} <input type="number" name="${name}" min="${s.min_days}" max="${max}" step="1" value="${esc(s[name])}"></label>`;
+  return `<form class="stack" data-retention-form>
+      ${n("trash_days", "Days a deleted item waits in the trash", s.trash_days_max)}
+      ${n("backup_days", "Days each backup is kept", s.backup_days_max)}
+      <p class="small muted">At most ${esc(purge ?? s.backup_days_max)} days each: a deletion still leaves the backups within that window.</p>
+      <div class="row"><button class="primary">Save</button></div>
+    </form>`;
 }
 
 /** @param {DevSession[]} rows */
@@ -68,10 +95,12 @@ function securitySave(filename, csv) {
 }
 
 registerAdminSection("security", async el => {
-  const [policy, audit, retention, dev] = await Promise.all([
+  const owner = !!AdminState.standing?.owner;
+  const [policy, audit, retention, dev, idp] = await Promise.all([
     adminApi("GET", "/v1/admin/sign-in-policy"), adminApi("GET", "/v1/admin/audit"), adminApi("GET", "/v1/admin/retention"), adminApi("GET", "/v1/admin/developer-access"),
+    owner ? adminApi("GET", "/v1/admin/identity-provider") : null,
   ]);
-  paint(el, `<h2>Security</h2>${signInHtml(policy)}${auditHtml(audit.entries || [])}${retentionHtml(retention)}${devAccessHtml(dev.sessions || [])}`);
+  paint(el, `<h2>Security</h2>${signInHtml(policy)}${idp ? `<section class="card">${idpHtml(idp)}</section>` : ""}${auditHtml(audit.entries || [])}${retentionHtml(retention)}${devAccessHtml(dev.sessions || [])}`);
   /** @param {any} err */
   const failed = err => { if (!err.cancelled) toast(err.body?.message || err.body?.error || err.message); };
   let query = "";
@@ -83,6 +112,14 @@ registerAdminSection("security", async el => {
     try { await adminApi("PUT", "/v1/admin/sign-in-policy", body); toast("Sign-in rules saved."); }
     catch (err) { failed(err); }
   };
+  const keep = $("[data-retention-form]", el);
+  if (keep) keep.onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(/** @type {HTMLFormElement} */ (e.target));
+    try { await adminApi("PUT", "/v1/admin/retention", { trash_days: Number(f.get("trash_days")), backup_days: Number(f.get("backup_days")) }); toast("Saved."); await AdminState.sections.get("security")?.(el); }
+    catch (err) { failed(err); }
+  };
+  if (idp) wireIdp(el, failed);
   $("[data-audit-filter]", el).onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(/** @type {HTMLFormElement} */ (e.target));
@@ -95,3 +132,39 @@ registerAdminSection("security", async el => {
     catch (err) { failed(err); }
   };
 });
+
+/** The provider form's buttons: test, then switch; or back to passwords.
+ * @param {HTMLElement} el @param {(err: any) => void} failed */
+function wireIdp(el, failed) {
+  const form = /** @type {HTMLFormElement} */ ($("[data-idp]", el));
+  const status = $("[data-idp-status]", el), use = $("[data-idp-use]", el);
+  const settings = () => Object.fromEntries([...new FormData(form)].filter(([, v]) => String(v).trim()));
+  /** @type {any} */ let tested = null;
+  $("[data-idp-test]", el).onclick = async () => {
+    try {
+      const body = settings();
+      const s = await adminApi("POST", "/v1/admin/identity-provider/test", body);
+      const url = s.verification_uri_complete || s.verification_uri;
+      paint(status, `Open <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>, enter ${esc(s.user_code)} and sign in as yourself.`);
+      const every = Math.max(1, s.interval);
+      for (let waited = 0; waited < s.expires_in; waited += every) {
+        await new Promise(r => setTimeout(r, every * 1000));
+        const p = await adminApi("POST", "/v1/admin/identity-provider/test/poll", {});
+        if (p.status === "pending") continue;
+        paint(status, esc(p.message));
+        if (p.status === "passed") { tested = body; use.disabled = false; }
+        return;
+      }
+    } catch (err) { failed(err); }
+  };
+  use.onclick = async () => {
+    try { await adminApi("PUT", "/v1/admin/identity-provider", { provider: tested }); toast("People sign in through the new provider."); await AdminState.sections.get("security")?.(el); }
+    catch (err) { failed(err); }
+  };
+  const off = $("[data-idp-off]", el);
+  if (off) off.onclick = async () => {
+    if (!confirm("Sign in with passwords kept here? People without one here cannot sign in until they set one.")) return;
+    try { await adminApi("PUT", "/v1/admin/identity-provider", { provider: null }); toast("People sign in with passwords kept here."); await AdminState.sections.get("security")?.(el); }
+    catch (err) { failed(err); }
+  };
+}

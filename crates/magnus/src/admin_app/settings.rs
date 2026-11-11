@@ -1,7 +1,8 @@
 //! What an admin sets for the whole workspace in the app's Admin section and
 //! the kernel keeps (spec rev 141, Administration): the workspace rules that
 //! cap every person's own rules, and whether Auto Review acts for the
-//! workspace, and the update channel the server follows. One event kind, `admin_setting`, carries each change.
+//! workspace, the update channel the server follows and how long the trash
+//! and backups keep things, and the identity provider. One event kind, `admin_setting`, carries each change.
 
 use crate::rules::Effect;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,16 @@ pub enum Change {
     /// The update channel the server itself follows (`server_channel.rs`).
     ServerChannel {
         channel: String,
+    },
+    /// How long the trash and the backups keep things (`retention.rs`).
+    Retention {
+        trash_days: u32,
+        backup_days: u32,
+    },
+    /// The identity provider's settings, or None for passwords kept here
+    /// (`identity_provider.rs`).
+    IdentityProvider {
+        provider: Option<serde_json::Value>,
     },
 }
 
@@ -57,6 +68,10 @@ pub struct Settings {
     pub auto_review: Option<bool>,
     /// None: production.
     pub server_channel: Option<String>,
+    /// None: as the config says. (trash days, backup days).
+    pub retention: Option<(u32, u32)>,
+    /// None: the config's provider. Some(None): none, passwords kept here.
+    pub identity_provider: Option<Option<serde_json::Value>>,
 }
 
 impl Settings {
@@ -70,6 +85,8 @@ impl Settings {
             }
             Change::AutoReview { acts } => self.auto_review = Some(*acts),
             Change::ServerChannel { channel } => self.server_channel = Some(channel.clone()),
+            Change::Retention { trash_days, backup_days } => self.retention = Some((*trash_days, *backup_days)),
+            Change::IdentityProvider { provider } => self.identity_provider = Some(provider.clone()),
         }
     }
 }

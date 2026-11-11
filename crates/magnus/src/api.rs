@@ -268,7 +268,7 @@ pub(crate) async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool
 /// How people sign in here: through the identity provider when one is
 /// configured, with a password always open as the way in when it is down.
 async fn sign_in_method(State(k): K) -> Response {
-    let mut body = match &k.oidc {
+    let mut body = match k.oidc.get() {
         Some(o) => json!({ "method": "oidc", "label": o.label(), "password": true }),
         None => json!({ "method": "password", "password": true }),
     };
@@ -480,7 +480,7 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
         // passwords sent to the provider cannot lock the owner out of it.
         if let Some(machine) = b["machine_code"].as_str().map(str::trim).filter(|c| !c.is_empty()) {
             let counter = crate::accounts::Accounts::backup_counter(&person);
-            if !(k.cfg.may_use_password(&person) && k.accounts.has_password(&person).await && on_this_machine(peer, &h)) {
+            if !(k.may_use_password(&person) && k.accounts.has_password(&person).await && on_this_machine(peer, &h)) {
                 return err(StatusCode::UNAUTHORIZED, "The name, password or code is wrong.");
             }
             if let Some(until) = k.accounts.locked(&counter) {
@@ -553,7 +553,7 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
                 if ours {
                     k.accounts.forgive(&counter);
                 }
-                let backup = k.cfg.may_use_password(&person) && k.accounts.has_password(&person).await && on_this_machine(peer, &h);
+                let backup = k.may_use_password(&person) && k.accounts.has_password(&person).await && on_this_machine(peer, &h);
                 if backup {
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -623,7 +623,7 @@ async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectIn
     if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
         return r;
     }
-    let Some(o) = &k.oidc else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
+    let Some(o) = k.oidc.get() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
     if !may_begin(&k, peer) {
         return too_many_begins();
     }
@@ -646,7 +646,7 @@ async fn device_poll(State(k): K, Extension(t): Extension<Transport>, ConnectInf
     if let Err(r) = over_tls(&k, t, peer) {
         return r;
     }
-    let Some(o) = &k.oidc else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
+    let Some(o) = k.oidc.get() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
     match o.poll(&flow).await {
         Ok(polled) => provider_answered(&k, t, o.label(), polled, device_of(&k, peer, &h)).await,
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
