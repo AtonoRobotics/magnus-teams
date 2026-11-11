@@ -1,0 +1,22 @@
+#!/bin/sh
+# The computer's Browser: Chromium holding no logins (spec rev 145, "The
+# desktop"). Signed-in browsing is the browser VM's. The profile lives in
+# /tmp, so nothing it saw outlasts a boot, and the managed policy in
+# /etc/chromium/policies/managed turns off saved passwords, sign-in and sync.
+# It trusts the computer's proxy, whose certificate the kernel installs.
+set -u
+HOME=${HOME:-/workspace}
+profile=/tmp/magnus-desktop/chromium
+mkdir -p "$profile"
+ca=/usr/local/share/ca-certificates/magnus-computer.crt
+if [ -f "$ca" ] && command -v certutil >/dev/null; then
+  db="sql:$HOME/.pki/nssdb"
+  mkdir -p "$HOME/.pki/nssdb"
+  [ -f "$HOME/.pki/nssdb/cert9.db" ] || certutil -N -d "$db" --empty-password
+  certutil -A -d "$db" -n magnus-computer -t "C,," -i "$ca" 2>/dev/null
+fi
+# The guest runs as root, so Chromium's own sandbox cannot start; the
+# computer is the sandbox. --test-type keeps the bar about that flag away.
+exec chromium --no-sandbox --test-type --user-data-dir="$profile" --no-first-run --no-default-browser-check \
+  --disable-dev-shm-usage --disable-session-crashed-bubble --disable-features=Translate,MediaRouter \
+  --password-store=basic --start-maximized "$@"

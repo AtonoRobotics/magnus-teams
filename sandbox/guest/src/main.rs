@@ -370,7 +370,9 @@ fn exec(req: &Value) -> Value {
         .env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
         .env("HOME", "/workspace")
         .env("LANG", "C.UTF-8")
-        .env("DISPLAY", ":0");
+        .env("DISPLAY", ":0")
+        // The desktop's session bus, so an app started here takes its settings.
+        .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/tmp/magnus-desktop/bus");
     // A guest with root can unset these, and is then left with no way out.
     if std::path::Path::new("/sys/class/net/eth0").exists() {
         for name in ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"] {
@@ -513,9 +515,10 @@ fn handle(req: Value) -> Value {
     }
 }
 
-/// Starts the desktop and its VNC server, listening on loopback only, once.
+/// Starts the desktop (the image's `magnus-desktop`, sandbox/desktop) and
+/// its VNC server, listening on loopback only, once.
 fn start_display() {
-    let script = "export DISPLAY=:0; if ! xdpyinfo >/dev/null 2>&1; then (Xvfb :0 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &); for i in $(seq 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done; (fluxbox >/tmp/fluxbox.log 2>&1 &); fi; pgrep -x x11vnc >/dev/null || x11vnc -display :0 -rfbport 5901 -localhost -nopw -forever -shared -noxdamage -bg -o /tmp/x11vnc.log >/dev/null 2>&1";
+    let script = "export DISPLAY=:0; magnus-desktop start >/dev/null 2>&1; pgrep -x x11vnc >/dev/null || x11vnc -display :0 -rfbport 5901 -localhost -nopw -forever -shared -noxdamage -bg -o /tmp/x11vnc.log >/dev/null 2>&1";
     let _ = std::process::Command::new("sh").arg("-c").arg(script).status();
 }
 

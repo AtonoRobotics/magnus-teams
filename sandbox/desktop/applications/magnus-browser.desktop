@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Browser
+Comment=Browse the web, signed in to nothing
+Exec=magnus-browser %U
+Icon=chromium
+Terminal=false
+Categories=X-Magnus-Pinned;
+StartupNotify=false

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=Run commands
+Exec=xfce4-terminal --working-directory=/workspace
+Icon=utilities-terminal
+Terminal=false
+Categories=X-Magnus-Pinned;
+StartupNotify=false

@@ -163,13 +163,13 @@ async fn sandbox_desktop_takes_screenshots_and_types() {
     assert_eq!(v["exit_code"], 0, "{v}");
     let png = s.read("r1", "/tmp/magnus-shot.png").await.unwrap();
     assert_eq!(&png[..4], b"\x89PNG");
-    // xterm is not focused after a fixed sleep when the guest is busy
+    // The Terminal is not focused after a fixed sleep when the guest is busy
     // (run 41929170386: /workspace/typed.txt was never written). Wait until
     // its window is the one that receives keys, then until the file appears.
     let v = s
         .exec(
             "r1",
-            "export DISPLAY=:0; (xterm &); ok=; for i in $(seq 40); do xdotool search --onlyvisible --class xterm windowactivate --sync && ok=1 && break; sleep 0.25; done; test -n \"$ok\"",
+            "export DISPLAY=:0; (xfce4-terminal --working-directory=/workspace &); ok=; for i in $(seq 40); do xdotool search --onlyvisible --class xfce4-terminal windowactivate --sync && ok=1 && break; sleep 0.25; done; test -n \"$ok\"",
             30,
         )
         .await

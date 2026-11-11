@@ -1,0 +1,57 @@
+The Magnus desktop: what it is made of, where each part comes from, and its
+licence. Every theme, font and icon set here may be redistributed (spec rev
+145, "The desktop"). Each Debian package's full terms are in
+/usr/share/doc/<package>/copyright in this image.
+
+Themes
+  Magnus-Light, Magnus-Dark (GTK 3 and xfwm4)
+    Source: Magnus, sandbox/desktop/make_theme.py. Made for Magnus; no other
+    theme's files are copied. The GTK theme imports Adwaita from GTK itself.
+    Licence: Magnus's own.
+  Adwaita, the GTK 3 base theme (built into GTK)
+    Source: Debian libgtk-3-common 3.24.38, https://www.gtk.org
+    Licence: LGPL-2.0-or-later.
+
+Fonts
+  Inter (the interface)
+    Source: Debian fonts-inter 4.0~beta7, https://github.com/rsms/inter
+    Licence: SIL Open Font License 1.1.
+  JetBrains Mono (the terminal)
+    Source: Debian fonts-jetbrains-mono 2.242,
+    https://github.com/JetBrains/JetBrainsMono
+    Licence: Apache-2.0 as Debian packages this version (later versions
+    are SIL Open Font License 1.1).
+
+Icons
+  Papirus, Papirus-Dark, Papirus-Light (recolored to the theme)
+    Source: Debian papirus-icon-theme 20230104,
+    https://github.com/PapirusDevelopmentTeam/papirus-icon-theme
+    Licence: GPL-3.0. The recolored files are a modification under the same
+    licence; the change is a color substitution made by
+    sandbox/desktop/install.sh, which is its source.
+  Adwaita cursors and fallback icons
+    Source: Debian adwaita-icon-theme 43, https://gitlab.gnome.org/GNOME/adwaita-icon-theme
+    Licence: LGPL-3.0 or CC-BY-SA-3.0 (some files CC-BY-SA-4.0).
+  hicolor (the fallback icon theme)
+    Source: Debian hicolor-icon-theme 0.17, https://icon-theme.freedesktop.org
+    Licence: GPL-2.0-or-later.
+  The Magnus star (the menu's icon)
+    Source: Magnus, sandbox/desktop/make_theme.py. Licence: Magnus's own.
+
+Wallpaper
+  The Magnus wallpaper, light and dark
+    Source: Magnus, the Wallpaper artboard
+    (docs/design/team-and-computer/Wallpaper.dc.html), drawn by
+    sandbox/desktop/make_theme.py and rendered with librsvg.
+    Licence: Magnus's own.
+
+Programs (not themes, fonts or icons; listed for completeness)
+  XFCE 4.18: xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, Thunar,
+    xfce4-terminal. Source: Debian, https://www.xfce.org.
+    Licence: GPL-2.0-or-later, libraries LGPL-2.0-or-later.
+  librsvg 2.54 (SVG pictures). Source: Debian librsvg2-common.
+    Licence: LGPL-2.0-or-later.
+  python-xlib 0.33 (the window rule). Source: PyPI,
+    https://github.com/python-xlib/python-xlib. Licence: LGPL-2.1-or-later.
+  Chromium (the Browser). Source: Debian chromium. Licence: BSD-3-Clause and
+    others, in /usr/share/doc/chromium/copyright.

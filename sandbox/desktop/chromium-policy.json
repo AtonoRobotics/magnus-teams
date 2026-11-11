@@ -1,0 +1,13 @@
+{
+  "PasswordManagerEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "ImportSavedPasswords": false,
+  "DefaultBrowserSettingEnabled": false,
+  "PromotionalTabsEnabled": false,
+  "MetricsReportingEnabled": false,
+  "DefaultNotificationsSetting": 2,
+  "BackgroundModeEnabled": false
+}

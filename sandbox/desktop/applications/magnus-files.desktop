@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Comment=Browse the files on this computer
+Exec=thunar /workspace
+Icon=system-file-manager
+Terminal=false
+Categories=X-Magnus-Pinned;
+StartupNotify=false

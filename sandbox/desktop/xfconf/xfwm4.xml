@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The window manager: the Magnus window theme, no compositing, shadows,
+     zoom or outlines that move, one workspace. -->
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="theme" type="string" value="Magnus-Dark"/>
+    <property name="title_font" type="string" value="Inter Semi-Bold 10"/>
+    <property name="title_alignment" type="string" value="center"/>
+    <property name="button_layout" type="string" value="|HMC"/>
+    <property name="use_compositing" type="bool" value="false"/>
+    <property name="box_move" type="bool" value="false"/>
+    <property name="box_resize" type="bool" value="false"/>
+    <property name="zoom_desktop" type="bool" value="false"/>
+    <property name="show_dock_shadow" type="bool" value="false"/>
+    <property name="show_frame_shadow" type="bool" value="false"/>
+    <property name="show_popup_shadow" type="bool" value="false"/>
+    <property name="cycle_preview" type="bool" value="false"/>
+    <property name="workspace_count" type="int" value="1"/>
+    <property name="wrap_windows" type="bool" value="false"/>
+    <property name="wrap_workspaces" type="bool" value="false"/>
+    <property name="scroll_workspaces" type="bool" value="false"/>
+    <property name="placement_mode" type="string" value="center"/>
+    <property name="placement_ratio" type="int" value="100"/>
+    <property name="borderless_maximize" type="bool" value="true"/>
+    <property name="titleless_maximize" type="bool" value="false"/>
+    <property name="snap_to_border" type="bool" value="true"/>
+    <property name="snap_to_windows" type="bool" value="false"/>
+    <property name="tile_on_move" type="bool" value="true"/>
+    <property name="double_click_action" type="string" value="maximize"/>
+    <property name="raise_on_focus" type="bool" value="true"/>
+    <property name="focus_delay" type="int" value="0"/>
+    <property name="urgent_blink" type="bool" value="false"/>
+    <property name="repeat_urgent_blink" type="bool" value="false"/>
+    <property name="mousewheel_rollup" type="bool" value="false"/>
+  </property>
+</channel>

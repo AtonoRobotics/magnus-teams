@@ -1373,8 +1373,8 @@ fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// The guest command for a desktop action: start the display if needed, act
-/// with xdotool, then capture a screenshot.
+/// The guest command for a desktop action: start the desktop if needed (else
+/// an older image's bare display), act with xdotool, then take a screenshot.
 pub fn computer_command(tool: &str, input: &Value) -> Result<String> {
     let n = |k: &str| input[k].as_i64().unwrap_or(0);
     let act = match tool {
@@ -1402,7 +1402,7 @@ pub fn computer_command(tool: &str, input: &Value) -> Result<String> {
         other => anyhow::bail!("no desktop action {other}"),
     };
     Ok(format!(
-        "export DISPLAY=:0; if ! xdpyinfo >/dev/null 2>&1; then (Xvfb :0 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &); for i in $(seq 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done; (fluxbox >/tmp/wm.log 2>&1 &); sleep 0.5; fi; {act}; sleep 0.4; import -window root /tmp/magnus-shot.png"
+        "export DISPLAY=:0; if command -v magnus-desktop >/dev/null; then magnus-desktop start >&2 || exit 1; elif ! xdpyinfo >/dev/null 2>&1; then (Xvfb :0 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &); for i in $(seq 50); do xdpyinfo >/dev/null 2>&1 && break; sleep 0.1; done; (fluxbox >/tmp/wm.log 2>&1 &); sleep 0.5; fi; {act}; sleep 0.4; import -window root /tmp/magnus-shot.png"
     ))
 }
 

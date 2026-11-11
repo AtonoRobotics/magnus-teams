@@ -1,0 +1,20 @@
+[Configuration]
+FontName=JetBrains Mono 10
+FontUseSystem=FALSE
+MiscMenubarDefault=FALSE
+MiscToolbarDefault=FALSE
+MiscBordersDefault=TRUE
+MiscCursorBlinks=FALSE
+MiscCursorShape=TERMINAL_CURSOR_SHAPE_BLOCK
+MiscBell=FALSE
+MiscBellUrgent=FALSE
+MiscShowUnsafePasteDialog=FALSE
+MiscConfirmClose=FALSE
+MiscTabCloseButtons=FALSE
+MiscDefaultGeometry=100x30
+MiscHighlightUrls=FALSE
+ScrollingBar=TERMINAL_SCROLLBAR_NONE
+ColorBoldIsBright=FALSE
+ColorCursorUseDefault=FALSE
+TitleMode=TERMINAL_TITLE_HIDE
+TitleInitial=Terminal

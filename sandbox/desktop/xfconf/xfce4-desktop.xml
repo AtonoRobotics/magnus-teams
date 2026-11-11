@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The wallpaper and nothing on it. magnus-desktop sets the image for the
+     look in use. -->
+<channel name="xfce4-desktop" version="1.0">
+  <property name="desktop-icons" type="empty">
+    <property name="style" type="int" value="0"/>
+  </property>
+  <property name="desktop-menu" type="empty">
+    <property name="show" type="bool" value="false"/>
+  </property>
+  <property name="windowlist-menu" type="empty">
+    <property name="show" type="bool" value="false"/>
+  </property>
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitorscreen" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="image-style" type="int" value="5"/>
+          <property name="last-image" type="string" value="/usr/share/backgrounds/magnus/magnus-dark.png"/>
+        </property>
+      </property>
+    </property>
+  </property>
+</channel>

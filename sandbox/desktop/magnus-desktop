@@ -1,0 +1,163 @@
+#!/bin/sh
+# The computer's desktop (spec rev 145, "The desktop"): XFCE on X11 at
+# 1280x800, one Magnus theme in light and dark, calm for the agent.
+#
+#   magnus-desktop start              start it once; later calls wait for it
+#   magnus-desktop theme light|dark   switch the look, live if it is running
+#   magnus-desktop app-installed NAME put an installed app in the menu
+#   magnus-desktop env                print the session's environment
+#
+# The session's settings live in /tmp, so every boot starts from the base
+# image's look; the base image's defaults are in /etc/xdg.
+set -u
+state=/tmp/magnus-desktop
+share=/usr/share/magnus/desktop
+apps=/usr/local/share/applications
+# Seconds, for waiting on the display and the session's windows.
+DISPLAY_WAIT_TENTHS=100
+SESSION_WAIT_TENTHS=150
+SETTLE_SECONDS=0.5
+
+session_env() {
+  # The apps the person and the agent open work where the agent's commands
+  # do, whichever started the desktop: a screenshot or a takeover.
+  export HOME=/workspace LANG=C.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  # The way out, as the guest gives every command (sandbox/guest, exec).
+  if [ -e /sys/class/net/eth0 ]; then
+    export http_proxy=http://10.200.0.1:3128 https_proxy=http://10.200.0.1:3128 HTTP_PROXY=http://10.200.0.1:3128 HTTPS_PROXY=http://10.200.0.1:3128
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+  fi
+  export DISPLAY=:0
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$state/bus"
+  export XDG_CONFIG_HOME="$state/config" XDG_CACHE_HOME="$state/cache" XDG_RUNTIME_DIR="$state/run"
+  export XDG_CONFIG_DIRS=/etc/xdg XDG_DATA_DIRS=/usr/local/share:/usr/share
+  export XDG_CURRENT_DESKTOP=XFCE XDG_SESSION_DESKTOP=xfce DESKTOP_SESSION=xfce XDG_MENU_PREFIX=xfce-
+  export NO_AT_BRIDGE=1 GTK_OVERLAY_SCROLLING=0
+}
+
+wait_for() { # tenths command...
+  n=$1; shift
+  while [ "$n" -gt 0 ]; do
+    "$@" >/dev/null 2>&1 && return 0
+    n=$((n - 1)); sleep 0.1
+  done
+  return 1
+}
+
+window_of() { xdotool search --onlyvisible --class "$1"; }
+
+xsettings_up() {
+  python3 -I -c 'from Xlib import display; d = display.Display(); o = d.get_selection_owner(d.intern_atom("_XSETTINGS_S0")); raise SystemExit(0 if getattr(o, "id", o) else 1)'
+}
+
+mode() {
+  m=$(cat "$state/theme" 2>/dev/null || true)
+  case $m in light) echo light ;; *) echo dark ;; esac
+}
+
+set_prop() { # channel property type value
+  xfconf-query -c "$1" -p "$2" -n -t "$3" -s "$4" 2>/dev/null || xfconf-query -c "$1" -p "$2" -s "$4"
+}
+
+apply_theme() {
+  . "$share/$(mode).vars"
+  set_prop xsettings /Net/ThemeName string "$GTK_THEME_NAME"
+  set_prop xsettings /Net/IconThemeName string "$ICON_THEME_NAME"
+  set_prop xfwm4 /general/theme string "$WM_THEME_NAME"
+  # Terminal reads its file and follows changes to it: the session's, and
+  # the system's for a Terminal the agent starts with its own home.
+  for rc in "$XDG_CONFIG_HOME/xfce4/terminal" /etc/xdg/xfce4/terminal; do
+    mkdir -p "$rc" 2>/dev/null || continue
+    { cat "$share/terminalrc"; printf 'ColorForeground=%s\nColorBackground=%s\nColorCursor=%s\nColorPalette=%s\n' "$TERM_FG" "$TERM_BG" "$TERM_CURSOR" "$TERM_PALETTE"; } >"$rc/terminalrc.new" 2>/dev/null &&
+      mv "$rc/terminalrc.new" "$rc/terminalrc"
+  done
+  for p in $(xfconf-query -c xfce4-desktop -l 2>/dev/null | grep '/last-image$') /backdrop/screen0/monitorscreen/workspace0/last-image; do
+    set_prop xfce4-desktop "$p" string "$WALLPAPER"
+    set_prop xfce4-desktop "${p%/last-image}/image-style" int 5
+  done
+}
+
+start() {
+  session_env
+  mkdir -p "$state" "$state/config" "$state/cache" "$state/run"
+  chmod 700 "$state/run"
+  exec 9>"$state/lock"
+  flock 9
+  if [ -f "$state/ready" ] && xdpyinfo >/dev/null 2>&1; then
+    return 0
+  fi
+  rm -f "$state/ready"
+  if ! xdpyinfo >/dev/null 2>&1; then
+    # -s 0 and -dpms: no screensaver or power saving blanking the screen.
+    (Xvfb :0 -screen 0 1280x800x24 -nolisten tcp -s 0 -dpms >/tmp/xvfb.log 2>&1 9>&- &)
+    wait_for $DISPLAY_WAIT_TENTHS xdpyinfo || { echo "the display did not start" >&2; return 1; }
+  fi
+  xset s off s noblank -dpms 2>/dev/null
+  [ -S "$state/bus" ] || dbus-daemon --session --fork --address="$DBUS_SESSION_BUS_ADDRESS" >/dev/null 2>&1 9>&-
+  # The pinned apps: the panel reads its launchers from its own settings.
+  mkdir -p "$XDG_CONFIG_HOME/xfce4/panel"
+  cp -r /etc/xdg/xfce4/panel/launcher-* "$XDG_CONFIG_HOME/xfce4/panel/"
+  apply_theme
+  (xfsettingsd --no-daemon --replace >/tmp/xfsettingsd.log 2>&1 9>&- &)
+  # An app started before the settings are there keeps GTK's default look.
+  wait_for $SESSION_WAIT_TENTHS xsettings_up || echo "the settings did not start" >&2
+  (xfwm4 --compositor=off --replace >/tmp/xfwm4.log 2>&1 9>&- &)
+  (xfdesktop >/tmp/xfdesktop.log 2>&1 9>&- &)
+  (xfce4-panel >/tmp/xfce4-panel.log 2>&1 9>&- &)
+  (python3 -I /usr/local/lib/magnus/desktop/arrange.py >/tmp/arrange.log 2>&1 9>&- &)
+  wait_for $SESSION_WAIT_TENTHS window_of xfce4-panel || echo "the top bar did not appear" >&2
+  wait_for $SESSION_WAIT_TENTHS window_of xfdesktop || echo "the wallpaper did not appear" >&2
+  sleep $SETTLE_SECONDS
+  touch "$state/ready"
+}
+
+theme() {
+  case ${1:-} in light | dark) ;; *) echo "usage: magnus-desktop theme light|dark" >&2; return 2 ;; esac
+  mkdir -p "$state"
+  [ "$(cat "$state/theme" 2>/dev/null || true)" = "$1" ] && return 0
+  echo "$1" >"$state/theme"
+  session_env
+  if [ -S "$state/bus" ] && xdpyinfo >/dev/null 2>&1; then
+    apply_theme
+  fi
+}
+
+# An installed app goes in the menu: a package's own entry is there
+# already; a program without one gets an entry named after the app.
+app_installed() {
+  name=${1:-}
+  [ -n "$name" ] || { echo "usage: magnus-desktop app-installed NAME" >&2; return 2; }
+  slug=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9.+-' '-' | sed 's/^-*//; s/-*$//')
+  [ -n "$slug" ] || return 2
+  for d in /usr/share/applications /usr/local/share/applications; do
+    [ -d "$d" ] || continue
+    if ls "$d" 2>/dev/null | grep -qi -- "$slug.*\.desktop$" || grep -qilx "Name=$name" "$d"/*.desktop 2>/dev/null; then
+      echo "in the menu already"
+      return 0
+    fi
+  done
+  bin=$(command -v "$slug" 2>/dev/null || true)
+  if [ -z "$bin" ]; then
+    echo "no program named $slug to put in the menu"
+    return 0
+  fi
+  mkdir -p "$apps"
+  cat >"$apps/magnus-app-$slug.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=$name
+Exec=$bin
+Icon=$slug
+Terminal=false
+Categories=X-Magnus-Installed;
+EOF
+  echo "added to the menu"
+}
+
+case ${1:-} in
+  start) start ;;
+  theme) theme "${2:-}" ;;
+  app-installed) app_installed "${2:-}" ;;
+  env) session_env; env | grep -E '^(DISPLAY|DBUS_SESSION_BUS_ADDRESS|XDG_[A-Z_]*|DESKTOP_SESSION)=' ;;
+  *) echo "usage: magnus-desktop start | theme light|dark | app-installed NAME | env" >&2; exit 2 ;;
+esac
