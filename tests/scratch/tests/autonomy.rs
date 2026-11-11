@@ -1,6 +1,6 @@
-//! Autonomy is tested like safety (spec rev 133, rev 140). Each release candidate's
-//! acceptance runs these seven scenarios end to end, and a release that fails
-//! one does not ship:
+//! Autonomy is tested like safety (spec rev 133, rev 140, rev 142). Each release
+//! candidate's acceptance runs these eight scenarios end to end, and a release
+//! that fails one does not ship:
 //!
 //! 1. a chat request any chat agent could do is done in the chat, with no
 //!    task and no approval;
@@ -11,7 +11,9 @@
 //! 5. a review proposes work from what it read;
 //! 6. a scheduled run uses sub-agents (owner, 2026-11-10), and a failing
 //!    scheduled run wakes the agent in the conversation it was set up in;
-//! 7. connecting an app needs no further approval to use it (spec rev 140).
+//! 7. connecting an app needs no further approval to use it (spec rev 140);
+//! 8. the agent uses its computer with nobody having set one up (spec rev 142,
+//!    "One computer, always there").
 //!
 //! Each drives a real server with the scripted model and fake apps, and
 //! asserts on what the person would see. Each also checks that the plumbing
@@ -30,6 +32,9 @@ use std::time::Duration;
 
 #[path = "autonomy/scheduled_sub_agents.rs"]
 mod scheduled_sub_agents;
+
+#[path = "autonomy/own_computer.rs"]
+mod own_computer;
 
 const CHAT: &str = "talking with the person you work for in a chat";
 const REVIEW: &str = "reviewing one person's state";
