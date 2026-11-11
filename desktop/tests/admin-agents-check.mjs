@@ -72,6 +72,8 @@ function harness() {
   const a = harness();
   const levels = vm.runInContext("AdminState.levels.map(l => l.level)", a);
   assert.deepEqual([...levels], ["person", "agent", "connector"]);
+  // The switch is an admin's: it draws once the person is known to be one.
+  vm.runInContext("AdminState.standing = { admin: true }", a);
   await vm.runInContext("adminPoll()", a);
   await vm.runInContext("drawKillControl()", a);
   const bar = a.els.get("[data-admin-kill]").html;

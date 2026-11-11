@@ -47,9 +47,12 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
     icon: k => `<svg data-icon="${k}"></svg>`,
     route: (re, view) => routes.push([re, view]),
     sidebar: () => calls.push(["sidebar"]),
-    document: { createElement: () => el("#stop-banner"), body: { append() {} } },
+    document: { createElement: () => el("#stop-banner"), body: { append() {}, dataset: {} } },
     setInterval: () => 1, clearInterval: () => {},
   };
+  // The app's top bar holds the kill switch's place, hidden until the
+  // person is known to administer (app.js `shell`).
+  Object.assign(el("[data-admin-kill]"), { hidden: true, dataset: {} });
   const answer = (m, p) => {
     if (p === "/v1/admin/standing") return { admin: isAdmin, owner: false, step_up_seconds: 300, stepped_up_until: null };
     if (p === "/v1/stops") return { stops };
@@ -79,6 +82,24 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
   assert.match(item, /href="#\/admin"/);
   assert.match(item, /aria-current="page"/, "the entry is current inside Admin");
   assert.ok(a.calls.some(c => c[0] === "sidebar"), "the navigation is drawn again once the person is known to administer");
+}
+
+// The kill switch is always in the admin's top bar: the app's own bar, on
+// every page, not only inside Admin. A member's stays hidden and empty.
+{
+  assert.match(app, /<header id="workspace-bar"[^\n]*<div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden><\/div>/, "the app's top bar has no place for the kill switch");
+  const a = harness();
+  a.location.hash = "#/chat/new";
+  await vm.runInContext("adminStart()", a);
+  const bar = a.els.get("[data-admin-kill]");
+  assert.equal(bar.hidden, false, "an admin outside Admin has no kill switch in the top bar");
+  assert.match(bar.html, /data-kill-press="server">Stop everything/);
+  assert.equal(typeof bar.listeners.click, "function", "the top bar's kill switch does nothing when pressed");
+  const member = harness({ admin: false });
+  await vm.runInContext("adminStart()", member);
+  assert.equal(member.els.get("[data-admin-kill]").hidden, true, "a member sees a kill switch");
+  assert.equal(member.els.get("[data-admin-kill]").html, "");
+  assert.ok(!/data-admin-kill/.test(admin.match(/async function adminView[\s\S]*?\n}\n/)[0].replace("showKillControl", "")), "the Admin view draws a second kill switch of its own");
 }
 
 // The view: nine sections, placeholders until a section registers, and the
@@ -149,6 +170,11 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
   await vm.runInContext("adminStart()", clear);
   assert.ok(!clear.els.has("#stop-banner"), "a banner shows with nothing stopped");
   assert.match(vm.runInContext('stopText({ level: "person", target: "ada", by_name: "Sam", at: null })', clear), /Sam stopped your agents\./);
+  // An admin's banner shows a switch that stops someone else, by whom and when.
+  const other = { level: "person", target: "mo", target_name: "Mo", mine: false, by: "admin:lee", by_name: "Lee", at: "2026-11-11T10:00:00Z" };
+  const seen = harness({ stops: [other] });
+  await vm.runInContext("adminStart()", seen);
+  assert.match(seen.els.get("#stop-banner").html, /Lee stopped Mo&#39;s agents 2 min ago\./, "an admin's banner does not name who stopped someone else's agents");
 }
 
 // The step-up sheet and every admin form lay out as a column: `.stack` is a

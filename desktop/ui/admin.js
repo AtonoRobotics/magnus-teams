@@ -1,8 +1,9 @@
 // Administration in the app (spec rev 141, Administration): owners and admins
-// see an Admin entry in the navigation, and an Admin view with its sections,
-// the kill switch always in its top bar, and a step-up sheet whenever the
-// server asks for the admin's password again. Everyone sees a banner while a
-// kill switch that affects them is on, naming who pulled it and when.
+// see an Admin entry in the navigation, an Admin view with its sections, the
+// kill switch always in the app's top bar wherever they are, and a step-up
+// sheet whenever the server asks for the admin's password again. Everyone
+// sees a banner while a kill switch that affects them is on, naming who
+// pulled it and when; an admin sees one for every switch that is on.
 //
 // For the sections built on this:
 // - registerAdminSection(name, render) draws one of ADMIN_SECTIONS. render
@@ -109,8 +110,10 @@ function stepUp() {
 function stopText(s) {
   const who = s.by_name || "An admin", at = s.at ? ` ${when(s.at)}` : "";
   if (s.level === "server") return `<strong>The kill switch is on.</strong> ${esc(who)} stopped everything on the server${esc(at)}. No task acts until an admin releases it.`;
-  const what = { person: "your agents", agent: "an agent", connector: "a connector" }[s.level] || "some work";
-  return `<strong>A kill switch is on.</strong> ${esc(who)} stopped ${what}${s.target && s.level !== "person" ? ` (${esc(s.target)})` : ""}${esc(at)}.`;
+  // An admin sees every switch, also those that stop someone else's work.
+  const person = s.mine === false ? `${s.target_name || s.target}'s agents` : "your agents";
+  const what = { person, agent: "an agent", connector: "a connector" }[s.level] || "some work";
+  return `<strong>A kill switch is on.</strong> ${esc(who)} stopped ${esc(what)}${s.target && s.level !== "person" ? ` (${esc(s.target_name || s.target)})` : ""}${esc(at)}.`;
 }
 
 /** The banner shown while any stop affects the signed-in person. */
@@ -142,9 +145,21 @@ function adminNavItem(route) {
 async function adminStart() {
   adminStop();
   AdminState.standing = await Magnus.api("GET", "/v1/admin/standing").catch(() => null);
-  if (AdminState.standing?.admin) sidebar();
+  if (AdminState.standing?.admin) { sidebar(); showKillControl(); }
   AdminState.poll = setInterval(adminPoll, ADMIN_STOPS_POLL_MS);
   await adminPoll();
+}
+
+/** The kill switch is always in an admin's top bar, wherever they are in
+ * the app (spec rev 141, Kill switch): the app's bar holds its place, shown
+ * once the person is known to administer. */
+function showKillControl() {
+  const box = $("[data-admin-kill]");
+  if (!box) return;
+  box.hidden = false;
+  document.body.dataset.adminBar = "";
+  if (!box.dataset.wired) { box.dataset.wired = "1"; box.addEventListener("click", onKillClick); }
+  drawKillControl();
 }
 
 /** At sign-out: nothing of this person's stays. */
@@ -152,12 +167,15 @@ function adminStop() {
   clearInterval(AdminState.poll);
   AdminState.poll = null; AdminState.standing = null; AdminState.stops = [];
   $("#stop-banner")?.remove();
+  const box = $("[data-admin-kill]");
+  if (box) { box.hidden = true; paint(box, ""); }
+  delete document.body.dataset?.adminBar;
 }
 
 /** The kill switch in the admin's top bar: the server's, and each level's. */
 async function drawKillControl() {
   const box = $("[data-admin-kill]");
-  if (!box) return;
+  if (!box || !AdminState.standing?.admin) return;
   const server = AdminState.stops.find(s => s.level === "server");
   const more = (await Promise.all(AdminState.levels.map(l => l.active ? l.active().catch(() => []) : []))).flat();
   const release = s => `<button data-kill-release="${esc(s.level)}" data-kill-target="${esc(s.target || "")}">Release${s.level === "server" ? "" : ` ${esc(s.level)} ${esc(s.target || "")}`}</button>`;
@@ -197,12 +215,11 @@ async function adminView(main, which = "overview") {
   const name = ADMIN_SECTIONS.some(([n]) => n === which) ? which : "overview";
   const label = ADMIN_SECTIONS.find(([n]) => n === name)?.[1];
   paint(main, `<div class="admin" data-admin>
-    <header class="admin-bar"><h1>Admin</h1><div class="admin-kill" data-admin-kill aria-label="Kill switch"></div></header>
+    <header class="admin-bar"><h1>Admin</h1></header>
     <nav class="admin-sub" aria-label="Admin sections">${ADMIN_SECTIONS.map(([n, l]) => `<a href="#/admin/${n}" data-admin-tab="${n}"${n === name ? ' class="on" aria-current="page"' : ""}>${esc(l)}</a>`).join("")}</nav>
     <section class="admin-section" data-admin-section="${name}" aria-label="${esc(label)}"></section>
   </div>`);
-  $("[data-admin-kill]", main).addEventListener("click", onKillClick);
-  drawKillControl();
+  showKillControl();
   drawStopBanner();
   const section = $("[data-admin-section]", main), render = AdminState.sections.get(name);
   if (render) await render(section);

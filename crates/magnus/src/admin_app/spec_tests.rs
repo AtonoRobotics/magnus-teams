@@ -48,3 +48,25 @@ async fn overview_shows_an_agent_stopped() {
     assert_eq!(o["stops"]["on"].as_array().map(Vec::len), Some(1), "{o}");
     s.done().await;
 }
+
+/// Kill switch: "a banner shows who pulled it and when, to the admins and to
+/// the people affected". An admin's banner names every switch that is on,
+/// also one that stops someone else's agents; the person stopped sees theirs.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_admin_sees_who_pulled_every_switch() {
+    let s = server(|_| Router::new()).await;
+    let sam = s.token("sam").await;
+    assert_eq!(s.post(&sam, "/v1/admin/kill-switch/person/mo/press", json!({})).await.0, 200);
+    for admin in ["ana", "lee"] {
+        let t = s.token(admin).await;
+        let (_, v) = s.get(&t, "/v1/stops").await;
+        let stop = v["stops"].as_array().into_iter().flatten().find(|x| x["level"] == "person" && x["target"] == "mo").cloned();
+        let stop = stop.unwrap_or_else(|| panic!("{admin}'s banner does not show mo's switch: {v}"));
+        assert_eq!((stop["by_name"].as_str(), stop["mine"].as_bool(), stop["target_name"].as_str()), (Some("Sam"), Some(false), Some("Mo")), "{stop}");
+        assert!(stop["at"].is_string(), "{stop}");
+    }
+    let mo = s.token("mo").await;
+    let (_, v) = s.get(&mo, "/v1/stops").await;
+    assert_eq!(v["stops"][0]["mine"], true, "{v}");
+    s.done().await;
+}

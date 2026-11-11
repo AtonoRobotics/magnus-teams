@@ -66,23 +66,40 @@ fn name_of(k: &Kernel, actor: &str) -> String {
 /// stopped, with who pulled it and when, for the banner the app shows to the
 /// admins and to the people affected. Each is
 /// `{level: "server"|"person"|"agent"|"connector", target, by, by_name, at}`.
-fn stops_for(k: &Kernel, person: &str) -> Vec<Value> {
+///
+/// An admin's banner shows every switch that is on, also those that stop
+/// someone else's work (spec rev 141: "a banner shows who pulled it and
+/// when, to the admins and to the people affected"); each then says whether
+/// it is `mine` and names its target (`target_name`).
+fn stops_for(k: &Kernel, person: &str, admin: bool) -> Vec<Value> {
     let server = k.read(|s| s.kill_switch.then(|| s.kill_switch_by.clone()));
     let mut out = vec![];
     if let Some(by) = server {
         let (actor, at) = by.map(|(who, at)| (Some(who), Some(at))).unwrap_or((None, None));
-        out.push(json!({ "level": "server", "target": Value::Null, "by": actor, "by_name": actor.as_deref().map(|a| name_of(k, a)), "at": at }));
+        out.push(json!({ "level": "server", "target": Value::Null, "by": actor, "by_name": actor.as_deref().map(|a| name_of(k, a)), "at": at, "mine": true }));
     }
     // One person's agents, one agent, one connector (`crate::halts`).
-    out.extend(k.stops_below_server(person));
+    let mine = k.stops_below_server(person);
+    let below = if admin { k.switches_all()["on"].as_array().cloned().unwrap_or_default() } else { mine.clone() };
+    for mut s in below {
+        let is_mine = mine.iter().any(|m| m["level"] == s["level"] && m["target"] == s["target"]);
+        let target = s["target"].as_str().unwrap_or_default().to_string();
+        s["mine"] = json!(is_mine);
+        s["target_name"] = json!(if s["level"] == "connector" { target } else { name_of(k, &target) });
+        out.push(s);
+    }
     out
 }
 
-/// `GET /v1/stops`: the kill switches on that affect the signed-in person.
-/// Any signed-in person may ask; it names only who pulled what affects them.
+/// `GET /v1/stops`: the kill switches on that affect the signed-in person,
+/// and for an admin every switch that is on. Any signed-in person may ask;
+/// a person who is not an admin learns only who pulled what affects them.
 pub(super) async fn stops(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
     match crate::api::who(&k, &h).await {
-        Ok(p) => Json(json!({ "stops": stops_for(&k, &p.id) })).into_response(),
+        Ok(p) => {
+            let admin = super::admin_of(&p, k.accounts.role(&p.id).await);
+            Json(json!({ "stops": stops_for(&k, &p.id, admin) })).into_response()
+        }
         Err(r) => r,
     }
 }

@@ -5,6 +5,13 @@
 .admin-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .admin-bar h1 { margin: 0; }
 .admin-kill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-kill[hidden] { display: none; }
+/* In the app's top bar, wherever the admin is: one row that scrolls rather
+   than wraps, and the bar stays for an admin inside a team workspace too. */
+.workspace-bar .admin-kill { flex-wrap: nowrap; overflow-x: auto; max-width: 60%; }
+.workspace-bar .admin-kill button { white-space: nowrap; min-height: 32px; padding: 0 10px; }
+body[data-team][data-admin-bar]:not([data-navigation=drawer]) .workspace-bar { display: flex; }
+body[data-team][data-admin-bar]:not([data-navigation=drawer]) .shell > main { grid-row: 2; }
 .admin-sub { display: flex; gap: 4px; flex-wrap: wrap; margin: 16px 0; border-bottom: 1px solid var(--line); }
 .admin-sub a { padding: 8px 12px; border-radius: 8px 8px 0 0; color: var(--muted); text-decoration: none; }
 .admin-sub a.on { color: var(--fg); box-shadow: inset 0 -2px 0 var(--accent); }
