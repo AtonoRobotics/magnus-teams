@@ -58,7 +58,8 @@ function peopleHtml(people, owner) {
     <div data-people-note></div>
     <table class="t" data-people><thead><tr><th>Person</th><th>Role</th><th>Status</th><th></th></tr></thead>
       <tbody>${people.map(p => peopleRow(p, owner)).join("")}</tbody></table>
-    <div data-people-detail></div>`;
+    <div data-people-detail></div>
+    <section data-admin-workspaces></section>`;
 }
 
 /** The removal sheet: transfer to someone, or delete. Resolves to the body
@@ -117,6 +118,8 @@ registerAdminSection("people", async el => {
   const owner = !!AdminState.standing?.owner;
   const people = v.people || [];
   paint(el, peopleHtml(people, owner));
+  // Its Workspaces part (admin-workspaces.js) draws itself under the people.
+  if (typeof adminWorkspaces === "function") adminWorkspaces($("[data-admin-workspaces]", el));
   const note = $("[data-people-note]", el);
   const again = () => AdminState.sections.get("people")?.(el);
   /** @param {any} err */

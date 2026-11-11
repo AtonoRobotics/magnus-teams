@@ -1132,7 +1132,7 @@ async function pollInbox() {
     // Each item is considered once, so turning a kind on later does not
     // bring back everything already waiting.
     const fresh = needsMe().filter(i => !told.has(i.id));
-    for (const i of fresh.filter(wants)) Magnus.notify(i.blocking ? "A task needs you" : "Something for you", i.summary);
+    for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox" });
     if (fresh.length) save("told", [...told, ...fresh.map(i => i.id)].slice(-500));
     sidebar();
   } catch (e) {
@@ -1152,7 +1152,8 @@ async function pollVersions() {
     const news = v.changes.filter(c => c.seq > seen);
     const told = load("version-told", 0);
     if (news.length && (v.latest_seq ?? 0) > told) {
-      if (App.prefs?.notify_agent_changes !== false) Magnus.notify("The agent changed", news.map(describeChange).join("; "));
+      const said = news.map(describeChange).join("; ");
+      if (App.prefs?.notify_agent_changes !== false) Notices.show({ key: `version:${v.latest_seq}`, title: "The agent changed", body: said, system: said, href: "" });
       save("version-told", v.latest_seq);
     }
   } catch { /* shown above the conversation */ }
@@ -3191,14 +3192,29 @@ async function accountSection(el) {
 const NOTIFY = [["notify_blocking", "A task needs me now", "An approval, a question, or a review a task is waiting on."],
   ["notify_batched", "Something can wait for me", "Results to look at and proposals: decisions no task is waiting on."],
   ["notify_agent_changes", "The agent changes", "A new model, instructions, harness or policy."]];
+/** This device's own choice: whether what pops up in the app also goes to
+ * the system's notifications while Magnus is in the background. */
+function systemNotificationsCard() {
+  const allowed = Magnus.notifyPermission?.() || "unsupported";
+  const why = allowed === "denied" ? "Your browser blocks notifications from this site. Allow them in its site settings, then turn this on."
+    : allowed === "unsupported" ? "This browser cannot show notifications." : "Who wrote and where, never what a message says. Messages, mentions and what needs you also pop up in the app's lower corner.";
+  return `<h3>On this device</h3><div class="card"><label class="row toggle"><input type="checkbox" data-system-notifications ${Notices.systemOn() ? "checked" : ""}${allowed === "unsupported" ? " disabled" : ""}>
+    <span><span>Show them in ${Magnus.kind === "web" ? "this computer's" : "the system's"} notifications while Magnus is in the background</span><span class="small muted" style="display:block">${esc(why)}</span></span></label></div>`;
+}
+
 async function notificationsSection(el) {
   const draw = async () => {
     App.prefs = await api("GET", "/v1/preferences");
     paint(el, `<h2>Notifications</h2><p class="muted">Magnus tells this computer when…</p>
       <div class="card">${NOTIFY.map(([k, label, hint]) => `<label class="row toggle"><input type="checkbox" data-pref="${k}" ${App.prefs[k] ? "checked" : ""}>
-        <span><span>${esc(label)}</span><span class="small muted" style="display:block">${esc(hint)}</span></span></label>`).join("")}</div>`);
+        <span><span>${esc(label)}</span><span class="small muted" style="display:block">${esc(hint)}</span></span></label>`).join("")}</div>
+      ${systemNotificationsCard()}`);
   };
   el.onchange = async e => {
+    if (e.target.closest("input[data-system-notifications]")) {
+      if (e.target.checked && Magnus.notifyPermission?.() !== "granted") await Notices.turnOn(); else Notices.setSystem(e.target.checked);
+      return draw();
+    }
     const c = e.target.closest("input[data-pref]"); if (!c) return;
     try { App.prefs = await api("PUT", "/v1/preferences", { [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
   };
@@ -3436,7 +3452,8 @@ async function boot() {
   // Return-session details stay in Activity; informational arrivals do
   // not switch the selected region or hide the conversation's composer.
   banners();
-  background = [setInterval(refresh, 3000), setInterval(pollVersions, 30000)];
+  await Notices.poll();
+  background = [setInterval(refresh, 3000), setInterval(pollVersions, 30000), setInterval(() => Notices.poll(), 3000)];
   go();
 }
 
@@ -3444,6 +3461,7 @@ function stop() {
   App.sessionGeneration++;
   Resources.reset();
   background.forEach(clearInterval); background = [];
+  Notices.reset();
   App.timers.forEach(clearInterval); App.timers = [];
   App.leave.forEach(f => { try { f(); } catch { /* ignore */ } }); App.leave = [];
   window.onhashchange = null;

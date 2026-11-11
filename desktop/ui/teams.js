@@ -10,7 +10,7 @@ const TEAM_REFRESH_MS = 3000, TEAM_ROLES = ["guest", "member", "admin", "owner"]
 
 /**
  * @typedef {{ id: string, name: string, role: string, online: boolean }} TeamMember
- * @typedef {{ id: string, name: string, project: ?string, mode: "mentions"|"when_helpful", notify: "all"|"mentions"|"off", unread: number, mentions: number, direct: ?{ people: string[], agent: boolean } }} TeamChannel
+ * @typedef {{ id: string, name: string, project: ?string, mode: "mentions"|"when_helpful", notify: "all"|"mentions"|"off", unread: number, mentions: number, direct: ?{ people: string[], agent: boolean }, archived?: boolean, deleted?: boolean }} TeamChannel
  * @typedef {{ id: string, name: string, owner: string, members: string[], progress: { done: number, total: number }, channels: string[] }} TeamProject
  * @typedef {{ spent_usd: number, limit_usd: ?number, channels: Object<string, { spent_usd: number, limit_usd: ?number }> }} TeamSpend
  * @typedef {{ id: string, name: string, role: string, me: string, me_name: string, agent: { id: string, name: string }, members: TeamMember[], channels: TeamChannel[], projects: TeamProject[], computer: ?string, spend?: TeamSpend }} TeamHome
@@ -111,6 +111,12 @@ function railCount(c) {
 function railHtml(home, here) {
   const at = (kind, id) => here.kind === kind && here.id === id ? ' aria-current="page"' : "";
   const ws = home.id;
+  // What the person put away or deleted for themselves stays off the list;
+  // the one open now stays on it until they leave it.
+  const listed = c => here.kind === "channel" && here.id === c.id || !(c.archived || c.deleted);
+  const away = home.channels.filter(c => c.archived && !c.deleted && !listed(c));
+  home = { ...home, channels: home.channels.filter(listed) };
+  const archived = away.length ? `<details class="team-archived"><summary class="small">Archived (${away.length})</summary><nav aria-label="Archived">${away.map(c => `<a href="${teamHref(ws, { kind: "channel", id: c.id })}" data-channel="${esc(c.id)}">${esc(channelTitle(home, c))}${railCount(c)}</a>`).join("")}</nav></details>` : "";
   const open = home.channels.filter(c => !c.direct);
   const projectCount = p => open.filter(c => c.project === p.id).reduce((n, c) => n + c.mentions, 0);
   const projects = home.projects.map(p => `<a href="${teamHref(ws, { kind: "project", id: p.id })}"${at("project", p.id)} data-project="${esc(p.id)}"><span class="team-dot" aria-hidden="true"></span>${esc(p.name)}${p.progress.total ? `<span class="small faint">${p.progress.done}/${p.progress.total}</span>` : ""}${projectCount(p) ? `<span class="team-count loud">${projectCount(p)}</span>` : ""}</a>`).join("");
@@ -130,35 +136,17 @@ function railHtml(home, here) {
     <h3>Channels</h3><nav aria-label="Channels">${channels}</nav>
     <h3>Agents</h3><nav aria-label="Agents">${agents}</nav>
     <h3>Direct messages</h3><nav aria-label="Direct messages">${dms}${people.map(m => `<a href="#" data-dm="${esc(m.id)}">${avatar(m.name)}<span class="team-presence${m.online ? " on" : ""}" aria-label="${m.online ? "here" : "away"}"></span>${esc(m.name)}</a>`).join("")}</nav>
-    <a href="${teamHref(ws, { kind: "people" })}" class="small"${here.kind === "people" ? ' aria-current="page"' : ""}>People and invites</a>`;
+    ${archived}<a href="${teamHref(ws, { kind: "people" })}" class="small"${here.kind === "people" ? ' aria-current="page"' : ""}>People and invites</a>`;
 }
 
 /** The channel a workspace opens on: the first with mentions, else general. */
 function firstChannel(home) {
-  const open = home.channels.filter(c => !c.direct);
-  return (open.find(c => c.mentions) || open.find(c => c.name === "general") || open[0] || home.channels[0])?.id;
-}
-
-/**
- * What to tell the person about, from one look to the next, as each
- * channel's notification setting says: all, mentions or off.
- * @param {?TeamHome} before @param {TeamHome} now
- */
-function teamNotices(before, now) {
-  if (!before) return [];
-  const out = [];
-  for (const c of now.channels) {
-    const was = before.channels.find(x => x.id === c.id) || { unread: 0, mentions: 0 };
-    const title = channelTitle(now, c);
-    if (c.mentions > was.mentions && c.notify !== "off") out.push({ title: `You were mentioned in ${title}`, body: now.name });
-    else if (c.unread > was.unread && c.notify === "all") out.push({ title: `New in ${title}`, body: now.name });
-  }
-  return out;
+  const open = home.channels.filter(c => !c.direct && !c.archived);
+  return (open.find(c => c.mentions) || open.find(c => c.name === "general") || open[0] || home.channels.find(c => !c.archived && !c.deleted) || home.channels[0])?.id;
 }
 
 async function loadHome(ws) {
   const home = await api("GET", `/v1/workspaces/${enc(ws)}/home`);
-  for (const n of teamNotices(Team.homes[ws], home)) Magnus.notify?.(n.title, n.body);
   Team.homes[ws] = home;
   if (Team.ws === ws) Team.home = home;
   return home;
@@ -183,11 +171,21 @@ async function showTeam(main, ws, place) {
   // Keep it live: the rail, the conversation and the panel, while it is open.
   const tick = async () => {
     if (loop !== Team.loop || !main.isConnected || location.hash !== hash) return;
-    try { await loadHome(ws); draw(); await refreshCenter(main, ws); } catch (err) { /* a moment offline: the next tick tries again */ }
+    try { await loadHome(ws); draw(); await refreshCenter(main, ws); } catch (err) {
+      // Deleted, or the person was taken out of it: it is gone at once.
+      if (err?.status === 404 && err?.body?.error === "no such workspace") return leftWorkspace(ws);
+      /* otherwise a moment offline: the next tick tries again */
+    }
     setTimeout(tick, TEAM_REFRESH_MS);
   };
   setTimeout(tick, TEAM_REFRESH_MS);
   loadHome(ws).then(draw).catch(() => {});
+}
+
+/** The workspace is no longer the person's: back to the list, saying so. */
+function leftWorkspace(ws) {
+  toast("That workspace is no longer yours to open: it was deleted, or you are no longer in it.", 6000);
+  leftWorkspaceQuietly(ws);
 }
 
 /** The centre and the right panel for a place. */
@@ -231,29 +229,6 @@ async function teamActivity(center, side, ws) {
     ${a.asks?.length ? `<h2>Waiting on you</h2><ul class="team-activity-list">${a.asks.map(x => `<li><a href="#/inbox">The team agent needs your answer${x.reason ? `: ${esc(x.reason)}` : ""}</a></li>`).join("")}</ul>` : ""}
     ${section("Mentions", a.mentions || [], "No one has mentioned you.")}${section("Replies", a.replies || [], "No replies to your threads.")}</div>`);
   paint(side, "");
-}
-
-/** Members, their roles and invites, for whoever may change them. */
-async function teamPeople(center, side, ws) {
-  const home = Team.home, base = `/v1/workspaces/${enc(ws)}`, admin = ["admin", "owner"].includes(home.role);
-  const roles = selected => TEAM_ROLES.map(r => `<option ${r === selected ? "selected" : ""}>${r}</option>`).join("");
-  paint(center, `<header class="team-head"><h1>People</h1></header><div class="team-scroll">
-    <ul class="team-people">${home.members.map(m => `<li data-member="${esc(m.id)}">${avatar(m.name)}<span>${esc(m.name)}${m.id === home.me ? " (you)" : ""}</span>
-      ${admin && m.id !== home.me ? `<select data-role aria-label="Role of ${esc(m.name)}">${roles(m.role)}</select><button class="link" data-remove>Remove</button>` : `<span class="small faint">${esc(m.role)}</span>`}</li>`).join("")}
-      <li>${avatar(home.agent.name, true)}<span>${esc(home.agent.name)}</span><span class="small faint">team agent, in every channel</span></li></ul>
-    ${admin ? inviteForm() : ""}</div>`);
-  paint(side, "");
-  bindInvite(center, ws);
-  center.onchange = async e => {
-    if (!e.target.matches("[data-role]")) return;
-    try { await api("POST", `${base}/members`, { person: e.target.closest("[data-member]").dataset.member, role: e.target.value }); toast("Changed."); } catch (err) { toast(err.message); }
-  };
-  center.onclick = async e => {
-    if (!e.target.closest("[data-remove]")) return;
-    const p = e.target.closest("[data-member]").dataset.member;
-    if (!(await ask(`Remove ${p}? Their running work here stops.`, "Remove"))) return;
-    try { await api("DELETE", `${base}/members/${enc(p)}`); await loadHome(ws); teamPeople(center, side, ws); } catch (err) { toast(err.message); }
-  };
 }
 
 /** Invite inline: by email, or a link to copy. */

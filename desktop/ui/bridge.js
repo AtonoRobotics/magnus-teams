@@ -48,7 +48,11 @@ const appBridge = tauri && {
     this.invoke("live_start", { task }).catch(() => {});
     return () => { stop = true; if (unlisten) unlisten(); this.invoke("live_stop", { task }).catch(() => {}); };
   },
+  // The system's own notifications. The desktop app may always show them;
+  // a click on one is the system's to handle.
   async notify(title, body) { return this.invoke("notify", { title, body }).catch(() => {}); },
+  notifyPermission() { return "granted"; },
+  async askToNotify() { return "granted"; },
   async speak(text) { return this.invoke("speak", { text }); },
   async stopSpeaking() { return this.invoke("stop_speaking").catch(() => {}); },
   async download(path, name) { return this.invoke("download", { path, name }); },
@@ -131,11 +135,15 @@ const webBridge = {
     es.onmessage = e => { try { onText(JSON.parse(e.data).text); } catch { /* ignore */ } };
     return () => es.close();
   },
-  async notify(title, body) {
-    if (!("Notification" in window)) return;
-    if (Notification.permission === "default") await Notification.requestPermission();
-    if (Notification.permission === "granted") new Notification(title, { body });
+  // A browser shows the system's notifications only once the person has
+  // allowed them, which it asks only from their own click (askToNotify).
+  async notify(title, body, onClick) {
+    if (this.notifyPermission() !== "granted") return;
+    const n = new Notification(title, { body });
+    n.onclick = () => { window.focus(); n.close(); onClick?.(); };
   },
+  notifyPermission() { return "Notification" in window ? Notification.permission : "unsupported"; },
+  async askToNotify() { return "Notification" in window ? Notification.requestPermission() : "unsupported"; },
   async speak(text) {
     if (!("speechSynthesis" in window)) throw new Error("This browser cannot read aloud.");
     await this.stopSpeaking();

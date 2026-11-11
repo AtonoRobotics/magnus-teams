@@ -5,7 +5,7 @@
 
 /**
  * @typedef {{ task: string, requester: string, status: "working"|"waiting"|"done"|"failed"|"stopped", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
- * @typedef {{ id: string, sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, state?: "sending"|"failed", files?: string[], task?: string, private?: boolean }} TeamMessage
+ * @typedef {{ id: string, sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, state?: "sending"|"failed", files?: string[], task?: string, private?: boolean, deleted?: boolean }} TeamMessage
  * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
  */
 
@@ -68,6 +68,7 @@ function messageText(m, agent, files) {
  * @param {TeamMessage} m @param {{ me: string, ws: string, channel: string, name: (id: string) => string, guest: boolean, files?: Object<string, string>, inThread?: boolean, editing?: string }} c
  */
 function messageHtml(m, c) {
+  if (m.deleted) return deletedHtml(m, c);
   const agent = m.sender === "agent", mine = m.sender === c.me;
   const who = agent ? "Magnus" : c.name(m.sender);
   const reactions = Object.entries(m.reactions || {}).map(([e, people]) => `<button class="tm-reaction${people.includes(c.me) ? " on" : ""}" data-react="${esc(e)}" aria-pressed="${people.includes(c.me)}" title="${esc(people.map(c.name).join(", "))}">${esc(e)} ${people.length}</button>`).join("");
@@ -76,10 +77,16 @@ function messageHtml(m, c) {
   const editing = c.editing === m.id;
   const text = editing ? `<form class="tm-edit" data-edit-form><textarea aria-label="Edit message" rows="2">${esc(m.text)}</textarea><div class="row"><button class="primary">Save</button><button type="button" data-edit-cancel>Cancel</button></div></form>` : messageText(m, agent, c.files);
   const actions = m.state ? "" : `<div class="tm-actions" role="toolbar" aria-label="Message actions">${TEAM_QUICK_REACTIONS.map(e => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}
-    ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${mine && !agent ? `<button data-edit>Edit</button>` : ""}${c.guest ? "" : `<button data-pin>${m.pinned ? "Unpin" : "Pin"}</button><button data-make-task>Task</button>`}</div>`;
+    ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${mine && !agent ? `<button data-edit>Edit</button><button data-delete-msg>Delete</button>` : ""}${c.guest ? "" : `<button data-pin>${m.pinned ? "Unpin" : "Pin"}</button><button data-make-task>Task</button>`}</div>`;
   return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
     <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
     ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}</div>${actions}</article>`;
+}
+
+/** Where a deleted message stood: its replies still hang from it. @param {TeamMessage} m */
+function deletedHtml(m, c) {
+  const replies = !c.inThread && m.replies ? `<a class="tm-replies small" href="${teamHref(c.ws, { kind: "channel", id: c.channel, thread: m.id })}" data-open-thread="${esc(m.id)}">${m.replies} ${m.replies === 1 ? "reply" : "replies"}</a>` : "";
+  return `<article class="tm deleted" data-msg="${esc(m.id)}"><div class="tm-body"><div class="small">This message was deleted.</div>${replies}</div></article>`;
 }
 
 /**
@@ -101,6 +108,7 @@ function applyLocal(view, o) {
   if (!m) return view;
   if (o.op === "edit") { m.text = o.text; m.edited = true; }
   if (o.op === "pin") m.pinned = o.pinned;
+  if (o.op === "delete") { if (m.replies) Object.assign(m, { deleted: true, text: "", reactions: {} }); else view.messages = view.messages.filter(x => x !== m); }
   if (o.op === "react") {
     const r = m.reactions = { ...(m.reactions || {}) };
     const people = new Set(r[o.emoji] || []);
@@ -198,7 +206,8 @@ const TeamChat = {
     paint($("#tc-head", s.center), `<div><h1>${esc(channelTitle(home, c))}</h1>${project ? `<a class="small faint" href="${teamHref(s.ws, { kind: "project", id: project.id })}">${esc(project.name)}</a>` : ""}</div>
       <div class="team-head-tools">${channelFaces(home, c, project)}${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span class="sr">Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Magnus replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Magnus joins when it can help</option></select></label>`}
       <select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select>
-      <button type="button" data-pins aria-pressed="${s.pinsOnly}">${s.pinsOnly ? "All messages" : "Pinned"}</button></div>`);
+      <button type="button" data-pins aria-pressed="${s.pinsOnly}">${s.pinsOnly ? "All messages" : "Pinned"}</button>
+      <button type="button" data-archive="${c.archived ? "off" : "on"}" title="${c.archived ? "Back to your list" : "Off your list until someone writes here"}">${c.archived ? "Unarchive" : "Archive"}</button>${c.direct ? `<button type="button" class="danger" data-clear-conversation>Delete conversation</button>` : ""}</div>`);
     const all = mergePending(s.view.messages, s.pending);
     const roots = all.filter(m => !m.thread && (!s.pinsOnly || m.pinned));
     const catchUp = s.unreadAtOpen >= TEAM_CATCH_UP_AFTER && home.role !== "guest" ? `<button type="button" class="chip run" data-catch-up>Catch me up: ${s.unreadAtOpen} new</button>` : "";
@@ -310,6 +319,35 @@ const TeamChat = {
     root.addEventListener("click", e => this.click(e, root, tray));
   },
 
+  /** Put this conversation away, or bring it back: the caller's list only. */
+  async archive(on) {
+    const s = this.s;
+    try {
+      await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/archive`, { on });
+      await loadHome(s.ws);
+      if (on) { toast("Archived. It comes back when someone writes in it."); this.away(); } else { toast("Back on your list."); this.draw(); }
+    } catch (err) { toast(err.message); }
+  },
+
+  /** Off this conversation, now it is off the list: to the workspace's
+   * first channel still on it, else its activity. */
+  away() {
+    const s = this.s, next = firstChannel(Team.home);
+    location.hash = next && next !== s.channel ? teamHref(s.ws, { kind: "channel", id: next }) : teamHref(s.ws, { kind: "activity" });
+  },
+
+  /** Delete a direct conversation from the caller's own list and view. */
+  async clear() {
+    const s = this.s;
+    if (!(await ask("Delete this conversation from your list? What it holds now is gone for you. The others in it keep theirs.", "Delete"))) return;
+    try {
+      await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/clear`, {});
+      await loadHome(s.ws);
+      toast("Deleted from your list.");
+      this.away();
+    } catch (err) { toast(err.message); }
+  },
+
   async setting(what, body, local) {
     const s = this.s, c = Team.home.channels.find(x => x.id === s.channel);
     if (c) local(c);
@@ -322,6 +360,8 @@ const TeamChat = {
     if (t.closest("[data-team-attach]")) { $("[data-team-files]", root).click(); return; }
     if (t.closest("[data-untray]")) { const i = Number(t.closest("[data-untray]").dataset.untray), mine = s.tray.filter(f => f.prefix === (root === s.side ? "tt" : "tc")); s.tray = s.tray.filter(f => f !== mine[i]); tray(); return; }
     if (t.closest("[data-pins]")) { s.pinsOnly = !s.pinsOnly; this.draw(); return; }
+    if (t.closest("[data-archive]")) { await this.archive(t.closest("[data-archive]").dataset.archive === "on"); return; }
+    if (t.closest("[data-clear-conversation]")) { await this.clear(); return; }
     if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; this.send(`@${Team.home.agent.name} catch me up on what I missed here`, null, false, []); return; }
     if (t.closest("[data-team-download]")) { const n = t.closest("[data-team-download]").dataset.teamDownload; try { await Magnus.download(`/v1/workspaces/${enc(s.ws)}/files/${enc(n)}`, n); } catch (err) { toast(err.message); } return; }
     if (t.closest("[data-retry]")) { const p = s.pending.find(x => x.id === t.closest("[data-retry]").dataset.retry); if (p) { s.pending = s.pending.filter(x => x !== p); this.send(p.text, p.thread, false, []); } return; }
@@ -337,6 +377,11 @@ const TeamChat = {
     if (t.closest("[data-reply]")) location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: msg });
     if (t.closest("[data-edit]")) { s.editing = msg; this.draw(); $("[data-edit-form] textarea", root)?.focus(); }
     if (t.closest("[data-edit-cancel]")) { s.editing = null; this.draw(); }
+    if (t.closest("[data-delete-msg]") && await ask("Delete this message for everyone? It cannot be brought back.", "Delete")) {
+      // What was sent from here goes too, or it would show again as on its way.
+      s.pending = s.pending.filter(p => p.real !== msg);
+      this.change({ op: "delete", id: msg }, () => api("DELETE", `${base}/messages/${enc(msg)}`));
+    }
     if (t.closest("[data-pin]")) this.change({ op: "pin", id: msg, pinned: !m.pinned }, () => api("POST", `${base}/messages/${enc(msg)}/pin`, { pinned: !m.pinned }));
     if (t.closest("[data-make-task]")) {
       const c = Team.home.channels.find(x => x.id === s.channel);

@@ -65,6 +65,7 @@ function commandsFor(home, place, q) {
   const actions = [
     { label: "Activity: mentions, replies and asks", run: { kind: "go", place: { kind: "activity" } } },
     { label: "People and invites", run: { kind: "go", place: { kind: "people" } } },
+    { label: "Add people, remove them, or leave this workspace", run: { kind: "go", place: { kind: "people" } } },
     { label: `Talk to ${home.agent.name} directly`, run: { kind: "dm", agent: true } },
     { label: "All workspaces", run: { kind: "hash", hash: "#/teams" } },
   ];

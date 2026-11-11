@@ -44,6 +44,7 @@ jobs:
       - run: node desktop/tests/one-computer-check.mjs
       - run: node desktop/tests/desktop-look-check.mjs
       - run: node desktop/tests/team-check.mjs
+      - run: node desktop/tests/team-own-check.mjs
       - run: node desktop/tests/subagents-check.mjs
       - run: node desktop/tests/connect-check.mjs
       - run: node desktop/tests/globals-check.mjs

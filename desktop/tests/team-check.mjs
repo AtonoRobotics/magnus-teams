@@ -20,7 +20,7 @@ const sandbox = {
   document: { addEventListener: (type, f) => (listeners[type] ||= []).push(f) }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["teams.js", "team-chat.js", "team-panel.js", "team-command.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts };`, sandbox);
 const { Team, TeamChat } = sandbox.__x;
 
@@ -57,12 +57,6 @@ assert.match(rail, /Magnus alpha<span class="small faint">1\/3<\/span>/, "a proj
 assert.match(rail, /#magnus-alpha<span class="team-count loud" aria-label="2 mentions">2<\/span>/, "mentions are not counted in the rail");
 assert.match(rail, /data-channel="c1"[^>]*aria-current="page"|aria-current="page" data-channel="c1"/, "the open channel is not marked");
 assert.doesNotMatch(rail.match(/data-channel="c2"[^]*?<\/a>/)[0], /team-count/, "a channel with notifications off still shows a count");
-const later = { ...home, channels: home.channels.map(c => ({ ...c, unread: c.unread + 1, mentions: c.id === "c3" ? 1 : c.mentions })) };
-const notices = sandbox.teamNotices(home, later).map(n => n.title);
-assert.ok(notices.includes("You were mentioned in #general"), "a mention is not notified");
-assert.ok(notices.includes("New in #magnus-alpha"), "a channel set to all is not notified");
-assert.ok(!notices.some(t => t.includes("#design")), "a channel set to off notified");
-assert.equal(sandbox.teamNotices(null, later).length, 0, "the first look notified of everything");
 assert.match(rail, /data-direct-agent[^]*Magnus <span class="small faint">team<\/span>/, "the team agent is not listed among the agents");
 assert.match(rail, /Your Magnus <span class="small faint">private<\/span>/);
 assert.match(rail, /team-presence on[^]*Dana/, "presence is not shown for a direct message");
