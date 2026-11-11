@@ -43,12 +43,12 @@ await step("open the app", async () => {
   await page.getByRole("link", { name: "Computers" }).waitFor();
 });
 
-// Opening a computer is a use, and a use wakes it: there is no Start button
-// (spec rev 131, Lifecycle).
-await step("make a computer, and opening it wakes it", async () => {
+// The person's one computer is there with nobody making it (spec rev 142),
+// and opening it is a use, which wakes it: there is no Start button (spec
+// rev 131, Lifecycle).
+await step("open your computer, and opening it wakes it", async () => {
   await page.getByRole("link", { name: "Computers" }).click();
-  await page.getByRole("button", { name: "New computer" }).click();
-  await page.locator("[data-state]", { hasText: "Running" }).waitFor();
+  await page.locator("[data-computer] a").first().click();
   computer = new URL(page.url()).hash.split("/")[2];
 });
 

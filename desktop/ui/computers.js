@@ -18,6 +18,22 @@ const stateChip = c => {
   return `<span class="state-pill" data-pill="${w.key}">${esc(w.pill)}</span>${more}`;
 };
 
+/**
+ * One computer, always there (spec rev 142): the person's agent has exactly
+ * one, made with their account, and each workspace's team agent has one.
+ * Nobody makes or picks one; the list is the person's own and, for an admin,
+ * those of the workspaces they look after.
+ * @param {Array<{ id: string, name?: string, owner?: { person?: string, workspace?: string }, queue_position?: number }>} computers as GET /v1/computers lists them
+ */
+function cloudComputers(computers) {
+  const row = c => `<tr data-computer="${esc(c.id)}"><td><a href="#/computer/${enc(c.id)}">${esc(c.name || "Computer")}</a></td><td>${stateChip(c)}${c.queue_position ? ` <span class="small faint">number ${esc(c.queue_position)} in line</span>` : ""}</td><td><button data-open="computer:${esc(c.id)}">Pin beside the conversation</button></td></tr>`;
+  const mine = computers.filter(c => c.owner?.person), teams = computers.filter(c => c.owner?.workspace);
+  return `<h2>Your computer</h2>
+    ${mine.length ? `<table class="t"><tbody>${mine.map(row).join("")}</tbody></table>` : `<p class="empty">Your computer is being set up. It is ready the first time it is needed.</p>`}
+    <p class="small muted">It is always there: it sleeps when no one uses it and wakes whenever ${esc(agentName({}))} or you need it.</p>
+    ${teams.length ? `<h2>Team computers</h2><table class="t"><tbody>${teams.map(row).join("")}</tbody></table>` : ""}`;
+}
+
 async function showComputers(main) {
   const hash = location.hash;
   const draw = async () => {
@@ -26,16 +42,13 @@ async function showComputers(main) {
     const here = await thisComputerSection();
     if (!stillAt(hash)) return;
     paint(main, `<h1>Computers</h1>
-      <h2>Cloud computers</h2>
-      ${unavailable ? `<p class="muted">${esc(unavailable)}</p>` : computers.length ? `<table class="t"><tbody>${computers.map(c => `<tr data-computer="${esc(c.id)}"><td><a href="#/computer/${enc(c.id)}">${esc(c.name || "Computer")}</a><div class="small faint">${esc(c.id)}</div></td><td>${stateChip(c)}${c.queue_position ? ` <span class="small faint">number ${esc(c.queue_position)} in line</span>` : ""}</td><td><button data-open="computer:${esc(c.id)}">Pin beside the conversation</button></td></tr>`).join("")}</tbody></table>` : `<p class="empty">You have no cloud computer yet.</p>`}
-      ${unavailable ? "" : `<div class="row"><button class="primary" data-act="new-computer">New computer</button></div>`}
+      ${unavailable ? `<h2>Your computer</h2><p class="muted">${esc(unavailable)}</p>` : cloudComputers(computers)}
       ${here}`);
   };
   main.onclick = async e => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     try {
-      if (b.dataset.act === "new-computer") { const c = await api("POST", "/v1/computers", {}); location.hash = `#/computer/${enc(c.id)}`; return; }
       if (await thisComputerAction(b, main)) await draw();
     } catch (err) { toast(err.message); }
   };
@@ -135,7 +148,9 @@ async function thisComputerAction(b, main) {
 // ---------- one computer ----------
 
 // What each control on a computer does. Each returns the computer to show
-// next: the same id, another one, "" for the list, or null to stay as it is.
+// next: the same id, another one (a reset that erased it), or null to stay as
+// it is. There is no delete: a reset takes its place, so the agent is never
+// without its computer (spec rev 142).
 const COMPUTER_ACTS = {
   start: async (base, id) => { await api("POST", `${base}/start`, {}); return id; },
   hibernate: async (base, id) => { await api("POST", `${base}/hibernate`, {}); return id; },
@@ -152,13 +167,6 @@ const COMPUTER_ACTS = {
     toast(choice === "keep" ? "Reset. It is rebuilt when it is next used, with its apps installed again." : "Reset. This is a new, empty computer.");
     return r.id;
   },
-  delete: async (base) => {
-    const sure = await ask("Delete this computer? It is stopped and everything on it is lost for good: your files in /workspace, its installed apps, its snapshots and backups, and every password and token the vault keeps for it. Any access it was given is taken back. This cannot be undone.", "Delete it and everything on it");
-    if (!sure) return null;
-    await api("POST", `${base}/kill`, { mode: "destroy", delete_volume: true });
-    toast("The computer and everything on it are deleted.");
-    return "";
-  },
 };
 const accessWord = n => n === 1 ? "1 access was" : n ? `${n} accesses were` : "No access was";
 
@@ -171,12 +179,13 @@ function chooseReset() {
       <p>The computer is stopped and put back to a fresh system. Running programs, anything the agent changed outside your files, and every access it was given are lost. Its apps are installed again when it next starts.</p>
       <p>You choose what happens to your files in /workspace:</p>
       <div class="row"><button data-ask="no">Back</button><button class="primary" data-ask="keep">Reset and keep my files</button><button class="danger" data-ask="erase">Reset and erase my files</button></div>
-      <p class="small muted">Erasing your files also deletes the computer's backups and the passwords and tokens the vault keeps for it, and cannot be undone.</p>`;
+      <p class="small muted">Erasing your files also deletes the computer's backups and the passwords and tokens the vault keeps for it, and cannot be undone. Either way you keep one computer: a fresh one takes its place.</p>`;
     d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
     d.addEventListener("close", () => { d.remove(); done(["keep", "erase"].includes(d.returnValue) ? d.returnValue : null); });
     document.body.append(d);
     d.showModal();
-    $("[data-ask=no]", d).focus();
+    // Keeping the files is the default (spec rev 142).
+    $("[data-ask=keep]", d).focus();
   });
 }
 
@@ -194,7 +203,7 @@ async function showComputer(main, id, tab) {
     ${c.status === "paused" ? `<button class="primary" data-act="start">Resume</button>` : ""}
     ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}<button data-open="computer:${esc(id)}">Pin beside the conversation</button>
     ${c.status === "running" ? `<button class="danger" data-act="pause" title="The kill switch: freezes the computer and takes back every access it was given">Pause now</button>` : ""}
-    <button data-act="reset">Reset…</button><button class="link danger" data-act="delete">Delete computer…</button></div>
+    <button data-act="reset">Reset…</button></div>
     ${takeoverAsk(c)}`;
   const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>${esc(c.name || "Computer")}</h1><div data-head>${state(c)}</div><nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
   paint(main, head(c));

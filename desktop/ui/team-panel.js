@@ -11,14 +11,14 @@
 const TeamScreens = {}, TeamScreenCaptions = {};
 
 /**
- * Where the team computer would be: an admin gives the team agent one in
- * a click, and anyone else is told who can.
+ * Where the team computer shows before the server has made it: the
+ * workspace always has one (spec rev 142), so nobody sets it up; it is made
+ * with the workspace and is ready the first time the agent needs it.
  * @param {TeamHome} home
  */
 function noTeamComputer(home) {
-  const admin = ["admin", "owner"].includes(home.role), agent = esc(home.agent.name);
-  return `<div class="team-screen"><div class="team-screen-none"><p class="small">${agent} has no computer of its own here yet. It works without one, but cannot browse or use apps for the team.</p>
-    ${admin ? `<button class="primary" data-team-computer-new>Give ${agent} a computer</button>` : `<p class="small faint">An admin of the workspace can give it one.</p>`}</div></div>`;
+  const agent = esc(home.agent.name);
+  return `<div class="team-screen"><div class="team-screen-none"><p class="small">${agent}'s computer is being set up. It is ready the first time ${agent} needs it.</p></div></div>`;
 }
 const TEAM_STATUSES = [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]];
 const TEAM_PROJECT_TABS = [["overview", "Overview"], ["board", "Board"], ["files", "Files"], ["knowledge", "Knowledge"], ["members", "Members"]];
@@ -299,11 +299,3 @@ document.addEventListener("drop", e => {
   TeamPanel.upload(e.dataTransfer.files);
 });
 document.addEventListener("dragover", e => { if (e.target.closest?.("[data-drop-files]")) e.preventDefault(); });
-// An admin gives the team agent its computer from the panel, wherever it shows.
-document.addEventListener("click", async e => {
-  const b = e.target.closest?.("[data-team-computer-new]");
-  if (!b || !Team.ws) return;
-  b.disabled = true;
-  try { await api("POST", "/v1/computers", { workspace: Team.ws }); toast(`${Team.home.agent.name} has its computer. It wakes when it is used.`); await refreshCenter($("#main"), Team.ws); }
-  catch (err) { toast(err.message); b.disabled = false; }
-});

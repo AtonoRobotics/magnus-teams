@@ -145,7 +145,7 @@ function controlStrip(c, holding) {
 /**
  * The person's own computer in a conversation's head: what it is doing, and
  * one click pins its screen beside the conversation (spec: Status; Preview).
- * "" when they have no cloud computer.
+ * "" on a server without computers, or before it has made theirs.
  * @param {Array<object>|null|undefined} computers as GET /v1/computers lists them
  */
 function computerChip(computers) {

@@ -147,9 +147,15 @@ assert.match(overview, /Magnus is working for Dana/, "the panel does not say who
 assert.match(overview, /data-take-over="pc1"/, "the team computer cannot be taken over from the panel");
 assert.match(overview, /notes\.md/);
 const noComputer = { project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null };
-assert.doesNotMatch(sandbox.overviewHtml(noComputer, "w"), /data-team-computer-new/, "a member who is not an admin is offered to set up the team computer");
-Team.home = { ...home, role: "admin" };
-assert.match(sandbox.overviewHtml(noComputer, "w"), /data-team-computer-new/, "an admin cannot give the team agent a computer from the panel");
+// One computer, always there (spec rev 142): nobody sets the team computer
+// up, an admin no more than a member; before the server has made it, the
+// panel says it is coming.
+for (const role of ["member", "admin", "owner"]) {
+  Team.home = { ...home, role };
+  const html = sandbox.overviewHtml(noComputer, "w");
+  assert.doesNotMatch(html, /data-team-computer-new|a computer<\/button>/, `the ${role} is offered to set up the team computer`);
+  assert.match(html, /being set up/, `the ${role} is not told the computer is coming`);
+}
 Team.home = home;
 assert.equal(sandbox.workTitle("@Magnus pull together the feedback\nmore"), "Pull together the feedback", "a work card's title keeps the mention that asked");
 assert.equal(sandbox.workTitle("Magnus, sum it up"), "Magnus, sum it up");
