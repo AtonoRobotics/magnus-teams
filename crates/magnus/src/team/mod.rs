@@ -19,7 +19,7 @@ pub(crate) mod knowledge;
 mod presence;
 mod project_routes;
 mod routes;
-mod routines;
+pub(crate) mod routines;
 mod search;
 pub mod spend;
 mod upkeep;
@@ -163,6 +163,11 @@ pub enum Change {
         id: String,
         #[serde(default)]
         def: Project,
+    },
+    /// An admin deleted it with the person who owned it (Admin, People).
+    ProjectRemoved {
+        workspace: String,
+        id: String,
     },
     ChannelProject {
         workspace: String,
@@ -432,6 +437,12 @@ impl Ledger {
             Change::Project { workspace, id, def } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.projects.insert(id.clone(), def.clone());
+                }
+            }
+            Change::ProjectRemoved { workspace, id } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.projects.remove(id);
+                    w.channels.values_mut().filter(|c| c.project.as_deref() == Some(id.as_str())).for_each(|c| c.project = None);
                 }
             }
             Change::ChannelProject { workspace, channel, project } => {

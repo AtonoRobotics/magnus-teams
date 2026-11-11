@@ -2,21 +2,19 @@
 //! the app's own API served on a loopback port.
 
 use super::guard::{mark, ADMIN_STEP_UP_SECONDS, STEP_UP_ERROR};
-use super::mount::pass;
 use crate::accounts::Role;
 use crate::api::Transport;
 use crate::kernel::Kernel;
-use axum::routing::get;
 use axum::Router;
 use chrono::Utc;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-const PASSWORD: &str = "a-long-admin-password";
+pub(super) const PASSWORD: &str = "a-long-admin-password";
 
-struct Server {
-    k: Arc<Kernel>,
+pub(super) struct Server {
+    pub(super) k: Arc<Kernel>,
     base: String,
     http: reqwest::Client,
     db: String,
@@ -39,7 +37,7 @@ async fn database() -> (String, String) {
     let c = crate::log::connect(&url).await.unwrap();
     c.batch_execute(
         "CREATE TABLE public.events (seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(), kind text NOT NULL, actor text NOT NULL, run_id text, body jsonb NOT NULL);
-         CREATE TABLE public.content (seq bigint PRIMARY KEY REFERENCES public.events (seq), salt bytea NOT NULL, body jsonb NOT NULL);",
+         CREATE TABLE public.content (seq bigint PRIMARY KEY REFERENCES public.events (seq), salt bytea NOT NULL, body jsonb NOT NULL, person text);",
     )
     .await
     .unwrap();
@@ -50,7 +48,7 @@ async fn database() -> (String, String) {
 /// sam owns the server, ana is an admin by the config's role, lee by the
 /// server's own directory, and mo is a member.
 /// `extra` adds routes beside the app's, given the kernel.
-async fn server(extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>>) -> Server {
+pub(super) async fn server(extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>>) -> Server {
     let dir = tempfile::tempdir().unwrap();
     let (url, db) = database().await;
     let p = dir.path().join("magnus.toml");
@@ -77,16 +75,16 @@ async fn server(extra: impl FnOnce(Arc<Kernel>) -> Router<Arc<Kernel>>) -> Serve
 }
 
 impl Server {
-    async fn done(self) {
+    pub(super) async fn done(self) {
         let admin = crate::log::connect(&pg()).await.unwrap();
         admin.batch_execute(&format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db)).await.unwrap();
     }
 
-    async fn token(&self, person: &str) -> String {
+    pub(super) async fn token(&self, person: &str) -> String {
         self.k.accounts.open_session(person, "browser", None).await.unwrap().1
     }
 
-    async fn call(&self, token: &str, method: reqwest::Method, path: &str, body: Option<Value>) -> (u16, Value) {
+    pub(super) async fn call(&self, token: &str, method: reqwest::Method, path: &str, body: Option<Value>) -> (u16, Value) {
         let mut r = self.http.request(method, format!("{}{path}", self.base)).bearer_auth(token);
         if let Some(b) = body {
             r = r.json(&b);
@@ -96,15 +94,15 @@ impl Server {
         (status, r.json().await.unwrap_or(Value::Null))
     }
 
-    async fn get(&self, token: &str, path: &str) -> (u16, Value) {
+    pub(super) async fn get(&self, token: &str, path: &str) -> (u16, Value) {
         self.call(token, reqwest::Method::GET, path, None).await
     }
 
-    async fn post(&self, token: &str, path: &str, body: Value) -> (u16, Value) {
+    pub(super) async fn post(&self, token: &str, path: &str, body: Value) -> (u16, Value) {
         self.call(token, reqwest::Method::POST, path, Some(body)).await
     }
 
-    fn audited(&self, action: &str) -> Vec<Value> {
+    pub(super) fn audited(&self, action: &str) -> Vec<Value> {
         self.k.read(|s| s.audit.iter().map(|(_, _, v)| v.clone()).filter(|v| v["action"] == action).collect())
     }
 }
@@ -155,7 +153,8 @@ async fn only_owners_and_admins_get_in() {
 /// does not step up and counts toward the lockout sign-in uses.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_change_needs_a_step_up_within_the_window() {
-    let s = server(|k| super::guarded(Router::new().route("/v1/admin/sign-in-policy", get(pass(None)).put(pass(Some("sign_in_policy_changed")))), k)).await;
+    // Security's own route (`security::set_policy`), as an admin reaches it.
+    let s = server(|_| Router::new()).await;
     let sam = s.token("sam").await;
     let put = |b: Value| s.call(&sam, reqwest::Method::PUT, "/v1/admin/sign-in-policy", Some(b));
     let (st, v) = put(json!({ "code_required": false })).await;

@@ -189,6 +189,12 @@ impl Computers {
     }
 
     /// Which computer runs as `uid`, for the egress proxy to name a connection.
+    /// How many computers run now and exist, against what this machine
+    /// allows: the admin's "computers and capacity" (spec rev 141).
+    pub fn capacity(&self) -> Result<serde_json::Value> {
+        Ok(serde_json::json!({ "live": self.live_count()?, "max_live": self.cfg.max_live, "computers": self.list()?.len(), "max_computers": self.cfg.max_computers }))
+    }
+
     pub fn whose_uid(&self, uid: u32) -> Result<Option<ComputerId>> {
         for id in self.list()? {
             if self.meta(&id)?.uid == uid {

@@ -1,0 +1,78 @@
+//! The page behind an invitation link (spec rev 141, People: "Invite by
+//! email or link"): the person chooses their password with the single-use
+//! token the link carries, and then signs in to the app as anyone does.
+//! The token is checked by `Accounts::accept`, as the app's own
+//! `/v1/invites/accept` checks it.
+
+use crate::api::Transport;
+use crate::kernel::Kernel;
+use axum::extract::{ConnectInfo, Form, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::{Extension, Router};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+/// Where an invitation link points, below the server's address.
+pub const INVITE_PATH: &str = "/invite";
+
+pub(super) fn routes() -> Router<Arc<Kernel>> {
+    Router::new().route(INVITE_PATH, get(page).post(accept))
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+fn shell(title: &str, body: &str) -> Response {
+    let html = format!(
+        "<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>{title}</title><style>body{{font-family:system-ui,sans-serif;max-width:28em;margin:4em auto;padding:0 1em;color:#1a1a1a;background:#fff}}input,button{{font:inherit}}input{{display:block;width:100%;box-sizing:border-box;margin:.4em 0 1em;padding:.5em}}button{{padding:.5em 1.2em}}.error{{color:#a00}}@media (prefers-color-scheme:dark){{body{{background:#161616;color:#eee}}}}</style></head><body>{body}</body></html>"
+    );
+    (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
+}
+
+fn form(token: &str, error: Option<&str>) -> Response {
+    let error = error.map(|e| format!("<p class=error>{}</p>", escape(e))).unwrap_or_default();
+    shell(
+        "Join Magnus",
+        &format!(
+            "<h1>Join Magnus</h1><p>Choose the password you will sign in with.</p>{error}<form method=post action={INVITE_PATH}><input type=hidden name=token value=\"{}\"><label>Password<input type=password name=password autocomplete=new-password required></label><label>Repeat it<input type=password name=confirm autocomplete=new-password required></label><button>Join</button></form>",
+            escape(token)
+        ),
+    )
+}
+
+async fn page(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Query(q): Query<HashMap<String, String>>) -> Response {
+    if let Err(r) = crate::api::over_tls(&k, t, peer) {
+        return r;
+    }
+    let token = q.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
+    if token.is_empty() {
+        return shell("Invitation", "<h1>This link has no invitation in it.</h1><p>Ask the person who invited you to send it again.</p>");
+    }
+    form(&token, None)
+}
+
+async fn accept(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Form(f): Form<HashMap<String, String>>) -> Response {
+    if let Err(r) = crate::api::over_tls(&k, t, peer) {
+        return r;
+    }
+    let token = f.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
+    let password = f.get("password").cloned().unwrap_or_default();
+    if f.get("confirm") != Some(&password) {
+        return form(&token, Some("The two passwords do not match."));
+    }
+    if password.chars().count() < k.cfg.sign_in.min_password_length {
+        return form(&token, Some(&format!("A password needs at least {} characters.", k.cfg.sign_in.min_password_length)));
+    }
+    match k.accounts.accept(&token, &password).await {
+        Ok(Some(_)) => shell("You are in", "<h1>You are in.</h1><p>Open Magnus and sign in with your email address or name and the password you chose.</p>"),
+        Ok(None) => shell("Invitation", "<h1>This invitation is spent or expired.</h1><p>Ask the person who invited you to send it again.</p>"),
+        Err(e) => {
+            tracing::error!("accepting an invitation: {e:#}");
+            shell("Invitation", "<h1>Something went wrong.</h1><p>Try again in a minute.</p>")
+        }
+    }
+}

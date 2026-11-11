@@ -412,7 +412,7 @@ impl Kernel {
         };
         let said = if standing.is_some() { "covered by a grant or schedule the person set up" } else { "asked for by the person" };
         match self.auto_review(a, f, run, shown, &hash, said).await? {
-            crate::auto_review::Verdict::Allow(why) if self.cfg.auto_review.delegate || standing.is_some() => {
+            crate::auto_review::Verdict::Allow(why) if self.auto_review_acts() || standing.is_some() => {
                 match standing {
                     Some(s) => self.record_standing(a, run, &None, s).await?,
                     None => self.decision(a, "allow", "auto_review", &why, None).await?,

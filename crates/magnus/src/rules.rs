@@ -231,7 +231,7 @@ impl Kernel {
         }
         let person = self.person(&run.person)?;
         let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
-        let rules = self.read(|s| s.rules.of(&run.person));
+        let rules = self.rules_for(&run.person);
         rules.into_iter().filter(|r| r.live() && r.effect() == Effect::Allow).find_map(|r| {
             let cedar = r.compiled.as_ref()?.cedar.clone();
             destinations.iter().all(|d| policy::rule_covers(&cedar, &person, &facts, d).unwrap_or(false)).then_some(r.id)

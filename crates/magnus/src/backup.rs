@@ -650,6 +650,21 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
     Ok((n, last))
 }
 
+/// The backups as the owner's Settings and the admin's Operations show
+/// them: where, how often, how long kept, the latest and whether it
+/// restored, the off-host copy, and backups still holding removed content.
+pub fn status(k: &Kernel) -> Value {
+    let dir = k.cfg.backup_dir();
+    let files: Vec<Value> = list(&dir).into_iter().map(|(f, b)| json!({ "file": f, "bytes": b })).collect();
+    let last = k.read(|s| s.last_backup.clone()).map(|(file, ok, detail, at)| json!({ "file": file, "restored": ok, "detail": detail, "at": at }));
+    let copy = k.read(|s| s.last_copy.clone()).map(|(file, ok, detail, at)| json!({ "file": file, "copied": ok, "detail": detail, "at": at }));
+    let c = &k.cfg.backup;
+    // Backups that still hold removed content, erased people's among it (#195).
+    let pending =
+        k.read(|s| s.scrub_pending.clone().map(|p| json!({ "files": p.files, "detail": p.detail, "since": p.at, "erasures": s.erasures.values().filter(|e| e.pending).count() })));
+    json!({ "dir": dir, "every_hours": c.every_hours, "keep_days": c.keep_days, "copy_to": c.copy_to, "on_appliance_disk": c.dir.is_none(), "latest": last, "copy": copy, "files": files, "scrub_pending": pending })
+}
+
 pub fn list(dir: &PathBuf) -> Vec<(String, u64)> {
     try_list(dir).unwrap_or_default()
 }

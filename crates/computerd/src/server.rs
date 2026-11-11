@@ -49,6 +49,8 @@ pub enum Request {
     },
     /// Where the egress proxy listens.
     EgressSocket,
+    /// How many computers run and exist, against the machine's limits.
+    Capacity,
     /// The computer that runs as this uid.
     Whose {
         uid: u32,
@@ -133,6 +135,7 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
         }
         Request::Backup { id: raw } => c.backup(&id(&raw)?)?,
         Request::EgressSocket => json!({ "socket": c.proxy_socket() }),
+        Request::Capacity => c.capacity()?,
         Request::Whose { uid } => json!({ "id": c.whose_uid(uid)?.map(|i| i.as_str().to_string()) }),
         Request::RestoreBackup { id: raw } => c.restore_backup(&id(&raw)?)?,
         Request::StartBrowser { id: raw } => {
@@ -293,5 +296,6 @@ mod tests {
             assert!(serde_json::from_str::<Request>(bad).is_err(), "{bad} was accepted");
         }
         assert!(serde_json::from_str::<Request>(r#"{"op":"destroy","id":"a","delete_volume":true}"#).is_ok());
+        assert!(serde_json::from_str::<Request>(r#"{"op":"capacity"}"#).is_ok(), "the machine cannot be asked its capacity");
     }
 }

@@ -227,6 +227,13 @@ impl Kernel {
         Ok(json!({ "status": "hibernated" }))
     }
 
+    /// How many computers run and exist on this machine, against its limits,
+    /// as the computer service counts them (Admin, Operations).
+    pub async fn computer_capacity(&self) -> Result<Value, Refused> {
+        let socket = self.computer_socket()?;
+        client::ask(&socket, json!({ "op": "capacity" })).await.map_err(failed)
+    }
+
     pub async fn backup_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
         self.controlled_computer(who, id)?;

@@ -998,6 +998,7 @@ pub struct State {
     /// which app through its connect screen (spec rev 140).
     pub tools: crate::tool_gate::Ledger,
     pub spend: crate::spend::Ledger,
+    pub admin_settings: crate::admin_app::settings::Settings,
     pub secrets: HashSet<String>,
     pub memory: Vec<MemoryEntry>,
     /// The company knowledge base; its searchable index is in Postgres.
@@ -1381,6 +1382,7 @@ impl State {
             Ev::Team(c) => self.team.apply(c),
             Ev::Push(c) => self.push.apply(c),
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
+            Ev::AdminSetting(c) => self.admin_settings.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;

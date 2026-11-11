@@ -157,8 +157,7 @@ pub enum Ev {
     DesktopChannelSet {
         channel: String,
     },
-    /// The admin console's own session lifetimes, as an admin set them
-    /// under Security › Sign-in.
+    /// The retired console's session lifetimes: read, and changing nothing.
     ConsoleSettings {
         idle_minutes: i64,
         session_hours: i64,
@@ -186,6 +185,7 @@ pub enum Ev {
     Push(crate::push::Change),
     Tools(crate::tool_gate::Change),
     Spend(crate::spend::Change),
+    AdminSetting(crate::admin_app::settings::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {
         run: String,

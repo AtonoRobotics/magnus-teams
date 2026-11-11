@@ -41,9 +41,21 @@
 //! [`mount::audited`] from a handler, as [`kill`] does.
 
 pub mod agents;
+pub mod connectors;
 pub mod guard;
+pub mod invite_page;
 pub mod kill;
 pub mod mount;
+pub mod operations;
+pub mod overview;
+pub mod people;
+pub mod remove;
+pub mod roles;
+pub mod rules;
+#[cfg(test)]
+mod sections_tests;
+pub mod security;
+pub mod settings;
 #[cfg(test)]
 mod tests;
 
@@ -88,7 +100,7 @@ impl Admin {
 /// Every route of the Admin section, the guarded and the few every signed-in
 /// person reaches (`standing`, `stops`). Merged into the app's API.
 pub fn router(k: Arc<Kernel>) -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/admin/standing", get(standing)).route("/v1/stops", get(kill::stops)).merge(guarded(admin_routes(), k))
+    Router::new().route("/v1/admin/standing", get(standing)).route("/v1/stops", get(kill::stops)).merge(invite_page::routes()).merge(guarded(admin_routes(), k))
 }
 
 /// `routes` behind the guard: each answers only an admin, a change only after
@@ -100,7 +112,17 @@ pub fn guarded(routes: Router<Arc<Kernel>>, k: Arc<Kernel>) -> Router<Arc<Kernel
 /// The routes only an admin reaches, put behind the guard by [`router`].
 /// A section adds its own here: `.merge(crate::admin_app::people::routes())`.
 fn admin_routes() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/admin/step-up", post(guard::step_up)).merge(kill::routes()).merge(crate::spend::routes::admin_routes()).merge(agents::routes())
+    Router::new()
+        .route("/v1/admin/step-up", post(guard::step_up))
+        .merge(kill::routes())
+        .merge(overview::routes())
+        .merge(people::routes())
+        .merge(connectors::routes())
+        .merge(rules::routes())
+        .merge(security::routes())
+        .merge(operations::routes())
+        .merge(crate::spend::routes::admin_routes())
+        .merge(agents::routes())
 }
 
 /// Whether the signed-in person is an admin, so the app shows the Admin
