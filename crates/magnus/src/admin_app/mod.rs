@@ -40,6 +40,7 @@
 //! its own target or before and after, call [`mount::control`] and
 //! [`mount::audited`] from a handler, as [`kill`] does.
 
+pub mod agents;
 pub mod guard;
 pub mod kill;
 pub mod mount;
@@ -99,7 +100,7 @@ pub fn guarded(routes: Router<Arc<Kernel>>, k: Arc<Kernel>) -> Router<Arc<Kernel
 /// The routes only an admin reaches, put behind the guard by [`router`].
 /// A section adds its own here: `.merge(crate::admin_app::people::routes())`.
 fn admin_routes() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/admin/step-up", post(guard::step_up)).merge(kill::routes()).merge(crate::spend::routes::admin_routes())
+    Router::new().route("/v1/admin/step-up", post(guard::step_up)).merge(kill::routes()).merge(crate::spend::routes::admin_routes()).merge(agents::routes())
 }
 
 /// Whether the signed-in person is an admin, so the app shows the Admin

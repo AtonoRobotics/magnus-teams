@@ -66,13 +66,15 @@ fn name_of(k: &Kernel, actor: &str) -> String {
 /// stopped, with who pulled it and when, for the banner the app shows to the
 /// admins and to the people affected. Each is
 /// `{level: "server"|"person"|"agent"|"connector", target, by, by_name, at}`.
-fn stops_for(k: &Kernel, _person: &str) -> Vec<Value> {
+fn stops_for(k: &Kernel, person: &str) -> Vec<Value> {
     let server = k.read(|s| s.kill_switch.then(|| s.kill_switch_by.clone()));
     let mut out = vec![];
     if let Some(by) = server {
         let (actor, at) = by.map(|(who, at)| (Some(who), Some(at))).unwrap_or((None, None));
         out.push(json!({ "level": "server", "target": Value::Null, "by": actor, "by_name": actor.as_deref().map(|a| name_of(k, a)), "at": at }));
     }
+    // One person's agents, one agent, one connector (`crate::halts`).
+    out.extend(k.stops_below_server(person));
     out
 }
 
