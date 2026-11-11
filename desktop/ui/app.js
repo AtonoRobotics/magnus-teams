@@ -1170,7 +1170,7 @@ function describeChange(c) {
 async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects"})[k],path,k);
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
-  const computers = api("GET", "/v1/computers").then(r => { App.computers = r.computers; }, () => { /* Without a computer service there is nothing to show. */ });
+  const computers = api("GET", "/v1/computers").then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
   const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox(), computers]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks

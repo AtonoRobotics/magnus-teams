@@ -162,6 +162,7 @@ impl Kernel {
 
     /// A new overlay has none of the computer's apps yet.
     pub(super) async fn after_boot(&self, socket: &Path, id: &str, woke: &Value) {
+        self.apply_desktop_theme(socket, id).await;
         if woke["resumed"] != true {
             // On every cold boot, so a CA change reaches an overlay that stayed.
             if let Err(e) = self.trust_computer_ca(socket, id).await {
@@ -180,6 +181,7 @@ impl Kernel {
                 }
                 return;
             }
+            self.add_app_to_menu(socket, id, &app.name).await;
         }
     }
 

@@ -130,8 +130,9 @@ impl Kernel {
         if !host.is_some_and(|h| super::egress::carried(id, &h, &sha256)) {
             return Err(Refused::Invalid("the proxy did not carry this file from that source: an app is recorded with the address it was downloaded from".into()));
         }
-        let app = App { name, version, source, sha256: sha256.clone(), steps, hosts };
+        let app = App { name: name.clone(), version, source, sha256: sha256.clone(), steps, hosts };
         self.record_computer(who, Change::AppInstalled { id: id.into(), app }).await?;
+        self.add_app_to_menu(&socket, id, &name).await;
         Ok(json!({ "sha256": sha256 }))
     }
 

@@ -51,6 +51,7 @@ impl Change {
             | Change::PageClosed { id, .. }
             | Change::AppInstalled { id, .. }
             | Change::HeldBySwitch { id, .. }
+            | Change::DesktopTheme { id, .. }
             | Change::AppRemoved { id, .. }
             | Change::ReplayFailed { id, .. }
             | Change::FileDeleted { id, .. }

@@ -4,6 +4,7 @@
 
 mod apps;
 mod client;
+mod desktop;
 mod devview;
 mod driving;
 mod egress;
@@ -277,6 +278,30 @@ pub enum Change {
         id: String,
         reason: String,
     },
+    /// The look of its desktop, following its person's app theme (spec
+    /// rev 145, The desktop).
+    DesktopTheme {
+        id: String,
+        theme: Theme,
+    },
+}
+
+/// A desktop's look: light or dark, as the person's app is.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    Light,
+    #[default]
+    Dark,
+}
+
+impl Theme {
+    pub fn name(self) -> &'static str {
+        match self {
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
 }
 
 /// One installed app, enough to install it again on a fresh overlay.
@@ -356,6 +381,8 @@ pub struct Computer {
     pub last_used: Option<DateTime<Utc>>,
     /// The kill switch whose release resumes it, while one holds it paused.
     pub held_by: Option<String>,
+    /// Its desktop's look.
+    pub theme: Theme,
 }
 
 /// Stands in for a credential the vault holds, at one host only.
@@ -452,6 +479,7 @@ impl Ledger {
                 surrogates: vec![],
                 last_used: None,
                 held_by: None,
+                theme: Theme::default(),
             },
         );
     }
@@ -558,6 +586,11 @@ impl Ledger {
             Change::Restored { .. } | Change::Kept { .. } => {}
             // What was on the old volume is gone, and so is what stood in
             // for a credential there; the apps stay, to be installed again.
+            Change::DesktopTheme { id, theme } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.theme = *theme;
+                }
+            }
             Change::HeldBySwitch { id, reason } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.held_by = Some(reason.clone());
@@ -665,6 +698,17 @@ mod tests {
         let c = l.get("a").unwrap();
         assert_eq!(c.status, Status::Running);
         assert!(c.grants[0].revoked);
+    }
+
+    #[test]
+    fn a_desktop_is_dark_until_its_person_asks_for_light() {
+        let mut l = Ledger::default();
+        created(&mut l, "a");
+        assert_eq!(l.get("a").unwrap().theme, Theme::Dark);
+        l.apply(&Change::DesktopTheme { id: "a".into(), theme: Theme::Light });
+        assert_eq!(l.get("a").unwrap().theme, Theme::Light);
+        let text = serde_json::to_value(crate::events::Ev::Computer(Change::DesktopTheme { id: "a".into(), theme: Theme::Light })).unwrap();
+        assert_eq!((text["change"].as_str(), text["theme"].as_str()), (Some("desktop_theme"), Some("light")));
     }
 
     #[test]

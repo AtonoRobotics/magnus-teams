@@ -9,7 +9,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -40,6 +40,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}/pages", post(open_page))
         .route("/v1/computers/{id}/pages/{page}", delete(close_page))
         .route("/v1/computers/{id}/hibernate", post(hibernate))
+        .route("/v1/computers/{id}/theme", put(theme))
         .route("/v1/computers/{id}/backup", post(backup))
         .route("/v1/computers/{id}/restore", post(restore))
         .route("/v1/computers/{id}/apps", get(list_apps).post(install_app))
@@ -228,6 +229,18 @@ async fn delete_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q)
 async fn hibernate(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     let p = person!(k, h);
     answered(k.hibernate_computer(&p, &id).await)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesktopTheme {
+    theme: super::Theme,
+}
+
+/// The person's app theme, for their computer's desktop.
+async fn theme(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<DesktopTheme>) -> Response {
+    let p = person!(k, h);
+    answered(k.set_desktop_theme(&p, &id, b.theme).await)
 }
 
 async fn backup(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {

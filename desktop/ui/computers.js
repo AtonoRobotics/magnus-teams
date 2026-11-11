@@ -485,3 +485,17 @@ document.addEventListener("click", async e => {
     await refresh();
   } catch (err) { toast(err.message); button.disabled = false; }
 });
+
+// The person's own computer's desktop is light or dark as their app is
+// (spec rev 145, The desktop). It is told only when they differ. A team's
+// computer keeps its own look: it has many people and no one theme.
+function followDesktopLook() {
+  const mode = Theme.look?.mode;
+  if (mode !== "light" && mode !== "dark") return;
+  for (const c of App.computers || []) {
+    if (c.owner?.person !== App.me?.id || (c.role && c.role.kind !== "computer") || c.theme === mode) continue;
+    c.theme = mode;
+    api("PUT", `/v1/computers/${enc(c.id)}/theme`, { theme: mode }).catch(() => { c.theme = undefined; });
+  }
+}
+window.addEventListener("magnus-theme", followDesktopLook);
