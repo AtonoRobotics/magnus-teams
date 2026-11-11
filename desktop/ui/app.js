@@ -1161,7 +1161,9 @@ function describeChange(c) {
 // inbox; then every view that shows them is drawn again from what was read.
 async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects"})[k],path,k);
-  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox()]);
+  // The person's computers, for the conversation's head: whether one is in use, and by which agent.
+  const computers = api("GET", "/v1/computers").then(r => { App.computers = r.computers; }, () => { /* Without a computer service there is nothing to show. */ });
+  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox(), computers]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks
   // (owner, 2026-11-07): developers see them in the run inspector.
@@ -1510,7 +1512,7 @@ function convHead(thread, project) {
   const p = here ? here.project : project && App.projects.find(x => x.id === project);
   paint(el, `<div class="conv-title"><div class="small muted">${p ? `<a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a>` : thread ? "No project" : ""}</div>
     <h1 title="${esc(here?.title || "")}">${esc(here?.title || "New conversation")}</h1></div>
-    ${thread ? `<div class="row">${moveControl(thread, here?.project, App.projects, true)}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button></div>` : ""}`);
+    <div class="row">${computerChip(App.computers)}${thread ? `${moveControl(thread, here?.project, App.projects, true)}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -3488,7 +3490,7 @@ function stop() {
   Panel.rendered=null;Resources.forget("Work");
   Theme.scope(null, null);
   Panel.unwatch?.(); Panel.unwatch=null; Panel.anchors={}; Panel.layers={}; Panel.opener=null; Panel.drawn=null; Panel.what=null; App.draftRecord=null;
-  App.me = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
+  App.me = null; App.computers = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
   // What one person was typing or filtering by is not the next one's here.
   Panel.lib = { q: "", project: "" };
   delete Lib.all; Lib.q=""; Lib.cat="all"; Lib.tab="discover";

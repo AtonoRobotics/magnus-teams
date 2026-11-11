@@ -39,6 +39,7 @@ jobs:
       - run: node desktop/tests/screen-check.mjs
       - run: node desktop/tests/takeover-check.mjs
       - run: node desktop/tests/computer-panel-check.mjs
+      - run: node desktop/tests/computer-desk-check.mjs
       - run: node desktop/tests/team-check.mjs
       - run: node desktop/tests/subagents-check.mjs
       - run: node desktop/tests/connect-check.mjs

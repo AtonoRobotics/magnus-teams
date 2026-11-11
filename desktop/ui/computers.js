@@ -9,9 +9,14 @@ route(/^#\/computer\/([^/]+)(?:\/([a-z]+))?$/, (main, id, tab) => showComputer(m
 const stillAt = hash => location.hash === hash;
 const bytesOf = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 const b64Of = bytes => { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); };
-// Asleep or stopped, any use wakes it: nobody starts a computer by hand.
-const STATE_WORDS = { running: ["good", "Running"], stopped: ["", "Asleep"], hibernated: ["", "Asleep"], queued: ["warn", "Waiting for room on the server"], paused: ["warn", "Paused"], killed: ["", "Reset: rebuilt when it is next used"] };
-const stateChip = c => { const [cls, word] = c.waking ? ["warn", "Waking"] : STATE_WORDS[c.status] || ["", c.status]; return `<span class="chip ${cls}">${esc(word)}</span> ${drivingLine(c)}${c.driving?.request ? ` <span class="chip warn">The agent asks you to take over</span>` : ""}`; };
+// Asleep or stopped, any use wakes it: nobody starts a computer by hand. One
+// pill says how it stands and who is using it; the line after it, for whom.
+const stateChip = c => {
+  const w = controlWords(c, false), runs = (c.driving?.runs || []).filter(r => r.status === "running"), whom = workingForWhom(c);
+  const tasks = runs.map(r => `<a href="#/task/${enc(r.task)}" data-open="task:${esc(r.task)}">${esc(taskName(r.task))}</a>`);
+  const more = w.key === "working" && tasks.length ? ` <span class="small">${whom.length ? `for ${esc(andList(whom))} ` : ""}on ${tasks.join(", ")}</span>` : w.who === "person" ? ` <span class="small">${esc(w.text)}</span>` : "";
+  return `<span class="state-pill" data-pill="${w.key}">${esc(w.pill)}</span>${more}`;
+};
 
 async function showComputers(main) {
   const hash = location.hash;
@@ -22,7 +27,7 @@ async function showComputers(main) {
     if (!stillAt(hash)) return;
     paint(main, `<h1>Computers</h1>
       <h2>Cloud computers</h2>
-      ${unavailable ? `<p class="muted">${esc(unavailable)}</p>` : computers.length ? `<table class="t"><tbody>${computers.map(c => `<tr data-computer="${esc(c.id)}"><td><a href="#/computer/${enc(c.id)}">${esc(c.id)}</a></td><td>${stateChip(c)}${c.queue_position ? ` <span class="small faint">number ${esc(c.queue_position)} in line</span>` : ""}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">You have no cloud computer yet.</p>`}
+      ${unavailable ? `<p class="muted">${esc(unavailable)}</p>` : computers.length ? `<table class="t"><tbody>${computers.map(c => `<tr data-computer="${esc(c.id)}"><td><a href="#/computer/${enc(c.id)}">${esc(c.name || "Computer")}</a><div class="small faint">${esc(c.id)}</div></td><td>${stateChip(c)}${c.queue_position ? ` <span class="small faint">number ${esc(c.queue_position)} in line</span>` : ""}</td><td><button data-open="computer:${esc(c.id)}">Pin beside the conversation</button></td></tr>`).join("")}</tbody></table>` : `<p class="empty">You have no cloud computer yet.</p>`}
       ${unavailable ? "" : `<div class="row"><button class="primary" data-act="new-computer">New computer</button></div>`}
       ${here}`);
   };
@@ -43,17 +48,28 @@ document.addEventListener("submit", e => { if (e.target.closest("#main")) e.prev
 
 // ---------- this computer ----------
 
+/** Per computer, the person picks how Magnus may work there (spec, Work on the user's desktop: Modes). */
+const LOCAL_MODES = { ask: "Asks each time", allow: "Allowed", never: "Never" };
+const LOCAL_ASKS = { ask: "Ask me every time", allow: "Allow it", never: "Never" };
+
 async function thisComputerSection() {
   const [known, running] = await Promise.all([api("GET", "/v1/local/computers").catch(() => []), Magnus.localState()]);
-  const rows = known.map(({ computer: c, online, in_use }) => `<tr data-local="${esc(c.id)}"><td>${esc(c.name)}<div class="small faint">${esc(c.folders.join(", "))}</div></td>
-    <td><span class="chip ${online ? "good" : ""}">${online ? (in_use ? "In use by you" : "Online") : "Offline"}</span> <span class="small faint">${esc({ ask: "Asks each time", allow: "Allowed", never: "Never" }[c.mode] || c.mode)}</span></td>
-    <td><div class="row">${online && in_use ? `<button data-act="local-resume" data-id="${esc(c.id)}">Let the agent go on</button>` : ""}<button class="link" data-act="local-remove" data-id="${esc(c.id)}">Disconnect</button></div></td></tr>`).join("");
+  // A team's or the admin's ceiling can make the mode stricter; the page says the one that holds.
+  const modeWords = (c, held) => held && held !== c.mode ? `${LOCAL_MODES[held] || held}: your team or admin allows no more than this` : LOCAL_MODES[c.mode] || c.mode;
+  const rows = known.map(({ computer: c, online, in_use, in_force }) => `<tr data-local="${esc(c.id)}"><td>${esc(c.name)}<div class="small faint">${esc(c.folders.join(", "))}</div></td>
+    <td><span class="chip ${online ? (in_use ? "warn" : "good") : ""}">${online ? (in_use ? "You are using it" : "Online") : "Offline"}</span> <span class="small faint" data-mode>${esc(modeWords(c, in_force))}</span>${online && in_use ? `<div class="small muted">Magnus waits while you use the mouse or keyboard, and goes on when you are idle.</div>` : ""}</td>
+    <td><div class="row">${online && in_use ? `<button data-act="local-resume" data-id="${esc(c.id)}">Let Magnus go on now</button>` : ""}<button class="link" data-act="local-remove" data-id="${esc(c.id)}">Disconnect</button></div></td></tr>`).join("");
+  const here = running?.running ? known.find(k => k.computer.name === running.name)?.computer : null;
+  const modes = mode => Object.entries(LOCAL_ASKS).map(([v, l]) => `<option value="${v}"${v === mode ? " selected" : ""}>${l}</option>`).join("");
   const connect = !running ? "" : running.running
-    ? `<div class="card flat"><p>This computer is connected as <b>${esc(running.name)}</b>${running.paused ? ". The agent is paused here." : "."}</p><div class="row"><button data-act="local-pause" data-to="${running.paused ? "" : "1"}">${running.paused ? "Let the agent work" : "Pause the agent"}</button><button class="link" data-act="local-stop">Stop</button></div></div>`
-    : `<form class="card flat local-connect"><h3>Connect this computer</h3><p class="small muted">The agent works here only inside the folders you name, and only while this app is open.</p>
+    ? `<div class="card flat"><p>This computer is connected as <b>${esc(running.name)}</b>${running.paused ? ". Magnus is paused here." : "."}</p><div class="row"><button data-act="local-pause" data-to="${running.paused ? "" : "1"}">${running.paused ? "Let Magnus work" : "Pause Magnus here"}</button><button class="link" data-act="local-stop">Stop</button></div>
+        ${here ? `<form class="local-connect"><label>When Magnus wants to work here<select id="lc-mode">${modes(here.mode)}</select></label>
+          <label>Folders it may use, one per line<textarea id="lc-folders" rows="3">${esc(here.folders.join("\n"))}</textarea></label>
+          <div class="row"><button type="button" data-act="local-change" data-name="${esc(running.name)}">Save</button></div></form>` : ""}</div>`
+    : `<form class="card flat local-connect"><h3>Connect this computer</h3><p class="small muted">Magnus works here only inside the folders you name, only while this app is open, and pauses while you use the mouse or keyboard.</p>
         <label>Name<input id="lc-name" value="${esc(running.suggested_name || "")}"></label>
         <label>Folders, one per line<textarea id="lc-folders" rows="3" placeholder="/home/me/Projects"></textarea></label>
-        <label>When the agent wants to work here<select id="lc-mode"><option value="ask">Ask me each time</option><option value="allow">Allow it</option><option value="never">Never</option></select></label>
+        <label>When Magnus wants to work here<select id="lc-mode">${modes("ask")}</select></label>
         <div class="row"><button type="button" class="primary" data-act="local-connect">Connect</button></div></form>`;
   return `<h2>This computer</h2>${rows ? `<table class="t"><tbody>${rows}</tbody></table>` : `<p class="empty">No computer of yours is connected.</p>`}${known.map(madeThere).join("")}${connect}`;
 }
@@ -100,6 +116,12 @@ async function thisComputerAction(b, main) {
       const folders = $("#lc-folders", main).value.split("\n").map(f => f.trim()).filter(Boolean);
       await Magnus.localStart({ name: $("#lc-name", main).value.trim(), mode: $("#lc-mode", main).value, folders });
       toast("Connected."); return true;
+    }
+    // The same connection, with a new mode or folders: the app restarts it.
+    case "local-change": {
+      const folders = $("#lc-folders", main).value.split("\n").map(f => f.trim()).filter(Boolean);
+      await Magnus.localStart({ name: b.dataset.name, mode: $("#lc-mode", main).value, folders });
+      toast("Saved."); return true;
     }
     case "local-pause": await Magnus.localPause(!!b.dataset.to); return true;
     case "local-stop": await Magnus.localStop(); return true;
@@ -159,21 +181,22 @@ function chooseReset() {
 }
 
 async function showComputer(main, id, tab) {
-  const hash = location.hash, base = `/v1/computers/${enc(id)}`, TABS = [["screen", "Screen"], ["files", "Files"], ["activity", "Activity"]];
+  const hash = location.hash, base = `/v1/computers/${enc(id)}`, TABS = [["screen", "Screen"], ["files", "Files"], ["apps", "Apps"], ["activity", "Activity"]];
   const c = await api("GET", base);
   if (!stillAt(hash)) return;
   // Opening it is a use, and any use wakes it: there is no Start button
   // (spec rev 131, Lifecycle). The kill switch's pause stays until Resume.
   if (c.status !== "paused") api("POST", `${base}/wake`, {}).catch(() => { /* The screen says how it stands. */ });
-  // The state and the buttons it allows, redrawn as the screen's look finds
-  // it changed: opened asleep, the page says when it is running.
-  const state = c => `<div class="row"><span data-state>${stateChip(c)}</span>
+  // The buttons the state allows, redrawn as the screen's look finds it
+  // changed: opened asleep, the page offers what a running computer does once
+  // it is. Who holds control is said once, on the screen's own strip.
+  const state = c => `<div class="row">
     ${c.status === "paused" ? `<button class="primary" data-act="start">Resume</button>` : ""}
     ${c.status === "running" ? `<button data-act="hibernate">Put to sleep</button>` : ""}<button data-open="computer:${esc(id)}">Pin beside the conversation</button>
     ${c.status === "running" ? `<button class="danger" data-act="pause" title="The kill switch: freezes the computer and takes back every access it was given">Pause now</button>` : ""}
     <button data-act="reset">Reset…</button><button class="link danger" data-act="delete">Delete computer…</button></div>
     ${takeoverAsk(c)}`;
-  const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>Computer</h1><div data-head>${state(c)}</div><nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
+  const head = c => `<p class="small"><a href="#/computer">Computers</a></p><h1>${esc(c.name || "Computer")}</h1><div data-head>${state(c)}</div><nav class="tabs" aria-label="Computer">${TABS.map(([k, l]) => `<a href="#/computer/${enc(id)}/${k}" ${k === tab ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav><div id="computer-tab"></div>`;
   paint(main, head(c));
   let drawn = state(c);
   const restate = now => { const el = $("[data-head]", main), html = state(now); if (el && html !== drawn) { drawn = html; el.innerHTML = html; } };
@@ -189,12 +212,27 @@ async function showComputer(main, id, tab) {
     showComputer(main, id, tab);
   };
   if (tab === "files") return computerFiles(body, id, base, hash);
+  if (tab === "apps") { body.innerHTML = computerApps(c); return; }
   if (tab === "activity") {
     const { activity } = await api("GET", `${base}/activity`);
     body.innerHTML = activity.length ? `<table class="t"><tbody>${[...activity].reverse().map(a => `<tr><td>${esc(a.what)}</td><td class="small faint">${esc(a.who)}</td><td class="small faint n">${esc(when(a.at))}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">Nothing has happened on this computer yet.</p>`;
     return;
   }
   computerScreen(body, c, base, hash, { onState: restate });
+}
+
+/**
+ * The apps the agent installed, from the manifest kept outside the computer
+ * (spec, Installing and using apps): what each is, where it came from and
+ * what it may reach. A reset or rebuild puts them all back.
+ * @param {{ apps?: Array<{ name: string, version: string, source: string, hosts?: string[] }>, replay_error?: string|null, driving?: object }} c
+ */
+function computerApps(c) {
+  const apps = c.apps || [];
+  return `<p class="small muted">${esc(agentName(c))} installs an app itself when a task needs one. Each is written down here, with where it came from, before it counts as installed, so a reset or a rebuild puts it back.</p>
+    ${c.replay_error ? `<div class="banner bad" role="status">Putting the apps back failed: ${esc(c.replay_error)}</div>` : ""}
+    ${apps.length ? `<table class="t computer-apps"><thead><tr><th>App</th><th>Version</th><th>From</th><th>May also reach</th></tr></thead><tbody>${apps.map(a => `<tr data-app="${esc(a.name)}"><td>${esc(a.name)}</td><td class="n">${esc(a.version)}</td><td class="small">${esc(a.source)}</td><td class="small faint">${esc((a.hosts || []).join(", ") || "Nothing else")}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="empty">No apps installed yet. It has a desktop, a browser and the usual tools.</p>`}`;
 }
 
 /**
@@ -213,30 +251,53 @@ async function showComputer(main, id, tab) {
  */
 function computerScreen(body, c, base, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
-  body.innerHTML = `<div class="row control-strip" data-screen-bar role="status"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen" title="Click to take control"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><p class="screen-caption" data-caption hidden></p></div><p class="small bad" id="display-error" hidden></p>`;
+  body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div><div class="screen-hold" data-hold role="status" hidden><span data-hold-words></span><button data-done-here>I'm done</button></div><p class="screen-caption" data-caption></p></div><p class="small bad" id="display-error" hidden></p></div>`;
   const preview = $("#preview", body);
-  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "" };
+  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "" };
   const take = async () => {
     if (view.holding) return;
     view.holding = true;
-    caption(view.c.status === "running" ? "" : "Waking it so you can take control");
+    view.note = view.c.status === "running" ? "" : "Waking it so you can take control";
     let grant;
-    try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { view.holding = false; strip(); return toast(e.message); }
+    try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { view.holding = false; view.note = ""; strip(); return toast(e.message); }
+    view.note = "";
     takeOver(body, view.c.id, base, grant, view, strip);
   };
-  const handBack = async () => { try { await api("POST", `${base}/handback`, {}); toast("Handed back. The agent carries on."); } catch (e) { toast(e.message); } };
-  const caption = words => { const p = $("[data-caption]", body); if (p) { p.hidden = !words; p.textContent = words; } const f = $("[data-screen]", body); if (f) f.className = words ? "screen asleep" : "screen"; };
+  // A sleeping screen wakes when clicked; an awake one is taken (the mockup).
+  const wakeNow = async () => {
+    view.c = { ...view.c, waking: view.c.waking || { phase: "starting" } };
+    strip();
+    try { await api("POST", `${base}/wake`, {}); } catch (e) { toast(e.message); }
+  };
+  const handBack = async () => { try { await api("POST", `${base}/handback`, {}); toast(`Handed back. ${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
+  const done = () => view.done ? view.done() : handBack();
+  // The strip, the veil, the "you are in control" bar and the caption, all
+  // from the computer as last seen; only what changed is redrawn.
   const strip = () => {
     const bar = $("[data-screen-bar]", body);
     if (!bar) return;
-    const html = controlStrip(view.c, view.holding);
+    const c = view.c, html = controlStrip(c, view.holding);
     if (html !== view.bar) { view.bar = html; bar.innerHTML = html; }
     const t = $("[data-take]", body), d = $("[data-done]", body), f = $("[data-full]", body), ask = $("[data-ask-host]", body);
     if (t) t.onclick = take;
-    if (d) d.onclick = () => view.done ? view.done() : handBack();
-    if (f) f.onclick = () => fullScreen($("[data-screen]", body));
-    if (ask) ask.innerHTML = takeoverAsk(view.c);
-    preview.onclick = view.holding || view.c.status === "paused" ? null : take;
+    if (d) d.onclick = done;
+    if (f) f.onclick = () => fullScreen($("[data-view]", body));
+    if (ask) ask.innerHTML = takeoverAsk(c);
+    const veil = view.holding ? "" : screenVeil(c, view.shot), v = $("[data-veil]", body);
+    if (v && v.html !== veil) { v.innerHTML = veil; v.html = veil; }
+    if (v) v.hidden = !veil;
+    const hold = $("[data-hold]", body), words = $("[data-hold-words]", body), done2 = $("[data-done-here]", body);
+    if (hold) hold.hidden = !view.holding;
+    if (words) words.textContent = `You're in control. ${agentName(c)} is paused.`;
+    if (done2) done2.onclick = done;
+    const p = $("[data-caption]", body);
+    if (p) { p.hidden = false; p.textContent = view.note || screenCaption(c, view.shot, view.holding); }
+    const asleep = !view.holding && c.status !== "running" && c.status !== "paused", frame = $("[data-screen]", body);
+    if (frame) {
+      frame.className = `screen${asleep || (c.waking && !view.holding) ? " asleep" : ""}${view.holding ? " held" : ""}${c.status === "paused" ? " still" : ""}`;
+      frame.title = view.holding || c.status === "paused" ? "" : asleep && !c.waking ? "Click to wake it" : "Click to take control";
+      frame.onclick = view.holding || c.status === "paused" ? null : asleep && !c.waking && c.status !== "queued" ? wakeNow : take;
+    }
   };
   view.strip = strip;
   view.take = take;
@@ -248,11 +309,10 @@ function computerScreen(body, c, base, alive, opts = {}) {
       try {
         const [now, shot] = await Promise.all([api("GET", base).catch(() => null), view.live ? null : api("GET", `${base}/screen`)]);
         if (now?.status) view.c = now;
-        if (shot?.status) view.c = { ...view.c, status: shot.status, waking: shot.waking };
+        if (shot?.status) { view.c = { ...view.c, status: shot.status, waking: shot.waking }; view.shot = shot; }
         if (shot?.image_b64 && !view.live) preview.src = `data:image/png;base64,${shot.image_b64}`;
         strip();
         opts.onState?.(view.c);
-        if (!view.holding || view.c.status !== "running") caption(screenCaption(view.c, shot));
       } catch { /* The next look may work. */ }
       await new Promise(r => setTimeout(r, PREVIEW_EVERY_MS));
     }
@@ -260,7 +320,6 @@ function computerScreen(body, c, base, alive, opts = {}) {
     view.leave?.();
   };
   strip();
-  caption(screenCaption(c, null));
   look();
   // Asked for from a card, a banner or the pinned screen.
   if (Screen.takeOnOpen === c.id) { Screen.takeOnOpen = null; take(); }
@@ -280,8 +339,6 @@ function takeOver(body, id, base, grant, view, strip) {
   const preview = $("#preview", body), canvas = $("#display", body), ctx = canvas.getContext("2d");
   view.holding = true;
   view.c = { ...view.c, status: "running", controller: App.me?.id || view.c.controller, waking: null };
-  $("[data-caption]", body).hidden = true;
-  $("[data-screen]", body).className = "screen";
   let link, ended = false;
   const showLive = live => { view.live = live; canvas.hidden = !live; preview.hidden = live; };
   const failed = message => {
@@ -306,7 +363,7 @@ function takeOver(body, id, base, grant, view, strip) {
     window.removeEventListener("hashchange", gone);
     view.leave = null;
     link.close();
-    try { await api("POST", `${base}/handback`, {}); toast("Handed back. The agent carries on."); } catch (e) { toast(e.message); }
+    try { await api("POST", `${base}/handback`, {}); toast(`Handed back. ${agentName(view.c)} carries on with a fresh look at the screen.`); } catch (e) { toast(e.message); }
   };
   view.leave = leave;
   link = Magnus.displayOpen(id, grant.ticket, grant.protocol_prefix, b => rfb.feed(b), reason => { if (!ended) failed(reason || "The connection to the screen ended."); });
