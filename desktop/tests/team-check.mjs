@@ -9,7 +9,7 @@ import vm from "node:vm";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
-const calls = [];
+const calls = [], listeners = {};
 const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
@@ -17,7 +17,7 @@ const sandbox = {
   icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },
-  document: { addEventListener: () => {} }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
+  document: { addEventListener: (type, f) => (listeners[type] ||= []).push(f) }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
 const files = ["teams.js", "team-chat.js", "team-panel.js", "team-command.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
@@ -195,5 +195,17 @@ const spendCard = sandbox.overviewHtml({ project: null, channels: [], files: [],
 assert.match(spendCard, /Workspace<\/span><span class="small faint">\$12\.50 of \$50/, "the panel does not show the month's spend against the limit");
 assert.match(spendCard, /#magnus-alpha<\/span><span class="small faint">\$4 of \$10/, "the panel does not show the channel's spend");
 Team.home = home;
+assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as nothing");
+assert.equal(sandbox.teamUsd(12), "$12");
+assert.match(sandbox.workCard({ ...work, doing: null, steps: 1 }, name, "w", "c1"), /Thinking it through · step 2/, "work past its first step still says it is starting");
+
+// Ctrl+K right after Escape opens the menu: the shut dialog still awaiting
+// its close event once made the keys "close" it instead.
+const { TeamCommand } = sandbox.__x;
+let opened = 0;
+TeamCommand.open = () => { opened++; };
+TeamCommand.dialog = { open: false, close() {} };
+for (const f of listeners.keydown) f({ ctrlKey: true, metaKey: false, altKey: false, key: "k", preventDefault() {} });
+assert.equal(opened, 1, "Ctrl+K after Escape did not open the menu again");
 
 console.log("team ok");

@@ -14,7 +14,7 @@ function channelSlug(typed) {
 }
 
 /** Dollars as a person reads them. */
-function teamUsd(n) { return `$${Number(n || 0).toFixed(Number(n) % 1 ? 2 : 0)}`; }
+function teamUsd(n) { const v = Number(n || 0); return v > 0 && v < 0.01 ? "under $0.01" : `$${v.toFixed(v % 1 ? 2 : 0)}`; }
 
 /**
  * An owner's spend limits, set by typing an amount: for this channel and
@@ -199,6 +199,8 @@ const TeamCommand = {
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k" && location.hash.startsWith("#/team/")) {
     e.preventDefault();
-    if (TeamCommand.dialog) TeamCommand.close(); else TeamCommand.open();
+    // A dialog just closed with Escape still awaits its close event: it is
+    // shut, so the keys open the menu again rather than "closing" it.
+    if (TeamCommand.dialog?.open) TeamCommand.close(); else TeamCommand.open();
   }
 });

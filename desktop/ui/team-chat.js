@@ -44,7 +44,7 @@ function workTitle(text) {
  */
 function workCard(w, name, ws, channel) {
   const who = name(w.requester), title = workTitle(w.title);
-  const line = w.status === "working" ? `${esc(doingWords(w.doing))} · step ${w.steps + 1}`
+  const line = w.status === "working" ? `${esc(!w.doing && w.steps ? "Thinking it through" : doingWords(w.doing))} · step ${w.steps + 1}`
     : w.status === "waiting" ? `Waiting for ${esc(who)} to answer an ask`
     : w.status === "done" ? "Done" : w.status === "failed" ? `Could not finish${w.reason ? `: ${esc(w.reason)}` : ""}` : "Stopped";
   const thread = w.thread ? `<a class="small" href="${teamHref(ws, { kind: "channel", id: channel, thread: w.thread })}" data-open-thread="${esc(w.thread)}">Open its thread</a>` : "";
