@@ -4,14 +4,17 @@
 # (DECISIONS.md, "Appliance updates"). Run by CI on the build box after the
 # release's tests pass; the signing key never leaves that machine.
 #
-#   release/publish.sh appliance VERSION UPDATES_DIR NOTES_FILE PROGRAM_OR_DIR...
+#   [MAGNUS_CHANNEL=CHANNEL] release/publish.sh appliance VERSION UPDATES_DIR NOTES_FILE PROGRAM_OR_DIR...
 #   release/publish.sh desktop   VERSION UPDATES_DIR NOTES_FILE DIST_DIR [CHANNEL]
 #
 # The desktop app's CHANNEL (DECISIONS.md, "Release channels") is
 # production (the default: tagged releases, in desktop/), test (master, in
 # desktop/test/) or development (pull requests, in desktop/development/);
 # test and development keep only their latest packages; the appliance's
-# directory its latest and the one before.
+# directory its latest and the one before. The server's own releases take
+# the same channels, named by MAGNUS_CHANNEL (production in appliance/, test
+# in appliance/test/, development in appliance/development/); a server
+# follows the one an admin chose.
 #
 # Every package is signed with `tauri signer sign --app-version`, so the
 # signature binds the version it was published as. latest.json is written
@@ -97,7 +100,16 @@ EOF
 }
 
 case $what in
-appliance) dir=$updates/appliance ;;
+appliance)
+  # The server's channel (Admin › Operations › Updates) is named by
+  # MAGNUS_CHANNEL: its program arguments are a list.
+  channel=${MAGNUS_CHANNEL:-production}
+  case $channel in
+  production) dir=$updates/appliance ;;
+  test | development) dir=$updates/appliance/$channel ;;
+  *) echo "no channel $channel: production, test or development" >&2; exit 2 ;;
+  esac
+  ;;
 desktop)
   channel=${2:-production}
   case $channel in

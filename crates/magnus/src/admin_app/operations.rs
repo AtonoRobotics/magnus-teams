@@ -3,6 +3,7 @@
 //! capacity, and health." Updates are the console's control routes. Each
 //! backup is restored in memory as soon as it is written (`backup.rs`), and
 //! that check is what "restore checks" shows; an admin can also back up now.
+//! The channel is the desktop apps' and, in `server_channel.rs`, the server's.
 
 use super::mount::{audited, body_json, control, pass, Audit};
 use super::people::refuse;
@@ -32,6 +33,7 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/admin/backups", get(backups).post(back_up))
         .route("/v1/admin/computers", get(computers))
         .route("/v1/admin/health", get(health))
+        .merge(super::server_channel::routes())
 }
 
 async fn backups(State(k): State<Arc<Kernel>>) -> Response {

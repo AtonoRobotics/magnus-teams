@@ -182,6 +182,7 @@ impl Kernel {
             "updating": updating.map(|(from, to, rollback)| json!({ "from": from, "to": to, "rollback": rollback })),
             "last": last, "skipped": skipped, "previous": prev,
             "desktop": { "channels": channels, "everyone": channel.unwrap_or_else(|| "production".into()) },
+            "server": crate::admin_app::server_channel::shown(self),
         })
     }
 

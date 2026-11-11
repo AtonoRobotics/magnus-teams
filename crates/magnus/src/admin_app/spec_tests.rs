@@ -134,3 +134,44 @@ async fn settings_routes_take_the_admin_step_up_and_audit() {
     assert!(st == 403 && v["error"] != "step_up", "{st} {v}");
     s.done().await;
 }
+
+/// Operations › Updates sets the server's own channel, beside the desktop
+/// apps': the server then takes its releases from that channel, or from
+/// production while the channel has none. Setting it takes the step-up and
+/// is in the admin audit.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_admin_sets_the_servers_own_update_channel() {
+    let s = server(|_| Router::new()).await;
+    let appliance = s.k.cfg.updates_dir().join("appliance");
+    for (dir, version) in [(appliance.clone(), "9.0.0"), (appliance.join("test"), "9.1.0-test.1")] {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("latest.json"), json!({ "version": version, "file": "x.tar.gz", "signature": "" }).to_string()).unwrap();
+    }
+    let version = || s.k.latest_release().map(|m| m["version"].clone());
+    assert_eq!(version(), Some(json!("9.0.0")));
+    let ana = s.token("ana").await;
+    let (st, v) = s.get(&ana, "/v1/admin/updates").await;
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v["server"]["channel"], "production", "{v}");
+    assert_eq!(v["server"]["channels"].as_array().map(|c| c.len()), Some(3), "{v}");
+    async fn put(s: &Server, t: &str, c: &str) -> (u16, serde_json::Value) {
+        s.call(t, reqwest::Method::PUT, "/v1/admin/updates/server-channel", Some(json!({ "channel": c }))).await
+    }
+    let put = |t, c| put(&s, t, c);
+    let (st, v) = put(&ana, "test").await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "the channel changed with no step-up: {v}");
+    mark(&ana, Utc::now());
+    assert_eq!(put(&ana, "nightly").await.0, 400, "a channel that does not exist was taken");
+    assert_eq!(put(&ana, "test").await.0, 200);
+    assert_eq!(version(), Some(json!("9.1.0-test.1")), "the server does not follow its channel");
+    let set = s.audited("server_channel_set");
+    assert_eq!(set.len(), 1, "the channel change is not in the admin audit");
+    assert_eq!((set[0]["before"]["channel"].as_str(), set[0]["after"]["channel"].as_str()), (Some("production"), Some("test")));
+    // A channel with nothing published follows production.
+    assert_eq!(put(&ana, "development").await.0, 200);
+    assert_eq!(version(), Some(json!("9.0.0")));
+    assert_eq!(s.get(&ana, "/v1/admin/updates").await.1["server"]["channel"], "development");
+    let mo = s.token("mo").await;
+    assert_eq!(put(&mo, "test").await.0, 403, "a member set the server's channel");
+    s.done().await;
+}

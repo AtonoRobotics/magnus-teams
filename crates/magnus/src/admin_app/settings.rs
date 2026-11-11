@@ -1,7 +1,7 @@
 //! What an admin sets for the whole workspace in the app's Admin section and
 //! the kernel keeps (spec rev 141, Administration): the workspace rules that
 //! cap every person's own rules, and whether Auto Review acts for the
-//! workspace. One event kind, `admin_setting`, carries each change.
+//! workspace, and the update channel the server follows. One event kind, `admin_setting`, carries each change.
 
 use crate::rules::Effect;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,10 @@ pub enum Change {
     /// Whether Auto Review may clear an action alone for the workspace.
     AutoReview {
         acts: bool,
+    },
+    /// The update channel the server itself follows (`server_channel.rs`).
+    ServerChannel {
+        channel: String,
     },
 }
 
@@ -51,6 +55,8 @@ pub struct Settings {
     pub rules: BTreeMap<String, WorkspaceRule>,
     /// None: as the config's `[auto_review] delegate` says.
     pub auto_review: Option<bool>,
+    /// None: production.
+    pub server_channel: Option<String>,
 }
 
 impl Settings {
@@ -63,6 +69,7 @@ impl Settings {
                 self.rules.remove(id);
             }
             Change::AutoReview { acts } => self.auto_review = Some(*acts),
+            Change::ServerChannel { channel } => self.server_channel = Some(channel.clone()),
         }
     }
 }

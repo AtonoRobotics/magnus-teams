@@ -1,11 +1,12 @@
 // Admin › Operations (spec rev 141): updates (channel, install, roll back),
+// the server's own channel beside the desktop apps',
 // backups and their restore checks, computers and capacity, and health.
 // Every backup is restored in memory as soon as it is written, and the
 // result of that check is shown with it.
 "use strict";
 
 /**
- * @typedef {{version: string, automatic: boolean, latest: ?{version: string, notes: ?string}, available: boolean, updating: ?{from: string, to: string, rollback: boolean}, last: ?{what: string, to: string, detail: string, at: string}, previous: ?string, desktop: {channels: Array<{channel: string, published: ?string, who: string}>, everyone: string}}} AdminUpdates
+ * @typedef {{version: string, automatic: boolean, latest: ?{version: string, notes: ?string}, available: boolean, updating: ?{from: string, to: string, rollback: boolean}, last: ?{what: string, to: string, detail: string, at: string}, previous: ?string, desktop: {channels: Array<{channel: string, published: ?string, who: string}>, everyone: string}, server?: {channel: string, channels: Array<{channel: string, published: ?string}>}}} AdminUpdates
  * @typedef {{every_hours: number, keep_days: number, copy_to: ?string, latest: ?{file: string, restored: boolean, detail: string, at: string}, copy: ?{copied: boolean, detail: string, at: string}, files: Array<{file: string, bytes: number}>, scrub_pending: ?{files: string[], detail: string}}} AdminBackups
  * @typedef {{checked: boolean, behind: boolean, version?: ?string, expected: string, message?: string, command?: string}} AdminComputerService
  * @typedef {{computers: Array<{id: string, person: ?string, workspace: ?string, status: string, controller: ?string}>, capacity: {set_up: boolean, answers?: boolean, live?: number, max_live?: number, computers?: number, max_computers?: number, error?: string, service?: AdminComputerService}}} AdminComputers
@@ -23,6 +24,7 @@ function opsUpdates(u) {
     ${u.available ? `<p>${esc(u.latest?.version)} is available.</p><button class="primary" data-ops-install>Install ${esc(u.latest?.version)}</button>` : `<p class="small muted">Up to date${u.automatic ? "; updates install on their own" : ""}.</p>`}
     ${u.previous ? `<button data-ops-rollback>Roll back to ${esc(u.previous)}</button>` : ""}
     ${last}
+    ${u.server ? `<label class="small">This server updates from <select data-ops-server-channel aria-label="Server channel">${u.server.channels.map(c => `<option value="${esc(c.channel)}"${c.channel === u.server?.channel ? " selected" : ""}>${esc(c.channel)}${c.published ? ` (${esc(c.published)})` : ""}</option>`).join("")}</select></label>` : ""}
     <label class="small">Desktop apps of everyone else follow <select data-ops-channel aria-label="Desktop channel">${(u.desktop?.channels || []).map(c => `<option value="${esc(c.channel)}"${c.channel === u.desktop.everyone ? " selected" : ""}>${esc(c.channel)}${c.published ? ` (${esc(c.published)})` : ""}</option>`).join("")}</select></label>
   </section>`;
 }
@@ -76,8 +78,9 @@ registerAdminSection("operations", async el => {
   };
   el.onchange = async e => {
     const s = /** @type {HTMLSelectElement} */ (e.target);
-    if (!s.matches("[data-ops-channel]")) return;
-    try { await adminApi("PUT", "/v1/admin/updates/desktop-channel", { channel: s.value }); toast("Saved."); }
+    const path = s.matches("[data-ops-server-channel]") ? "/v1/admin/updates/server-channel" : s.matches("[data-ops-channel]") ? "/v1/admin/updates/desktop-channel" : null;
+    if (!path) return;
+    try { await adminApi("PUT", path, { channel: s.value }); toast("Saved."); }
     catch (err) { failed(err); }
     await again();
   };

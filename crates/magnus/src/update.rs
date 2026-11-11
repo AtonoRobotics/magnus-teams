@@ -1,7 +1,9 @@
 //! Signed appliance updates with one-step rollback (gate item 5).
 //!
 //! Releases arrive in `[updates] dir` (CI on the build box writes them
-//! there): `appliance/latest.json` names a package (a .tar.gz of the
+//! there): `appliance/latest.json` (or, on the channel an admin chose for
+//! the server, `appliance/test/` or `appliance/development/`: see
+//! `admin_app::server_channel`) names a package (a .tar.gz of the
 //! programs and their `VERSION`) and its signature, made by `tauri signer
 //! sign --app-version`, so the version is inside what was signed. The
 //! appliance installs one only when the signature verifies with the release
@@ -261,9 +263,9 @@ impl Kernel {
         Ok(())
     }
 
-    /// The latest release in the updates directory, if any.
+    /// The latest release on the server's channel, if any.
     pub fn latest_release(&self) -> Option<Value> {
-        std::fs::read(self.cfg.updates_dir().join("appliance/latest.json")).ok().and_then(|b| serde_json::from_slice(&b).ok())
+        std::fs::read(crate::admin_app::server_channel::release_dir(self).join("latest.json")).ok().and_then(|b| serde_json::from_slice(&b).ok())
     }
 
     /// Look for a newer release and install it. Returns what happened, for
@@ -313,7 +315,7 @@ impl Kernel {
     async fn prepare(&self, m: &Value, to: &str) -> Result<PathBuf> {
         let file = m["file"].as_str().context("the release names no file")?;
         anyhow::ensure!(!file.contains('/') && !file.contains(".."), "not a release file name");
-        let bytes = std::fs::read(self.cfg.updates_dir().join("appliance").join(file)).with_context(|| format!("read {file}"))?;
+        let bytes = std::fs::read(crate::admin_app::server_channel::release_dir(self).join(file)).with_context(|| format!("read {file}"))?;
         verify(&bytes, m["signature"].as_str().unwrap_or_default(), &self.cfg.updates.public_key, to)?;
         let dir = installed_dir()?;
         let new = sibling(&dir, ".new");

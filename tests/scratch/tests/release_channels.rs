@@ -467,6 +467,47 @@ fn a_release_is_never_published_without_its_signatures() {
     assert_eq!(m["version"], "0.7.1-test.1");
 }
 
+/// The server's own releases take the desktop apps' channels (spec rev 141,
+/// Operations › Updates): MAGNUS_CHANNEL puts one in `appliance/test/` or
+/// `appliance/development/`, where a server on that channel looks, and
+/// leaves production's `appliance/` as it was.
+#[test]
+fn a_server_release_is_published_to_its_channel() {
+    let tmp = tempfile::tempdir().unwrap();
+    let key = tmp.path().join("test.key");
+    let made = Command::new("cargo").args(["tauri", "signer", "generate", "--ci", "-p", "", "-f", "-w"]).arg(&key).output().unwrap();
+    assert!(made.status.success(), "a test release key: {}", String::from_utf8_lossy(&made.stderr));
+    let (updates, program, notes) = (tmp.path().join("updates"), tmp.path().join("magnus"), tmp.path().join("notes"));
+    std::fs::write(&notes, "Build.\n").unwrap();
+    std::fs::write(&program, "a program").unwrap();
+    let run = |version: &str, channel: Option<&str>| {
+        let mut c = Command::new(release("publish.sh"));
+        c.args(["appliance", version]).args([&updates, &notes, &program]).env("MAGNUS_RELEASE_KEY", &key).env_remove("MAGNUS_CHANNEL");
+        for k in ["MAGNUS_COMMIT", "MAGNUS_PR", "MAGNUS_LANDED", "MAGNUS_GIVEN_UP"] {
+            c.env_remove(k);
+        }
+        if let Some(ch) = channel {
+            c.env("MAGNUS_CHANNEL", ch);
+        }
+        c.current_dir(env!("CARGO_MANIFEST_DIR")).output().unwrap()
+    };
+    let version = |dir: &str| -> Option<String> {
+        let m: Value = serde_json::from_slice(&std::fs::read(updates.join(dir).join("latest.json")).ok()?).ok()?;
+        m["version"].as_str().map(String::from)
+    };
+    assert!(run("0.8.0", None).status.success());
+    assert!(run("0.8.1-test.3", Some("test")).status.success());
+    assert!(run("0.8.1-review.4.pr.2", Some("development")).status.success());
+    assert_eq!(version("appliance").as_deref(), Some("0.8.0"), "production moved");
+    assert_eq!(version("appliance/test").as_deref(), Some("0.8.1-test.3"));
+    assert_eq!(version("appliance/development").as_deref(), Some("0.8.1-review.4.pr.2"));
+    assert!(updates.join("appliance/test/magnus-appliance-0.8.1-test.3.tar.gz").is_file());
+    // Publishing production again keeps the channels' packages.
+    assert!(run("0.8.1", Some("production")).status.success());
+    assert!(updates.join("appliance/test/magnus-appliance-0.8.1-test.3.tar.gz").is_file(), "production's clean-up took the test channel's package");
+    assert_eq!(run("0.8.2", Some("nightly")).status.code(), Some(2), "a channel that does not exist was taken");
+}
+
 /// First release run (2026-11-09): the workflow's checkout held one commit,
 /// so publish.sh could not see that main held the commit the test channel
 /// was built from, and refused a build that did hold it. The release job
