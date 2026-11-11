@@ -165,13 +165,14 @@ await step("a connector opens to what Magnus can do with it and what it asks for
   await page.locator("[data-connector=google-gmail]").waitFor({ timeout: T });
 });
 
-await step("the owner's Connectors settings are the catalog's apps, and ask for nothing", async () => {
-  await page.getByRole("link", { name: "Settings" }).click();
-  await page.getByRole("link", { name: "Connectors" }).click();
-  await page.locator('[data-app="google-gmail"]').getByText("from the catalog").waitFor({ timeout: T });
+// The organisation's connectors are administration: Admin › Connectors.
+// Who may connect each is set there; nothing asks for an app's setup.
+await step("the owner's Connectors in Admin are the catalog's apps, and ask for no setup", async () => {
+  await page.getByRole("link", { name: "Admin" }).first().click();
+  await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Connectors" }).click();
+  await page.locator('tr[data-connector="google-gmail"]').getByText("catalog").waitFor({ timeout: T });
   const said = await page.locator("main").innerText();
-  if (/client (id|secret)|registration|its address/i.test(said)) throw new Error(`the settings ask for setup: ${said}`);
-  if (await typed("main")) throw new Error("the owner's Connectors settings ask for something to be typed");
+  if (/client (id|secret)|registration|its address/i.test(said)) throw new Error(`Admin › Connectors asks for setup: ${said}`);
 });
 
 await step("from Settings, the Library's address opens the Library", async () => {

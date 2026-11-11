@@ -59,6 +59,7 @@ jobs:
       - run: node desktop/tests/admin-ops-check.mjs
       - run: node desktop/tests/spend-check.mjs
       - run: node desktop/tests/admin-agents-check.mjs
+      - run: node desktop/tests/settings-moved-check.mjs
       - run: ci/ratchet.sh size
       - run: ci/ratchet.sh clippy
       - run: cargo test --workspace --lib --bins

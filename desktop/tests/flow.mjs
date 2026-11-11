@@ -82,22 +82,30 @@ if (!provider) await step("sign in", async () => {
 });
 
 await step("connect Claude", async () => {
-  await page.getByRole("link", { name: "Settings" }).click();
-  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Models" }).click();
+  // Connecting the server's model provider is administration: Admin › Models.
+  const models = async () => {
+    await page.getByRole("link", { name: "Admin" }).first().click();
+    await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Models" }).click();
+  };
+  await models();
   const card = page.locator("[data-adapter=anthropic]");
   await card.getByRole("button", { name: "Connect" }).click();
+  // An admin change: the server asks for the password again first.
+  const sheet = page.getByRole("dialog", { name: "Confirm your password" });
+  await sheet.getByLabel("Password").fill(password);
+  await sheet.getByRole("button", { name: "Confirm" }).click();
   await card.getByLabel("API key").fill(apiKey);
   await card.getByRole("button", { name: "Save to the vault" }).click();
   await card.getByText("Connected.").waitFor({ timeout: T });
   // The key went to the appliance; the page does not keep it.
   const kept = await page.evaluate(k => JSON.stringify(localStorage).includes(k) || JSON.stringify(sessionStorage).includes(k) || document.cookie.includes(k), apiKey);
   if (kept) throw new Error("the page kept the API key");
-  const pick = page.getByLabel("Model");
-  await pick.waitFor({ timeout: T });
-  await page.getByLabel("Provider").selectOption("anthropic");
-  await pick.selectOption({ index: 0 });
-  await page.getByRole("button", { name: "Use this model" }).click();
-  await page.getByText("New tasks will use this model.").waitFor({ timeout: T });
+  // New work runs on one of its models: Admin › Models' default.
+  await models();
+  const provider = page.locator("[data-provider=anthropic]");
+  const make = provider.getByRole("button", { name: "Make default" }).first();
+  if (await make.count()) { await make.click(); await page.getByText("New work runs on it now.").waitFor({ timeout: T }); }
+  await provider.getByText("Default").waitFor({ timeout: T });
 });
 
 await step("ask for the work in a conversation", async () => {

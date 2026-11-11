@@ -114,6 +114,7 @@ async function adminModels(el) {
       <div class="row"><strong>${esc(x.id)}</strong><span class="chip${x.answers ? "" : " bad"}">${x.answers ? "Answering" : esc(x.error || "Not answering")}</span>
       <button data-provider-toggle>${x.enabled ? "Disable" : "Enable"}</button><button data-provider-test>Test</button></div>
       ${(x.models || []).length ? `<ul class="small">${(x.models || []).map(m => `<li>${esc(m)}${`${x.id}/${m}` === def ? ` <span class="chip">Default</span>` : x.enabled ? ` <button class="link" data-default="${esc(m)}">Make default</button>` : ""}</li>`).join("")}</ul>` : ""}</div>`).join("")}
+    <div data-provider-setup></div>
     <h3>Who may use which</h3>
     <p class="small muted">A person's own rule wins over their roles'. Several roles' rules add up, and everyone has the role member. The owner may use every model.</p>
     ${o.roles.map(r => `<details><summary>Role: ${esc(r)}</summary>${ruleForm(`role:${r}`, o.access.roles[r] || null)}</details>`).join("")}
@@ -144,6 +145,11 @@ async function adminModels(el) {
     const remove = $("[data-rule-remove]", f);
     if (remove) remove.onclick = () => act(() => send(null), "Rule removed.");
   }
+  // Connecting providers (keys and sign-ins to the vault), once in Settings:
+  // the server lets the owner do it, so it shows to the owner.
+  const setup = $("[data-provider-setup]", el);
+  const owner = typeof AdminState !== "undefined" && !!AdminState.standing?.owner;
+  if (setup && owner && typeof modelsSection === "function") await modelsSection(setup, { connectOnly: true });
 }
 
 /** Where a refusal for a spent limit appears: offer to ask for more, once

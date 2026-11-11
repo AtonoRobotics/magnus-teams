@@ -57,6 +57,7 @@ pub mod rules;
 mod sections_tests;
 pub mod security;
 pub mod settings;
+pub mod settings_gate;
 #[cfg(test)]
 mod spec_tests;
 #[cfg(test)]

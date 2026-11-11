@@ -27,6 +27,10 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
 async fn state(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -> Response {
     let mut v = body_json(control(&k, &a, Method::GET, "/v1/kill-switch", None).await).await;
     v["by_name"] = json!(v["by"].as_str().map(|by| name_of(&k, by)));
+    // What it revoked and sealed, for Overview's report: what to connect again.
+    let (revoked, sealed) = k.read(|s| (s.revoked.clone(), if s.kill_switch { s.sealed.clone() } else { vec![] }));
+    v["revoked"] = json!(revoked);
+    v["sealed"] = json!(sealed);
     Json(v).into_response()
 }
 

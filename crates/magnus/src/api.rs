@@ -172,6 +172,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .merge(crate::commitments::router())
         .merge(crate::knowledge::router().merge(crate::chat_actions::router()).merge(crate::spend::routes::router()))
         .merge(crate::trash::router().merge(crate::admin_app::router(k.clone())))
+        .layer(axum::middleware::from_fn_with_state(k.clone(), crate::admin_app::settings_gate::gate)) // an admin change outside Admin: step-up and audit
         .layer(axum::middleware::from_fn(cookie_guard))
         .layer(axum::middleware::from_fn(crate::update::app_version))
         .layer(axum::middleware::from_fn_with_state(k.clone(), config_tokens_on_this_machine))

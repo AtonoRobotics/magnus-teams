@@ -14,6 +14,8 @@ const api = async (m,p,b) => {
     // Keep authoritative error metadata (including send rejection handling).
     // A spent limit of the person's own: offer to ask for more where it appears (admin-spend.js).
     if(error.status===402 && error.body?.spend_limit && typeof offerMoreSpend==="function")offerMoreSpend(error.body);
+    // An admin change the server holds for the password again (admin.js): ask once, then send it again.
+    if(error.status===403 && error.body?.error==="step_up" && typeof stepUp==="function")return stepUp().then(ok=>{if(!ok)throw Object.assign(new Error("The change was not made."),{cancelled:true});return Magnus.api(m,p,b);});
     if(!["GET","HEAD","OPTIONS"].includes(m) && (!error.status || error.status>=500))
       throw Object.assign(new Error(`Outcome not confirmed. ${error.message || "Check the current state before trying again."}`),{status:error.status,body:error.body});
     throw error;
@@ -1196,22 +1198,21 @@ function banners() {
       <button data-act="seen-versions">Got it</button></div>` : ""}`);
 }
 
-// The owner's kill switch (B11): one control that refuses every action,
-// suspends every task and revokes the vault's sign-ins and keys; after it,
-// what was revoked and what to connect again.
+// What the server's kill switch (B11) did, for Admin › Overview: it refuses
+// every action, suspends every task and revokes the vault's sign-ins and
+// keys; after it, what was revoked and what to connect again. Pressing and
+// releasing are in the admin's top bar (admin.js), not here.
 function killSwitch(ks) {
   const revoked = Object.entries(ks.revoked || {});
   const state = r => r.at_provider === null || r.at_provider === undefined ? "revoking…" : r.at_provider ? "revoked by the provider" : `removed from the vault; the provider did not confirm (${r.detail || "no answer"})`;
-  return `<div class="card" data-kill-switch="${ks.engaged ? "on" : "off"}" style="margin-top:24px"><h2 style="margin-top:0">Kill switch</h2>
+  return `<div data-kill-switch="${ks.engaged ? "on" : "off"}"><h3>Kill switch</h3>
     ${ks.engaged
-      ? `<p><strong>On.</strong> Every action is refused and every task is suspended. Nothing resumes when you turn it off; resume each task yourself.</p>
-         <button data-kill="off">Turn the kill switch off</button>`
-      : `<p class="small muted">Refuses every action, suspends every task, revokes every sign-in at its provider and seals the vault, at once.</p>
-         <button class="danger" data-kill="on">Stop everything</button>`}
+      ? `<p><strong>On.</strong> Every action is refused and every task is suspended. Nothing resumes when it is released; each person continues their own tasks.</p>`
+      : `<p class="small muted">Off. Stop everything from the top bar: it refuses every action, suspends every task, revokes every sign-in at its provider and seals the vault, at once.</p>`}
     ${(ks.sealed || []).length ? `<h3>Sealed until you turn it off</h3><p class="small muted">API keys and app secrets cannot be revoked from here; if you think one leaked, revoke it in that provider's console.</p>
       <ul class="small" data-sealed>${ks.sealed.map(n => `<li class="mono" data-secret="${esc(n)}">${esc(n)}</li>`).join("")}</ul>` : ""}
     ${revoked.length ? `<h3>Revoked${ks.engaged ? "" : ": connect these again"}</h3><table class="t" data-revoked><tbody>${revoked.map(([n, r]) => `<tr data-secret="${esc(n)}"><td class="mono small">${esc(r.adapter ? `${r.adapter} sign-in` : n)}</td><td class="small">${esc(state(r))}</td></tr>`).join("")}</tbody></table>
-      ${ks.engaged ? "" : `<p class="small"><a href="#/settings/models">Models</a>: sign in or enter keys again.</p>`}` : ""}
+      ${ks.engaged ? "" : `<p class="small"><a href="#/admin/models">Models</a>: sign in or enter keys again.</p>`}` : ""}
   </div>`;
 }
 
@@ -3007,7 +3008,12 @@ route(/^#\/trash$/, async main => {
 // ---------- Models ----------
 
 const signins = {};
-async function modelsSection(main) {
+/** Connecting the server's model providers: keys and sign-ins to the vault,
+ * and the conformance suite. Admin › Models draws it (admin-spend.js) with
+ * `connectOnly`, below its own default and rules; every change it makes is
+ * an admin change, so the server asks for the password again when due.
+ * @param {HTMLElement} main @param {{connectOnly?: boolean}} [opts] */
+async function modelsSection(main, opts = {}) {
   let pick = null;
   const catalogs = {};
   const catalog = async a => {
@@ -3021,11 +3027,11 @@ async function modelsSection(main) {
     const {adapters}=providers;
     const p = pick || cur.adapter, models = await catalog(p);
     const chosen = p === cur.adapter ? cur.model : null;
-    paint(main, `<h2>Models</h2><p class="muted">Connect providers here. Keys and sign-ins go to the server's vault; this app keeps none.</p>
-      <div class="card"><div class="small muted">New tasks run on</div><div class="mono" style="font-size:16px;margin:2px 0 10px">${esc(cur.adapter)} · ${esc(cur.model)}</div>
+    paint(main, `${opts.connectOnly ? `<h3>Connect providers</h3>` : `<h2>Models</h2>`}<p class="muted">Connect providers here. Keys and sign-ins go to the server's vault; this app keeps none.</p>
+      ${opts.connectOnly ? "" : `<div class="card"><div class="small muted">New tasks run on</div><div class="mono" style="font-size:16px;margin:2px 0 10px">${esc(cur.adapter)} · ${esc(cur.model)}</div>
         <div class="row"><select id="madapter" aria-label="Provider" data-draft="model-provider">${adapters.map(a => `<option ${a.id === p ? "selected" : ""}>${esc(a.id)}</option>`).join("")}</select>
         ${models.ids ? `<select id="mname" aria-label="Model" data-draft="model-choice-${esc(p)}">${chosen && !models.ids.includes(chosen) ? `<option selected>${esc(chosen)}</option>` : ""}${models.ids.map(m => `<option ${m === chosen ? "selected" : ""}>${esc(m)}</option>`).join("")}</select><button class="primary" data-act="use">Use this model</button>` : ""}</div>
-        ${models.error ? `<p class="small muted" style="margin-top:8px">No model list from ${esc(p)} yet: ${esc(models.error)}</p>` : ""}</div>
+        ${models.error ? `<p class="small muted" style="margin-top:8px">No model list from ${esc(p)} yet: ${esc(models.error)}</p>` : ""}</div>`}
       ${adapters.map(a => `<div class="card" data-adapter="${esc(a.id)}"><div class="spread"><strong>${esc(a.id)}</strong>
           <span class="row">${a.conformance ? `<span class="chip ${a.conformance.passed ? "ok" : "bad"}">suite ${a.conformance.passed ? "passed" : "failed"} · ${esc(a.conformance.model)}</span>` : `<span class="chip warn">suite not run</span>`}</span></div>
         <div class="row" style="margin-top:10px"><button data-act="signin" data-adapter="${esc(a.id)}">Connect</button><button data-act="suite" data-adapter="${esc(a.id)}">Run the conformance suite</button></div>
@@ -3084,61 +3090,33 @@ async function modelsSection(main) {
   await draw();
 }
 
-// ---------- Connectors: the organisation's apps (owner) ----------
-
-// The organisation's apps: the whole catalog, already set up, and any
-// server the admin added (in Admin › Connectors, never here). Nothing here
-// asks for a client ID, secret or address (connectors spec rev 46, "What
-// the user sees"); each person connects from their Library, through its
-// connect screen, and no tool is reviewed on its own (spec rev 140). An
-// added server's card for new tools that change or send shows here too.
-const changesFor = name => App.inbox.filter(i => i.status === "open" && i.kind === "app_tools" && i.details?.app === name);
-async function connectorsSection(main) {
-  const draw = async () => {
-    const { connectors } = await api("GET", "/v1/connectors");
-    paint(main, `<h2>Connectors</h2><p class="muted">The apps in Magnus's catalog, already set up for your organisation. Each is in everyone's Apps, and each person connects it with their own account; no one acts through anyone else's.</p>
-      ${connectors.map(c => `<div class="card" data-app="${esc(c.name)}"><div class="spread"><strong>${esc(c.title)}</strong>
-          <span class="row">${c.source === "config" ? `<span class="chip">set in the config file</span>` : c.source === "catalog" ? `<span class="chip">from the catalog</span>` : `<button class="link" data-act="remove" data-app="${esc(c.name)}">Remove for everyone</button>`}</span></div>
-        <div class="small muted">${esc(c.summary)}</div>
-        ${changesFor(c.name).map(i => card(i, [])).join("")}
-      </div>`).join("") || `<p class="empty">No apps yet.</p>`}`);
-  };
-  main.onclick = async e => {
-    const it = e.target.closest("button[data-item]");
-    if (it) { await respond(it, main); return draw(); }
-    const b = e.target.closest("button[data-act]"); if (!b) return;
-    const app = b.dataset.app;
-    try {
-      if (b.dataset.act === "remove") {
-        if (!await ask(`Remove ${app} for everyone? Every person's sign-in to it is ended, and the worker can no longer use it.`, "Remove")) return;
-        await api("DELETE", `/v1/connectors/${enc(app)}`);
-        await draw();
-      }
-    } catch (err) { toast(err.message); b.disabled = false; }
-  };
-  await draw();
-  every(5000, draw);
-}
+// The organisation's apps are Admin › Connectors' (admin-connectors.js); an
+// added server's card for new tools that change or send is in the inbox.
 
 // ---------- Settings ----------
 
-// Everything a person can set, in one place; developer views stay in their
-// own group. Sections that need the owner role are shown only to owners.
+// Everything a person sets for themselves, in one place; developer views
+// stay in their own group. Administration lives in Admin, not here (spec
+// rev 141): the server's models, the organisation's connectors, people's
+// roles, the server's updates and the kill switch moved there.
 const SETTINGS = [
-  ["models", "Models", modelsSection, true], ["connectors", "Connectors", connectorsSection, true], ["account", "Account", accountSection], ["rules", "Rules", (el) => rulesSection(el)], ["payments", "Payments", (el) => paymentsSection(el)],
+  ["account", "Account", accountSection], ["rules", "Rules", (el) => rulesSection(el)], ["payments", "Payments", (el) => paymentsSection(el)],
   ["appearance", "Appearance", appearanceSection], ["notifications", "Notifications", notificationsSection], ["updates", "Updates", updatesSection], ["data", "Data and privacy", dataSection],
-  ["safety", "Kill switch", killSwitchSection, true],
 ];
+/** Where Settings' administration went: its old addresses open Admin. */
+const MOVED_TO_ADMIN = { models: "#/admin/models", connectors: "#/admin/connectors", safety: "#/admin/overview" };
+/** Whether the signed-in person administers here (admin.js knows). */
+const administers = () => typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
 route(/^#\/settings(?:\/([a-z]+))?$/, async (main, which) => {
-  const shown = SETTINGS.filter(x => !x[3] || isOwner());
-  const sec = shown.find(x => x[0] === which) || shown[0];
-  main.innerHTML = `<h1>Settings</h1><nav class="tabs" aria-label="Settings">${shown.map(([k, label]) =>
-    `<a href="#/settings/${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ` aria-current="page"` : ""}>${esc(label)}</a>`).join("")}</nav><section id="setting" data-section="${sec[0]}"></section>`;
+  if (MOVED_TO_ADMIN[which]) { location.hash = administers() ? MOVED_TO_ADMIN[which] : "#/settings"; return; }
+  const sec = SETTINGS.find(x => x[0] === which) || SETTINGS[0];
+  main.innerHTML = `<h1>Settings</h1><nav class="tabs" aria-label="Settings">${SETTINGS.map(([k, label]) =>
+    `<a href="#/settings/${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ` aria-current="page"` : ""}>${esc(label)}</a>`).join("")}</nav>${administers() ? `<p class="small muted" data-admin-pointer>The server's models, the organisation's connectors, people's roles, server updates and the kill switch are in <a href="#/admin">Admin</a>.</p>` : ""}<section id="setting" data-section="${sec[0]}"></section>`;
   await sec[2]($("#setting", main));
 });
 // Where these lived before Settings.
-route(/^#\/models$/, () => { location.hash = "#/settings/models"; });
-route(/^#\/apps$/, () => { location.hash = "#/settings/connectors"; });
+route(/^#\/models$/, () => { location.hash = administers() ? "#/admin/models" : "#/settings"; });
+route(/^#\/apps$/, () => { location.hash = administers() ? "#/admin/connectors" : "#/library"; });
 
 // How Magnus looks on this device (U7, amended): light, dark or the
 // computer's; solid or glass; an accent; and how much it moves. The choice
@@ -3181,25 +3159,9 @@ function appearanceSection(el) {
 }
 
 // The owner's kill switch, and what it revoked.
-async function killSwitchSection(el) {
-  const draw = async () => paint(el, `<h2>Kill switch</h2>${killSwitch(await api("GET", "/v1/kill-switch"))}`);
-  el.onclick = async e => {
-    const kill = e.target.closest("[data-kill]");
-    if (!kill) return;
-    const on = kill.dataset.kill === "on";
-    const sure = on ? await ask("Stop everything? Every action is refused, every task is suspended, every sign-in in the vault is revoked at its provider, and every key in the vault is sealed. You will sign in to providers again afterwards.", "Stop everything")
-      : await ask("Turn the kill switch off? Suspended tasks stay suspended until you resume each one.", "Turn it off");
-    if (sure) api("POST", "/v1/kill-switch", { engaged: on }).then(() => { toast(on ? "Everything is stopped." : "The kill switch is off."); draw(); refresh(); }).catch(err => toast(err.message));
-  };
-  App.redraw = draw;
-  onLeave(() => { App.redraw = null; });
-  await draw();
-}
-
 async function accountSection(el) {
   const draw = async () => {
-    const [{ sessions }, people] = await Promise.all([api("GET", "/v1/sessions"), isOwner() ? api("GET", "/v1/people") : null]);
-    const FROM = { provider: "from the identity provider", settings: "set here", config: "from the config file" };
+    const { sessions } = await api("GET", "/v1/sessions");
     paint(el, `<h2>Account</h2>
       <div class="card"><div class="spread"><div><strong>${esc(App.me.name)}</strong> <span class="faint">(${esc(App.me.id)})</span>
         <div class="small muted">Signed in to ${esc(App.appliance)}${App.me.roles?.length ? ` · roles: ${esc(App.me.roles.join(", "))}` : ""}${App.me.groups?.length ? ` · groups: ${esc(App.me.groups.join(", "))}` : ""}</div></div>
@@ -3210,12 +3172,7 @@ async function accountSection(el) {
         <td class="small muted">signed in ${esc(when(x.created))} · until ${esc(new Date(x.expires).toLocaleDateString())}</td>
         <td>${x.current ? "" : `<button class="link" data-act="end" data-id="${esc(x.id)}">Sign out</button>`}</td></tr>`).join("")}</tbody></table>`
         : `<p class="empty">Signed in with an access key; no devices to list.</p>`}
-      ${people ? `<h3>People and roles</h3><table class="t" data-people><thead><tr><th>Person</th><th>Roles</th><th></th></tr></thead><tbody>
-        ${people.people.map(p => `<tr data-person="${esc(p.id)}"><td>${esc(p.name)} <span class="faint">(${esc(p.id)})</span><div class="small faint">${esc(FROM[p.roles_from])}</div></td>
-          <td>${p.roles_from === "provider" ? esc(p.roles.join(", ") || "none")
-            : `<input data-roles="${esc(p.id)}" aria-label="Roles of ${esc(p.name)}" value="${esc(p.roles.join(", "))}" placeholder="none">`}</td>
-          <td>${p.roles_from === "provider" ? "" : `<button data-act="roles" data-id="${esc(p.id)}">Save</button>`}</td></tr>`).join("")}</tbody></table>
-        <p class="small muted">Roles: owner (everything), developer (the developer views), approver:&lt;risk&gt; (approves actions of that risk). Separate several with commas.</p>` : ""}`);
+      ${administers() ? `<p class="small muted" data-roles-moved>People's roles are set in <a href="#/admin/people">Admin › People</a>.</p>` : ""}`);
     const pw = $("[data-password]", el);
     if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); }
   };
@@ -3224,12 +3181,6 @@ async function accountSection(el) {
     try {
       if (b.dataset.act === "sign-out") return $("nav.side [data-act=sign-out]")?.click();
       if (b.dataset.act === "end") { b.disabled = true; await api("DELETE", `/v1/sessions/${enc(b.dataset.id)}`); toast("That device is signed out."); }
-      if (b.dataset.act === "roles") {
-        const roles = $(`[data-roles="${CSS.escape(b.dataset.id)}"]`, el).value.split(",").map(x => x.trim()).filter(Boolean);
-        await api("PUT", `/v1/people/${enc(b.dataset.id)}/roles`, { roles });
-        toast("Roles saved.");
-        if (b.dataset.id === App.me.id) { App.me = await api("GET", "/v1/me"); sidebar(); }
-      }
       el._html = null; await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
   };
@@ -3256,8 +3207,9 @@ async function notificationsSection(el) {
 
 async function updatesSection(el) {
   const draw = async () => {
-    const [st, notes, ver, appl] = await Promise.all([Magnus.updateState().catch(() => null), Magnus.whatsNew(true).catch(() => null),
-      api("GET", "/v1/version"), isOwner() ? api("GET", "/v1/updates").catch(() => null) : null]);
+    // The server's own updates (install, roll back, channel) are Admin ›
+    // Operations'; here, only what it runs and what changed.
+    const [st, notes, ver] = await Promise.all([Magnus.updateState().catch(() => null), Magnus.whatsNew(true).catch(() => null), api("GET", "/v1/version")]);
     const para = t => esc(t || "Fixes and improvements.").split(/\n+/).map(l => `<p>${l}</p>`).join("");
     paint(el, `<h2>Updates</h2>
       ${st ? `<div class="card" data-app-version><div class="spread"><div><strong>This app</strong> <span class="mono">${esc(st.current)}</span></div>
@@ -3265,10 +3217,8 @@ async function updatesSection(el) {
         <div class="small muted">${st.ready ? `Magnus ${esc(st.ready.version)} is downloaded and checked.` : st.error ? `The last look failed: ${esc(st.error)}` : st.can_update ? esc(st.can_update) : "Up to date."}</div>
         ${st.ready ? `<h3>What's new in ${esc(st.ready.version)}</h3><div class="notes">${para(st.ready.notes)}</div>` : ""}
         ${notes ? `<h3>What's new in ${esc(notes.version)}</h3><div class="notes">${para(notes.notes)}</div>` : ""}</div>` : ""}
-      <div class="card" data-appliance-version><div class="spread"><div><strong>The server</strong> <span class="mono">${esc(ver.version)}</span></div>
-          ${appl?.latest && appl.latest.version !== ver.version ? `<button class="primary" data-act="install">Install ${esc(appl.latest.version)} now</button>` : ""}</div>
-        ${appl ? `<div class="small muted">${appl.automatic ? "Updates install on their own." : "Updates install when you choose."}${appl.previous ? ` Rolls back to ${esc(appl.previous)} if one fails.` : ""}</div>
-          ${appl.latest ? `<h3>What's new in ${esc(appl.latest.version)}</h3><div class="notes">${para(appl.latest.notes)}</div>` : ""}` : ""}</div>`);
+      <div class="card" data-appliance-version><div class="spread"><div><strong>The server</strong> <span class="mono">${esc(ver.version)}</span></div></div>
+        ${administers() ? `<div class="small muted">Install, roll back and the update channel are in <a href="#/admin/operations">Admin › Operations</a>.</div>` : ""}</div>`);
   };
   // A look that ends while this is showing (a download finishing) shows here
   // too, not only in the sidebar.
@@ -3278,7 +3228,6 @@ async function updatesSection(el) {
     try {
       if (b.dataset.act === "restart-update") return restartToUpdate();
       if (b.dataset.act === "look") { b.disabled = true; await Magnus.updateLook(); await refreshUpdate(); }
-      if (b.dataset.act === "install") { b.disabled = true; await api("POST", "/v1/updates/check", {}); toast("Installing; the server restarts in a moment."); }
       el._html = null; await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
   };
@@ -3323,7 +3272,7 @@ async function dataSection(el) {
   // The commitment being edited, if any.
   let editingC = null;
   const draw = async () => {
-    const [prefs, { requests }, backups, rel, { disagreements }, granted, { commitments }] = await Promise.all([api("GET", "/v1/preferences"), api("GET", "/v1/deletion-requests"), isOwner() ? api("GET", "/v1/backups").catch(() => null) : null, api("GET", "/v1/relationship"), api("GET", "/v1/disagreements"), api("GET", "/v1/grants"), api("GET", "/v1/commitments")]);
+    const [prefs, { requests }, rel, { disagreements }, granted, { commitments }] = await Promise.all([api("GET", "/v1/preferences"), api("GET", "/v1/deletion-requests"), api("GET", "/v1/relationship"), api("GET", "/v1/disagreements"), api("GET", "/v1/grants"), api("GET", "/v1/commitments")]);
     App.prefs = prefs;
     notes = rel.notes;
     const STATE = { done: ["ok", "done"], decline: ["bad", "declined"] };
@@ -3349,10 +3298,7 @@ async function dataSection(el) {
         <div class="row" style="margin-top:8px"><button data-act="delete-request">Ask for deletion</button></div>
         ${requests.length ? `<table class="t small" data-deletions style="margin-top:10px"><tbody>${requests.map(q => `<tr><td>${esc(q.what)}${isOwner() && q.person !== App.me.id ? ` <span class="faint">(${esc(q.person)})</span>` : ""}</td>
           <td>${q.decision ? `<span class="chip ${STATE[q.decision]?.[0] || ""}">${esc(STATE[q.decision]?.[1] || q.decision)}</span>${q.note ? ` <span class="muted">${esc(q.note)}</span>` : ""}` : `<span class="chip warn">asked</span> due ${esc(new Date(q.due).toLocaleDateString())}`}</td></tr>`).join("")}</tbody></table>` : ""}</div>
-      ${backups ? `<h3>Backups</h3><div class="card"><div class="spread"><span class="small muted">${backups.files.length ? `${backups.files.length} kept for ${esc(backups.keep_days)} days` : "None yet."}${backups.latest ? ` · last ${esc(when(backups.latest.at))}${backups.latest.restored ? ", restored to check it" : `, <span style="color:var(--bad)">did not restore: ${esc(backups.latest.detail)}</span>`}` : ""}</span>
-        <button data-act="backup">Back up now</button></div>
-        ${backups.scrub_pending ? `<p class="small" data-backup-scrub style="color:var(--bad)">${backups.scrub_pending.erasures ? `${esc(backups.scrub_pending.erasures)} deleted ${backups.scrub_pending.erasures === 1 ? "person's" : "people's"} data is not fully erased: ` : ""}${esc(backups.scrub_pending.files.length)} ${backups.scrub_pending.files.length === 1 ? "backup still holds" : "backups still hold"} deleted data, since ${esc(when(backups.scrub_pending.since))}. Magnus tries again every hour and at start: ${esc(backups.scrub_pending.detail)}</p>` : ""}
-        ${backups.on_appliance_disk ? `<p class="small" data-backup-disk style="color:var(--warn)">They are on the server's own disk, so a lost disk loses them too: set <span class="mono">[backup] dir</span> to another disk, and keep a copy of the backup key off the server.</p>` : ""}</div>` : ""}`);
+      ${administers() ? `<p class="small muted" data-backups-moved>Backups and restore checks are in <a href="#/admin/operations">Admin › Operations</a>.</p>` : ""}`);
   };
   el.onchange = async e => {
     const c = e.target.closest("input[data-pref]"); if (!c) return;
@@ -3366,7 +3312,6 @@ async function dataSection(el) {
         if (!await ask(`Ask the owner to delete ${what || "all of your data"}?`, "Ask the owner")) return;
         b.disabled = true; await api("POST", "/v1/deletion-requests", { what }); delete drafts.delwhat; toast("Asked. The owner has 30 days to act.");
       }
-      if (b.dataset.act === "backup") { b.disabled = true; await api("POST", "/v1/backups", {}); toast("Backed up."); }
       const row = b.closest("[data-note]"), note = row && notes[+row.dataset.note];
       if (b.dataset.act === "note-add") { b.disabled = true; await api("POST", "/v1/relationship", { action: "add", text: $("#newnote", el).value }); toast("Saved."); }
       if (b.dataset.act === "note-save") { b.disabled = true; await api("POST", "/v1/relationship", { action: "change", note, text: $("input", row).value }); toast("Saved."); }

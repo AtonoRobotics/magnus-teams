@@ -95,3 +95,42 @@ async fn every_admin_sees_who_pulled_every_switch() {
     assert_eq!(v["stops"][0]["mine"], true, "{v}");
     s.done().await;
 }
+
+/// "Each admin change asks for the admin's password and code again": the
+/// app's older owner routes outside the Admin section (Settings' roles,
+/// models, connectors, updates and kill switch) change nothing for an admin
+/// without a step-up, and each change is in the admin audit. Pressing the
+/// kill switch is the one change that needs none.
+#[tokio::test(flavor = "multi_thread")]
+async fn settings_routes_take_the_admin_step_up_and_audit() {
+    let s = server(|_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let roles = json!({ "roles": ["developer"] });
+    let (st, v) = s.call(&sam, reqwest::Method::PUT, "/v1/people/mo/roles", Some(roles.clone())).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "a role changed with no step-up: {v}");
+    let (st, v) = s.call(&sam, reqwest::Method::PUT, "/v1/model", Some(json!({ "adapter": "a", "model": "m" }))).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "the default model changed with no step-up: {v}");
+    let (st, v) = s.post(&sam, "/v1/updates/rollback", json!({})).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "a rollback started with no step-up: {v}");
+    // Pressing stops at once; releasing asks.
+    let (st, v) = s.post(&sam, "/v1/kill-switch", json!({ "engaged": true })).await;
+    assert_eq!(st, 200, "{v}");
+    assert!(s.k.read(|x| x.kill_switch));
+    assert_eq!(s.audited("kill_switch_engaged").len(), 1, "pressing is not in the admin audit");
+    let (st, v) = s.post(&sam, "/v1/kill-switch", json!({ "engaged": false })).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "released with no step-up: {v}");
+    assert!(s.k.read(|x| x.kill_switch), "the switch was released with no step-up");
+    mark(&sam, Utc::now());
+    assert_eq!(s.post(&sam, "/v1/kill-switch", json!({ "engaged": false })).await.0, 200);
+    assert_eq!(s.audited("kill_switch_released").len(), 1);
+    let (st, v) = s.call(&sam, reqwest::Method::PUT, "/v1/people/mo/roles", Some(roles)).await;
+    assert_eq!(st, 204, "{v}");
+    let changed = s.audited("role_changed");
+    assert_eq!(changed.len(), 1, "a role change from Settings is not in the admin audit");
+    assert_eq!(changed[0]["target"], "/v1/people/mo/roles");
+    // Someone who is no admin is refused by the route, as before.
+    let mo = s.token("mo").await;
+    let (st, v) = s.call(&mo, reqwest::Method::PUT, "/v1/data-access", Some(json!({ "private": true }))).await;
+    assert!(st == 403 && v["error"] != "step_up", "{st} {v}");
+    s.done().await;
+}

@@ -1,8 +1,9 @@
 // Settings in the installed app: every section is there for the owner, and
-// each does what it says. Account lists this device and signs another out;
-// the owner gives a colleague a role; a notification choice is kept on the
+// each does what it says. Account lists this device and signs another out,
+// and points to Admin for roles; a notification choice is kept on the
 // appliance; Updates names both versions; Data and privacy keeps the
-// feedback choice, sends a deletion request, and backs up.
+// feedback choice and sends a deletion request, and points to Admin for
+// backups.
 //
 // MAGNUS_WEBDRIVER  tauri-driver's address      MAGNUS_APP  the app binary
 // MAGNUS_URL        the appliance (https)       MAGNUS_FINGERPRINT  what it printed
@@ -25,7 +26,8 @@ await pinAndSignIn(d, { url, fingerprint, provider, person });
 await d.step("Settings has every section", async () => {
   await d.click(d.xpath("//nav//a[@aria-label='Settings']"));
   const tabs = await d.run("return [...document.querySelectorAll('nav[aria-label=Settings] a')].map(a => a.innerText.trim())");
-  const want = ["Models", "Connectors", "Account", "Appearance", "Notifications", "Updates", "Data and privacy", "Kill switch"];
+  // Administration (models, connectors, roles, backups, the kill switch) is Admin's, not Settings'.
+  const want = ["Account", "Rules", "Payments", "Appearance", "Notifications", "Updates", "Data and privacy"];
   if (JSON.stringify(tabs) !== JSON.stringify(want)) throw new Error(`the sections are ${tabs}`);
 });
 
@@ -38,10 +40,8 @@ await d.step("Account lists this device and signs the other out", async () => {
   await d.until("one device left", async () => (await d.run("return document.querySelectorAll('[data-devices] tr').length")) === 1 || null);
 });
 
-await d.step("the owner gives a colleague a role", async () => {
-  await d.run(`const i = document.querySelector('[data-roles="${other}"]'); i.value = "developer";`);
-  await d.click(d.xpath(`//tr[@data-person='${other}']//button[normalize-space()='Save']`));
-  await d.seen("Roles saved.");
+await d.step("roles are Admin's: Account points there", async () => {
+  await d.xpath("//p[@data-roles-moved]//a[@href='#/admin/people']");
 });
 
 await d.step("a notification choice is kept", async () => {
@@ -64,8 +64,7 @@ await d.step("Data and privacy keeps the feedback choice and sends a deletion re
   await d.click(d.button("Ask for deletion"));
   await confirmWith("delete my chats");
   await d.xpath("//table[@data-deletions]//td[contains(., 'my chats')]");
-  await d.click(d.button("Back up now"));
-  await d.seen("Backed up.");
+  await d.xpath("//p[@data-backups-moved]//a[@href='#/admin/operations']");
 });
 
 await d.close();

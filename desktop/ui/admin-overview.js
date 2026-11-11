@@ -56,6 +56,14 @@ function adminOverviewHtml(o) {
     <p class="small muted">Magnus ${esc(o.version || "")}</p>`;
 }
 
+// The server's kill switch: what it revoked and sealed, and what to connect
+// again once it is released (once Settings' Kill switch). Pressing and
+// releasing are in the top bar.
+registerOverviewCard("kill", async el => {
+  const ks = await adminApi("GET", "/v1/admin/kill-switch");
+  paint(el, typeof killSwitch === "function" ? killSwitch(ks) : `<h3>Kill switch</h3><p class="small muted">${ks.engaged ? "On." : "Off."}</p>`);
+});
+
 registerAdminSection("overview", async el => {
   /** @type {AdminOverview} */
   const o = await adminApi("GET", "/v1/admin/overview");

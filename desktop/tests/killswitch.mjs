@@ -1,6 +1,7 @@
-// The owner's kill switch on Home, in a real browser: one control stops
-// everything (after a confirmation), the panel lists the sign-ins revoked at
-// their providers, and turning it off says nothing resumes by itself.
+// The owner's kill switch, in a real browser: one control in the top bar
+// stops everything with no question, Admin › Overview lists the sign-ins
+// revoked at their providers, and releasing asks for the password and says
+// nothing resumes by itself.
 //
 // MAGNUS_URL, MAGNUS_PERSON, MAGNUS_PASSWORD  where and who (the owner)
 // MAGNUS_CHROMIUM  Chrome to drive; MAGNUS_SHOTS  where to keep screenshots
@@ -29,7 +30,7 @@ await page.exposeFunction("magnusAsked", m => dialogs.push(m));
 await page.addInitScript(() => {
   window.confirm = () => false;
   new MutationObserver(() => {
-    for (const q of document.querySelectorAll("dialog.ask[open]:not([data-answered])")) {
+    for (const q of document.querySelectorAll("dialog.ask[open]:not(.step-up):not([data-answered])")) {
       q.dataset.answered = "1";
       window.magnusAsked(q.querySelector("p").textContent);
       q.querySelector("[data-ask=yes]").click();
@@ -52,28 +53,35 @@ await step("sign in", async () => {
   await page.getByRole("link", { name: /^Needs you/ }).waitFor({ timeout: T });
 });
 
-const killSwitch = async () => {
-  await page.getByRole("link", { name: "Settings" }).click();
-  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Kill switch" }).click();
+// The switch is in the top bar on every page (spec rev 141, Kill switch);
+// what it revoked and sealed is Admin › Overview's.
+const bar = () => page.locator("#workspace-bar [data-admin-kill]");
+const report = async () => {
+  await page.getByRole("link", { name: "Admin" }).first().click();
+  await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Overview" }).click();
 };
 
-await step("one control stops everything", async () => {
-  await killSwitch();
-  await page.locator('[data-kill-switch="off"]').getByRole("button", { name: "Stop everything" }).click();
+await step("one control stops everything, with no question", async () => {
+  await bar().getByRole("button", { name: "Stop everything" }).click();
+  await bar().getByText("Everything is stopped").waitFor({ timeout: T });
+  if (dialogs.length) throw new Error(`pressing asked first: ${dialogs}`);
+  await report();
   await page.locator('[data-kill-switch="on"]').waitFor({ timeout: T });
-  if (!dialogs.some(m => m.includes("every sign-in in the vault is revoked at its provider"))) throw new Error(`no confirmation said what it does: ${dialogs}`);
   await page.locator('[data-revoked] tr[data-secret="oa_credential"]', { hasText: "revoked by the provider" }).waitFor({ timeout: T });
   await page.locator('[data-sealed] [data-secret="mail_token"]').waitFor({ timeout: T });
-  // Above the conversation, it says so.
+  // Above the conversation, it says so, naming who.
   await page.getByRole("link", { name: "New conversation", exact: true }).click();
   await page.getByText("The kill switch is on.").waitFor({ timeout: T });
-  await killSwitch();
 });
 
-await step("turning it off resumes nothing", async () => {
-  await page.getByRole("button", { name: "Turn the kill switch off" }).click();
+await step("releasing asks for the password and resumes nothing", async () => {
+  await bar().getByRole("button", { name: "Release" }).click();
+  const sheet = page.getByRole("dialog", { name: "Confirm your password" });
+  await sheet.getByLabel("Password").fill(password);
+  await sheet.getByRole("button", { name: "Confirm" }).click();
+  await page.getByText("Released. Stopped tasks stay stopped until each is continued.").waitFor({ timeout: T });
+  await report();
   await page.locator('[data-kill-switch="off"]').waitFor({ timeout: T });
-  if (!dialogs.some(m => m.includes("stay suspended until you resume each one"))) throw new Error(`no confirmation said nothing resumes: ${dialogs}`);
   await page.locator('[data-revoked] tr[data-secret="oa_credential"]').waitFor({ timeout: T });
   await page.getByText("connect these again").waitFor({ timeout: T });
 });
