@@ -7,7 +7,21 @@ side `crates/magnus/src/admin_app/`). The VPN-only console built for the
 retired appliance (`magnus-admin`, `crates/magnus/src/admin/`,
 `desktop/admin/`) is removed, and so is its Knowledge section, at the owner's
 word. `magnus kill` on the server itself still stops everything when the app
-or sign-in is broken; it uses the control socket, which stays. A deployed
+or sign-in is broken; it uses the control socket, which stays:
+
+```
+magnus kill --config <the server's magnus.toml>            # stop everything
+magnus kill --config <the server's magnus.toml> --release  # release it
+```
+
+Run it as the server's own user (or root): only they can open
+`<state_dir>/control.sock`. It needs no sign-in and no network. The switch's
+event names the server's local operator (`server:<user>`), the admin audit
+records `kill_switch_engaged` or `kill_switch_released` with source `server`,
+and the banner says "<user> on the server stopped everything". Releasing from
+the server needs no step-up: reaching the socket already takes control of the
+server. If the server does not answer within 30 seconds, `magnus kill` says
+so and changes nothing; stopping the service then stops everything. A deployed
 `magnus.toml` with an `[admin]` section still loads: the section is read,
 ignored, and a warning names it. See
 `decisions/2026-11-11-console-retired.md`.

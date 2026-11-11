@@ -3,6 +3,8 @@
 //! `magnus serve --config <file>`: run the appliance.
 //! `magnus password --config <file> --person <id>`: set a person's sign-in
 //! password, read from standard input.
+//! `magnus kill --config <file> [--release]`: stop everything on the server
+//! (or release the switch), from the server itself (`crate::kill_cli`).
 
 use crate::config::Config;
 use anyhow::{Context, Result};
@@ -35,12 +37,13 @@ pub fn main() {
             Some("sign-in-code") => sign_in_code(&args).await,
             Some("restore") => restore(&args).await,
             Some("check") => check(&args).await,
+            Some("kill") => kill(&args).await,
             Some("version") => {
                 println!("{}", crate::update::version());
                 Ok(())
             }
             _ => {
-                eprintln!("usage: magnus migrate --config <file> --admin-url <url>\n       magnus serve --config <file>\n       magnus password --config <file> --person <id>   (password on stdin)\n       magnus totp-enroll --config <file> --person <id>   (prints the enrollment URI)\n       magnus invite --config <file> --person <id> [--email <address>]   (prints the invite token)\n       magnus person-status --config <file> --person <id> --status active|disabled\n       magnus person-role --config <file> --person <id> --role admin|member\n       magnus person-add --config <file> --person <id> [--name <name>] [--email <address>]\n       magnus person-remove --config <file> --person <id>\n       magnus conformance --config <file> --adapter <id> [--model <id>]\n       magnus restore --config <file> --admin-url <url> --from <backup file>\n       magnus check --config <file>   (reads the log and the vault, as a new release must)\n       magnus version");
+                eprintln!("usage: magnus migrate --config <file> --admin-url <url>\n       magnus serve --config <file>\n       magnus password --config <file> --person <id>   (password on stdin)\n       magnus totp-enroll --config <file> --person <id>   (prints the enrollment URI)\n       magnus invite --config <file> --person <id> [--email <address>]   (prints the invite token)\n       magnus person-status --config <file> --person <id> --status active|disabled\n       magnus person-role --config <file> --person <id> --role admin|member\n       magnus person-add --config <file> --person <id> [--name <name>] [--email <address>]\n       magnus person-remove --config <file> --person <id>\n       magnus conformance --config <file> --adapter <id> [--model <id>]\n       magnus restore --config <file> --admin-url <url> --from <backup file>\n       magnus check --config <file>   (reads the log and the vault, as a new release must)\n       magnus kill --config <file> [--release]   (stops everything on the server, from the server itself)\n       magnus version");
                 std::process::exit(2);
             }
         }
@@ -49,6 +52,15 @@ pub fn main() {
         eprintln!("magnus: {e:#}");
         std::process::exit(1);
     }
+}
+
+/// `magnus kill --config <file> [--release]`: the server's kill switch from
+/// the server itself, through its control socket (`crate::kill_cli`).
+async fn kill(args: &[String]) -> Result<()> {
+    let cfg = config(args)?;
+    let release = args.iter().any(|a| a == "--release");
+    println!("{}", crate::kill_cli::kill(&cfg.appliance.state_dir, &crate::kill_cli::operator(), release).await?);
+    Ok(())
 }
 
 fn config(args: &[String]) -> Result<Config> {

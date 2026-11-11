@@ -49,6 +49,31 @@ async fn overview_shows_an_agent_stopped() {
     s.done().await;
 }
 
+/// "magnus kill on the server itself still stops everything when the app or
+/// sign-in is broken": through the control socket alone, the server's switch
+/// goes on, recorded as the server's operator with an audit entry, and the
+/// banner names them; `--release` turns it off the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn magnus_kill_on_the_server_stops_everything() {
+    let s = server(|_| Router::new()).await;
+    let dir = s.k.cfg.appliance.state_dir.clone();
+    let l = crate::control::bind(&dir).unwrap();
+    tokio::spawn(crate::control::serve(s.k.clone(), l));
+    let said = crate::kill_cli::kill(&dir, "root", false).await.unwrap();
+    assert!(said.starts_with("The kill switch is on"), "{said}");
+    let by = s.k.read(|st| (st.kill_switch, st.kill_switch_by.as_ref().map(|(a, _)| a.clone())));
+    assert_eq!(by, (true, Some("server:root".to_string())), "the switch is not on, by the server's operator");
+    let engaged = s.audited("kill_switch_engaged");
+    assert_eq!((engaged.len(), engaged[0]["admin"].as_str(), engaged[0]["source"].as_str()), (1, Some("server:root"), Some("server")), "{engaged:?}");
+    let mo = s.token("mo").await;
+    let (_, v) = s.get(&mo, "/v1/stops").await;
+    assert_eq!(v["stops"][0]["by_name"], "root on the server", "{v}");
+    crate::kill_cli::kill(&dir, "root", true).await.unwrap();
+    assert!(!s.k.read(|st| st.kill_switch), "magnus kill --release left the switch on");
+    assert_eq!(s.audited("kill_switch_released").len(), 1);
+    s.done().await;
+}
+
 /// Kill switch: "a banner shows who pulled it and when, to the admins and to
 /// the people affected". An admin's banner names every switch that is on,
 /// also one that stops someone else's agents; the person stopped sees theirs.

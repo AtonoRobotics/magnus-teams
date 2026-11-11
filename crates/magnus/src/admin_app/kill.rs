@@ -51,9 +51,13 @@ async fn release(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -
     audited(&k, &a, audit, control(&k, &a, Method::POST, "/v1/kill-switch", Some(json!({ "engaged": false })))).await
 }
 
-/// A person's name from a log actor (`person:<id>`, `admin:<id>`), or the
+/// A person's name from a log actor (`person:<id>`, `admin:<id>`), the
+/// server's local operator's (`server:<user>`, from `magnus kill`), or the
 /// actor itself (`kernel`).
 fn name_of(k: &Kernel, actor: &str) -> String {
+    if let Some(operator) = crate::kill_cli::operator_name(actor) {
+        return operator;
+    }
     let id = actor.split_once(':').map(|(_, id)| id).unwrap_or(actor);
     match k.person(id) {
         Some(p) if !p.name.is_empty() => p.name,

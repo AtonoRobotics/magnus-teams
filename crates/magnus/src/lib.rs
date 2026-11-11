@@ -46,6 +46,7 @@ pub mod inbox;
 pub mod invitations;
 pub mod issuers;
 pub mod kernel;
+pub mod kill_cli;
 pub mod knowledge;
 pub mod legacy_items;
 pub mod library;
