@@ -869,6 +869,7 @@ pub struct State {
     pub local: crate::local::Ledger,
     pub team: crate::team::Ledger,
     pub push: crate::push::Ledger,
+    pub halts: crate::halts::Ledger,
     /// Trashed items by id.
     pub trash: BTreeMap<String, Trashed>,
     /// Conversations removed from the trash: their tasks stay, the thread is gone.
@@ -1101,7 +1102,7 @@ impl State {
         self.tasks.values().filter(|t| t.schedule.as_deref() == Some(schedule)).find_map(|t| {
             let r = self.runs.get(&t.run_id).filter(|r| r.ended_at.is_none() && r.status == Status::Suspended)?;
             let reason = r.reason.as_deref().unwrap_or("someone");
-            (!["timer", "update", "kill_switch"].contains(&reason)).then(|| (t.task_id.clone(), format!("its last run is waiting on you ({reason})")))
+            (!["timer", "update"].contains(&reason) && !crate::halts::is_kill(reason)).then(|| (t.task_id.clone(), format!("its last run is waiting on you ({reason})")))
         })
     }
 
@@ -1379,6 +1380,7 @@ impl State {
             Ev::LocalFile(c) => self.local.files.apply(c),
             Ev::Team(c) => self.team.apply(c),
             Ev::Push(c) => self.push.apply(c),
+            Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
             Ev::KillSwitch { engaged } => {
                 self.kill_switch = *engaged;

@@ -338,6 +338,9 @@ impl Kernel {
                 if self.read(|s| s.kill_switch) {
                     return Ok(Answer::Conflict("the kill switch is engaged"));
                 }
+                if self.refuse_new(&item.person, false).is_some() {
+                    return Ok(Answer::Conflict("a kill switch or a pause holds this person's agent"));
+                }
                 let from = self.read(|s| {
                     item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| (r.config.adapter.clone(), r.config.model.clone(), Label { untrusted: r.untrusted, private: r.private }))
                 });
@@ -423,9 +426,9 @@ impl Kernel {
                 // The kill switch's notice is the person's own Continue for
                 // the run it stopped, as the task's Resume is (K53: nothing
                 // else resumes it), and never while the switch is on again.
-                let stopped = item.details["reason"] == "kill_switch"
-                    && self.read(|s| s.runs.get(&run).is_some_and(|r| r.status == Status::Suspended && r.reason.as_deref() == Some("kill_switch")));
-                if stopped && self.read(|s| s.kill_switch) {
+                let stopped = item.details["reason"].as_str().is_some_and(crate::halts::is_kill)
+                    && self.read(|s| s.runs.get(&run).is_some_and(|r| r.status == Status::Suspended && r.reason.as_deref().is_some_and(crate::halts::is_kill)));
+                if stopped && self.halt_of(&run, None).is_some() {
                     return Ok(Answer::Conflict("the kill switch is engaged"));
                 }
                 evs.push((&actor, resolve(None)));
@@ -485,7 +488,7 @@ impl Kernel {
             return None;
         }
         let (suspended, reason) = self.read(|s| s.runs.get(run).map(|r| (r.status == Status::Suspended, r.reason.clone()))).unwrap_or((false, None));
-        (suspended && reason.as_deref() != Some("kill_switch") && !self.read(|s| s.kill_switch)).then(|| ("kernel", Ev::Resumed { run: run.into() }))
+        (suspended && !reason.as_deref().is_some_and(crate::halts::is_kill) && self.halt_of(run, None).is_none()).then(|| ("kernel", Ev::Resumed { run: run.into() }))
     }
 }
 

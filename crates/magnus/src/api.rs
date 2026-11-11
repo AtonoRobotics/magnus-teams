@@ -28,8 +28,8 @@ pub(crate) fn err(code: StatusCode, msg: impl Into<String>) -> Response {
 }
 
 pub(crate) fn internal(e: anyhow::Error) -> Response {
-    if let Some(k) = e.downcast_ref::<crate::kernel::KillSwitchOn>() {
-        return err(StatusCode::CONFLICT, k.to_string());
+    if let Some(r) = crate::halts::refused(&e) {
+        return r;
     }
     if let Some(r) = crate::spend::routes::refused(&e) {
         return r;
@@ -1314,8 +1314,8 @@ async fn resume(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     if run.status != Status::Suspended {
         return err(StatusCode::CONFLICT, "the task is not paused");
     }
-    if k.read(|s| s.kill_switch) {
-        return err(StatusCode::CONFLICT, "the kill switch is engaged");
+    if let Some((_, why)) = k.halt_of(&run.id, None) {
+        return err(StatusCode::CONFLICT, why.replace("kill switch engaged", "the kill switch is engaged"));
     }
     if let Err(e) = k.emit(&format!("person:{}", p.id), Ev::Resumed { run: run.id.clone() }).await {
         return internal(e);

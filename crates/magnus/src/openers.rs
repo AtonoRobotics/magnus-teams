@@ -13,7 +13,7 @@
 
 use crate::chat::derived;
 use crate::events::{ChatOrigin, Opener};
-use crate::kernel::{Kernel, KillSwitchOn, NewRun};
+use crate::kernel::{Kernel, NewRun};
 use crate::run::{OPENER, OPENER_APP};
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ impl Kernel {
         let (k, person, app) = (self.clone(), person.to_string(), app.map(String::from));
         tokio::spawn(async move {
             match k.start_opener(&person, app.as_deref()).await {
-                Err(e) if !e.is::<KillSwitchOn>() => tracing::warn!("could not open a conversation for {person}: {e:#}"),
+                Err(e) if !crate::halts::is_refusal(&e) => tracing::warn!("could not open a conversation for {person}: {e:#}"),
                 _ => {}
             }
         });

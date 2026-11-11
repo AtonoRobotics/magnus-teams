@@ -366,7 +366,9 @@ impl Kernel {
         }
         // A sub-agent: what it and each run above it were given, and its records.
         self.read(|s| specs.retain(|t| tools::RECORDS.contains(&t.name.as_str()) || s.sub_agents.refusal(&run.id, &t.name).is_none()));
-        self.team_scoped(run, specs)
+        // Without the tools of a connector a kill switch took away.
+        let specs = self.team_scoped(run, specs);
+        self.read(|s| crate::halts::offered(s, specs))
     }
 
     /// The tools found by this run's `find_tools` calls.

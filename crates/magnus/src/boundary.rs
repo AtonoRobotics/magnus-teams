@@ -435,9 +435,9 @@ impl Kernel {
         let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else { return Err(anyhow!("unknown run {}", a.run)) };
         let person = self.person(&run.person).ok_or_else(|| anyhow!("unknown person {}", run.person))?;
         // The kill switch holds before anything touches a credential (B11).
-        if self.read(|s| s.kill_switch) {
-            self.decision(a, "deny", "identify", "kill switch engaged", None).await?;
-            self.suspend(&a.run, "kill_switch", None).await?;
+        if let Some((reason, why)) = self.halt_of(&a.run, Some(&a.tool)) {
+            self.decision(a, "deny", "identify", &why, None).await?;
+            self.suspend(&a.run, &reason, None).await?;
             return Ok(Verdict::Suspended);
         }
         let Some(f) = facts(self, &a.tool) else {
@@ -525,8 +525,8 @@ impl Kernel {
         };
 
         // 7. Credentials, last.
-        if self.read(|s| s.kill_switch) {
-            return self.deny(a, "credentials", "the kill switch is engaged", false, None).await;
+        if let Some((_, why)) = self.halt_of(&a.run, Some(&a.tool)) {
+            return self.deny(a, "credentials", &why.replace("kill switch engaged", "the kill switch is engaged"), false, None).await;
         }
         // The person's own sign-in, never anyone else's.
         let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
@@ -723,9 +723,9 @@ impl Kernel {
         f: &Facts,
         shown: Option<&Shown>,
     ) -> Result<std::result::Result<Option<(String, Option<String>)>, Verdict>> {
-        if self.read(|s| s.kill_switch) {
-            self.decision(a, "deny", "policy", "kill switch engaged", None).await?;
-            self.suspend(&a.run, "kill_switch", None).await?;
+        if let Some((reason, why)) = self.halt_of(&a.run, Some(&a.tool)) {
+            self.decision(a, "deny", "policy", &why, None).await?;
+            self.suspend(&a.run, &reason, None).await?;
             return Ok(Err(Verdict::Suspended));
         }
         if f.risk == Risk::Prohibited {

@@ -40,6 +40,7 @@ pub mod devices;
 pub mod events;
 pub mod generated;
 pub mod grants;
+pub mod halts;
 pub mod identity;
 pub mod inbox;
 pub mod issuers;

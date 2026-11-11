@@ -530,8 +530,8 @@ impl Kernel {
     /// Create a task or a chat turn and start it. Nothing new starts while
     /// the kill switch is on (owner's ruling 11, 2026-11-01).
     pub async fn create_run(self: &Arc<Self>, actor: &str, person: &str, text: String, attachments: Vec<serde_json::Value>, o: NewRun) -> Result<(String, String)> {
-        if self.read(|s| s.kill_switch) {
-            return Err(KillSwitchOn.into());
+        if let Some(e) = self.refuse_new(person, o.team.is_some()) {
+            return Err(e);
         }
         let (task, run) = match &o.ids {
             Some((t, r)) => (t.clone(), r.clone()),
@@ -664,8 +664,7 @@ impl Kernel {
                     let _ = self.emit("kernel", Ev::ScheduleResumed { id, source: None, turn: None }).await;
                 }
             }
-            let due_schedules: Vec<crate::state::Schedule> =
-                self.read(|s| if s.kill_switch { vec![] } else { s.schedules.values().filter(|x| x.next_due().is_some_and(|t| t <= now)).cloned().collect() });
+            let due_schedules: Vec<crate::state::Schedule> = self.read(|s| crate::halts::due_schedules(s, now));
             for sc in due_schedules {
                 let title = self.schedule_title_for_notice(&sc).await;
                 // Not while its last run is open: running, or waiting on
@@ -809,7 +808,7 @@ impl Kernel {
         // Background work never waits on its person: it ends, and the next
         // wake tries again. The log keeps why, for the run inspector; the
         // person sees nothing (owner, 2026-11-07).
-        if self.is_background(run) && reason != "kill_switch" {
+        if self.is_background(run) && !crate::halts::is_kill(reason) {
             let ended = Ev::Failed { run: run.into(), reason: format!("background work ended rather than wait on its person ({reason})"), by: "kernel".into() };
             self.emit("kernel", ended).await?;
             self.on_stop(run, true).await;
@@ -838,7 +837,7 @@ impl Kernel {
             let runs: Vec<String> = s
                 .runs
                 .values()
-                .filter(|r| r.status == crate::state::Status::Suspended && !["timer", "update", "kill_switch"].contains(&r.reason.as_deref().unwrap_or_default()))
+                .filter(|r| r.status == crate::state::Status::Suspended && !r.reason.as_deref().is_some_and(|x| ["timer", "update"].contains(&x) || crate::halts::is_kill(x)))
                 .filter(|r| s.tasks.get(&r.task).is_some_and(|t| t.background()))
                 .map(|r| r.id.clone())
                 .collect();

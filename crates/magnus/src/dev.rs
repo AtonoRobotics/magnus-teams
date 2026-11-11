@@ -56,7 +56,7 @@ pub fn failure(s: &State, r: &Run, stall_minutes: u32) -> Option<&'static str> {
         Status::Suspended => match r.reason.as_deref() {
             Some("budget") | Some("grant_budget") => Some("budget"),
             Some("provider") | Some("usage_limit") | Some("auth") | Some("invalid_request") => Some("provider"),
-            Some("kill_switch") => Some("kill_switch"),
+            Some(r) if crate::halts::is_kill(r) => Some("kill_switch"),
             Some("timer") => None,
             _ => Some("waiting_on_person"),
         },

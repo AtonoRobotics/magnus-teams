@@ -153,8 +153,7 @@ pub enum Ev {
         id: String,
         enabled: bool,
     },
-    /// The release channel the desktop apps of everyone but the owner and
-    /// testers follow.
+    /// The release channel the desktop apps of everyone but the owner and testers follow.
     DesktopChannelSet {
         channel: String,
     },
@@ -177,6 +176,7 @@ pub enum Ev {
         engaged: bool,
     },
     Computer(crate::computer::Change),
+    Halt(crate::halts::Change),
     Payment(crate::payments::Change),
     Rule(crate::rules::Change),
     SubAgent(crate::sub_agents::SubAgent),

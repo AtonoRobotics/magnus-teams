@@ -37,8 +37,8 @@ impl Kernel {
         if run.status != Status::Running {
             return Ok(false);
         }
-        if self.read(|s| s.kill_switch) {
-            self.suspend(run_id, "kill_switch", None).await?;
+        if let Some((reason, _)) = self.halt_of(run_id, None) {
+            self.suspend(run_id, &reason, None).await?;
             return Ok(false);
         }
         if self.read(|s| s.updating.is_some()) {
@@ -121,8 +121,8 @@ impl Kernel {
         if run.status != Status::Running {
             return Ok(Flow::Stop);
         }
-        if self.read(|s| s.kill_switch) {
-            self.suspend(run_id, "kill_switch", None).await?;
+        if let Some((reason, _)) = self.halt_of(run_id, None) {
+            self.suspend(run_id, &reason, None).await?;
             return Ok(Flow::Stop);
         }
         // A person holds the computer, or has been asked to sign in: wait for them.

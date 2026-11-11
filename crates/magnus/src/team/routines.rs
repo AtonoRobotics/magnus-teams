@@ -80,7 +80,15 @@ impl Kernel {
     pub(super) async fn run_due_routines(self: &Arc<Self>) -> Result<()> {
         let now = chrono::Utc::now();
         let due: Vec<(String, String, Routine)> = self.read(|s| {
-            s.team.all().flat_map(|w| w.routines.iter().filter(|(_, r)| r.due(now) && w.members.contains_key(&r.by)).map(|(id, r)| (w.id.clone(), id.clone(), r.clone()))).collect()
+            s.team
+                .all()
+                .flat_map(|w| {
+                    w.routines
+                        .iter()
+                        .filter(|(_, r)| r.due(now) && w.members.contains_key(&r.by) && crate::halts::holds_new(s, &r.by, true).is_none())
+                        .map(|(id, r)| (w.id.clone(), id.clone(), r.clone()))
+                })
+                .collect()
         });
         for (workspace, id, r) in due {
             let team = TeamRun {

@@ -18,7 +18,7 @@
 
 use crate::chat::derived;
 use crate::events::{ChatOrigin, Ev};
-use crate::kernel::{Kernel, KillSwitchOn, NewRun};
+use crate::kernel::{Kernel, NewRun};
 use crate::log::Event;
 use crate::state::{Run, State, Status, Task};
 use crate::tools::Label;
@@ -219,7 +219,7 @@ impl Kernel {
         });
         for (t, r) in due {
             match self.return_outcome(&t, &r).await {
-                Err(e) if !e.is::<KillSwitchOn>() => tracing::warn!("could not return task {}'s outcome to its thread: {e:#}", t.task_id),
+                Err(e) if !crate::halts::is_refusal(&e) => tracing::warn!("could not return task {}'s outcome to its thread: {e:#}", t.task_id),
                 _ => {}
             }
         }
