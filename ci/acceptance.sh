@@ -14,10 +14,12 @@
 #   injection   prompt injection, tests/scratch/tests/injection.rs
 #   update      signed updates, tests/scratch/tests/update.rs
 #   invariants  the eight invariants in full, tests/invariants
+#   kill_switch_computer  each kill switch level pausing a program running
+#               in the computer until release (spec rev 141), needs KVM
 set -eu
 cd "$(dirname "$0")/.."
 
-all="autonomy injection update invariants"
+all="autonomy injection update invariants kill_switch_computer"
 suites=${*:-$all}
 for s in $suites; do
   case " $all " in *" $s "*) ;; *) echo "no such suite: $s (have: $all)" >&2; exit 2 ;; esac
