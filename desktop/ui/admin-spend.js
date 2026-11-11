@@ -182,4 +182,16 @@ function offerMoreSpend(body) {
 }
 
 registerAdminSection("spend", el => adminSpend(el));
+
+// Overview's card: this month against the server's limit, who has reached
+// their own, and requests waiting, from Overview's answer (`spend`).
+if (typeof registerOverviewCard === "function") registerOverviewCard("spend", async el => {
+  /** @type {{month: string, total_usd: number, server_usd: ?number, server_left_usd: ?number, at_limit: string[], requests_waiting: number}|null} */
+  const s = (await adminApi("GET", "/v1/admin/overview")).spend;
+  if (!s) { paint(el, `<h3>Spend this month</h3><p class="small muted">Spend is not available.</p>`); return; }
+  const of = s.server_usd === null || s.server_usd === undefined ? "no server limit" : `of ${dollars(s.server_usd)}`;
+  paint(el, `<h3>Spend this month</h3>
+    <p class="stat"><strong data-overview-spend-total>${dollars(s.total_usd)}</strong> ${esc(of)}</p>
+    <p class="small muted">${s.at_limit.length ? `${esc(s.at_limit.join(", "))} at their limit · ` : ""}${s.requests_waiting ? `${s.requests_waiting} waiting for more · ` : ""}<a href="#/admin/spend">Open Spend</a></p>`);
+});
 registerAdminSection("models", el => adminModels(el));

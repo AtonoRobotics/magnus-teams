@@ -67,7 +67,9 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
     let (o, capacity) = tokio::join!(control(&k, &a, Method::GET, "/v1/overview", None), super::operations::capacity(&k));
     let o = body_json(o).await;
     let host = super::operations::host(&k.cfg.appliance.state_dir);
-    let alerts = alerts(&o, &k, host["disk_used"].as_f64(), &capacity);
+    let mut alerts = alerts(&o, &k, host["disk_used"].as_f64(), &capacity);
+    let spend = k.spend_overview(None).map(|s| spend_summary(&s)).unwrap_or(Value::Null);
+    alerts.extend(spend_alerts(&spend));
     let invited = {
         let mut n = 0;
         for id in k.server_people() {
@@ -85,7 +87,66 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
         "kill_switch": o["kill_switch"],
         "recent_errors": o["recent_errors"],
         "alerts": alerts,
-        "spend": Value::Null,
+        "spend": spend,
     }))
     .into_response()
+}
+
+/// This month's spend against its limits, from Admin → Spend's overview:
+/// the total, the server's limit and what is left, who has reached their
+/// own limit, and requests for more still waiting.
+fn spend_summary(s: &Value) -> Value {
+    let at_limit: Vec<Value> = s["by_person"].as_array().into_iter().flatten().filter(|p| p["left_usd"].as_f64().is_some_and(|l| l <= 0.0)).map(|p| p["name"].clone()).collect();
+    let waiting = s["requests"].as_array().into_iter().flatten().filter(|r| r["decided"].is_null()).count();
+    json!({
+        "month": s["month"],
+        "total_usd": s["total_usd"],
+        "server_usd": s["limits"]["server_usd"],
+        "server_left_usd": s["server_left_usd"],
+        "at_limit": at_limit,
+        "requests_waiting": waiting,
+    })
+}
+
+/// What in this month's spend needs an admin, each fixed in Spend.
+fn spend_alerts(s: &Value) -> Vec<Value> {
+    let mut out = vec![];
+    if s["server_left_usd"].as_f64().is_some_and(|l| l <= 0.0) {
+        out.push(alert("The server's monthly spend limit is reached: no new work starts.".into(), "spend"));
+    }
+    let n = s["at_limit"].as_array().map_or(0, Vec::len);
+    if n > 0 {
+        out.push(alert(format!("{n} {} reached their spend limit.", if n == 1 { "person has" } else { "people have" }), "spend"));
+    }
+    match s["requests_waiting"].as_u64().unwrap_or(0) {
+        0 => {}
+        1 => out.push(alert("A request for more spend is waiting.".into(), "spend")),
+        w => out.push(alert(format!("{w} requests for more spend are waiting."), "spend")),
+    }
+    out
+}
+
+#[cfg(test)]
+mod spend_card_tests {
+    use super::{spend_alerts, spend_summary};
+    use serde_json::json;
+
+    /// Overview shows the month against the server's limit, and a reached
+    /// limit or a waiting request is something that needs an admin.
+    #[test]
+    fn overview_carries_spend_and_its_alerts() {
+        let s = json!({ "month": "2026-11", "total_usd": 40.0, "server_left_usd": 0.0, "limits": { "server_usd": 40.0 },
+            "by_person": [{ "name": "Ada", "left_usd": 0.0 }, { "name": "Bea", "left_usd": 3.0 }, { "name": "Cy", "left_usd": null }],
+            "requests": [{ "decided": null }, { "decided": "approved" }] });
+        let sum = spend_summary(&s);
+        assert_eq!(sum["total_usd"], 40.0);
+        assert_eq!(sum["server_usd"], 40.0);
+        assert_eq!(sum["at_limit"], json!(["Ada"]));
+        assert_eq!(sum["requests_waiting"], 1);
+        let alerts = spend_alerts(&sum);
+        assert_eq!(alerts.len(), 3, "{alerts:?}");
+        assert!(alerts.iter().all(|a| a["fix"] == "spend"), "{alerts:?}");
+        let quiet = spend_summary(&json!({ "server_left_usd": 10.0, "by_person": [], "requests": [] }));
+        assert!(spend_alerts(&quiet).is_empty());
+    }
 }
