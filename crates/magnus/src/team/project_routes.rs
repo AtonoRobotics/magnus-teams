@@ -212,15 +212,26 @@ async fn panel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Quer
         .map(|f| json!({ "name": f.name, "size": f.size, "by": f.by, "by_name": name_of(&k, &f.by), "project": w.chat.file_projects.get(&f.name) }))
         .collect();
     let tasks: Vec<&Task> = w.chat.tasks.values().filter(|t| w.in_project(t.project.as_deref(), &p.id) && here(t.project.as_ref())).collect();
-    let work: Vec<Value> = k.read(|s| {
+    // Names are looked up after the state is let go: looking one up takes
+    // the state's lock again, and inside `read` that hung the whole server.
+    let running: Vec<(crate::team::TeamRun, bool, usize)> = k.read(|s| {
         s.team
             .runs_of(&ws)
             .into_iter()
             .filter(|r| !r.sub && channels.contains(&&r.channel))
-            .filter_map(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| !run.status.terminal()).map(|run| (r, run)))
-            .map(|(r, run)| json!({ "task": r.task, "channel": r.channel, "requester": r.requester, "requester_name": name_of(&k, &r.requester), "waiting": run.status == crate::state::Status::Suspended, "steps": run.replies.len() }))
+            .filter_map(|r| {
+                s.tasks
+                    .get(&r.task)
+                    .and_then(|t| s.runs.get(&t.run_id))
+                    .filter(|run| !run.status.terminal())
+                    .map(|run| (r.clone(), run.status == crate::state::Status::Suspended, run.replies.len()))
+            })
             .collect()
     });
+    let work: Vec<Value> = running
+        .into_iter()
+        .map(|(r, waiting, steps)| json!({ "task": r.task, "channel": r.channel, "requester": r.requester, "requester_name": name_of(&k, &r.requester), "waiting": waiting, "steps": steps }))
+        .collect();
     let people: Vec<Value> = match &def {
         Some(d) => std::iter::once(&d.owner)
             .chain(d.members.iter())
