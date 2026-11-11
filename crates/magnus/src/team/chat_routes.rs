@@ -77,11 +77,12 @@ async fn home(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
             json!({ "id": d.id, "name": d.name, "owner": d.owner, "members": d.members, "progress": { "done": done, "total": total }, "channels": channels })
         })
         .collect();
+    let spent = k.read(|s| super::spend::spent_this_month(s, &ws, chrono::Utc::now()));
     Json(json!({
         "id": w.id, "name": w.name, "role": role, "me": p.id, "me_name": me,
         "agent": { "id": AGENT_ID, "name": AGENT_NAME },
         "members": members, "channels": channels, "projects": projects,
-        "computer": k.team_computer(&ws),
+        "computer": k.team_computer(&ws), "spend": super::spend::summary(&w, &spent),
     }))
     .into_response()
 }

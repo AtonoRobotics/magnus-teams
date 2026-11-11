@@ -145,6 +145,15 @@ pub enum Chat {
     InviteEnded {
         code: String,
     },
+    /// An owner's limit on what the team agent spends in a calendar month,
+    /// in dollars: the workspace's with no channel, else that channel's.
+    /// No amount lifts it.
+    SpendLimit {
+        #[serde(default)]
+        channel: Option<String>,
+        #[serde(default)]
+        usd: Option<f64>,
+    },
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -171,6 +180,10 @@ pub struct ChatState {
     pub tasks: BTreeMap<String, Task>,
     pub file_projects: BTreeMap<String, String>,
     pub invites: BTreeMap<String, Invite>,
+    /// The workspace's monthly spend limit in dollars, if an owner set one.
+    pub limit_usd: Option<f64>,
+    /// Each channel's monthly spend limit in dollars.
+    pub channel_limits_usd: BTreeMap<String, f64>,
 }
 
 pub(super) fn apply(w: &mut Workspace, c: &Chat) {
@@ -238,6 +251,13 @@ pub(super) fn apply(w: &mut Workspace, c: &Chat) {
         }
         Chat::InviteEnded { code } => {
             s.invites.remove(code);
+        }
+        Chat::SpendLimit { channel: None, usd } => s.limit_usd = *usd,
+        Chat::SpendLimit { channel: Some(channel), usd: Some(usd) } => {
+            s.channel_limits_usd.insert(channel.clone(), *usd);
+        }
+        Chat::SpendLimit { channel: Some(channel), usd: None } => {
+            s.channel_limits_usd.remove(channel);
         }
     }
 }

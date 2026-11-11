@@ -21,6 +21,7 @@ mod project_routes;
 mod routes;
 mod routines;
 mod search;
+pub mod spend;
 mod upkeep;
 mod whisper;
 

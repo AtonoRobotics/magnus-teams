@@ -41,6 +41,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::kb_routes::router())
         .merge(super::chat_routes::router())
         .merge(super::project_routes::router())
+        .merge(super::spend::router())
         .merge(super::search::router())
         .merge(super::whisper::router())
         .merge(super::routines::router())
@@ -209,6 +210,10 @@ async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(Stri
     // No button to press: mentioned, named or, where the channel allows, of help.
     let why = if b.agent { Some(Why::Asked) } else { k.read(|s| s.team.workspace(&ws).and_then(|w| w.agent_answers(&channel, role, &b.text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
+    // The message is posted; the agent stays out once a spend limit is reached.
+    if let Err(limited) = k.team_budget_left(&ws, &channel) {
+        return Json(json!({ "id": id, "limited": limited })).into_response();
+    }
     match k.team_request(&ws, &channel, b.thread, &p.id, b.text).await {
         Ok((task, run)) => {
             ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Asked { channel, message: id.clone(), task: task.clone() } }).await);
