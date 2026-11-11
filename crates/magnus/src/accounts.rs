@@ -28,6 +28,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
 use tokio_postgres::Client;
+mod password;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Session {
@@ -731,10 +732,9 @@ impl Accounts {
         if Self::sole_enabled_admin_tx(&tx, &person).await? {
             anyhow::bail!("This is the organisation's last admin: make someone else an admin first.");
         }
-        for table in ["account_passwords", "account_totp", "account_totp_steps", "account_statuses", "account_roles", "account_reset_tokens"] {
+        for table in ["account_passwords", "account_totp", "account_totp_steps", "account_statuses", "account_roles", "account_reset_tokens", "account_invites"] {
             tx.execute(&format!("DELETE FROM public.{table} WHERE person = $1"), &[&person]).await?;
         }
-        tx.execute("DELETE FROM public.account_invites WHERE person = $1", &[&person]).await?;
         let mut ended = vec![];
         for r in tx.query("DELETE FROM public.account_sessions WHERE person = $1 RETURNING id", &[&person]).await? {
             ended.push(r.get("id"));
@@ -1526,7 +1526,7 @@ mod tests {
     use super::*;
     use crate::config::SignIn;
 
-    fn cfg() -> SignIn {
+    pub(super) fn cfg() -> SignIn {
         SignIn { session_days: 1, max_failures: 5, lockout_minutes: 15, min_password_length: 10, oidc: None }
     }
 
@@ -1537,12 +1537,12 @@ mod tests {
     /// A fresh database per test, dropped when it ends. Mirrors
     /// `magnus_invariants::pg::TestDb`, which this crate cannot reuse
     /// (that crate depends on this one).
-    struct TestDb {
+    pub(super) struct TestDb {
         name: String,
     }
 
     /// A migrated fresh database and a client on it as the server user.
-    async fn db() -> (TestDb, String) {
+    pub(super) async fn db() -> (TestDb, String) {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let name = format!("a_{id}");
         let (client, conn) = tokio_postgres::connect(&server_url(), tokio_postgres::NoTls).await.expect("connect to the test Postgres");

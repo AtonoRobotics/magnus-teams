@@ -115,7 +115,6 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/sign-in/device", post(device_start))
         .route("/v1/sign-in/device/{flow}", post(device_poll))
         .route("/v1/invites/accept", post(accept_invite))
-        .route("/v1/password-reset/request", post(password_reset_request))
         .route("/reset", get(reset_page).post(reset_confirm))
         .route("/v1/password", post(choose_password))
         .route("/v1/sign-out", post(sign_out))
@@ -163,7 +162,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .merge(crate::connectors::router().merge(crate::generated::router()).merge(crate::payments::router()).merge(crate::push::router()))
         .merge(crate::library::router().merge(crate::consent::router()))
         .merge(crate::update::router())
-        .merge(crate::settings::router())
+        .merge(crate::settings::router().merge(crate::passwords::router()))
         .merge(crate::relationship::router())
         .merge(crate::reactions::router())
         .merge(crate::grants::router().merge(crate::computer::router()).merge(crate::rules::router()))
@@ -217,7 +216,7 @@ async fn config_tokens_on_this_machine(State(k): State<Arc<Kernel>>, req: Reques
 
 /// Sign-in hands out a session, so over plain HTTP only from this machine:
 /// neither a password nor a session crosses the network unencrypted.
-fn over_tls(k: &Kernel, t: Transport, peer: SocketAddr) -> Result<(), Response> {
+pub(crate) fn over_tls(k: &Kernel, t: Transport, peer: SocketAddr) -> Result<(), Response> {
     if t == Transport::Plain && !peer.ip().is_loopback() {
         let hint = match &k.cfg.appliance.tls_listen {
             Some(l) => format!("sign in over https (port {})", l.rsplit(':').next().unwrap_or_default()),
@@ -433,7 +432,7 @@ fn too_many_begins() -> Response {
 /// A request made on the appliance's own machine: from a loopback address,
 /// and not passed on by a proxy or tunnel there, which connects from
 /// loopback for callers anywhere and says so in one of these headers.
-fn on_this_machine(peer: SocketAddr, h: &HeaderMap) -> bool {
+pub(crate) fn on_this_machine(peer: SocketAddr, h: &HeaderMap) -> bool {
     peer.ip().to_canonical().is_loopback() && !["forwarded", "x-forwarded-for", "x-real-ip", "cf-connecting-ip"].iter().any(|n| h.contains_key(*n))
 }
 
@@ -758,49 +757,6 @@ async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectI
     }
 }
 
-/// Where account links point: the configured mail base, else the public
-/// hostname when pairing is on. Nothing else is trusted: the request's
-/// own host is attacker-controlled, so without either of these no
-/// recovery mail goes out at all (#541).
-fn link_base(k: &Kernel) -> Option<String> {
-    if let Some(base) = k.cfg.mail.as_ref().and_then(|m| m.link_base.clone()) {
-        return Some(base.trim_end_matches('/').to_string());
-    }
-    k.cfg.client_certs.as_ref().map(|c| format!("https://{}", c.hostname))
-}
-
-/// Ask for a password recovery email: whoever holds the address gets a
-/// one-hour link. The answer never says whether anyone did (#533), and
-/// never waits for the mail server: delivery runs behind the response,
-/// so active addresses answer no slower than unknown ones (#541).
-async fn password_reset_request(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(b): Json<Value>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
-    let email = b["email"].as_str().unwrap_or_default().trim().to_string();
-    let req = match k.accounts.request_reset(&email).await {
-        Ok(r) => r,
-        Err(e) => return internal(e),
-    };
-    if let Some(r) = req.filter(|r| r.send) {
-        let Some(base) = link_base(&k) else {
-            tracing::warn!("password reset for {}: no trusted link base, nothing sent", r.person);
-            return Json(json!({ "ok": true })).into_response();
-        };
-        let link = format!("{base}/reset?token={}", r.token);
-        let text = format!("Someone asked to recover the Magnus password for this address. Choose a new one in the next hour:\n\n{link}\n\nIf that was not you, ignore this email: the password stays as it is. Choosing a new password signs every device out, and any authenticator codes stop working until new ones are enrolled.");
-        let (delivery, to) = (k.clone(), email.clone());
-        tokio::spawn(async move {
-            match crate::mailer::send(&delivery, &to, "Recover your Magnus password", text).await {
-                Ok(true) => {}
-                Ok(false) => tracing::warn!("password reset for {}: no [mail] is set, nothing sent", r.person),
-                Err(e) => tracing::error!("password reset email to {to} failed: {e:#}"),
-            }
-        });
-    }
-    Json(json!({ "ok": true })).into_response()
-}
-
 fn h_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
@@ -860,12 +816,10 @@ async fn reset_confirm(
     }
     match k.accounts.confirm_reset(&token, &password).await {
         Ok(Some((person, ended))) => {
-            let evs: Vec<(String, Ev)> = ended.into_iter().map(|session| (person.clone(), Ev::SignedOut { person: person.clone(), session })).collect();
-            if !evs.is_empty() {
-                let refs: Vec<(&str, Ev)> = evs.iter().map(|(a, e)| (a.as_str(), e.clone())).collect();
-                if let Err(e) = k.emit_all(refs).await {
-                    return internal(e);
-                }
+            let mut evs = vec![(person.as_str(), Ev::PasswordChanged { person: person.clone(), how: "reset".into() })];
+            evs.extend(ended.into_iter().map(|session| (person.as_str(), Ev::SignedOut { person: person.clone(), session })));
+            if let Err(e) = k.emit_all(evs).await {
+                return internal(e);
             }
             reset_shell(
                 "Password set",

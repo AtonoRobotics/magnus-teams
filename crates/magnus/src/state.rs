@@ -1635,7 +1635,7 @@ impl State {
                 // first seen, and the app reports it on every open.
                 self.items_opened.entry(id.clone()).or_insert(e.at);
             }
-            Ev::SignedOut { .. } | Ev::DevicePaired { .. } | Ev::DeviceRevoked { .. } => {}
+            Ev::SignedOut { .. } | Ev::PasswordChanged { .. } | Ev::DevicePaired { .. } | Ev::DeviceRevoked { .. } => {}
             Ev::PersonTurnedOff { person, .. } => {
                 self.turned_off.insert(person.clone());
             }

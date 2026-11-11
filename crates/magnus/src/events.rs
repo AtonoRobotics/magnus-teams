@@ -510,6 +510,12 @@ pub enum Ev {
         person: String,
         session: String,
     },
+    /// A person's password changed: `how` is "settings" (they gave the
+    /// current one) or "reset" (an emailed recovery link). Never the password.
+    PasswordChanged {
+        person: String,
+        how: String,
+    },
     /// The person opened the app's home: what the feed showed them
     /// then is seen, so the next open starts here (#367).
     HomeOpened {
@@ -1392,18 +1398,8 @@ impl Ev {
 }
 
 #[cfg(test)]
-mod tests {
-    /// A call logged before `personal` was recorded, carrying the person's
-    /// notes, still counts as carrying them when replayed (#304).
-    #[test]
-    fn a_call_logged_before_personal_with_notes_carried_its_person() {
-        let old: super::ContextRef = serde_json::from_value(serde_json::json!({ "through_seq": 7, "instructions": "v1", "tools_hash": "h", "relationship": 3 })).unwrap();
-        assert!(!old.personal);
-        assert!(old.carried_person());
-        let none: super::ContextRef = serde_json::from_value(serde_json::json!({ "through_seq": 7, "instructions": "v1", "tools_hash": "h" })).unwrap();
-        assert!(!none.carried_person());
-    }
-}
+#[path = "events_replay_test.rs"]
+mod replay_test;
 
 #[cfg(test)]
 #[path = "events_content_test.rs"]

@@ -289,7 +289,9 @@ async fn person_remove(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Set a person's password from standard input (one line).
+/// Set a person's password from standard input (one line), on the server's
+/// own machine: the owner's way back in, and anyone's when no recovery email
+/// can reach them. Every session of theirs ends, as a recovery's does.
 async fn password(args: &[String]) -> Result<()> {
     let cfg = config(args)?;
     let person = arg(args, "--person").context("--person is required")?;
@@ -299,7 +301,12 @@ async fn password(args: &[String]) -> Result<()> {
     std::io::stdin().read_line(&mut line)?;
     let pw = line.trim_end_matches(['\r', '\n']);
     accounts.set_password(&person, pw).await?;
-    eprintln!("password set for {person}");
+    let ended = accounts.end_all(&person).await?;
+    if ended.is_empty() {
+        eprintln!("password set for {person}");
+    } else {
+        eprintln!("password set for {person}; ended sessions: {}", ended.join(", "));
+    }
     Ok(())
 }
 
