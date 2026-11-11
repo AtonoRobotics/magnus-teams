@@ -25,7 +25,19 @@ pub(crate) fn offered_in_chat(name: &str) -> bool {
 /// tools are for chat. A chat turn may otherwise use any tool, checked by
 /// policy, review and approval as any run's call is.
 pub(crate) fn misplaced(chat_turn: bool, f: &Facts) -> Option<String> {
-    (is_chat_tool(f) && !chat_turn).then(|| format!("{} is for chat; in a task, do the work, or suggest it to the person with suggest", f.name))
+    (is_chat_tool(f) && !chat_turn && !IN_ANY_RUN.contains(&f.name.as_str()))
+        .then(|| format!("{} is for chat; in a task, do the work, or suggest it to the person with suggest", f.name))
+}
+
+/// The chat tools a task or a review is offered too: a schedule never asks
+/// on its own (spec rev 142, Permissions and tasks), so work outside chat
+/// sets one up and sees the person's. `suggest` is not a chat tool at all.
+const IN_ANY_RUN: [&str; 2] = ["create_schedule", "list_schedules"];
+
+/// Whether a run outside chat is offered this chat tool. A scheduled run
+/// sets up no schedule: schedules would breed (2026-10-30).
+pub(crate) fn in_any_run(name: &str, scheduled: bool) -> bool {
+    name == "suggest" || (IN_ANY_RUN.contains(&name) && !(scheduled && name == "create_schedule"))
 }
 
 impl State {
@@ -106,6 +118,11 @@ mod tests {
             assert_eq!(misplaced(true, &f), None, "{} was refused in chat", f.name);
         }
         assert!(misplaced(false, &facts("create_task", "chat", Risk::ReversibleWrite)).is_some(), "a task used a chat tool");
+        assert_eq!(misplaced(false, &facts("create_schedule", "chat", Risk::Read)), None, "a task cannot set up a schedule");
+        assert_eq!(misplaced(false, &facts("list_schedules", "chat", Risk::Read)), None, "a task cannot see the schedules");
+        assert!(in_any_run("create_schedule", false) && in_any_run("list_schedules", true) && in_any_run("suggest", true));
+        assert!(!in_any_run("create_schedule", true), "a scheduled run is offered create_schedule");
+        assert!(!in_any_run("create_task", false) && !in_any_run("cancel_schedule", false));
         assert_eq!(misplaced(true, &facts("create_task", "chat", Risk::ReversibleWrite)), None);
     }
 

@@ -89,7 +89,7 @@ fn version_of(name: &str, text: &str) -> String {
 /// does, so asked whether you get their email, you answer from fact.
 fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool, watched: &[(String, u64)]) -> String {
     let mut s = format!(
-        "\n\n# Your harness\n\nYou run on this appliance for {who}. You wake when they message you, submit a task, or when one of their schedules comes due; once, when they first start using Magnus, you open the conversation yourself.\n\nYou keep: what you remember across conversations (memory_search), their relationship notes, their open disagreements with you, your suggestion ledger, their open commitments, and your playbook lessons.\n\nYou are bound by the organisation's Cedar policies; some actions wait for the person's approval; and when the kill switch is on, nothing new starts until the owner releases it.\n"
+        "\n\n# Your harness\n\nYou run on this server for {who}. You wake when they message you, submit a task, or when one of their schedules comes due; once, when they first start using Magnus, you open the conversation yourself.\n\nYou keep: what you remember across conversations (memory_search), their relationship notes, their open disagreements with you, your suggestion ledger, their open commitments, and your playbook lessons.\n\nYou are bound by the organisation's Cedar policies; some actions wait for the person's approval; and when the kill switch is on, nothing new starts until the owner releases it.\n"
     );
     if watched.is_empty() {
         s.push_str("\nNone of their connected apps is watched, so nothing new in them wakes you; you see their contents only when you read them.\n");
@@ -314,8 +314,10 @@ impl Kernel {
     /// offered, so its opinions about itself rest on facts, not guesses.
     fn harness_context(&self, run: &Run) -> String {
         let who = self.person(&run.person).map(|p| if p.name.is_empty() { p.id.clone() } else { p.name.clone() }).unwrap_or_else(|| run.person.clone());
-        // A team run is told of no member's own apps (spec rev 142).
-        let mut watched: Vec<(String, u64)> = if self.cfg.proactive.on && self.team_of(&run.task).is_none() {
+        // A team run is told of no member's own apps (spec rev 142), and
+        // any run only of what `poll_due` polls for its person.
+        let watched_on = self.cfg.proactive.on && self.team_of(&run.task).is_none() && !self.read(|s| s.turned_off.contains(&run.person));
+        let mut watched: Vec<(String, u64)> = if watched_on {
             self.connectors()
                 .iter()
                 .filter(|c| self.connected(c, &run.person) && !self.lapsed(c, &run.person))
@@ -349,8 +351,11 @@ impl Kernel {
             specs.retain(|t| crate::chat_work::offered_in_chat(&t.name));
             specs.extend(tools::chat_specs());
         } else {
-            // A task or a review suggests work to the inbox, having no thread (#393).
-            specs.extend(tools::chat_specs().into_iter().filter(|t| t.name == "suggest"));
+            // A task or a review suggests work to the inbox, having no thread
+            // (#393), and sets up and sees schedules: a schedule never asks on
+            // its own (spec rev 142). A scheduled run sets up none.
+            let scheduled = self.read(|s| s.authority(&run.id).is_some_and(|t| t.schedule.is_some()));
+            specs.extend(tools::chat_specs().into_iter().filter(|t| crate::chat_work::in_any_run(&t.name, scheduled)));
         }
         // project_read only where there are reference files to read.
         if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {
@@ -1114,6 +1119,7 @@ mod tests {
     fn review_names_only_tools_a_review_can_use() {
         assert!(REVIEW_INSTRUCTIONS.contains("`suggest`") && !REVIEW_INSTRUCTIONS.contains("propose_task"), "reviews suggest work to the inbox");
         assert!(REVIEW_INSTRUCTIONS.contains("observe"), "waiting news goes out as observations");
+        assert!(REVIEW_INSTRUCTIONS.contains("If no one answers within 30 minutes, a message stays a draft"), "a review is not told how its asks wait");
     }
 
     /// Mail the person wrote to Magnus is answered now, not filed as a
@@ -1130,7 +1136,8 @@ mod tests {
     #[test]
     fn harness_names_only_what_is_offered() {
         let bare = harness_text("bob", false, false, false, &[]);
-        assert!(bare.contains("for bob"), "{bare}");
+        assert!(bare.contains("You run on this server for bob"), "{bare}");
+        assert!(!bare.contains("appliance"), "the harness says appliance, not server: {bare}");
         assert!(bare.contains("nothing new in them wakes you"), "{bare}");
         assert!(bare.contains("You cannot search the web"), "{bare}");
         assert!(!bare.contains("You can search the web"), "{bare}");

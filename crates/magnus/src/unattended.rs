@@ -4,8 +4,9 @@
 //! keeps its card open: what depends on it waits for the person's answer,
 //! and the run carries on with everything that does not.
 //!
-//! Magnus's own background work (a proactive review, a watch poll) raises no
-//! asks at all (owner, 2026-11-07), so none reaches this.
+//! Magnus's own background work (a proactive review, a watch poll) is
+//! unwatched work too: its asks wait here the same way (spec rev 142,
+//! `background_work`).
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::state::{Item, State, Status};

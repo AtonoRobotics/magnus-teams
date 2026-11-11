@@ -428,15 +428,16 @@ impl Kernel {
     }
 
     /// Put one of the four asks in front of the person, and let the run
-    /// wait. Background work asks no one: the action is refused, and the
-    /// agent may suggest it instead.
+    /// wait. Background work asks too, and waits as unwatched work does
+    /// (`unattended`); only the team agent's own routines ask no one: the
+    /// action is refused, and the agent may suggest it instead.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn raise(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, reason: Reason, rule: &str, why: &str) -> Result<Gate> {
         if a.issuer != Issuer::Model {
             return Ok(Gate::Stop(self.deny(a, "approval", "only the agent's own actions wait for a person", false, Some(rule.into())).await?));
         }
-        if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background())) {
-            let text = format!("{why}. This is background work, so no one is asked; if it is worth doing, suggest it to the person and finish");
+        if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background()) && !s.background_asks(&run.id)) {
+            let text = format!("{why}. This is the team agent's own routine work, so no one is asked; if it is worth doing, report it to the channel and finish");
             return Ok(Gate::Stop(self.deny(a, "approval", &text, false, Some(rule.into())).await?));
         }
         self.decision(a, "ask", "approval", why, Some(rule.into())).await?;

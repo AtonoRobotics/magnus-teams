@@ -140,9 +140,10 @@ impl crate::kernel::Kernel {
         self.push_due(now).await;
         // Subscriptions at providers kept to what they should be.
         self.push_subs_due(now);
-        let people: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
+        // Everyone the server keeps: config people and those invited since.
+        let people: Vec<String> = self.everyone().into_iter().map(|(id, _)| id).collect();
         for person in people {
-            if self.read(|s| s.turned_off.contains(&person) || s.review_runs.values().any(|p| p == &person)) {
+            if self.read(|s| s.turned_off.contains(&person) || s.reviewing(&person)) {
                 continue;
             }
             let prefs = self.read(|s| s.preferences.get(&person).cloned().unwrap_or(serde_json::Value::Null));
@@ -182,7 +183,7 @@ impl crate::kernel::Kernel {
                 if let Some((id, verb, outcome, label)) = s
                     .tasks
                     .values()
-                    .filter(|t| t.person == person && !t.review && !t.poll && !t.chat.as_ref().is_some_and(|c| c.turn))
+                    .filter(|t| t.person == person && !t.review && !t.poll && !t.chat.as_ref().is_some_and(|c| c.turn) && !s.outcome_turn_follows(&t.run_id))
                     .filter_map(|t| {
                         let r = s.runs.get(&t.run_id)?;
                         let verb = match r.status {
@@ -230,7 +231,7 @@ impl crate::kernel::Kernel {
         if !self.cfg.proactive.on {
             return;
         }
-        let people: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
+        let people: Vec<String> = self.everyone().into_iter().map(|(id, _)| id).collect();
         for person in people {
             if self.read(|s| s.turned_off.contains(&person)) {
                 continue;
@@ -316,7 +317,7 @@ impl crate::kernel::Kernel {
         if !self.cfg.proactive.on {
             return false;
         }
-        if self.read(|s| s.review_runs.values().any(|p| p == person) || ended.as_ref().is_some_and(|e| s.wake_marks.contains_key(&format!("{person}:task {}", e.task)))) {
+        if self.read(|s| s.reviewing(person) || ended.as_ref().is_some_and(|e| s.wake_marks.contains_key(&format!("{person}:task {}", e.task)))) {
             return false;
         }
         self.start_review(person, reason, ended).await
@@ -331,7 +332,7 @@ impl crate::kernel::Kernel {
         if !self.cfg.proactive.on {
             return false;
         }
-        if self.read(|s| s.review_runs.values().any(|p| p == person)) {
+        if self.read(|s| s.reviewing(person)) {
             return false;
         }
         self.start_review(person, format!("{n} new in {app}"), None).await

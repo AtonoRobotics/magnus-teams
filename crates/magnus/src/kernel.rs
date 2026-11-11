@@ -806,10 +806,11 @@ impl Kernel {
     /// Stop a run on an inbox item (`item`, when it is new) in one write:
     /// nobody sees the item while the run still shows as running.
     pub async fn suspend_on(&self, run: &str, reason: &str, id: String, item: Option<Ev>) -> Result<()> {
-        // Background work never waits on its person: it ends, and the next
-        // wake tries again. The log keeps why, for the run inspector; the
-        // person sees nothing (owner, 2026-11-07).
-        if self.is_background(run) && !crate::halts::is_kill(reason) {
+        // Background work waits on its person only for an ask (spec rev
+        // 142: it asks when Auto Review says ask; `background_work`). Any
+        // other stop ends it, and the next wake tries again. The log keeps
+        // why, for the run inspector; the person sees nothing.
+        if self.is_background(run) && !crate::halts::is_kill(reason) && !self.read(|s| s.background_waits(run, reason)) {
             let ended = Ev::Failed { run: run.into(), reason: format!("background work ended rather than wait on its person ({reason})"), by: "kernel".into() };
             self.emit("kernel", ended).await?;
             self.on_stop(run, true).await;
@@ -828,10 +829,9 @@ impl Kernel {
         self.suspend_on(run, reason, id, Some(ev)).await
     }
 
-    /// Background work left waiting on its person, from before it stopped
-    /// asking (owner, 2026-11-07): each such run ends, and every card it
-    /// put up that is not one of its outputs is put away. A run so held
-    /// also held every later review for its person.
+    /// Background work left waiting on its person for anything but an ask
+    /// (`background_work`): each such run ends, and every card it put up
+    /// that is neither one of its outputs nor an ask is put away.
     pub async fn settle_background(&self) {
         let (runs, items) = self.read(|s| {
             let bg = |task: &Option<String>| task.as_ref().and_then(|t| s.tasks.get(t)).is_some_and(|t| t.background());
@@ -839,11 +839,16 @@ impl Kernel {
                 .runs
                 .values()
                 .filter(|r| r.status == crate::state::Status::Suspended && !r.reason.as_deref().is_some_and(|x| ["timer", "update"].contains(&x) || crate::halts::is_kill(x)))
-                .filter(|r| s.tasks.get(&r.task).is_some_and(|t| t.background()))
+                .filter(|r| s.tasks.get(&r.task).is_some_and(|t| t.background()) && !r.reason.as_deref().is_some_and(|x| s.background_waits(&r.id, x)))
                 .map(|r| r.id.clone())
                 .collect();
-            let items: Vec<String> =
-                s.items.values().filter(|i| i.resolution.is_none() && bg(&i.task) && !crate::state::BACKGROUND_OUTPUTS.contains(&i.kind.as_str())).map(|i| i.id.clone()).collect();
+            let asks = |i: &crate::state::Item| i.kind == "approval" && i.run.as_deref().is_some_and(|r| s.background_asks(r));
+            let items: Vec<String> = s
+                .items
+                .values()
+                .filter(|i| i.resolution.is_none() && bg(&i.task) && !crate::state::BACKGROUND_OUTPUTS.contains(&i.kind.as_str()) && !asks(i))
+                .map(|i| i.id.clone())
+                .collect();
             (runs, items)
         });
         if runs.is_empty() && items.is_empty() {

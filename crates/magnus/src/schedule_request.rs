@@ -7,8 +7,9 @@
 //! person's rules, as any work is.
 //!
 //! The thread shows the schedule as set (a `schedule_card` entry whose
-//! state is confirmed). Magnus's own ideas for a schedule go through
-//! `suggest`, which the person accepts.
+//! state is confirmed). A task or a review sets one up the same way (spec
+//! rev 142: a schedule never asks on its own), finite, and its runs post in
+//! the conversation the work came from; a scheduled run sets up none.
 
 use crate::boundary::Action;
 use crate::chat::derived;
@@ -19,15 +20,17 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 impl Kernel {
-    /// `create_schedule` from a chat turn: the schedule is set, once for
-    /// the call's key, and the thread shows it.
+    /// `create_schedule` from a chat turn, a task or a review: the schedule
+    /// is set, once for the call's key, and the conversation the work came
+    /// from shows it. Outside chat it must end (`until` or `max_runs`), and
+    /// a scheduled run sets up none: schedules would breed (2026-10-30).
     pub(crate) async fn chat_schedule(&self, a: &Action, key: &str) -> Result<(String, bool, Option<Value>)> {
         let no = |why: String| Ok((format!("No schedule set: {why}"), true, None));
-        let Some((task, run)) = self.read(|s| s.runs.get(&a.run).and_then(|r| s.tasks.get(&r.task).map(|t| (t.clone(), r.clone())))) else {
+        let Some((task, run, top)) = self.read(|s| s.runs.get(&a.run).and_then(|r| Some((s.tasks.get(&r.task)?.clone(), r.clone(), s.authority(&a.run)?.clone())))) else {
             anyhow::bail!("unknown run {}", a.run)
         };
-        if !task.is_chat_turn() {
-            return no("create_schedule is for chat; in a task, suggest it to the person with suggest.".into());
+        if top.schedule.is_some() {
+            return no("a scheduled run cannot set up another schedule. A retry will not help.".into());
         }
         // A call recorded before rev 140 gave each run's work as `text`.
         let goal = match crate::task_goal::one_line(a.input["goal"].as_str().or(a.input["text"].as_str()).unwrap_or_default()) {
@@ -41,6 +44,11 @@ impl Kernel {
             Ok(None) => return no("give every_minutes or daily_at. A retry without one will not help.".into()),
             Err(why) => return no(why),
         };
+        if !task.is_chat_turn() && until.is_none() && max_runs.is_none() {
+            return no("outside a conversation a schedule must end: give max_runs or until. A retry without one will not help.".into());
+        }
+        // Its runs post in the conversation the work came from (owner, 2026-11-10).
+        let thread = top.chat.as_ref().map(|c| c.thread.clone());
         let (card, id) = (derived("card", key), derived("sched", key));
         if !self.read(|s| s.schedules.contains_key(&id)) {
             let set = Ev::ScheduleSet {
@@ -58,13 +66,12 @@ impl Kernel {
                 max_runs,
                 // Each run keeps to what she set it up to do: its goal.
                 scope: Some(goal.clone()),
-                // Its runs post in this conversation (owner, 2026-11-10).
-                thread: task.chat.as_ref().filter(|c| c.turn).map(|c| c.thread.clone()),
+                thread: thread.clone(),
             };
             let actor = format!("chat:{}", a.run);
             let mut evs = vec![(actor.as_str(), set)];
             // A schedule set up in a project's conversation is in that project.
-            if let Some(project) = self.read(|s| task.chat.as_ref().and_then(|c| s.project_of(&c.thread))) {
+            if let Some(project) = self.read(|s| thread.as_ref().and_then(|th| s.project_of(th))) {
                 evs.push((actor.as_str(), Ev::Moved { item: id.clone(), project: Some(project) }));
             }
             self.emit_all(evs).await?;
@@ -73,7 +80,8 @@ impl Kernel {
             "card": card, "schedule": id, "title": title, "text": goal, "plan": goal,
             "every_minutes": every, "daily_at": daily, "until": until, "max_runs": max_runs,
         });
-        Ok((format!("Schedule {id} ({title}) is set up: {goal}. It is in the person's Schedules and shown in this thread."), false, Some(data)))
+        let shown = if task.is_chat_turn() { " and shown in this thread" } else { "" };
+        Ok((format!("Schedule {id} ({title}) is set up: {goal}. It is in the person's Schedules{shown}."), false, Some(data)))
     }
 }
 

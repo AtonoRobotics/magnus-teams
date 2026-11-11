@@ -571,3 +571,68 @@ async fn a_pause_after_the_release_snapshot_is_not_released() {
     let s = schedule(&alice, &id).await.unwrap();
     assert!(!s["paused"].is_null(), "the stale release undid the pause: {s}");
 }
+
+/// A task sets up a schedule itself, with no ask (spec rev 142: "A new
+/// source, a tool, a task, a schedule ... never asks on its own"), and sees
+/// it with list_schedules. Outside chat it must end; the schedule's own run
+/// cannot set up another (schedules would breed, 2026-10-30).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_sets_up_a_finite_schedule_and_its_runs_set_up_none() {
+    let m = FakeModel::start(script(|c| async move {
+        if c.offered_tools().is_empty() && c.text().contains("The agent's criteria") {
+            return Reply::Text("The criteria cover the request.".into());
+        }
+        if c.offered_tools().contains(&"verdict".to_string()) {
+            return tool("verdict", json!({ "criteria": [{ "id": "c1", "holds": true, "evidence": "done" }] }));
+        }
+        let body = c.body.to_string();
+        let again = json!({ "title": "Order check", "goal": "Check the order status.", "every_minutes": 1, "max_runs": 1 });
+        if body.contains("Check back on the order.") {
+            return match c.turn() {
+                0 => simple_contract(),
+                1 => tool("create_schedule", json!({ "title": "Order check", "goal": "Check the order status.", "every_minutes": 1 })),
+                2 => tool("create_schedule", again),
+                3 => tool("list_schedules", json!({})),
+                _ => done("Set up a check."),
+            };
+        }
+        match c.turn() {
+            0 => simple_contract(),
+            1 => tool("create_schedule", again),
+            _ => done("Checked."),
+        }
+    }))
+    .await;
+    let mut app = Appliance::start(Spec::default(), &m).await;
+    every_minute(&mut app, 3).await;
+    let alice = app.api("alice");
+    let t = alice.submit("Check back on the order.").await;
+    let settled = alice.wait_settled(&t).await;
+    assert_eq!(settled["status"], "completed", "{settled}");
+    // The result of a run's call at `turn`, as its next call carries it.
+    let said = |turn: usize, task: bool| {
+        let r = m
+            .requests()
+            .into_iter()
+            .find(|c| c.body.to_string().contains("Check back on the order.") == task && c.body.to_string().contains("Check the order status.") && c.turn() == turn + 1)
+            .expect("the turn")
+            .last_results();
+        (r[0].is_error, r[0].text.clone())
+    };
+    let (err, text) = said(1, true);
+    assert!(err && text.contains("must end"), "an endless schedule was set up from a task: {text}");
+    let (err, text) = said(2, true);
+    assert!(!err && text.contains("is set up"), "a task could not set up a schedule: {text}");
+    let (err, text) = said(3, true);
+    assert!(!err && text.contains("\"max_runs\":1"), "a task could not see the schedule: {text}");
+    assert!(!alice.inbox().await.iter().any(|i| i["kind"] == "approval" || i["kind"] == "suggestion"), "setting up a schedule asked");
+
+    let run =
+        eventually("the schedule's run", MINUTE, || async { tasks_with(&alice, "Check the order status.").await.first().map(|t| t["task_id"].as_str().unwrap().to_string()) })
+            .await;
+    alice.wait_settled(&run).await;
+    let (err, text) = said(1, false);
+    assert!(err && text.contains("cannot set up another schedule"), "a scheduled run set up a schedule: {text}");
+    let (_, v) = alice.get("/v1/schedules").await;
+    assert_eq!(v["schedules"].as_array().unwrap().iter().filter(|s| s["text"] == "Check the order status.").count(), 1, "{v}");
+}

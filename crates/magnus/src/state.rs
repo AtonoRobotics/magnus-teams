@@ -338,9 +338,9 @@ impl Task {
     }
 
     /// Magnus's own background work (a proactive review, a watch poll):
-    /// it reaches the person only through what it produces for them, never
-    /// through its own approvals, reviews, questions or notices (owner,
-    /// 2026-11-07). Developers see all of it in the run inspector.
+    /// it reaches the person only through what it produces for them and
+    /// its asks (`background_work`), never through its own reviews,
+    /// questions or notices. Developers see all of it in the run inspector.
     pub fn background(&self) -> bool {
         self.review || self.poll
     }

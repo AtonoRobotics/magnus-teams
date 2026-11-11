@@ -425,11 +425,12 @@ async fn a_review_that_decides_nothing_needs_no_review_whatever_its_contract() {
     .await;
 }
 
-/// Background work asks no one (owner, 2026-11-07): a review whose action
-/// would need the person's approval gets a refusal it can act on, and no
-/// approval, review or notice reaches the person.
+/// Background work asks when Auto Review says ask (spec rev 142: "It asks
+/// only when Auto Review says ask"): a review whose send needs the person
+/// puts the ask in front of them and waits on it. Nothing is sent until they
+/// allow it; then it goes and the review finishes.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_review_that_would_need_approval_is_refused_and_asks_no_one() {
+async fn a_review_that_needs_approval_asks_its_person_and_waits() {
     let mail = mcp::mail().start().await;
     let calls = Arc::new(Mutex::new(vec![
         (
@@ -444,27 +445,22 @@ async fn a_review_that_would_need_approval_is_refused_and_asks_no_one() {
     trigger_review(&bob, json!({ "working_hours": { "start": "00:00", "end": "00:00" }, "quiet_hours": away_from_now() })).await;
 
     let me = bob.clone();
-    eventually("the coming-up review completed", Duration::from_secs(60), || {
+    let ask = eventually("the review's ask reached the person", Duration::from_secs(60), || {
         let me = me.clone();
-        async move {
-            let (_, v) = me.get("/v1/tasks").await;
-            v["tasks"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .find(|t| t["review"] == true && t["status"] == "completed" && t["text"].as_str().is_some_and(|x| x.contains("coming up")))
-        }
+        async move { me.inbox().await.into_iter().find(|i| i["kind"] == "approval") }
     })
     .await;
+    let review = ask["task_id"].as_str().unwrap().to_string();
+    assert_eq!(bob.task(&review).await["review"], true, "the ask is not the review's: {ask}");
+    // It waits on the person: the sweep does not end it or put its ask away.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(bob.task(&review).await["status"], "suspended", "the review stopped waiting on its ask");
+    assert!(bob.inbox().await.iter().any(|i| i["id"] == ask["id"] && i["status"] == "open"), "the review's ask was put away");
     assert_eq!(mail.effects("send"), 0, "background work sent without approval");
-    assert!(m.requests().iter().any(|r| r.last_results().iter().any(|x| x.is_error && x.text.contains("background work"))), "the review was not told why it was refused");
-    let me = bob.clone();
-    never("background work put a card in front of the person", Duration::from_secs(3), || {
-        let me = me.clone();
-        async move { me.inbox().await.iter().any(|i| ["approval", "review", "notice", "question"].contains(&i["kind"].as_str().unwrap_or_default())) }
-    })
-    .await;
+
+    assert!(bob.respond(ask["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
+    assert_eq!(bob.wait_settled(&review).await["status"], "completed");
+    assert_eq!(mail.effects("send"), 1, "the allowed send did not go");
 }
 
 /// Background work that stops on its budget ends quietly, and the next

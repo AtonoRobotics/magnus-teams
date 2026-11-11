@@ -15,6 +15,7 @@ pub mod apps;
 pub mod asks;
 pub mod attachment;
 pub mod auto_review;
+pub mod background_work;
 pub mod backup;
 pub mod boundary;
 pub mod brokered;
