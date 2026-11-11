@@ -3,12 +3,10 @@
 //! capacity, and anything that needs an admin: an agent stopped, a limit
 //! reached, a failed backup or update."
 //!
-//! Spend, and the stops below the server's, are other sections': this
-//! answer carries neither, and the app's Overview draws the cards other
-//! sections register with `registerOverviewCard`
-//! (desktop/ui/admin-overview.js), so the month's spend, a reached limit and
-//! a stopped agent appear here once Spend and the kill switch levels
-//! register them. Each alert names the section where it is fixed.
+//! The month's spend and a reached limit come from Spend; every switch on
+//! below the server's and every paused agent from the kill switch levels
+//! (`overview_stops`), each an alert naming who and when. Each alert names
+//! the section where it is fixed.
 
 use super::mount::{body_json, control};
 use super::Admin;
@@ -70,6 +68,9 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
     let mut alerts = alerts(&o, &k, host["disk_used"].as_f64(), &capacity);
     let spend = k.spend_overview(None).map(|s| spend_summary(&s)).unwrap_or(Value::Null);
     alerts.extend(spend_alerts(&spend));
+    let switches = k.switches_all();
+    let name_of = |id: &str| k.person(id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
+    alerts.extend(super::overview_stops::stop_alerts(&switches, &name_of));
     let invited = {
         let mut n = 0;
         for id in k.server_people() {
@@ -88,6 +89,7 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
         "recent_errors": o["recent_errors"],
         "alerts": alerts,
         "spend": spend,
+        "stops": { "on": switches["on"], "paused": switches["paused"] },
     }))
     .into_response()
 }

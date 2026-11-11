@@ -31,6 +31,13 @@ assert.equal(sandbox.teamPlace("/channels/ch1").id, "ch1", "an old link no longe
 assert.equal(sandbox.teamHref("w", { kind: "channel", id: "ch1", thread: "m9" }), "#/team/w/c/ch1/t/m9");
 assert.equal(sandbox.teamHref("w", { kind: "project", id: "p1" }), "#/team/w/p/p1");
 
+// A workspace is started by typing its name, by those the server lets: an
+// owner or admin. Nobody else is offered a form the server would refuse.
+assert.match(sandbox.teamsPageHtml([], true), /<form id="new-team"><input id="team-name"/, "an admin cannot type a name to start a workspace");
+const memberPage = sandbox.teamsPageHtml([], false);
+assert.ok(!/new-team|team-name/.test(memberPage), "a member is offered a workspace form the server refuses");
+assert.match(memberPage, /An owner or admin starts one and invites you\./);
+
 // The rail: projects with progress, channels with counts, agents, people.
 const home = {
   id: "w", name: "Alpha <Vector>", role: "member", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, computer: null,

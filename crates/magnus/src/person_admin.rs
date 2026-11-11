@@ -32,11 +32,12 @@ pub const KINDS: [&str; 4] = ["tasks", "chats", "files", "memory"];
 const FILE_CHARS: usize = 20_000;
 
 impl Kernel {
-    /// A person's schedules, as an admin sees them: what each does (its
-    /// title), its rule, its runs, its failures, whether it is paused and
-    /// why.
+    /// A person's schedules, as an admin sees them: its rule, its runs, its
+    /// failures, whether it is paused and why. Not what it does: its words
+    /// are the person's data, which an admin reads only through
+    /// [`Kernel::read_person_data`], recorded and told (spec rev 141,
+    /// People: every admin read of a person's data is logged).
     pub async fn person_schedules(&self, person: &str) -> Result<Vec<Value>, Refusal> {
-        let words = self.person_words(person).await.map_err(failed)?;
         Ok(self.read(|s| {
             let mut v: Vec<Value> = s
                 .schedules
@@ -45,7 +46,7 @@ impl Kernel {
                 .map(|x| {
                     let runs = s.tasks.values().filter(|t| t.schedule.as_deref() == Some(x.id.as_str())).count();
                     json!({
-                        "id": x.id, "title": words.title(x.seq).unwrap_or_else(|| words.text(x.seq).to_string()),
+                        "id": x.id,
                         "every_minutes": x.every_minutes, "daily_at": x.daily_at, "next": x.next_due(), "last_fired": x.last_fired,
                         "until": x.until, "max_runs": x.max_runs, "runs": runs, "failures": x.failures.len(),
                         "skipped": x.skipped.as_ref().map(|(at, _, why)| json!({ "at": at, "why": why })),
@@ -53,7 +54,7 @@ impl Kernel {
                     })
                 })
                 .collect();
-            v.sort_by(|a, b| a["title"].as_str().cmp(&b["title"].as_str()));
+            v.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
             v
         }))
     }

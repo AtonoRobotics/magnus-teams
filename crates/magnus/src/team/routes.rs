@@ -83,7 +83,8 @@ async fn list(State(k): K, h: HeaderMap) -> Reply {
 
 async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
     let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
-    if !(p.is_owner() || p.has_role("admin")) {
+    // The same owners and admins the app offers the form to (`/v1/admin/standing`).
+    if !crate::admin_app::admin_of(&p, k.accounts.role(&p.id).await) {
         return err(StatusCode::FORBIDDEN, "an owner or admin creates a workspace");
     }
     if !short(&b.name) {

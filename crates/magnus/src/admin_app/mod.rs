@@ -48,6 +48,7 @@ pub mod kill;
 pub mod mount;
 pub mod operations;
 pub mod overview;
+pub mod overview_stops;
 pub mod people;
 pub mod remove;
 pub mod roles;
@@ -56,6 +57,8 @@ pub mod rules;
 mod sections_tests;
 pub mod security;
 pub mod settings;
+#[cfg(test)]
+mod spec_tests;
 #[cfg(test)]
 pub(crate) mod tests;
 

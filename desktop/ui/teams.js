@@ -46,10 +46,26 @@ function teamHref(ws, place) {
   return `${base}/${place.kind}`;
 }
 
+/** Whether the signed-in person may start a workspace: the server lets only
+ * an owner or admin, so nobody else is offered a form it would refuse. */
+async function mayStartWorkspace() {
+  const known = typeof AdminState !== "undefined" ? AdminState.standing : null;
+  const standing = known || await api("GET", "/v1/admin/standing").catch(() => null);
+  return !!standing?.admin;
+}
+
+/** The Teams page: the person's workspaces, and the name field that starts
+ * one for those allowed to.
+ * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
+function teamsPageHtml(list, mayStart) {
+  const none = mayStart ? "You are in no workspace yet. Type a name to start one; the team agent is in it from the start." : "You are in no workspace yet. An owner or admin starts one and invites you.";
+  return `<div class="teams-page"><h1>Teams</h1><p class="small faint">Workspaces you share with other people and their agents. Your own conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(w.role)}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
+    ${mayStart ? `<form id="new-team"><input id="team-name" placeholder="Type a name to start a workspace" aria-label="Workspace name" autocomplete="off"><button class="primary">Create</button></form>` : ""}</div>`;
+}
+
 async function showTeams(main) {
-  const list = await api("GET", "/v1/workspaces");
-  paint(main, `<div class="teams-page"><h1>Teams</h1><p class="small faint">Workspaces you share with other people and their agents. Your own conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(w.role)}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">You are in no workspace yet. Type a name to start one; the team agent is in it from the start.</p>`}
-    <form id="new-team"><input id="team-name" placeholder="Type a name to start a workspace" aria-label="Workspace name" autocomplete="off"><button class="primary">Create</button></form></div>`);
+  const [list, mayStart] = await Promise.all([api("GET", "/v1/workspaces"), mayStartWorkspace()]);
+  paint(main, teamsPageHtml(list, mayStart));
   main.onsubmit = async e => {
     if (e.target.id !== "new-team") return;
     e.preventDefault();
