@@ -6,7 +6,7 @@
 //!
 //! The paused state is the kill switch: no use wakes it. Only its person's
 //! Resume does (`decisions/2026-11-09-wake-on-use.md`).
-use super::{client, Change, Computer, Owner, Role, Status};
+use super::{client, Change, Status};
 use crate::controls::Refused;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -120,15 +120,6 @@ pub(super) fn last_screen(id: &str) -> Option<(String, DateTime<Utc>)> {
 /// A deleted computer's picture goes with it.
 pub(super) fn forget_screen(id: &str) {
     LAST_SCREEN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).remove(id);
-}
-
-/// The computer a run of this owner uses: a running one first, else one
-/// that a use wakes. A paused one is the kill switch, so it is not offered.
-pub(super) fn pick<'a>(all: impl Iterator<Item = &'a Computer>, owner: &Owner) -> Option<String> {
-    let mine: Vec<&Computer> = all.filter(|c| c.role == Role::Computer && c.owner == *owner).collect();
-    let running = mine.iter().find(|c| c.status == Status::Running);
-    let usable = || mine.iter().find(|c| !matches!(plan(c.status), Plan::Refused(_)));
-    running.or_else(usable).map(|c| c.id.clone())
 }
 
 /// The VM side of a wake: computerd wakes it, and the guest answers.

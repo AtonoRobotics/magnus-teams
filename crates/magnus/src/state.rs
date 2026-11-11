@@ -1373,7 +1373,7 @@ impl State {
                     self.policy_drafts.remove(layer);
                 }
             },
-            Ev::Computer(c) => self.computers.apply(c),
+            Ev::Computer(c) => self.computers.apply_at(c, e.at),
             Ev::Payment(c) => self.payments.apply(c),
             Ev::Rule(c) => self.rules.apply(c),
             Ev::SubAgent(c) => self.sub_agents.apply(c),

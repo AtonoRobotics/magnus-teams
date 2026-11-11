@@ -113,10 +113,12 @@ struct NewComputer {
     workspace: Option<String>,
 }
 
+/// Nobody makes a computer (spec rev 142): a client from before that asks
+/// for one is given the one there is.
 async fn create(State(k): K, h: HeaderMap, b: Option<Json<NewComputer>>) -> Response {
     let p = person!(k, h);
     let b = b.map(|Json(b)| b).unwrap_or_default();
-    answered(k.create_computer(&p, b.workspace.as_deref()).await)
+    answered(k.my_computer(&p, b.workspace.as_deref()).await)
 }
 
 async fn list(State(k): K, h: HeaderMap) -> Response {

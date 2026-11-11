@@ -11,6 +11,7 @@ mod export;
 mod identity;
 mod idle;
 mod lifecycle;
+mod one;
 mod routes;
 mod service;
 mod sources;
@@ -20,6 +21,7 @@ mod wake;
 pub(crate) use driving::request_spec;
 pub use egress::migrate_sql;
 use egress::surrogate as egress_surrogate;
+pub(crate) use one::ONE_AT_A_TIME;
 pub use routes::router;
 pub use service::schedule;
 
@@ -251,6 +253,14 @@ pub enum Change {
         what: String,
         at: DateTime<Utc>,
     },
+    /// An owner had several computers and keeps this one, the one used
+    /// last (spec rev 142, One computer, always there). The others are
+    /// deleted by their own `Killed` in the same write.
+    Kept {
+        id: String,
+        owner: Owner,
+        removed: Vec<String>,
+    },
 }
 
 /// One installed app, enough to install it again on a fresh overlay.
@@ -325,6 +335,9 @@ pub struct Computer {
     pub activity: Vec<Activity>,
     pub role: Role,
     pub surrogates: Vec<Surrogate>,
+    /// When the log last recorded anything of it: which one an owner with
+    /// several keeps.
+    pub last_used: Option<DateTime<Utc>>,
 }
 
 /// Stands in for a credential the vault holds, at one host only.
@@ -419,8 +432,17 @@ impl Ledger {
                 activity: vec![],
                 role,
                 surrogates: vec![],
+                last_used: None,
             },
         );
+    }
+
+    /// `apply`, for an event written at `at`.
+    pub fn apply_at(&mut self, change: &Change, at: DateTime<Utc>) {
+        self.apply(change);
+        if let Some(c) = self.computers.get_mut(change.computer()) {
+            c.last_used = Some(at);
+        }
     }
 
     pub fn apply(&mut self, change: &Change) {
@@ -513,7 +535,7 @@ impl Ledger {
                     c.free_space_zeroed = Some(*at);
                 }
             }
-            Change::Restored { .. } => {}
+            Change::Restored { .. } | Change::Kept { .. } => {}
             Change::DestinationAdded { id, host } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     if !c.destinations.contains(host) {

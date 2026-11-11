@@ -1,5 +1,4 @@
 use super::*;
-use crate::computer::{KillMode, Ledger};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
@@ -39,23 +38,6 @@ fn any_use_wakes_a_sleeping_computer_but_never_one_paused_by_the_kill_switch() {
     }
     assert_eq!(plan(Status::Queued), Plan::Waiting);
     assert!(matches!(plan(Status::Paused), Plan::Refused(_)), "a use undid the kill switch");
-}
-
-#[test]
-fn a_run_uses_its_sleeping_computer_so_its_use_can_wake_it() {
-    let mut l = Ledger::default();
-    let alice = Owner::Person("alice".into());
-    l.apply(&Change::Created { id: "asleep".into(), owner: alice.clone() });
-    l.apply(&Change::Started { id: "asleep".into() });
-    l.apply(&Change::Hibernated { id: "asleep".into() });
-    assert_eq!(pick(l.all(), &alice).as_deref(), Some("asleep"), "a sleeping computer was not used, so nothing wakes it");
-    l.apply(&Change::Created { id: "awake".into(), owner: alice.clone() });
-    l.apply(&Change::Started { id: "awake".into() });
-    assert_eq!(pick(l.all(), &alice).as_deref(), Some("awake"), "a running computer is used first");
-    l.apply(&Change::Killed { id: "awake".into(), mode: KillMode::Pause, delete_volume: false });
-    l.apply(&Change::Killed { id: "asleep".into(), mode: KillMode::Pause, delete_volume: false });
-    assert_eq!(pick(l.all(), &alice), None, "a paused computer was offered to a run");
-    assert_eq!(pick(l.all(), &Owner::Person("bob".into())), None);
 }
 
 #[test]

@@ -93,6 +93,8 @@ async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
     ok_or_return!(send(&k, &p, Change::Created { workspace: id.clone(), name: b.name, owner: p.id.clone() }).await);
     // Ready to talk in at once, with the team agent already there.
     ok_or_return!(send(&k, &p, Change::Channel { workspace: id.clone(), channel: new_id(), name: FIRST_CHANNEL.into() }).await);
+    // And its computer, made now so nobody ever sets one up (spec rev 142).
+    k.computer_soon(crate::computer::Owner::Workspace(id.clone()));
     Json(json!({ "id": id })).into_response()
 }
 

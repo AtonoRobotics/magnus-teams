@@ -137,24 +137,24 @@ impl Kernel {
         self.read(|s| s.computers.get(id).filter(|c| c.role == super::Role::Computer && may_open(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
-    /// The computer a person's run acts on, if they have one: awake, or
-    /// asleep and woken by the use.
-    pub(crate) fn run_computer(&self, person: &str) -> Option<String> {
-        let owner = Owner::Person(person.to_string());
-        self.read(|s| super::wake::pick(s.computers.all(), &owner))
-    }
-
+    /// The workspace's one computer: awake, or asleep and woken by its use.
     pub(crate) fn team_computer(&self, workspace: &str) -> Option<String> {
         let owner = Owner::Workspace(workspace.to_string());
-        self.read(|s| super::wake::pick(s.computers.all(), &owner))
+        self.read(|s| s.computers.one_of(&owner).map(|c| c.id.clone()))
     }
 
-    /// The computer a run acts on: its team's on a team request, its person's otherwise.
-    pub(crate) fn computer_of_run(&self, run: &Run) -> Option<String> {
+    /// Whose computer a run acts on: its team's on a team request, its person's otherwise.
+    pub(crate) fn owner_of_run(&self, run: &Run) -> Owner {
         match self.team_of(&run.task) {
-            Some(t) => self.team_computer(&t.workspace),
-            None => self.run_computer(&run.person),
+            Some(t) => Owner::Workspace(t.workspace),
+            None => Owner::Person(run.person.clone()),
         }
+    }
+
+    /// The computer a run acts on.
+    pub(crate) fn computer_of_run(&self, run: &Run) -> Option<String> {
+        let owner = self.owner_of_run(run);
+        self.read(|s| s.computers.one_of(&owner).map(|c| c.id.clone()))
     }
 
     /// Why this run must wait for a person before going on, if it must.
@@ -176,18 +176,30 @@ impl Kernel {
         uses && self.read(|s| s.computers.all().any(|c| Some(&c.id) == mine.as_ref() && c.controller.is_some()))
     }
 
-    /// A desktop tool on the person's computer, woken for it if it sleeps.
-    /// `None`: they have no computer, and it goes to the run's own sandbox.
+    /// A desktop tool on the run's one computer: made if it has none yet,
+    /// woken if it sleeps, so a run never finds itself without one (spec
+    /// rev 142). `None` only on a server without computers: it goes to the
+    /// run's own sandbox.
     pub(crate) async fn computer_tool(&self, run: &str, tool: &str, input: &Value) -> Result<Option<(String, bool, Option<Value>)>> {
         if tool == super::driving::REQUEST_TOOL {
             return self.request_takeover(run, input).await.map(Some);
         }
-        let Some(id) = self.read(|s| s.runs.get(run).cloned()).and_then(|r| self.computer_of_run(&r)) else { return Ok(None) };
+        let Some(owner) = self.read(|s| s.runs.get(run).cloned()).map(|r| self.owner_of_run(&r)) else { return Ok(None) };
+        self.use_computer(&owner, &format!("run:{run}"), tool, input).await
+    }
+
+    /// One desktop tool on `owner`'s computer, for `actor`.
+    pub(crate) async fn use_computer(&self, owner: &Owner, actor: &str, tool: &str, input: &Value) -> Result<Option<(String, bool, Option<Value>)>> {
+        let id = match self.computer_for(owner).await {
+            Ok(Some(id)) => id,
+            Ok(None) => return Ok(None),
+            Err(e) => return Ok(Some((format!("Your computer could not be made ready: {e}"), true, None))),
+        };
         let held = self.read(|s| s.computers.get(&id).is_some_and(|c| c.controller.is_some()));
         if held {
             return Ok(Some(("A person has control of this computer, so this was refused. Wait until they hand it back.".to_string(), true, None)));
         }
-        match self.wake_for_use(&id, &format!("run:{run}")).await {
+        match self.wake_for_use(&id, actor).await {
             Ok(Woken::Ready) => {}
             Ok(Woken::Queued(n)) => return Ok(Some((format!("Your computer is waiting for room on the server (number {n} in line). Try again in a minute."), true, None))),
             Err(e) => return Ok(Some((format!("Your computer could not wake: {e}"), true, None))),

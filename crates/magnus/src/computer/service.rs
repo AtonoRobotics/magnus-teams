@@ -77,19 +77,9 @@ impl Kernel {
         self.emit(&format!("person:{}", who.id), Ev::Computer(change)).await.map(|_| ()).map_err(failed)
     }
 
-    pub async fn create_computer(&self, who: &Person, workspace: Option<&str>) -> Result<Value, Refused> {
-        let socket = self.computer_socket()?;
-        let owner = match workspace {
-            Some(w) if self.read(|s| may_control(s, who, &Owner::Workspace(w.to_string()))) => Owner::Workspace(w.to_string()),
-            Some(_) => return Err(Refused::Denied("only an admin creates a workspace's computer".into())),
-            None => Owner::Person(who.id.clone()),
-        };
-        let id = new_id();
-        client::ask(&socket, json!({ "op": "create", "id": id })).await.map_err(failed)?;
-        self.record_computer(who, Change::Created { id: id.clone(), owner }).await?;
-        Ok(json!({ "id": id }))
-    }
-
+    /// The person's own computer and those of the workspaces they look
+    /// after: one each, never a choice between several (spec rev 142).
+    /// Another person's computer is not listed here, even to an admin.
     pub fn computers_of(&self, who: &Person) -> Value {
         let computers: Vec<Value> = self.read(|s| {
             let queue: Vec<&str> = s.computers.queue().iter().map(|c| c.id.as_str()).collect();
@@ -103,7 +93,18 @@ impl Kernel {
                 }
                 v
             };
-            s.computers.all().filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).map(shown).collect()
+            let listed = |o: &Owner| match o {
+                Owner::Person(p) => *p == who.id,
+                Owner::Workspace(_) => may_control(s, who, o),
+            };
+            let owners: Vec<&Owner> = s.computers.all().filter(|c| c.role == Role::Computer && listed(&c.owner)).map(|c| &c.owner).collect();
+            let mut one_each: Vec<&Computer> = vec![];
+            for o in owners {
+                if let Some(c) = s.computers.one_of(o).filter(|c| !one_each.iter().any(|k| k.id == c.id)) {
+                    one_each.push(c);
+                }
+            }
+            one_each.into_iter().map(shown).collect()
         });
         json!({ "computers": computers.into_iter().map(|v| super::driving::with_names(self, v)).collect::<Vec<_>>() })
     }
@@ -283,8 +284,10 @@ impl Kernel {
         if delete_volume && mode != KillMode::Destroy {
             return Err(Refused::Invalid("only destroying a computer can delete its volume".into()));
         }
-        if delete_volume && matches!(&c.owner, Owner::Person(p) if *p != who.id) {
-            return Err(Refused::Denied("a volume is deleted only when the person it belongs to asks".into()));
+        // Destroy became reset (spec rev 142): deleting the volume puts a new,
+        // empty computer in its place, so no one is left without one.
+        if delete_volume {
+            return self.replace_computer(who, c).await;
         }
         let actor = format!("person:{}", who.id);
         let mut evs = vec![];
@@ -292,18 +295,12 @@ impl Kernel {
             evs.push((actor.as_str(), Ev::Computer(Change::Revoked { id: id.into(), grant: g.id.clone() })));
         }
         let revoked = evs.len();
-        // Last, because deleting the volume forgets the computer.
         evs.push((actor.as_str(), Ev::Computer(Change::Killed { id: id.into(), mode, delete_volume })));
         self.emit_all(evs).await.map_err(failed)?;
-        // The log has forgotten it, so its secrets go now, whatever the VM does.
-        if delete_volume {
-            super::lifecycle::forget_secrets(&self.vault, id).map_err(failed)?;
-            super::wake::forget_screen(id);
-        }
         let req = match mode {
             KillMode::Pause if c.status == Status::Running => json!({ "op": "pause", "id": id }),
             KillMode::Pause => return Ok(json!({ "revoked": revoked })),
-            KillMode::Destroy => json!({ "op": "destroy", "id": id, "delete_volume": delete_volume }),
+            KillMode::Destroy => json!({ "op": "destroy", "id": id, "delete_volume": false }),
         };
         client::ask(&socket, req).await.map_err(failed)?;
         Ok(json!({ "revoked": revoked }))
@@ -454,6 +451,7 @@ pub fn schedule(k: Arc<Kernel>) {
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(super::egress::serve(k.clone(), socket.clone()));
     super::idle::schedule(k.clone());
+    super::one::schedule(k.clone());
     k.sweep_computer_secrets();
     tokio::spawn(async move {
         let killed: Vec<String> = k.read(|s| s.computers.all().filter(|c| c.status == Status::Killed).map(|c| c.id.clone()).collect());

@@ -5,9 +5,10 @@
 //! the computer deletes both. A computer the log no longer knows (deleted
 //! before this existed, or by a kill cut short) is swept at start.
 
-use super::{KillMode, Owner};
+use super::{Change, Computer, KillMode, Owner};
 use crate::config::Person;
 use crate::controls::Refused;
+use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::vault::Vault;
 use anyhow::Result;
@@ -56,13 +57,28 @@ impl Kernel {
             let killed = self.kill_computer(who, id, KillMode::Destroy, false).await?;
             return Ok(json!({ "id": id, "revoked": killed["revoked"] }));
         }
-        let workspace = match &c.owner {
-            Owner::Workspace(w) => Some(w.clone()),
-            Owner::Person(_) => None,
-        };
-        let killed = self.kill_computer(who, id, KillMode::Destroy, true).await?;
-        let made = self.create_computer(who, workspace.as_deref()).await?;
-        Ok(json!({ "id": made["id"], "replaces": id, "revoked": killed["revoked"] }))
+        self.replace_computer(who, &c).await
+    }
+
+    /// A reset that erases the files: a new, empty computer takes the old
+    /// one's place in the same write that deletes it, so its owner is never
+    /// without one (spec rev 142). The old one goes by the usual deletion.
+    pub(super) async fn replace_computer(&self, who: &Person, c: &Computer) -> Result<Value, Refused> {
+        if matches!(&c.owner, Owner::Person(p) if *p != who.id) {
+            return Err(Refused::Denied("a volume is deleted only when the person it belongs to asks".into()));
+        }
+        let socket = self.computer_socket()?;
+        let _one = super::one::ONE_AT_A_TIME.lock().await;
+        let fresh = super::service::new_id();
+        super::client::ask(&socket, json!({ "op": "create", "id": fresh })).await.map_err(super::service::failed)?;
+        let gone = super::one::deletion(c);
+        let revoked = gone.len() - 1;
+        let mut changes = gone;
+        changes.push(Change::Created { id: fresh.clone(), owner: c.owner.clone() });
+        let actor = format!("person:{}", who.id);
+        self.emit_all(changes.into_iter().map(|ch| (actor.as_str(), Ev::Computer(ch))).collect()).await.map_err(super::service::failed)?;
+        super::one::delete_after(self, &socket, &c.id).await?;
+        Ok(json!({ "id": fresh, "replaces": c.id, "revoked": revoked }))
     }
 
     /// At start: the vault keeps nothing for a computer the log has forgotten.

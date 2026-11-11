@@ -93,8 +93,10 @@ impl Kernel {
             if run.private {
                 return Some("this run read data only its requester may see, and that never reaches the team's computer".to_string());
             }
-            if self.team_computer(&t.workspace).is_none() {
-                return Some("this workspace has no computer".to_string());
+            // The workspace always has its computer (spec rev 142); a use
+            // makes it if it is not there yet.
+            if self.cfg.computer.is_none() {
+                return Some("this server has no computers, so the team agent has none".to_string());
             }
         }
         (!in_team_run(&a.tool)).then(|| format!("{} is personal to a member and does not serve a team thread", a.tool))
@@ -114,7 +116,7 @@ impl Kernel {
         let allowed = |name: &str| match name.split_once("__") {
             Some((app, _)) => role.is_some_and(|r| granted.get(app).is_some_and(|roles| roles.contains(&r))),
             // Offered only where the boundary would let it through.
-            None if name.starts_with("computer_") => !run.private && self.team_computer(&t.workspace).is_some() && in_team_run(name),
+            None if name.starts_with("computer_") => !run.private && self.cfg.computer.is_some() && in_team_run(name),
             None => in_team_run(name),
         };
         let mut kept: Vec<ToolSpec> = specs.into_iter().filter(|s| allowed(&s.name)).collect();

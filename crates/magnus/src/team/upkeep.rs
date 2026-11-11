@@ -4,7 +4,7 @@ use super::agent::{held_dir, volume_dir};
 use super::routes::{member, send, Reply, K};
 use super::{Change, Role};
 use crate::api::err;
-use crate::computer::{KillMode, Owner};
+use crate::computer::{Owner, ONE_AT_A_TIME};
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -179,16 +179,20 @@ impl Kernel {
         let tasks: Vec<String> = self.read(|s| s.team.runs_of(ws).into_iter().map(|r| r.task.clone()).collect());
         self.end_team_tasks(&actor, &tasks).await;
         let owner = Owner::Workspace(ws.to_string());
-        let computers: Vec<String> = self.read(|s| s.computers.all().filter(|c| c.owner == owner).map(|c| c.id.clone()).collect());
-        for id in computers {
-            if let Err(e) = self.kill_computer(p, &id, KillMode::Destroy, true).await {
-                tracing::warn!("workspace {ws}: computer {id}: {e:?}");
+        // Gone with the workspace, by the usual deletion: a reset would put
+        // a new one in its place, and no new one is made until it is gone.
+        let one = ONE_AT_A_TIME.lock().await;
+        let computers: Vec<crate::computer::Computer> = self.read(|s| s.computers.all().filter(|c| c.owner == owner).cloned().collect());
+        for c in computers {
+            if let Err(e) = self.delete_computer(&actor, &c).await {
+                tracing::warn!("workspace {ws}: computer {}: {e:?}", c.id);
             }
         }
         let runs: Vec<String> = self.read(|s| tasks.iter().filter_map(|t| s.tasks.get(t).map(|t| t.run_id.clone())).collect());
         let dir = volume_dir(self, ws);
         let holding = Holding { runs, kinds: vec!["team"], field: "workspace", id: ws.to_string(), ..Default::default() };
         self.emit(&actor, Ev::Team(Change::Deleted { workspace: ws.to_string() })).await?;
+        drop(one);
         if let Some(root) = dir.parent() {
             if let Err(e) = tokio::fs::remove_dir_all(root).await {
                 tracing::debug!("{}: {e}", root.display());

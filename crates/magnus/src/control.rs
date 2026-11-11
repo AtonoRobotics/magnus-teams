@@ -447,7 +447,7 @@ async fn admin_invite(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Res
     if k.person(&id).is_some() {
         return (StatusCode::CONFLICT, Json(json!({ "error": "taken", "message": format!("{id} is already a person here.") }))).into_response();
     }
-    match k.accounts.invite_person(&id, name, Some(&email), role).await {
+    match k.accounts.invite_person(&id, name, Some(&email), role).await.inspect(|_| k.computer_soon(crate::computer::Owner::Person(id.clone()))) {
         Ok(token) => (
             StatusCode::CREATED,
             Json(json!({ "id": id, "email": email, "invite_token": token, "invite_expires": chrono::Utc::now() + chrono::Duration::days(crate::accounts::INVITE_DAYS) })),

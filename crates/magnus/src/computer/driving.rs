@@ -146,7 +146,7 @@ impl Kernel {
     /// The agent hands the computer to its person for a step it cannot do.
     pub(super) async fn request_takeover(&self, run: &str, input: &Value) -> Result<(String, bool, Option<Value>)> {
         let Some(r) = self.read(|s| s.runs.get(run).cloned()) else { return Ok(("This run is gone.".into(), true, None)) };
-        let Some(computer) = self.computer_of_run(&r) else {
+        let Ok(Some(computer)) = self.computer_for(&self.owner_of_run(&r)).await else {
             return Ok(("There is no computer for a person to take over.".into(), true, None));
         };
         if self.is_background(run) {

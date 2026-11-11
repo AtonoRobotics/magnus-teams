@@ -15,7 +15,11 @@ impl Kernel {
     pub(crate) async fn add_destination_tool(&self, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let run = self.read(|s| s.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("unknown run {}", a.run))?;
         let person = self.person(&run.person).ok_or_else(|| anyhow!("the run has no person"))?;
-        let Some(id) = self.run_computer(&person.id) else { return Ok(("You have no computer.".to_string(), true, None)) };
+        let id = match self.computer_for(&super::Owner::Person(person.id.clone())).await {
+            Ok(Some(id)) => id,
+            Ok(None) => return Ok(("This server has no computers.".to_string(), true, None)),
+            Err(e) => return Ok((format!("Your computer could not be made ready: {e}"), true, None)),
+        };
         let host = a.input["host"].as_str().unwrap_or_default();
         let host = match checked_host(host) {
             Ok(h) => h,
