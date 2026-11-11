@@ -199,6 +199,15 @@ assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as
 assert.equal(sandbox.teamUsd(12), "$12");
 assert.match(sandbox.workCard({ ...work, doing: null, steps: 1 }, name, "w", "c1"), /Thinking it through · step 2/, "work past its first step still says it is starting");
 
+assert.doesNotMatch(sandbox.workCard(work, name, "w", "c1", true), /data-open-thread/, "a work card inside its own thread links to that thread");
+assert.match(sandbox.workCard({ ...work, doing: "task_complete" }, name, "w", "c1"), /Finishing up/);
+
+// The channel's header shows who is in it, with the agent always there.
+const faces = sandbox.channelFaces(home, home.channels[0], home.projects[0]);
+assert.match(faces, /In this channel: Dana, Sam, Magnus/, "a project channel's header does not show its people and the agent");
+assert.match(faces, /team-face on/, "who is here now is not shown in the header");
+assert.match(sandbox.channelFaces(home, home.channels[2], null), /Sam, Dana, Leo, Magnus/, "a workspace channel does not show the workspace's people");
+
 // A knowledge entry shows what the spec gives each: type, statement,
 // source, owner and last review, its relations and flags.
 const older = { id: "k0", statement: "Ship on Fridays" };

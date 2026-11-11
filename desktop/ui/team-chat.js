@@ -19,6 +19,7 @@ function dataUrl(file) {
 /** What a tool call means to a reader of the channel. */
 function doingWords(tool) {
   if (!tool) return "Starting";
+  if (tool === "task_complete") return "Finishing up";
   if (tool.startsWith("web_")) return "Searching the web";
   if (tool.startsWith("computer_")) return "Using the team computer";
   if (tool.startsWith("browser_")) return "Browsing";
@@ -40,14 +41,14 @@ function workTitle(text) {
 
 /**
  * The agent's live card: what it is doing, for whom, and where the work is.
- * @param {TeamWork} w @param {(id: string) => string} name @param {string} ws @param {string} channel
+ * @param {TeamWork} w @param {(id: string) => string} name @param {string} ws @param {string} channel @param {boolean} [inThread] shown in its own thread already
  */
-function workCard(w, name, ws, channel) {
+function workCard(w, name, ws, channel, inThread = false) {
   const who = name(w.requester), title = workTitle(w.title);
   const line = w.status === "working" ? `${esc(!w.doing && w.steps ? "Thinking it through" : doingWords(w.doing))} · step ${w.steps + 1}`
     : w.status === "waiting" ? `Waiting for ${esc(who)} to answer an ask`
     : w.status === "done" ? "Done" : w.status === "failed" ? `Could not finish${w.reason ? `: ${esc(w.reason)}` : ""}` : "Stopped";
-  const thread = w.thread ? `<a class="small" href="${teamHref(ws, { kind: "channel", id: channel, thread: w.thread })}" data-open-thread="${esc(w.thread)}">Open its thread</a>` : "";
+  const thread = w.thread && !inThread ? `<a class="small" href="${teamHref(ws, { kind: "channel", id: channel, thread: w.thread })}" data-open-thread="${esc(w.thread)}">Open its thread</a>` : "";
   return `<div class="tm-work" data-status="${esc(w.status)}" data-task="${esc(w.task)}"><div class="tm-work-title">${w.status === "working" ? `<span class="team-spinner" aria-hidden="true"></span>` : ""}<strong>${esc(title)}</strong> <span class="small faint">for ${esc(who)}</span></div><div class="small">${line}</div>${thread}</div>`;
 }
 
@@ -78,7 +79,7 @@ function messageHtml(m, c) {
     ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${mine && !agent ? `<button data-edit>Edit</button>` : ""}${c.guest ? "" : `<button data-pin>${m.pinned ? "Unpin" : "Pin"}</button><button data-make-task>Task</button>`}</div>`;
   return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
     <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
-    ${text}${m.work ? workCard(m.work, c.name, c.ws, c.channel) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}</div>${actions}</article>`;
+    ${text}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}</div>${actions}</article>`;
 }
 
 /**
@@ -120,6 +121,22 @@ function mentionChoices(home, partial) {
   const q = (partial || "").toLowerCase();
   const all = [{ id: home.agent.id, name: home.agent.name, agent: true }, ...home.members.filter(m => m.id !== home.me)];
   return all.filter(p => p.name.toLowerCase().startsWith(q) || p.id.toLowerCase().startsWith(q)).slice(0, 6);
+}
+
+/** How many people's faces a channel's header shows before "+N". */
+const TEAM_HEAD_FACES = 4;
+
+/**
+ * Who is in a channel, at a glance: its people with who is here now, and
+ * the team agent, which is in every channel.
+ * @param {TeamHome} home @param {TeamChannel} c @param {?TeamProject} project
+ */
+function channelFaces(home, c, project) {
+  const ids = c.direct ? c.direct.people : project ? [...new Set([project.owner, ...project.members])] : home.members.map(m => m.id);
+  const people = ids.map(id => home.members.find(m => m.id === id)).filter(Boolean);
+  const shown = people.slice(0, TEAM_HEAD_FACES), more = people.length - shown.length;
+  const names = [...people.map(m => m.name), home.agent.name].join(", ");
+  return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
 /** Drafts survive a switch of channel and a restart, where storage allows. */
@@ -179,7 +196,7 @@ const TeamChat = {
     const project = home.projects.find(p => p.id === c.project);
     const helpful = c.mode === "when_helpful";
     paint($("#tc-head", s.center), `<div><h1>${esc(channelTitle(home, c))}</h1>${project ? `<a class="small faint" href="${teamHref(s.ws, { kind: "project", id: project.id })}">${esc(project.name)}</a>` : ""}</div>
-      <div class="team-head-tools">${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span class="sr">Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Magnus replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Magnus joins when it can help</option></select></label>`}
+      <div class="team-head-tools">${channelFaces(home, c, project)}${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span class="sr">Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Magnus replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Magnus joins when it can help</option></select></label>`}
       <select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select>
       <button type="button" data-pins aria-pressed="${s.pinsOnly}">${s.pinsOnly ? "All messages" : "Pinned"}</button></div>`);
     const all = mergePending(s.view.messages, s.pending);

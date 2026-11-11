@@ -36,6 +36,10 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 .team-head h1 { font-size: 18px; margin: 0; }
 .team-head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.team-head-tools select, .team-head-tools > button { border-radius: 999px; padding: 4px 12px; min-height: 32px; font-size: 13px; }
+.team-head-faces { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
+.team-face { position: relative; display: inline-flex; }
+.team-face.on::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); border: 1.5px solid var(--surface); }
 .team-scroll { flex: 1; overflow-y: auto; padding: 12px 20px; min-height: 0; }
 .team-side .team-scroll { padding: 0; }
 .team-side-head { display: flex; justify-content: space-between; align-items: center; }
