@@ -60,7 +60,8 @@ impl Change {
             | Change::OperatorGranted { id, .. }
             | Change::OperatorEnded { id, .. }
             | Change::OperatorLooked { id, .. }
-            | Change::Kept { id, .. } => id,
+            | Change::Kept { id, .. }
+            | Change::VolumeErased { id } => id,
         }
     }
 }
@@ -198,9 +199,9 @@ impl Kernel {
             }
         }
         let orphans: Vec<Computer> = self.read(|s| s.computers.all().filter(|c| matches!(&c.owner, Owner::Workspace(w) if s.team.workspace(w).is_none())).cloned().collect());
-        for c in orphans {
+        for c in orphans.into_iter().chain(self.computers_of_people_gone().await) {
             if let Err(e) = self.delete_computer("kernel", &c).await {
-                tracing::warn!("could not delete computer {} of a deleted workspace: {e:?}", c.id);
+                tracing::warn!("could not delete computer {} of a deleted workspace or person: {e:?}", c.id);
             }
         }
         let mut owners: Vec<Owner> = self.everyone().into_iter().map(|(id, _)| Owner::Person(id)).collect();
@@ -210,6 +211,36 @@ impl Kernel {
                 tracing::warn!("could not make the computer of {owner:?} yet: {e:?}");
             }
         }
+    }
+
+    /// The computers of people the server no longer keeps: removed from its
+    /// own directory, here or by the command line. Read from the directory
+    /// itself, not its cache, so a person is never taken for gone because the
+    /// cache had not loaded; a config person is never gone.
+    async fn computers_of_people_gone(&self) -> Vec<Computer> {
+        if let Err(e) = self.accounts.refresh_people().await {
+            tracing::warn!("could not read the directory, so no removed person's computer is deleted now: {e:#}");
+            return vec![];
+        }
+        let theirs: Vec<Computer> = self.read(|s| s.computers.all().filter(|c| c.role == Role::Computer && matches!(c.owner, Owner::Person(_))).cloned().collect());
+        theirs.into_iter().filter(|c| matches!(&c.owner, Owner::Person(p) if self.cfg.person(p).is_none() && self.person(p).is_none())).collect()
+    }
+
+    /// Removes a person from the server's own directory, after their
+    /// projects and agents were transferred or deleted, and their computer
+    /// with them by the usual deletion. A config person cannot be removed,
+    /// so they keep theirs. Returns the sessions the removal ended.
+    pub(crate) async fn remove_local_person(&self, person: &str) -> anyhow::Result<Vec<String>> {
+        let _one = ONE_AT_A_TIME.lock().await;
+        let ended = self.accounts.remove_person(person).await?;
+        let owner = Owner::Person(person.to_string());
+        let theirs: Vec<Computer> = self.read(|s| s.computers.all().filter(|c| c.role == Role::Computer && c.owner == owner).cloned().collect());
+        for c in theirs {
+            if let Err(e) = self.delete_computer("kernel", &c).await {
+                tracing::warn!("{person} is removed; their computer {} goes at the next look: {e:?}", c.id);
+            }
+        }
+        Ok(ended)
     }
 
     /// One write: the others deleted, the one kept, and its people told.

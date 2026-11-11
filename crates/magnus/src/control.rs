@@ -396,7 +396,7 @@ async fn admin_delete(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axu
     // fails the store itself — leaving a listed, disabled shell whose
     // deletion retries (the erasure finds nothing new) and removes.
     if local {
-        if let Err(e) = k.accounts.remove_person(&id).await {
+        if let Err(e) = k.remove_local_person(&id).await {
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
         }
     }
@@ -413,7 +413,7 @@ async fn admin_cancel_invite(State(k): State<Arc<Kernel>>, axum::extract::Path(i
     if k.accounts.status(&id).await != crate::accounts::Status::Invited || !k.accounts.is_local(&id) {
         return (StatusCode::CONFLICT, Json(json!({ "error": "not_invited", "message": "Only an invitation sent from here can be withdrawn." }))).into_response();
     }
-    match k.accounts.remove_person(&id).await {
+    match k.remove_local_person(&id).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             if last_admin_refused(&e) {

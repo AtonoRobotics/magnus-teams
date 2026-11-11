@@ -164,7 +164,7 @@ const COMPUTER_ACTS = {
     const choice = await chooseReset();
     if (!choice) return null;
     const r = await api("POST", `${base}/reset`, { keep_files: choice === "keep" });
-    toast(choice === "keep" ? "Reset. It is rebuilt when it is next used, with its apps installed again." : "Reset. This is a new, empty computer.");
+    toast(choice === "keep" ? "Reset. It is rebuilt when it is next used, with its apps installed again." : "Reset, and your files erased. It is rebuilt when it is next used, with its apps installed again.");
     return r.id;
   },
 };
@@ -179,7 +179,7 @@ function chooseReset() {
       <p>The computer is stopped and put back to a fresh system. Running programs, anything the agent changed outside your files, and every access it was given are lost. Its apps are installed again when it next starts.</p>
       <p>You choose what happens to your files in /workspace:</p>
       <div class="row"><button data-ask="no">Back</button><button class="primary" data-ask="keep">Reset and keep my files</button><button class="danger" data-ask="erase">Reset and erase my files</button></div>
-      <p class="small muted">Erasing your files also deletes the computer's backups and the passwords and tokens the vault keeps for it, and cannot be undone. Either way you keep one computer: a fresh one takes its place.</p>`;
+      <p class="small muted">Erasing your files also deletes the computer's backups and the passwords and tokens the vault keeps for it, and cannot be undone. Either way it stays the same computer, with an empty /workspace if you erase.</p>`;
     d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
     d.addEventListener("close", () => { d.remove(); done(["keep", "erase"].includes(d.returnValue) ? d.returnValue : null); });
     document.body.append(d);

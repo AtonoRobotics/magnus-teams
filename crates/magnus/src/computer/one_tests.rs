@@ -8,24 +8,36 @@ use tokio::net::UnixListener;
 
 type Asked = Arc<Mutex<Vec<Value>>>;
 
-/// Creates, wakes and destroys at once; its guests answer every desktop
-/// action with a screenshot.
+/// Creates, wakes, destroys and erases at once; its guests answer every
+/// desktop action with a screenshot. As the real one, a computer whose
+/// overlay was thrown away (a destroy, an erase) wakes on a fresh one.
 fn fake_computerd(socket: &Path) -> Asked {
     let asked: Asked = Arc::default();
     let listener = UnixListener::bind(socket).unwrap();
     let log = asked.clone();
+    let fresh: Arc<Mutex<std::collections::HashSet<String>>> = Arc::default();
     tokio::spawn(async move {
         while let Ok((s, _)) = listener.accept().await {
             let log = log.clone();
+            let fresh = fresh.clone();
             tokio::spawn(async move {
                 let (r, mut w) = s.into_split();
                 let mut lines = BufReader::new(r).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let req: Value = serde_json::from_str(&line).unwrap();
                     log.lock().unwrap().push(req.clone());
+                    let id = req["id"].as_str().unwrap_or_default().to_string();
                     let reply = match req["op"].as_str().unwrap() {
-                        "wake" => json!({ "ok": true, "resumed": true, "overlay_fresh": false }),
-                        "create" | "destroy" | "connect" | "ping" | "hibernate" => json!({ "ok": true }),
+                        "wake" => {
+                            let new = fresh.lock().unwrap().remove(&id);
+                            json!({ "ok": true, "resumed": !new, "overlay_fresh": new })
+                        }
+                        "destroy" | "erase_volume" => {
+                            fresh.lock().unwrap().insert(id);
+                            json!({ "ok": true })
+                        }
+                        "write" => json!({}),
+                        "create" | "connect" | "ping" | "hibernate" => json!({ "ok": true }),
                         "exec" => json!({ "exit_code": 0 }),
                         "read" => json!({ "data_b64": "SHOT" }),
                         other => json!({ "ok": false, "error": format!("unexpected {other}") }),
@@ -192,25 +204,86 @@ async fn a_tool_call_wakes_or_makes_the_computer_and_goes_on() {
     s.done().await;
 }
 
-/// Destroy became reset: erasing the files puts a new computer in the old
-/// one's place, and only its own person may erase them.
+/// Destroy became reset, and erasing the files rebuilds the same computer
+/// (spec rev 142): its id, owner and apps stay, only its volume is replaced
+/// by an empty one, the passwords and tokens kept for it go, and only its
+/// own person may erase it.
 #[tokio::test(flavor = "multi_thread")]
-async fn erasing_a_computer_leaves_a_new_one_never_none() {
+async fn erasing_the_files_keeps_the_same_computer_with_an_empty_volume() {
     let s = server().await;
     s.k.reconcile_computers().await;
-    let old = s.computers_of(&person("mo"))[0].id.clone();
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    s.k.emit("kernel", Ev::Computer(Change::AppInstalled { id: id.clone(), app: an_app("0".repeat(64)) })).await.unwrap();
+    s.k.vault.put(&format!("surrogate/{id}/github"), "real").unwrap();
     let sam = s.k.person("sam").unwrap();
-    assert!(s.k.kill_computer(&sam, &old, KillMode::Destroy, true).await.is_err(), "an admin erased a person's files");
+    assert!(s.k.kill_computer(&sam, &id, KillMode::Destroy, true).await.is_err(), "an admin erased a person's files");
     let mo = s.k.person("mo").unwrap();
-    let reset = s.k.kill_computer(&mo, &old, KillMode::Destroy, true).await.unwrap();
+    let reset = s.k.kill_computer(&mo, &id, KillMode::Destroy, true).await.unwrap();
+    assert_eq!(reset["id"], json!(id));
     let now = s.computers_of(&person("mo"));
-    assert_eq!(now.len(), 1, "the person was left with {} computers", now.len());
-    assert_eq!(reset["id"], json!(now[0].id));
-    assert_ne!(now[0].id, old);
-    assert!(s.asked("destroy").iter().any(|r| r["id"] == json!(old) && r["delete_volume"] == true), "the old computer was not deleted");
-    let again = s.k.reset_computer(&mo, &now[0].id, false).await.unwrap();
+    assert_eq!(now.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), [id.as_str()], "the erase did not keep the same computer");
+    assert_eq!(now[0].apps.len(), 1, "the erase lost the computer's apps");
+    assert!(s.asked("erase_volume").iter().any(|r| r["id"] == json!(id)), "the volume was not erased");
+    assert!(!s.asked("destroy").iter().any(|r| r["delete_volume"] == true), "the erase deleted the computer");
+    assert!(!s.k.vault.names().unwrap().iter().any(|n| n.starts_with(&format!("surrogate/{id}/"))), "the vault kept the erased computer's tokens");
+    s.k.reset_computer(&mo, &id, false).await.unwrap();
+    assert_eq!(s.asked("erase_volume").len(), 2);
     assert_eq!(s.computers_of(&person("mo")).len(), 1);
-    assert_eq!(again["replaces"], json!(now[0].id));
+    s.done().await;
+}
+
+fn an_app(sha256: String) -> super::super::App {
+    super::super::App { name: "notes".into(), version: "1".into(), source: "https://example.com".into(), sha256, steps: vec!["sh $INSTALLER".into()], hosts: vec![] }
+}
+
+/// Both kinds of reset rebuild from the base image and the manifest: the
+/// next use puts the installed app back on the fresh system.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_installed_app_comes_back_after_either_reset() {
+    let s = server().await;
+    s.k.reconcile_computers().await;
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    let installer = b"#!/bin/sh\necho installed\n";
+    let sha = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(installer));
+    let dir = s.k.computer_installers();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(&sha), installer).unwrap();
+    s.k.emit("kernel", Ev::Computer(Change::AppInstalled { id: id.clone(), app: an_app(sha.clone()) })).await.unwrap();
+    let mo = s.k.person("mo").unwrap();
+    for keep_files in [true, false] {
+        s.k.reset_computer(&mo, &id, keep_files).await.unwrap();
+        let before = s.asked("exec").iter().filter(|r| r["command"].as_str().unwrap_or_default().contains("sh $INSTALLER")).count();
+        s.k.use_computer(&person("mo"), "run:r1", "computer_screenshot", &json!({})).await.unwrap().unwrap();
+        let installed = s.asked("exec").iter().filter(|r| r["command"].as_str().unwrap_or_default().contains("sh $INSTALLER")).count();
+        assert_eq!(installed, before + 1, "the app was not installed again after a reset keeping files: {keep_files}");
+        assert!(s.asked("write").iter().any(|r| r["path"].as_str().is_some_and(|p| p.ends_with(&sha))), "the installer was not put on the computer");
+        assert_eq!(s.computers_of(&person("mo"))[0].id, id);
+    }
+    s.done().await;
+}
+
+/// Removing a person deletes their computer by the usual deletion, and the
+/// look at start deletes the computer of anyone the server no longer keeps;
+/// a person from the config keeps theirs.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_person_takes_their_computer_with_them() {
+    let s = server().await;
+    s.k.accounts.add_person("lu", "Lu", None).await.unwrap();
+    s.k.accounts.add_person("vi", "Vi", None).await.unwrap();
+    s.k.reconcile_computers().await;
+    let lu = s.computers_of(&person("lu"))[0].id.clone();
+    let vi = s.computers_of(&person("vi"))[0].id.clone();
+    s.k.remove_local_person("lu").await.unwrap();
+    assert!(s.computers_of(&person("lu")).is_empty(), "the removed person's computer stayed");
+    assert!(s.asked("destroy").iter().any(|r| r["id"] == json!(lu) && r["delete_volume"] == true), "their computer was not deleted");
+    // Removed while the server was not looking, as the command line does.
+    s.k.accounts.remove_person("vi").await.unwrap();
+    s.k.reconcile_computers().await;
+    assert!(s.computers_of(&person("vi")).is_empty(), "the look did not delete a gone person's computer");
+    assert!(s.asked("destroy").iter().any(|r| r["id"] == json!(vi) && r["delete_volume"] == true));
+    for p in ["sam", "ana", "mo"] {
+        assert_eq!(s.computers_of(&person(p)).len(), 1, "{p} from the config lost their computer");
+    }
     s.done().await;
 }
 

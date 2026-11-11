@@ -46,19 +46,37 @@ to its sandbox's desktop instead (the safer reading: the pause stops the
 agent, it does not move it elsewhere). The client already shows the last
 screenshot and the wake's progress, never a start button (2026-11-09).
 
-**Destroy becomes reset.** Reset keeps the files by default (the dialog's
-default button) or erases them. Erasing, or the old `kill` with
-`delete_volume`, now replaces the computer: the new one is made first, then
-one write revokes the old one's grants, deletes it (`Killed` with
-`delete_volume`) and records the new one (`Created`), so the log never shows
-the owner without a computer; then its vault entries go and computerd deletes
-it, purging what it held within its purge window. Only the person it belongs
-to may erase a person's files, as before. A plain destroy (the kill switch's
-stop, files kept) stays: the computer is rebuilt on its next use. A deleted
-workspace's computer goes by the usual deletion (`delete_computer`), under the
-same one-maker lock so the look cannot make it again; one made in a race is
-deleted by the next look, which deletes the computer of any workspace that is
-gone.
+**Destroy becomes reset, of the same computer.** Reset keeps the files by
+default (the dialog's default button) or erases them. Either way it is the same
+computer: its id, owner and app manifest stay, its VM, overlay and snapshot go
+and every grant is revoked, and its next use boots it from the base image and
+replays the manifest's apps (computerd reports the fresh overlay and the
+kernel installs each app again, as after any destroy). Erasing, or the old
+`kill` with `delete_volume`, also replaces the volume: one write revokes the
+grants, records `Killed` (`Destroy`, volume kept) and `VolumeErased { id }` (a
+new kind of computer change, which forgets the deleted-file list and the
+surrogates), then the vault forgets the real credentials behind its
+surrogates (its certificate authority stays: it is the same computer), and
+computerd's new `erase_volume { id }` op (no paths or sizes in the request)
+stops it, drops its overlay and snapshot, deletes the old volume and its
+backups as a deleted computer's go, and makes a new, empty volume for the same
+user. The owner is never without a computer, because none is deleted. Only the
+person it belongs to may erase a person's files, as before. An earlier draft
+of this change put a new computer with a new id in the old one's place; that
+lost its identity and its apps, against rev 142 ("rebuilds the same computer
+from its base image and manifest"), and was replaced before release.
+
+**Deleted owners take their computer.** A deleted workspace's computer goes by
+the usual deletion (`delete_computer`), under the same one-maker lock so the
+look cannot make it again. Removing a person (the console's People, remove,
+which first transfers or deletes their projects and agents, and the control
+socket's removal and withdrawn invitation) removes them from the directory and
+then deletes their computer the same way. The look at start and each minute
+deletes the computer of any workspace that is gone and of any person the
+server no longer keeps, read from the directory itself so a cache that has not
+loaded never counts as gone; that also covers `magnus person remove` from the
+command line, which runs with the server stopped. People from the config
+cannot be removed, so they keep theirs.
 
 **Several become one.** The look finds each owner with several computers and,
 in one write, deletes all but the one used last (each by its grants' `Revoked`
@@ -72,13 +90,16 @@ immediate wipe beyond what the deletion already did). Once done there is
 nothing to do again, so it is idempotent.
 
 **Event history.** No event kind changed. `Created` and `Killed` with
-`delete_volume` from before replay as they did; `Kept` is new.
+`delete_volume` from before replay as they did; `Kept` and `VolumeErased` are
+new.
 
 **Tests.** `computer/one_tests.rs` against a booted kernel and a fake
 computerd: everyone gets one on start and the next start makes none; a tool
 call on a never-made, never-started and hibernated computer makes or wakes it
-and goes on; erasing leaves a new computer, never none, and an admin cannot
-erase a person's; several become the one used last, the person told once.
+and goes on; erasing keeps the same computer and its apps with an empty volume, and an
+admin cannot erase a person's; an installed app comes back after either
+reset; a removed person's computer is deleted, by the removal or by the next
+look, and config people keep theirs; several become the one used last, the person told once.
 `desktop/tests/one-computer-check.mjs` (fast tier) and `team-check.mjs`: no
 New computer, no Delete, no "Give a computer", reset defaults to keeping the
 files. The autonomy acceptance has an eighth scenario, "the agent uses its

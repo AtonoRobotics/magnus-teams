@@ -261,6 +261,11 @@ pub enum Change {
         owner: Owner,
         removed: Vec<String>,
     },
+    /// A reset that erased the person's files: the same computer, rebuilt
+    /// from the base image and its manifest, with a new, empty volume.
+    VolumeErased {
+        id: String,
+    },
 }
 
 /// One installed app, enough to install it again on a fresh overlay.
@@ -536,6 +541,15 @@ impl Ledger {
                 }
             }
             Change::Restored { .. } | Change::Kept { .. } => {}
+            // What was on the old volume is gone, and so is what stood in
+            // for a credential there; the apps stay, to be installed again.
+            Change::VolumeErased { id } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.deleted_files.clear();
+                    c.free_space_zeroed = None;
+                    c.surrogates.clear();
+                }
+            }
             Change::DestinationAdded { id, host } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     if !c.destinations.contains(host) {

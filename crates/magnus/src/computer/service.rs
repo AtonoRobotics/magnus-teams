@@ -284,10 +284,10 @@ impl Kernel {
         if delete_volume && mode != KillMode::Destroy {
             return Err(Refused::Invalid("only destroying a computer can delete its volume".into()));
         }
-        // Destroy became reset (spec rev 142): deleting the volume puts a new,
-        // empty computer in its place, so no one is left without one.
+        // Destroy became reset (spec rev 142): deleting the volume erases it,
+        // and the same computer is rebuilt with an empty one.
         if delete_volume {
-            return self.replace_computer(who, c).await;
+            return self.erase_computer(who, c).await;
         }
         let actor = format!("person:{}", who.id);
         let mut evs = vec![];

@@ -36,6 +36,16 @@ pub(crate) fn forget_secrets(vault: &Vault, computer: &str) -> Result<usize> {
     Ok(mine.len())
 }
 
+/// Removes the real credentials behind `computer`'s surrogates, and keeps its
+/// certificate authority: an erased computer is the same computer.
+pub(crate) fn forget_surrogates(vault: &Vault, computer: &str) -> Result<usize> {
+    let mine: Vec<String> = vault.names()?.into_iter().filter(|n| belongs_to(n, computer) && *n != super::egress::ca_secret_name(computer)).collect();
+    for n in &mine {
+        vault.remove(n)?;
+    }
+    Ok(mine.len())
+}
+
 /// Removes the computer-scoped entries of every computer `known` says is gone.
 pub(crate) fn sweep_secrets(vault: &Vault, known: impl Fn(&str) -> bool) -> Result<usize> {
     let orphans: Vec<String> = vault.names()?.into_iter().filter(|n| owner_of(n).is_some_and(|id| !known(id))).collect();
@@ -46,39 +56,41 @@ pub(crate) fn sweep_secrets(vault: &Vault, known: impl Fn(&str) -> bool) -> Resu
 }
 
 impl Kernel {
-    /// Back to the base image: the VM, its overlay and its snapshot go, and
-    /// every grant is revoked. With `keep_files` the person's volume stays and
-    /// the computer's apps are installed again on its next start. Without it
-    /// the computer is deleted, its vault entries with it, and a new empty one
-    /// takes its place.
+    /// Back to the base image (spec rev 141, 142): the same computer, its VM,
+    /// overlay and snapshot gone and every grant revoked, rebuilt on its next
+    /// use from the base image and its manifest, its apps installed again.
+    /// With `keep_files` the person's volume stays; without it the volume is
+    /// erased and an empty one takes its place.
     pub async fn reset_computer(&self, who: &Person, id: &str, keep_files: bool) -> Result<Value, Refused> {
         let c = self.controlled_computer(who, id)?;
         if keep_files {
             let killed = self.kill_computer(who, id, KillMode::Destroy, false).await?;
             return Ok(json!({ "id": id, "revoked": killed["revoked"] }));
         }
-        self.replace_computer(who, &c).await
+        self.erase_computer(who, &c).await
     }
 
-    /// A reset that erases the files: a new, empty computer takes the old
-    /// one's place in the same write that deletes it, so its owner is never
-    /// without one (spec rev 142). The old one goes by the usual deletion.
-    pub(super) async fn replace_computer(&self, who: &Person, c: &Computer) -> Result<Value, Refused> {
+    /// A reset that erases the files. The computer stays, with its id, owner
+    /// and manifest: only its volume is replaced by an empty one, the old one
+    /// and its backups deleted as a deleted computer's are, with the
+    /// passwords and tokens the vault kept for it. Its owner is never without
+    /// it. The log first, so nothing acts on the old files from here on.
+    pub(super) async fn erase_computer(&self, who: &Person, c: &Computer) -> Result<Value, Refused> {
         if matches!(&c.owner, Owner::Person(p) if *p != who.id) {
             return Err(Refused::Denied("a volume is deleted only when the person it belongs to asks".into()));
         }
         let socket = self.computer_socket()?;
-        let _one = super::one::ONE_AT_A_TIME.lock().await;
-        let fresh = super::service::new_id();
-        super::client::ask(&socket, json!({ "op": "create", "id": fresh })).await.map_err(super::service::failed)?;
-        let gone = super::one::deletion(c);
-        let revoked = gone.len() - 1;
-        let mut changes = gone;
-        changes.push(Change::Created { id: fresh.clone(), owner: c.owner.clone() });
+        let id = c.id.as_str();
+        let mut changes: Vec<Change> = c.grants.iter().filter(|g| !g.revoked).map(|g| Change::Revoked { id: id.into(), grant: g.id.clone() }).collect();
+        let revoked = changes.len();
+        changes.push(Change::Killed { id: id.into(), mode: KillMode::Destroy, delete_volume: false });
+        changes.push(Change::VolumeErased { id: id.into() });
         let actor = format!("person:{}", who.id);
         self.emit_all(changes.into_iter().map(|ch| (actor.as_str(), Ev::Computer(ch))).collect()).await.map_err(super::service::failed)?;
-        super::one::delete_after(self, &socket, &c.id).await?;
-        Ok(json!({ "id": fresh, "replaces": c.id, "revoked": revoked }))
+        forget_surrogates(&self.vault, id).map_err(super::service::failed)?;
+        super::wake::forget_screen(id);
+        super::client::ask(&socket, json!({ "op": "erase_volume", "id": id })).await.map_err(super::service::failed)?;
+        Ok(json!({ "id": id, "revoked": revoked, "erased": true }))
     }
 
     /// At start: the vault keeps nothing for a computer the log has forgotten.

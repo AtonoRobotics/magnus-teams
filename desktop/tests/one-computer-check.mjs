@@ -61,7 +61,7 @@ const $ = sandbox.$;
 sandbox.$ = (sel, root) => (root === dialog ? { focus() { focused = sel; } } : $(sel, root));
 const chosen = sandbox.chooseReset();
 assert.equal(focused, "[data-ask=keep]", "keeping the files is not the reset's default");
-assert.match(dialog.innerHTML, /a fresh one takes its place/, "the reset does not say the person keeps a computer");
+assert.match(dialog.innerHTML, /it stays the same computer/, "the reset does not say the person keeps their computer");
 dialog.close("keep");
 assert.equal(await chosen, "keep");
 console.log("one computer ok");
