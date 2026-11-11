@@ -1781,6 +1781,9 @@ impl State {
                 if let Some(p) = item.strip_prefix("person:") {
                     self.erasures.insert(p.to_string(), Erasure { removal: e.seq, subject: self.subjects.get(p).cloned(), pending: false });
                 }
+                if let Some(task) = item.strip_prefix(crate::team::upkeep::NOTES) {
+                    self.team.drop_notes(task);
+                }
                 match self.trash.remove(item).map(|t| t.held) {
                     Some(Held::Entry { thread }) => {
                         self.hidden.entry(thread).or_default().insert(item.clone());

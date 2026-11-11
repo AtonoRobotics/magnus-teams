@@ -31,7 +31,10 @@ pub struct Whisper {
 }
 
 pub fn router() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/workspaces/{ws}/channels/{channel}/whispers", get(mine)).route("/v1/workspaces/{ws}/whispers/{task}/share", post(share))
+    Router::new()
+        .route("/v1/workspaces/{ws}/channels/{channel}/whispers", get(mine))
+        .route("/v1/workspaces/{ws}/whispers/{task}/share", post(share))
+        .route("/v1/workspaces/{ws}/answers/{task}/share", post(share_answer))
 }
 
 impl Kernel {
@@ -87,5 +90,23 @@ async fn share(State(k): K, h: HeaderMap, Path((ws, task)): Path<(String, String
     let id = message.id.clone();
     ok_or_return!(send(&k, &p, Change::Message { workspace: ws.clone(), channel: w.channel.clone(), message }).await);
     ok_or_return!(send(&k, &p, Change::WhisperShared { workspace: ws, task }).await);
+    Json(json!({ "id": id })).into_response()
+}
+
+/// The requester's explicit share of a team answer that only they could
+/// read: it reaches the thread as their own message, once.
+async fn share_answer(State(k): K, h: HeaderMap, Path((ws, task)): Path<(String, String)>) -> Reply {
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+    let found = k.read(|s| s.team.run_of(&task).filter(|r| r.workspace == ws && r.requester == p.id && !r.sub).cloned());
+    let Some(r) = found else { return err(StatusCode::NOT_FOUND, "you asked for no such answer") };
+    let text = k.read(|s| s.tasks.get(&task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()).and_then(|run| run.summary.clone()));
+    let Some(text) = text else { return err(StatusCode::CONFLICT, "it has not finished") };
+    let posted = k.read(|s| s.team.workspace(&ws).and_then(|w| w.channels.get(&r.channel)).is_some_and(|c| c.messages.iter().any(|m| m.sender == p.id && m.text == text)));
+    if posted || !super::routes::has_channel(&k, &ws, &r.channel, &p.id) {
+        return err(StatusCode::CONFLICT, "already posted, or the thread is no longer yours to post in");
+    }
+    let message = Message { id: new_id(), sender: p.id.clone(), text, thread: r.thread.clone(), at: chrono::Utc::now() };
+    let id = message.id.clone();
+    ok_or_return!(send(&k, &p, Change::Message { workspace: ws, channel: r.channel, message }).await);
     Json(json!({ "id": id })).into_response()
 }

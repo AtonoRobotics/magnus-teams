@@ -178,7 +178,7 @@ struct FileProject {
 async fn file_project(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, Json(b): Json<FileProject>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
-    if !w.files.contains_key(&name) {
+    if !w.sees_file(&name, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such file");
     }
     if b.project.as_ref().is_some_and(|id| w.projects.get(id).is_none_or(|d| !d.may_read(&p.id))) {
@@ -206,7 +206,7 @@ async fn panel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Quer
     let files: Vec<Value> = w
         .files
         .values()
-        .filter(|f| here(w.chat.file_projects.get(&f.name)))
+        .filter(|f| w.sees_file(&f.name, &p.id) && here(w.chat.file_projects.get(&f.name)))
         .map(|f| json!({ "name": f.name, "size": f.size, "by": f.by, "by_name": name_of(&k, &f.by), "project": w.chat.file_projects.get(&f.name) }))
         .collect();
     let tasks: Vec<&Task> = w.chat.tasks.values().filter(|t| w.in_project(t.project.as_deref(), &p.id) && here(t.project.as_ref())).collect();

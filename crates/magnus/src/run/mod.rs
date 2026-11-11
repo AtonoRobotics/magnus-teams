@@ -314,7 +314,8 @@ impl Kernel {
     /// offered, so its opinions about itself rest on facts, not guesses.
     fn harness_context(&self, run: &Run) -> String {
         let who = self.person(&run.person).map(|p| if p.name.is_empty() { p.id.clone() } else { p.name.clone() }).unwrap_or_else(|| run.person.clone());
-        let mut watched: Vec<(String, u64)> = if self.cfg.proactive.on {
+        // A team run is told of no member's own apps (spec rev 142).
+        let mut watched: Vec<(String, u64)> = if self.cfg.proactive.on && self.team_of(&run.task).is_none() {
             self.connectors()
                 .iter()
                 .filter(|c| self.connected(c, &run.person) && !self.lapsed(c, &run.person))
@@ -417,7 +418,12 @@ impl Kernel {
     async fn app_tool_specs(&self, run: &Run) -> Vec<ToolSpec> {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
+        let team = self.team_of(&run.task).is_some();
         for c in self.connectors() {
+            // A team run never lists, let alone uses, a member's own sign-in.
+            if team && crate::team::signs_in_per_person(&c) {
+                continue;
+            }
             // An app people sign in to is offered only to a run whose
             // person has signed in to it themselves.
             if !self.connected(&c, &run.person) || self.lapsed(&c, &run.person) {

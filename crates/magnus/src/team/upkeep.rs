@@ -78,6 +78,9 @@ fn unpack(root: &std::path::Path, backup: &Value) -> Result<()> {
     Ok(())
 }
 
+/// What a removal of a task's working notes is called: this, then the task.
+pub const NOTES: &str = "notes:";
+
 /// How far back the audit of one workspace looks in the log of team events.
 const AUDIT_CHANGES: i64 = 5000;
 
@@ -99,9 +102,13 @@ async fn set_ceiling(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b):
     Json(json!({ "ok": true })).into_response()
 }
 
-/// A thread's working notes, while its tasks last.
+/// A thread's working notes, while its tasks last, for those who see the
+/// thread only (spec rev 142: visible to the members of that thread).
 async fn notes(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    if !super::routes::has_channel(&k, &ws, &channel, &p.id) {
+        return err(StatusCode::NOT_FOUND, "no such channel");
+    }
     let view: Vec<Value> = k.read(|s| {
         s.team
             .runs_in(&ws, &channel)
@@ -163,6 +170,34 @@ impl Kernel {
         self.log.delete_content(&seqs).await?;
         if let Err(e) = self.scrub_backups().await {
             tracing::error!("taking removed team content out of the backups: {e:#}");
+        }
+        Ok(())
+    }
+
+    /// Working notes expire with their task (spec rev 142): once a task has
+    /// ended, its notes' content is removed from the log, as any removal is,
+    /// and the notes leave the ledger.
+    pub(crate) async fn expire_notes(&self) {
+        let ended: Vec<String> =
+            self.read(|s| s.team.noted_tasks().filter(|t| s.tasks.get(*t).and_then(|x| s.runs.get(&x.run_id)).is_none_or(|r| r.status.terminal())).cloned().collect());
+        for task in ended {
+            if let Err(e) = self.erase_notes(&task).await {
+                tracing::warn!("expiring the working notes of {task}: {e:#}");
+            }
+        }
+    }
+
+    async fn erase_notes(&self, task: &str) -> Result<()> {
+        let holding = Holding { matches: vec![("team", "task", task.to_string())], ..Default::default() };
+        let found = self.log.content_seqs(&holding).await?;
+        // The task's other team events (its run, a whisper) keep theirs.
+        let seqs: Vec<i64> = self.log.contents(&found).await?.into_iter().filter(|(_, b)| b["change"] == "note").map(|(seq, _)| seq).collect();
+        self.emit("kernel", Ev::Removed { item: format!("{NOTES}{task}"), seqs: seqs.clone() }).await?;
+        if !seqs.is_empty() {
+            self.log.delete_content(&seqs).await?;
+            if let Err(e) = self.scrub_backups().await {
+                tracing::error!("taking expired working notes out of the backups: {e:#}");
+            }
         }
         Ok(())
     }

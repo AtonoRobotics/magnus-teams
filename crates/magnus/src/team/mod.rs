@@ -21,14 +21,17 @@ mod join_page;
 mod kb_routes;
 pub(crate) mod knowledge;
 mod presence;
+#[cfg(test)]
+mod privacy_tests;
 mod project_routes;
 mod routes;
 pub(crate) mod routines;
 mod search;
 pub mod spend;
-mod upkeep;
+pub(crate) mod upkeep;
 mod whisper;
 
+pub(crate) use agent::signs_in_per_person;
 pub use agent::BUILTINS;
 pub use routes::router;
 pub use routines::schedule;
@@ -328,7 +331,10 @@ impl Ledger {
             return;
         }
         if let Change::Note { task, note, .. } = c {
-            self.notes.entry(task.clone()).or_default().push(note.clone());
+            // One whose content expired with its task reads as nothing.
+            if !note.id.is_empty() {
+                self.notes.entry(task.clone()).or_default().push(note.clone());
+            }
             return;
         }
         if let Change::Whisper { workspace, channel, thread, task, owner, history } = c {
@@ -518,6 +524,16 @@ impl Ledger {
         self.notes.get(task).map_or(&[], Vec::as_slice)
     }
 
+    /// The tasks that have working notes.
+    pub fn noted_tasks(&self) -> impl Iterator<Item = &String> {
+        self.notes.keys()
+    }
+
+    /// A task's notes expired with it.
+    pub fn drop_notes(&mut self, task: &str) {
+        self.notes.remove(task);
+    }
+
     pub fn whisper_of(&self, task: &str) -> Option<&Whisper> {
         self.whispers.get(task)
     }
@@ -528,6 +544,19 @@ impl Ledger {
 
     pub fn runs_by(&self, workspace: &str, person: &str) -> Vec<&TeamRun> {
         self.runs.values().filter(|r| r.workspace == workspace && r.requester == person).collect()
+    }
+}
+
+/// A finished request's answer as one viewer of the thread may read it, and
+/// whether it is the requester's alone. A run that read data only its
+/// requester may see answers them alone (spec rev 142: data fetched under one
+/// member's entitlements stays in that requester's run); the thread sees that
+/// it answered, and the requester shares the answer if they choose.
+pub(crate) fn answer_for(run: &crate::state::Run, text: String, requester: &str, viewer: &str) -> (String, bool) {
+    match (run.private, viewer == requester) {
+        (false, _) => (text, false),
+        (true, true) => (text, true),
+        (true, false) => (format!("I answered {requester} directly: the answer holds data only they may see."), true),
     }
 }
 

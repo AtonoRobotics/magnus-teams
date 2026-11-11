@@ -781,6 +781,7 @@ impl Kernel {
             self.review_due(now).await;
             // Scheduled polls of watched reads (#406).
             self.poll_due(now).await;
+            self.expire_notes().await;
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }

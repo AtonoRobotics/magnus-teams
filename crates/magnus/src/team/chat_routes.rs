@@ -108,7 +108,7 @@ fn doing(run: &crate::state::Run) -> Option<String> {
 
 /// Each request's live card and finished answer, in the channel or the
 /// thread they belong in.
-fn agent_items(s: &Shared, w: &Workspace, channel: &str, now: chrono::DateTime<chrono::Utc>) -> (Vec<Value>, BTreeMap<String, Value>) {
+fn agent_items(s: &Shared, w: &Workspace, channel: &str, viewer: &str, now: chrono::DateTime<chrono::Utc>) -> (Vec<Value>, BTreeMap<String, Value>) {
     let (mut items, mut cards) = (vec![], BTreeMap::new());
     let texts: BTreeMap<&str, &str> = w.channels.get(channel).map(|c| c.messages.iter().map(|m| (m.id.as_str(), m.text.as_str())).collect()).unwrap_or_default();
     for r in s.team.runs_in(&w.id, channel) {
@@ -137,7 +137,9 @@ fn agent_items(s: &Shared, w: &Workspace, channel: &str, now: chrono::DateTime<c
             _ => None,
         };
         if let Some(text) = answer {
-            items.push(json!({ "id": format!("agent:{}", r.task), "sender": AGENT_ID, "requester": r.requester, "task": r.task, "text": text, "thread": thread, "at": run.ended_at.unwrap_or(now) }));
+            let (text, private) = super::answer_for(run, text, &r.requester, viewer);
+            let at = run.ended_at.unwrap_or(now);
+            items.push(json!({ "id": format!("agent:{}", r.task), "sender": AGENT_ID, "requester": r.requester, "task": r.task, "text": text, "thread": thread, "at": at, "private": private }));
         }
     }
     (items, cards)
@@ -168,7 +170,7 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
     let now = chrono::Utc::now();
     let (mut items, working) = k.read(|s| {
         let Some(w) = s.team.workspace(&ws) else { return (vec![], false) };
-        let (agent, cards) = agent_items(s, w, &channel, now);
+        let (agent, cards) = agent_items(s, w, &channel, &p.id, now);
         let mut items: Vec<Value> = w.channels.get(&channel).map(|c| c.messages.iter().map(|m| message_item(w, m)).collect()).unwrap_or_default();
         for item in &mut items {
             if let Some(card) = item["id"].as_str().and_then(|id| cards.get(id)) {

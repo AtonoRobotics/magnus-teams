@@ -104,7 +104,7 @@ async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let w = k.read(|s| s.team.workspace(&ws).cloned());
     let Some(w) = w else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     let channels: Vec<Value> = w.channels.iter().filter(|(id, _)| w.sees(id, &p.id)).map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
+    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().filter(|f| w.sees_file(&f.name, &p.id)).collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
 }
 
 async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
@@ -166,9 +166,10 @@ async fn messages(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, 
     let view = k.read(|s| {
         let mut out: Vec<Value> = s.team.workspace(&ws).and_then(|w| w.channels.get(&channel)).map(|c| c.messages.iter().map(|m| json!(m)).collect()).unwrap_or_default();
         for r in s.team.runs_in(&ws, &channel) {
-            let answer = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()).and_then(|run| run.summary.clone());
-            if let Some(text) = answer {
-                out.push(json!({ "sender": "agent", "requester": r.requester, "task": r.task, "text": text, "thread": r.thread }));
+            let Some(run) = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()) else { continue };
+            if let Some(text) = run.summary.clone() {
+                let (text, private) = super::answer_for(run, text, &r.requester, &p.id);
+                out.push(json!({ "sender": "agent", "requester": r.requester, "task": r.task, "text": text, "thread": r.thread, "private": private }));
             }
         }
         out
@@ -242,8 +243,8 @@ async fn grant_connector(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json
 }
 
 async fn read_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
-    ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.files.contains_key(&name)));
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees_file(&name, &p.id)));
     if !known || !fit_name(&name) {
         return err(StatusCode::NOT_FOUND, "no such file");
     }
@@ -280,7 +281,7 @@ async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
 /// Whoever put it there, or an owner or admin, may delete a file.
 async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
-    let by = k.read(|s| s.team.workspace(&ws).and_then(|w| w.files.get(&name).map(|f| f.by.clone())));
+    let by = k.read(|s| s.team.workspace(&ws).filter(|w| w.sees_file(&name, &p.id)).and_then(|w| w.files.get(&name).map(|f| f.by.clone())));
     let Some(by) = by else { return err(StatusCode::NOT_FOUND, "no such file") };
     if by != p.id && role < Role::Admin {
         return err(StatusCode::FORBIDDEN, "only who added it, or an admin, may delete it");

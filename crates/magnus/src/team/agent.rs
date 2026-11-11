@@ -53,6 +53,14 @@ fn team_only(tool: &str) -> bool {
     tool.starts_with("team_") && !tool.contains("__") && tool != OPEN_TO_PERSONAL
 }
 
+/// Whether an app acts through each person's own sign-in. A team run never
+/// uses one (spec rev 142: a member's personal connectors are never used for
+/// a team request; a team connector is the workspace's). An app with no
+/// credential, or with the organisation's key, serves a team run it is granted to.
+pub(crate) fn signs_in_per_person(c: &crate::config::Connector) -> bool {
+    c.credential.is_some() && c.auth.as_deref() == Some(crate::connectors::OAUTH)
+}
+
 pub(super) fn volume_dir(k: &Kernel, workspace: &str) -> PathBuf {
     k.cfg.appliance.state_dir.join("team").join(workspace).join("files")
 }
@@ -85,6 +93,9 @@ impl Kernel {
                 Some(roles) if !roles.contains(&role) => {
                     Some(format!("{app} is not open to the {role:?} role in this workspace, so the team agent cannot use it for {}", t.requester))
                 }
+                Some(_) if self.connector(app).is_none_or(|c| signs_in_per_person(&c)) => Some(format!(
+                    "{app} acts through each person's own sign-in, and a team thread never uses a member's own sign-in; the workspace has no sign-in of its own for it"
+                )),
                 Some(_) => None,
             };
         }
@@ -113,8 +124,9 @@ impl Kernel {
         };
         let role = self.read(|s| s.team.role(&t.workspace, &t.requester));
         let granted = self.read(|s| s.team.workspace(&t.workspace).map(|w| w.connectors.clone())).unwrap_or_default();
+        let personal: std::collections::BTreeSet<String> = self.connectors().into_iter().filter(signs_in_per_person).map(|c| c.name).collect();
         let allowed = |name: &str| match name.split_once("__") {
-            Some((app, _)) => role.is_some_and(|r| granted.get(app).is_some_and(|roles| roles.contains(&r))),
+            Some((app, _)) => !personal.contains(app) && role.is_some_and(|r| granted.get(app).is_some_and(|roles| roles.contains(&r))),
             // Offered only where the boundary would let it through.
             None if name.starts_with("computer_") => !run.private && self.cfg.computer.is_some() && in_team_run(name),
             None => in_team_run(name),
@@ -224,7 +236,7 @@ impl Kernel {
 
     async fn team_read(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let name = a.input["name"].as_str().context("name is required")?;
-        let known = self.read(|s| s.team.workspace(&t.workspace).is_some_and(|w| w.files.contains_key(name)));
+        let known = self.read(|s| s.team.workspace(&t.workspace).is_some_and(|w| w.sees_file(name, &t.requester)));
         if !known || !fit_name(name) {
             return Ok((format!("the team volume has no file called {name}"), true, None));
         }

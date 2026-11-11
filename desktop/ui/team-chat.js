@@ -5,7 +5,7 @@
 
 /**
  * @typedef {{ task: string, requester: string, status: "working"|"waiting"|"done"|"failed"|"stopped", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
- * @typedef {{ id: string, sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, state?: "sending"|"failed", files?: string[] }} TeamMessage
+ * @typedef {{ id: string, sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, state?: "sending"|"failed", files?: string[], task?: string, private?: boolean }} TeamMessage
  * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
  */
 
@@ -79,7 +79,7 @@ function messageHtml(m, c) {
     ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${mine && !agent ? `<button data-edit>Edit</button>` : ""}${c.guest ? "" : `<button data-pin>${m.pinned ? "Unpin" : "Pin"}</button><button data-make-task>Task</button>`}</div>`;
   return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
     <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
-    ${text}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}</div>${actions}</article>`;
+    ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}</div>${actions}</article>`;
 }
 
 /**
@@ -325,6 +325,7 @@ const TeamChat = {
     if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; this.send(`@${Team.home.agent.name} catch me up on what I missed here`, null, false, []); return; }
     if (t.closest("[data-team-download]")) { const n = t.closest("[data-team-download]").dataset.teamDownload; try { await Magnus.download(`/v1/workspaces/${enc(s.ws)}/files/${enc(n)}`, n); } catch (err) { toast(err.message); } return; }
     if (t.closest("[data-retry]")) { const p = s.pending.find(x => x.id === t.closest("[data-retry]").dataset.retry); if (p) { s.pending = s.pending.filter(x => x !== p); this.send(p.text, p.thread, false, []); } return; }
+    if (t.closest("[data-share-answer]")) { try { await api("POST", `/v1/workspaces/${enc(s.ws)}/answers/${enc(t.closest("[data-share-answer]").dataset.shareAnswer)}/share`, {}); await this.refresh(); } catch (err) { toast(err.message); } return; }
     if (t.closest("[data-share]")) { try { await api("POST", `/v1/workspaces/${enc(s.ws)}/whispers/${enc(t.closest("[data-share]").dataset.share)}/share`, {}); await this.refresh(); } catch (err) { toast(err.message); } return; }
     if (t.closest("[data-not-now]")) { s.hidden.add(t.closest("[data-not-now]").dataset.notNow); this.draw(); return; }
     if (t.closest("[data-open-thread]")) { e.preventDefault(); location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: t.closest("[data-open-thread]").dataset.openThread }); return; }

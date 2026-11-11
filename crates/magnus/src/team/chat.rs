@@ -263,10 +263,18 @@ pub(super) fn apply(w: &mut Workspace, c: &Chat) {
 }
 
 impl Workspace {
-    /// Whether this person sees the channel: everyone does, except a
-    /// direct conversation, which only its people do.
+    /// Whether this person sees the channel: a direct conversation only its
+    /// people do, a project's channel only the project's people, any other
+    /// every member. Every route to a channel and its messages asks this.
     pub fn sees(&self, channel: &str, person: &str) -> bool {
-        self.channels.contains_key(channel) && self.chat.direct.get(channel).is_none_or(|d| d.people.iter().any(|p| p == person))
+        let Some(c) = self.channels.get(channel) else { return false };
+        self.chat.direct.get(channel).is_none_or(|d| d.people.iter().any(|p| p == person)) && self.in_project(c.project.as_deref(), person)
+    }
+
+    /// Whether this person may read a team-volume file: it is there, and
+    /// in no project or in one of theirs.
+    pub fn sees_file(&self, name: &str, person: &str) -> bool {
+        self.files.contains_key(name) && self.in_project(self.chat.file_projects.get(name).map(String::as_str), person)
     }
 
     pub fn agent_mode(&self, channel: &str) -> AgentMode {
@@ -281,7 +289,7 @@ impl Workspace {
     pub fn channel_members(&self, channel: &str) -> Vec<String> {
         let mut out: Vec<String> = match self.chat.direct.get(channel) {
             Some(d) => d.people.clone(),
-            None => self.members.keys().cloned().collect(),
+            None => self.members.keys().filter(|m| self.sees(channel, m)).cloned().collect(),
         };
         out.push(super::conversation::AGENT_ID.to_string());
         out
@@ -362,6 +370,26 @@ mod tests {
         chat(&mut l, Chat::Direct { channel: "d".into(), people: vec!["alice".into()], agent: true });
         let w = l.workspace("w").unwrap();
         assert!(w.sees("d", "alice") && !w.sees("d", "bob") && w.sees("c", "bob"));
+    }
+
+    /// A project's channel and files are its people's, not the workspace's
+    /// (spec rev 142: each project has its channels, files and members).
+    #[test]
+    fn a_projects_channel_and_files_are_seen_only_by_its_people() {
+        let mut l = ws();
+        l.apply(&Change::Member { workspace: "w".into(), person: "gus".into(), role: Role::Guest });
+        let def = super::super::knowledge::Project { id: "p".into(), name: "P".into(), owner: "alice".into(), ..Default::default() };
+        l.apply(&Change::Project { workspace: "w".into(), id: "p".into(), def });
+        l.apply(&Change::ChannelProject { workspace: "w".into(), channel: "c".into(), project: Some("p".into()) });
+        l.apply(&Change::File { workspace: "w".into(), file: super::super::File { name: "plan.pdf".into(), size: 1, by: "alice".into() } });
+        chat(&mut l, Chat::FileIn { name: "plan.pdf".into(), project: Some("p".into()) });
+        let w = l.workspace("w").unwrap();
+        assert!(w.sees("c", "alice") && w.sees_file("plan.pdf", "alice"));
+        for outsider in ["bob", "gus"] {
+            assert!(!w.sees("c", outsider), "{outsider} sees a project channel they are not in");
+            assert!(!w.sees_file("plan.pdf", outsider), "{outsider} reads a project file they are not in");
+        }
+        assert_eq!(w.channel_members("c"), vec!["alice", "agent"]);
     }
 
     #[test]
