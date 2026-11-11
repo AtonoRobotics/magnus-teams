@@ -64,6 +64,14 @@ links=$(mktemp -d)
 trap 'rm -rf "$links"' EXIT
 ln -s "../sandbox/$h/vmlinux" "$links/$(basename "$kernel")"
 ln -s "../sandbox/$h/rootfs.ext4" "$links/$(basename "$rootfs")"
+# The images' sha256, signed with the release: computerd's own update
+# (`magnus-computerd self-update`, as root) copies the images out of the
+# appliance's directory and installs them only when they match. The base
+# image's is also the id computerd gives it, which Magnus compares.
+if [ ! -s "$own/$h/images.sha256" ]; then
+  (cd "$own/$h" && sha256sum vmlinux rootfs.ext4 > images.sha256.part && mv images.sha256.part images.sha256)
+fi
+cp "$own/$h/images.sha256" "$links/images.sha256"
 
 # The catalog's brokered connectors' server images (release/brokered-images,
 # built from this checkout by brokered/build.sh), beside the programs in
@@ -89,7 +97,7 @@ if ! /usr/local/lib/magnus/bwrap --version > /dev/null 2>&1; then
 fi
 release/publish.sh appliance "$version" "$updates" "$notes" \
   "${bins[@]}" browser config/install-browser-jail.sh config/install-computerd.sh config/magnus-computerd.service "$images" \
-  "$links/$(basename "$kernel")" "$links/$(basename "$rootfs")"
+  "$links/$(basename "$kernel")" "$links/$(basename "$rootfs")" "$links/images.sha256"
 published=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$updates/appliance/latest.json")
 [ "$published" = "$version" ] || exit 0
 if [ "$automatic" != true ] || [ "$minutes" = 0 ]; then

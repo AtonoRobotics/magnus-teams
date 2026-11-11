@@ -9,5 +9,6 @@ pub mod forward;
 pub mod id;
 pub mod relay;
 pub mod seal;
+pub mod self_update;
 pub mod server;
 pub mod version;

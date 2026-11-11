@@ -1,4 +1,5 @@
-//! `magnus-computerd serve | kill-all | release [--config PATH]`, as root.
+//! `magnus-computerd serve | kill-all | release | self-update | release-key
+//! [--config PATH]`, as root.
 //! `kill-all` works with the service down and Magnus gone.
 
 use anyhow::{bail, ensure, Result};
@@ -25,6 +26,26 @@ fn kill_all(path: &Path) -> Result<()> {
 fn open_snapshot(key: &str, from: &str, to: &str) -> Result<()> {
     let key: [u8; magnus_computerd::seal::KEY_BYTES] = std::fs::read(key)?.try_into().map_err(|_| anyhow::anyhow!("not a snapshot key"))?;
     magnus_computerd::seal::open(&key, &mut std::fs::File::open(from)?, &mut std::fs::File::create(to)?)
+}
+
+fn self_update(config: &Path) -> Result<()> {
+    use magnus_computerd::self_update::{run, run_installer, Outcome, Paths, Settings, PROGRAM_DIR, RELEASE_KEY, SETTINGS};
+    let settings = Settings::load(Path::new(SETTINGS), 0)?;
+    let cfg = Config::load(config)?;
+    let paths = Paths {
+        releases: settings.releases.clone(),
+        links_from: settings.links_from.clone(),
+        key: PathBuf::from(RELEASE_KEY),
+        program_dir: PathBuf::from(PROGRAM_DIR),
+        images_dir: cfg.state_dir.join("images"),
+        staging: cfg.state_dir.join("update"),
+        owner: Some(0),
+    };
+    match run(&paths, |s| run_installer(&settings.user, s))? {
+        Outcome::UpToDate { installed, latest } => println!("magnus-computerd {installed} is up to date (latest release {latest})"),
+        Outcome::Installed { from, to } => println!("magnus-computerd updated from {from} to {to}"),
+    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -65,11 +86,18 @@ fn main() -> Result<()> {
             (Some(root), Some(Ok(uid)), Ok(port)) => magnus_computerd::relay::run(Path::new(root), uid, port),
             _ => bail!("usage: magnus-computerd relay ROOT UID [PORT]"),
         },
+        // Run by magnus-computerd-update.service, which the installer sets up.
+        Some("self-update") => self_update(&config),
+        // For the installer's first copy of the key root checks releases with.
+        Some("release-key") => {
+            println!("{}", magnus_computerd::self_update::BUILT_IN_KEY.trim());
+            Ok(())
+        }
         Some("release") => {
             Computers::new(Config::parse(&config)?).release()?;
             println!("computers may start again; none was started");
             Ok(())
         }
-        _ => bail!("usage: magnus-computerd serve|kill-all|release [--config PATH]"),
+        _ => bail!("usage: magnus-computerd serve|kill-all|release|self-update|release-key [--config PATH]"),
     }
 }
