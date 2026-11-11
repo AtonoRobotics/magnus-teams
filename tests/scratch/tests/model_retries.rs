@@ -199,3 +199,36 @@ async fn an_attachment_the_adapter_drops_does_not_stop_a_funded_task() {
     assert!(!asked.is_empty(), "the model was never asked: {t}");
     assert_eq!(asked[0]["max_tokens"], 16000, "the fitting call went out clamped: {t}");
 }
+
+/// A model with no price is never asked: the task stops for its budget
+/// before the call, with a notice, instead of spending what nobody counts
+/// (560 replies were recorded at $0 on 2026-11-11).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_without_a_price_is_never_asked() {
+    let chat = FakeChat::start().await;
+    let m = FakeModel::start(script(|_| async { Reply::Text("unused".into()) })).await;
+    let mut app = Appliance::start(Spec::default(), &m).await;
+    let alice = app.api("alice");
+    assert!(alice.put_secret("oa_credential", "test-key").await.is_success());
+    let path = app.dir.path().join("magnus.toml");
+    let mut cfg: toml::Table = std::fs::read_to_string(&path).unwrap().parse().unwrap();
+    let oa = json!({
+        "id": "oa",
+        "command": [bin("magnus-adapter-openai")],
+        "settings": { "api": "chat", "base_url": chat.url, "credential": "oa_credential",
+            "prices": { "other": { "input": 2.0, "output": 10.0, "cache_read": 0.2 } } }
+    });
+    cfg["adapters"].as_array_mut().unwrap().push(toml::Value::try_from(oa).unwrap());
+    std::fs::write(&path, toml::to_string(&cfg).unwrap()).unwrap();
+    app.restart().await;
+
+    let alice = app.api("alice");
+    let (st, v) = alice.post("/v1/tasks", json!({ "text": "Summarise the plan.", "model": { "adapter": "oa", "model": "glm-test" } })).await;
+    assert_eq!(st.as_u16(), 201, "{v}");
+    let id = v["task_id"].as_str().unwrap().to_string();
+    let t = alice.wait_settled(&id).await;
+    assert_eq!(t["status"], "suspended", "{t}");
+    let n = alice.wait_item(&id, "notice").await;
+    assert!(n["summary"].as_str().is_some_and(|s| s.contains("could not be priced")), "{n}");
+    assert!(chat.requests().is_empty(), "an unpriced model was asked: {t}");
+}

@@ -125,13 +125,21 @@ pub(crate) fn retry_after(h: &reqwest::header::HeaderMap, body: &str) -> Option<
     Some((resets - chrono::Utc::now().timestamp()).max(0) as f64)
 }
 
-pub(crate) fn cost(settings: &Value, model: &str, u: &Usage) -> f64 {
-    let Some(prices) = settings["prices"].as_object() else { return 0.0 };
-    let best = prices.iter().filter(|(k, _)| model.starts_with(k.as_str())).max_by_key(|(k, _)| k.len());
-    let Some((_, p)) = best else { return 0.0 };
+/// What a call cost in US dollars, at the model's entry in `prices` (the
+/// longest model id prefix that matches). None when the model has no price:
+/// it is never counted as free, because a task's budget is the server's
+/// per-task limit and a call nobody priced would pass it unseen.
+pub(crate) fn cost(settings: &Value, model: &str, u: &Usage) -> Option<f64> {
+    let prices = settings["prices"].as_object()?;
+    let (_, p) = prices.iter().filter(|(k, _)| model.starts_with(k.as_str())).max_by_key(|(k, _)| k.len())?;
     let g = |k: &str| p[k].as_f64().unwrap_or(0.0);
     let uncached = u.input_tokens.saturating_sub(u.cache_read_tokens) as f64;
-    (uncached * g("input") + u.cache_read_tokens as f64 * g("cache_read") + u.output_tokens as f64 * g("output")) / 1_000_000.0
+    Some((uncached * g("input") + u.cache_read_tokens as f64 * g("cache_read") + u.output_tokens as f64 * g("output")) / 1_000_000.0)
+}
+
+/// Why a model cannot be quoted: it has no price in this adapter's settings.
+pub(crate) fn unpriced(model: &str) -> String {
+    format!("{model} has no price in this adapter's settings, so what it spends cannot be counted against a task's budget: add it under prices (USD per million tokens)")
 }
 
 /// `{client_version}` in `models_path` and `headers` becomes the current
@@ -206,9 +214,12 @@ async fn handle(http: reqwest::Client, mut req: Request, mut sink: Sink) -> anyh
             _ => chat::complete(&http, p, &mut sink).await,
         },
         Request::Quote { settings, model, input_tokens, output_tokens } => {
-            let input_usd = cost(&settings, &model, &Usage { input_tokens, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0.0 });
-            let output_usd = cost(&settings, &model, &Usage { input_tokens: 0, output_tokens, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0.0 });
-            sink.send(&Event::Quote { input_usd, output_usd }).await
+            let input_usd = cost(&settings, &model, &Usage { input_tokens, ..zero_usage() });
+            let output_usd = cost(&settings, &model, &Usage { output_tokens, ..zero_usage() });
+            match input_usd.zip(output_usd) {
+                Some((input_usd, output_usd)) => sink.send(&Event::Quote { input_usd, output_usd }).await,
+                None => sink.error(ErrorClass::InvalidRequest, unpriced(&model)).await,
+            }
         }
         Request::EstimatePrompt(p) => {
             // What a turn would send: the same body, measured, not asked.
@@ -272,7 +283,9 @@ async fn catalog(http: &reqwest::Client, settings: &Value, credential: Option<St
 
 /// Emit the end of a turn: usage with cost, the served model, done.
 pub(crate) async fn finish(sink: &mut Sink, settings: &Value, model: &str, mut usage: Usage, served: Option<String>, stop: &str) -> anyhow::Result<()> {
-    usage.cost_usd = cost(settings, served.as_deref().unwrap_or(model), &usage);
+    // The served model's price, else the asked one's: the kernel quoted the
+    // asked model before the call, so one of them is priced.
+    usage.cost_usd = served.as_deref().and_then(|m| cost(settings, m, &usage)).or_else(|| cost(settings, model, &usage)).unwrap_or_default();
     sink.send(&Event::Usage(usage)).await?;
     let Some(served) = served.filter(|s| !s.is_empty()) else {
         return sink.error(ErrorClass::Malformed, "the response did not name its model").await;
@@ -333,6 +346,17 @@ pub(crate) fn tool_specs(tools: &[proto::ToolSpec], responses: bool) -> Vec<Valu
 #[cfg(test)]
 mod billing_tests {
     use super::*;
+
+    /// A model with no price is never counted as free (560 replies were
+    /// recorded at $0 on 2026-11-11); one with a price is counted by it.
+    #[test]
+    fn a_model_without_a_price_has_no_cost() {
+        let settings = json!({ "prices": { "gpt-6": { "input": 2.0, "output": 8.0, "cache_read": 0.5 } } });
+        let u = Usage { input_tokens: 1_000_000, output_tokens: 1_000_000, ..zero_usage() };
+        assert_eq!(cost(&settings, "gpt-6.1-sol", &u), Some(10.0));
+        assert_eq!(cost(&settings, "glm-5", &u), None, "an unpriced model counted as free");
+        assert_eq!(cost(&json!({}), "gpt-6.1-sol", &u), None, "an adapter with no prices counted as free");
+    }
 
     #[test]
     fn a_billing_refusal_is_not_a_limit_that_passes() {

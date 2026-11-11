@@ -91,9 +91,18 @@ impl Kernel {
         let left = run.config.budget.max_usd - run.spent_usd();
         let (input_usd, output_usd) = match self.adapters.quote(adapter, model, input_tokens, max_tokens).await {
             Ok(q) => q,
+            // Fail closed: a call nobody can price would pass the task's
+            // limit unseen ("Its budget is the server's per-task limit").
             Err(e) => {
-                tracing::warn!("quote for {run_id}: {e:#}; asking without a worst-case check");
-                return Ok(Some(max_tokens));
+                let why = format!("Stopped: the next model call could not be priced, so it could not be counted against the task's ${:.2} limit.", run.config.budget.max_usd);
+                self.suspend_with_notice(
+                    run_id,
+                    "budget",
+                    why,
+                    json!({ "usd": run.spent_usd(), "limit": run.config.budget.max_usd, "model": model, "unpriced": format!("{e:#}") }),
+                )
+                .await?;
+                return Ok(None);
             }
         };
         match clamp_output_for_budget(left, input_usd, output_usd, max_tokens) {
