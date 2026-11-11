@@ -16,10 +16,15 @@
 #   invariants  the eight invariants in full, tests/invariants
 #   kill_switch_computer  each kill switch level pausing a program running
 #               in the computer until release (spec rev 141), needs KVM
+#   desktop_look  the computer's desktop screenshotted in dark and light
+#               and compared with its mockup, and windows placed calmly
+#               (spec rev 145), needs KVM and the guest image built from
+#               this checkout (sandbox/image.sh); MAGNUS_DESKTOP_SHOTS=DIR
+#               keeps the screenshots
 set -eu
 cd "$(dirname "$0")/.."
 
-all="autonomy injection update invariants kill_switch_computer"
+all="autonomy injection update invariants kill_switch_computer desktop_look"
 suites=${*:-$all}
 for s in $suites; do
   case " $all " in *" $s "*) ;; *) echo "no such suite: $s (have: $all)" >&2; exit 2 ;; esac

@@ -32,6 +32,8 @@ magnus = { path = "../../crates/magnus" }
 flate2 = "1"
 minisign = "0.7"
 tar = "0.4"
+# The desktop acceptance check reads screenshots (desktop_look.rs).
+png = "0.17"
 tokio-postgres = "0.7"
 
 [lints]
