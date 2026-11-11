@@ -29,6 +29,9 @@ const VNC_PORT: u16 = 5901;
 const VNC_CONNECT_TRIES: u32 = 50;
 const VNC_CONNECT_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_OUT: usize = 200_000;
+/// How long a command's output is still read after it exits.
+const OUTPUT_GRACE: Duration = Duration::from_millis(150);
+const OUTPUT_POLL: Duration = Duration::from_millis(2);
 const MIN_ENTROPY_BYTES: usize = 32;
 const NET_DEVICE: &[u8] = b"eth0";
 const GUEST_ADDRESS: [u8; 4] = [10, 200, 0, 2];
@@ -393,7 +396,7 @@ fn exec(req: &Value) -> Value {
     let collect = |mut r: Box<dyn Read + Send>| {
         let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let b = buf.clone();
-        std::thread::spawn(move || {
+        let reader = std::thread::spawn(move || {
             let mut chunk = [0u8; 8192];
             while let Ok(n) = r.read(&mut chunk) {
                 if n == 0 {
@@ -405,10 +408,10 @@ fn exec(req: &Value) -> Value {
                 }
             }
         });
-        buf
+        (buf, reader)
     };
-    let so = collect(Box::new(child.stdout.take().unwrap()));
-    let se = collect(Box::new(child.stderr.take().unwrap()));
+    let (so, so_reader) = collect(Box::new(child.stdout.take().unwrap()));
+    let (se, se_reader) = collect(Box::new(child.stderr.take().unwrap()));
     let start = Instant::now();
     let mut timed_out = false;
     let status = loop {
@@ -423,7 +426,7 @@ fn exec(req: &Value) -> Value {
             Err(_) => break None,
         }
     };
-    std::thread::sleep(Duration::from_millis(150));
+    wait_for_readers(&[so_reader, se_reader], OUTPUT_GRACE);
     let (stdout, c1) = truncate(so.lock().unwrap().clone());
     let (stderr, c2) = truncate(se.lock().unwrap().clone());
     json!({
@@ -431,6 +434,16 @@ fn exec(req: &Value) -> Value {
         "stdout": stdout, "stderr": stderr,
         "timed_out": timed_out, "truncated": c1 || c2
     })
+}
+
+/// Until the command's output has all been read, or `grace` has passed: a
+/// background process the command started may hold its pipes open. Every
+/// exec used to wait the whole grace, a screenshot's included.
+fn wait_for_readers(readers: &[std::thread::JoinHandle<()>], grace: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < grace && !readers.iter().all(|r| r.is_finished()) {
+        std::thread::sleep(OUTPUT_POLL);
+    }
 }
 
 fn resolve(path: &str) -> std::path::PathBuf {
@@ -518,9 +531,14 @@ fn handle(req: Value) -> Value {
 /// Starts the desktop (the image's `magnus-desktop`, sandbox/desktop) and
 /// its VNC server, listening on loopback only, once.
 fn start_display() {
-    let script = "export DISPLAY=:0; magnus-desktop start >/dev/null 2>&1; pgrep -x x11vnc >/dev/null || x11vnc -display :0 -rfbport 5901 -localhost -nopw -forever -shared -noxdamage -bg -o /tmp/x11vnc.log >/dev/null 2>&1";
-    let _ = std::process::Command::new("sh").arg("-c").arg(script).status();
+    let _ = std::process::Command::new("sh").arg("-c").arg(DISPLAY_SCRIPT).status();
 }
+
+/// The X server's damage reports tell x11vnc at once what changed; without
+/// them it finds changes by scanning the screen a few lines at a time. The
+/// desktop has no compositor (sandbox/desktop/xfconf/xfwm4.xml), so the
+/// reports are exact.
+const DISPLAY_SCRIPT: &str = "export DISPLAY=:0; magnus-desktop start >/dev/null 2>&1; pgrep -x x11vnc >/dev/null || x11vnc -display :0 -rfbport 5901 -localhost -nopw -forever -shared -bg -o /tmp/x11vnc.log >/dev/null 2>&1";
 
 fn connect_vnc() -> Option<std::net::TcpStream> {
     (0..VNC_CONNECT_TRIES).find_map(|_| {
@@ -543,6 +561,8 @@ fn serve_display() {
             let host = unsafe { std::fs::File::from_raw_fd(fd) };
             start_display();
             let Some(vnc) = connect_vnc() else { return };
+            // A key or a pointer move is a few bytes: send each at once.
+            let _ = vnc.set_nodelay(true);
             let (Ok(mut host_in), Ok(mut vnc_in)) = (host.try_clone(), vnc.try_clone()) else { return };
             let (mut host_out, mut vnc_out) = (host, vnc);
             let up = std::thread::spawn(move || {
@@ -607,5 +627,30 @@ fn main() {
             }
             _ => std::thread::sleep(Duration::from_secs(1)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_commands_output_comes_back_as_soon_as_it_is_read() {
+        let read = std::thread::spawn(|| {});
+        let started = Instant::now();
+        wait_for_readers(&[read], OUTPUT_GRACE);
+        assert!(started.elapsed() < OUTPUT_GRACE / 2, "a finished command waited out the grace");
+        // A background process holding the pipes is waited for no longer.
+        let held = std::thread::spawn(|| std::thread::sleep(OUTPUT_GRACE * 4));
+        let started = Instant::now();
+        wait_for_readers(&[held], OUTPUT_GRACE);
+        let waited = started.elapsed();
+        assert!(waited >= OUTPUT_GRACE && waited < OUTPUT_GRACE * 3, "{waited:?}");
+    }
+
+    #[test]
+    fn the_screen_server_uses_the_x_servers_damage_reports_and_stays_local() {
+        assert!(!DISPLAY_SCRIPT.contains("-noxdamage"), "x11vnc scans for changes instead of being told");
+        assert!(DISPLAY_SCRIPT.contains("-localhost"), "the screen server listens beyond the guest");
     }
 }

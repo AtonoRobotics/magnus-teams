@@ -12,4 +12,6 @@ The owner, 2026-11-11: "computer is very slow to wake up. It's very high latency
 
 **The client joins a frame once.** `rfb.js` copied everything it held on every chunk it was fed, so a 4 MB frame arriving in 1 KB pieces allocated 8 GB; it now keeps the chunks and joins only what one message spans. The app's base64 decoding of the screen is a plain loop instead of a call per byte.
 
+**In the guest (with the next base image).** x11vnc ran with `-noxdamage`, finding changes by scanning the screen a few lines at a time; the desktop has no compositor, so the X server's damage reports are exact, and x11vnc now uses them. The guest's connection to x11vnc sends each key and pointer move at once (`TCP_NODELAY`). And every guest command waited a fixed 150 ms after it exited for output a background process might still write; it now waits only until its output is read, up to the same 150 ms, which every screenshot the agent takes saves. Tests: the guest's `tests`.
+
 **Each takeover's screen is logged** when it closes: how long after the client asked the first frame began, and how many bytes came from the screen against how many were sent.
