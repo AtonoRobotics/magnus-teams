@@ -55,9 +55,9 @@ function boardHtml(tasks, ws, name, edit) {
 
 /**
  * The panel's overview: the computer, the agents at work, tasks and files.
- * @param {TeamPanelData} d @param {string} ws
+ * @param {TeamPanelData} d @param {string} ws @param {?string} [channel] the channel open beside it
  */
-function overviewHtml(d, ws) {
+function overviewHtml(d, ws, channel = null) {
   const home = Team.home, project = d.project?.id;
   const link = tab => project ? teamHref(ws, { kind: "project", id: project, tab }) : "";
   const doing = d.tasks.filter(t => t.status !== "done").slice(0, 5);
@@ -67,7 +67,22 @@ function overviewHtml(d, ws) {
     <section class="team-card"><h3>Agents at work</h3>${d.work.length ? `<ul class="team-work">${d.work.map(w => `<li><a href="${teamHref(ws, { kind: "channel", id: w.channel })}">${esc(home.agent.name)}</a> <span class="small faint">for ${esc(w.requester_name)}${w.waiting ? " · waiting on an ask" : ` · step ${w.steps + 1}`}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing running.</p>`}</section>
     <section class="team-card"><h3>Tasks ${project ? `<a class="small" href="${link("board")}">Board</a>` : ""}</h3>${d.progress ? progressBar(d.progress) : ""}${doing.length ? `<ul class="team-mini">${doing.map(t => `<li><span>${esc(t.title)}</span><span class="chip${t.status === "doing" ? " run" : ""}">${t.status === "doing" ? "Doing" : "To do"}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing open.</p>`}</section>
     <section class="team-card"><h3>Recent files ${project ? `<a class="small" href="${link("files")}">All files</a>` : ""}</h3>${d.files.length ? `<ul class="team-mini">${d.files.slice(-5).reverse().map(f => `<li><span>${esc(f.name)}</span><span class="small faint">${esc(f.by_name)}</span></li>`).join("")}</ul>` : `<p class="small faint">No files yet. Drop one into the conversation.</p>`}</section>
-    <section class="team-card"><h3>Members</h3><div class="team-faces">${d.members.map(m => avatar(m.name)).join("")}${avatar(home.agent.name, true)}</div></section>`;
+    <section class="team-card"><h3>Members</h3><div class="team-faces">${d.members.map(m => avatar(m.name)).join("")}${avatar(home.agent.name, true)}</div></section>${spendHtml(home, channel)}`;
+}
+
+/**
+ * What the team agent spent this month against the owner's limits: the
+ * workspace's and this channel's. An owner sets them from the command menu.
+ * @param {TeamHome} home @param {?string} channel
+ */
+function spendHtml(home, channel) {
+  const s = home.spend;
+  if (!s) return "";
+  const here = channel ? s.channels?.[channel] : null;
+  const line = (what, spent, limit) => `<li><span>${what}</span><span class="small${limit != null && spent >= limit ? " bad" : " faint"}">${teamUsd(spent)}${limit != null ? ` of ${teamUsd(limit)}` : ""}</span></li>`;
+  const c = channel && home.channels.find(x => x.id === channel);
+  return `<section class="team-card" data-spend><h3>Spend this month</h3><ul class="team-mini">${line("Workspace", s.spent_usd, s.limit_usd)}${here ? line(c ? channelTitle(home, c) : "This channel", here.spent_usd, here.limit_usd) : ""}</ul>
+    ${home.role === "owner" ? `<p class="small faint">Type an amount in the command menu (Ctrl K) to set a limit.</p>` : s.limit_usd == null && here?.limit_usd == null ? `<p class="small faint">No limit set.</p>` : ""}</section>`;
 }
 
 const TeamPanel = {
@@ -78,12 +93,12 @@ const TeamPanel = {
   },
 
   /** The right panel beside a channel: its project's, or the workspace's. */
-  async side(el, ws, project) {
+  async side(el, ws, project, channel = null) {
     if (!el) return;
     const d = await this.load(ws, project).catch(() => null);
     if (!d || !el.isConnected) return;
     const p = Team.home.projects.find(x => x.id === project);
-    paint(el, `<header class="team-side-head"><h2>${p ? `<a href="${teamHref(ws, { kind: "project", id: p.id })}">${esc(p.name)}</a>` : esc(Team.home.name)}</h2></header><div class="team-scroll">${overviewHtml(d, ws)}</div>`);
+    paint(el, `<header class="team-side-head"><h2>${p ? `<a href="${teamHref(ws, { kind: "project", id: p.id })}">${esc(p.name)}</a>` : esc(Team.home.name)}</h2></header><div class="team-scroll">${overviewHtml(d, ws, channel)}</div>`);
     this.look(el, d.computer);
   },
 

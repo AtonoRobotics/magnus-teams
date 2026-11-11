@@ -192,7 +192,7 @@ const TeamChat = {
     paint($("#tc-typing", s.center), typing.length ? `${esc(typing.join(", "))} ${typing.length === 1 ? "is" : "are"} ${typing.includes(home.agent.name) && typing.length === 1 ? "working" : "typing"}…` : "");
     const ws = s.whispers.filter(w => !w.shared && !s.hidden.has(w.task));
     paint($("#tc-whispers", s.center), ws.map(w => `<div class="tm-whisper" data-whisper="${esc(w.task)}"><div class="small"><strong>Your Magnus</strong> · only you can see this</div><div class="pre">${esc(w.text || "Working on it…")}</div>${w.done && w.text ? `<div class="row"><button class="primary" data-share="${esc(w.task)}">Share</button><button data-not-now="${esc(w.task)}">Not now</button></div>` : ""}</div>`).join(""));
-    if (s.thread) this.drawThread(); else TeamPanel.side(s.side, s.ws, c.project);
+    if (s.thread) this.drawThread(); else TeamPanel.side(s.side, s.ws, c.project, s.channel);
   },
 
   drawThread() {
@@ -229,6 +229,7 @@ const TeamChat = {
       const r = await api("POST", `${base}/messages`, { text: full, thread: thread || undefined });
       p.real = r.id; delete p.state;
       if (r.agent) toast(`${Team.home.agent.name} is on it.`);
+      if (r.limited) toast(r.limited, 8000);
       await this.refresh();
     } catch (err) { p.state = "failed"; p.error = err.message; this.draw(); toast(err.message); }
   },

@@ -177,5 +177,23 @@ assert.ok(sandbox.commandsFor({ ...home, role: "admin" }, Team.place, "ann@examp
 const found = sandbox.foundItems({ messages: [{ channel: "c1", channel_name: "magnus-alpha", id: "m1", thread: null, sender: "dana", text: "the deck" }], tasks: [{ id: "t", title: "Deck", status: "todo", project: "p1" }], files: [], knowledge: [] }, home);
 assert.deepEqual(plain(found.map(f => f.run.place?.kind)), ["channel", "project"]);
 assert.equal(found[1].run.place.tab, "board");
+const groups = sandbox.commandsFor({ ...home, role: "admin" }, Team.place, "ann@example.com").map(c => c.group);
+assert.equal(groups.filter((g, i) => g !== groups[i - 1]).length, new Set(groups).size, "a group of the menu is split in two");
+
+// Spend limits: an owner types an amount; nobody else is offered it.
+const owner = { ...home, role: "owner", spend: { spent_usd: 12.5, limit_usd: 50, channels: { c1: { spent_usd: 4, limit_usd: 10 } } } };
+const fifty = sandbox.commandsFor(owner, Team.place, "$25");
+assert.equal(fifty[0].label, "Limit #magnus-alpha to $25 a month", "an amount typed by an owner does not come first as a limit");
+assert.deepEqual(plain(fifty[0].run), { kind: "limit", channel: "c1", usd: 25 });
+assert.deepEqual(plain(fifty[1].run), { kind: "limit", usd: 25 });
+assert.ok(!sandbox.commandsFor({ ...owner, role: "admin" }, Team.place, "25").some(c => c.run.kind === "limit"), "an admin who is not an owner is offered a spend limit");
+const lifts = sandbox.commandsFor(owner, Team.place, "").filter(c => c.run.kind === "limit").map(c => c.label);
+assert.deepEqual(plain(lifts), ["Lift the spend limit on #magnus-alpha", "Lift the workspace's spend limit"]);
+assert.equal(sandbox.limitCommands(owner, null, "lots").length, 0, "words were read as an amount");
+Team.home = owner;
+const spendCard = sandbox.overviewHtml({ project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null }, "w", "c1");
+assert.match(spendCard, /Workspace<\/span><span class="small faint">\$12\.50 of \$50/, "the panel does not show the month's spend against the limit");
+assert.match(spendCard, /#magnus-alpha<\/span><span class="small faint">\$4 of \$10/, "the panel does not show the channel's spend");
+Team.home = home;
 
 console.log("team ok");
