@@ -2,11 +2,13 @@
 //! the arguments a poll calls the read with, and what makes a watch well
 //! formed. A catalog app declares its own (`watch` in `catalog/*.toml`),
 //! so a connected app is polled without anyone configuring it
-//! (decisions/2026-11-10-catalog-watched-reads.md).
+//! (decisions/2026-11-10-catalog-watched-reads.md). A poll is the
+//! kernel's own read, not a model run (decisions/2026-11-11-polls-read-directly.md).
 
 use crate::config::Watch;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::sync::Arc;
 
 /// Joins the fields of a composite id (`event_id+changed`): an item whose
 /// any part changes counts as new, so a changed event or a thread with a
@@ -65,11 +67,48 @@ pub fn input(w: &Watch, now: DateTime<Utc>) -> Option<Value> {
     w.input.as_ref().map(|v| walk(v, now))
 }
 
-/// What a polling run is told: call the read once, with its arguments.
-pub fn poll_text(app: &str, w: &Watch, now: DateTime<Utc>) -> String {
-    match input(w, now) {
-        Some(args) => format!("Poll {app}: call {app}__{} once with exactly these arguments: {args}, then end the task. Do nothing else.", w.tool),
-        None => format!("Poll {app}: call {app}__{} once with no arguments, then end the task. Do nothing else.", w.tool),
+/// How many times one poll calls its read before waiting for the next
+/// interval: the read and one retry (#419).
+pub const POLL_READ_ATTEMPTS: u32 = 2;
+/// How long a poll waits before reading again after a failed read.
+pub const POLL_RETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(POLL_RETRY_WAIT_SECS);
+const POLL_RETRY_WAIT_SECS: u64 = 2;
+
+/// What a poll at `now` sends the read: the watch's arguments, or none.
+pub fn args(w: &Watch, now: DateTime<Utc>) -> Value {
+    input(w, now).unwrap_or_else(|| json!({}))
+}
+
+impl crate::kernel::Kernel {
+    /// Poll one watched read for the person: call it once, exactly with
+    /// the watch's arguments, through their own sign-in, with no model
+    /// and no task. Only the read is checked as the gate checks any:
+    /// a read the app classes, the person's right to the app, and its
+    /// screened definition. The answer goes only to the diff, which keeps
+    /// ids, so nothing the app returns reaches a model here; a review it
+    /// wakes reads the items itself, through the boundary.
+    pub(crate) async fn poll_read(self: &Arc<Self>, person: &str, app: &str, w: &Watch, now: DateTime<Utc>) -> Result<(), String> {
+        let c = self.connector(app).ok_or("the app is no longer offered")?;
+        let p = self.person(person).ok_or("no such person")?;
+        let f = crate::boundary::facts(self, &format!("{app}__{}", w.tool)).ok_or("the watched tool is not one of the app's")?;
+        if f.risk != crate::tools::Risk::Read {
+            return Err("the watched tool is not a read".into());
+        }
+        if !crate::boundary::has_rights(&p, &f) {
+            return Err("the person may not use the app".into());
+        }
+        self.check_pin(&c, &f, person, "").await.map_err(|(why, _)| why)?;
+        let secret = match &c.credential {
+            Some(_) => self.connector_secret(&c, person).await.map_err(|e| format!("{e:#}"))?,
+            None => None,
+        };
+        let out = self.connector_call(&c, person, app, secret.as_ref().map(|s| s.expose()), &w.tool, &args(w, now)).await.map_err(|e| format!("{e:?}"))?;
+        if out.is_error {
+            return Err(out.text);
+        }
+        let data = out.structured.or_else(|| serde_json::from_str(&out.text).ok()).unwrap_or(Value::Null);
+        self.note_watched(person, app, &w.tool, &c.watch, &data).await;
+        Ok(())
     }
 }
 
@@ -147,8 +186,7 @@ mod tests {
             input(&watch, now),
             Some(json!({ "start_time": "2026-11-10T12:00:00Z", "changed_since": "2026-11-09T12:00:00Z", "until": "2026-11-10T18:00:00Z", "query": "{nowhere" }))
         );
-        assert!(poll_text("cal", &watch, now).contains("cal__list_events once with exactly these arguments: {"));
-        assert!(poll_text("mail", &w("list_inbox", "/messages", "id", None), now).contains("once with no arguments"));
+        assert_eq!(args(&w("list_inbox", "/messages", "id", None), now), json!({}));
     }
 
     #[test]

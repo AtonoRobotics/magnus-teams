@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const REVIEW: &str = "reviewing one person's state";
-const MEMORY_PASS: &str = "long-term memory";
 
 fn done(summary: &str) -> Reply {
     tool("task_complete", json!({ "summary": summary, "deliverable": [{ "type": "text", "text": summary }] }))
@@ -102,24 +101,11 @@ async fn watches_the_person_cannot_use_are_not_polled() {
     let mail = mcp::mail().start().await;
     let cal = mcp::mail().start().await;
     let cal2 = mcp::mail().start().await;
-    let polled = Arc::new(Mutex::new(Vec::<String>::new()));
-    let seen_polls = polled.clone();
-    let m = FakeModel::start(script(move |c| {
-        let seen_polls = seen_polls.clone();
-        async move {
-            if c.body["system"].to_string().contains(REVIEW) {
-                return done("Reviewed quietly.");
-            }
-            let text = c.text();
-            if text.contains("Poll ") {
-                let which = ["mail", "cal2", "cal"].into_iter().find(|a| text.contains(&format!("Poll {a}:"))).unwrap_or("?");
-                seen_polls.lock().unwrap().push(which.to_string());
-                // A poll whose app is unusable has no tool to call;
-                // end without reading, as its model would.
-                return tool("task_fail", json!({ "reason": "no such tool" }));
-            }
-            return tool("task_fail", json!({ "reason": "no tasks in this test" }));
+    let m = FakeModel::start(script(move |c| async move {
+        if c.body["system"].to_string().contains(REVIEW) {
+            return done("Reviewed quietly.");
         }
+        tool("task_fail", json!({ "reason": "no tasks in this test" }))
     }))
     .await;
     // Boot with the loop off, so nothing polls before cal2 is off.
@@ -143,14 +129,13 @@ async fn watches_the_person_cannot_use_are_not_polled() {
     .await;
     // Past the first due sweep: mail polls, the others never do.
     tokio::time::sleep(Duration::from_secs(20)).await;
-    let polls = polled.lock().unwrap();
-    assert!(polls.iter().any(|t| t == "mail"), "the connected watch never polled: {polls:?}");
-    assert!(!polls.iter().any(|t| t == "cal"), "the unconnected watch polled: {polls:?}");
-    assert!(!polls.iter().any(|t| t == "cal2"), "the turned-off watch polled: {polls:?}");
+    assert!(!mail.calls_to("list_inbox").is_empty(), "the connected watch never polled");
+    assert!(cal.calls_to("list_inbox").is_empty(), "the unconnected watch polled");
+    assert!(cal2.calls_to("list_inbox").is_empty(), "the turned-off watch polled");
 }
 
 /// A poll whose read fails transiently retries and still ends
-/// quietly (#419): headroom for one retry, no budget notice in
+/// quietly (#419): the kernel reads again once, and nothing reaches
 /// the inbox.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_poll_with_a_transient_read_error_retries_quietly() {
@@ -177,13 +162,6 @@ async fn a_poll_with_a_transient_read_error_retries_quietly() {
             if c.body["system"].to_string().contains(REVIEW) {
                 seen_prompts.lock().unwrap().push(c.text());
                 return done("Reviewed quietly.");
-            }
-            if c.text().contains("Poll ") {
-                let read_ok = c.last_results().iter().any(|r| !r.is_error);
-                if !read_ok && c.turn() < 4 {
-                    return tool("mail__list_inbox", json!({}));
-                }
-                return done("Polled.");
             }
             if c.turn() == 0 {
                 return tool("mail__list_inbox", json!({}));
@@ -236,23 +214,14 @@ async fn a_poll_with_a_transient_read_error_retries_quietly() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_task_read_postpones_the_next_poll() {
     let mail = mcp::mail().start().await;
-    let calls = Arc::new(Mutex::new(Vec::<tokio::time::Instant>::new()));
-    let seen_calls = calls.clone();
-    let m = FakeModel::start(script(move |c| {
-        let seen_calls = seen_calls.clone();
-        async move {
-            if c.body["system"].to_string().contains(REVIEW) {
-                return done("Reviewed quietly.");
-            }
-            if c.text().contains("Poll ") {
-                seen_calls.lock().unwrap().push(tokio::time::Instant::now());
-                return tool("task_fail", json!({ "reason": "not reading in this test" }));
-            }
-            if c.turn() == 0 {
-                return tool("mail__list_inbox", json!({}));
-            }
-            return tool("task_fail", json!({ "reason": "checked the inbox" }));
+    let m = FakeModel::start(script(move |c| async move {
+        if c.body["system"].to_string().contains(REVIEW) {
+            return done("Reviewed quietly.");
         }
+        if c.turn() == 0 {
+            return tool("mail__list_inbox", json!({}));
+        }
+        return tool("task_fail", json!({ "reason": "checked the inbox" }));
     }))
     .await;
     let app = Appliance::start(
@@ -266,12 +235,8 @@ async fn a_task_read_postpones_the_next_poll() {
         &m,
     )
     .await;
-    eventually("the first poll", Duration::from_secs(30), || {
-        let calls = calls.clone();
-        async move { (!calls.lock().unwrap().is_empty()).then_some(()) }
-    })
-    .await;
-    let t0 = calls.lock().unwrap().iter().min().cloned().expect("a first poll");
+    eventually("the first poll", Duration::from_secs(30), || async { (!mail.calls_to("list_inbox").is_empty()).then_some(()) }).await;
+    let t0 = tokio::time::Instant::now();
     // Fifteen seconds after the first poll, everyone reads: each
     // read restarts that person's poll clock.
     tokio::time::sleep_until(t0 + Duration::from_secs(15)).await;
@@ -283,37 +248,25 @@ async fn a_task_read_postpones_the_next_poll() {
     }
     // The old schedule would poll a minute after the first poll;
     // the reads postponed every clock past the window.
+    tokio::time::sleep_until(t0 + Duration::from_secs(55)).await;
+    let before = mail.calls_to("list_inbox").len();
     tokio::time::sleep_until(t0 + Duration::from_secs(70)).await;
-    let calls = calls.lock().unwrap();
-    let in_window: Vec<_> = calls.iter().filter(|t| **t > t0 + Duration::from_secs(55) && **t < t0 + Duration::from_secs(70)).collect();
-    assert!(in_window.is_empty(), "a poll fired on a freshly-read watch: {in_window:?}");
+    assert_eq!(mail.calls_to("list_inbox").len(), before, "a poll fired on a freshly-read watch");
 }
 
 /// A due watch polls exactly once (#425): one connected watch, three
-/// people, twenty seconds inside a one-minute interval — three poll
-/// runs and three marks, one per person. Only agent turns count:
-/// the memory pass also sees the Poll text (the six sightings that
-/// filed this issue were three polls plus three memory passes). One
-/// sweep loop and one kernel per log mean two sweeps cannot start
-/// two polls; this pins it.
+/// people, twenty seconds inside a one-minute interval — three reads
+/// at the app and three start marks, one per person, and no model
+/// sees a poll. One sweep loop and one kernel per log mean two sweeps
+/// cannot start two polls; this pins it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_due_watch_polls_exactly_once() {
     let mail = mcp::mail().start().await;
-    let polls = Arc::new(Mutex::new(0_usize));
-    let seen_polls = polls.clone();
-    let m = FakeModel::start(script(move |c| {
-        let seen_polls = seen_polls.clone();
-        async move {
-            let system = c.body["system"].to_string();
-            if system.contains(REVIEW) {
-                return done("Reviewed quietly.");
-            }
-            if c.text().contains("Poll ") && !system.contains(MEMORY_PASS) {
-                *seen_polls.lock().unwrap() += 1;
-                return tool("task_fail", json!({ "reason": "not reading in this test" }));
-            }
-            return tool("task_fail", json!({ "reason": "no tasks in this test" }));
+    let m = FakeModel::start(script(move |c| async move {
+        if c.body["system"].to_string().contains(REVIEW) {
+            return done("Reviewed quietly.");
         }
+        tool("task_fail", json!({ "reason": "no tasks in this test" }))
     }))
     .await;
     // Boot with the loop off, so the first polls come from due sweeps.
@@ -326,8 +279,9 @@ async fn a_due_watch_polls_exactly_once() {
     // Past the first due sweeps, inside the one-minute interval: each
     // of the three people's watch polled exactly once, and marked.
     tokio::time::sleep(Duration::from_secs(20)).await;
-    assert_eq!(*polls.lock().unwrap(), 3, "a due watch did not poll exactly once per person");
+    assert_eq!(mail.calls_to("list_inbox").len(), 3, "a due watch did not poll exactly once per person");
+    assert!(m.requests().iter().all(|c| !c.text().contains("Poll ")), "a model was asked to poll");
     let db = app.db.admin().await;
-    let marks: i64 = db.query_one("SELECT COUNT(*) FROM public.events WHERE body->>'kind' = 'watch_polled'", &[]).await.unwrap().get(0);
+    let marks: i64 = db.query_one("SELECT COUNT(*) FROM public.events WHERE body->>'kind' = 'watch_polled' AND actor = 'kernel'", &[]).await.unwrap().get(0);
     assert_eq!(marks, 3, "a poll did not mark its watch");
 }

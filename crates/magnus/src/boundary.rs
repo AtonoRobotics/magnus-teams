@@ -675,7 +675,7 @@ impl Kernel {
     /// The live definition, screened right before acting, so one changed
     /// after it was listed cannot run unscreened (spec rev 140). The error
     /// says whether trying again may work.
-    async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
+    pub(crate) async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
         let secret = self.connector_secret(c, person).await.ok().flatten();
         let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
         let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err((format!("{} no longer offers {}", f.app, f.remote), true)) };

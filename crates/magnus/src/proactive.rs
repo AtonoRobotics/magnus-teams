@@ -253,14 +253,6 @@ impl crate::kernel::Kernel {
         }
     }
 
-    /// Start one polling run: call the watched tool once, then end
-    /// (#406). Actor `poll`, so the task hides from the person's lists
-    /// and ends contract-free like a review's — but no review starts
-    /// and no wake mark lands. The read's own diff wakes when there is
-    /// news. The clock restarts when the run starts, not when it
-    /// answers; a failed start leaves it due, retrying next sweep.
-    /// Headroom for one retry past the read (#419): a transient error
-    /// must not suspend the poll onto the person's inbox.
     /// Emit a poll mark that survives a hiccuping event store (#438):
     /// the store is Postgres, and a lost mark re-polls every sweep.
     /// Three attempts with a short backoff; the caller warns loudly
@@ -284,23 +276,35 @@ impl crate::kernel::Kernel {
         }
     }
 
+    /// Start one poll: the kernel calls the watched read itself, once,
+    /// with the watch's arguments (`watch_reads::poll_read`). No model
+    /// chooses the arguments and no task is made. The read's own diff
+    /// wakes when there is news. The clock restarts when the poll starts,
+    /// not when it answers, so a read that fails waits for its next
+    /// interval instead of retrying every sweep; the failure is logged.
     pub(crate) async fn start_poll(self: &Arc<Self>, person: &str, app: &str, watch: &crate::config::Watch) {
-        let budget = crate::task_budget::for_wake(&self.cfg.budget);
-        let text = crate::watch_reads::poll_text(app, watch, Utc::now());
-        match self.create_run("poll", person, text, vec![], crate::kernel::NewRun { budget: Some(budget), ..Default::default() }).await {
-            Ok(_) => {
-                if let Err(e) = Self::emit_poll_mark(|| async {
-                    self.emit("kernel", crate::events::Ev::WatchPolled { person: person.into(), app: app.into(), tool: watch.tool.clone() }).await.map(|_| ())
-                })
-                .await
-                {
-                    tracing::warn!("watch poll mark lost for {person} {app} after retries, polling again next sweep: {e:#}");
+        if let Err(e) = Self::emit_poll_mark(|| async {
+            self.emit("kernel", crate::events::Ev::WatchPolled { person: person.into(), app: app.into(), tool: watch.tool.clone() }).await.map(|_| ())
+        })
+        .await
+        {
+            tracing::warn!("watch poll mark lost for {person} {app} after retries, polling again next sweep: {e:#}");
+            return;
+        }
+        let (k, person, app, watch) = (self.clone(), person.to_string(), app.to_string(), watch.clone());
+        tokio::spawn(async move {
+            // One retry for a transient error (#419), then the next interval.
+            for attempt in 1..=crate::watch_reads::POLL_READ_ATTEMPTS {
+                match k.poll_read(&person, &app, &watch, Utc::now()).await {
+                    Ok(()) => return,
+                    Err(e) if attempt < crate::watch_reads::POLL_READ_ATTEMPTS => {
+                        tracing::debug!("watch poll of {app}__{} for {person} failed, reading again: {e}", watch.tool);
+                        tokio::time::sleep(crate::watch_reads::POLL_RETRY_WAIT).await;
+                    }
+                    Err(e) => tracing::warn!("watch poll of {app}__{} for {person} failed: {e}", watch.tool),
                 }
             }
-            Err(e) => {
-                tracing::warn!("watch poll for {person} {app}: {e:#}");
-            }
-        }
+        });
     }
 
     /// Wake one review for an event (a task done or failed), unless one is

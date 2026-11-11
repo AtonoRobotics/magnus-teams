@@ -55,8 +55,6 @@ enum Run {
     /// A chat turn the server started because a task ended.
     Outcome,
     Task,
-    /// A minimal run that reads one watched tool.
-    Poll,
     Review,
     MemoryPass,
     /// The independent check on a boundary action the policy asks about.
@@ -103,11 +101,7 @@ fn run_of(c: &Conversation) -> Run {
             Run::Chat
         }
     } else if sys.contains(TASK) {
-        if opening(c).contains("Poll ") && opening(c).contains("once with no arguments") {
-            Run::Poll
-        } else {
-            Run::Task
-        }
+        Run::Task
     } else {
         Run::Other
     }
@@ -124,7 +118,7 @@ fn say(text: &str) -> Reply {
 }
 
 /// What the runs no scenario is about do: reviews find nothing, the memory
-/// pass writes nothing, a poll reads its tool once and ends, and Auto Review
+/// pass writes nothing (a poll is the kernel's own read), and Auto Review
 /// clears what plainly serves the person's request (every action these
 /// scenarios take does).
 fn background(c: &Conversation) -> Reply {
@@ -134,15 +128,6 @@ fn background(c: &Conversation) -> Reply {
         Run::Classifier if said(c).contains("41.7M") => tool("classify", json!({ "sensitive": true, "finding": "a private business figure (Q3 revenue)" })),
         Run::Classifier => tool("classify", json!({ "sensitive": false })),
         Run::Review => complete("Reviewed; nothing to raise."),
-        Run::Poll => {
-            let text = opening(c);
-            let tool_name = text.split("call ").nth(1).and_then(|r| r.split_whitespace().next()).unwrap_or_default().to_string();
-            if c.turn() == 0 {
-                tool(&tool_name, json!({}))
-            } else {
-                fail("polled")
-            }
-        }
         _ => say(""),
     }
 }

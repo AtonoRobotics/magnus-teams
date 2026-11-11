@@ -9,28 +9,14 @@
 use magnus_invariants::*;
 use magnus_scratch::brokered::*;
 use magnus_scratch::*;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const REVIEW: &str = "reviewing one person's state";
-const ARGS: &str = "exactly these arguments: ";
 
 fn done(summary: &str) -> Reply {
     tool("task_complete", json!({ "summary": summary, "deliverable": [{ "type": "text", "text": summary }] }))
-}
-
-/// The arguments a poll's text names, wherever in the request it is.
-fn poll_args(v: &Value) -> Option<Value> {
-    match v {
-        Value::String(text) => {
-            let rest = &text[text.find(ARGS)? + ARGS.len()..];
-            serde_json::Deserializer::from_str(rest).into_iter::<Value>().next()?.ok()
-        }
-        Value::Array(a) => a.iter().find_map(poll_args),
-        Value::Object(o) => o.values().find_map(poll_args),
-        _ => None,
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -38,24 +24,16 @@ async fn a_brokered_watch_polls_with_its_arguments_and_wakes_on_new_items() {
     let api = ProviderApi::start().await;
     *api.items.lock().unwrap() = json!([{ "id": "m1", "changed": "t1" }]).to_string();
     let reviews = Arc::new(Mutex::new(Vec::<String>::new()));
-    let polls = Arc::new(Mutex::new(Vec::<Value>::new()));
-    let (r, p) = (reviews.clone(), polls.clone());
+    let r = reviews.clone();
     let m = FakeModel::start(script(move |c| {
-        let (r, p) = (r.clone(), p.clone());
+        let r = r.clone();
         async move {
             if c.body["system"].to_string().contains(REVIEW) {
                 r.lock().unwrap().push(c.text());
                 return done("Reviewed quietly.");
             }
-            let text = c.text();
-            match (text.contains("Poll testapp:"), c.turn()) {
-                (true, 0) => {
-                    let args = poll_args(&c.body["messages"]).unwrap_or(Value::Null);
-                    p.lock().unwrap().push(args.clone());
-                    tool("testapp__list", args)
-                }
-                _ => tool("task_fail", json!({ "reason": "polled" })),
-            }
+            // No model ever polls: the kernel reads the app itself.
+            tool("task_fail", json!({ "reason": "no tasks in this test" }))
         }
     }))
     .await;
@@ -81,7 +59,7 @@ async fn a_brokered_watch_polls_with_its_arguments_and_wakes_on_new_items() {
     // seeds what was there without waking anyone.
     let listed = || api.seen.lock().unwrap().iter().filter(|(path, _)| path == "/items").count();
     eventually("the first poll read the provider", Duration::from_secs(150), || async { (listed() > 0).then_some(()) }).await;
-    assert_eq!(polls.lock().unwrap().first(), Some(&input), "the poll called the read with the watch's arguments");
+    assert!(m.requests().iter().all(|c| !c.text().contains("Poll ")), "a model was asked to poll");
     let woke = |n: &str| reviews.lock().unwrap().iter().any(|t| t.contains(&format!("{n} new in testapp")));
     assert!(!woke("1"), "the seeding poll woke a review");
 
