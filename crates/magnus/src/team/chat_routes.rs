@@ -29,7 +29,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/activity", get(activity))
         .route("/v1/workspaces/{ws}/direct", post(direct))
         .route("/v1/workspaces/{ws}/channels/{channel}/view", get(view))
-        .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}", put(edit))
+        .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}", put(edit).delete(super::own_view::unsend))
         .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}/react", post(react))
         .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}/pin", post(pin))
         .route("/v1/workspaces/{ws}/channels/{channel}/agent", post(set_mode))
@@ -64,7 +64,8 @@ async fn home(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
         .map(|(id, c)| {
             let (unread, mentions) = w.unread(id, &p.id, &me);
             let direct = w.chat.direct.get(id).map(|d| json!({ "people": d.people, "agent": d.agent }));
-            json!({ "id": id, "name": c.name, "project": c.project, "mode": w.agent_mode(id), "notify": w.notify_level(id, &p.id), "unread": unread, "mentions": mentions, "direct": direct })
+            let (archived, deleted) = (w.archived(id, &p.id), w.deleted_for(id, &p.id));
+            json!({ "id": id, "name": c.name, "project": c.project, "mode": w.agent_mode(id), "notify": w.notify_level(id, &p.id), "unread": unread, "mentions": mentions, "direct": direct, "archived": archived, "deleted": deleted })
         })
         .collect();
     let projects: Vec<Value> = w
@@ -156,7 +157,8 @@ fn message_item(w: &Workspace, m: &Message) -> Value {
         Some(r) => (AGENT_ID.to_string(), Some(r.to_string())),
         None => (m.sender.clone(), None),
     };
-    json!({ "id": m.id, "sender": sender, "requester": requester, "text": m.text, "thread": m.thread, "at": m.at, "edited": w.chat.edited.contains(&m.id), "pinned": w.chat.pins.contains(&m.id), "reactions": reactions })
+    let deleted = w.chat.unsent.contains(&m.id);
+    json!({ "id": m.id, "sender": sender, "requester": requester, "text": m.text, "thread": m.thread, "at": m.at, "edited": w.chat.edited.contains(&m.id), "pinned": w.chat.pins.contains(&m.id), "reactions": reactions, "deleted": deleted })
 }
 
 /// A channel as it reads now: messages with their reactions, edits, pins
@@ -181,6 +183,8 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
         let working = s.team.runs_in(&ws, &channel).iter().any(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|run| !run.status.terminal()));
         (items, working)
     });
+    let cleared = k.read(|s| s.team.workspace(&ws).and_then(|w| w.cleared(&channel, &p.id)));
+    items.retain(|i| cleared.is_none_or(|c| when(i).is_some_and(|at| at > c)));
     items.sort_by_key(when);
     let mut replies: BTreeMap<String, (usize, Value)> = BTreeMap::new();
     for i in items.iter().filter(|i| i["thread"].is_string()) {
@@ -194,6 +198,8 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
             i["last_reply"] = last.clone();
         }
     }
+    // A deleted message with no replies leaves nothing behind.
+    items.retain(|i| i["deleted"] != json!(true) || i["replies"].is_number());
     let mut typing: Vec<String> = presence::typing_in(&ws, &channel).into_iter().filter(|t| t != &p.id).map(|t| name_of(&k, &t)).collect();
     if working {
         typing.push(AGENT_NAME.to_string());
@@ -353,7 +359,7 @@ async fn activity(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
         let (mut mentions, mut replies) = (vec![], vec![]);
         for (cid, ch) in w.channels.iter().filter(|(id, c)| w.sees(id, &p.id) && w.in_project(c.project.as_deref(), &p.id)) {
             let mine: Vec<&str> = ch.messages.iter().filter(|m| m.sender == p.id).map(|m| m.thread.as_deref().unwrap_or(&m.id)).collect();
-            for m in ch.messages.iter().filter(|m| m.sender != p.id) {
+            for m in ch.messages.iter().filter(|m| m.sender != p.id && !w.chat.unsent.contains(&m.id) && w.kept_for(cid, &p.id, m.at)) {
                 let item = json!({ "channel": cid, "channel_name": ch.name, "id": m.id, "sender": m.sender, "text": m.text, "thread": m.thread, "at": m.at });
                 if super::chat::mentions(&m.text, &p.id, &me) {
                     mentions.push(item);

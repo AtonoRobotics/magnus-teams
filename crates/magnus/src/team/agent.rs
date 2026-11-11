@@ -202,7 +202,9 @@ impl Kernel {
         person: &str,
         text: String,
     ) -> Result<(String, String)> {
-        let earlier: Vec<Message> = self.read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.clone())).unwrap_or_default();
+        let earlier: Vec<Message> = self
+            .read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.iter().filter(|m| !m.text.is_empty()).cloned().collect()))
+            .unwrap_or_default();
         let start = earlier.len().saturating_sub(HISTORY_MESSAGES + 1);
         let shown = earlier.get(start..earlier.len().saturating_sub(1)).unwrap_or_default();
         let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");

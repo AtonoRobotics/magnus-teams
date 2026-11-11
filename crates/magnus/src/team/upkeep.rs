@@ -5,7 +5,6 @@ use super::routes::{member, send, Reply, K};
 use super::{Change, Role};
 use crate::api::err;
 use crate::computer::{Owner, ONE_AT_A_TIME};
-use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::log::Holding;
@@ -209,8 +208,8 @@ impl Kernel {
 
     /// Everything of a workspace: its work, its computers, its volume and
     /// what the log and the backups hold of it.
-    pub(super) async fn delete_workspace(&self, p: &Person, ws: &str) -> Result<()> {
-        let actor = format!("person:{}", p.id);
+    pub(crate) async fn delete_workspace(&self, actor: &str, ws: &str) -> Result<()> {
+        let actor = actor.to_string();
         let tasks: Vec<String> = self.read(|s| s.team.runs_of(ws).into_iter().map(|r| r.task.clone()).collect());
         self.end_team_tasks(&actor, &tasks).await;
         let owner = Owner::Workspace(ws.to_string());

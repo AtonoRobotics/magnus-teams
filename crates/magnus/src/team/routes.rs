@@ -46,6 +46,9 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::whisper::router())
         .merge(super::routines::router())
         .merge(super::upkeep::router())
+        .merge(super::own_view::router())
+        .merge(super::membership::router())
+        .merge(super::notices::router())
 }
 
 pub(super) fn new_id() -> String {
@@ -109,7 +112,7 @@ async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
 
 async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Owner).await);
-    if let Err(e) = k.delete_workspace(&p, &ws).await {
+    if let Err(e) = k.delete_workspace(&format!("person:{}", p.id), &ws).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
     Json(json!({ "ok": true })).into_response()
@@ -123,23 +126,33 @@ struct SetMember {
 
 async fn set_member(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<SetMember>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
-    if b.role > role {
-        return err(StatusCode::FORBIDDEN, "you cannot give a role above your own");
-    }
     if k.person(&b.person).is_none() {
         return err(StatusCode::NOT_FOUND, "no such person");
     }
-    ok_or_return!(send(&k, &p, Change::Member { workspace: ws, person: b.person, role: b.role }).await);
+    ok_or_return!(membership(&k, &p, role, &ws, &b.person, Some(b.role)).await);
     Json(json!({ "ok": true })).into_response()
 }
 
+/// An owner or admin removes a member; anyone leaves on their own.
 async fn remove_member(State(k): K, h: HeaderMap, Path((ws, person)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
-    let running: Vec<String> = k.read(|s| s.team.runs_by(&ws, &person).into_iter().map(|r| r.task.clone()).collect());
-    ok_or_return!(send(&k, &p, Change::Removed { workspace: ws.clone(), person: person.clone() }).await);
-    k.end_team_tasks(&format!("person:{}", p.id), &running).await;
-    k.remove_held(&ws, &person).await;
+    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    if person != p.id && role < Role::Admin {
+        return err(StatusCode::FORBIDDEN, "that takes the Admin role here");
+    }
+    if k.read(|s| s.team.role(&ws, &person)).is_none() {
+        return err(StatusCode::NOT_FOUND, "they are not in this workspace");
+    }
+    ok_or_return!(membership(&k, &p, role, &ws, &person, None).await);
     Json(json!({ "ok": true })).into_response()
+}
+
+/// A role given or a member taken out, once the rules of who may allow it.
+async fn membership(k: &Kernel, p: &Person, mine: Role, ws: &str, person: &str, to: Option<Role>) -> Result<(), Box<Reply>> {
+    let why = k.read(|s| s.team.workspace(ws).and_then(|w| super::membership::refuse(w, &p.id, mine, person, to)));
+    if let Some(why) = why {
+        return Err(Box::new(err(StatusCode::FORBIDDEN, why)));
+    }
+    k.set_workspace_role(&format!("person:{}", p.id), ws, person, to).await.map_err(|e| Box::new(err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))
 }
 
 async fn add_channel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Named>) -> Reply {
@@ -164,9 +177,14 @@ async fn messages(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, 
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
     let view = k.read(|s| {
-        let mut out: Vec<Value> = s.team.workspace(&ws).and_then(|w| w.channels.get(&channel)).map(|c| c.messages.iter().map(|m| json!(m)).collect()).unwrap_or_default();
+        let w = s.team.workspace(&ws);
+        let kept = |m: &&Message| w.is_some_and(|w| w.kept_for(&channel, &p.id, m.at) && !w.chat.unsent.contains(&m.id));
+        let mut out: Vec<Value> = w.and_then(|w| w.channels.get(&channel)).map(|c| c.messages.iter().filter(kept).map(|m| json!(m)).collect()).unwrap_or_default();
         for r in s.team.runs_in(&ws, &channel) {
             let Some(run) = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()) else { continue };
+            if run.ended_at.is_some_and(|at| !w.is_some_and(|w| w.kept_for(&channel, &p.id, at))) {
+                continue;
+            }
             if let Some(text) = run.summary.clone() {
                 let (text, private) = super::answer_for(run, text, &r.requester, &p.id);
                 out.push(json!({ "sender": "agent", "requester": r.requester, "task": r.task, "text": text, "thread": r.thread, "private": private }));

@@ -1380,7 +1380,7 @@ impl State {
             Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::LocalComputer(c) => self.local.apply(c),
             Ev::LocalFile(c) => self.local.files.apply(c),
-            Ev::Team(c) => self.team.apply(c),
+            Ev::Team(c) => self.team.apply_at(c, e.seq),
             Ev::AccountLink(c) => self.account_links.apply(c),
             Ev::Push(c) => self.push.apply(c),
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),

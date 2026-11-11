@@ -35,7 +35,7 @@ pub fn find(w: &Workspace, person: &str, query: &str) -> Value {
     };
     let mut messages = vec![];
     for (id, ch) in w.channels.iter().filter(|(id, c)| w.sees(id, person) && w.in_project(c.project.as_deref(), person)) {
-        for m in ch.messages.iter().rev().filter(|m| hit(&m.text)).take(MAX_RESULTS_PER_KIND) {
+        for m in ch.messages.iter().rev().filter(|m| hit(&m.text) && w.kept_for(id, person, m.at)).take(MAX_RESULTS_PER_KIND) {
             messages.push(json!({ "channel": id, "channel_name": ch.name, "id": m.id, "thread": m.thread, "sender": m.sender, "text": snippet(&m.text), "at": m.at }));
         }
     }

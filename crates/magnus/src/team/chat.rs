@@ -154,6 +154,31 @@ pub enum Chat {
         #[serde(default)]
         usd: Option<f64>,
     },
+    /// Its sender deleted a message: the text is gone for everyone, from the
+    /// log too. Where it stood stays, so replies keep their thread.
+    Unsent {
+        channel: String,
+        id: String,
+        sender: String,
+        #[serde(default)]
+        thread: Option<String>,
+        at: At,
+    },
+    /// One person put a conversation away (`on`), or brought it back. It
+    /// comes back on its own once someone else writes in it after `at`.
+    Archived {
+        channel: String,
+        person: String,
+        on: bool,
+        at: At,
+    },
+    /// One person deleted a conversation from their own list: what it held
+    /// up to `at` is gone for them. The others keep theirs.
+    Cleared {
+        channel: String,
+        person: String,
+        at: At,
+    },
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -184,6 +209,12 @@ pub struct ChatState {
     pub limit_usd: Option<f64>,
     /// Each channel's monthly spend limit in dollars.
     pub channel_limits_usd: BTreeMap<String, f64>,
+    /// Messages their senders deleted.
+    pub unsent: BTreeSet<String>,
+    /// Person, then channel, then when they put it away.
+    pub archived: BTreeMap<String, BTreeMap<String, At>>,
+    /// Person, then channel, then up to when they deleted it for themselves.
+    pub cleared: BTreeMap<String, BTreeMap<String, At>>,
 }
 
 pub(super) fn apply(w: &mut Workspace, c: &Chat) {
@@ -259,6 +290,34 @@ pub(super) fn apply(w: &mut Workspace, c: &Chat) {
         Chat::SpendLimit { channel: Some(channel), usd: None } => {
             s.channel_limits_usd.remove(channel);
         }
+        Chat::Unsent { channel, id, sender, thread, at } => {
+            if let Some(ch) = w.channels.get_mut(channel) {
+                match ch.messages.iter_mut().find(|m| &m.id == id) {
+                    Some(m) => m.text.clear(),
+                    // Replayed after its content was erased: only its place is left.
+                    None => {
+                        let i = ch.messages.partition_point(|m| m.at <= *at);
+                        ch.messages.insert(i, super::Message { id: id.clone(), sender: sender.clone(), text: String::new(), thread: thread.clone(), at: *at });
+                    }
+                }
+            }
+            s.unsent.insert(id.clone());
+            s.edited.remove(id);
+            s.reactions.remove(id);
+            s.pins.remove(id);
+        }
+        Chat::Archived { channel, person, on, at } => {
+            let mine = s.archived.entry(person.clone()).or_default();
+            if *on {
+                mine.insert(channel.clone(), *at);
+            } else {
+                mine.remove(channel);
+            }
+        }
+        Chat::Cleared { channel, person, at } => {
+            let mark = s.cleared.entry(person.clone()).or_default().entry(channel.clone()).or_insert(*at);
+            *mark = (*mark).max(*at);
+        }
     }
 }
 
@@ -299,8 +358,9 @@ impl Workspace {
     /// how many of those mention them.
     pub fn unread(&self, channel: &str, person: &str, name: &str) -> (usize, usize) {
         let Some(ch) = self.channels.get(channel) else { return (0, 0) };
-        let since = self.chat.read.get(person).and_then(|c| c.get(channel)).copied();
-        let fresh = ch.messages.iter().filter(|m| m.sender != person && since.is_none_or(|s| m.at > s));
+        let read = self.chat.read.get(person).and_then(|c| c.get(channel)).copied();
+        let since = read.max(self.cleared(channel, person));
+        let fresh = ch.messages.iter().filter(|m| m.sender != person && since.is_none_or(|s| m.at > s) && !self.chat.unsent.contains(&m.id));
         fresh.fold((0, 0), |(n, at), m| (n + 1, at + usize::from(mentions(&m.text, person, name))))
     }
 

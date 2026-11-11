@@ -20,6 +20,13 @@ pub mod invites;
 mod join_page;
 mod kb_routes;
 pub(crate) mod knowledge;
+pub(crate) mod membership;
+#[cfg(test)]
+mod membership_tests;
+mod notices;
+mod own_view;
+#[cfg(test)]
+mod own_view_tests;
 mod presence;
 #[cfg(test)]
 mod privacy_tests;
@@ -307,9 +314,30 @@ pub struct Ledger {
     /// A task, then its working notes.
     notes: BTreeMap<String, Vec<Note>>,
     whispers: BTreeMap<String, Whisper>,
+    /// A message, then the events that hold its text: its own and its edits.
+    seqs: BTreeMap<String, Vec<i64>>,
 }
 
 impl Ledger {
+    /// `apply`, noting which events hold each message's text, so deleting a
+    /// message can take that text out of the log.
+    pub fn apply_at(&mut self, c: &Change, seq: i64) {
+        let held = match c {
+            Change::Message { message, .. } => Some(&message.id),
+            Change::Chat { chat: chat::Chat::Edited { id, .. }, .. } => Some(id),
+            _ => None,
+        };
+        if let Some(id) = held.filter(|id| !id.is_empty()) {
+            self.seqs.entry(id.clone()).or_default().push(seq);
+        }
+        self.apply(c);
+    }
+
+    /// The events that hold a message's text.
+    pub fn message_seqs(&self, id: &str) -> &[i64] {
+        self.seqs.get(id).map_or(&[], Vec::as_slice)
+    }
+
     pub fn apply(&mut self, c: &Change) {
         if let Change::Created { workspace, name, owner } = c {
             let members = BTreeMap::from([(owner.clone(), Role::Owner)]);
@@ -377,6 +405,8 @@ impl Ledger {
                     w.channels.insert(channel.clone(), Channel { name: name.clone(), ..Default::default() });
                 }
             }
+            // One whose content was erased (its sender deleted it) reads as nothing.
+            Change::Message { message, .. } if message.id.is_empty() => {}
             Change::Message { workspace, channel, message } => {
                 if let Some(ch) = self.workspaces.get_mut(workspace).and_then(|w| w.channels.get_mut(channel)) {
                     ch.messages.push(message.clone());

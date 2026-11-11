@@ -67,6 +67,9 @@ pub mod settings_gate;
 mod spec_tests;
 #[cfg(test)]
 pub(crate) mod tests;
+pub mod workspaces;
+#[cfg(test)]
+mod workspaces_tests;
 
 use crate::config::Person;
 use crate::kernel::Kernel;
@@ -132,6 +135,7 @@ fn admin_routes() -> Router<Arc<Kernel>> {
         .merge(operations::routes())
         .merge(crate::spend::routes::admin_routes())
         .merge(agents::routes())
+        .merge(workspaces::routes())
 }
 
 /// Whether the signed-in person is an admin, so the app shows the Admin
