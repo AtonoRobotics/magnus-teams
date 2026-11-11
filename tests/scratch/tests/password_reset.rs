@@ -94,9 +94,20 @@ async fn a_forgotten_password_is_recovered_by_email() {
         .send()
         .await
         .unwrap();
-    assert!(r.text().await.unwrap().contains("new password is set"), "confirming did not set it");
+    let set = r.text().await.unwrap();
+    assert!(set.contains("new password is set"), "confirming did not set it");
+    assert!(set.contains("<b>dave</b>"), "the page does not name the username: {set}");
     let r = sign_in(NEW, None).await;
     assert_eq!(r.status(), StatusCode::OK, "the new password does not sign in without a code");
+    // The address the recovery ran on signs in as well as the username,
+    // whatever its case: the mail and the page offer both.
+    assert!(mail::text_of(&mail.data).contains("your username, dave."), "the mail does not name the username");
+    let by_email = json!({ "person": " Dave@Example.com ", "password": NEW, "client": "app" });
+    let r = c.post(format!("{}/v1/sign-in", app.base)).header("x-magnus-app", "0.5.0").json(&by_email).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK, "the email address does not sign in");
+    let by_wrong = json!({ "person": DAVE, "password": OLD, "client": "app" });
+    let r = c.post(format!("{}/v1/sign-in", app.base)).header("x-magnus-app", "0.5.0").json(&by_wrong).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "the email address signed in with the old password");
     let r = sign_in(OLD, None).await;
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED, "the old password still signs in");
     let r = c.get(format!("{}/v1/me", app.base)).bearer_auth(&session).send().await.unwrap();

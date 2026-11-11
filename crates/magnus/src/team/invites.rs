@@ -156,7 +156,7 @@ async fn newcomer(k: &Arc<Kernel>, p: &Person, ws: String, role: Role, email: St
     let link = invite_link(&k.cfg, &token);
     let inviter = if p.name.is_empty() { p.id.clone() } else { p.name.clone() };
     let sent = match (&link, k.cfg.mail.is_some()) {
-        (Some(l), _) => crate::invitations::email(k, &inviter, &email, &format!("the {workspace} workspace in Magnus"), l).await,
+        (Some(l), _) => crate::invitations::email(k, &inviter, &email, &id, &format!("the {workspace} workspace in Magnus"), l).await,
         (None, true) => Delivery { emailed: false, error: Some("the server has no address to put in the link: set [appliance] public_url".into()) },
         (None, false) => Delivery::default(),
     };

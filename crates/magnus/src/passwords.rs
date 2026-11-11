@@ -100,10 +100,11 @@ pub(crate) fn link_base(cfg: &Config) -> Option<String> {
     cfg.client_certs.as_ref().map(|c| format!("https://{}", c.hostname))
 }
 
-/// The recovery email for a token: its subject and text, linking to `base`.
-fn recovery_mail(base: &str, token: &str) -> (&'static str, String) {
+/// The recovery email for `person`'s token: its subject and text, linking
+/// to `base`, and naming the username the new password goes with.
+fn recovery_mail(base: &str, person: &str, token: &str) -> (&'static str, String) {
     let link = format!("{base}/reset?token={token}");
-    let text = format!("Someone asked to recover the Magnus password for this address. Choose a new one in the next hour:\n\n{link}\n\nIf that was not you, ignore this email: the password stays as it is. Choosing a new password signs every device out, and any authenticator codes stop working until new ones are enrolled.");
+    let text = format!("Someone asked to recover the Magnus password for this address. Choose a new one in the next hour:\n\n{link}\n\nThen sign in with this email address or your username, {person}.\n\nIf that was not you, ignore this email: the password stays as it is. Choosing a new password signs every device out, and any authenticator codes stop working until new ones are enrolled.");
     ("Recover your Magnus password", text)
 }
 
@@ -125,7 +126,7 @@ async fn password_reset_request(State(k): K, Extension(t): Extension<Transport>,
             tracing::warn!("password reset for {}: no trusted link base, nothing sent; set [appliance] public_url", r.person);
             return Json(json!({ "ok": true })).into_response();
         };
-        let (subject, text) = recovery_mail(&base, &r.token);
+        let (subject, text) = recovery_mail(&base, &r.person, &r.token);
         let (delivery, to) = (k.clone(), email.clone());
         tokio::spawn(async move {
             match crate::mailer::send(&delivery, &to, subject, text).await {
@@ -161,8 +162,9 @@ mod tests {
     fn the_recovery_link_uses_the_public_address() {
         let public = load("public_url = \"https://teams.pyrallon.ai/\"", MAIL).unwrap();
         assert_eq!(link_base(&public).as_deref(), Some("https://teams.pyrallon.ai"));
-        let (_, text) = recovery_mail(&link_base(&public).unwrap(), "abc123");
+        let (_, text) = recovery_mail(&link_base(&public).unwrap(), "dave", "abc123");
         assert!(text.contains("\nhttps://teams.pyrallon.ai/reset?token=abc123\n"), "{text}");
+        assert!(text.contains("your username, dave."), "the mail does not name the username: {text}");
         let both = load("public_url = \"https://teams.pyrallon.ai\"", &format!("{MAIL}link_base = \"https://recovery.example/\"\n")).unwrap();
         assert_eq!(link_base(&both).as_deref(), Some("https://recovery.example"));
         assert_eq!(link_base(&load("", MAIL).unwrap()), None);

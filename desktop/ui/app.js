@@ -1087,7 +1087,7 @@ async function signInScreen(note) {
           ? `<label for="otp">Enter the code \`magnus sign-in-code\` printed on the server</label><input id="otp" style="width:100%" autocomplete="one-time-code" maxlength="16" required autofocus>`
           : coding
           ? `<label for="otp">Enter the 6-digit code from your authenticator app</label><input id="otp" style="width:100%" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6" required autofocus>`
-          : `<label for="who">Username</label><input id="who" style="width:100%" autocomplete="username" value="${esc(data.person || localStorage.getItem("magnus.person") || "")}" required>
+          : `<label for="who">Username or email</label><input id="who" style="width:100%" autocomplete="username" value="${esc(data.person || localStorage.getItem("magnus.person") || "")}" required>
         <label for="pw">Password</label><input id="pw" type="password" style="width:100%" autocomplete="current-password" required>`}
         <div class="row" style="margin-top:16px"><button class="primary" id="go">${coding ? "Continue" : "Sign in"}</button>${coding ? `<button type="button" class="link" id="again">Back</button>` : data.label ? `<button type="button" class="link" id="passkey">Use a passkey instead</button>` : `<button type="button" class="link" id="forgot">Forgot password?</button>`}${Magnus.kind === "app" && !coding ? `<button type="button" class="link" id="back">Other server</button>` : ""}</div></form>`);
       $("#back")?.addEventListener("click", () => ask("address", data));

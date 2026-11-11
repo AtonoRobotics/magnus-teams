@@ -141,7 +141,8 @@ async fn deliver(k: &Kernel, a: &Admin, v: &mut Value, send: bool) {
     v["link"] = json!(link);
     v["emailed"] = json!(false);
     let (Some(link), Some(to), true) = (link, v["email"].as_str().map(String::from), send) else { return };
-    let sent = crate::invitations::email(k, &a.name(), &to, "Magnus", &link).await;
+    let person = v["id"].as_str().unwrap_or_default().to_string();
+    let sent = crate::invitations::email(k, &a.name(), &to, &person, "Magnus", &link).await;
     v["emailed"] = json!(sent.emailed);
     if let Some(e) = sent.error {
         v["email_error"] = json!(e);

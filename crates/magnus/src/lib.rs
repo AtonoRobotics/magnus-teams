@@ -85,6 +85,7 @@ pub mod sandbox;
 mod schedule_request;
 pub mod schedule_thread;
 pub mod settings;
+pub mod sign_in_name;
 pub mod spawn;
 pub mod speech;
 pub mod spend;

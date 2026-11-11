@@ -67,10 +67,10 @@ pub struct Delivery {
     pub error: Option<String>,
 }
 
-/// Email an invitation's link: `inviter` invited them to `into`. With no
-/// `[mail]`, nothing is sent and nothing is claimed.
-pub async fn email(k: &Kernel, inviter: &str, to: &str, into: &str, link: &str) -> Delivery {
-    let text = format!("{inviter} invited you to {into}. Choose your password within {INVITE_DAYS} days to start:\n\n{link}\n\nIf you did not expect this, ignore this email.");
+/// Email an invitation's link: `inviter` invited them to `into`, as the
+/// account `person`. With no `[mail]`, nothing is sent and nothing is claimed.
+pub async fn email(k: &Kernel, inviter: &str, to: &str, person: &str, into: &str, link: &str) -> Delivery {
+    let text = format!("{inviter} invited you to {into}. Choose your password within {INVITE_DAYS} days to start:\n\n{link}\n\nAfterwards, sign in with this email address or your username, {person}.\n\nIf you did not expect this, ignore this email.");
     match crate::mailer::send(k, to, &format!("You are invited to {into}"), text).await {
         Ok(sent) => Delivery { emailed: sent, error: None },
         Err(e) => {

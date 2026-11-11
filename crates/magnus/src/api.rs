@@ -449,7 +449,7 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
     if let Err(r) = over_tls(&k, t, peer) {
         return r;
     }
-    let person = b["person"].as_str().unwrap_or_default().trim().to_lowercase();
+    let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
     let password = b["password"].as_str().unwrap_or_default();
     let code = b["code"].as_str().map(str::trim).filter(|c| !c.is_empty());
     let app = b["client"].as_str() == Some("app");
@@ -590,7 +590,7 @@ async fn choose_password(State(k): K, Extension(t): Extension<Transport>, Connec
     if let Err(r) = over_tls(&k, t, peer) {
         return r;
     }
-    let person = b["person"].as_str().unwrap_or_default().trim().to_lowercase();
+    let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
     let temp = b["password"].as_str().unwrap_or_default();
     let password = b["new_password"].as_str().unwrap_or_default();
     if password.chars().count() < k.cfg.sign_in.min_password_length {
@@ -830,7 +830,7 @@ async fn reset_confirm(
             }
             reset_shell(
                 "Password set",
-                "<h1>The new password is set.</h1><p>Every device is signed out. If codes were enrolled, they no longer work: enroll new ones after signing in.</p>",
+                &format!("<h1>The new password is set.</h1><p>Sign in as <b>{}</b> or with your email address. Every device is signed out. If codes were enrolled, they no longer work: enroll new ones after signing in.</p>", h_escape(&person)),
             )
         }
         Ok(None) => reset_shell("Link expired", "<h1>This recovery link is spent or expired.</h1><p>Ask for a new email and follow its link within the hour.</p>"),
