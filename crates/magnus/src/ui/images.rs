@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use base64::Engine;
+use magnus_adapter_proto::Picture;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -25,15 +26,42 @@ const JOIN: char = '.';
 pub const GENERATE_TOOL: &str = "image_generate";
 pub const EDIT_TOOL: &str = "image_edit";
 
-/// `[images]`: where pictures are made. The key is a vault entry's name.
+/// `[images]`: where pictures are made. One provider: an images endpoint
+/// with its key, or a model adapter with its own sign-in.
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     /// An OpenAI-compatible images endpoint, ending in `/images`.
-    pub url: String,
-    pub key: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The endpoint's key: a vault entry's name.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Or a model adapter's id: it makes the picture and its credential
+    /// never leaves it and the vault.
+    #[serde(default)]
+    pub adapter: Option<String>,
     pub fast_model: String,
     pub premium_model: String,
+}
+
+/// Where one picture is made.
+enum Maker {
+    Endpoint { url: String, key: String },
+    Adapter(Arc<Kernel>, String),
+}
+
+impl Settings {
+    /// Checked at startup: exactly one provider, named in full, and an
+    /// adapter that is configured.
+    pub fn check(&self, adapters: &[crate::config::Adapter]) -> Result<()> {
+        match (&self.url, &self.key, &self.adapter) {
+            (Some(_), Some(_), None) => Ok(()),
+            (None, None, Some(id)) if adapters.iter().any(|a| &a.id == id) => Ok(()),
+            (None, None, Some(id)) => Err(anyhow!("[images] adapter {id:?} is not one of the [[adapters]]")),
+            _ => Err(anyhow!("[images] names one provider: url and key (an images endpoint and its vault key), or adapter (a model adapter's id)")),
+        }
+    }
 }
 
 fn safe(part: &str) -> bool {
@@ -92,13 +120,23 @@ async fn picture(State(k): State<Arc<Kernel>>, h: HeaderMap, UrlPath(id): UrlPat
     }
 }
 
-async fn make(http: reqwest::Client, cfg: Settings, key: String, model: String, prompt: String, source: Option<String>) -> Result<Vec<u8>> {
-    let (url, body) = match source {
-        Some(b64) => (format!("{}/edits", cfg.url), json!({ "model": model, "prompt": prompt, "images": [{ "image_url": format!("data:image/png;base64,{b64}") }] })),
-        None => (format!("{}/generations", cfg.url), json!({ "model": model, "prompt": prompt })),
+/// One picture's PNG bytes, from whichever provider `[images]` names.
+async fn make(maker: Maker, model: String, prompt: String, source: Option<String>, premium: bool) -> Result<Vec<u8>> {
+    let b64 = match maker {
+        Maker::Endpoint { url, key } => {
+            let (url, body) = match source {
+                Some(b64) => (format!("{url}/edits"), json!({ "model": model, "prompt": prompt, "images": [{ "image_url": format!("data:image/png;base64,{b64}") }] })),
+                None => (format!("{url}/generations"), json!({ "model": model, "prompt": prompt })),
+            };
+            let reply: Value = reqwest::Client::new().post(url).bearer_auth(key).json(&body).timeout(IMAGE_TIMEOUT).send().await?.error_for_status()?.json().await?;
+            reply["data"][0]["b64_json"].as_str().ok_or_else(|| anyhow!("the provider returned no image"))?.to_string()
+        }
+        Maker::Adapter(k, id) => {
+            let source = source.map(|data_b64| Picture { media_type: "image/png".into(), data_b64 });
+            let made = tokio::time::timeout(IMAGE_TIMEOUT, k.adapters.image(&id, &model, prompt, source, premium)).await;
+            made.map_err(|_| anyhow!("adapter {id} made no image in {}s", IMAGE_TIMEOUT.as_secs()))??.data_b64
+        }
     };
-    let reply: Value = http.post(url).bearer_auth(key).json(&body).timeout(IMAGE_TIMEOUT).send().await?.error_for_status()?.json().await?;
-    let b64 = reply["data"][0]["b64_json"].as_str().ok_or_else(|| anyhow!("the provider returned no image"))?;
     base64::engine::general_purpose::STANDARD.decode(b64).context("the provider's image is not base64")
 }
 
@@ -124,13 +162,18 @@ impl Kernel {
             }
             None => return Ok(("Name the image to edit.".to_string(), true, None)),
         };
-        let key = self.vault.get(&cfg.key)?.context("the image provider's key is not in the vault")?.expose().to_string();
-        let model = if a.input["quality"] == "premium" { cfg.premium_model.clone() } else { cfg.fast_model.clone() };
+        let maker = match (cfg.url, cfg.key, cfg.adapter) {
+            (_, _, Some(id)) => Maker::Adapter(self.clone(), id),
+            (Some(url), Some(key), None) => Maker::Endpoint { url, key: self.vault.get(&key)?.context("the image provider's key is not in the vault")?.expose().to_string() },
+            _ => return Ok(("This server has no image provider set up.".to_string(), true, None)),
+        };
+        let premium = a.input["quality"] == "premium";
+        let model = if premium { cfg.premium_model } else { cfg.fast_model };
         let id = format!("{}{JOIN}{}", a.run, new_id("img"));
         let run = a.run.clone();
         let task_id = id.clone();
         tokio::spawn(async move {
-            if let Err(e) = finish(state, &task_id, make(reqwest::Client::new(), cfg, key, model, prompt, source).await).await {
+            if let Err(e) = finish(state, &task_id, make(maker, model, prompt, source, premium).await).await {
                 tracing::warn!("image for {run}: {e:#}");
             }
         });
@@ -170,6 +213,21 @@ mod tests {
             assert!(split_id(bad).is_none(), "{bad}");
         }
         assert_eq!(split_id("run_1.img_2"), Some(("run_1", "img_2")));
+    }
+
+    /// `[images]` names one provider in full: an endpoint and its key, or
+    /// an adapter that is configured. Anything else stops the start.
+    #[test]
+    fn images_name_one_provider_in_full() {
+        let adapters = [crate::config::Adapter { id: "codex".into(), command: vec!["adapter".into()], settings: Default::default() }];
+        let parse = |t: &str| toml::from_str::<Settings>(&format!("fast_model = \"f\"\npremium_model = \"p\"\n{t}")).unwrap();
+        assert!(parse("url = \"https://x/images\"\nkey = \"k\"").check(&adapters).is_ok());
+        assert!(parse("adapter = \"codex\"").check(&adapters).is_ok());
+        for bad in ["", "url = \"https://x/images\"", "key = \"k\"", "url = \"u\"\nkey = \"k\"\nadapter = \"codex\"", "adapter = \"codex\"\nkey = \"k\""] {
+            assert!(parse(bad).check(&adapters).is_err(), "{bad:?} was taken");
+        }
+        let unknown = parse("adapter = \"nope\"").check(&adapters).unwrap_err().to_string();
+        assert!(unknown.contains("nope"), "{unknown}");
     }
 
     #[test]

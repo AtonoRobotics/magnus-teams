@@ -9,7 +9,7 @@
 use crate::config;
 use crate::vault::Vault;
 use anyhow::{anyhow, Context, Result};
-use magnus_adapter_proto::{self as proto, Block, CompleteParams, ErrorClass, Event, Message, Request, ToolSpec, Usage};
+use magnus_adapter_proto::{self as proto, Block, CompleteParams, ErrorClass, Event, Message, Picture, Request, ToolSpec, Usage};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -278,6 +278,24 @@ impl Adapters {
             Event::Quote { input_usd, output_usd } => Ok((input_usd, output_usd)),
             Event::Error { class, message, .. } => Err(anyhow!("adapter {id} would not quote {model}: {class:?}: {message}")),
             ev => Err(anyhow!("adapter {id} answered a quote with {ev:?}")),
+        }
+    }
+
+    /// One picture from adapter `id`, made with its own sign-in. A
+    /// credential it refreshed on the way goes to the vault.
+    pub async fn image(&self, id: &str, model: &str, prompt: String, source: Option<Picture>, premium: bool) -> Result<Picture> {
+        let r = self.get(id).await?;
+        let (settings, cred_name) = Self::split_settings(&r.cfg);
+        let credential = self.credential(&cred_name);
+        let params = proto::ImageParams { model: model.into(), settings, credential, prompt, source, premium };
+        let mut call = proto::Call::open(&r.socket, Request::Image(params)).await?;
+        loop {
+            match call.next().await?.ok_or_else(|| anyhow!("adapter {id} closed the connection"))? {
+                Event::Credential { value } => self.store_refreshed(&cred_name, &value),
+                Event::Image(p) => return Ok(p),
+                Event::Error { class, message, .. } => anyhow::bail!("adapter {id} made no image: {class:?}: {message}"),
+                ev => anyhow::bail!("adapter {id} answered an image with {ev:?}"),
+            }
         }
     }
 

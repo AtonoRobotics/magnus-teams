@@ -977,6 +977,7 @@ impl Config {
         if cfg.admin.is_some() {
             tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
         }
+        cfg.images.as_ref().map(|i| i.check(&cfg.adapters)).transpose()?;
         anyhow::ensure!(cfg.backup.keep_days >= 1, "[backup] keep_days must be at least 1: with 0 every backup is deleted as soon as it is made");
         if let Some(b) = &cfg.browser {
             for site in &b.allow {

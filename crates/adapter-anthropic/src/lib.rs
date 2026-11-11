@@ -46,6 +46,7 @@ async fn handle(http: reqwest::Client, req: Request, mut sink: Sink) -> anyhow::
             let chars = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
             sink.send(&Event::PromptSize { input_tokens: proto::chars_to_tokens(chars) }).await
         }
+        Request::Image(_) => sink.error(ErrorClass::InvalidRequest, "this adapter cannot make images").await,
         Request::AuthRevoke { .. } => {
             let detail = "an API key is revoked in the Anthropic console (https://console.anthropic.com/settings/keys)".into();
             sink.send(&Event::AuthRevoked { at_provider: false, detail }).await

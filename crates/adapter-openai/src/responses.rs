@@ -3,7 +3,7 @@
 //! `{ "items": [...] }`, the turn's reasoning items (with encrypted content),
 //! sent back in front of that turn's output.
 
-use crate::{bearer, classify, finish, request, retry_after, tool_specs, zero_usage, Sse};
+use crate::{finish, post_signed_in, tool_specs, zero_usage, Sse};
 use magnus_adapter_proto::{Block, CompleteParams, ErrorClass, Event, Role, Sink};
 use serde_json::{json, Value};
 
@@ -96,31 +96,8 @@ pub fn request_body(p: &CompleteParams) -> Value {
 pub async fn complete(http: &reqwest::Client, p: CompleteParams, sink: &mut Sink) -> anyhow::Result<()> {
     let s = &p.settings;
     let body = request_body(&p);
-    let mut force = false;
-    let resp = loop {
-        let (token, account, refreshed) = match bearer(http, s, &p.credential, force).await {
-            Ok(t) => t,
-            Err((c, m)) => return sink.error(c, m).await,
-        };
-        if let Some(r) = refreshed {
-            sink.send(&Event::Credential { value: r }).await?;
-        }
-        let r = match request(http, s, "/responses", &token, &account).header("accept", "text/event-stream").json(&body).send().await {
-            Ok(r) => r,
-            Err(e) => return sink.error(ErrorClass::Unavailable, format!("could not reach the provider: {e}")).await,
-        };
-        let status = r.status().as_u16();
-        if status == 401 && !force && s["auth"]["kind"].as_str().unwrap_or("api_key") != "api_key" {
-            force = true;
-            continue;
-        }
-        if !(200..300).contains(&status) {
-            let h = r.headers().clone();
-            let text = r.text().await.unwrap_or_default();
-            let (class, message) = classify(status, &text);
-            return sink.send(&Event::Error { class, message, retry_after_s: retry_after(&h, &text) }).await;
-        }
-        break r;
+    let Some(resp) = post_signed_in(http, s, &p.credential, "/responses", &body, |r| r.header("accept", "text/event-stream"), sink).await? else {
+        return Ok(());
     };
 
     let mut calls = vec![];

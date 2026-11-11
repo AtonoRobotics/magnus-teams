@@ -66,6 +66,35 @@ pub enum Request {
     /// `auth_revoked`, saying whether the provider took it back; an API key
     /// cannot be revoked from here and says so.
     AuthRevoke { settings: Value, credential: String },
+    /// Make one picture with the adapter's own sign-in. Answered with one
+    /// `image` event or an `error`; a credential refreshed on the way
+    /// comes first in a `credential` event. An adapter that cannot make
+    /// pictures answers `invalid_request`.
+    Image(ImageParams),
+}
+
+/// One picture to make, or to change when `source` is given.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ImageParams {
+    /// The image model: the owner's fast or premium choice in `[images]`.
+    pub model: String,
+    /// Adapter configuration from the owner, minus the credential name.
+    pub settings: Value,
+    pub credential: Option<String>,
+    pub prompt: String,
+    /// The picture to change, for an edit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Picture>,
+    /// The person asked for the premium picture, not the fast default.
+    #[serde(default)]
+    pub premium: bool,
+}
+
+/// A picture's bytes, base64, with its media type.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Picture {
+    pub media_type: String,
+    pub data_b64: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -239,6 +268,8 @@ pub enum Event {
         at_provider: bool,
         detail: String,
     },
+    /// The picture an `image` request made.
+    Image(Picture),
 }
 
 /// Messages that can carry a credential print as their JSON with every
@@ -275,7 +306,7 @@ macro_rules! redacted_debug {
         }
     )*};
 }
-redacted_debug!(Envelope, Request, CompleteParams, Event);
+redacted_debug!(Envelope, Request, CompleteParams, ImageParams, Event);
 
 /// Send events back to the kernel on one request's connection.
 pub struct Sink {
@@ -375,6 +406,10 @@ mod redaction {
             format!("{:?}", Event::AuthDone { credential: secret.into() }),
             format!("{:?}", Request::Catalog { settings: Value::Null, credential: Some(secret.into()) }),
             format!("{:?}", Request::AuthRevoke { settings: Value::Null, credential: secret.into() }),
+            format!(
+                "{:?}",
+                Request::Image(ImageParams { model: "m".into(), settings: Value::Null, credential: Some(secret.into()), prompt: "p".into(), source: None, premium: false })
+            ),
             format!(
                 "{:?}",
                 Envelope {

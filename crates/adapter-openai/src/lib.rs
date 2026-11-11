@@ -16,6 +16,7 @@
 //! - `send_reasoning`: chat only, send `reasoning_content` back with each turn
 //! - `fixed_models`: model ids that name one fixed version
 //! - `prices`: { "<model id prefix>": { input, output, cache_read } } in USD per million tokens
+//! - `image_api`, `image_host_model`: how pictures are made (see `images.rs`)
 //!
 //! The credential is an API key, or for OAuth a JSON object with
 //! `access_token`, `refresh_token`, `expires_at` (Unix seconds) and optional
@@ -24,6 +25,7 @@
 
 mod auth;
 mod chat;
+mod images;
 mod responses;
 
 use magnus_adapter_proto::{self as proto, CompleteParams, ErrorClass, Event, ModelInfo, Request, Sink, Usage};
@@ -79,6 +81,47 @@ pub(crate) fn request(http: &reqwest::Client, settings: &Value, path: &str, toke
         }
     }
     r
+}
+
+/// POST `body` to `{base}{path}` signed in: a refreshed credential goes to
+/// the kernel first, and an OAuth token the provider refuses is refreshed
+/// once and the request sent again. `None` when the failure was already
+/// sent as an `error` event.
+pub(crate) async fn post_signed_in(
+    http: &reqwest::Client,
+    settings: &Value,
+    credential: &Option<String>,
+    path: &str,
+    body: &Value,
+    shape: impl Fn(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
+    sink: &mut Sink,
+) -> anyhow::Result<Option<reqwest::Response>> {
+    let mut force = false;
+    loop {
+        let (token, account, refreshed) = match bearer(http, settings, credential, force).await {
+            Ok(t) => t,
+            Err((c, m)) => return sink.error(c, m).await.map(|_| None),
+        };
+        if let Some(r) = refreshed {
+            sink.send(&Event::Credential { value: r }).await?;
+        }
+        let r = match shape(request(http, settings, path, &token, &account)).json(body).send().await {
+            Ok(r) => r,
+            Err(e) => return sink.error(ErrorClass::Unavailable, format!("could not reach the provider: {e}")).await.map(|_| None),
+        };
+        let status = r.status().as_u16();
+        if status == 401 && !force && settings["auth"]["kind"].as_str().unwrap_or("api_key") != "api_key" {
+            force = true;
+            continue;
+        }
+        if !(200..300).contains(&status) {
+            let h = r.headers().clone();
+            let text = r.text().await.unwrap_or_default();
+            let (class, message) = classify(status, &text);
+            return sink.send(&Event::Error { class, message, retry_after_s: retry_after(&h, &text) }).await.map(|_| None);
+        }
+        return Ok(Some(r));
+    }
 }
 
 /// Refusals that last until the account changes, so asking again cannot
@@ -200,6 +243,7 @@ async fn handle(http: reqwest::Client, mut req: Request, mut sink: Sink) -> anyh
         Request::Hello {} | Request::AuthRevoke { .. } | Request::Quote { .. } | Request::EstimatePrompt(..) => None,
         Request::Catalog { settings, .. } | Request::AuthBegin { settings } | Request::AuthComplete { settings, .. } => Some(settings),
         Request::Complete(p) => Some(&mut p.settings),
+        Request::Image(p) => Some(&mut p.settings),
     };
     if let Some(s) = settings {
         if let Err(m) = with_client_version(&http, s).await {
@@ -234,6 +278,7 @@ async fn handle(http: reqwest::Client, mut req: Request, mut sink: Sink) -> anyh
         Request::AuthBegin { settings } => auth::begin(&http, &settings, &mut sink).await,
         Request::AuthComplete { settings, flow, input } => auth::complete(&http, &settings, &flow, &input, &mut sink).await,
         Request::AuthRevoke { settings, credential } => auth::revoke(&http, &settings, &credential, &mut sink).await,
+        Request::Image(p) => images::make(&http, p, &mut sink).await,
     }
 }
 
