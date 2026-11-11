@@ -199,6 +199,19 @@ assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as
 assert.equal(sandbox.teamUsd(12), "$12");
 assert.match(sandbox.workCard({ ...work, doing: null, steps: 1 }, name, "w", "c1"), /Thinking it through · step 2/, "work past its first step still says it is starting");
 
+// A knowledge entry shows what the spec gives each: type, statement,
+// source, owner and last review, its relations and flags.
+const older = { id: "k0", statement: "Ship on Fridays" };
+const entry = { id: "k1", kind: "decision", statement: "Ship on <Tuesdays>", source: "web", weight: "outside", author: "agent", owner: "dana", thread: "m1", reviewed_at: "2026-11-09T10:00:00Z", relations: [{ kind: "supersedes", to: "k0" }], flags: [{ by: "leo", why: "we moved it" }] };
+const kbHtml = sandbox.kbEntryHtml(entry, [older, entry], name, false);
+assert.match(kbHtml, /<span class="chip">decision<\/span><span class="grow">Ship on &#60;Tuesdays&#62;/, "an entry's type and statement are not shown, or not escaped");
+assert.match(kbHtml, /from outside the workspace/, "an entry from outside is not marked for its weight");
+assert.match(kbHtml, /owner Dana · reviewed now · from a thread/, "an entry's owner, review or thread is missing");
+assert.match(kbHtml, /supersedes “Ship on Fridays”/, "an entry's relation is not shown");
+assert.match(kbHtml, /Flagged by Leo: we moved it/);
+assert.doesNotMatch(kbHtml, /data-entry-correct|data-entry-retire/, "someone who is not a curator is offered to correct or retire");
+assert.match(sandbox.kbEntryHtml(entry, [entry], name, true), /data-entry-correct[^]*data-entry-retire/, "a curator cannot correct or retire");
+
 // Ctrl+K right after Escape opens the menu: the shut dialog still awaiting
 // its close event once made the keys "close" it instead.
 const { TeamCommand } = sandbox.__x;

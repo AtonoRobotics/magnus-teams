@@ -23,6 +23,24 @@ function noTeamComputer(home) {
 const TEAM_STATUSES = [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]];
 const TEAM_PROJECT_TABS = [["overview", "Overview"], ["board", "Board"], ["files", "Files"], ["knowledge", "Knowledge"], ["members", "Members"]];
 
+/** The kinds of fact a project starts with; it adds its own by using them. */
+const TEAM_KB_TYPES = ["decision", "definition", "person", "system", "client", "process"];
+
+/**
+ * One knowledge entry as the spec has it: its type and statement, source,
+ * author, owner and last review, the thread it came from, its relations,
+ * and any flags. Curators correct or retire it; anyone flags it.
+ * @param {{ id: string, kind: string, statement: string, source: string, weight: string, author: string, owner: string, thread: ?string, reviewed_at: string, relations?: Array<{ kind: string, to: string }>, flags?: Array<{ by: string, why: string }> }} k
+ * @param {Array<{ id: string, statement: string }>} all @param {(id: string) => string} name @param {boolean} curator
+ */
+function kbEntryHtml(k, all, name, curator) {
+  const rel = (k.relations || []).map(r => `${esc(r.kind.replaceAll("_", " "))} “${esc(all.find(e => e.id === r.to)?.statement || r.to)}”`).join("; ");
+  const flags = (k.flags || []).map(f => `<div class="small bad">Flagged by ${esc(name(f.by))}: ${esc(f.why)}</div>`).join("");
+  const from = k.thread ? " · from a thread" : "";
+  return `<li data-entry="${esc(k.id)}"><div class="team-kb-head"><span class="chip">${esc(k.kind)}</span><span class="grow">${esc(k.statement)}</span>${curator ? `<button class="link" data-entry-correct>Correct</button><button class="link" data-entry-retire>Retire</button>` : ""}<button class="link" data-entry-flag>Flag</button></div>
+    <div class="small faint">Source: ${esc(k.source)}${k.weight === "outside" ? " (from outside the workspace: weigh it accordingly)" : ""} · added by ${esc(name(k.author))} · owner ${esc(name(k.owner))} · reviewed ${esc(when(k.reviewed_at))}${from}</div>${rel ? `<div class="small">${rel}</div>` : ""}${flags}</li>`;
+}
+
 /** A progress bar a reader takes in at a glance. */
 function progressBar(p) {
   if (!p || !p.total) return `<span class="small faint">No tasks yet</span>`;
@@ -176,11 +194,14 @@ const TeamPanel = {
 
   async knowledge() {
     const s = this.s, base = `/v1/workspaces/${enc(s.ws)}/knowledge`;
-    const entries = await api("GET", `${base}?project=${enc(s.id)}`).catch(() => []);
+    const entries = s.entries = await api("GET", `${base}?project=${enc(s.id)}`).catch(() => []);
     const el = $("#tp-knowledge", s.center);
     if (!el) return;
-    paint(el, `${entries.length ? `<ul class="team-files">${entries.map(k => `<li data-entry="${esc(k.id)}"><span>${esc(k.statement)}<div class="small faint">${esc(k.kind)} · ${esc(k.source)}${k.weight === "outside" ? " · from outside" : ""} · ${esc(this.name(k.author))}</div></span><button class="link" data-entry-flag>Flag</button><button class="link" data-entry-retire>Retire</button></li>`).join("")}</ul>` : `<p class="empty">Nothing recorded yet. ${esc(Team.home.agent.name)} adds what it learns here, and you can too.</p>`}
-      ${Team.home.role === "guest" ? "" : `<form data-new-entry><textarea rows="2" placeholder="Something the team should know" aria-label="Statement"></textarea><div class="row"><button class="primary">Add</button></div></form>`}`);
+    const curator = s.data.project && (s.data.project.owner === Team.home.me || (s.data.project.curators || []).includes(Team.home.me));
+    const types = [...new Set([...TEAM_KB_TYPES, ...entries.map(k => k.kind)])];
+    paint(el, `<div class="row"><span class="grow small faint">Durable facts the team and ${esc(Team.home.agent.name)} rely on. ${curator ? "You keep them right here." : "The project's owner and curators keep them right."}</span><button class="link" data-kb-export>Export</button></div>
+      ${entries.length ? `<ul class="team-kb">${entries.map(k => kbEntryHtml(k, entries, n => this.name(n), curator)).join("")}</ul>` : `<p class="empty">Nothing recorded yet. ${esc(Team.home.agent.name)} adds what it learns here, and you can too.</p>`}
+      ${Team.home.role === "guest" ? "" : `<form data-new-entry class="team-kb-new"><select aria-label="Type">${types.map(t => `<option>${esc(t)}</option>`).join("")}</select><textarea rows="2" placeholder="Something the team should know" aria-label="Statement"></textarea><div class="row"><button class="primary">Add</button></div></form>`}`);
   },
 
   /** A task moved, shown at once. */
@@ -223,7 +244,14 @@ const TeamPanel = {
       e.preventDefault();
       const statement = $("textarea", f).value.trim();
       if (!statement) return;
-      try { await api("POST", `/v1/workspaces/${enc(s.ws)}/knowledge`, { statement, project: s.id }); this.knowledge(); } catch (err) { toast(err.message); }
+      try { await api("POST", `/v1/workspaces/${enc(s.ws)}/knowledge`, { statement, kind: $("select", f)?.value || undefined, project: s.id }); this.knowledge(); } catch (err) { toast(err.message); }
+    }
+    if (f.matches("[data-entry-fix]")) {
+      e.preventDefault();
+      const statement = $("input", f).value.trim(), id = f.closest("[data-entry]").dataset.entry;
+      if (!statement) return;
+      try { await api("POST", `/v1/workspaces/${enc(s.ws)}/knowledge/${enc(id)}/correct`, { statement }); toast("Corrected."); } catch (err) { toast(err.message); }
+      this.knowledge();
     }
     if (f.matches("[data-project-add]")) {
       e.preventDefault();
@@ -247,8 +275,14 @@ const TeamPanel = {
       if (t.closest("[data-file-delete]") && await ask(`Delete ${file}?`, "Delete")) { await api("DELETE", at); await this.refresh(); }
       if (t.closest("[data-entry-flag]")) {
         const why = prompt("What is wrong with it?");
-        if (why) { await api("POST", `${kat}/flag`, { why }); toast("Flagged."); }
+        if (why) { await api("POST", `${kat}/flag`, { why }); toast("Flagged."); this.knowledge(); }
       }
+      if (t.closest("[data-entry-correct]")) {
+        const li = t.closest("[data-entry]"), was = s.entries?.find(x => x.id === entry)?.statement || "";
+        paint($(".team-kb-head .grow", li), `<form data-entry-fix class="row"><input aria-label="Corrected statement" value="${esc(was)}"><button class="primary">Save</button></form>`);
+        $("[data-entry-fix] input", li)?.focus();
+      }
+      if (t.closest("[data-kb-export]")) await Magnus.download(`/v1/workspaces/${enc(s.ws)}/knowledge/export`, "knowledge.json");
       if (t.closest("[data-entry-retire]") && await ask("Retire this entry?", "Retire")) { await api("POST", `${kat}/retire`, {}); this.knowledge(); }
       if (t.closest("[data-project-drop]")) {
         const members = s.data.project.members.filter(m => m !== t.closest("[data-project-drop]").dataset.projectDrop);

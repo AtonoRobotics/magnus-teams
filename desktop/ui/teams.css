@@ -96,6 +96,13 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-task { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px; cursor: grab; }
 .team-col input { width: 100%; }
 .team-drop { display: block; margin-top: 12px; padding: 16px; border: 2px dashed var(--line); border-radius: 10px; text-align: center; }
+.team-kb { list-style: none; padding: 0; margin: 8px 0; }
+.team-kb li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.team-kb-head { display: flex; gap: 8px; align-items: center; }
+.team-kb-head .grow { flex: 1; }
+.team-kb-head form input { flex: 1; }
+.team-kb-new { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.team-kb-new select { align-self: flex-start; }
 .team-invite { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
 .team-command { width: min(640px, 92vw); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--raised, var(--surface)); color: var(--fg); box-shadow: var(--shadow); }
 .team-command input { width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--line); font-size: 16px; background: none; color: var(--fg); }
