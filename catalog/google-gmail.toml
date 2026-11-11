@@ -113,3 +113,14 @@ read = "search_threads"
 input = "query"
 query = "in:sent to:{address}"
 found = "/threads"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the inbox's threads of
+# the last two days, every five minutes. A thread's snippet is its newest
+# message's, so a reply wakes like a new thread.
+[[watch]]
+tool = "search_threads"
+items = "/threads"
+id = "thread_id+snippet"
+poll_minutes = 5
+input = { query = "in:inbox newer_than:2d", max_results = 50 }

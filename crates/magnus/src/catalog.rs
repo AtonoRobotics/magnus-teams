@@ -105,6 +105,10 @@ pub struct Manifest {
     /// How the gate asks whether the person has mailed an address before.
     #[serde(default)]
     pub sent: Option<crate::config::SentSearch>,
+    /// The reads that tell Magnus of something new in the app, polled on
+    /// their interval once a person connects it (`watch_reads`).
+    #[serde(default)]
+    pub watch: Vec<crate::config::Watch>,
 }
 
 fn pkce_on() -> bool {
@@ -188,7 +192,7 @@ pub fn connector(m: &Manifest) -> Connector {
         handoff: m.handoff.clone(),
         destinations: m.destinations.clone(),
         sent: m.sent.clone(),
-        watch: vec![],
+        watch: m.watch.clone(),
     }
 }
 
@@ -238,6 +242,18 @@ mod tests {
         for p in ["google", "microsoft", "github", "vercel", "slack", "sentry"] {
             let c = super::client(p).unwrap_or_else(|| panic!("{p}"));
             assert!(c.client_id.as_deref().is_some_and(|i| !i.is_empty()) && ["desktop", "confidential", "public"].contains(&c.kind.as_str()), "{p}: {c:?}");
+        }
+    }
+
+    /// The apps people are most woken by tell Magnus of something new
+    /// without anyone reading them: each polls a watched read, and the
+    /// connector made from it carries the watch.
+    #[test]
+    fn the_main_apps_poll_a_watched_read() {
+        for id in ["google-gmail", "google-calendar", "google-drive", "google-chat", "microsoft-outlook", "slack", "github"] {
+            let m = super::manifest(id).unwrap_or_else(|| panic!("{id}"));
+            assert!(m.watch.iter().any(|w| w.poll_minutes.is_some()), "{id} polls nothing");
+            assert_eq!(super::connector(m).watch, m.watch, "{id}");
         }
     }
 
@@ -306,6 +322,8 @@ mod tests {
         if let Some(s) = &m.sent {
             assert_eq!(s.fault(|t| m.tools.get(t).cloned()), None, "{}", m.id);
         }
+        assert_eq!(crate::watch_reads::fault(&m.id, &m.watch, |t| m.tools.get(t).cloned()), None);
+        assert!(m.watch.iter().all(|w| !w.items.is_empty()), "{}: an app's answer is an object: its items are in it", m.id);
         // What the Library shows: a category chip, abilities, a plain line
         // for every scope asked for, and never a protocol word.
         assert!(super::CATEGORIES.contains(&m.category.as_str()), "{}: category {}", m.id, m.category);

@@ -7,7 +7,8 @@
 //! the tests use to see one per person, reused, and stopped. `send` posts
 //! to its provider and answers with what the provider answered, checked
 //! against its output schema by the kit; `send_unchecked` does the same,
-//! its answer unchecked, as a broken server's would be.
+//! its answer unchecked, as a broken server's would be. `list` answers
+//! with the items the provider lists at a path, as a watched read does.
 
 use magnus_brokered_kit::{answer, exchange, https, Failure, Tool, MCP_PORT, PROXY_PORT, TOKEN_META};
 use serde_json::{json, Value};
@@ -31,6 +32,13 @@ fn fetch(a: &Value, token: &str) -> Result<Value, Failure> {
     let host = s(a, "host");
     let r = exchange(https(&host)?, "GET", &host, &s(a, "path"), token, None)?;
     Ok(json!({ "status": r.status, "body": String::from_utf8_lossy(&r.body), "instance": instance() }))
+}
+
+fn list(a: &Value, token: &str) -> Result<Value, Failure> {
+    let host = s(a, "host");
+    let r = exchange(https(&host)?, "GET", &host, &s(a, "path"), token, None)?;
+    let items: Value = serde_json::from_slice(&r.body).map_err(|e| e.to_string())?;
+    Ok(json!({ "items": items }))
 }
 
 fn probe(a: &Value, _: &str) -> Result<Value, Failure> {
@@ -106,6 +114,13 @@ fn main() {
             input: json!({ "type": "object", "properties": {} }),
             output: json!({ "type": "object", "required": ["token"] }),
             run: leak,
+        },
+        Tool {
+            name: "list",
+            description: "List the items the provider has at a path.",
+            input: host.clone(),
+            output: json!({ "type": "object", "required": ["items"], "properties": { "items": { "type": "array" } } }),
+            run: list,
         },
         Tool { name: "send", description: "Post to the provider and answer with what it answered.", input: host.clone(), output: sent.clone(), run: send },
         Tool { name: UNCHECKED, description: "Post to the provider and answer with what it answered, unchecked.", input: host, output: sent, run: send },

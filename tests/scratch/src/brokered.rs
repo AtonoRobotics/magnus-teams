@@ -142,6 +142,9 @@ pub struct ProviderApi {
     pub seen: Arc<Mutex<Vec<(String, String)>>>,
     pub raw: Arc<Mutex<Vec<u8>>>,
     pub ca: Arc<TestCa>,
+    /// What the provider lists at `/items`, a JSON array (the test
+    /// server's `list` reads it).
+    pub items: Arc<Mutex<String>>,
 }
 
 impl ProviderApi {
@@ -156,7 +159,12 @@ impl ProviderApi {
 
     async fn serve(tls: bool) -> ProviderApi {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        async fn answer(mut s: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, seen: &Mutex<Vec<(String, String)>>, raw: Option<&Mutex<Vec<u8>>>) {
+        async fn answer(
+            mut s: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+            seen: &Mutex<Vec<(String, String)>>,
+            raw: Option<&Mutex<Vec<u8>>>,
+            items: &Mutex<String>,
+        ) {
             let mut got = vec![];
             let mut b = [0u8; 4096];
             while !got.windows(4).any(|w| w == b"\r\n\r\n") {
@@ -186,6 +194,7 @@ impl ProviderApi {
             let body = match path.as_str() {
                 "/json/named-by-token" => format!(r#"{{"id":"sent","{}":true}}"#, auth.trim_start_matches("Bearer ")),
                 p if p.starts_with("/json/") => r#"{"done":true}"#.to_string(),
+                "/items" => items.lock().map(|i| i.clone()).unwrap_or_default(),
                 _ => "hello from the provider".to_string(),
             };
             seen.lock().unwrap().push((path, auth));
@@ -197,24 +206,25 @@ impl ProviderApi {
         let (seen, raw): (Arc<Mutex<Vec<(String, String)>>>, Arc<Mutex<Vec<u8>>>) = Default::default();
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let host = l.local_addr().unwrap().to_string();
-        let (s2, r2) = (seen.clone(), raw.clone());
+        let items = Arc::new(Mutex::new("[]".to_string()));
+        let (s2, r2, i2) = (seen.clone(), raw.clone(), items.clone());
         tokio::spawn(async move {
             while let Ok((tcp, _)) = l.accept().await {
-                let (acceptor, seen, raw) = (acceptor.clone(), s2.clone(), r2.clone());
+                let (acceptor, seen, raw, items) = (acceptor.clone(), s2.clone(), r2.clone(), i2.clone());
                 tokio::spawn(async move {
                     if !tls {
-                        return answer(tcp, &seen, Some(&raw)).await;
+                        return answer(tcp, &seen, Some(&raw), &items).await;
                     }
                     let mut first = [0u8; 4096];
                     let n = tcp.peek(&mut first).await.unwrap_or(0);
                     raw.lock().unwrap().extend_from_slice(&first[..n]);
                     if let Ok(s) = acceptor.accept(tcp).await {
-                        answer(s, &seen, None).await;
+                        answer(s, &seen, None, &items).await;
                     }
                 });
             }
         });
-        ProviderApi { host, seen, raw, ca }
+        ProviderApi { host, seen, raw, ca, items }
     }
 }
 

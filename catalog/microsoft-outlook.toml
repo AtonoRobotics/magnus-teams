@@ -77,3 +77,13 @@ id = "draft_id"
 recipients = ["/message/to", "/message/cc", "/message/bcc"]
 content = ["/message/subject", "/message/body", "/message/attachments"]
 bound = ["/message/digest"]
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the inbox's newest
+# messages, every five minutes.
+[[watch]]
+tool = "list_messages"
+items = "/messages"
+id = "message_id"
+poll_minutes = 5
+input = { folder = "inbox", max_results = 25 }

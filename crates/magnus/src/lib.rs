@@ -98,4 +98,5 @@ pub mod ui_actions;
 pub mod unattended;
 pub mod update;
 pub mod vault;
+pub mod watch_reads;
 pub mod web;

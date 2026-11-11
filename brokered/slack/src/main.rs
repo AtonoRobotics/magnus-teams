@@ -112,7 +112,10 @@ fn search_messages(a: &Value, t: &str) -> Result<Value, Failure> {
         return Err("Say what to search for.".to_string().into());
     }
     let page = a["page"].as_u64().unwrap_or(1).clamp(1, 100);
-    let path = format!("/api/search.messages?query={}&count={}&page={page}", enc(&q), limit(a));
+    let mut path = format!("/api/search.messages?query={}&count={}&page={page}", enc(&q), limit(a));
+    if a["newest_first"] == true {
+        path.push_str("&sort=timestamp&sort_dir=desc");
+    }
     let r = slack("GET", &path, t, None, false, &["search:read"])?;
     Ok(json!({
         "messages": r["messages"]["matches"].as_array().into_iter().flatten().map(search_row).collect::<Vec<_>>(),
@@ -234,8 +237,8 @@ fn tools() -> Vec<Tool> {
     vec![
         tool(
             "search_messages",
-            "Search the person's Slack messages.",
-            obj(json!({ "query": st, "max_results": n, "page": n }), &["query"]),
+            "Search the person's Slack messages, best match first, or newest first when newest_first is true.",
+            obj(json!({ "query": st, "max_results": n, "page": n, "newest_first": { "type": "boolean" } }), &["query"]),
             obj(
                 json!({ "messages": { "type": "array", "items": msg }, "total": { "type": ["integer", "null"] }, "page": { "type": ["integer", "null"] }, "pages": { "type": ["integer", "null"] } }),
                 &["messages"],

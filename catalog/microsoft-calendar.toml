@@ -21,7 +21,7 @@ tint = "#0F6CBD"
 # own that reaches only Graph, and people sign in at Microsoft, through
 # "organizations", from any organisation.
 kind = "brokered"
-endpoint = "sha256:11fd6e6b0b2263cc385ac9b5ec6ceec65528b2789bd7acd981060f5b115a9f28"
+endpoint = "sha256:6f634fc7d7e1bd9e52d083c9b5c73553981e5cbc11cfffde9c70e1fb5ac81b82"
 hosts = ["graph.microsoft.com"]
 issuer = "https://login.microsoftonline.com/organizations/v2.0"
 # Events and answers reach their attendees, who may be anyone.
@@ -50,3 +50,14 @@ get_event = "read"
 create_event = "irreversible"
 update_event = "irreversible"
 respond_to_event = "irreversible"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the events and series
+# changed in the last day, every fifteen minutes: an invitation, a move or
+# a cancellation wakes.
+[[watch]]
+tool = "list_events"
+items = "/events"
+id = "event_id+changed"
+poll_minutes = 15
+input = { changed_since = "{now-1d}" }

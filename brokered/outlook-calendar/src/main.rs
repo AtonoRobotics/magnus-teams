@@ -43,7 +43,7 @@ fn event(e: &Value) -> Value {
         "time_zone": e["start"]["timeZone"], "all_day": e["isAllDay"] == true, "cancelled": e["isCancelled"] == true,
         "organizer": e["organizer"]["emailAddress"]["address"], "is_organizer": e["isOrganizer"] == true,
         "my_response": e["responseStatus"]["response"], "attendees": attendees,
-        "series_id": e["seriesMasterId"], "online_meeting": e["onlineMeeting"]["joinUrl"], "link": e["webLink"],
+        "series_id": e["seriesMasterId"], "online_meeting": e["onlineMeeting"]["joinUrl"], "link": e["webLink"], "changed": e["lastModifiedDateTime"],
     })
 }
 
@@ -111,6 +111,19 @@ fn list_calendars(_: &Value, t: &str) -> Result<Value, Failure> {
 fn list_events(a: &Value, t: &str) -> Result<Value, Failure> {
     let path = match a["page_token"].as_str().filter(|p| !p.is_empty()) {
         Some(p) => page(p, ME)?,
+        // Changed since a time: each event or series as a whole, newest
+        // change first (Graph's calendar view cannot filter by change).
+        None if !s(a, "changed_since").is_empty() => {
+            let pairs = [
+                ("$filter", Some(format!("lastModifiedDateTime ge {}", s(a, "changed_since")))),
+                ("$orderby", Some("lastModifiedDateTime desc".to_string())),
+                ("$top", opt_num(a, "max_results").or(Some(PAGE_SIZE_DEFAULT.to_string()))),
+            ];
+            format!("{}events{}", cal(a), query(&pairs))
+        }
+        None if s(a, "start_time").is_empty() || s(a, "end_time").is_empty() => {
+            return Err("Name start_time and end_time, or changed_since.".to_string().into());
+        }
         None => {
             let pairs = [
                 ("startDateTime", Some(s(a, "start_time"))),
@@ -178,8 +191,8 @@ fn tools() -> Vec<Tool> {
         ),
         tool(
             "list_events",
-            "List the events on a calendar (the person's own unless named) between two times, such as 2026-11-04T00:00:00Z, in order, each meeting of a series apart. Times come back in UTC.",
-            obj(json!({ "calendar_id": st, "start_time": st, "end_time": st, "max_results": n, "page_token": st }), &["start_time", "end_time"]),
+            "List the events on a calendar (the person's own unless named) between two times, such as 2026-11-04T00:00:00Z, in order, each meeting of a series apart; or, given changed_since instead, the events and series changed since that time, newest change first. Times come back in UTC.",
+            obj(json!({ "calendar_id": st, "start_time": st, "end_time": st, "changed_since": st, "max_results": n, "page_token": st }), &[]),
             obj(json!({ "events": { "type": "array", "items": ev }, "next_page_token": maybe }), &["events"]),
             list_events,
         ),

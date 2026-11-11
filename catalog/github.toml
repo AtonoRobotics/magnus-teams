@@ -122,3 +122,21 @@ search_users = "read"
 assign_copilot_to_issue = "financial"
 request_copilot_review = "financial"
 create_pull_request_with_copilot = "financial"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): open issues and pull requests
+# that involve the person or ask for their review, newest change first,
+# every fifteen minutes: a new one or a change to one wakes. GitHub's
+# server; its answer's shape is checked against the first poll.
+[[watch]]
+tool = "search_issues"
+items = "/items"
+id = "id+updated_at"
+poll_minutes = 15
+input = { query = "is:open involves:@me", sort = "updated", order = "desc", perPage = 20 }
+[[watch]]
+tool = "search_pull_requests"
+items = "/items"
+id = "id+updated_at"
+poll_minutes = 15
+input = { query = "is:open review-requested:@me", sort = "updated", order = "desc", perPage = 20 }

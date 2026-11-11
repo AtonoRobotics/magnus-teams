@@ -341,3 +341,14 @@ get_web_analytics = "read"
 search_vercel_documentation = "read"
 submit_feedback = "irreversible"
 use_vercel_cli = "irreversible"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): deployments that failed,
+# every fifteen minutes. Vercel's server; its answer's shape is checked
+# against the first poll.
+[[watch]]
+tool = "list_deployments"
+items = "/deployments"
+id = "uid"
+poll_minutes = 15
+input = { state = "ERROR", limit = 20 }

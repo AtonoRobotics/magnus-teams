@@ -54,3 +54,13 @@ upload_file = "reversible_write"
 # `self`: a new file in the person's own OneDrive reaches no one.
 [reach]
 upload_file = "self"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): what is in the top of
+# the person's OneDrive, every fifteen minutes: a file added or changed
+# there wakes (Graph's list of recent files is being retired).
+[[watch]]
+tool = "list_files"
+items = "/items"
+id = "item_id+modified"
+poll_minutes = 15

@@ -128,23 +128,6 @@ pub fn approval_reason(id: &str) -> String {
     format!("approval {id} waiting")
 }
 
-/// Item ids from a watched answer: the array at `items` (a JSON
-/// pointer, `""` for the answer itself), each item's `id` field.
-/// Anything misshapen yields nothing, and items without an id are
-/// skipped, never waked on (#369).
-fn watched_ids(data: &Value, items: &str, id: &str) -> Vec<String> {
-    let Some(list) = data.pointer(items).and_then(|v| v.as_array()) else {
-        return vec![];
-    };
-    list.iter()
-        .filter_map(|item| match &item[id] {
-            Value::String(s) => Some(s.clone()),
-            Value::Number(n) => Some(n.to_string()),
-            _ => None,
-        })
-        .collect()
-}
-
 impl crate::kernel::Kernel {
     /// Wake review runs whose time has come: cadence in working hours, once
     /// overnight, coming-up schedules, due commitments and stale approvals
@@ -301,7 +284,7 @@ impl crate::kernel::Kernel {
 
     pub(crate) async fn start_poll(self: &Arc<Self>, person: &str, app: &str, watch: &crate::config::Watch) {
         let budget = crate::task_budget::for_wake(&self.cfg.budget);
-        let text = format!("Poll {app}: call {app}__{} once with no arguments, then end the task. Do nothing else.", watch.tool);
+        let text = crate::watch_reads::poll_text(app, watch, Utc::now());
         match self.create_run("poll", person, text, vec![], crate::kernel::NewRun { budget: Some(budget), ..Default::default() }).await {
             Ok(_) => {
                 if let Err(e) = Self::emit_poll_mark(|| async {
@@ -358,10 +341,14 @@ impl crate::kernel::Kernel {
     /// diffs empty however large it is, and memory stays two answers
     /// deep. Every answer also restarts the poll clock (#413): a fresh
     /// read postpones the next poll, whoever made it.
-    pub(crate) async fn note_watched(self: &Arc<Self>, person: &str, app: &str, remote: &str, data: &Value) {
-        let watches: Vec<crate::config::Watch> = self.cfg.connectors.iter().find(|c| c.name == app).map(|c| c.watch.clone()).unwrap_or_default();
+    /// `watches` are those of the app the call went through, the
+    /// catalog's included: a catalog app's come with its manifest.
+    pub(crate) async fn note_watched(self: &Arc<Self>, person: &str, app: &str, remote: &str, watches: &[crate::config::Watch], data: &Value) {
         for w in watches.iter().filter(|w| w.tool == remote) {
-            let mut ids = watched_ids(data, &w.items, &w.id);
+            let Some(mut ids) = crate::watch_reads::ids(data, &w.items, &w.id) else {
+                tracing::warn!("{app}__{remote} answered with no items at {:?}: its watch does not match the answer", w.items);
+                continue;
+            };
             ids.sort();
             ids.dedup();
             // A fresh read postpones the next poll (#413). The start mark
@@ -623,15 +610,6 @@ mod tests {
 
     /// Watched ids come from the pointed array's id field; misshapen
     /// answers and id-less items yield nothing, never a wake (#369).
-    #[test]
-    fn watched_ids_reads_the_pointed_array() {
-        let data = serde_json::json!({ "messages": [{ "subject": "a" }, { "subject": "b" }, { "nope": true }, { "subject": 7 }] });
-        assert_eq!(watched_ids(&data, "/messages", "subject"), vec!["a", "b", "7"]);
-        assert!(watched_ids(&data, "/missing", "subject").is_empty());
-        assert!(watched_ids(&data, "", "subject").is_empty());
-        assert_eq!(watched_ids(&serde_json::json!([{ "id": "x" }]), "", "id"), vec!["x"]);
-    }
-
     /// Windows hold across midnight; garbage falls back to defaults.
     #[test]
     fn hours_windows_and_fallbacks() {

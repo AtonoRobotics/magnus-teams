@@ -36,3 +36,15 @@ read_file_content = "read"
 download_file_content = "read"
 create_file = "reversible_write"
 copy_file = "reversible_write"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the files changed most
+# lately, by anyone, every fifteen minutes: one changed or shared that was
+# not among them before wakes. Google's server; its answer's shape is
+# checked against the first poll (a mismatch is logged).
+[[watch]]
+tool = "list_recent_files"
+items = "/files"
+id = "id"
+poll_minutes = 15
+input = { orderBy = "lastModified", pageSize = 20, excludeContentSnippets = true }

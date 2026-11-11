@@ -21,7 +21,7 @@ tint = "#2F5BD3"
 # commit by `brokered/build.sh`; each person's runs in a microVM of its own
 # that reaches only Google's API host, and people sign in at Google.
 kind = "brokered"
-endpoint = "sha256:451ebbcb0c8e9ee5145f0efa13f2e64d05c8c126983750675105e05b2f0e2586"
+endpoint = "sha256:0751000fee79d62dc3d2be53304602873825d165978b1f44f45018e19246884f"
 hosts = ["www.googleapis.com"]
 issuer = "https://accounts.google.com"
 # Events and replies reach their attendees, who may be anyone.
@@ -51,3 +51,14 @@ create_event = "irreversible"
 update_event = "irreversible"
 delete_event = "irreversible"
 respond_to_event = "irreversible"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the events to come that
+# changed in the last day, cancelled ones included, every fifteen minutes:
+# an invitation, a move or a cancellation wakes.
+[[watch]]
+tool = "list_events"
+items = "/events"
+id = "event_id+changed"
+poll_minutes = 15
+input = { start_time = "{now}", changed_since = "{now-1d}" }

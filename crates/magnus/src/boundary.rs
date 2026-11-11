@@ -1272,10 +1272,11 @@ impl Kernel {
                 Ok(o) => {
                     // A watched read answered: diff for new items that
                     // wake a review. Only watched tools pay for the
-                    // answer's clone (#369).
-                    if !o.is_error && self.cfg.connectors.iter().any(|c| c.name == f.app && c.watch.iter().any(|w| w.tool == f.remote)) {
+                    // answer's clone (#369). The app's own watches, the
+                    // catalog's included.
+                    if !o.is_error && c.watch.iter().any(|w| w.tool == f.remote) {
                         let data = o.structured.clone().or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null);
-                        self.note_watched(&person, &f.app, &f.remote, &data).await;
+                        self.note_watched(&person, &f.app, &f.remote, &c.watch, &data).await;
                     }
                     Ok(self.with_app_view(a, &c.url, bearer, &f.remote, o).await)
                 }

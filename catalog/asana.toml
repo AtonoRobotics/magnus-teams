@@ -111,3 +111,14 @@ create_project_preview = "prohibited"
 
 [reach]
 update_notifications = "self"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the person's incomplete
+# tasks, every fifteen minutes: one newly assigned wakes. Asana's server;
+# its answer's shape is checked against the first poll.
+[[watch]]
+tool = "get_my_tasks"
+items = "/data"
+id = "gid"
+poll_minutes = 15
+input = { completed_since = "now", limit = 100 }

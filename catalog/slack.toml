@@ -24,7 +24,7 @@ tint = "#4A154B"
 # Slack is given the appliance's public callback. The browser is sent on
 # to the desktop, which is listening at `handoff`.
 kind = "brokered"
-endpoint = "sha256:612896d71e5c0cd03358481d7fcb5a1a74cf7d015142565dd88860140feb8e84"
+endpoint = "sha256:1bef1b88ce01358d951d0abed8c2b3804e5bf2865af82268bbcd65f295b258fe"
 hosts = ["slack.com"]
 issuer = "https://mcp.slack.com"
 pkce = false
@@ -52,3 +52,13 @@ read_thread = "read"
 # Sent where other people see it, and not taken back.
 post_message = "irreversible"
 lookup_user = "read"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the newest messages sent to
+# the person, every five minutes.
+[[watch]]
+tool = "search_messages"
+items = "/messages"
+id = "channel_id+ts"
+poll_minutes = 5
+input = { query = "to:me", newest_first = true, max_results = 20 }

@@ -939,6 +939,9 @@ pub struct Watch {
     pub id: String,
     #[serde(default)]
     pub poll_minutes: Option<u64>,
+    /// A poll's arguments; `{now}`, `{now-1d}` read as times (`watch_reads`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<serde_json::Value>,
 }
 
 /// How the gate asks whether the person has mailed an address before, a

@@ -55,7 +55,7 @@ fn event(e: &Value) -> Value {
         "event_id": e["id"], "summary": e["summary"].as_str().unwrap_or_default(), "description": e["description"].as_str().unwrap_or_default(),
         "location": e["location"].as_str().unwrap_or_default(), "start": when(&e["start"]), "end": when(&e["end"]), "all_day": e["start"]["date"].is_string(),
         "time_zone": e["start"]["timeZone"], "status": e["status"], "organizer": e["organizer"]["email"], "attendees": attendees,
-        "recurring_event_id": e["recurringEventId"], "link": e["htmlLink"],
+        "recurring_event_id": e["recurringEventId"], "link": e["htmlLink"], "changed": e["updated"],
     })
 }
 
@@ -111,6 +111,7 @@ fn events(a: &Value, t: &str, q: Option<String>) -> Result<Value, Failure> {
         ("q", q),
         ("timeMin", a["start_time"].as_str().map(String::from)),
         ("timeMax", a["end_time"].as_str().map(String::from)),
+        ("updatedMin", a["changed_since"].as_str().map(String::from)),
         ("timeZone", a["time_zone"].as_str().map(String::from)),
         ("maxResults", opt_num(a, "max_results")),
         ("pageToken", a["page_token"].as_str().map(String::from)),
@@ -258,7 +259,7 @@ fn tools() -> Vec<Tool> {
     let maybe = json!({ "type": ["string", "null"] });
     let ev = json!({ "type": "object", "required": ["event_id", "summary", "start", "end", "attendees"] });
     let events = obj(json!({ "events": { "type": "array", "items": ev }, "next_page_token": maybe }), &["events"]);
-    let range = json!({ "calendar_id": st, "start_time": st, "end_time": st, "time_zone": st, "max_results": n, "page_token": st });
+    let range = json!({ "calendar_id": st, "start_time": st, "end_time": st, "time_zone": st, "max_results": n, "page_token": st, "changed_since": st });
     let mut search = range.clone();
     search["query"] = st.clone();
     let one = obj(json!({ "event_id": st, "calendar_id": st }), &["event_id"]);
@@ -274,7 +275,7 @@ fn tools() -> Vec<Tool> {
             obj(json!({ "calendars": { "type": "array" }, "more": yes }), &["calendars"]),
             list_calendars,
         ),
-        tool("list_events", "List the events on a calendar (the person's own unless named) between two times, RFC 3339, in order.", obj(range, &[]), events.clone(), list_events),
+        tool("list_events", "List the events on a calendar (the person's own unless named) between two times, RFC 3339, in order; only those changed since a time, cancelled ones included, when changed_since names one.", obj(range, &[]), events.clone(), list_events),
         tool(
             "search_events",
             "Find events whose words match, on a calendar (the person's own unless named), between two times if given.",

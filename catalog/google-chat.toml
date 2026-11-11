@@ -21,7 +21,7 @@ tint = "#1A7F64"
 # each person's runs in a microVM of its own that reaches Chat's API and
 # Google's UserInfo endpoint, used only to verify ownership before deletion.
 kind = "brokered"
-endpoint = "sha256:f7b72163f99a1d27469965ae176a10de3530a4edb2395cce82e45f35d1e51adf"
+endpoint = "sha256:d856a30c82047863004709fc2bad43ee29cff002ec73be728457df36ce0a42aa"
 hosts = ["chat.googleapis.com", "openidconnect.googleapis.com"]
 issuer = "https://accounts.google.com"
 # Messages reach a conversation's members, who may be outside the organisation.
@@ -54,3 +54,13 @@ get_message = "read"
 send_message = "irreversible"
 update_message = "irreversible"
 delete_message = "irreversible"
+
+# What tells Magnus of something new here without anyone reading it
+# (decisions/2026-11-10-catalog-watched-reads.md): the person's spaces and
+# direct messages, each with when it last had a message, every five
+# minutes: a new message anywhere wakes.
+[[watch]]
+tool = "search_conversations"
+items = "/spaces"
+id = "space_id+last_active"
+poll_minutes = 5

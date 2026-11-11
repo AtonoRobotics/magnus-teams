@@ -49,7 +49,7 @@ fn message(m: &Value) -> Value {
 }
 
 fn space(sp: &Value) -> Value {
-    json!({ "space_id": sp["name"], "name": sp["displayName"].as_str().unwrap_or_default(), "type": sp["spaceType"], "external": sp["externalUserAllowed"] == true })
+    json!({ "space_id": sp["name"], "name": sp["displayName"].as_str().unwrap_or_default(), "type": sp["spaceType"], "external": sp["externalUserAllowed"] == true, "last_active": sp["lastActiveTime"] })
 }
 
 fn search_conversations(a: &Value, t: &str) -> Result<Value, Failure> {
@@ -196,7 +196,7 @@ fn tools() -> Vec<Tool> {
     vec![
         tool(
             "search_conversations",
-            "List the person's spaces, group conversations and direct messages, those whose name has the words if given.",
+            "List the person's spaces, group conversations and direct messages, each with when it last had a message, those whose name has the words if given.",
             obj(json!({ "query": st, "max_results": n, "page_token": st }), &[]),
             obj(json!({ "spaces": { "type": "array" }, "next_page_token": { "type": ["string", "null"] } }), &["spaces"]),
             search_conversations,
