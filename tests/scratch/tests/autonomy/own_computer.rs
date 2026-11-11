@@ -1,8 +1,8 @@
-//! 8. The agent uses its computer with nobody having set one up (spec rev
-//! 142, "One computer, always there"). Part of the autonomy suite, kept in
-//! its own file for size: `cargo test -p magnus-scratch --test autonomy`.
-//! Needs a real `magnus-computerd` (KVM, the guest images, passwordless
-//! sudo), as on Strix Beta.
+//! Scenario 8: the agent uses its computer with nobody having set one up
+//! (spec rev 142, "One computer, always there"). Part of the autonomy suite,
+//! kept in its own file for size: `cargo test -p magnus-scratch --test
+//! autonomy`. Needs a real `magnus-computerd` (KVM, the guest images,
+//! passwordless sudo), as on Strix Beta.
 
 use super::*;
 
