@@ -683,9 +683,16 @@ section.conv #composer, section.conv #banners { max-width: 728px; padding-left: 
 .activity-views a { min-height: 44px; padding: 10px 12px; display: inline-flex; align-items: center; }
 .activity-views a[aria-current=page] { font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
 @media (any-pointer: coarse) { .icon-btn, button, nav.side a, .workspace-selectors button, .navigation-flyout a { min-width: 44px; min-height: 44px; } }
-body.short-viewport .shell > main:has(> section.conv) { overflow-y: auto; }
-body.short-viewport section.conv { min-height: 420px; height: auto; }
-body.short-viewport section.conv .thread { max-height: 50vh; flex: 1 0 120px; }
+/* A short viewport is usually a phone with its keyboard open: the
+   conversation stays a column, the thread gives up the height, and the
+   composer stays at the bottom, just above the keyboard. While writing, the
+   header steps aside for the thread. The shell follows the visible part of
+   the page (--workspace-top), which iOS pans when its keyboard opens. */
+.shell { position: relative; top: var(--workspace-top, 0px); }
+body.short-viewport section.conv .thread { flex: 1 1 0; min-height: 0; padding-top: 8px; padding-bottom: 8px; }
+body.short-viewport section.conv:has(#composer:focus-within) > .conv-head { display: none; }
+body.short-viewport section.conv:has(#composer:focus-within) > #banners { flex: none; max-height: 44px; overflow-y: auto; }
+body.short-viewport #composer { padding-top: 4px; padding-bottom: 8px; }
 @media (max-width: 400px) { .conv-head { flex-wrap: wrap; gap: 8px; } .conv-head .row { margin-left: auto; } .detail-head { padding: 16px; } .detail-body { padding: 0 16px 16px; } .workspace-bar { gap: 0; padding: 0 4px; } .workspace-selectors button { padding: 0 8px; } }
 html[data-motion] aside.detail.opening { animation: none; }
 [hidden] { display: none !important; }

@@ -10,6 +10,7 @@
    than wraps, and the bar stays for an admin inside a team workspace too. */
 .workspace-bar .admin-kill { flex-wrap: nowrap; overflow-x: auto; max-width: 60%; }
 .workspace-bar .admin-kill button { white-space: nowrap; min-height: 32px; padding: 0 10px; }
+@media (any-pointer: coarse) { .workspace-bar .admin-kill button { min-height: 44px; min-width: 44px; } }
 body[data-team][data-admin-bar]:not([data-navigation=drawer]) .workspace-bar { display: flex; }
 body[data-team][data-admin-bar]:not([data-navigation=drawer]) .shell > main { grid-row: 2; }
 .admin-sub { display: flex; gap: 4px; flex-wrap: wrap; margin: 16px 0; border-bottom: 1px solid var(--line); }
