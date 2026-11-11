@@ -99,6 +99,11 @@ pub enum Request {
         #[serde(default)]
         delete_volume: bool,
     },
+    /// A reset that erases the files: the same computer with a new, empty
+    /// volume. No path or size comes from the caller.
+    EraseVolume {
+        id: String,
+    },
     Status {
         id: String,
     },
@@ -170,6 +175,10 @@ pub fn dispatch(c: &Computers, req: Request) -> Result<Value> {
         }
         Request::Destroy { id: raw, delete_volume } => {
             c.destroy(&id(&raw)?, delete_volume)?;
+            json!({})
+        }
+        Request::EraseVolume { id: raw } => {
+            c.erase_volume(&id(&raw)?)?;
             json!({})
         }
         Request::Status { id: raw } => json!({ "state": c.status(&id(&raw)?)? }),

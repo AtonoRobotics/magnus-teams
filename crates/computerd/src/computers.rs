@@ -370,6 +370,23 @@ impl Computers {
         }
     }
 
+    /// A reset that erases the person's files (spec rev 142): the same
+    /// computer, its id and its user, rebuilt from the base image on its next
+    /// start, with a new, empty volume. The old volume and its backups go
+    /// now, as a deleted computer's do.
+    pub fn erase_volume(&self, id: &ComputerId) -> Result<()> {
+        let meta = self.meta(id)?;
+        self.destroy(id, false)?;
+        let _lock = self.lock()?;
+        {
+            let _one_at_a_time = self.backing_up.lock().unwrap_or_else(|e| e.into_inner());
+            remove_if_there(&self.state("backups").join(id.as_str()))?;
+        }
+        let volume = self.computer(id).join(VOLUME);
+        remove_file_if_there(&volume)?;
+        make_drive(&volume, self.cfg.vm.volume_gib, meta.uid, VOLUME_LABEL)
+    }
+
     /// Blocks new starts, then stops every computer.
     pub fn kill_all(&self) -> Result<usize> {
         std::fs::write(self.halted_marker(), "").context("mark the computers halted")?;
@@ -584,6 +601,33 @@ mod tests {
         assert!(!state.path().join("backups/abc").exists(), "a deleted computer's backups were kept");
         assert!(!state.path().join("computers/abc").exists());
         assert!(state.path().join("backups/abd/key").exists(), "another computer's backups went");
+    }
+
+    #[test]
+    fn erasing_the_volume_keeps_the_computer_and_empties_its_files() {
+        use std::os::unix::fs::MetadataExt;
+        let state = tempfile::tempdir().unwrap();
+        let mut cfg = config();
+        cfg.state_dir = state.path().into();
+        cfg.vm.volume_gib = 1;
+        let mut c = Computers::new(cfg);
+        c.cgroups = state.path().join("no-cgroups");
+        let uid = std::fs::metadata(state.path()).unwrap().uid();
+        let id = ComputerId::parse("abc").unwrap();
+        let dir = c.computer(&id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("meta.json"), json!({ "uid": uid }).to_string()).unwrap();
+        std::fs::write(dir.join(OVERLAY), b"system").unwrap();
+        std::fs::write(dir.join(VOLUME), b"the person's files").unwrap();
+        std::fs::create_dir_all(state.path().join("backups/abc")).unwrap();
+        std::fs::write(state.path().join("backups/abc/key"), b"k").unwrap();
+        c.erase_volume(&id).unwrap();
+        assert!(dir.join("meta.json").exists(), "the computer itself went");
+        assert!(!dir.join(OVERLAY).exists(), "the old system was kept");
+        assert!(!state.path().join("backups/abc").exists(), "the erased files' backups were kept");
+        let fresh = std::fs::read(dir.join(VOLUME)).unwrap();
+        assert!(!fresh.windows(18).any(|w| w == b"the person's files"), "the old files are still on the volume");
+        assert_eq!(std::fs::metadata(dir.join(VOLUME)).unwrap().len(), BYTES_PER_GIB, "the new volume is not the configured size");
     }
 
     #[test]
