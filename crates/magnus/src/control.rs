@@ -1,10 +1,10 @@
-//! The kernel's control socket (admin console spec, Server and API): how
-//! the admin console reaches the kernel for what only the kernel may do,
-//! a local Unix socket in the appliance's state, readable and writable by
-//! the appliance's own user alone. Nothing reaches it over the network.
-//!
-//! Its first use is the audit log: every console action is written to the
-//! event log by the kernel, its one writer, before the console answers.
+//! The kernel's control socket: a local Unix socket in the server's state,
+//! readable and writable by the server's own user alone, that `magnus kill`
+//! uses when the app or sign-in is broken. Nothing reaches it over the
+//! network. The app's Admin section calls the same routes in-process
+//! (`admin_app::mount`), as the signed-in admin, so an admin change has one
+//! implementation and one audit entry (spec rev 141, Administration). The
+//! console these routes were built for is retired.
 
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -66,7 +66,6 @@ pub(crate) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/admin/policy/apply", post(policy_apply))
         .route("/v1/admin/policy/test", post(policy_test))
         .route("/v1/admin/policy/history", axum::routing::get(policy_history))
-        .route("/v1/admin/console-settings", axum::routing::get(console_settings).put(set_console_settings))
         .route("/v1/admin/modules", axum::routing::get(modules))
         .route("/v1/admin/modules/{name}", post(set_module))
         .route("/v1/admin/providers", axum::routing::get(providers))
@@ -76,20 +75,9 @@ pub(crate) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/admin/updates/install", post(install_update))
         .route("/v1/admin/updates/rollback", post(roll_back_update))
         .route("/v1/admin/updates/desktop-channel", axum::routing::put(desktop_channel))
-        .route("/v1/admin/knowledge", axum::routing::get(knowledge_list))
-        .route("/v1/admin/knowledge/doc", axum::routing::get(knowledge_doc).post(knowledge_write).delete(knowledge_remove))
-        .route("/v1/admin/knowledge/version", axum::routing::get(knowledge_version))
-        .route("/v1/admin/knowledge/rollback", post(knowledge_rollback))
-        .route("/v1/admin/knowledge/merge", post(knowledge_merge))
-        .route("/v1/admin/knowledge/activity", axum::routing::get(knowledge_activity))
-        .route("/v1/admin/knowledge/activity/{seq}", axum::routing::get(knowledge_change))
-        .route("/v1/admin/knowledge/revert", post(knowledge_revert))
-        .route("/v1/admin/knowledge/assembled", axum::routing::get(knowledge_assembled))
         .route("/v1/admin/connectors", axum::routing::get(connectors).post(add_connector))
         .route("/v1/admin/connectors/{name}", axum::routing::patch(connector_settings).delete(remove_connector))
         .merge(crate::registrations::routes())
-        .route("/v1/admin/console-sign-in", post(console_sign_in))
-        .route("/v1/admin/console-standing/{person}", axum::routing::get(console_standing))
 }
 
 fn text(b: &Value, f: &str) -> Option<String> {
@@ -609,46 +597,6 @@ async fn sessions(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): axum::
     Json(json!({ "sessions": list })).into_response()
 }
 
-/// Check an admin's local console sign-in: password and code against the
-/// local store, on the console's own lockout counter. Answers ok only for
-/// an active admin; everyone else refuses alike, and a right password with
-/// a code still to come asks for it. Always 200: the verdict is data.
-/// Only the console calls this, over the control socket (#429).
-async fn console_sign_in(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let person = b["person"].as_str().unwrap_or_default().trim().to_lowercase();
-    let password = b["password"].as_str().unwrap_or_default();
-    let code = b["code"].as_str().map(str::trim).filter(|c| !c.is_empty());
-    let name = match k.person(&person) {
-        Some(p) => {
-            if p.name.is_empty() {
-                person.clone()
-            } else {
-                p.name.clone()
-            }
-        }
-        None => {
-            let _ = k.accounts.sign_in(&person, password).await;
-            return Json(json!({ "result": "refused" })).into_response();
-        }
-    };
-    let counter = crate::accounts::Accounts::console_counter(&person);
-    let admin = k.accounts.role(&person).await == crate::accounts::Role::Admin;
-    match k.accounts.sign_in_counted_with_code(&person, password, code, &counter).await {
-        Ok(Ok(_)) if admin => Json(json!({ "result": "ok", "name": name })).into_response(),
-        Ok(Err(crate::accounts::SignInError::NeedsCode)) if admin => Json(json!({ "result": "needs_code" })).into_response(),
-        Ok(Err(crate::accounts::SignInError::Locked(until))) => Json(json!({ "result": "locked", "retry_at": until })).into_response(),
-        Ok(_) => Json(json!({ "result": "refused" })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),
-    }
-}
-
-/// Whether `person` still holds the console: here, active and an admin.
-/// The guard asks on its refresh round (#429).
-async fn console_standing(State(k): State<Arc<Kernel>>, axum::extract::Path(person): axum::extract::Path<String>) -> Response {
-    let ok = k.person(&person).is_some() && k.accounts.status(&person).await == crate::accounts::Status::Active && k.accounts.role(&person).await == crate::accounts::Role::Admin;
-    Json(json!({ "ok": ok })).into_response()
-}
-
 pub(crate) fn actor(b: &Value) -> Option<String> {
     text(b, "actor")
 }
@@ -823,27 +771,6 @@ async fn policy_history(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<St
     Json(json!({ "versions": k.policy_history(q.get("layer").map(String::as_str).unwrap_or("org")) })).into_response()
 }
 
-/// The console's own session lifetimes, as an admin last set them.
-async fn console_settings(State(k): State<Arc<Kernel>>) -> Response {
-    Json(k.read(|s| s.console_settings.clone()).unwrap_or(json!({}))).into_response()
-}
-
-async fn set_console_settings(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return policy_refused((StatusCode::BAD_REQUEST, "name who sets them".into())) };
-    let now = k.read(|s| s.console_settings.clone()).unwrap_or(json!({}));
-    let idle = b["idle_minutes"].as_i64().or(now["idle_minutes"].as_i64()).unwrap_or(30);
-    let hours = b["session_hours"].as_i64().or(now["session_hours"].as_i64()).unwrap_or(12);
-    let allow: Option<Vec<String>> = b
-        .get("allow")
-        .and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-        .or_else(|| serde_json::from_value(now["allow"].clone()).ok());
-    match k.emit(&actor, Ev::ConsoleSettings { idle_minutes: idle, session_hours: hours, allow: allow.clone() }).await {
-        Ok(_) => Json(json!({ "idle_minutes": idle, "session_hours": hours, "allow": allow })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),
-    }
-}
-
 // Operations (admin console spec): the run modules, the model providers and
 // the updates, as the kernel's own operations.
 
@@ -917,77 +844,4 @@ async fn roll_back_update(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) ->
 async fn desktop_channel(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
     let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who sets it".into())) };
     ops(k.set_desktop_channel(&actor, b["channel"].as_str().unwrap_or_default()).await)
-}
-
-// The organisation's knowledge (admin console spec, Knowledge), as the
-// kernel keeps it: the org context bundle. A change names the admin by
-// their provider `sub`, and is written as `human:<sub>`.
-
-fn know(r: Result<Value, crate::knowledge_admin::Refusal>) -> Response {
-    match r {
-        Ok(v) => Json(v).into_response(),
-        Err((st, m)) => (st, Json(json!({ "error": m }))).into_response(),
-    }
-}
-
-fn sub_of(b: &Value) -> Option<String> {
-    text(b, "sub").filter(|s| s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-}
-
-fn no_sub() -> Response {
-    (StatusCode::BAD_REQUEST, Json(json!({ "error": "name the admin" }))).into_response()
-}
-
-async fn knowledge_list(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    let kinds: Vec<&str> = q.get("kinds").map(|k| k.split(',').collect()).unwrap_or_default();
-    know(k.admin_bundle(&kinds).await.map(|d| json!({ "documents": d })))
-}
-
-async fn knowledge_doc(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    know(k.admin_bundle_doc(q.get("path").map(String::as_str).unwrap_or_default()).await)
-}
-
-async fn knowledge_version(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    let v = q.get("version").and_then(|v| v.parse().ok()).unwrap_or(0);
-    know(k.admin_bundle_version(q.get("path").map(String::as_str).unwrap_or_default(), v).await)
-}
-
-async fn knowledge_write(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(sub) = sub_of(&b) else { return no_sub() };
-    know(k.admin_bundle_write(&sub, b["path"].as_str().unwrap_or_default(), &b["frontmatter"], b["body"].as_str().unwrap_or_default()).await.map(|v| json!({ "version": v })))
-}
-
-async fn knowledge_remove(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(sub) = sub_of(&b) else { return no_sub() };
-    know(k.admin_bundle_remove(&sub, b["path"].as_str().unwrap_or_default()).await)
-}
-
-async fn knowledge_rollback(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(sub) = sub_of(&b) else { return no_sub() };
-    know(k.admin_bundle_rollback(&sub, b["path"].as_str().unwrap_or_default(), b["version"].as_u64().unwrap_or(0) as u32).await.map(|v| json!({ "version": v })))
-}
-
-async fn knowledge_merge(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(sub) = sub_of(&b) else { return no_sub() };
-    know(k.admin_merge_types(&sub, b["from"].as_str().unwrap_or_default(), b["into"].as_str().unwrap_or_default()).await)
-}
-
-async fn knowledge_activity(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    let limit = q.get("limit").and_then(|l| l.parse().ok()).unwrap_or(500);
-    know(k.admin_activity(q.get("agents").is_some_and(|a| a == "1"), limit).await.map(|c| json!({ "changes": c })))
-}
-
-async fn knowledge_change(State(k): State<Arc<Kernel>>, axum::extract::Path(seq): axum::extract::Path<i64>) -> Response {
-    know(k.admin_change(seq).await)
-}
-
-async fn knowledge_revert(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(sub) = sub_of(&b) else { return no_sub() };
-    let seqs: Vec<i64> = b["seqs"].as_array().into_iter().flatten().filter_map(Value::as_i64).collect();
-    know(k.admin_revert(&sub, &seqs).await)
-}
-
-async fn knowledge_assembled(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    let person = q.get("person").cloned().or_else(|| k.cfg.people.first().map(|p| p.id.clone())).unwrap_or_default();
-    know(k.admin_assembled(&person).await)
 }

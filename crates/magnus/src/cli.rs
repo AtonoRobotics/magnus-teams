@@ -79,7 +79,7 @@ async fn check(args: &[String]) -> Result<()> {
 async fn migrate(args: &[String]) -> Result<()> {
     let cfg = config(args)?;
     let admin = arg(args, "--admin-url").context("--admin-url is required")?;
-    crate::log::migrate(&admin, &cfg.database.url, cfg.admin.as_ref().and_then(|a| a.database_url.as_deref())).await?;
+    crate::log::migrate(&admin, &cfg.database.url, None).await?;
     // Once: the JSON accounts files into the new tables, so the cutover
     // keeps everyone signing in; a rerun changes nothing (#466).
     let mut kernel = crate::log::connect(&cfg.database.url).await?;

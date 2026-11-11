@@ -2,7 +2,7 @@
 
 ## Read first
 - `decisions/`, newest last: every choice since 2026-11-06 with its reason. `DECISIONS.md` and `PROGRESS.md` are the record before that.
-- `docs/`: connectors, the admin console, remote access, proposals and research. The product spec is the Magnus Agent Computer spec; where a document here disagrees with it, the spec wins.
+- `docs/`: connectors, the retired admin console, remote access, proposals and research. The product spec is the Magnus Agent Computer spec; where a document here disagrees with it, the spec wins.
 - `tests/invariants/`: the eight invariants as tests. `.claude/settings.json` denies edits to them. A change needs the owner.
 
 ## How work lands
@@ -37,4 +37,4 @@ When you must ask, ask once with your recommendation, and keep working on what d
 The reasons for each rule are in the Magnus Code Standard.
 
 ## Layout
-`crates/magnus` the kernel, `crates/adapter-*` model providers, `sandbox/` the VM guest and image, `brokered/` connector servers, `desktop/` the app and admin console, `catalog/` connector entries, `tests/` the invariants and the rest.
+`crates/magnus` the kernel, `crates/adapter-*` model providers, `sandbox/` the VM guest and image, `brokered/` connector servers, `desktop/` the app, its Admin section included, `catalog/` connector entries, `tests/` the invariants and the rest.

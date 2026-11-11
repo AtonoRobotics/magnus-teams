@@ -7,7 +7,6 @@
 
 pub mod accounts;
 pub mod adapters;
-pub mod admin;
 pub mod admin_app;
 pub mod api;
 pub mod app_tools;
@@ -46,7 +45,6 @@ pub mod inbox;
 pub mod issuers;
 pub mod kernel;
 pub mod knowledge;
-pub mod knowledge_admin;
 pub mod legacy_items;
 pub mod library;
 pub mod local;

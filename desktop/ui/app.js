@@ -3083,7 +3083,7 @@ async function modelsSection(main) {
 // ---------- Connectors: the organisation's apps (owner) ----------
 
 // The organisation's apps: the whole catalog, already set up, and any
-// server the admin added (in the admin console, never here). Nothing here
+// server the admin added (in Admin › Connectors, never here). Nothing here
 // asks for a client ID, secret or address (connectors spec rev 46, "What
 // the user sees"); each person connects from their Library, through its
 // connect screen, and no tool is reviewed on its own (spec rev 140). An

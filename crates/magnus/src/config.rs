@@ -9,9 +9,9 @@ pub use crate::mail_config::Mail;
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config {
     pub appliance: Appliance,
-    /// The admin console (`magnus-admin`), reachable only from the organisation's network or VPN.
+    /// `[admin]`, the retired console's (spec rev 141): still read, so a deployed config loads, and ignored.
     #[serde(default)]
-    pub admin: Option<Admin>,
+    pub admin: Option<toml::Value>,
     pub database: Database,
     pub model: Model,
     #[serde(default)]
@@ -118,85 +118,6 @@ pub struct Appliance {
     pub tls_key: Option<PathBuf>,
     /// The server's https address on the internet, where providers send notifications; unset, none are subscribed to.
     pub public_url: Option<crate::public_url::PublicUrl>,
-}
-
-/// The admin console's reach (admin console spec, Access): its hostname
-/// (requests naming anything else are not found), the appliance's addresses
-/// on the organisation's network to listen on (never every address, never
-/// loopback), the LAN and VPN subnets it takes connections from (never
-/// loopback), and the organisation's certificate for that hostname (TLS 1.3
-/// only).
-#[derive(Deserialize, Clone, Debug)]
-pub struct Admin {
-    pub hostname: String,
-    /// Other names the console answers to, on the same networks: the
-    /// machine's name on the VPN and its addresses, so the console opens
-    /// however a computer reaches the appliance (owner, 2026-11-02).
-    #[serde(default)]
-    pub aliases: Vec<String>,
-    pub listen: Vec<String>,
-    pub allow: Vec<String>,
-    pub tls_cert: PathBuf,
-    pub tls_key: PathBuf,
-    /// The organisation's name, shown in the console's top bar.
-    #[serde(default)]
-    pub org: Option<String>,
-    /// A session ends after this long unused, and after `session_hours`.
-    #[serde(default = "admin_idle_minutes")]
-    pub idle_minutes: u32,
-    #[serde(default = "admin_session_hours")]
-    pub session_hours: u32,
-    /// A step-up (a fresh password) counts this long.
-    #[serde(default = "admin_step_up_seconds")]
-    pub step_up_seconds: u32,
-    /// The kernel is asked again whether the admin is still one, and
-    /// still turned on, at least this often.
-    #[serde(default = "admin_refresh_seconds")]
-    pub refresh_seconds: u32,
-    /// The console's own database role (`postgres://magnus_root:…@…`):
-    /// past the walls between people, and only adding to the log, never
-    /// changing it. `magnus migrate` creates it.
-    #[serde(default)]
-    pub database_url: Option<String>,
-    /// Where the tunnel (cloudflared) says whether it is connected: its
-    /// metrics address's `/ready`, on this machine. None: no tunnel here.
-    #[serde(default)]
-    pub tunnel_ready: Option<String>,
-    /// The names the tunnel serves to the internet (the user API and the
-    /// realm), shown under Operations › Network; the console is never one.
-    #[serde(default)]
-    pub public_hostnames: Vec<String>,
-    /// A certificate browsers already trust, for `hostname` (admin console
-    /// spec, Access). `"tailscale"`: the machine's tailnet has it issued
-    /// (Let's Encrypt, by ACME DNS-01 under the tailnet's domain) into
-    /// `trusted_cert` and `trusted_key`, and the console renews it. The
-    /// console serves it to browsers naming `hostname`, and `tls_cert` (the
-    /// organisation's own CA's) to every other name, and to all of them
-    /// until it is issued. None: `tls_cert` is the organisation's, renewed
-    /// by it and read again on Operations › Network › Renew.
-    #[serde(default)]
-    pub trusted_via: Option<String>,
-    #[serde(default)]
-    pub trusted_cert: Option<PathBuf>,
-    #[serde(default)]
-    pub trusted_key: Option<PathBuf>,
-    /// The `tailscale` program, when not the one on the PATH.
-    #[serde(default)]
-    pub tailscale: Option<PathBuf>,
-}
-
-fn admin_step_up_seconds() -> u32 {
-    300
-}
-fn admin_refresh_seconds() -> u32 {
-    240
-}
-
-fn admin_idle_minutes() -> u32 {
-    30
-}
-fn admin_session_hours() -> u32 {
-    12
 }
 
 /// Sign-in for people's apps. Tunable values, not decisions (K51).
@@ -1053,6 +974,9 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)?;
         cfg.path = path.canonicalize()?;
         cfg.outcomes.check()?;
+        if cfg.admin.is_some() {
+            tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
+        }
         anyhow::ensure!(cfg.backup.keep_days >= 1, "[backup] keep_days must be at least 1: with 0 every backup is deleted as soon as it is made");
         if let Some(b) = &cfg.browser {
             for site in &b.allow {
@@ -1231,6 +1155,20 @@ mod tests {
         let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n[[connectors]]\nname = \"mail\"\naudience = \"public\"\nlabel = \"private+untrusted\"\n{connector}");
         std::fs::write(&p, text).unwrap();
         Config::load(&p)
+    }
+
+    /// The console is retired, and a server's config written for it still
+    /// loads: its `[admin]` section, every field the console read, is ignored.
+    #[test]
+    fn the_retired_consoles_section_still_loads() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("magnus.toml");
+        let admin = "[admin]\nhostname = \"admin.example\"\nlisten = [\"10.0.0.2:443\"]\nallow = [\"10.0.0.0/8\"]\ntls_cert = \"/c.pem\"\ntls_key = \"/k.pem\"\nidle_minutes = 30\ndatabase_url = \"postgres://magnus_root:x@h/m\"\ntrusted_via = \"tailscale\"\n";
+        let text = format!(
+            "[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{admin}"
+        );
+        std::fs::write(&p, text).unwrap();
+        assert!(Config::load(&p).unwrap().admin.is_some());
     }
 
     /// A brokered connector's calls carry no idempotency key, so it is

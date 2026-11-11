@@ -12,7 +12,6 @@ use axum::{
 };
 use magnus_invariants::appliance::bin;
 
-pub mod admin;
 pub mod brokered;
 pub mod catalog;
 mod checks;

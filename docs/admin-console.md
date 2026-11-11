@@ -1,4 +1,19 @@
-# The admin console against its spec
+# The admin console (retired)
+
+**Retired (spec rev 141, Administration).** Administration lives in the app,
+not in a separate console: an owner or admin opens **Admin** in the same app
+the team uses, on desktop and in the browser (`desktop/ui/admin*.js`, server
+side `crates/magnus/src/admin_app/`). The VPN-only console built for the
+retired appliance (`magnus-admin`, `crates/magnus/src/admin/`,
+`desktop/admin/`) is removed, and so is its Knowledge section, at the owner's
+word. `magnus kill` on the server itself still stops everything when the app
+or sign-in is broken; it uses the control socket, which stays. A deployed
+`magnus.toml` with an `[admin]` section still loads: the section is read,
+ignored, and a warning names it. See
+`decisions/2026-11-11-console-retired.md`.
+
+What follows is the console's checklist as it stood when it was retired,
+kept as the record.
 
 The owner's "Magnus Admin Console Spec" (rev 12,
 https://claude.ai/artifact/3Ej2KCssZbFYfR4p1LEwGP) is built as written,
