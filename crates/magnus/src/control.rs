@@ -59,7 +59,6 @@ pub(crate) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/admin/sign-in-policy", axum::routing::get(sign_in_policy).put(set_sign_in_policy))
         .route("/v1/people/{person}/schedules", axum::routing::get(person_schedules))
         .route("/v1/people/{person}/schedules/{id}/{change}", post(person_schedule))
-        .route("/v1/people/{person}/data/{what}", post(person_data))
         .route("/v1/people/{person}/erase", post(erase_person))
         .route("/v1/people/{person}/computer", post(crate::computer::make_for_person))
         .route("/v1/admin/policy", axum::routing::get(policy_sets))
@@ -685,19 +684,6 @@ async fn person_schedule(State(k): State<Arc<Kernel>>, axum::extract::Path((sub,
     };
     let by = text(&b, "name").unwrap_or_else(|| "an admin".into());
     match k.admin_schedule(&actor, &by, &person, &id, on).await {
-        Ok(v) => Json(v).into_response(),
-        Err(r) => person_refused(r),
-    }
-}
-
-/// A read: a POST, since it is recorded and the person is told.
-async fn person_data(State(k): State<Arc<Kernel>>, axum::extract::Path((sub, what)): axum::extract::Path<(String, String)>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return person_refused((StatusCode::BAD_REQUEST, "name who reads it".into())) };
-    let Some(target) = person_of(&k, &sub).and_then(|p| k.person(&p)) else {
-        return person_refused((StatusCode::NOT_FOUND, "they have never signed in to Magnus: there is no data of theirs here".into()));
-    };
-    let by = text(&b, "name").unwrap_or_else(|| "An admin".into());
-    match k.read_person_data(&actor, &by, &target, &what, b["item"].as_str()).await {
         Ok(v) => Json(v).into_response(),
         Err(r) => person_refused(r),
     }

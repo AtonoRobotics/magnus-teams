@@ -272,12 +272,10 @@ async fn reactions_and_disagreements_are_seen_by_no_one_else() {
     assert_eq!(shown(&carol, &thread, &answer).await, "great");
     assert!(disagreements(&bob).await.is_empty() && disagreements(&alice).await.is_empty());
 
-    // The owner, reading her data as the organisation may, sees neither.
+    // The owner reads none of her data at all (the owner, 2026-11-11).
     for what in ["tasks", "chats", "memory"] {
         let (st, v) = alice.get(&format!("/v1/people/carol/data/{what}")).await;
-        assert_eq!(st.as_u16(), 200, "{v}");
-        let v = v.to_string();
-        assert!(!v.contains("dis-pos-31") && !v.contains("dis-dec-58") && !v.contains("\"reaction\""), "the owner read it in carol's {what}: {v}");
+        assert_eq!(st.as_u16(), 403, "the owner read carol's {what}: {v}");
     }
 }
 

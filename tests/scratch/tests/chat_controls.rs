@@ -257,7 +257,7 @@ async fn magnus_gets_one_task_or_schedule_in_conversation() {
     let refused = ask(&carol, &calls, "What runs Bob's plants?", "get_schedule", json!({ "id": id })).await;
     assert!(refused.contains("no such schedule"), "{refused}");
 
-    // The owner reads anyone's.
+    // The owner finds anyone's, to stop it, without its words.
     let got = ask(&alice, &calls, "What is Bob's task doing?", "get_task", json!({ "id": task })).await;
     assert!(got.contains(&task), "{got}");
 }

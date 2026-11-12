@@ -104,7 +104,6 @@ function agentsCard(a) {
     a.paused ? `<button data-agents-resume="${id}">Resume</button>` : `<button data-agents-pause="${id}">Pause</button>`,
     a.stopped ? `<button data-agents-release="${id}">Release</button>` : `<button class="danger" data-agents-stop="${id}">Stop</button>`,
     a.person ? (a.person_stopped ? `<button data-agents-release-person="${esc(a.person)}">Release ${esc(a.name)}'s agents</button>` : `<button class="danger" data-agents-stop-person="${esc(a.person)}">Stop all of ${esc(a.name)}'s agents</button>`) : "",
-    `<button data-agents-activity="${id}">What it did</button>`,
   ].join("");
   const scheds = a.schedules.length ? `<p class="small muted">${a.schedules.length} schedule${a.schedules.length === 1 ? "" : "s"}${a.schedules.some(s => s.paused) ? ", some paused" : ""}</p>` : "";
   return `<article class="card" data-agent="${id}">
@@ -114,15 +113,6 @@ function agentsCard(a) {
     <div class="row">${buttons}</div>
     <div data-agents-done="${id}"></div>
   </article>`;
-}
-
-/** What an agent did, from the log: each run and each decision on a tool.
- * A person's agent's is their data, and they are told it was read.
- * @param {HTMLElement} el @param {string} agent */
-async function agentsActivity(el, agent) {
-  const v = await api("GET", `/v1/admin/agents/${encodeURIComponent(agent)}/activity`);
-  const rows = (v.runs || []).map(r => `<li>${esc(when(r.started))} · ${esc(r.kind)} · ${esc(r.status)} · asked by ${agentsAsker(r.asked_by)} · ${agentsUsd(r.spent_usd)}${r.decisions.length ? `<ul>${r.decisions.map(d => `<li>${esc(d.tool)}: ${esc(d.outcome)} (${esc(d.stage)})</li>`).join("")}</ul>` : ""}</li>`);
-  paint(el, `${agent.startsWith("person:") ? `<p class="small muted">This is their data: they have been told you read it.</p>` : ""}${rows.length ? `<ul class="small">${rows.join("")}</ul>` : `<p class="small muted">It has done nothing yet.</p>`}`);
 }
 
 /** Admin › Agents.
@@ -137,7 +127,6 @@ async function agentsSection(el) {
     if (!b) return;
     const d = b.dataset;
     try {
-      if (d.agentsActivity) { await agentsActivity(/** @type {HTMLElement} */ ($(`[data-agents-done="${CSS.escape(d.agentsActivity)}"]`, el)), d.agentsActivity); return; }
       if (d.agentsPause) await adminApi("POST", `/v1/admin/agents/${encodeURIComponent(d.agentsPause)}/pause`, {});
       if (d.agentsResume) await adminApi("POST", `/v1/admin/agents/${encodeURIComponent(d.agentsResume)}/resume`, {});
       if (d.agentsStop) await api("POST", killPath("agent", d.agentsStop, "press"), {});

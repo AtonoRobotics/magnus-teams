@@ -125,13 +125,14 @@ async fn the_owner_reads_a_persons_memory_recalled_through_their_wall() {
     }))
     .await;
     let app = Appliance::start(Spec::default(), &m).await;
-    let (alice, carol) = (app.api("alice"), app.api("carol"));
+    let carol = app.api("carol");
     let (st, v) = carol.post("/v1/chat", json!({ "text": "Remember that my code name matters." })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
     carol.wait_settled(v["task_id"].as_str().unwrap()).await;
-    let read = || async { alice.get("/v1/people/carol/data/memory").await.1["memory"].as_array().cloned().unwrap_or_default() };
+    // Her own view of her memory (no one else reads it: the owner, 2026-11-11).
+    let read = || async { carol.get("/v1/memory").await.1.to_string() };
     let facts = read().await;
-    assert!(facts.iter().any(|f| f["fact"].as_str().is_some_and(|t| t.contains(&fact))), "{facts:?}");
+    assert!(facts.contains(&fact), "{facts}");
 
     // The database now says the row is someone else's: a read for carol
     // that took it from the kernel's memory would still show it.
@@ -139,9 +140,7 @@ async fn the_owner_reads_a_persons_memory_recalled_through_their_wall() {
     let moved = admin.execute("UPDATE public.content SET person = 'bob' WHERE body->>'fact' LIKE '%' || $1 || '%'", &[&fact]).await.unwrap();
     assert_eq!(moved, 1);
     let facts = read().await;
-    assert!(!facts.iter().any(|f| f.to_string().contains(&fact)), "carol's memory read past her wall: {facts:?}");
-    // Her own view is recalled the same way (step 4).
-    assert!(!carol.get("/v1/memory").await.1.to_string().contains(&fact));
+    assert!(!facts.contains(&fact), "carol's memory read past her wall: {facts}");
 }
 
 /// A person's memory is recalled, not kept (step 4): their memory view,

@@ -42,6 +42,10 @@ fn may_control(who: &Person, owner: &str) -> bool {
 /// person paused and deleting stay that person's.
 const OTHERS_MAY: &[&str] = &["cancel_task", "pause_schedule", "resume_schedule"];
 
+/// What a task's row says that is its person's: left out of a row someone
+/// else reads.
+const OTHERS_WORDS: &[&str] = &["summary", "review", "cannot_be_undone", "already_done", "possibly_done"];
+
 /// What a control's event records about how it was done (#267): the chat
 /// run did it, or the app's button did.
 fn sources(turn: Option<&str>) -> (Option<String>, Option<String>) {
@@ -328,28 +332,21 @@ impl Kernel {
         Ok(json!({ "id": id, "every_minutes": every_minutes, "daily_at": daily_at, "until": until, "max_runs": max_runs }))
     }
 
-    /// A list `who` asked for, with other people's rows in it as the policy
-    /// on people's data allows (owner's ruling 14): their words (what each
-    /// run said it did) left out while it is private, the rest kept so the
-    /// owner and admins still control them; otherwise the read is recorded
-    /// and each person told, as a read of their tasks.
-    async fn as_policy_allows(&self, who: &Person, mut rows: Vec<Value>) -> Result<Vec<Value>, Refused> {
-        let others: std::collections::BTreeSet<String> = rows.iter().filter_map(|r| r["person"].as_str()).filter(|p| *p != who.id).map(String::from).collect();
-        if others.is_empty() {
-            return Ok(rows);
-        }
-        if self.read(|s| s.data_private) {
-            for r in rows.iter_mut().filter(|r| r["person"] != who.id.as_str()) {
-                if let Some(o) = r.as_object_mut() {
-                    o.remove("summary");
-                }
-                if let Some(o) = r["latest"].as_object_mut() {
-                    o.remove("summary");
+    /// A list `who` asked for, with other people's rows in it carrying no
+    /// words: what each run said it did and what it did are that person's,
+    /// which a Magnus admin supports but never reads (the owner,
+    /// 2026-11-11). The rest stays, so the owner and admins can still stop
+    /// someone's work for the server's safety.
+    pub(crate) async fn as_policy_allows(&self, who: &Person, mut rows: Vec<Value>) -> Result<Vec<Value>, Refused> {
+        for r in rows.iter_mut().filter(|r| r["person"] != who.id.as_str()) {
+            if let Some(o) = r.as_object_mut() {
+                for k in OTHERS_WORDS {
+                    o.remove(*k);
                 }
             }
-        } else {
-            let others: Vec<String> = others.into_iter().collect();
-            self.record_data_read(&format!("person:{}", who.id), &who.name, &others, "tasks", None).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+            if let Some(o) = r["latest"].as_object_mut() {
+                o.remove("summary");
+            }
         }
         Ok(rows)
     }

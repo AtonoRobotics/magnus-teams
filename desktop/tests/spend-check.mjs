@@ -78,8 +78,8 @@ function harness(answers = {}) {
     month: "2026-11", limits: { server_usd: 500, default_usd: 20 }, total_usd: 120, server_left_usd: 380,
     by_person: [{ id: "ada", name: "Ada", usd: 20, override_usd: null, limit_usd: 20, extra_usd: null, left_usd: 0 }],
     by_agent: [{ id: "personal", name: "Personal agents", usd: 100 }, { id: "team:w", name: "Team agent · Ops", usd: 20 }],
-    by_model: [{ id: "a/costly", name: "a/costly", usd: 120 }], by_project: [{ id: "", name: "No project", usd: 120 }],
-    workspaces: [{ id: "w", name: "Ops", limit_usd: 50, spent_usd: 20, channels: [{ id: "c1", name: "general", limit_usd: null, spent_usd: 20 }] }],
+    by_model: [{ id: "a/costly", name: "a/costly", usd: 120 }],
+    workspaces: [{ id: "w", name: "Ops", limit_usd: 50, spent_usd: 20, channels: 1 }],
     requests: [{ id: "q1", person: "ada", name: "Ada", month: "2026-11", usd: 15, reason: "the <report>", at: "2026-11-10T00:00:00Z", decided: null }],
     alerts: [{ limit: "person:ada", percent: 90 }],
   };
@@ -90,14 +90,16 @@ function harness(answers = {}) {
   assert.match(el.html, /data-limit='\{&#34;scope&#34;:&#34;server&#34;\}'.*value="500"/s, "the server's limit is shown to change");
   assert.match(el.html, /Ada<\/strong> asks for \$15\.00 more in 2026-11\. “the &#60;report&#62;”/, "a request shows, its words escaped");
   assert.match(el.html, /data-decide="approve">Approve<\/button><button data-decide="decline">Decline/);
-  for (const t of ["By person", "By agent", "By model", "By project", "Team agent · Ops", "#general", "Whole workspace", "person:ada reached 90%"]) assert.ok(el.html.includes(t), `Spend lacks ${t}`);
+  for (const t of ["By person", "By agent", "By model", "Team agent · Ops", "Whole workspace", "person:ada reached 90%"]) assert.ok(el.html.includes(t), `Spend lacks ${t}`);
+  // A project's and a channel's names are their person's or their team's (the owner, 2026-11-11).
+  for (const t of ["By project", "#general"]) assert.ok(!el.html.includes(t), `Spend shows ${t}`);
   await h.adminSpend(el, "2026-10");
   assert.deepEqual(h.calls.at(-1), ["GET", "/v1/admin/spend?month=2026-10", undefined], "another month is asked for by name");
 }
 
 // Saving a limit posts its scope and amount; an empty one lifts it.
 {
-  const h = harness({ "GET /v1/admin/spend": { month: "2026-11", limits: {}, total_usd: 0, server_left_usd: null, by_person: [], by_agent: [], by_model: [], by_project: [], workspaces: [], requests: [], alerts: [] } });
+  const h = harness({ "GET /v1/admin/spend": { month: "2026-11", limits: {}, total_usd: 0, server_left_usd: null, by_person: [], by_agent: [], by_model: [], workspaces: [], requests: [], alerts: [] } });
   const input = element({ value: "40" });
   const form = element({ dataset: { limit: JSON.stringify({ scope: "person", person: "ada" }) } });
   const el = element({ querySelectorAll: sel => (sel === "form[data-limit]" ? [form] : []) });

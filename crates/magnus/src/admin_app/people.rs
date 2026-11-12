@@ -3,9 +3,8 @@
 //! account off, sign them out of every device, and remove them. Removing
 //! transfers or deletes their projects and agents and deletes their data
 //! (`remove`), and the last owner cannot be removed, turned off or demoted.
-//! Every admin read of a person's data is logged and the person is told:
-//! the control route does both (`Kernel::read_person_data`), and the read is
-//! in the admin audit too.
+//! A Magnus admin supports accounts and reads no one's data (the owner,
+//! 2026-11-11): there is no data read here.
 //!
 //! Each change goes through the console's control route where one exists, so
 //! its checks (the last admin, the sessions ended on the record) are the
@@ -37,7 +36,6 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/admin/people/{id}/invite/password", post(super::mount::pass(Some("invite_password_set"))))
         .route("/v1/admin/people/{id}/schedules", get(schedules))
         .route("/v1/admin/people/{id}/schedules/{sid}/{change}", post(schedule))
-        .route("/v1/admin/people/{id}/data/{what}", post(read_data))
 }
 
 pub(super) fn refuse(code: StatusCode, error: &str, message: &str) -> Response {
@@ -234,14 +232,4 @@ async fn schedule(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, 
     let action = if change == "resume" { "schedule_resumed" } else { "schedule_suspended" };
     let audit = Audit { action: action.into(), target: Some(format!("people/{id}/schedules/{sid}")), ..Default::default() };
     audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/people/{id}/schedules/{sid}/{change}"), Some(json!({ "name": a.name() })))).await
-}
-
-/// Read a person's data: in the audit as `person_data_read` first, then in
-/// the log and the person's inbox by the read itself.
-async fn read_data(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path((id, what)): Path<(String, String)>, body: Option<Json<Value>>) -> Response {
-    let id = id_of(&id);
-    let item = body.as_ref().and_then(|b| b["item"].as_str().map(String::from));
-    let audit = Audit { action: "person_data_read".into(), target: Some(format!("people/{id}/data/{what}")), before: None, after: item.as_ref().map(|i| json!({ "item": i })) };
-    let body = json!({ "name": a.name(), "item": item });
-    audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/people/{id}/data/{what}"), Some(body))).await
 }

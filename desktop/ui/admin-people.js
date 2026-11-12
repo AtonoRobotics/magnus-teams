@@ -13,7 +13,6 @@
  */
 
 const ADMIN_ROLES = [["owner", "Owner"], ["admin", "Admin"], ["member", "Member"], ["guest", "Guest: reads and chats only"]];
-const ADMIN_DATA_KINDS = [["tasks", "Tasks"], ["chats", "Chats"], ["files", "Files"], ["memory", "Memory"]];
 
 /** What the admin passes on after an invitation: the link, and whether it
  * went by email. @param {AdminInvite} r */
@@ -40,7 +39,6 @@ function peopleRow(p, owner) {
       ${p.status === "invited" ? `<button data-people-act="resend">New link</button><button data-people-act="cancel">Withdraw</button>` : ""}
       ${p.status === "active" ? `<button data-people-act="sign-out">Sign out everywhere</button><button data-people-act="disable">Turn off</button>` : ""}
       ${p.status === "disabled" ? `<button data-people-act="enable">Turn on</button>` : ""}
-      <button data-people-act="data">Their data</button>
       <button class="danger" data-people-act="remove">Remove</button>
     </td></tr>`;
 }
@@ -94,25 +92,6 @@ function peopleRemoveSheet(p, people) {
   });
 }
 
-/** Their data, after saying the read is recorded and they are told.
- * @param {HTMLElement} box @param {AdminPerson} p */
-function peopleData(box, p) {
-  paint(box, `<section class="card" data-people-data="${esc(p.id)}"><h3>${esc(p.name)}'s data</h3>
-    <p class="small">Opening it is recorded in the audit log, and ${esc(p.name)} is told who looked and what.</p>
-    <div class="row">${ADMIN_DATA_KINDS.map(([k, l]) => `<button data-people-read="${k}">${esc(l)}</button>`).join("")}</div>
-    <pre class="small" data-people-out hidden></pre></section>`);
-  box.onclick = async e => {
-    const b = /** @type {HTMLElement} */ (e.target).closest("[data-people-read]");
-    if (!b) return;
-    try {
-      const v = await adminApi("POST", `/v1/admin/people/${enc(p.id)}/data/${b.dataset.peopleRead}`, {});
-      const out = $("[data-people-out]", box);
-      out.textContent = JSON.stringify(v[b.dataset.peopleRead], null, 2);
-      out.hidden = false;
-    } catch (err) { if (!err.cancelled) toast(err.body?.message || err.message); }
-  };
-}
-
 registerAdminSection("people", async el => {
   /** @type {{people: AdminPerson[]}} */
   const v = await adminApi("GET", "/v1/admin/people");
@@ -160,7 +139,6 @@ registerAdminSection("people", async el => {
         case "sign-out": { const r = await adminApi("POST", `${base}/sign-out`, {}); toast(`Signed out of ${r.ended ?? 0} device${r.ended === 1 ? "" : "s"}.`); break; }
         case "disable": if (!confirm(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`)) return; await adminApi("POST", `${base}/disable`, {}); toast(`${p.name} is turned off.`); break;
         case "enable": await adminApi("POST", `${base}/enable`, {}); toast(`${p.name} is turned on.`); break;
-        case "data": peopleData($("[data-people-detail]", el), p); return;
         case "remove": {
           const body = await peopleRemoveSheet(p, people);
           if (!body) return;

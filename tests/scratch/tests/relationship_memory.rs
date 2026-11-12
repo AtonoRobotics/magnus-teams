@@ -119,13 +119,12 @@ async fn a_tone_instruction_is_in_every_later_run_of_its_person_and_seen_by_no_o
     assert!(!system_for(&m, "What is on my list?").contains("relnote-"));
     assert_eq!(notes(&bob).await["notes"], json!([]));
 
-    // The owner reads nothing of it: not through her own notes, nor through
-    // Carol's data as the organisation may read it.
+    // The owner reads nothing of it: not through her own notes, nor any of
+    // Carol's data (the owner, 2026-11-11).
     assert_eq!(notes(&alice).await["notes"], json!([]));
     for what in ["tasks", "chats", "memory"] {
         let (st, v) = alice.get(&format!("/v1/people/carol/data/{what}")).await;
-        assert_eq!(st.as_u16(), 200, "{v}");
-        assert!(!v.to_string().contains("relnote-"), "the owner read it in carol's {what}: {v}");
+        assert_eq!(st.as_u16(), 403, "the owner read carol's {what}: {v}");
     }
     // Nor does an admin through the console's knowledge: list, document,
     // version, activity, the change itself, or by undoing it.
@@ -289,14 +288,15 @@ fn dev_spec() -> Spec {
     s
 }
 
-/// An admin's read of one of the person's tasks, as the console makes it.
+/// An admin's read of one of the person's tasks, as the console made it: no
+/// longer there (the owner, 2026-11-11: an admin reads no one's data).
 async fn admin_task_item(app: &Appliance, sub: &str, id: &str) -> (u16, Value) {
     let path = format!("/v1/people/{sub}/data/tasks");
     control(app, "POST", &path, json!({ "actor": "admin:root", "name": "Root", "item": id })).await
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_admins_item_read_refuses_a_chat_turn_and_hides_notes_in_task_timelines() {
+async fn no_admin_reads_a_persons_turns_or_tasks_through_the_console() {
     let m = FakeModel::start(leak_model()).await;
     let mut app = Appliance::start(Spec::default(), &m).await;
     let kc = Keycloak::start().await;
@@ -313,28 +313,16 @@ async fn an_admins_item_read_refuses_a_chat_turn_and_hides_notes_in_task_timelin
     let (_, turn) = chat(&carol, None, "Please stop joking around with me.").await;
     assert_eq!(notes(&carol).await["notes"], json!([NOTE]));
 
-    // A chat turn is not a task: the list leaves turns out, and the item
-    // read refuses one too, instead of returning its tool calls.
+    // Neither a chat turn nor a task of hers is read through the console.
     let (st, v) = admin_task_item(&app, &sub, &turn).await;
-    assert_eq!(st, 404, "an admin read a chat turn's tool calls: {v}");
-
-    // A task of hers records a note of its own; it succeeds, as the task
-    // read nothing from outside.
+    assert_eq!(st, 404, "an admin read a chat turn: {v}");
     let task = carol.submit("File the vendor summary.").await;
     carol.wait_settled(&task).await;
     assert!(notes(&carol).await["notes"].as_array().unwrap().iter().any(|n| n == TASKNOTE), "the task's note was not recorded");
-
-    // The admin's item read of the task keeps the call listed but hides
-    // every note and disagreement word.
     let (st, v) = admin_task_item(&app, &sub, &task).await;
-    assert_eq!(st, 200, "{v}");
-    let read = v.to_string();
-    for canary in [NOTE, TASKNOTE, DISPOS, DISDEC] {
-        assert!(!read.contains(canary), "an admin read carol's words: {read}");
-    }
-    assert!(read.contains("relationship_note") && read.contains("redacted: this call is the person's alone"), "the call is gone, not redacted: {read}");
+    assert_eq!(st, 404, "an admin read carol's task: {v}");
 
-    // Her own timeline still shows her words: the redaction is by reader.
+    // Her own timeline still shows her words.
     let (st, v) = carol.get(&format!("/v1/tasks/{task}/timeline")).await;
     assert_eq!(st.as_u16(), 200, "{v}");
     assert!(v.to_string().contains(TASKNOTE), "carol lost her own timeline: {v}");

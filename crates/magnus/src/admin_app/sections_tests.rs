@@ -84,22 +84,40 @@ async fn roles_are_owner_admin_member_or_guest() {
     s.done().await;
 }
 
-/// An admin's read of a person's data is in the admin audit and the log,
-/// and the person is told in their inbox.
+/// A Magnus admin supports accounts and the server and reads no one's data
+/// (the owner, 2026-11-11): neither an admin nor the owner reads mo's tasks,
+/// files, conversations, memory or agent's activity, nor turns that on, and
+/// a list of others' tasks keeps their ids for stopping and loses their
+/// words. mo reads their own.
 #[tokio::test(flavor = "multi_thread")]
-async fn an_admins_read_is_logged_and_the_person_told() {
+async fn no_admin_reads_a_persons_data() {
     let s = server(|_| Router::new()).await;
-    let ana = stepped(&s, "ana").await;
-    let (st, v) = s.post(&ana, "/v1/admin/people/mo/data/tasks", json!({})).await;
+    let (ana, sam, mo) = (stepped(&s, "ana").await, stepped(&s, "sam").await, s.token("mo").await);
+    for what in ["tasks", "chats", "files", "memory"] {
+        let (st, _) = s.post(&ana, &format!("/v1/admin/people/mo/data/{what}"), json!({})).await;
+        assert!(st == 404 || st == 405, "the admin route still reads mo's {what}: {st}");
+        assert_eq!(s.get(&sam, &format!("/v1/people/mo/data/{what}")).await.0, 403, "the owner read mo's {what}");
+        assert_eq!(s.get(&mo, &format!("/v1/people/mo/data/{what}")).await.0, 403, "only the owner's route is here: mo's own is in Settings");
+    }
+    assert_eq!(s.get(&sam, "/v1/people/sam/data/tasks").await.0, 200, "the owner cannot read their own");
+    assert_eq!(s.get(&ana, "/v1/admin/agents/person:mo/activity").await.0, 403, "an admin read mo's agent's activity");
+    assert_eq!(s.get(&ana, "/v1/admin/agents/team/activity").await.0, 403, "an admin read the team agent's activity");
+    assert_eq!(s.call(&sam, reqwest::Method::PUT, "/v1/data-access", Some(json!({ "private": false }))).await.0, 409, "the owner opened people's data");
+    assert_eq!(s.get(&mo, "/v1/data-access").await.1["private"], true);
+    let sam_p = s.k.person("sam").unwrap();
+    let rows = vec![json!({ "id": "t1", "person": "mo", "summary": "mo's words", "review": "r", "already_done": ["mail: send"], "status": "done" })];
+    let listed = s.k.as_policy_allows(&sam_p, rows).await.unwrap_or_default();
+    assert_eq!(listed[0]["id"], "t1", "the owner cannot find mo's task to stop it");
+    for k in ["summary", "review", "already_done"] {
+        assert!(listed[0].get(k).is_none(), "the owner's list carries mo's {k}: {}", listed[0]);
+    }
+    assert!(s.audited("person_data_read").is_empty());
+    // Spend names no project and no channel: those are a person's or a team's.
+    assert_eq!(s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await.0, 200);
+    let (st, v) = s.get(&ana, "/v1/admin/spend").await;
     assert_eq!(st, 200, "{v}");
-    let audit = s.audited("person_data_read");
-    assert_eq!(audit.len(), 1, "the read is not in the admin audit");
-    assert_eq!(audit[0]["target"], "people/mo/data/tasks");
-    let told = s.k.read(|st| st.items.values().filter(|i| i.person == "mo" && i.details["reason"] == "data_read").map(|i| i.summary.clone()).collect::<Vec<_>>());
-    assert_eq!(told, vec!["Ana read your tasks".to_string()], "mo was not told");
-    // A read is a change on the record: it needs the step-up.
-    let fresh = s.token("ana").await;
-    assert_eq!(s.post(&fresh, "/v1/admin/people/mo/data/tasks", json!({})).await.0, 403);
+    assert!(v.get("by_project").is_none() && !v.to_string().contains("general"), "Admin › Spend names a project or a channel: {v}");
+    assert_eq!(v["workspaces"][0]["channels"], 1);
     s.done().await;
 }
 

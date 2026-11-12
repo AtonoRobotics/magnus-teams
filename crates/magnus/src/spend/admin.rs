@@ -31,7 +31,8 @@ impl Kernel {
     }
 
     /// Admin → Spend: the limits, the month's spend broken down by person,
-    /// agent, model and project, the team agent's limits, the requests and
+    /// agent and model (not by project: a project's name is its person's or
+    /// its team's), the team agent's limits, the requests and
     /// the alerts. `month` is `YYYY-MM`, this month when absent.
     pub fn spend_overview(&self, month: Option<&str>) -> Result<Value, Refusal> {
         let now = Utc::now();
@@ -45,12 +46,11 @@ impl Kernel {
                 .all()
                 .map(|w| {
                     let team = crate::team::spend::spent_this_month(s, &w.id, now);
-                    let channels: Vec<Value> = w
-                        .channels
-                        .iter()
-                        .map(|(id, c)| json!({ "id": id, "name": c.name, "limit_usd": w.chat.channel_limits_usd.get(id), "spent_usd": team.channels_usd.get(id).copied().unwrap_or_default() }))
-                        .collect();
-                    json!({ "id": w.id, "name": w.name, "limit_usd": w.chat.limit_usd, "spent_usd": team.total_usd, "channels": channels })
+                    // A workspace's total and its limit, never its channels' or
+                    // projects' names: those are its team's, whose Team
+                    // Admin sets their limits in the workspace (the owner,
+                    // 2026-11-11).
+                    json!({ "id": w.id, "name": w.name, "limit_usd": w.chat.limit_usd, "spent_usd": team.total_usd, "channels": w.channels.len() })
                 })
                 .collect();
             (month::spent(s, &m), s.spend.clone(), workspaces)
@@ -84,7 +84,6 @@ impl Kernel {
             json!({ "id": k, "name": name, "usd": usd })
         });
         let by_model = rows(&spent.by_model, |k, usd| json!({ "id": k, "name": k, "usd": usd }));
-        let by_project = rows(&spent.by_project, |k, (name, usd)| json!({ "id": k, "name": if k.is_empty() { "No project".to_string() } else { name.clone() }, "usd": usd }));
         let mut requests: Vec<Value> = l
             .requests
             .values()
@@ -97,7 +96,7 @@ impl Kernel {
             "month": m,
             "limits": { "server_usd": l.server_usd, "default_usd": l.default_usd },
             "total_usd": spent.total_usd, "server_left_usd": server_left,
-            "by_person": by_person, "by_agent": by_agent, "by_model": by_model, "by_project": by_project,
+            "by_person": by_person, "by_agent": by_agent, "by_model": by_model,
             "workspaces": workspaces, "requests": requests, "alerts": alerts,
         }))
     }

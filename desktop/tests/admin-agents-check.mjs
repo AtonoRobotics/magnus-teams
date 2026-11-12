@@ -120,11 +120,8 @@ for (const [level, target] of [["person", "alice"], ["agent", "team"], ["connect
   assert.ok(a.calls.some(([m, p]) => m === "POST" && p === "/v1/admin/agents/team/pause"));
   await click({ agentsRelease: "person:alice" });
   assert.ok(a.calls.some(([m, p]) => m === "POST" && p === "/v1/admin/kill-switch/agent/person%3Aalice/release"));
-  await click({ agentsActivity: "person:alice" });
-  assert.ok(a.calls.some(([m, p]) => m === "GET" && p === "/v1/admin/agents/person%3Aalice/activity"));
-  const done = a.els.get('[data-agents-done="person:alice"]').html;
-  assert.match(done, /they have been told you read it/, "reading a person's agent's activity does not say they are told");
-  assert.match(done, /mail__send: allow \(policy\)/);
+  // What an agent did is its person's, or its teams': the admin has no way to read it (the owner, 2026-11-11).
+  assert.doesNotMatch(section.html, /data-agents-activity|What it did/, "the admin is offered an agent's activity");
 }
 
 console.log("admin agents check passed");

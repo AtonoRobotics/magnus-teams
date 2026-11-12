@@ -11,8 +11,8 @@
 /**
  * @typedef {{id: string, name: string, usd: number, override_usd?: ?number, limit_usd?: ?number, extra_usd?: ?number, left_usd?: ?number}} SpendRow
  * @typedef {{id: string, person: string, name: string, month: string, usd: number, reason: string, at: string, decided: ?{approved: boolean, usd: number, by: string, note: string, at: string}}} SpendRequest
- * @typedef {{id: string, name: string, limit_usd: ?number, spent_usd: number, channels: {id: string, name: string, limit_usd: ?number, spent_usd: number}[]}} TeamLimits
- * @typedef {{month: string, limits: {server_usd: ?number, default_usd: ?number}, total_usd: number, server_left_usd: ?number, by_person: SpendRow[], by_agent: SpendRow[], by_model: SpendRow[], by_project: SpendRow[], workspaces: TeamLimits[], requests: SpendRequest[], alerts: {limit: string, percent: number}[]}} SpendOverview
+ * @typedef {{id: string, name: string, limit_usd: ?number, spent_usd: number, channels: number}} TeamLimits
+ * @typedef {{month: string, limits: {server_usd: ?number, default_usd: ?number}, total_usd: number, server_left_usd: ?number, by_person: SpendRow[], by_agent: SpendRow[], by_model: SpendRow[], workspaces: TeamLimits[], requests: SpendRequest[], alerts: {limit: string, percent: number}[]}} SpendOverview
  * @typedef {{which: "person"|"server", month: string, spent_usd: number, limit_usd: number, can_ask: boolean, pending: boolean}} SpendStop
  * @typedef {{default: {adapter: string, model: string}, access: {roles: Object<string, string[]>, people: Object<string, string[]>}, roles: string[], people: {id: string, name: string, owner: boolean}[]}} ModelsOverview
  * @typedef {{id: string, enabled: boolean, default: boolean, default_model: ?string, answers: boolean, models: ?string[], error: ?string}} Provider
@@ -68,9 +68,9 @@ async function adminSpend(el, month) {
     <h3>Team agent</h3>
     ${o.workspaces.length ? o.workspaces.map(w => `<div class="stack"><p><strong>${esc(w.name)}</strong>: ${dollars(w.spent_usd)} spent this month.</p>
       ${limitForm({ scope: "workspace", workspace: w.id }, w.limit_usd, "Whole workspace")}
-      ${w.channels.map(c => limitForm({ scope: "channel", workspace: w.id, channel: c.id }, c.limit_usd, `#${c.name} (${dollars(c.spent_usd)} spent)`)).join("")}</div>`).join("") : `<p class="empty small">No workspaces.</p>`}
+      <p class="small muted">Its Team Admin sets each channel's limit in the workspace.</p></div>`).join("") : `<p class="empty small">No workspaces.</p>`}
     <h3>Breakdown</h3>
-    ${spendTable("By person", o.by_person.filter(p => p.usd > 0))}${spendTable("By agent", o.by_agent)}${spendTable("By model", o.by_model)}${spendTable("By project", o.by_project)}
+    ${spendTable("By person", o.by_person.filter(p => p.usd > 0))}${spendTable("By agent", o.by_agent)}${spendTable("By model", o.by_model)}
     ${o.alerts.length ? `<h3>Alerts this month</h3><ul class="small">${o.alerts.map(a => `<li>${esc(a.limit)} reached ${a.percent}%</li>`).join("")}</ul>` : ""}
   </div>`);
   const again = () => adminSpend(el, o.month);

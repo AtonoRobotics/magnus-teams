@@ -5,9 +5,10 @@
 //!
 //! - A person's schedules, each suspended or resumed by an admin.
 //! - A person's data read: their tasks, conversations, files and memory,
-//!   recalled as them, through their wall (owner's ruling 14: by default the
-//!   organisation reads it; a policy can make it private). Each read is in
-//!   the log and in the person's inbox.
+//!   recalled as them, through their wall, by that person alone. A Magnus
+//!   admin supports accounts and the server and reads no one's data (the
+//!   owner, 2026-11-11, replacing ruling 14). There is no support session
+//!   a person grants yet, so there is no way in for anyone else.
 //! - A person's data deleted: their runs stopped and schedules ended, their
 //!   sessions and their own sign-ins to apps revoked, their content out of
 //!   the store and the backups, and their records out of the appliance's
@@ -27,6 +28,9 @@ fn failed(e: anyhow::Error) -> Refusal {
 }
 
 pub const KINDS: [&str; 4] = ["tasks", "chats", "files", "memory"];
+
+/// Why someone else's data read is refused.
+pub const NOT_THE_ADMINS: &str = "A person's data is theirs: a Magnus admin supports accounts and the server, and reads no one's data.";
 
 /// How much of a file's text a read shows.
 const FILE_CHARS: usize = 20_000;
@@ -96,8 +100,10 @@ impl Kernel {
             return Err((StatusCode::NOT_FOUND, "tasks, chats, files or memory".into()));
         }
         let own = reader == format!("person:{}", target.id);
-        if self.read(|s| s.data_private) && !own {
-            return Err((StatusCode::FORBIDDEN, "People's data is private here: the organisation's policy keeps it from the admin.".into()));
+        // A person's data is theirs: a Magnus admin supports their account
+        // and the server and reads none of it (the owner, 2026-11-11).
+        if !own {
+            return Err((StatusCode::FORBIDDEN, NOT_THE_ADMINS.into()));
         }
         // Their tasks' words are recalled as them, through their wall.
         let words = match what {

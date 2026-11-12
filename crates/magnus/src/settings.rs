@@ -145,25 +145,25 @@ async fn set_roles(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): J
     }
 }
 
-/// Whether people's data is private from the admin: by default a person's
-/// data is the organisation's, and the owner can make it private (owner's
-/// ruling 14, 2026-11-01).
+/// Whether people's data is private from the admin: always, now (the
+/// owner, 2026-11-11, replacing ruling 14, which let the owner choose). The
+/// switch's past events still replay (`Ev::DataAccessSet`), and nothing
+/// reads them.
 async fn get_data_access(State(k): K, h: HeaderMap) -> Response {
     if let Err(r) = who(&k, &h).await {
         return r;
     }
-    Json(json!({ "private": k.read(|s| s.data_private) })).into_response()
+    Json(json!({ "private": true, "fixed": true })).into_response()
 }
 
 async fn put_data_access(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let me = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some(private) = b["private"].as_bool() else { return err(StatusCode::BAD_REQUEST, "private is true or false") };
-    match k.emit(&format!("person:{}", me.id), Ev::DataAccessSet { private }).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => internal(e),
+    if let Err(r) = owner(&k, &h).await {
+        return r;
+    }
+    match b["private"].as_bool() {
+        Some(true) => StatusCode::NO_CONTENT.into_response(),
+        Some(false) => err(StatusCode::CONFLICT, crate::person_admin::NOT_THE_ADMINS),
+        None => err(StatusCode::BAD_REQUEST, "private is true or false"),
     }
 }
 
@@ -193,9 +193,8 @@ async fn clear_account(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Res
     }
 }
 
-/// The admin reads a person's tasks, conversations, files or memory, unless
-/// the organisation's policy makes people's data private. Each read is in
-/// the log and in the person's inbox.
+/// A person's own tasks, conversations, files or memory. Anyone else's is
+/// refused, the owner's read included (`read_person_data`).
 async fn person_data(State(k): K, h: HeaderMap, Path((id, what)): Path<(String, String)>) -> Response {
     let me = match owner(&k, &h).await {
         Ok(p) => p,

@@ -1,8 +1,7 @@
 // Admin › People (spec rev 141): the four roles, invitations by email or
 // link, turning off, signing out everywhere, removal that says what becomes
-// of their projects and agents, the last owner's refusal shown, and a
-// person's data opened only after saying the read is recorded and they are
-// told.
+// of their projects and agents, the last owner's refusal shown, and no way
+// to read a person's data (the owner, 2026-11-11).
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { wired, load, draw, node, refused, same } from "./admin-harness.mjs";
@@ -19,7 +18,6 @@ const answers = {
   "POST /v1/admin/people": b => ({ id: "new", email: b.email, invite_token: "t", link: "https://magnus.example/invite?token=t", emailed: b.send }),
   "POST /v1/admin/people/sam/disable": refused(409, { error: "last_owner", message: "This is the last owner: make someone else an owner first." }),
   "POST /v1/admin/people/mo/sign-out": { ended: 1 },
-  "POST /v1/admin/people/mo/data/tasks": { person: "mo", tasks: [{ id: "t1" }] },
 };
 
 const ctx = load("admin-people.js", answers);
@@ -72,13 +70,8 @@ assert.match(noBase, /no public address/, "a link-less server does not say why t
 assert.doesNotMatch(invited({ id: "x", invite_token: "t", link: null, emailed: false }), /Invitation code|>t</, "a raw invitation code is shown");
 assert.doesNotMatch(vm.runInContext("peopleHtml([], true)", ctx), /name="email"[^>]*required/, "an email address is still required, so there is no link-only invite");
 
-// Their data: said first, then read.
-await el.onclick({ target: node({ "data-people-act": "data" }, moRow) });
-const detail = ctx.$("[data-people-detail]");
-assert.match(detail.html, /recorded in the audit log, and Mo is told who looked and what/);
-assert.ok(!ctx.calls.some(c => c[1].includes("/data/")), "data was read before the admin chose to");
-await detail.onclick({ target: node({ "data-people-read": "tasks" }) });
-assert.ok(ctx.calls.some(c => c[0] === "POST" && c[1] === "/v1/admin/people/mo/data/tasks"));
+// A Magnus admin supports accounts and reads no one's data.
+assert.doesNotMatch(el.html, /data-people-act="data"|Their data|data-people-read/, "the admin is offered a person's data");
 
 // The removal sheet itself says their own data is deleted and offers both.
 const src = (await import("node:fs")).readFileSync(new URL("../ui/admin-people.js", import.meta.url), "utf8");

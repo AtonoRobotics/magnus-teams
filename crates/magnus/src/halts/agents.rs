@@ -2,8 +2,8 @@
 //! running now (tasks, schedules, sub-agents) with who asked and what it
 //! has spent, and what an agent did. The list names no one's content: no
 //! task's words, only what kind of work it is. What an agent did is read
-//! from the log; for a person's agent that is the person's data, so the
-//! read is recorded and they are told (`Kernel::record_data_read`).
+//! from the log; for a person's agent that is the person's data, and the
+//! team agent's is its teams', so only the person reads their own.
 use super::{agent_of, Scope, TEAM_AGENT};
 use crate::kernel::Kernel;
 use crate::state::{Run, State};
@@ -12,8 +12,6 @@ use serde_json::{json, Value};
 
 /// The most of an agent's past runs its activity shows.
 pub const MAX_ACTIVITY_RUNS: usize = 200;
-/// What a person's agent's activity is called in the read's record and notice.
-pub const ACTIVITY: &str = "agent activity";
 
 /// Who asked for a run: the person, a schedule, Magnus itself, or (for
 /// the team agent) the member who asked in a thread.
@@ -156,20 +154,17 @@ impl Kernel {
     /// What an agent did, read by `reader` (`by` is their name). A person's
     /// agent's activity is their data: refused where policy keeps it
     /// private, and otherwise recorded, with the person told.
-    pub async fn agent_activity(&self, reader: &str, by: &str, agent: &str) -> Result<Value, (StatusCode, String)> {
+    pub async fn agent_activity(&self, reader: &str, _by: &str, agent: &str) -> Result<Value, (StatusCode, String)> {
         let person = match Scope::parse("agent", agent) {
             Some(_) => agent.strip_prefix("person:").map(String::from),
             None => return Err((StatusCode::NOT_FOUND, "no such agent".into())),
         };
+        // A person's agent's activity is theirs, and the team agent's is its
+        // teams': a Magnus admin reads neither (the owner, 2026-11-11). The
+        // Agents list, with no one's words, stays for pausing and stopping.
         let own = person.as_deref().is_some_and(|p| reader == format!("person:{p}"));
-        if let Some(p) = person.as_ref().filter(|_| !own) {
-            if self.read(|s| s.data_private) {
-                return Err((StatusCode::FORBIDDEN, "People's data is private here: the organisation's policy keeps it from the admin.".into()));
-            }
-            self.record_data_read(reader, by, std::slice::from_ref(p), ACTIVITY, None).await.map_err(|e| {
-                tracing::error!("agent activity: {e:#}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".to_string())
-            })?;
+        if !own {
+            return Err((StatusCode::FORBIDDEN, crate::person_admin::NOT_THE_ADMINS.into()));
         }
         let rows = self.read(|s| activity(s, agent));
         Ok(json!({ "agent": agent, "runs": rows }))
