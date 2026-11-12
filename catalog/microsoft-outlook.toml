@@ -21,11 +21,11 @@ tint = "#0F6CBD"
 # Graph (`brokered/outlook`), its image named by digest and built from this
 # commit by `brokered/build.sh`; each person's runs in a microVM of its own
 # that reaches only Graph, and people sign in at Microsoft, through
-# "organizations", from any organisation.
+# "common": from any organisation, or with a personal account.
 kind = "brokered"
 endpoint = "sha256:e10be36bf7ec0464062a79b0ee23d32917d8d04ef35e5e1fa9bef23e7880c462"
 hosts = ["graph.microsoft.com"]
-issuer = "https://login.microsoftonline.com/organizations/v2.0"
+issuer = "https://login.microsoftonline.com/common/v2.0"
 # A draft it sends reaches anyone the person writes to. What comes back is
 # their private mail, written by others.
 audience = "public"

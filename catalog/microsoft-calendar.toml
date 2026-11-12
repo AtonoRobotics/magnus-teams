@@ -19,11 +19,11 @@ tint = "#0F6CBD"
 # (`brokered/outlook-calendar`), its image named by digest and built from
 # this commit by `brokered/build.sh`; each person's runs in a microVM of its
 # own that reaches only Graph, and people sign in at Microsoft, through
-# "organizations", from any organisation.
+# "common": from any organisation, or with a personal account.
 kind = "brokered"
 endpoint = "sha256:6f634fc7d7e1bd9e52d083c9b5c73553981e5cbc11cfffde9c70e1fb5ac81b82"
 hosts = ["graph.microsoft.com"]
-issuer = "https://login.microsoftonline.com/organizations/v2.0"
+issuer = "https://login.microsoftonline.com/common/v2.0"
 # Events and answers reach their attendees, who may be anyone.
 audience = "public"
 label = "private+untrusted"

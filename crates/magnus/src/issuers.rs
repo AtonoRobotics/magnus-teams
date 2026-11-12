@@ -62,6 +62,9 @@ mod tests {
         ] {
             assert!(!same(other, ORGS), "{other}");
         }
+        // A personal account answers for Microsoft's consumer tenant, an ID.
+        let common = "https://login.microsoftonline.com/common/v2.0";
+        assert!(same("https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0", common));
         // One tenant's authority is that tenant alone.
         let one = "https://login.microsoftonline.com/f1524b07-679e-443c-838b-594fb9e8576a/v2.0";
         assert!(!same("https://login.microsoftonline.com/{tenantid}/v2.0", one));

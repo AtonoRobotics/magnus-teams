@@ -15,9 +15,11 @@ kind = "desktop"
 
 [microsoft]
 client_id = "60d920e7-11d2-422c-bf02-f630fa667e6f"
-# Multi-tenant: people from any organisation sign in through "organizations".
+# People from any organisation, and people with a personal Microsoft account
+# (Outlook.com, Hotmail, Live), sign in through "common". The registration
+# accepts both: Microsoft hands a personal sign-in on to login.live.com.
 tenant = "f1524b07-679e-443c-838b-594fb9e8576a"
-authority = "organizations"
+authority = "common"
 kind = "public"
 
 [github]

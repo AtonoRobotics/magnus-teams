@@ -138,8 +138,9 @@ pub struct Client {
     /// `desktop` or `confidential` (a secret at the token exchange), or
     /// `public` (none).
     pub kind: String,
-    /// Microsoft: who signs in through the client (`organizations`: anyone
-    /// from any organisation), which its connectors' issuer names.
+    /// Microsoft: who signs in through the client (`common`: anyone from any
+    /// organisation, or with a personal account), which its connectors'
+    /// issuer names.
     #[serde(default)]
     pub authority: Option<String>,
 }
@@ -340,6 +341,9 @@ mod tests {
             // A Microsoft connector signs in where its client's authority is.
             if let Some(a) = &c.authority {
                 assert_eq!(m.issuer.as_deref(), Some(format!("https://login.microsoftonline.com/{a}/v2.0").as_str()), "{}: not its client's authority", m.id);
+                // Work and personal accounts both sign in: `organizations`
+                // turns personal accounts away, `consumers` work ones.
+                assert_eq!(a, "common", "{}: personal or work accounts cannot sign in", m.id);
             }
         }
         match (&m.redirect_uri, &m.handoff) {

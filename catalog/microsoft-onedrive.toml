@@ -19,13 +19,13 @@ tint = "#0364B8"
 # (`brokered/onedrive`), its image named by digest and built from this
 # commit by `brokered/build.sh`; each person's runs in a microVM of its own
 # that reaches only Graph, and people sign in at Microsoft, through
-# "organizations", from any organisation. A file's bytes come from Graph
+# "common": from any organisation, or with a personal account. A file's bytes come from Graph
 # itself (`contentStream`), never from the organisation's SharePoint host,
 # which differs for each organisation and so cannot be named here.
 kind = "brokered"
 endpoint = "sha256:c6a68d4219b484b0e5fe716031c2263e2a36d3e2531022364ef3de8dad42c6b5"
 hosts = ["graph.microsoft.com"]
-issuer = "https://login.microsoftonline.com/organizations/v2.0"
+issuer = "https://login.microsoftonline.com/common/v2.0"
 # Its one write puts a new file in the person's own OneDrive (it cannot
 # share).
 audience = "private"
