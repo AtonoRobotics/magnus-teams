@@ -37,6 +37,11 @@ fn may_control(who: &Person, owner: &str) -> bool {
     who.id == owner || who.is_owner() || who.has_role("admin")
 }
 
+/// What an owner or admin may do to another person's task or schedule: stop
+/// it, and lift a suspension an admin put on it. Editing, resuming what its
+/// person paused and deleting stay that person's.
+const OTHERS_MAY: &[&str] = &["cancel_task", "pause_schedule", "resume_schedule"];
+
 /// What a control's event records about how it was done (#267): the chat
 /// run did it, or the app's button did.
 fn sources(turn: Option<&str>) -> (Option<String>, Option<String>) {
@@ -52,6 +57,11 @@ fn sources(turn: Option<&str>) -> (Option<String>, Option<String>) {
 /// today. A policy that fails to evaluate falls back to today's fixed
 /// rule, so one broken layer cannot stop every control in the place.
 fn control_check(client: &Kernel, who: &Person, op: &str, kind: &str, id: &str, owner: &str, what: &'static str) -> Result<(), Refused> {
+    // Someone else's work is stopped, never changed (spec rev 145, Agents:
+    // "An admin can pause or stop any one of them"), whatever a layer allows.
+    if who.id != owner && !OTHERS_MAY.contains(&op) {
+        return Err(Refused::NotFound(what));
+    }
     let policies = client.read(|s| s.policies.clone());
     let t = crate::policy::ControlFacts { op, kind, id, owner };
     match crate::policy::control_allowed(&policies, who, &t) {
@@ -147,7 +157,14 @@ impl Kernel {
             return Err(Refused::Conflict(format!("the task has already ended ({})", crate::api::status_str(run.status))));
         }
         let (source, turn_ev) = sources(turn);
-        self.emit(&format!("person:{}", who.id), Ev::Cancelled { run: run.id.clone(), source, turn: turn_ev }).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![(actor.as_str(), Ev::Cancelled { run: run.id.clone(), source, turn: turn_ev })];
+        // Stopped by someone else: its person is told who, at once.
+        if who.id != owner {
+            let said = format!("{} stopped your task", who.name);
+            evs.push(("kernel", self.notice_to(Some(id.into()), Some(run.id.clone()), owner.clone(), said, json!({ "reason": "stopped_by_admin", "by": who.id }))));
+        }
+        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         // It may have ended on its own as the cancel was recorded: then the
         // cancel changed nothing, and the person is told how it ended.
         let now = self.read(|s| s.runs.get(&run.id).map(|r| r.status));
@@ -158,6 +175,10 @@ impl Kernel {
         // Reported from the run as it is now: results recorded while it
         // stopped read done, not possibly done.
         let now = self.read(|s| s.runs.get(&run.id).cloned()).unwrap_or(run);
+        if who.id != owner {
+            // What another person's work did is theirs to read.
+            return Ok(json!({ "cancelled": id }));
+        }
         let (cannot_be_undone, already_done, possibly_done) = self.stopped_run_report(&now);
         Ok(json!({
             "cancelled": id,
@@ -215,9 +236,15 @@ impl Kernel {
         }
         let reason = if who.id == sc.person { "Paused by you".to_string() } else { format!("Paused by {}", who.name) };
         let (source, turn_ev) = sources(turn);
-        self.emit(&format!("person:{}", who.id), Ev::SchedulePaused { id: id.into(), reason, task: None, admin: false, source, turn: turn_ev })
-            .await
-            .map_err(|e| Refused::Failed(format!("{e:#}")))?;
+        let actor = format!("person:{}", who.id);
+        let mut evs = vec![(actor.as_str(), Ev::SchedulePaused { id: id.into(), reason: reason.clone(), task: None, admin: false, source, turn: turn_ev })];
+        if who.id != sc.person {
+            evs.push((
+                "kernel",
+                self.notice_to(None, None, sc.person.clone(), format!("{reason}: one of your schedules"), json!({ "reason": "paused_by_admin", "by": who.id, "schedule": id })),
+            ));
+        }
+        self.emit_all(evs).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         Ok(())
     }
 
@@ -233,6 +260,9 @@ impl Kernel {
         }
         if sc.paused_by_admin && !(who.is_owner() || who.has_role("admin")) {
             return Err(Refused::Conflict("it is suspended by an admin: only an admin lifts it".into()));
+        }
+        if who.id != sc.person && !sc.paused_by_admin {
+            return Err(Refused::Denied("only its person resumes what they paused".into()));
         }
         if sc.paused_on.is_some() {
             return Err(Refused::Conflict("its run is waiting on you: answer it, or resume or cancel that task, and the schedule goes on".into()));
@@ -410,6 +440,9 @@ fn report_class(result: Option<&crate::state::ResultRec>) -> ReportClass {
         Some(_) => ReportClass::Skip,
     }
 }
+
+#[cfg(test)]
+mod others_tests;
 
 #[cfg(test)]
 mod tests {
