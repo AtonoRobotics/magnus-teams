@@ -85,6 +85,9 @@ pub struct Config {
     /// How account emails are sent (recovery, invitations). None: they are not.
     #[serde(default)]
     pub mail: Option<Mail>,
+    /// The facts the agreements state about whoever runs the server; all required.
+    #[serde(default)]
+    pub legal: crate::legal::Settings,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -974,6 +977,7 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)?;
         cfg.path = path.canonicalize()?;
         cfg.outcomes.check()?;
+        cfg.legal.check()?;
         if cfg.admin.is_some() {
             tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
         }
@@ -1149,11 +1153,12 @@ fn range_ok(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::legal::TEST_CONFIG as LEGAL;
 
     fn load(connector: &str) -> anyhow::Result<Config> {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("magnus.toml");
-        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n[[connectors]]\nname = \"mail\"\naudience = \"public\"\nlabel = \"private+untrusted\"\n{connector}");
+        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}[[connectors]]\nname = \"mail\"\naudience = \"public\"\nlabel = \"private+untrusted\"\n{connector}");
         std::fs::write(&p, text).unwrap();
         Config::load(&p)
     }
@@ -1166,7 +1171,7 @@ mod tests {
         let p = d.path().join("magnus.toml");
         let admin = "[admin]\nhostname = \"admin.example\"\nlisten = [\"10.0.0.2:443\"]\nallow = [\"10.0.0.0/8\"]\ntls_cert = \"/c.pem\"\ntls_key = \"/k.pem\"\nidle_minutes = 30\ndatabase_url = \"postgres://magnus_root:x@h/m\"\ntrusted_via = \"tailscale\"\n";
         let text = format!(
-            "[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{admin}"
+            "[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}{admin}"
         );
         std::fs::write(&p, text).unwrap();
         assert!(Config::load(&p).unwrap().admin.is_some());
@@ -1188,7 +1193,7 @@ mod tests {
     fn load_backup(backup: &str) -> anyhow::Result<Config> {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("magnus.toml");
-        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n[backup]\n{backup}");
+        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}[backup]\n{backup}");
         std::fs::write(&p, text).unwrap();
         Config::load(&p)
     }
@@ -1218,7 +1223,7 @@ mod tests {
     fn load_browser(allow: &str) -> anyhow::Result<Config> {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("magnus.toml");
-        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n[browser]\ncommand = [\"node\", \"sidecar.js\"]\nchromium = \"/c\"\nallow = [{allow}]");
+        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}[browser]\ncommand = [\"node\", \"sidecar.js\"]\nchromium = \"/c\"\nallow = [{allow}]");
         std::fs::write(&p, text).unwrap();
         Config::load(&p)
     }

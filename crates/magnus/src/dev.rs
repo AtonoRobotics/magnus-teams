@@ -2,6 +2,7 @@
 //! live panels, policy history and the playbook. Raw log access lives here
 //! and only here, behind the developer role (K10, K45).
 
+use crate::anonymize::{Lens, Sight};
 use crate::api::{developer, err, internal, status_str};
 use crate::events::{Ev, ExperimentTag};
 use crate::kernel::Kernel;
@@ -25,12 +26,12 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/dev/runs/{id}", get(inspect))
         .route("/v1/dev/runs/{id}/log", get(raw_log))
         .route("/v1/dev/runs/{id}/grades", post(grade))
-        .route("/v1/dev/metrics", get(metrics))
+        .route("/v1/dev/metrics", get(crate::dev_panels::metrics))
         .route("/v1/dev/experiments", get(experiments))
         .route("/v1/dev/experiments/{id}", get(experiment))
         .route("/v1/dev/experiments/{id}/trials", post(add_trial))
-        .route("/v1/dev/policy", get(policy))
-        .route("/v1/dev/playbook", get(playbook))
+        .route("/v1/dev/policy", get(crate::dev_panels::policy))
+        .route("/v1/dev/playbook", get(crate::dev_panels::playbook))
         .route("/v1/dev/modules", get(modules))
 }
 
@@ -100,14 +101,15 @@ pub struct Module {
 /// whether it is on for the appliance's model and each model set apart, and
 /// how often it acted.
 async fn modules(AxState(k): K, h: HeaderMap) -> Response {
-    dev!(k, h);
+    let p = dev!(k, h);
+    let lens = k.lens(&p);
     let (a, m) = k.default_model();
     let first = format!("{a}/{m}");
     let mut models = vec![first.clone()];
     models.extend(k.cfg.modules.model.iter().map(|x| x.model.clone()).filter(|x| *x != first));
     let acted = k.read(|s| {
         let mut n: HashMap<&str, usize> = HashMap::new();
-        for r in s.runs.values() {
+        for r in s.runs.values().filter(|r| lens.sight(&r.person) != Sight::Hidden) {
             *n.entry("lost_reset").or_default() += r.cuts.len();
             *n.entry("escalation").or_default() += r.escalated.is_some() as usize;
             *n.entry("verifier").or_default() += r.verified.values().filter(|v| v.2 == "verifier").count();
@@ -196,7 +198,8 @@ struct RunQuery {
 }
 
 async fn runs(AxState(k): K, h: HeaderMap, Query(q): Query<RunQuery>) -> Response {
-    dev!(k, h);
+    let p = dev!(k, h);
+    let lens = k.lens(&p);
     let stall = k.cfg.observability.stall_minutes;
     let ids: Option<BTreeSet<String>> = q.ids.as_ref().map(|i| i.split(',').map(String::from).collect());
     let w = match k.all_words().await {
@@ -211,7 +214,7 @@ async fn runs(AxState(k): K, h: HeaderMap, Query(q): Query<RunQuery>) -> Respons
             .filter(|r| q.experiment.as_deref().is_none_or(|e| r.experiment.as_ref().is_some_and(|x| x.id == e)))
             .filter(|r| q.failure.as_deref().is_none_or(|f| failure(s, r, stall) == Some(f)))
             .filter(|r| ids.as_ref().is_none_or(|i| i.contains(&r.id)))
-            .map(|r| summary(s, r, stall, &w))
+            .filter_map(|r| lens.show(lens.sight(&r.person), summary(s, r, stall, &w)))
             .collect()
     });
     list.truncate(q.limit.unwrap_or(500));
@@ -331,7 +334,9 @@ impl Sources {
 /// action (V7). Built from the run's raw events.
 async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     let req = dev!(k, h);
-    let Some(run) = k.read(|s| s.runs.get(&id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such run") };
+    let lens = k.lens(&req);
+    // A run its person has not let developers see is, to them, no run.
+    let Some(run) = k.read(|s| s.runs.get(&id).cloned()).filter(|r| lens.sight(&r.person) != Sight::Hidden) else { return err(StatusCode::NOT_FOUND, "no such run") };
     // Another developer reads the run's shape, not the words of the calls
     // that are its person's alone (#257).
     let redact = req.id != run.person;
@@ -498,7 +503,8 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
         Err(e) => return internal(e),
     };
     let s = k.read(|s| summary(s, &run, k.cfg.observability.stall_minutes, &w));
-    Json(json!({ "run": s, "steps": out, "actions": actions, "records": records, "harness": harness, "events": events.len() })).into_response()
+    let v = json!({ "run": s, "steps": out, "actions": actions, "records": records, "harness": harness, "events": events.len() });
+    Json(lens.show(lens.sight(&run.person), v)).into_response()
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -510,12 +516,13 @@ struct LogQuery {
 /// The full log of one run (V4), with large payloads shortened for reading.
 async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<LogQuery>) -> Response {
     let req = dev!(k, h);
-    if k.read(|s| !s.runs.contains_key(&id)) {
+    let lens = k.lens(&req);
+    let Some(person) = k.read(|s| s.runs.get(&id).map(|r| r.person.clone())).filter(|p| lens.sight(p) != Sight::Hidden) else {
         return err(StatusCode::NOT_FOUND, "no such run");
-    }
+    };
     match k.run_events(&id).await {
         Ok(evs) => {
-            let person = k.read(|s| s.runs.get(&id).map(|r| r.person.clone())).unwrap_or_default();
+            let sight = lens.sight(&person);
             let redact = req.id != person;
             let call_tool = call_tools(&evs);
             let after = q.after.unwrap_or(0);
@@ -529,7 +536,13 @@ async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): 
                     if redact {
                         redact_event_body(&mut body, &call_tool);
                     }
-                    json!({ "seq": e.seq, "at": e.at, "actor": e.actor, "kind": body["kind"], "body": shrink(&body) })
+                    // Anonymised, the event is walked field by field: its
+                    // kind, counts and codes stay, its words go.
+                    let row = |body: Value| json!({ "seq": e.seq, "at": e.at, "actor": e.actor, "kind": body["kind"], "event": body });
+                    let mut shown = lens.show(sight, row(shrink(&body))).unwrap_or_default();
+                    shown["body"] = shown["event"].take();
+                    shown.as_object_mut().map(|m| m.remove("event"));
+                    shown
                 })
                 .collect();
             Json(json!({ "events": rows, "total": evs.len() })).into_response()
@@ -541,7 +554,8 @@ async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): 
 /// A grader's verdict from the evaluation runner (V2).
 async fn grade(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
     let p = dev!(k, h);
-    if k.read(|s| !s.runs.contains_key(&id)) {
+    let lens = k.lens(&p);
+    if k.read(|s| s.runs.get(&id).is_none_or(|r| lens.sight(&r.person) == Sight::Hidden)) {
         return err(StatusCode::NOT_FOUND, "no such run");
     }
     let (Some(grader), Some(passed)) = (b["grader"].as_str(), b["passed"].as_bool()) else {
@@ -639,7 +653,7 @@ fn mean_se(xs: &[f64]) -> (f64, f64) {
     (m, (var / n).sqrt())
 }
 
-fn num(x: f64) -> Value {
+pub(crate) fn num(x: f64) -> Value {
     if x.is_finite() {
         json!((x * 10000.0).round() / 10000.0)
     } else {
@@ -648,10 +662,11 @@ fn num(x: f64) -> Value {
 }
 
 async fn experiments(AxState(k): K, h: HeaderMap) -> Response {
-    dev!(k, h);
+    let p = dev!(k, h);
+    let lens = k.lens(&p);
     let list: Vec<Value> = k.read(|s| {
         let mut by: BTreeMap<String, Vec<&Run>> = BTreeMap::new();
-        for r in s.runs.values() {
+        for r in s.runs.values().filter(|r| lens.sight(&r.person) != Sight::Hidden) {
             if let Some(t) = &r.experiment {
                 by.entry(t.id.clone()).or_default().push(r);
             }
@@ -680,14 +695,15 @@ struct ExpQuery {
 /// case, with pass@k and pass^k and their spread, a paired comparison, and
 /// failures tagged by where they went wrong (V2). Every number lists its runs.
 async fn experiment(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<ExpQuery>) -> Response {
-    dev!(k, h);
+    let p = dev!(k, h);
+    let lens = k.lens(&p);
     let stall = k.cfg.observability.stall_minutes;
     let w = match k.all_words().await {
         Ok(w) => w,
         Err(e) => return internal(e),
     };
     let v = k.read(|s| {
-        let rs: Vec<&Run> = s.runs.values().filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id)).collect();
+        let rs: Vec<&Run> = s.runs.values().filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id) && lens.sight(&r.person) != Sight::Hidden).collect();
         if rs.is_empty() {
             return None;
         }
@@ -766,8 +782,8 @@ async fn experiment(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q
                 }));
             }
         }
-        let requests = request_rows(s, &id, &w);
-        let compared = if requests.is_empty() { Value::Null } else { compare(s, &id, &requests, q.base.as_deref(), &w) };
+        let requests = request_rows(s, &id, &w, &lens);
+        let compared = if requests.is_empty() { Value::Null } else { compare(s, &id, &requests, q.base.as_deref(), &w, &lens) };
         Some(json!({ "id": id, "k": kk, "cases": cases, "configs": configs, "paired": paired, "requests": requests, "compare": compared }))
     });
     match v {
@@ -857,12 +873,12 @@ fn rank(v: &str) -> usize {
 }
 
 /// The request trials of one experiment, in case, model and trial order.
-fn request_rows(s: &State, id: &str, w: &crate::recall::Words) -> Vec<Value> {
+fn request_rows(s: &State, id: &str, w: &crate::recall::Words, lens: &Lens) -> Vec<Value> {
     let mut rows: Vec<Value> = s
         .runs
         .values()
         .filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id) && s.tasks.get(&r.task).is_some_and(|t| t.is_chat_turn()))
-        .map(|r| request_trial(s, r, w))
+        .filter_map(|r| lens.show(lens.sight(&r.person), request_trial(s, r, w)))
         .collect();
     rows.sort_by_key(|v| (v["case"].as_str().unwrap_or_default().to_string(), v["config"].as_str().unwrap_or_default().to_string(), v["trial"].as_u64()));
     rows
@@ -872,7 +888,7 @@ fn request_rows(s: &State, id: &str, w: &crate::recall::Words) -> Vec<Value> {
 /// latest earlier experiment sharing a request): each request on each model,
 /// side by side, what changed between them, and once every trial here has
 /// settled, how many improved, stayed the same or regressed by verdict.
-fn compare(s: &State, id: &str, rows: &[Value], base: Option<&str>, w: &crate::recall::Words) -> Value {
+fn compare(s: &State, id: &str, rows: &[Value], base: Option<&str>, w: &crate::recall::Words, lens: &Lens) -> Value {
     let started = |e: &str| s.runs.values().filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == e)).map(|r| r.created_at).min();
     let cases: BTreeSet<&str> = rows.iter().filter_map(|r| r["case"].as_str()).collect();
     let base_id = base.map(String::from).or_else(|| {
@@ -880,7 +896,12 @@ fn compare(s: &State, id: &str, rows: &[Value], base: Option<&str>, w: &crate::r
         let mut others: BTreeMap<String, chrono::DateTime<chrono::Utc>> = BTreeMap::new();
         for r in s.runs.values() {
             let Some(t) = r.experiment.as_ref() else { continue };
-            if t.id != id && cases.contains(t.case.as_str()) && s.tasks.get(&r.task).is_some_and(|t| t.is_chat_turn()) && r.created_at < mine {
+            if t.id != id
+                && lens.sight(&r.person) != Sight::Hidden
+                && cases.contains(t.case.as_str())
+                && s.tasks.get(&r.task).is_some_and(|t| t.is_chat_turn())
+                && r.created_at < mine
+            {
                 let e = others.entry(t.id.clone()).or_insert(r.created_at);
                 *e = (*e).min(r.created_at);
             }
@@ -888,7 +909,7 @@ fn compare(s: &State, id: &str, rows: &[Value], base: Option<&str>, w: &crate::r
         others.into_iter().max_by_key(|(_, at)| *at).map(|(e, _)| e)
     });
     let Some(base_id) = base_id else { return Value::Null };
-    let before = request_rows(s, &base_id, w);
+    let before = request_rows(s, &base_id, w, lens);
     let key = |r: &Value| (r["case"].as_str().unwrap_or_default().to_string(), r["model"].as_str().unwrap_or_default().to_string(), r["trial"].as_u64());
     let earlier: BTreeMap<_, &Value> = before.iter().map(|r| (key(r), r)).collect();
     let (mut improved, mut unchanged, mut regressed, mut unjudged) = (0, 0, 0, 0);
@@ -956,262 +977,4 @@ fn compare(s: &State, id: &str, rows: &[Value], base: Option<&str>, w: &crate::r
         "complete": settled == rows.len() && !rows.is_empty(),
         "summary": { "improved": improved, "unchanged": unchanged, "regressed": regressed, "unjudged": unjudged },
     })
-}
-
-fn panel(id: &str, title: &str, value: Value, unit: &str, runs: Vec<String>, breakdown: Vec<Value>) -> Value {
-    json!({ "id": id, "title": title, "value": value, "unit": unit, "runs": runs, "breakdown": breakdown })
-}
-
-fn rows(m: BTreeMap<String, BTreeSet<String>>) -> Vec<Value> {
-    m.into_iter().map(|(label, runs)| json!({ "label": label, "value": runs.len(), "runs": runs })).collect()
-}
-
-/// Live panels (V3). Every number lists the runs behind it (V4).
-async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
-    dev!(k, h);
-    let stall = k.cfg.observability.stall_minutes;
-    let capture = k.capture.lock().unwrap().clone();
-    let v = k.read(|s| {
-        let all: Vec<&Run> = s.runs.values().collect();
-        let ids = |f: &dyn Fn(&Run) -> bool| -> Vec<String> { all.iter().filter(|r| f(r)).map(|r| r.id.clone()).collect() };
-        let mut panels = vec![];
-
-        // Interventions per task: decisions a person had to make.
-        let mut by_kind: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let mut interventions = 0usize;
-        for i in s.items.values() {
-            if let (Some(run), true) = (&i.run, ["approval", "question", "review", "notice"].contains(&i.kind.as_str())) {
-                interventions += 1;
-                by_kind.entry(i.kind.clone()).or_default().insert(run.clone());
-            }
-        }
-        let n = all.len().max(1) as f64;
-        panels.push(panel("interventions", "Interventions per task", num(interventions as f64 / n), "per task", ids(&|_| true), rows(by_kind)));
-
-        let done = ids(&|r| r.status == Status::Completed);
-        let spend: f64 = all.iter().map(|r| r.usd).sum();
-        let cps = if done.is_empty() { f64::NAN } else { spend / done.len() as f64 };
-        panels.push(panel(
-            "cost_per_success",
-            "Cost per successful task",
-            num(cps),
-            "USD",
-            done.clone(),
-            vec![json!({ "label": "total spend", "value": num(spend), "runs": ids(&|r| r.usd > 0.0) })],
-        ));
-
-        let mut outcomes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let mut asks: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for r in &all {
-            for d in &r.decisions {
-                outcomes.entry(format!("{} · {}", d.stage, d.outcome)).or_default().insert(r.id.clone());
-                if d.outcome == "ask" {
-                    let reason = crate::asks::Reason::of(d.rule.as_deref()).map_or("before rev 140", crate::asks::Reason::as_str);
-                    asks.entry(reason.to_string()).or_default().insert(r.id.clone());
-                }
-            }
-        }
-        let decisions: usize = all.iter().map(|r| r.decisions.len()).sum();
-        panels.push(panel("boundary", "Boundary outcomes by stage", json!(decisions), "decisions", ids(&|r| !r.decisions.is_empty()), rows(outcomes)));
-        let ask_runs: BTreeSet<String> = asks.values().flatten().cloned().collect();
-        panels.push(panel("asks", "Asks by reason", json!(ask_runs.len()), "runs", ask_runs.into_iter().collect(), rows(asks)));
-
-        let mut scopes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for a in &s.approvals {
-            let run = s.tasks.get(&a.task).map(|t| t.run_id.clone()).unwrap_or_default();
-            scopes.entry(a.scope.clone()).or_default().insert(run);
-        }
-        panels.push(panel(
-            "approval_scopes",
-            "Approval scopes granted",
-            json!(s.approvals.len()),
-            "approvals",
-            scopes.values().flatten().cloned().collect::<BTreeSet<_>>().into_iter().collect(),
-            rows(scopes),
-        ));
-
-        let unknown = ids(&|r| r.intents.values().any(|i| i.result.as_ref().is_some_and(|x| x.status == "unknown")));
-        panels.push(panel("unknown_intents", "Intents with unknown outcome", json!(unknown.len()), "runs", unknown, vec![]));
-
-        let budget = ids(&|r| r.suspensions.iter().any(|x| x == "budget"));
-        panels.push(panel("budget_hits", "Budget hits", json!(budget.len()), "runs", budget, vec![]));
-
-        let stalled = ids(&|r| failure(s, r, stall) == Some("stalled"));
-        panels.push(panel("stalled", &format!("Stalled runs (no event for {stall} min)"), json!(stalled.len()), "runs", stalled, vec![]));
-
-        let t = all.iter().fold((0u64, 0u64), |acc, r| (acc.0 + r.tokens.cache_read, acc.1 + r.tokens.input + r.tokens.cache_read + r.tokens.cache_write));
-        let rate = if t.1 == 0 { f64::NAN } else { t.0 as f64 / t.1 as f64 };
-        panels.push(panel("cache_hit_rate", "Prompt cache hit rate", num(rate), "of input tokens", ids(&|r| r.tokens.input > 0), vec![]));
-
-        let mut mem: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for m in &s.memory {
-            let l = match (m.label.untrusted, m.label.private) {
-                (true, true) => "private+untrusted",
-                (true, false) => "untrusted",
-                (false, true) => "private",
-                _ => "principal",
-            };
-            mem.entry(l.into()).or_default().insert(m.run.clone());
-        }
-        panels.push(panel(
-            "memory_writes",
-            "Memory writes by label",
-            json!(s.memory.len()),
-            "entries",
-            mem.values().flatten().cloned().collect::<BTreeSet<_>>().into_iter().collect(),
-            rows(mem),
-        ));
-
-        let mut fail: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for r in &all {
-            if let Some(f) = failure(s, r, stall) {
-                fail.entry(f.into()).or_default().insert(r.id.clone());
-            }
-        }
-        panels.push(panel(
-            "failures",
-            "Where runs went wrong",
-            json!(fail.values().map(|v| v.len()).sum::<usize>()),
-            "runs",
-            fail.values().flatten().cloned().collect::<BTreeSet<_>>().into_iter().collect(),
-            rows(fail),
-        ));
-
-        let reviews = ids(&|r| s.items.values().any(|i| i.kind == "review" && i.run.as_deref() == Some(&r.id)));
-        panels.push(panel("review_load", "Review cards (criteria without a check)", json!(reviews.len()), "runs", reviews, vec![]));
-
-        let mut recent: Vec<u64> = capture.recent.iter().copied().collect();
-        recent.sort_unstable();
-        let p95 = recent.get(((recent.len() as f64) * 0.95) as usize).or(recent.last()).copied().unwrap_or(0);
-        let avg = if capture.appends == 0 { f64::NAN } else { capture.total_us as f64 / capture.appends as f64 / 1000.0 };
-        panels.push(json!({ "id": "capture", "title": "Capture overhead per step (log append)", "value": num(avg), "unit": "ms average since boot",
-            "runs": [], "breakdown": [
-                { "label": "p95 of recent appends", "value": num(p95 as f64 / 1000.0), "runs": [] },
-                { "label": "slowest append", "value": num(capture.max_us as f64 / 1000.0), "runs": [] },
-                { "label": "appends since boot", "value": capture.appends, "runs": [] }
-            ] }));
-
-        panels.extend(crate::measured::panels(s));
-        json!({ "panels": panels, "runs": all.len(), "at": chrono::Utc::now() })
-    });
-    Json(v).into_response()
-}
-
-/// Policy, versioned per layer, with the agent's proposals waiting for the
-/// owner of each layer (A8, K35) and each tool's measured reliability (U5).
-async fn policy(AxState(k): K, h: HeaderMap) -> Response {
-    dev!(k, h);
-    let people = k.cfg.people.clone();
-    let v = k.read(|s| {
-        let mut layers: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-        for p in &s.policy_history {
-            layers.entry(p.layer.clone()).or_default().push(json!({ "seq": p.seq, "at": p.at, "by": p.by, "cedar": p.cedar }));
-        }
-        layers.entry("org".into()).or_default();
-        let layers: Vec<Value> = layers
-            .into_iter()
-            .map(|(layer, versions)| {
-                let owners: Vec<String> = people.iter().filter(|p| crate::inbox::may_set_policy(p, &layer)).map(|p| p.id.clone()).collect();
-                let current = s.policies.get(&layer).cloned().or_else(|| (layer == "org").then(|| crate::policy::DEFAULT_ORG.to_string()));
-                json!({ "layer": layer, "versions": versions, "current": current, "default": layer == "org" && !s.policies.contains_key("org"), "owners": owners })
-            })
-            .collect();
-        let proposals: Vec<Value> = s
-            .items
-            .values()
-            .filter(|i| i.kind == "policy_proposal")
-            .map(|i| {
-                let layer = i.details["layer"].as_str().unwrap_or_default();
-                json!({
-                    "id": i.id, "layer": layer, "cedar": i.details["cedar"], "rationale": i.details["rationale"],
-                    "run": i.run, "created_at": i.created_at,
-                    "status": if i.resolution.is_some() { "decided" } else { "waiting" },
-                    "decision": i.resolution.as_ref().map(|r| json!({ "decision": r.0, "by": r.3 })),
-                    "waiting_for": people.iter().filter(|p| crate::inbox::may_set_policy(p, layer)).map(|p| p.id.clone()).collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        // Reliability per tool: how calls under each scope were decided and
-        // how they and their runs turned out.
-        #[derive(Default)]
-        struct Rel {
-            allow: BTreeSet<String>,
-            ask: BTreeSet<String>,
-            deny: BTreeSet<String>,
-            calls: u64,
-            errors: u64,
-            runs: BTreeSet<String>,
-            completed: BTreeSet<String>,
-        }
-        let mut rel: BTreeMap<String, Rel> = BTreeMap::new();
-        for r in s.runs.values() {
-            let mut last: BTreeMap<&str, &crate::state::DecisionRec> = BTreeMap::new();
-            for d in &r.decisions {
-                last.insert(&d.call_id, d);
-            }
-            for d in last.values() {
-                let e = rel.entry(d.tool.clone()).or_default();
-                match d.outcome.as_str() {
-                    "allow" | "dedupe" => e.allow.insert(r.id.clone()),
-                    "ask" => e.ask.insert(r.id.clone()),
-                    _ => e.deny.insert(r.id.clone()),
-                };
-            }
-            for i in r.intents.values() {
-                let e = rel.entry(i.tool.clone()).or_default();
-                e.calls += 1;
-                if i.result.as_ref().is_some_and(|x| x.is_error) {
-                    e.errors += 1;
-                }
-                e.runs.insert(r.id.clone());
-                if r.status == Status::Completed {
-                    e.completed.insert(r.id.clone());
-                }
-            }
-        }
-        let scopes: Vec<Value> = rel
-            .into_iter()
-            .map(|(tool, r)| {
-                let ok = if r.calls == 0 { f64::NAN } else { 1.0 - r.errors as f64 / r.calls as f64 };
-                let done = if r.runs.is_empty() { f64::NAN } else { r.completed.len() as f64 / r.runs.len() as f64 };
-                json!({
-                    "tool": tool,
-                    "decided": { "allow": r.allow.len(), "ask": r.ask.len(), "deny": r.deny.len() },
-                    "calls": r.calls, "errors": r.errors, "call_success": num(ok),
-                    "runs": r.runs, "runs_completed": num(done),
-                })
-            })
-            .collect();
-        json!({ "layers": layers, "proposals": proposals, "scopes": scopes })
-    });
-    Json(v).into_response()
-}
-
-/// The agent's playbook items with their measurements (I2, I3).
-async fn playbook(AxState(k): K, h: HeaderMap) -> Response {
-    dev!(k, h);
-    let v = k.read(|s| {
-        let items: Vec<Value> = s
-            .playbook
-            .values()
-            .map(|i| {
-                let mine: Vec<&Run> = s.runs.values().filter(|r| r.person == i.person && r.status.terminal()).collect();
-                let live = |r: &&&Run| r.config.playbook >= i.added && i.retired.is_none_or(|x| r.config.playbook < x);
-                let with: Vec<String> = mine.iter().filter(live).map(|r| r.id.clone()).collect();
-                let before: Vec<String> = mine.iter().filter(|r| r.config.playbook < i.added).map(|r| r.id.clone()).collect();
-                let rate = |ids: &[String]| {
-                    let done = ids.iter().filter(|id| s.runs.get(*id).is_some_and(|r| r.status == Status::Completed)).count();
-                    json!({ "runs": ids, "completed": done, "rate": num(if ids.is_empty() { f64::NAN } else { done as f64 / ids.len() as f64 }) })
-                };
-                json!({
-                    "id": i.id, "person": i.person, "text": i.text, "addresses": i.addresses, "label": i.label,
-                    "source_run": i.runs.first(), "edited_by": i.runs.iter().skip(1).collect::<Vec<_>>(),
-                    "added": i.added, "retired": i.retired, "added_at": i.added_at,
-                    "with_item": rate(&with), "before_item": rate(&before),
-                })
-            })
-            .collect();
-        json!({ "version": s.playbook_version, "items": items })
-    });
-    Json(v).into_response()
 }

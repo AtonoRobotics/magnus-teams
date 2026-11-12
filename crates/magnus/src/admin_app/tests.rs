@@ -5,6 +5,7 @@ use super::guard::{mark, ADMIN_STEP_UP_SECONDS, STEP_UP_ERROR};
 use crate::accounts::Role;
 use crate::api::Transport;
 use crate::kernel::Kernel;
+use crate::legal::TEST_CONFIG as LEGAL;
 use axum::Router;
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -61,7 +62,7 @@ pub(crate) async fn server_with(more: &str, extra: impl FnOnce(Arc<Kernel>) -> R
     std::fs::write(
         &p,
         format!(
-            "[appliance]\nstate_dir = {state:?}\nlisten = \"127.0.0.1:0\"\n[database]\nurl = {url:?}\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n\
+            "[appliance]\nstate_dir = {state:?}\nlisten = \"127.0.0.1:0\"\n[database]\nurl = {url:?}\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}\
              [[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n[[people]]\nid = \"ana\"\nname = \"Ana\"\nroles = [\"admin\"]\n[[people]]\nid = \"mo\"\nname = \"Mo\"\n{more}"
         ),
     )

@@ -183,6 +183,7 @@ pub enum Ev {
     LocalFile(crate::local_files::Change),
     Team(crate::team::Change),
     AccountLink(crate::account_links::Change),
+    Legal(crate::legal::Change),
     Push(crate::push::Change),
     Tools(crate::tool_gate::Change),
     Spend(crate::spend::Change),

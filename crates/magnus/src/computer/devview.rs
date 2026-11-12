@@ -7,6 +7,7 @@
 
 use super::egress::watch;
 use super::{KillMode, Owner, Role, Status};
+use crate::anonymize::{Lens, Sight};
 use crate::api::developer;
 use crate::config::Person;
 use crate::controls::Refused;
@@ -62,26 +63,53 @@ impl Kernel {
         self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
-    pub fn dev_computers(&self) -> Value {
-        self.read(|s| {
-            let all: Vec<Value> = s
-                .computers
+    /// How `lens` sees a computer: as its person allows, and a workspace's
+    /// only as far as every member allows (`crate::anonymize`).
+    fn sight_of(&self, lens: &Lens, owner: &Owner) -> Sight {
+        match owner {
+            Owner::Person(p) => lens.sight(p),
+            Owner::Workspace(w) => self.read(|s| s.team.workspace(w).map_or(Sight::Hidden, |w| lens.sight_of_all(w.members.keys()))),
+        }
+    }
+
+    pub fn dev_computers(&self, who: &Person) -> Value {
+        let lens = self.lens(who);
+        let all: Vec<(Owner, Value)> = self.read(|s| {
+            s.computers
                 .all()
                 .filter(|c| c.role == Role::Computer)
                 .map(|c| {
-                    json!({
+                    let v = json!({
                         "id": c.id, "owner": c.owner, "status": c.status, "controller": c.controller,
                         "destinations": c.destinations, "apps": c.apps.iter().map(|a| &a.name).collect::<Vec<_>>(),
-                    })
+                    });
+                    (c.owner.clone(), v)
                 })
-                .collect();
-            json!({ "computers": all })
-        })
+                .collect()
+        });
+        let shown: Vec<Value> = all.into_iter().filter_map(|(owner, v)| lens.show(self.sight_of(&lens, &owner), v)).collect();
+        json!({ "computers": shown })
     }
 
+    /// What the computer reached: in full for its own person or a tester,
+    /// hostnames alone for someone who shares anonymous usage data, and
+    /// nothing at all for anyone else.
     pub async fn dev_egress(&self, who: &Person, id: &str, after: i64, limit: i64) -> Result<Value, Refused> {
         let c = self.dev_computer(id)?;
-        let rows = watch::since(&self.cfg.database.url, id, after, limit, own(who, &c.owner)).await.map_err(super::service::failed)?;
+        let lens = self.lens(who);
+        let sight = self.sight_of(&lens, &c.owner);
+        if sight == Sight::Hidden {
+            return Err(Refused::NotFound("computer"));
+        }
+        let full = sight == Sight::Full || own(who, &c.owner);
+        let mut rows = watch::since(&self.cfg.database.url, id, after, limit, full).await.map_err(super::service::failed)?;
+        if sight == Sight::Anonymous {
+            for r in &mut rows {
+                r.path = String::new();
+                r.address = None;
+                r.detail = None;
+            }
+        }
         Ok(json!({ "status": c.status, "egress": rows }))
     }
 
@@ -100,8 +128,8 @@ impl Kernel {
 }
 
 async fn list(State(k): K, h: HeaderMap) -> Response {
-    dev!(k, h);
-    answered(Ok(k.dev_computers()))
+    let p = dev!(k, h);
+    answered(Ok(k.dev_computers(&p)))
 }
 
 #[derive(Deserialize)]

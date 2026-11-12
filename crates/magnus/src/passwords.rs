@@ -142,13 +142,14 @@ async fn password_reset_request(State(k): K, Extension(t): Extension<Transport>,
 #[cfg(test)]
 mod tests {
     use super::{link_base, recovery_mail};
+    use crate::legal::TEST_CONFIG as LEGAL;
 
     /// A config with `appliance` lines added to `[appliance]` and `rest`
     /// after it.
     fn load(appliance: &str, rest: &str) -> anyhow::Result<crate::config::Config> {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("magnus.toml");
-        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n{appliance}\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{rest}");
+        let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n{appliance}\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}{rest}");
         std::fs::write(&p, text).unwrap();
         crate::config::Config::load(&p)
     }

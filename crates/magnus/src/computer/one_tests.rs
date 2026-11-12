@@ -2,6 +2,7 @@
 //! and a computerd that answers at once and remembers what it was asked.
 
 use super::*;
+use crate::legal::TEST_CONFIG as LEGAL;
 use std::sync::Mutex;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
@@ -129,7 +130,7 @@ async fn server() -> Server {
     std::fs::write(
         &p,
         format!(
-            "[appliance]\nstate_dir = {state:?}\nlisten = \"127.0.0.1:0\"\n[database]\nurl = {url:?}\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n[computer]\nsocket = {socket:?}\n\
+            "[appliance]\nstate_dir = {state:?}\nlisten = \"127.0.0.1:0\"\n[database]\nurl = {url:?}\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}[computer]\nsocket = {socket:?}\n\
              [[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n[[people]]\nid = \"ana\"\nname = \"Ana\"\nroles = [\"admin\"]\n[[people]]\nid = \"mo\"\nname = \"Mo\"\n"
         ),
     )

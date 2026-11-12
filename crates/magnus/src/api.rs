@@ -161,7 +161,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/schedules/{id}", axum::routing::delete(remove_schedule).patch(edit_schedule))
         .route("/v1/schedules/{id}/resume", post(resume_schedule))
         .route("/v1/schedules/{id}/pause", post(pause_schedule))
-        .merge(crate::dev::router())
+        .merge(crate::dev::router().merge(crate::legal::routes::router(k.clone())))
         .merge(crate::connectors::router().merge(crate::generated::router()).merge(crate::payments::router()).merge(crate::push::router()))
         .merge(crate::library::router().merge(crate::consent::router()))
         .merge(crate::update::router())

@@ -403,6 +403,7 @@ impl Kernel {
                 p.roles = r;
             }
         }
+        crate::legal::testers_group(self, &mut p);
         Some(p)
     }
 
@@ -998,7 +999,7 @@ mod tests {
     async fn sign_ins_resolve_config_first_then_local() {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("magnus.toml");
-        std::fs::write(&p, "[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n[[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n").unwrap();
+        std::fs::write(&p, format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{}[[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n", crate::legal::TEST_CONFIG)).unwrap();
         let cfg = super::Config::load(&p).unwrap();
         let server = std::env::var("MAGNUS_TEST_PG").unwrap_or_else(|_| "postgres://postgres:magnus_dev@127.0.0.1:54340/postgres".into());
         let name = format!("k_{}", uuid::Uuid::new_v4().simple());

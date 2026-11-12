@@ -264,12 +264,17 @@ async fn accept(AxState(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): 
 /// Every tool definition screened lately, newest first, with what the
 /// screen found (developer view).
 async fn screens(AxState(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = crate::api::developer(&k, &h).await {
-        return r;
-    }
+    let p = match crate::api::developer(&k, &h).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    // A screen made in someone's run is shown as that person allows; one
+    // made on connecting concerns the app's own descriptions.
+    let lens = k.lens(&p);
     let (screens, held) = k.read(|s| {
         let held: Vec<Value> = s.tools.held.iter().map(|(t, x)| json!({ "tool": t, "hash": x.hash, "verdict": x.verdict, "finding": x.finding })).collect();
-        (s.tools.screens.iter().rev().cloned().collect::<Vec<Value>>(), held)
+        let sight = |v: &Value| v["run"].as_str().and_then(|r| s.runs.get(r)).map_or(crate::anonymize::Sight::Full, |r| lens.sight(&r.person));
+        (s.tools.screens.iter().rev().filter_map(|v| lens.show(sight(v), v.clone())).collect::<Vec<Value>>(), held)
     });
     Json(json!({ "screens": screens, "held": held })).into_response()
 }

@@ -869,6 +869,7 @@ pub struct State {
     pub local: crate::local::Ledger,
     pub team: crate::team::Ledger,
     pub account_links: crate::account_links::Ledger,
+    pub legal: crate::legal::Ledger,
     pub push: crate::push::Ledger,
     pub halts: crate::halts::Ledger,
     /// Trashed items by id.
@@ -1382,6 +1383,7 @@ impl State {
             Ev::LocalFile(c) => self.local.files.apply(c),
             Ev::Team(c) => self.team.apply_at(c, e.seq),
             Ev::AccountLink(c) => self.account_links.apply(c),
+            Ev::Legal(c) => self.legal.apply(c),
             Ev::Push(c) => self.push.apply(c),
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
             Ev::AdminSetting(c) => self.admin_settings.apply(c),
