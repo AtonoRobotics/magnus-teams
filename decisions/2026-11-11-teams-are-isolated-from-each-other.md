@@ -20,5 +20,5 @@ A team run reads only its own workspace: its tools are fixed to the workspace of
 
 ## Left open
 
-- The developer view and the run inspector (`dev.rs`) show a developer every run, team runs included, which the spec says ("The developer view and the run inspector show everything"). Narrowing it to the runs of workspaces the developer is in is a change to a file another piece of work owns; left for it.
+- The developer view and the run inspector (`dev.rs`, `anonymize.rs`) show each run as its person chose (`2026-11-11-anonymous-developer-data.md`): a tester's in full. A team run belongs to the member who asked, so a tester's request in a team shows that team's thread to a developer in full, though the rest of the team agreed to nothing. Deciding it (hide team runs from the developer view, or show them anonymous only) belongs to that work; left for it and the owner.
 - The team chat's unsent drafts stay in the browser's storage after sign-out on a shared machine.
