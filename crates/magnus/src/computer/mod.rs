@@ -169,6 +169,13 @@ pub enum Change {
     Hibernated {
         id: String,
     },
+    /// The machine found it no longer running though Magnus had it running
+    /// (its host restarted, or its VM ended without Magnus): it is stopped,
+    /// or asleep when a snapshot was kept, and the next use wakes it.
+    FoundStopped {
+        id: String,
+        hibernated: bool,
+    },
     /// Reachable by this computer from now on; a boundary action.
     DestinationAdded {
         id: String,
@@ -553,6 +560,12 @@ impl Ledger {
             Change::Hibernated { id } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.status = Status::Hibernated;
+                    c.controller = None;
+                }
+            }
+            Change::FoundStopped { id, hibernated } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.status = if *hibernated { Status::Hibernated } else { Status::Stopped };
                     c.controller = None;
                 }
             }

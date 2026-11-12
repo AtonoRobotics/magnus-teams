@@ -45,6 +45,7 @@ impl Change {
             | Change::Killed { id, .. }
             | Change::Revoked { id, .. }
             | Change::Hibernated { id }
+            | Change::FoundStopped { id, .. }
             | Change::DestinationAdded { id, .. }
             | Change::DestinationGranted { id, .. }
             | Change::PageOpened { id, .. }
