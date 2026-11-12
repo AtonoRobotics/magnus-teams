@@ -183,7 +183,11 @@ async fn clear_account(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Res
     if !k.read(|s| s.subjects.contains_key(&id)) {
         return StatusCode::NO_CONTENT.into_response();
     }
-    match k.emit(&format!("person:{}", me.id), Ev::SubjectBound { person: id, subject: None }).await {
+    // Whoever signs in as them next gets everything of theirs: they are told.
+    let said = format!("{} let a new sign-in become your account", me.name);
+    let told = k.notice_to(None, None, id.clone(), said, json!({ "reason": "account_unbound", "by": me.id }));
+    let actor = format!("person:{}", me.id);
+    match k.emit_all(vec![(actor.as_str(), Ev::SubjectBound { person: id, subject: None }), ("kernel", told)]).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => internal(e),
     }
@@ -277,4 +281,25 @@ async fn deletion_requests(State(k): K, h: HeaderMap) -> Response {
             .collect()
     });
     Json(json!({ "requests": list })).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::events::Ev;
+    use serde_json::json;
+
+    /// The next sign-in as mo becomes mo, everything of theirs with it: mo
+    /// is told the owner opened that door.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_person_is_told_when_their_account_is_unbound() {
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        s.k.emit("person:mo", Ev::SubjectBound { person: "mo".into(), subject: Some("idp-mo".into()) }).await.unwrap();
+        let sam = s.token("sam").await;
+        assert_eq!(s.post(&sam, "/v1/admin/step-up", json!({ "password": "a-long-admin-password" })).await.0, 200);
+        let (st, v) = s.call(&sam, reqwest::Method::DELETE, "/v1/people/mo/account", None).await;
+        assert_eq!(st, 204, "{v}");
+        let told = s.k.read(|st| st.items.values().any(|i| i.person == "mo" && i.kind == "notice" && i.details["reason"] == "account_unbound"));
+        assert!(told, "mo was not told their account was unbound");
+        s.done().await;
+    }
 }
