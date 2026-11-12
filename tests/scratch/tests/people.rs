@@ -47,34 +47,31 @@ fn worker() -> magnus_invariants::model::Script {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn approval_rights_follow_the_risk_tier_and_policy_rights_the_layer() {
+async fn asks_go_to_their_requester_alone_and_policy_rights_follow_the_layer() {
     let (mail, post) = (mcp::mail().start().await, mcp::mail().start().await);
     let m = FakeModel::start(worker()).await;
     let mut spec = Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]).app("post", &post, "public", "private", &[("send", "financial")]);
     spec.people.push(person("dana", &["staff"], &["approver:irreversible"]));
     spec.people.push(person("erin", &["staff", "finance"], &["policy:group:finance"]));
     let app = Appliance::start(spec, &m).await;
-    let (bob, carol, dana, erin) = (app.api("bob"), app.api("carol"), app.api("dana"), app.api("erin"));
+    let (alice, bob, carol, dana, erin) = (app.api("alice"), app.api("bob"), app.api("carol"), app.api("dana"), app.api("erin"));
 
-    // A financial action: dana may approve irreversible ones only.
-    let pay = carol.submit("Pay the supplier EUR 120.").await;
-    let item = carol.wait_item(&pay, "approval").await;
-    let iid = item["id"].as_str().unwrap().to_string();
-    let seen = dana.inbox().await.into_iter().find(|i| i["id"] == iid.as_str());
-    assert!(seen.as_ref().is_none_or(|i| i["can_respond"] == false), "dana is offered a financial approval: {seen:?}");
-    let st = dana.respond(&iid, json!({ "decision": "approve", "scope": "once" })).await;
-    assert!(st == 403 || st == 404, "an irreversible-tier approver approved a financial action: {st}");
-    never("an approval from the wrong tier took effect", Duration::from_secs(2), || async { post.effects("send") > 0 }).await;
-    assert!(bob.respond(&iid, json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    eventually("the financial approver's approval took effect", PATIENCE, || async { (post.effects("send") == 1).then_some(()) }).await;
-
-    // An irreversible action: dana's tier.
-    let send = carol.submit("Email bob hello.").await;
-    let item = carol.wait_item(&send, "approval").await;
-    let iid = item["id"].as_str().unwrap().to_string();
-    assert!(dana.inbox().await.iter().any(|i| i["id"] == iid.as_str() && i["can_respond"] == true), "dana cannot answer her own tier");
-    assert!(dana.respond(&iid, json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    eventually("dana's approval took effect", PATIENCE, || async { (mail.effects("send") == 1).then_some(()) }).await;
+    // An ask goes to the requester alone (spec rev 145, Approvals): the
+    // server's owner and the holders of approver roles neither see carol's
+    // asks nor answer them, whatever the tier; carol answers her own.
+    for (task, effects) in [("Pay the supplier EUR 120.", &post), ("Email bob hello.", &mail)] {
+        let run = carol.submit(task).await;
+        let item = carol.wait_item(&run, "approval").await;
+        let iid = item["id"].as_str().unwrap().to_string();
+        for (name, other) in [("alice, the owner", &alice), ("bob, a financial approver", &bob), ("dana, an irreversible approver", &dana)] {
+            assert!(!other.inbox().await.iter().any(|i| i["id"] == iid.as_str()), "{name} sees carol's ask for {task}");
+            let st = other.respond(&iid, json!({ "decision": "approve", "scope": "once" })).await;
+            assert_eq!(st, 404, "{name} answered carol's ask for {task}");
+        }
+        never("someone else's approval took effect", Duration::from_secs(2), || async { effects.effects("send") > 0 }).await;
+        assert!(carol.respond(&iid, json!({ "decision": "approve", "scope": "once" })).await.is_success(), "carol cannot answer her own ask");
+        eventually("carol's approval took effect", PATIENCE, || async { (effects.effects("send") == 1).then_some(()) }).await;
+    }
 
     // Policy: a group's layer is changed by holders of that group's right only.
     let rule = r#"forbid(principal, action, resource == Tool::"post__send");"#;

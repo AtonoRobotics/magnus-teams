@@ -32,12 +32,12 @@ pub fn may_set_policy(p: &Person, layer: &str) -> bool {
     false
 }
 
-pub fn may_respond(s: &State, p: &Person, i: &Item) -> bool {
+pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
     match i.kind.as_str() {
-        // In a team thread the card shows only to the person who asked
-        // (spec rev 140, How an ask looks).
-        "approval" if in_team_thread(s, i) => i.person == p.id,
-        "approval" => p.is_owner() || p.has_role(&format!("approver:{}", i.details["risk"].as_str().unwrap_or_default())),
+        // An ask goes to the requester and its card shows only to them
+        // (spec rev 145, Approvals): never to the server's owner or an
+        // approver role, whose work it is not.
+        "approval" => i.person == p.id,
         "policy_proposal" => may_set_policy(p, i.details["layer"].as_str().unwrap_or_default()),
         crate::consent::APP_TOOLS | "deletion_request" => p.is_owner(),
         // A message shared with someone is theirs alone, the owner's too.
@@ -50,11 +50,6 @@ pub fn may_respond(s: &State, p: &Person, i: &Item) -> bool {
         // A task's questions, reviews and notices are its person's alone.
         _ => i.person == p.id,
     }
-}
-
-/// Whether the item's work was asked for in a team thread.
-fn in_team_thread(s: &State, i: &Item) -> bool {
-    i.task.as_deref().is_some_and(|t| s.team.run_of(t).is_some())
 }
 
 pub fn visible(s: &State, p: &Person, i: &Item) -> bool {

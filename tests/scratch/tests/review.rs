@@ -87,9 +87,9 @@ async fn broad_approvals_do_not_cover_taint_asks() {
     assert_eq!(st, 400, "a taint ask accepted a broad approval");
 }
 
-/// Finding 3b, as of spec rev 140: nothing lasts beyond a task but the
-/// person's own Allow always, so an approver answering someone else's ask
-/// cannot make a lasting rule, nor give the old lasting scopes.
+/// Finding 3b, as of spec rev 145: an ask goes to the requester alone, so an
+/// approver cannot answer someone else's ask at all, lasting or not; the
+/// person allows their own work.
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_person_whose_work_it_is_may_allow_always() {
     let mail = mcp::mail().start().await;
@@ -99,11 +99,13 @@ async fn only_the_person_whose_work_it_is_may_allow_always() {
     let (carol, bob) = (app.api("carol"), app.api("bob"));
     let id = carol.submit("Email bob.").await;
     let item = carol.wait_item(&id, "approval").await;
-    for scope in ["always", "standing", "window"] {
+    // Carol's ask is hers alone (spec rev 145, Approvals): an approver role
+    // answers it with no scope at all, and carol allows her own work.
+    for scope in ["always", "standing", "window", "once"] {
         let st = bob.respond(item["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": scope })).await;
-        assert_eq!(st, 400, "an approver gave lasting autonomy for carol's work with {scope}");
+        assert_eq!(st, 404, "an approver answered carol's ask with {scope}");
     }
-    assert!(bob.respond(item["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": "once" })).await.is_success(), "an approver could not Allow");
+    assert!(carol.respond(item["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": "once" })).await.is_success(), "carol could not Allow her own work");
 }
 
 /// Finding 5: checks cannot use memory or pass vacuously.

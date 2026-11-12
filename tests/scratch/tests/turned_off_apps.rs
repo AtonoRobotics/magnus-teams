@@ -10,6 +10,7 @@
 use magnus_invariants::*;
 use magnus_scratch::*;
 use serde_json::json;
+use std::time::Duration;
 
 /// Carol, signed in to the app through Keycloak.
 async fn signed_in(kc: &Keycloak, app: &Appliance) -> Api {
@@ -55,11 +56,10 @@ async fn a_person_turned_off_has_no_apps_until_they_are_back() {
     app.restart().await;
     eventually("carol's session ended", PATIENCE, || async { (carol.get("/v1/me").await.0 == 401).then_some(()) }).await;
 
-    // Approved now, the call is refused here and never reaches the app.
-    assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    let refused = eventually("the call refused", PATIENCE, || async { m.requests().iter().map(|c| c.text()).find(|t| t.contains("account is turned off")) }).await;
-    assert!(refused.contains("Nothing was sent to calendar"), "{refused}");
-    assert_eq!(cal.calls("list_events"), 0, "a turned-off person's app was called");
+    // Her ask is hers alone (spec rev 145, Approvals): the owner cannot
+    // answer it for her, and the call never reaches the app.
+    assert_eq!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.as_u16(), 404, "the owner answered carol's ask");
+    never("a turned-off person's app was called", Duration::from_secs(3), || async { cal.calls("list_events") > 0 }).await;
     // Her sign-in is kept, unused: nothing was revoked.
     assert!(cal.state.lock().unwrap().revoked.is_empty(), "turning her off revoked her sign-in");
 
@@ -70,6 +70,6 @@ async fn a_person_turned_off_has_no_apps_until_they_are_back() {
     assert_eq!(c["state"], "connected", "{c}");
     let task = carol.submit("What is on my calendar now?").await;
     let item = carol.wait_item(&task, "approval").await;
-    assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
+    assert!(carol.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     eventually("the call made", PATIENCE, || async { (cal.calls("list_events") == 1).then_some(()) }).await;
 }

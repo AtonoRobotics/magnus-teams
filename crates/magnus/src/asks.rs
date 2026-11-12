@@ -339,12 +339,12 @@ impl Kernel {
             let q = Query { person: &run.person, tasks: &tasks, tool: &a.tool, risk: f.risk.as_str(), hash, reason, destinations: dests, now: chrono::Utc::now() };
             s.approvals.iter().filter(|ap| covers(ap, &q)).cloned().collect()
         });
-        // A lasting approval holds only while its approver may still give it.
-        let still_may = |ap: &Approval| {
-            !matches!(ap.scope.as_str(), "standing" | "window")
-                || ap.by.strip_prefix("person:").and_then(|id| self.person(id)).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())))
-        };
-        if let Some(ap) = found.into_iter().find(still_may) {
+        // An approval stands for the work only when the person whose work it
+        // is gave it (spec rev 145, Approvals: an ask goes to the requester).
+        // One an owner or approver gave for someone else, as before rev 140,
+        // covers nothing.
+        let theirs = |ap: &Approval| ap.by == format!("person:{}", run.person);
+        if let Some(ap) = found.into_iter().find(theirs) {
             return Some(Cover::Approval(Box::new(ap)));
         }
         if f.risk == Risk::Financial || !reason.is_none_or(Reason::rule_answers) {
