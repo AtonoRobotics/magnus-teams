@@ -39,6 +39,18 @@ pub struct NewApp {
     hosts: Vec<String>,
 }
 
+impl NewApp {
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+    pub(super) fn installer(&self) -> &str {
+        &self.installer
+    }
+    pub(super) fn steps(&self) -> &[String] {
+        &self.steps
+    }
+}
+
 fn checked_fields(name: &str, version: &str, source: &str, steps: &[String]) -> Result<(), Refused> {
     let ok = |s: &str| !s.trim().is_empty() && s.chars().count() <= MAX_FIELD_CHARS;
     if !(ok(name) && ok(version) && ok(source)) {
@@ -118,10 +130,17 @@ impl Kernel {
 
     /// Caches the installer from the computer, then writes the manifest entry.
     pub async fn record_computer_app(&self, who: &Person, id: &str, new: NewApp) -> Result<Value, Refused> {
+        self.controlled_computer(who, id)?;
+        self.record_app(&format!("person:{}", who.id), id, new).await
+    }
+
+    /// The manifest entry for an app on `id`, recorded by `actor`: the person
+    /// who holds the computer, or the agent through its install tool.
+    pub(super) async fn record_app(&self, actor: &str, id: &str, new: NewApp) -> Result<Value, Refused> {
         let NewApp { name, version, source, installer, steps, hosts } = new;
         checked_fields(&name, &version, &source, &steps)?;
         let socket = self.computer_socket()?;
-        let c = self.controlled_computer(who, id)?;
+        let c = self.read(|s| s.computers.get(id).cloned()).ok_or(Refused::NotFound("computer"))?;
         if c.status != Status::Running {
             return Err(Refused::Conflict("an app is recorded from a running computer".into()));
         }
@@ -131,7 +150,7 @@ impl Kernel {
             return Err(Refused::Invalid("the proxy did not carry this file from that source: an app is recorded with the address it was downloaded from".into()));
         }
         let app = App { name: name.clone(), version, source, sha256: sha256.clone(), steps, hosts };
-        self.record_computer(who, Change::AppInstalled { id: id.into(), app }).await?;
+        self.emit(actor, crate::events::Ev::Computer(Change::AppInstalled { id: id.into(), app })).await.map_err(super::service::failed)?;
         self.add_app_to_menu(&socket, id, &name).await;
         Ok(json!({ "sha256": sha256 }))
     }

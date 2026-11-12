@@ -186,6 +186,9 @@ impl Kernel {
             return self.request_takeover(run, input).await.map(Some);
         }
         let Some(owner) = self.read(|s| s.runs.get(run).cloned()).map(|r| self.owner_of_run(&r)) else { return Ok(None) };
+        if super::agent_tools::handles(tool) {
+            return self.agent_computer_tool(&owner, &format!("run:{run}"), tool, input).await;
+        }
         self.use_computer(&owner, &format!("run:{run}"), tool, input).await
     }
 

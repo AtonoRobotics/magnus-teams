@@ -2,6 +2,7 @@
 //! Magnus decides who may do what and records it; `magnus-computerd` is the
 //! only thing that touches a VM (`decisions/2026-11-08-computerd.md`).
 
+mod agent_tools;
 mod apps;
 mod client;
 mod desktop;
@@ -25,6 +26,7 @@ mod sources;
 mod takeover;
 mod wake;
 
+pub(crate) use agent_tools::specs as agent_specs;
 pub(crate) use driving::request_spec;
 pub use egress::migrate_sql;
 use egress::surrogate as egress_surrogate;
