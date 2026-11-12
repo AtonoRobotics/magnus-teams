@@ -668,7 +668,7 @@ impl Kernel {
         // The person's own memory is not the world: writing it changes nothing
         // outside the server (M1), so it needs no contract.
         let own_memory = f.connector.is_none() && f.app == "memory";
-        if f.risk.changes_state() && run.contract.is_none() && a.issuer == Issuer::Model && !chat_turn && !own_memory {
+        if f.risk.changes_state() && run.contract.is_none() && a.issuer == Issuer::Model && !chat_turn && !self.team_talks(run) && !own_memory {
             let why = "record a task contract with task_contract before changing anything; then retry";
             return Ok(Err(self.deny(a, "policy", why, true, None).await?));
         }

@@ -38,6 +38,8 @@ mod routes;
 pub(crate) mod routines;
 mod search;
 pub mod spend;
+#[cfg(test)]
+mod talk_tests;
 pub mod team_admin;
 pub(crate) mod upkeep;
 mod whisper;

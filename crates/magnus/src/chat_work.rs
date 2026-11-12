@@ -40,6 +40,20 @@ pub(crate) fn in_any_run(name: &str, scheduled: bool) -> bool {
     name == "suggest" || (IN_ANY_RUN.contains(&name) && !(scheduled && name == "create_schedule"))
 }
 
+impl Kernel {
+    /// A member's request in a team thread: it talks as a chat turn does,
+    /// answering in its thread with text, with no contract, plan or Done.
+    /// A sub-agent it starts is a task like any sub-agent.
+    pub fn team_talks(&self, run: &Run) -> bool {
+        self.team_of(&run.task).is_some_and(|t| !t.sub)
+    }
+
+    /// Whether the run ends with its answer: a chat turn, or a team request.
+    pub fn converses(&self, run: &Run) -> bool {
+        self.is_chat_turn(run) || self.team_talks(run)
+    }
+}
+
 impl State {
     /// The chat turn a sub-agent works inside: the run at the top of its
     /// parents, when that run is a chat turn.

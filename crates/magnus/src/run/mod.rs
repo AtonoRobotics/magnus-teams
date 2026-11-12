@@ -35,6 +35,14 @@ pub(crate) const FROZEN: &str = "The contract was not changed: work has started,
 /// or ask.
 pub const CHAT_INSTRUCTIONS: &str = concat!(include_str!("../../instructions/chat.md"), "\n", include_str!("../../instructions/character.md"));
 
+/// What a member's request in a team thread runs under: a chat reply posted
+/// to the thread, not a task with an outcome page.
+pub const TEAM_INSTRUCTIONS: &str = concat!(include_str!("../../instructions/team.md"), "\n", include_str!("../../instructions/character.md"));
+
+pub fn team_instructions_version() -> String {
+    version_of("team.md", TEAM_INSTRUCTIONS)
+}
+
 pub fn instructions_version() -> String {
     version_of("agent.md", INSTRUCTIONS)
 }
@@ -279,6 +287,8 @@ impl Kernel {
             REVIEW_INSTRUCTIONS
         } else if chat.is_some_and(|c| c.turn) {
             CHAT_INSTRUCTIONS
+        } else if self.team_talks(run) {
+            TEAM_INSTRUCTIONS
         } else {
             INSTRUCTIONS
         };
@@ -356,6 +366,11 @@ impl Kernel {
             // its own (spec rev 142). A scheduled run sets up none.
             let scheduled = self.read(|s| s.authority(&run.id).is_some_and(|t| t.schedule.is_some()));
             specs.extend(tools::chat_specs().into_iter().filter(|t| crate::chat_work::in_any_run(&t.name, scheduled)));
+            // A member's request in a team thread ends with its answer, as
+            // chat does: it is offered no contract, plan or Done.
+            if self.team_talks(run) {
+                specs.retain(|t| !tools::RECORDS.contains(&t.name.as_str()));
+            }
         }
         // project_read only where there are reference files to read.
         if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {

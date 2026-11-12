@@ -562,6 +562,8 @@ impl Kernel {
                 crate::run::review_instructions_version()
             } else if o.chat.as_ref().is_some_and(|c| c.turn) {
                 crate::run::chat_instructions_version()
+            } else if o.team.as_ref().is_some_and(|t| !t.sub) {
+                crate::run::team_instructions_version()
             } else {
                 crate::run::instructions_version()
             },

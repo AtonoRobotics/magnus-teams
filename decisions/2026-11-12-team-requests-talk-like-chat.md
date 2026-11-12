@@ -1,0 +1,5 @@
+# A member's request in a team thread is a chat reply, not a task
+
+**Choice.** A team request (not a team sub-agent) runs under `instructions/team.md`, a chat prompt for a team thread. It is offered no task records (`task_contract`, `task_plan`, `task_complete`, `task_fail`). A reply with no tool call ends it, as a chat turn ends (`end_chat_turn`), and that answer is what the thread shows. Like a chat turn, it changes things without a contract; each action is still checked at the boundary. A team sub-agent stays a task, like any sub-agent. A team run that does call a task record is still handled as before, so older scripted runs keep working.
+
+**Reason.** The owner: the team agent "goes through steps and then responds with evidence of a task that isn't shown. It should act like any other magnus agent." Team requests ran under `agent.md`, the task prompt. That prompt writes a contract and steps and ends with `task_complete`, whose deliverable belongs on an outcome page that a team thread never shows. The thread shows only the run's summary, so members saw the steps and a reference to a deliverable they could not see.
