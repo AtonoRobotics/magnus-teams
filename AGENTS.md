@@ -20,10 +20,13 @@ Stop and ask the owner only for:
 
 When you must ask, ask once with your recommendation, and keep working on what does not depend on the answer.
 
+## Where builds and tests run
+`magnus-server` is the production server. Nothing is built or tested on it: no `cargo build`, `test`, `check` or `clippy`, no `cargo tauri build`, no invariant or scratch suite, no test VM. Every build and test runs on Strix Beta through `ci/on-strix-beta.sh NAME COMMAND...`, which copies the checkout there and runs the command. Use a NAME of your own for each change. A hook (`ci/production-guard.sh`) refuses these commands on the server. When you brief a subagent, repeat this rule in the brief.
+
 ## Commands
-- `cargo fmt --all --check`
-- `ci/ratchet.sh size` and `ci/ratchet.sh clippy`
-- `cargo test --workspace --lib --bins` (needs Postgres on 127.0.0.1:54340, or `MAGNUS_TEST_PG`)
+- `cargo fmt --all --check` and `ci/ratchet.sh size` (light, fine anywhere)
+- `ci/on-strix-beta.sh NAME ci/ratchet.sh clippy`
+- `ci/on-strix-beta.sh NAME cargo test --workspace --lib --bins` (Strix Beta has the test Postgres)
 
 ## Rules
 - A duration or limit is a named constant with its unit in the name. No `Duration::from_*` with a bare number outside the constants and tests.
