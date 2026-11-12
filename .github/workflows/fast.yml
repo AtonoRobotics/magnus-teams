@@ -43,6 +43,7 @@ jobs:
       - run: node desktop/tests/computer-desk-check.mjs
       - run: node desktop/tests/one-computer-check.mjs
       - run: node desktop/tests/desktop-look-check.mjs
+      - run: node desktop/tests/solid-start-check.mjs
       - run: node desktop/tests/team-check.mjs
       - run: node desktop/tests/team-own-check.mjs
       - run: node desktop/tests/subagents-check.mjs

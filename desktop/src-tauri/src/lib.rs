@@ -686,6 +686,7 @@ pub fn run() {
         .setup(|app| {
             let _ = VERSION.set(app.package_info().version.to_string());
             update::start(app.handle().clone());
+            look::start_solid(app);
             Ok(())
         })
         .manage(App { store: store::Store::open(), client: Mutex::new(None), live: Mutex::new(HashMap::new()), speech: speech::Speech::default(), loopback: Mutex::new(None), browser_sign_in: Mutex::new(BrowserSignIn::default()) })

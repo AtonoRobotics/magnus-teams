@@ -17,7 +17,10 @@
 }
 
 * { box-sizing: border-box; }
-html { background: var(--backdrop); min-height: 100%; }
+/* Solid before theme.js sets the tokens, so a window that can show the
+   system's glass is never black while the page starts (Windows). */
+html { background: var(--backdrop, #F3F3F0); min-height: 100%; }
+@media (prefers-color-scheme: dark) { html { background: var(--backdrop, #161618); } }
 /* The system draws the glass behind the window (Windows' Mica or Acrylic). */
 html[data-backdrop="native"] { background: transparent; }
 html, body { margin: 0; height: 100%; }
