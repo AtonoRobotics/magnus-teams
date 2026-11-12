@@ -50,6 +50,22 @@ pub fn can_read(p: &Person, readers: &[Vec<String>]) -> bool {
     readers.iter().all(|clause| clause.iter().any(|r| mine.contains(r)))
 }
 
+/// Who may read what a run filed from an app's private content: the app's
+/// groups when the organisation's key reads one store for all of them, and
+/// only the person when the app went through their own sign-in (their
+/// mailbox, their account) or is one they built. An app's groups say who may
+/// use it, never who may read someone's own account.
+fn app_readers(c: Option<&crate::config::Connector>, person: &[String]) -> Vec<String> {
+    match c {
+        Some(c) if !c.access_groups.is_empty() && c.owner.is_none() && !crate::team::signs_in_per_person(c) => {
+            let mut g: Vec<String> = c.access_groups.iter().map(|g| format!("group:{g}")).collect();
+            g.sort();
+            g
+        }
+        _ => person.to_vec(),
+    }
+}
+
 pub fn may_endorse(p: &Person) -> bool {
     p.is_owner() || p.has_role(ENDORSE)
 }
@@ -326,16 +342,7 @@ impl Kernel {
         let person = vec![format!("person:{}", run.person)];
         let mut clauses: BTreeSet<Vec<String>> = BTreeSet::new();
         for app in &run.private_from {
-            match self.connector(app) {
-                Some(c) if !c.access_groups.is_empty() => {
-                    let mut g: Vec<String> = c.access_groups.iter().map(|g| format!("group:{g}")).collect();
-                    g.sort();
-                    clauses.insert(g);
-                }
-                _ => {
-                    clauses.insert(person.clone());
-                }
-            }
+            clauses.insert(app_readers(self.connector(app).as_ref(), &person));
         }
         if (run.private && run.private_from.is_empty()) || personal {
             clauses.insert(person);
@@ -752,6 +759,24 @@ async fn share(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// What a run read through mo's own sign-in is mo's alone, whatever
+    /// groups may use the app; through the organisation's key, its groups'.
+    #[test]
+    fn a_persons_own_account_is_filed_for_them_alone() {
+        let mo = vec!["person:mo".to_string()];
+        let mut c = crate::catalog::connector(&crate::catalog::manifests()[0]);
+        c.access_groups = vec!["staff".into()];
+        c.owner = None;
+        c.credential = Some("connector_x".into());
+        c.auth = Some(crate::connectors::OAUTH.into());
+        assert_eq!(app_readers(Some(&c), &mo), mo, "mo's own mailbox was filed for the whole group");
+        c.auth = None;
+        assert_eq!(app_readers(Some(&c), &mo), vec!["group:staff".to_string()], "the organisation's store was not filed for its group");
+        c.owner = Some("mo".into());
+        assert_eq!(app_readers(Some(&c), &mo), mo, "an app mo built was filed for a group");
+        assert_eq!(app_readers(None, &mo), mo);
+    }
 
     /// Two browser pages from one host count as one source, as two fetched
     /// pages do: the browser's tool is `browser_navigate`, and there is no

@@ -305,6 +305,13 @@ pub enum Outcome {
     Deny { reason: String, rule: Option<String> },
 }
 
+/// Whether a run of `person` may propose a change to `layer`: the
+/// organisation's, a group's, or its own person's. Another person's layer is
+/// theirs, and a proposal to it would put this run's words in their inbox.
+pub fn proposable(layer: &str, person: &str) -> bool {
+    layer == "org" || layer.starts_with("group/") || layer.strip_prefix("user/") == Some(person)
+}
+
 /// Parse a layer's policy text, so a bad policy is refused when written.
 pub fn validate(cedar: &str) -> Result<()> {
     PolicySet::from_str(cedar).map_err(|e| anyhow!("{e}"))?;
@@ -466,6 +473,13 @@ pub fn rule_covers(cedar: &str, person: &Person, tool: &ToolFacts, destination: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agent_proposes_to_its_own_persons_layer_and_no_one_elses() {
+        assert!(proposable("user/mo", "mo") && proposable("org", "mo") && proposable("group/staff", "mo"));
+        assert!(!proposable("user/sam", "mo"), "mo's agent proposed to sam's own rules");
+        assert!(!proposable("user/", "mo") && !proposable("task/t1", "mo"));
+    }
 
     fn person(id: &str) -> Person {
         serde_json::from_value(serde_json::json!({ "id": id, "groups": ["staff"] })).unwrap()

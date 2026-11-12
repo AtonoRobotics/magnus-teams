@@ -268,8 +268,12 @@ impl crate::state::State {
                     let run = self.memory.iter().find(|m| m.id == item).map(|m| m.run.clone()).unwrap_or_default();
                     return if ended(&run) { Ok(()) } else { Err(Running) };
                 }
+                // The owner moderates what is shared with groups; an entry
+                // only some people read is theirs, never the owner's to delete.
                 _ => self.knowledge.get(item).is_some_and(|k| {
-                    owner || k.author == format!("person:{person}") || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)
+                    (owner && k.readers.iter().all(|c| c.iter().any(|r| r.starts_with("group:") || *r == format!("person:{person}"))))
+                        || k.author == format!("person:{person}")
+                        || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)
                 }),
             },
         };
@@ -280,3 +284,6 @@ impl crate::state::State {
         }
     }
 }
+
+#[cfg(test)]
+mod others_tests;

@@ -642,7 +642,7 @@ impl Kernel {
             "propose_policy" => {
                 let layer = input["layer"].as_str().unwrap_or_default().to_string();
                 let cedar = input["cedar"].as_str().unwrap_or_default().to_string();
-                let layer_ok = layer == "org" || layer.starts_with("group/") || layer.starts_with("user/");
+                let layer_ok = crate::policy::proposable(&layer, &run.person);
                 match (layer_ok, crate::policy::validate(&cedar)) {
                     (true, Ok(())) => {
                         if let Some(denied) = self.loop_deny(run, "suggest", None) {
@@ -659,7 +659,9 @@ impl Kernel {
                             self.result(rid, call_id, format!("Proposal {item} sent to whoever owns the {layer} policy. It changes nothing until they accept it."), false).await?;
                         }
                     }
-                    (false, _) => self.result(rid, call_id, "Unknown layer: use org, group/<id> or user/<id>. A retry with the same layer will not help.", true).await?,
+                    (false, _) => {
+                        self.result(rid, call_id, format!("Unknown layer: use org, group/<id> or user/{}. A retry with the same layer will not help.", run.person), true).await?
+                    }
                     (_, Err(e)) => self.result(rid, call_id, format!("The policy does not parse: {e}. A retry with the same text will not help."), true).await?,
                 }
             }
