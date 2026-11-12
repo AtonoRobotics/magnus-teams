@@ -124,11 +124,13 @@ async fn groups_and_roles_come_from_keycloak_at_each_sign_in() {
     let r = carol.submit("Get me the Q3 finance report.").await;
     carol.wait_settled(&r).await;
     assert_eq!(finance.calls_to("get_report").len(), 1, "the provider's group did not reach the boundary");
-    // She approves an irreversible action on someone else's task.
+    // Her role is hers: it answers no one else's ask (spec rev 145,
+    // Approvals). Alice's ask is alice's to answer.
     let send = alice.submit("Email bob hello.").await;
     let item = alice.wait_item(&send, "approval").await;
-    assert!(carol.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success(), "the provider's role did not count");
-    eventually("carol's approval took effect", PATIENCE, || async { (mail.effects("send") == 1).then_some(()) }).await;
+    assert_eq!(carol.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.as_u16(), 404, "a provider's role answered alice's ask");
+    assert!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success(), "alice could not answer her own ask");
+    eventually("alice's approval took effect", PATIENCE, || async { (mail.effects("send") == 1).then_some(()) }).await;
 
     // Keycloak takes finance and the role away; at her next sign-in both are gone.
     kc.set_groups("carol", &["staff"]).await;
