@@ -52,8 +52,15 @@ fi
 # image holds the browser with its packages, which a fresh checkout does not
 # have (the magnus-teams release's first runs, 2026-11-09: "cannot stat
 # browser/node_modules").
-[ -d browser/node_modules ] || npm ci --prefix browser
-image=$(sandbox/image.sh)
+# The release job builds on Strix and hands over the image it built, as
+# MAGNUS_IMAGE (decisions/2026-11-12-release-builds-on-strix.md); without
+# one it is built here.
+if [ -n "${MAGNUS_IMAGE:-}" ]; then
+  image=$MAGNUS_IMAGE
+else
+  [ -d browser/node_modules ] || npm ci --prefix browser
+  image=$(sandbox/image.sh)
+fi
 h=$(basename "$image")
 if [ ! -f "$own/$h/rootfs.ext4" ]; then
   rm -rf "$own/$h.part" && mkdir -p "$own/$h.part"
@@ -79,7 +86,12 @@ cp "$own/$h/images.sha256" "$links/images.sha256"
 # catalog manifest names is among them.
 images="$links/brokered-images"
 mkdir -p "$images"
-while read -r p; do brokered/build.sh "$p" "$images" > /dev/null; done < release/brokered-images
+# Handed over built, as MAGNUS_BROKERED_IMAGES, like the sandbox image.
+if [ -n "${MAGNUS_BROKERED_IMAGES:-}" ]; then
+  cp "$MAGNUS_BROKERED_IMAGES"/*.cpio "$images/"
+else
+  while read -r p; do brokered/build.sh "$p" "$images" > /dev/null; done < release/brokered-images
+fi
 python3 -I - "$images" catalog/*.toml <<'EOF'
 import sys, tomllib, os
 for f in sys.argv[2:]:

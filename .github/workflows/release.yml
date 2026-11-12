@@ -1,12 +1,16 @@
 # Every push to main becomes a magnus-teams release on its own server
-# (decisions/2026-11-09-teams-own-release-and-server.md): built on the build
-# box, signed with the magnus-teams key there (release/signing-key.sh; the
-# key never leaves it), the desktop app published to the test and
-# development channels, and the server's programs published and waited
-# for until the server runs them (release/to-appliance.sh).
+# (decisions/2026-11-09-teams-own-release-and-server.md). It is built on
+# Strix Beta, never on the production server
+# (decisions/2026-11-12-release-builds-on-strix.md): the programs, the desktop
+# app (signed there with a throwaway key only), the sandbox image and the
+# connectors' server images. The production server then fetches the build,
+# signs it with the magnus-teams key (which never leaves that server),
+# publishes the desktop app to the test and development channels, and
+# publishes its own programs and waits until it runs them
+# (release/to-appliance.sh).
 #
 # Only pushes to main and manual runs start it, never a pull request: the
-# runner is the build box itself.
+# runners are our own machines.
 name: release
 
 on:
@@ -22,38 +26,35 @@ permissions:
   contents: read
 
 jobs:
-  release:
-    runs-on: [self-hosted, linux, magnus-teams]
+  build:
+    runs-on: [self-hosted, linux, strix-build]
     timeout-minutes: 90
-    env:
-      CONFIG: ${{ vars.MAGNUS_APPLIANCE_CONFIG }}
-      UPDATES: ${{ vars.MAGNUS_UPDATES_DIR }}
+    outputs:
+      version: ${{ steps.versions.outputs.version }}
+      appliance_version: ${{ steps.versions.outputs.appliance_version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # publish.sh asks git whether this build holds the commit a channel
-          # was built from; a one-commit clone cannot answer, and refuses.
           fetch-depth: 0
 
       - name: Versions
+        id: versions
         run: |
           # The next patch, as a pre-release numbered by this run: newer than
           # what is installed, older than the next tagged release.
           next() { python3 -I -c 'import sys; a, b, c = sys.argv[1].split("-")[0].split("."); print(f"{a}.{b}.{int(c) + 1}")' "$1"; }
           app=$(python3 -I -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["version"])')
           appliance=$(python3 -I -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
-          echo "MAGNUS_VERSION=$(next "$app")-test.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "MAGNUS_APPLIANCE_VERSION=$(next "$appliance")-test.${{ github.run_number }}" >> "$GITHUB_ENV"
-          git log -1 --format='%s%n%n%b' > "$RUNNER_TEMP/notes"
-
-      - name: May publish
-        run: |
-          [ "$(release/can-publish.sh "$CONFIG" 1)" = 1 ]
-          out=$(release/signing-key.sh "$RUNNER_TEMP/signing")
-          echo "KEY_FILE=$(echo "$out" | head -1)" >> "$GITHUB_ENV"
+          v="$(next "$app")-test.${{ github.run_number }}"
+          av="$(next "$appliance")-test.${{ github.run_number }}"
+          echo "MAGNUS_VERSION=$v" >> "$GITHUB_ENV"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "appliance_version=$av" >> "$GITHUB_OUTPUT"
 
       - name: Programs
-        run: cargo build --release --offline --workspace --bins
+        run: |
+          cargo fetch --locked
+          cargo build --release --offline --workspace --bins
 
       - name: Desktop app
         run: |
@@ -62,23 +63,64 @@ jobs:
           # The AppImage's runtime, pinned and verified, not downloaded
           # mid-bundle (decisions/2026-11-08-516-appimage-runtime.md).
           export LDAI_RUNTIME_FILE="$(sh release/ensure-appimage-runtime.sh)"
+          # A throwaway key: Strix has no release key. The production server
+          # signs every package with the release key when it publishes them
+          # (release/publish.sh).
+          key=$(release/signing-key.sh "$RUNNER_TEMP/signing" | head -1)
           c="{\"version\":\"$MAGNUS_VERSION\"}"
-          export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_FILE")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          export TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
           (cd desktop/src-tauri && cargo tauri build --bundles deb,appimage --config "$c")
           (cd desktop/src-tauri && cargo tauri build --runner cargo --target x86_64-pc-windows-gnu --bundles nsis --config "$c")
-          mkdir -p dist
+          rm -rf dist && mkdir -p dist
           # Built as "Magnus Teams" (its own app, not magnus-claude's "Magnus");
           # published under names with no space.
           cp "desktop/src-tauri/target/release/bundle/appimage/Magnus Teams_${MAGNUS_VERSION}_amd64.AppImage" "dist/Magnus_${MAGNUS_VERSION}_amd64.AppImage"
           cp "desktop/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/Magnus Teams_${MAGNUS_VERSION}_x64-setup.exe" "dist/Magnus_${MAGNUS_VERSION}_x64-setup.exe"
 
+      - name: Images
+        run: |
+          # The sandbox image holds the browser with its packages.
+          [ -d browser/node_modules ] || npm ci --prefix browser
+          image=$(sandbox/image.sh)
+          brokered="$RUNNER_TEMP/brokered"
+          rm -rf "$brokered" && mkdir -p "$brokered"
+          while read -r p; do brokered/build.sh "$p" "$brokered" > /dev/null; done < release/brokered-images
+          sh release/hand-over.sh "${{ github.run_id }}" "$image" "$brokered"
+
+  publish:
+    needs: build
+    runs-on: [self-hosted, linux, magnus-teams]
+    timeout-minutes: 60
+    env:
+      CONFIG: ${{ vars.MAGNUS_APPLIANCE_CONFIG }}
+      UPDATES: ${{ vars.MAGNUS_UPDATES_DIR }}
+      MAGNUS_VERSION: ${{ needs.build.outputs.version }}
+      MAGNUS_APPLIANCE_VERSION: ${{ needs.build.outputs.appliance_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # publish.sh asks git whether this build holds the commit a channel
+          # was built from; a one-commit clone cannot answer, and refuses.
+          fetch-depth: 0
+
+      - name: May publish
+        run: |
+          [ "$(release/can-publish.sh "$CONFIG" 1)" = 1 ]
+          git log -1 --format='%s%n%n%b' > "$RUNNER_TEMP/notes"
+
+      - name: Fetch the build
+        run: |
+          image=$(sh release/fetch-build.sh "${{ github.run_id }}" "$RUNNER_TEMP/build")
+          echo "MAGNUS_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "MAGNUS_BROKERED_IMAGES=$RUNNER_TEMP/build/brokered" >> "$GITHUB_ENV"
+
       - name: Publish the desktop app
         run: |
-          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" dist test
-          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" dist development
+          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" "$RUNNER_TEMP/build/dist" test
+          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" "$RUNNER_TEMP/build/dist" development
 
       - name: Put it on the server
-        run: release/to-appliance.sh "$CONFIG" "$MAGNUS_APPLIANCE_VERSION" "$RUNNER_TEMP/notes" target/release
+        run: release/to-appliance.sh "$CONFIG" "$MAGNUS_APPLIANCE_VERSION" "$RUNNER_TEMP/notes" "$RUNNER_TEMP/build/programs"
 
       - name: Provider secrets
         # Each provider's client, ID and secret, into the server's vault;
