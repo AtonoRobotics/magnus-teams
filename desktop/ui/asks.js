@@ -7,6 +7,13 @@
 
 const ASK_LABELS = { allow: "Allow", allow_always: "Allow always", dont_allow: "Don't allow" };
 
+// A site's Allow holds for that site from then on, and says so.
+function askLabel(a, offer) {
+  const sites = a.destinations || [];
+  if (offer === "allow" && a.allow_covers === "site" && sites.length) return sites.length === 1 ? `Allow ${sites[0]}` : "Allow these sites";
+  return ASK_LABELS[offer];
+}
+
 // One field of the exact content, every part of it, nothing shortened.
 function askValue(v) {
   if (v === null || v === undefined) return `<span class="faint">none</span>`;
@@ -31,7 +38,7 @@ function askCard(i, canRespond) {
   const d = i.details || {};
   const scope = { allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
   const buttons = canRespond
-    ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(ASK_LABELS[o])}</button>`).join("")}</div>`
+    ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(askLabel(a, o))}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
   return `<div class="ask" data-ask="${esc(i.id)}"${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
@@ -44,7 +51,8 @@ function askCard(i, canRespond) {
 function askResolved(i) {
   const r = i.resolution || {};
   const said = { approve: "Allowed", reject: "Not allowed", expired: "No one answered in time" }[r.decision] || r.decision || "";
-  const scope = { task: " for the rest of this work", always: " always" }[r.scope] || "";
+  const site = i.ask && i.ask.allow_covers === "site" && r.scope === "once";
+  const scope = site ? " for this site from now on" : { task: " for the rest of this work", always: " always" }[r.scope] || "";
   return `<p class="ask-sentence">${esc((i.ask && i.ask.sentence) || i.summary || "")}</p><p class="small muted">${esc(said + scope)}</p>`;
 }
 

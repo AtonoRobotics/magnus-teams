@@ -718,6 +718,9 @@ impl Kernel {
                 || f.app == "web"
                 || (f.app == "browser" && !(f.risk == Risk::Read && a.tool.starts_with("browser_as_")))
                 || (f.connector.is_some() && f.audience > Audience::Private && !own_account_read));
+        // A web read whose address the model did not make up carries nothing
+        // out (decisions/2026-11-12-web-reads-by-provenance.md).
+        let transmits = transmits && !(untrusted && private && crate::web_reads::sends_nothing_new(a, f, |_| true) && self.plain_web_read(a, f, run).await?);
         // These override a policy ask: the approval must then cover this exact
         // action, not a broader scope granted for policy reasons.
         // A send whose every recipient the person wrote themselves, has
@@ -727,8 +730,8 @@ impl Kernel {
         // (#176, #210, #211; approvals spec, recipient provenance). That
         // the content is what they wanted is theirs to judge (owner,
         // 2026-11-04).
-        let dests = crate::asks::destinations(a, f, shown);
-        let lookup = f.app == "web" && f.risk == Risk::Read && f.connector.is_none();
+        let dests = self.destinations_of(a, f, shown);
+        let lookup = matches!(f.app.as_str(), "web" | "browser") && f.connector.is_none();
         // An approved destination is remembered (spec rev 140, What still asks).
         let remembered = |d: &String| self.read(|s| crate::asks::remembered(&s.approvals, &run.person, d));
         let theirs = match shown {

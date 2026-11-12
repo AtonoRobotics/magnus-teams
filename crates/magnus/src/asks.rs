@@ -120,7 +120,7 @@ fn host_of(url: &str) -> Option<String> {
 /// Where an action goes, as a card, an approval and a rule name it: the
 /// recipients the gate read, a web lookup's host, a source's host.
 pub(crate) fn destinations(a: &Action, f: &Facts, shown: Option<&Shown>) -> Vec<String> {
-    if shown.is_none() && f.connector.is_none() && f.app == "web" {
+    if shown.is_none() && f.connector.is_none() && matches!(f.app.as_str(), "web" | "browser") {
         return a.input["url"].as_str().and_then(host_of).into_iter().collect();
     }
     let mut d = crate::rules::destinations_of(a, shown);
@@ -297,11 +297,14 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     }
     offers.push("dont_allow");
     let thread = i.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| t.chat.as_ref()).map(|c| c.thread.clone());
+    // Allowing a site is remembered for it (`remembered`): the card says so.
+    let site = reason == Some(Reason::NewDestination) && !dests.is_empty() && matches!(d["app"].as_str(), Some("web" | "browser"));
     json!({
         "sentence": say,
         "destinations": dests,
         "offers": offers,
         "allow_scope": if task_wide { "task" } else { "once" },
+        "allow_covers": if site { Some("site") } else { None },
         "conversation": thread,
     })
 }
@@ -385,7 +388,7 @@ impl Kernel {
             return Ok(Gate::Pass);
         }
         let hash = shown_hash(a, shown);
-        let dests = destinations(a, f, shown);
+        let dests = self.destinations_of(a, f, shown);
         let reason = asked.as_ref().and_then(|(_, r)| Reason::of(Some(r)));
         if let Some(c) = self.person_cover(run, a, f, shown, &hash, &dests, reason) {
             self.record_cover(a, c, asked.map(|(_, r)| r)).await?;
@@ -451,7 +454,7 @@ impl Kernel {
             Some(id) => (id, None),
             None => {
                 let id = new_id("item");
-                let dests = destinations(a, f, shown);
+                let dests = self.destinations_of(a, f, shown);
                 let title = f.connector.as_ref().and_then(|c| c.title.clone());
                 let details = json!({
                     "call_id": a.call_id, "tool": a.tool, "input": a.input, "input_hash": shown_hash(a, shown),
@@ -491,7 +494,7 @@ impl Kernel {
                     run.person.clone(),
                     format!(
                         "Magnus did not send this: {}.",
-                        sentence(&a.tool, &f.app, f.connector.as_ref().and_then(|c| c.title.as_deref()), f.risk.as_str(), &destinations(a, f, shown)).trim_end_matches('.')
+                        sentence(&a.tool, &f.app, f.connector.as_ref().and_then(|c| c.title.as_deref()), f.risk.as_str(), &self.destinations_of(a, f, shown)).trim_end_matches('.')
                     ),
                     json!({ "call_id": a.call_id, "tool": a.tool, "reason": reason }),
                 );
