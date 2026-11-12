@@ -984,7 +984,7 @@ impl Kernel {
             )
         });
         let vault: Vec<String> = self.vault.names().unwrap_or_default();
-        self.all_connectors()
+        self.org_connectors()
             .into_iter()
             .map(|(c, on)| {
                 let source = if self.cfg.connectors.iter().any(|f| f.name == c.name) {
@@ -1021,6 +1021,12 @@ impl Kernel {
                 })
             })
             .collect()
+    }
+
+    /// Every app but the ones a person built for themselves, which are theirs
+    /// alone: an admin neither reads their definition nor sets their token.
+    fn org_connectors(&self) -> Vec<(Connector, bool)> {
+        self.all_connectors().into_iter().filter(|(c, _)| c.owner.is_none()).collect()
     }
 
     /// Add an app by its MCP address, as `actor`. Whether it needs a
@@ -1129,7 +1135,8 @@ impl Kernel {
         if self.cfg.connectors.iter().any(|c| c.name == name) {
             return Err(refusal(StatusCode::CONFLICT, "this app is set in the server's config file; change it there"));
         }
-        match self.read(|s| s.connectors.get(name).cloned()) {
+        // One a person built is theirs alone (`generated.rs`), never the organisation's to change.
+        match self.read(|s| s.connectors.get(name).filter(|c| c.owner.is_none()).cloned()) {
             Some(c) => Ok(c),
             None if crate::catalog::manifest(name).is_some() => Err(refusal(StatusCode::CONFLICT, "this app is in the catalog: turn it off instead")),
             None => Err(refusal(StatusCode::NOT_FOUND, "no such app")),
@@ -1174,7 +1181,7 @@ impl Kernel {
         access_groups: Option<Vec<String>>,
         blocked_groups: Option<Vec<String>>,
     ) -> Result<Value, Refusal> {
-        let Some((c, on)) = self.all_connectors().into_iter().find(|(c, _)| c.name == name) else { return Err(refusal(StatusCode::NOT_FOUND, "no such app")) };
+        let Some((c, on)) = self.org_connectors().into_iter().find(|(c, _)| c.name == name) else { return Err(refusal(StatusCode::NOT_FOUND, "no such app")) };
         let clean = |g: Option<Vec<String>>| g.map(|g| g.into_iter().map(|x| x.trim().to_string()).collect::<Vec<String>>());
         let (access_groups, blocked_groups) = (clean(access_groups), clean(blocked_groups));
         if [&access_groups, &blocked_groups].iter().any(|l| l.as_ref().is_some_and(|g| g.iter().any(|g| g.is_empty() || g.len() > 100))) {
@@ -1191,7 +1198,7 @@ impl Kernel {
     /// Set, or rotate, the organisation's credential for an app. Nothing
     /// shows it again: the log records only that it was set.
     pub async fn set_connector_credential(&self, actor: &str, name: &str, value: &str) -> Result<Value, Refusal> {
-        let Some((c, _)) = self.all_connectors().into_iter().find(|(c, _)| c.name == name) else { return Err(refusal(StatusCode::NOT_FOUND, "no such app")) };
+        let Some((c, _)) = self.org_connectors().into_iter().find(|(c, _)| c.name == name) else { return Err(refusal(StatusCode::NOT_FOUND, "no such app")) };
         let value = value.trim();
         if value.is_empty() || value.len() > 16 * 1024 {
             return Err(refusal(StatusCode::BAD_REQUEST, "give the credential"));
@@ -1221,7 +1228,7 @@ impl Kernel {
     /// sign-in to it, at the app. A provider's client secret serves all of
     /// its apps: revoking it ends the sign-ins to each of them.
     pub async fn revoke_connector_credential(&self, actor: &str, name: &str) -> Result<Value, Refusal> {
-        let Some((c, _)) = self.all_connectors().into_iter().find(|(c, _)| c.name == name) else { return Err(refusal(StatusCode::NOT_FOUND, "no such app")) };
+        let Some((c, _)) = self.org_connectors().into_iter().find(|(c, _)| c.name == name) else { return Err(refusal(StatusCode::NOT_FOUND, "no such app")) };
         match org_credential(&c) {
             Some(OrgCredential::Registration(p)) => {
                 let mut n = 0;

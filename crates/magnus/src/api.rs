@@ -1253,14 +1253,8 @@ async fn task(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
                 Ok(w) => w,
                 Err(e) => return internal(e),
             };
-            let mut v = task_json(&k, &t, &r, true, &words);
-            // The owner sees every task, but not another person's library or
-            // projects (theirs alone).
-            if t.person != p.id {
-                v["files"] = json!([]);
-                v["project"] = Value::Null;
-            }
-            Json(v).into_response()
+            // `find` gives only the person's own.
+            Json(task_json(&k, &t, &r, true, &words)).into_response()
         }
         None => err(StatusCode::NOT_FOUND, "no such task"),
     }
@@ -1559,7 +1553,7 @@ async fn secret_names(State(k): K, h: HeaderMap) -> Response {
         return r;
     }
     match k.vault.names() {
-        Ok(n) => Json(json!({ "names": n })).into_response(),
+        Ok(n) => Json(json!({ "names": crate::secret_scope::server_names(&k, n) })).into_response(),
         Err(e) => internal(e),
     }
 }
@@ -1570,6 +1564,9 @@ async fn put_secret(State(k): K, h: HeaderMap, Path(name): Path<String>, Json(b)
         Err(r) => return r,
     };
     let Some(value) = b["value"].as_str() else { return err(StatusCode::BAD_REQUEST, "no value") };
+    if crate::secret_scope::personal(&k, &name) {
+        return err(StatusCode::FORBIDDEN, crate::secret_scope::REFUSED);
+    }
     if k.vault.is_sealed() {
         return err(StatusCode::CONFLICT, "the kill switch is engaged; turn it off before entering secrets");
     }

@@ -84,6 +84,7 @@ pub mod safety;
 pub mod sandbox;
 mod schedule_request;
 pub mod schedule_thread;
+pub(crate) mod secret_scope;
 pub mod settings;
 pub mod sign_in_name;
 pub mod spawn;
