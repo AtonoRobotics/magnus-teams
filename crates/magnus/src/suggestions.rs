@@ -29,6 +29,35 @@ use serde_json::{json, Value};
 /// Tools whose results are cards, not something read: no evidence.
 const CARDS: &[&str] = &["suggest", "propose_grant", "create_schedule", "offer_app"];
 
+/// How many citable calls a refused evidence item lists, newest first.
+const CITABLE_LISTED_MAX: usize = 8;
+
+/// The calls this run read that evidence may name, newest first, as
+/// `tool (call id)`: a result read without an error, not a card or a record.
+fn citable(r: &Run) -> Vec<String> {
+    let mut read: Vec<_> = r
+        .intents
+        .values()
+        .filter(|i| r.results.get(&i.call_id).is_some_and(|x| !x.is_error))
+        .filter(|i| !CARDS.contains(&i.tool.as_str()) && !crate::tools::RECORDS.contains(&i.tool.as_str()))
+        .collect();
+    read.sort_by_key(|i| std::cmp::Reverse(i.at));
+    read.into_iter().take(CITABLE_LISTED_MAX).map(|i| format!("{} ({})", i.tool, i.call_id)).collect()
+}
+
+/// Why `call` is no evidence, and what is. A model that named a link or a
+/// file instead of a call gave up when told only that a retry would not
+/// help (2026-11-12, OneDrive READMEs): it is told what it may name.
+fn not_a_call(call: &str, r: &Run) -> String {
+    let can = citable(r);
+    let what = "A call is the id of a tool call you made and read in this turn, or that tool's name for its latest result; a link, path or file name is not one and goes in shows";
+    if can.is_empty() {
+        format!("names the call {call}, which is no tool result read in this conversation turn. {what}. Nothing read in this turn can be cited yet: read what shows it would help, then suggest")
+    } else {
+        format!("names the call {call}, which is no tool result read in this conversation turn. {what}. Retry naming one of these: {}", can.join(", "))
+    }
+}
+
 /// A card proposed in one of the person's chat turns.
 pub(crate) struct Card {
     pub id: String,
@@ -172,7 +201,7 @@ impl Kernel {
         for (n, e) in items.iter().enumerate() {
             match self.evidence(run, e).await? {
                 Ok(v) => evidence.push(v),
-                Err(why) => return Ok(Err(format!("evidence item {} {why}. A retry with it will not help.", n + 1))),
+                Err(why) => return Ok(Err(format!("evidence item {} {why}.", n + 1))),
             }
         }
         let (again, changed) = (field(input, "again"), field(input, "changed"));
@@ -281,12 +310,12 @@ impl Kernel {
                 let read = r.results.get(call).is_some_and(|x| !x.is_error);
                 match tool.filter(|t| read && !CARDS.contains(&t.as_str()) && !crate::tools::RECORDS.contains(&t.as_str())) {
                     Some(tool) => Ok(Ok(json!({ "call": call, "tool": tool, "shows": shows }))),
-                    None => Ok(Err(format!("names the call {call}, which is no tool result read in this conversation turn"))),
+                    None => Ok(Err(not_a_call(call, &r))),
                 }
             }
             (None, Some(task)) => {
                 let found = self.read(|s| s.tasks.get(task).filter(|t| t.person == run.person && !s.trash.contains_key(task)).map(|t| (t.clone(), s.runs.get(&t.run_id).cloned())));
-                let Some((t, r)) = found else { return Ok(Err(format!("names the task {task}, which is no task of this person's"))) };
+                let Some((t, r)) = found else { return Ok(Err(format!("names the task {task}, which is no task of this person's. A retry with it will not help"))) };
                 Ok(Ok(json!({ "task": task, "title": self.task_title(&t, r.as_ref()).await?, "shows": shows })))
             }
             _ => Ok(Err("names neither a call nor a task (one of them)".into())),
@@ -298,6 +327,38 @@ impl Kernel {
 mod tests {
     use super::*;
     use crate::log::Event;
+
+    /// Evidence that names a link instead of a call is refused with the
+    /// calls it may name: those this run read, newest first, without an
+    /// error, a card or a record among them.
+    #[test]
+    fn a_refused_call_names_the_calls_that_can_be_cited() {
+        let mut s = Projection::default();
+        let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
+        let t0 = Utc::now();
+        let ev = |s: &mut Projection, min: i64, e: Value| {
+            let seq = s.last_seq + 1;
+            s.apply(&Event { seq, at: t0 + chrono::Duration::minutes(min), actor: "kernel".into(), ev: serde_json::from_value(e).unwrap() });
+        };
+        let call = |s: &mut Projection, min: i64, id: &str, tool: &str, is_error: bool| {
+            ev(s, min, json!({ "kind": "intent", "run": "r1", "call_id": id, "step_id": id, "key": id, "tool": tool, "input": {}, "issuer": "model" }));
+            ev(
+                s,
+                min,
+                json!({ "kind": "tool_result", "run": "r1", "call_id": id, "key": id, "status": "done", "text": "", "is_error": is_error, "label": { "untrusted": false, "private": false }, "data": {} }),
+            );
+        };
+        ev(&mut s, 0, json!({ "kind": "task_created", "task": "t1", "run": "r1", "person": "carol", "text": "Hi.", "config": config, "chat": { "thread": "th", "turn": true } }));
+        assert!(not_a_call("https://onedrive.example/README.md", &s.runs["r1"]).contains("Nothing read in this turn can be cited yet"));
+        call(&mut s, 1, "c1", "onedrive__read_file", false);
+        call(&mut s, 2, "c2", "onedrive__read_file", true);
+        call(&mut s, 3, "c3", "suggest", false);
+        call(&mut s, 4, "c4", "onedrive__list_folder", false);
+        let why = not_a_call("https://onedrive.example/README.md", &s.runs["r1"]);
+        assert!(why.contains("a link, path or file name is not one"), "{why}");
+        assert!(why.ends_with("Retry naming one of these: onedrive__list_folder (c4), onedrive__read_file (c1)"), "{why}");
+        assert!(!why.contains("will not help"), "{why}");
+    }
 
     /// The ledger holds each card proposed before the run, with the answer
     /// given before it; a tainted card's words stay out; a deleted one and
