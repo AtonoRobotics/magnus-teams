@@ -112,4 +112,12 @@ for (const [t, fn] of listeners) if (t === "submit") await fn({ target: { closes
 assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST")), JSON.stringify([["POST", "/v1/workspaces/w/invites", { email: "ann@example.com" }]]), "an invite was not sent exactly once");
 assert.match(result.textContent, /Invitation emailed to ann@example\.com/);
 
+// The same element shows another workspace's page after a switch: its
+// invites go to that workspace alone, never to the one shown before.
+sandbox.bindInvite(center, "v");
+assert.equal(listeners.filter(([t]) => t === "submit").length, 1, "switching workspaces added a second invite listener");
+calls.length = 0; email.value = "bo@example.com";
+for (const [t, fn] of listeners) if (t === "submit") await fn({ target: { closest: s => (s === "[data-invite]" ? form : null) }, preventDefault() {} });
+assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST").map(c => c[1])), JSON.stringify(["/v1/workspaces/v/invites"]), "after a switch, an invite went to the workspace shown before");
+
 console.log("team members check passed");

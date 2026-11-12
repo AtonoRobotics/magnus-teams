@@ -245,12 +245,16 @@ function inviteForm() {
  * same element after every change, and a second listener sent each invite
  * (and its email) twice. */
 function bindInvite(root, ws) {
-  if (root.dataset.inviteBound === ws) return;
-  root.dataset.inviteBound = ws;
+  // The workspace is read when an invite is sent: the same element shows
+  // another workspace's page after a switch, and its invites go there.
+  root.dataset.inviteWs = ws;
+  if (root.dataset.inviteBound) return;
+  root.dataset.inviteBound = "1";
   root.addEventListener("submit", async e => {
     const form = e.target.closest("[data-invite]");
     if (!form) return;
     e.preventDefault();
+    const ws = root.dataset.inviteWs || "";
     const email = $("[data-invite-email]", form).value.trim();
     if (!email) return;
     try {
@@ -263,6 +267,7 @@ function bindInvite(root, ws) {
   root.addEventListener("click", async e => {
     const b = e.target.closest("[data-invite-link]");
     if (!b) return;
+    const ws = root.dataset.inviteWs || "";
     try {
       const r = await api("POST", `/v1/workspaces/${enc(ws)}/invites`, {});
       const link = serverLink(r);
