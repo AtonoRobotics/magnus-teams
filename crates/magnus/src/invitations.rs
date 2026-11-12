@@ -39,9 +39,13 @@ pub fn derive_id(email: &str) -> Option<String> {
 /// An id nobody holds for an address: its own, else the first free
 /// numbered one. The admin's invite refuses a held id instead; a workspace
 /// admin does not pick ids, so theirs takes the next free one.
+/// An erased person's id is never given again: whatever of theirs outlived
+/// the erasure under that id (a rule, a stored card, an app they built) must
+/// not reach someone new.
 pub fn free_id(k: &Kernel, email: &str) -> Option<String> {
     let base = derive_id(email)?;
-    std::iter::once(base.clone()).chain((2..=MAX_ID_SUFFIX).map(|n| format!("{base}-{n}"))).find(|id| id.len() <= MAX_PERSON_ID_CHARS && k.person(id).is_none())
+    let held = |id: &str| k.person(id).is_some() || k.read(|s| s.erasures.contains_key(id));
+    std::iter::once(base.clone()).chain((2..=MAX_ID_SUFFIX).map(|n| format!("{base}-{n}"))).find(|id| id.len() <= MAX_PERSON_ID_CHARS && !held(id))
 }
 
 /// The local person who holds this address, if any.
@@ -161,5 +165,16 @@ mod tests {
         assert!(valid_email("ann@example.com"));
         assert!(!valid_email("ann@example"));
         assert!(!valid_email("a b@example.com"));
+    }
+
+    /// Someone new with an erased person's address does not get their id,
+    /// and with it whatever of theirs outlived the erasure.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_erased_persons_id_goes_to_nobody_new() {
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        assert_eq!(free_id(&s.k, "ada@example.com").as_deref(), Some("ada"));
+        s.k.emit("person:sam", crate::events::Ev::Removed { item: "person:ada".into(), seqs: vec![] }).await.unwrap();
+        assert_eq!(free_id(&s.k, "ada@elsewhere.com").as_deref(), Some("ada-2"), "an erased person's id was given again");
+        s.done().await;
     }
 }

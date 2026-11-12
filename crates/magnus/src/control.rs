@@ -447,6 +447,8 @@ async fn admin_invite(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Res
     if k.person(&id).is_some() {
         return (StatusCode::CONFLICT, Json(json!({ "error": "taken", "message": format!("{id} is already a person here.") }))).into_response();
     }
+    // An erased person's id goes to nobody new (`free_id`).
+    let id = crate::invitations::free_id(&k, &email).unwrap_or(id);
     match k.invite_account(&id, name, &email, role).await {
         Ok(token) => (
             StatusCode::CREATED,

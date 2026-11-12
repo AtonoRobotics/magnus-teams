@@ -226,6 +226,11 @@ impl Kernel {
                 sign_ins += 1;
             }
         }
+        // Their card, their Link wallet and the tokens of apps they built.
+        let built: Vec<String> = self.read(|s| s.connectors.values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
+        for name in [format!("payments/card/{person}"), format!("payments/link/{person}")].into_iter().chain(built) {
+            self.vault.remove(&name).map_err(failed)?;
+        }
         // Their content: recorded as removed first (a removal cut short
         // finishes at the next start), then deleted, then out of the backups.
         let seqs = self.log.person_content_seqs(person).await.map_err(failed)?;
@@ -249,5 +254,31 @@ impl Kernel {
             }
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Erased, a person's card, wallet and own apps' tokens leave the vault
+    /// with them, so nothing of theirs is left for anyone to use.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_erasure_takes_a_persons_card_wallet_and_app_tokens() {
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        let mut own = crate::catalog::connector(&crate::catalog::manifests()[0]);
+        own.name = "mo_tool_1a2b3c4d".into();
+        own.owner = Some("mo".into());
+        own.credential = Some("connector_mo_tool_1a2b3c4d".into());
+        s.k.emit("person:mo", crate::events::Ev::ConnectorAdded { connector: own }).await.unwrap();
+        let theirs = ["payments/card/mo", "payments/link/mo", "connector_mo_tool_1a2b3c4d"];
+        for n in theirs {
+            s.k.vault.put(n, "mo's").unwrap();
+        }
+        s.k.vault.put("payments/card/sam", "sam's").unwrap();
+        s.k.erase_person("person:sam", "mo").await.unwrap();
+        for n in theirs {
+            assert!(s.k.vault.get(n).unwrap().is_none(), "{n} outlived mo's erasure");
+        }
+        assert!(s.k.vault.get("payments/card/sam").unwrap().is_some(), "someone else's card went with mo");
+        s.done().await;
     }
 }
