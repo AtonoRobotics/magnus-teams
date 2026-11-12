@@ -59,6 +59,7 @@ function peopleHtml(people, owner) {
     <table class="t" data-people><thead><tr><th>Person</th><th>Role</th><th>Status</th><th></th></tr></thead>
       <tbody>${people.map(p => peopleRow(p, owner)).join("")}</tbody></table>
     <div data-people-detail></div>
+    <section data-admin-testers></section>
     <section data-admin-workspaces></section>`;
 }
 
@@ -120,6 +121,8 @@ registerAdminSection("people", async el => {
   paint(el, peopleHtml(people, owner));
   // Its Workspaces part (admin-workspaces.js) draws itself under the people.
   if (typeof adminWorkspaces === "function") adminWorkspaces($("[data-admin-workspaces]", el));
+  // Who is a tester (admin-testers.js).
+  if (typeof adminTesters === "function") adminTesters($("[data-admin-testers]", el), people).catch(() => {});
   const note = $("[data-people-note]", el);
   const again = () => AdminState.sections.get("people")?.(el);
   /** @param {any} err */

@@ -3103,6 +3103,7 @@ async function modelsSection(main, opts = {}) {
 const SETTINGS = [
   ["account", "Account", accountSection], ["rules", "Rules", (el) => rulesSection(el)], ["payments", "Payments", (el) => paymentsSection(el)],
   ["appearance", "Appearance", appearanceSection], ["notifications", "Notifications", notificationsSection], ["updates", "Updates", updatesSection], ["data", "Data and privacy", dataSection],
+  ["agreements", "Agreements", (el) => agreementsSection(el)],
 ];
 /** Where Settings' administration went: its old addresses open Admin. */
 const MOVED_TO_ADMIN = { models: "#/admin/models", connectors: "#/admin/connectors", safety: "#/admin/overview" };
@@ -3429,6 +3430,13 @@ async function boot() {
   App.sessionGeneration++;
   Resources.reset();
   App.me = await api("GET", "/v1/me");
+  // The Terms of Use first, then the usage-data question (agreements.js).
+  if (!(await agreementsGate())) {
+    stop();
+    await Magnus.signOut();
+    location.hash = "";
+    return start();
+  }
   Theme.scope(App.appliance, App.me.id);
   MessageDrafts.open(App.appliance, App.me.id);
   const host = await Magnus.systemLook().catch(() => ({}));
