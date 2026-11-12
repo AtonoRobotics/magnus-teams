@@ -69,3 +69,30 @@ async fn owners_and_admins_add_and_remove_and_anyone_leaves() {
     assert_eq!(s.k.read(|st| st.team.role(&ws, "mo")), Some(Role::Owner));
     s.done().await;
 }
+
+/// "Removing a member revokes their grants, ends their running tasks and
+/// leaves team files in place" (spec, Team shared workspace › Membership
+/// changes): the team agent's work for them stops at once, what they put in
+/// the workspace stays, and they can ask the team agent for nothing more.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_a_member_ends_their_running_tasks_and_leaves_team_files() {
+    let s = server_with("", |_| Router::new()).await;
+    let (sam, mo) = (s.token("sam").await, s.token("mo").await);
+    let ws = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await.1["id"].as_str().unwrap().to_string();
+    let base = format!("/v1/workspaces/{ws}");
+    assert_eq!(s.post(&sam, &format!("{base}/members"), json!({ "person": "mo", "role": "member" })).await.0, 200);
+    let put = reqwest::Client::new().put(format!("{}{base}/files/plan.txt", s.base)).bearer_auth(&mo).body("the plan").send().await.unwrap();
+    assert_eq!(put.status().as_u16(), 200, "mo could not add a team file");
+    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "draft the launch note".into()).await.unwrap();
+    let run_of = || s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).map(|r| r.status.terminal()));
+
+    assert_eq!(s.call(&sam, Method::DELETE, &format!("{base}/members/mo"), None).await.0, 200);
+    assert_eq!(run_of(), Some(true), "mo's team task still runs after mo was removed");
+    assert!(s.k.read(|st| st.team.runs_by(&ws, "mo").iter().all(|r| st.tasks.get(&r.task).and_then(|t| st.runs.get(&t.run_id)).is_none_or(|run| run.status.terminal()))));
+    assert!(s.k.read(|st| st.team.workspace(&ws).unwrap().files.contains_key("plan.txt")), "mo's team file left with mo");
+    assert_eq!(s.get(&sam, &format!("{base}/files/plan.txt")).await.0, 200, "the team cannot read the file mo left");
+    assert_eq!(s.get(&mo, &format!("{base}/files/plan.txt")).await.0, 404, "a removed member still reads a team file");
+    assert_eq!(s.post(&mo, &format!("{base}/channels/{channel}/messages"), json!({ "text": "@Magnus one more thing" })).await.0, 404, "a removed member still asks the team agent");
+    s.done().await;
+}

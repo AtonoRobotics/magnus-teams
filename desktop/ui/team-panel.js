@@ -85,7 +85,19 @@ function overviewHtml(d, ws, channel = null) {
     <section class="team-card"><h3>Agents at work</h3>${d.work.length ? `<ul class="team-work">${d.work.map(w => `<li><a href="${teamHref(ws, { kind: "channel", id: w.channel })}">${esc(home.agent.name)}</a> <span class="small faint">for ${esc(w.requester_name)}${w.waiting ? " · waiting on an ask" : ` · step ${w.steps + 1}`}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing running.</p>`}</section>
     <section class="team-card"><h3>Tasks ${project ? `<a class="small" href="${link("board")}">Board</a>` : ""}</h3>${d.progress ? progressBar(d.progress) : ""}${doing.length ? `<ul class="team-mini">${doing.map(t => `<li><span>${esc(t.title)}</span><span class="chip${t.status === "doing" ? " run" : ""}">${t.status === "doing" ? "Doing" : "To do"}</span></li>`).join("")}</ul>` : `<p class="small faint">Nothing open.</p>`}</section>
     <section class="team-card"><h3>Recent files ${project ? `<a class="small" href="${link("files")}">All files</a>` : ""}</h3>${d.files.length ? `<ul class="team-mini">${d.files.slice(-5).reverse().map(f => `<li><span>${esc(f.name)}</span><span class="small faint">${esc(f.by_name)}</span></li>`).join("")}</ul>` : `<p class="small faint">No files yet. Drop one into the conversation.</p>`}</section>
-    <section class="team-card"><h3>Members</h3><div class="team-faces">${d.members.map(m => avatar(m.name)).join("")}${avatar(home.agent.name, true)}</div></section>${spendHtml(home, channel)}`;
+    ${membersCardHtml(d, ws)}${spendHtml(home, channel)}`;
+}
+
+/**
+ * The panel's members: who is here by name, and the way to the people page,
+ * where a Team Admin adds and removes people and anyone sees who is in.
+ * @param {TeamPanelData} d @param {string} ws
+ */
+function membersCardHtml(d, ws) {
+  const home = Team.home, admin = isTeamAdmin(home);
+  const face = m => `<span class="team-face" title="${esc(m.name)}">${avatar(m.name)}<span class="sr">${esc(m.name)}</span></span>`;
+  return `<section class="team-card" data-members-card><h3>Members <a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></h3>
+    <div class="team-faces">${d.members.map(face).join("")}${avatar(home.agent.name, true)}</div></section>`;
 }
 
 /**
@@ -184,7 +196,7 @@ const TeamPanel = {
       const others = Team.home.members.filter(m => !inIt.has(m.id));
       body = `<ul class="team-people">${d.members.map(m => `<li>${avatar(m.name)}<span>${esc(m.name)}</span>${m.id === d.project.owner ? `<span class="small faint">owner</span>` : owner ? `<button class="link" data-project-drop="${esc(m.id)}">Remove</button>` : ""}</li>`).join("")}<li>${avatar(Team.home.agent.name, true)}<span>${esc(Team.home.agent.name)}</span><span class="small faint">team agent</span></li></ul>
         ${owner && others.length ? `<form class="row" data-project-add><select aria-label="Add a member of the workspace">${others.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("")}</select><button class="primary">Add to the project</button></form>` : ""}
-        ${["admin", "owner"].includes(Team.home.role) ? `<h3>Invite someone new to the workspace</h3>${inviteForm()}` : ""}`;
+        ${isTeamAdmin(Team.home) ? `<h3>Invite someone new to the workspace</h3>${inviteForm()}<p class="small"><a href="${teamHref(ws, { kind: "people" })}" data-members-manage>Add or remove people in ${esc(Team.home.name)}</a></p>` : ""}`;
     }
     paint(s.center, `${head}<div class="team-scroll">${body}</div>`);
     paint(s.side, `<header class="team-side-head"><h2>${esc(d.project.name)}</h2></header><div class="team-scroll">${overviewHtml(d, ws)}</div>`);

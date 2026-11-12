@@ -9,12 +9,18 @@
 /** @param {string} r */
 const teamRank = r => TEAM_ROLES.indexOf(r);
 
+/** Whether the viewer is one of the workspace's Team Admins (its owner or an admin). @param {TeamHome} home */
+const isTeamAdmin = home => teamRank(home.role) >= teamRank("admin");
+
+/** What the way to the people page is called: it says what a Team Admin does there. @param {TeamHome} home */
+const peopleLabel = home => isTeamAdmin(home) ? "People: add or remove" : "People";
+
 /**
  * The page as `home` shows it to its viewer.
  * @param {TeamHome} home @param {{ id: string, name: string }[]} candidates
  */
 function teamPeopleHtml(home, candidates) {
-  const mine = home.role, admin = teamRank(mine) >= teamRank("admin");
+  const mine = home.role, admin = isTeamAdmin(home);
   const owners = home.members.filter(m => m.role === "owner").length;
   const roles = (selected, upto) => TEAM_ROLES.filter(r => teamRank(r) <= teamRank(upto)).map(r => `<option value="${r}"${r === selected ? " selected" : ""}>${esc(teamRoleLabel(r))}</option>`).join("");
   const row = m => {
@@ -30,15 +36,16 @@ function teamPeopleHtml(home, candidates) {
       <select data-add-role aria-label="Their role">${roles("member", mine)}</select><button class="primary">Add</button></form>`
     : `<p class="small faint">Everyone with an account on this server is here already.</p>`;
   return `<header class="team-head"><h1>People</h1></header><div class="team-scroll">
+    ${admin ? `<section data-people-add><h2>Add people</h2><p class="small faint">Someone with an account on this server joins at once.</p>${add}<h3>Someone new to the server</h3><p class="small faint">Invite them by email, or copy a link to send them.</p>${inviteForm()}</section>` : ""}
+    <h2>In ${esc(home.name)}</h2>${admin ? "" : `<p class="small faint">A Team Admin adds and removes people here.</p>`}
     <ul class="team-people">${home.members.map(row).join("")}
       <li>${avatar(home.agent.name, true)}<span>${esc(home.agent.name)}</span><span class="small faint">team agent, in every channel</span></li></ul>
-    ${admin ? `<h2>Add people</h2><p class="small faint">Someone with an account on this server joins at once.</p>${add}<h3>Someone new to the server</h3>${inviteForm()}` : ""}
     ${admin ? `<h2>Delete this workspace</h2><p class="small faint">Its channels, messages, files, projects and computer are deleted for everyone, from backups too within 30 days. This cannot be undone.</p><button class="danger" data-delete-workspace>Delete workspace</button>` : ""}</div>`;
 }
 
 /** Members, their roles and invites, for whoever may change them. */
 async function teamPeople(center, side, ws) {
-  const home = Team.home, base = `/v1/workspaces/${enc(ws)}`, admin = teamRank(home.role) >= teamRank("admin");
+  const home = Team.home, base = `/v1/workspaces/${enc(ws)}`, admin = isTeamAdmin(home);
   const candidates = admin ? await api("GET", `${base}/people`).catch(() => []) : [];
   paint(center, teamPeopleHtml(home, candidates));
   paint(side, "");

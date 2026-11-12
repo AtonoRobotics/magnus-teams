@@ -46,6 +46,7 @@ jobs:
       - run: node desktop/tests/solid-start-check.mjs
       - run: node desktop/tests/team-check.mjs
       - run: node desktop/tests/team-own-check.mjs
+      - run: node desktop/tests/team-members-check.mjs
       - run: node desktop/tests/subagents-check.mjs
       - run: node desktop/tests/connect-check.mjs
       - run: node desktop/tests/globals-check.mjs

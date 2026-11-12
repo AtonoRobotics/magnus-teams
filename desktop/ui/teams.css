@@ -24,6 +24,7 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-rail a:hover, .team-rail a[aria-current="page"] { background: var(--row-sel); color: var(--fg); }
 .team-rail a.unread { color: var(--fg); font-weight: 600; }
 .team-rail a.muted { opacity: .6; }
+.team-rail [data-rail-people] .faint { margin-left: auto; }
 .team-search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); }
 .team-search kbd { margin-left: auto; font-size: 11px; }
 .team-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--seg); color: var(--fg2); font-size: 12px; text-align: center; }

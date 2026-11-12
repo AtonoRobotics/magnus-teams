@@ -124,7 +124,7 @@ await step("whisper and share it", async () => {
 });
 
 await step("invite someone, and keep files and knowledge in a project", async () => {
-  await page.getByRole("link", { name: "People and invites" }).click();
+  await page.locator("#team-rail").getByRole("link", { name: /^People: add or remove/ }).click();
   await page.getByLabel("Invite by email").fill("newcomer@corp.example");
   await page.getByRole("button", { name: "Invite", exact: true }).click();
   await page.locator("[data-invite-result]", { hasText: "Send them this link" }).waitFor();

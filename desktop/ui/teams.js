@@ -136,11 +136,12 @@ function railHtml(home, here) {
   return `<div class="team-rail-head"><a href="#/teams" class="small faint">Teams</a><strong>${esc(home.name)}</strong></div>
     <button type="button" class="team-search" data-command aria-keyshortcuts="Control+K Meta+K">${icon("search")}<span>Search or run a command</span><kbd>Ctrl K</kbd></button>
     <a href="${teamHref(ws, { kind: "activity" })}"${here.kind === "activity" ? ' aria-current="page"' : ""} class="team-activity">Activity</a>
+    <a href="${teamHref(ws, { kind: "people" })}"${here.kind === "people" ? ' aria-current="page"' : ""} data-rail-people>${peopleLabel(home)} <span class="small faint">${home.members.length}</span></a>
     <h3>Projects</h3><nav aria-label="Projects">${projects || `<p class="small faint">Type a name in the command menu to start one.</p>`}</nav>
     <h3>Channels</h3><nav aria-label="Channels">${channels}</nav>
     <h3>Agents</h3><nav aria-label="Agents">${agents}</nav>
     <h3>Direct messages</h3><nav aria-label="Direct messages">${dms}${people.map(m => `<a href="#" data-dm="${esc(m.id)}">${avatar(m.name)}<span class="team-presence${m.online ? " on" : ""}" aria-label="${m.online ? "here" : "away"}"></span>${esc(m.name)}</a>`).join("")}</nav>
-    ${archived}<a href="${teamHref(ws, { kind: "people" })}" class="small"${here.kind === "people" ? ' aria-current="page"' : ""}>People and invites</a>`;
+    ${archived}`;
 }
 
 /** The channel a workspace opens on: the first with mentions, else general. */
@@ -240,7 +241,12 @@ function inviteForm() {
   return `<form class="team-invite" data-invite><input type="email" data-invite-email placeholder="name@example.com" aria-label="Invite by email"><button class="primary">Invite</button><button type="button" data-invite-link>Copy link</button><p class="small faint" data-invite-result aria-live="polite"></p></form>`;
 }
 
+/** Listen for invites under `root`, once: the people page redraws into the
+ * same element after every change, and a second listener sent each invite
+ * (and its email) twice. */
 function bindInvite(root, ws) {
+  if (root.dataset.inviteBound === ws) return;
+  root.dataset.inviteBound = ws;
   root.addEventListener("submit", async e => {
     const form = e.target.closest("[data-invite]");
     if (!form) return;
