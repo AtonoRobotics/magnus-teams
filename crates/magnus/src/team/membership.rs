@@ -42,10 +42,12 @@ pub(crate) fn refuse(w: &Workspace, by: &str, mine: Role, person: &str, to: Opti
 impl Kernel {
     /// Give `person` a role in the workspace, or take them out of it
     /// (`None`). Taken out, they lose it at once: their running work there
-    /// stops and what was held back for them goes. What they wrote stays.
+    /// stops, and what was held back for them leaves the workspace for their
+    /// own library (their personal space is untouched). What they wrote stays.
     pub(crate) async fn set_workspace_role(&self, actor: &str, ws: &str, person: &str, to: Option<Role>) -> Result<()> {
         let Some(role) = to else {
             let running: Vec<String> = self.read(|s| s.team.runs_by(ws, person).into_iter().map(|r| r.task.clone()).collect());
+            self.keep_held(actor, ws, person).await;
             self.emit(actor, Ev::Team(Change::Removed { workspace: ws.to_string(), person: person.to_string() })).await?;
             self.end_team_tasks(actor, &running).await;
             self.remove_held(ws, person).await;

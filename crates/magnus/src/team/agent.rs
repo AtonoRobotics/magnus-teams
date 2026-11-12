@@ -255,6 +255,10 @@ impl Kernel {
             return Ok(("that is not a file the team volume can hold".to_string(), true, None));
         }
         let private = self.read(|s| s.runs.get(&a.run).is_some_and(|r| r.private));
+        // Never for a member what they could not do: replace someone else's file.
+        if !private && self.read(|s| s.team.workspace(&t.workspace).is_some_and(|w| super::keep::someone_elses(w, name, &t.requester))) {
+            return Ok((super::keep::SOMEONE_ELSES.to_string(), true, None));
+        }
         let file = File { name: name.to_string(), size: content.len() as u64, by: t.requester.clone() };
         let actor = format!("run:{}", a.run);
         let (dir, change, said) = if private {

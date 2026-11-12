@@ -278,6 +278,9 @@ async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     if !fit_name(&name) {
         return err(StatusCode::BAD_REQUEST, "that is not a file name");
     }
+    if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
+        return err(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
+    }
     let dir = volume_dir(&k, &ws);
     if let Err(e) = async {
         tokio::fs::create_dir_all(&dir).await?;
@@ -313,15 +316,28 @@ async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, 
     Json(json!({ "ok": true })).into_response()
 }
 
-/// The requester's own choice to put a held file on the team volume.
+/// The requester's own choice to put a held file on the team volume. The
+/// team gets a copy; theirs goes to their own library, so an admin deleting
+/// the team's copy, or the workspace, leaves it with them.
 async fn share_held(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     let held = k.read(|s| s.team.workspace(&ws).and_then(|w| w.held.get(&p.id).and_then(|f| f.get(&name).cloned())));
     let Some(file) = held else { return err(StatusCode::NOT_FOUND, "you hold no such file") };
+    if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
+        return err(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
+    }
+    let from = held_dir(&k, &ws, &p.id).join(&name);
+    let bytes = match tokio::fs::read(&from).await {
+        Ok(b) => b,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    };
+    if let Err(e) = k.keep_in_library(&format!("person:{}", p.id), &p.id, &name, &bytes).await {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+    }
     let target = volume_dir(&k, &ws);
     if let Err(e) = async {
         tokio::fs::create_dir_all(&target).await?;
-        tokio::fs::rename(held_dir(&k, &ws, &p.id).join(&name), target.join(&name)).await
+        tokio::fs::rename(&from, target.join(&name)).await
     }
     .await
     {

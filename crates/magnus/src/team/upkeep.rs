@@ -212,6 +212,8 @@ impl Kernel {
         let actor = actor.to_string();
         let tasks: Vec<String> = self.read(|s| s.team.runs_of(ws).into_iter().map(|r| r.task.clone()).collect());
         self.end_team_tasks(&actor, &tasks).await;
+        // What was held for a member is theirs, not the workspace's.
+        self.keep_all_held(&actor, ws).await;
         let owner = Owner::Workspace(ws.to_string());
         // Gone with the workspace, by the usual deletion: a reset would put
         // a new one in its place, and no new one is made until it is gone.

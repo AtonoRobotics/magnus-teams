@@ -19,6 +19,9 @@ mod invite_tests;
 pub mod invites;
 mod join_page;
 mod kb_routes;
+mod keep;
+#[cfg(test)]
+mod keep_tests;
 pub(crate) mod knowledge;
 pub(crate) mod membership;
 #[cfg(test)]
