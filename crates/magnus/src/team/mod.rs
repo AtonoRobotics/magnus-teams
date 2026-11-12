@@ -38,6 +38,7 @@ mod routes;
 pub(crate) mod routines;
 mod search;
 pub mod spend;
+pub mod team_admin;
 pub(crate) mod upkeep;
 mod whisper;
 
@@ -237,6 +238,17 @@ pub enum Change {
         #[serde(default)]
         chat: chat::Chat,
     },
+    /// A Magnus admin made someone a Team Admin, who starts workspaces, or
+    /// took it back (`team_admin`).
+    TeamAdmin {
+        person: String,
+        on: bool,
+    },
+    /// Once, when Team Admin came in: everyone who owned a workspace then
+    /// became a Team Admin.
+    TeamAdminsSeeded {
+        people: Vec<String>,
+    },
 }
 
 /// Scratch for one request: never a fact, and gone when the task is over.
@@ -319,6 +331,7 @@ pub struct Ledger {
     whispers: BTreeMap<String, Whisper>,
     /// A message, then the events that hold its text: its own and its edits.
     seqs: BTreeMap<String, Vec<i64>>,
+    pub(crate) admins: team_admin::Admins,
 }
 
 impl Ledger {
@@ -389,6 +402,9 @@ impl Ledger {
         }
         if let Change::Deleted { workspace } = c {
             self.workspaces.remove(workspace);
+            return;
+        }
+        if self.admins.apply(c) {
             return;
         }
         match c {
@@ -513,7 +529,14 @@ impl Ledger {
                     chat::apply(w, chat);
                 }
             }
-            Change::Created { .. } | Change::Deleted { .. } | Change::Run { .. } | Change::Note { .. } | Change::Whisper { .. } | Change::WhisperShared { .. } => {}
+            Change::Created { .. }
+            | Change::Deleted { .. }
+            | Change::Run { .. }
+            | Change::Note { .. }
+            | Change::Whisper { .. }
+            | Change::WhisperShared { .. }
+            | Change::TeamAdmin { .. }
+            | Change::TeamAdminsSeeded { .. } => {}
         }
     }
 

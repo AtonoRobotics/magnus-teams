@@ -64,24 +64,27 @@ assert.deepEqual(view.messages.map(m => [m.id, !!m.deleted]), [["b", true]], "a 
 
 // The people page: an admin manages members and admins, not the owner; the
 // last owner cannot leave; people on the server are offered by name.
-const page = sandbox.teamPeopleHtml(home, [{ id: "kim", name: "Kim" }], false);
+const page = sandbox.teamPeopleHtml(home, [{ id: "kim", name: "Kim" }]);
 const of = id => page.split(`data-member="${id}"`)[1].split("</li>")[0];
 assert.doesNotMatch(of("dana"), /data-remove|data-role/, "an admin is offered to change the owner");
 assert.match(of("leo"), /data-remove/);
-assert.doesNotMatch(of("leo"), /<option >owner<\/option>/, "an admin is offered a role above their own");
+assert.doesNotMatch(of("leo"), /<option value="owner"/, "an admin is offered a role above their own");
+assert.match(of("leo"), /<option value="admin">Team Admin<\/option>/, "a workspace admin is not called a Team Admin");
 assert.match(of("sam"), /data-leave/, "a member cannot leave");
 assert.match(page, /data-add-person[^]*value="kim">Kim/, "people on the server are not offered");
-assert.doesNotMatch(page, /data-delete-workspace/, "a workspace admin is offered to delete it");
-const owners = sandbox.teamPeopleHtml({ ...home, role: "owner", me: "dana" }, [], false);
+assert.match(page, /data-delete-workspace/, "a workspace admin, one of its Team Admins, cannot delete it");
+assert.doesNotMatch(page, /admin\/workspaces/);
+const owners = sandbox.teamPeopleHtml({ ...home, role: "owner", me: "dana" }, []);
 assert.match(owners, /data-delete-workspace/, "the owner cannot delete the workspace");
 assert.doesNotMatch(owners.split('data-member="dana"')[1].split("</li>")[0], /data-leave/, "the only owner is offered to leave");
-assert.match(sandbox.teamPeopleHtml(home, [], true), /data-delete-workspace/, "an admin of the server cannot delete it");
+assert.doesNotMatch(sandbox.teamPeopleHtml({ ...home, role: "member", me: "sam" }, []), /data-delete-workspace/, "a member is offered to delete the workspace");
 
-// Admin › People › Workspaces: every workspace, its only owner kept.
-const ws = sandbox.adminWorkspacesHtml([{ id: "w", name: "Alpha", channels: 3, members: [{ id: "dana", name: "Dana", role: "owner" }, { id: "leo", name: "Leo", role: "member" }] }], [{ id: "kim", name: "Kim" }, { id: "leo", name: "Leo" }]);
-assert.match(ws.split('data-ws-member="dana"')[1].split("</tr>")[0], /disabled[^]*Its only owner/, "the only owner can be removed");
-assert.match(ws, /data-ws-add[^]*value="kim"/);
-assert.doesNotMatch(ws.split("data-ws-add")[1], /value="leo"/, "a member is offered to be added again");
+// Admin › People › Workspaces: names, Team Admins and counts, and the Team
+// Admin role to give; nothing to join, change or delete (the owner, 2026-11-11).
+const ws = sandbox.adminWorkspacesHtml([{ id: "w", name: "Alpha", channels: 3, members: 2, team_admins: [{ id: "dana", name: "Dana", owner: true }] }], [{ id: "kim", name: "Kim", team_admin: false }, { id: "dana", name: "Dana", team_admin: true }]);
+assert.match(ws, /Team Admins: Dana \(owner\)/);
+assert.match(ws.split('data-ws-person="dana"')[1].split("</tr>")[0], /data-team-admin checked/);
+assert.doesNotMatch(ws, /data-ws-add|data-ws-remove|data-ws-delete|data-ws-role/, "a Magnus admin is offered to change a workspace");
 
 // Pop-ups: who and where; the system's notification never says what a
 // message says; nothing twice; and not what the person is looking at.

@@ -8,6 +8,10 @@
 UI.team = '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18 14.5a6 6 0 0 1 3 5.5"/>';
 const TEAM_REFRESH_MS = 3000, TEAM_ROLES = ["guest", "member", "admin", "owner"];
 
+/** A workspace role as people read it: its owner and admins are its Team Admins.
+ * @param {string} r */
+const teamRoleLabel = r => ({ owner: "Team Admin (owner)", admin: "Team Admin", member: "member", guest: "guest" })[r] || r;
+
 /**
  * @typedef {{ id: string, name: string, role: string, online: boolean }} TeamMember
  * @typedef {{ id: string, name: string, project: ?string, mode: "mentions"|"when_helpful", notify: "all"|"mentions"|"off", unread: number, mentions: number, direct: ?{ people: string[], agent: boolean }, archived?: boolean, deleted?: boolean }} TeamChannel
@@ -47,19 +51,19 @@ function teamHref(ws, place) {
 }
 
 /** Whether the signed-in person may start a workspace: the server lets only
- * an owner or admin, so nobody else is offered a form it would refuse. */
+ * a Team Admin, so nobody else is offered a form it would refuse. */
 async function mayStartWorkspace() {
   const known = typeof AdminState !== "undefined" ? AdminState.standing : null;
   const standing = known || await api("GET", "/v1/admin/standing").catch(() => null);
-  return !!standing?.admin;
+  return !!standing?.team_admin;
 }
 
 /** The Teams page: the person's workspaces, and the name field that starts
  * one for those allowed to.
  * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
 function teamsPageHtml(list, mayStart) {
-  const none = mayStart ? "You are in no workspace yet. Type a name to start one; the team agent is in it from the start." : "You are in no workspace yet. An owner or admin starts one and invites you.";
-  return `<div class="teams-page"><h1>Teams</h1><p class="small faint">Workspaces you share with other people and their agents. Your own conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(w.role)}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
+  const none = mayStart ? "You are in no workspace yet. Type a name to start one; the team agent is in it from the start." : "You are in no workspace yet. A Team Admin starts one and invites you.";
+  return `<div class="teams-page"><h1>Teams</h1><p class="small faint">Workspaces you share with other people and their agents. Your own conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
     ${mayStart ? `<form id="new-team"><input id="team-name" placeholder="Type a name to start a workspace" aria-label="Workspace name" autocomplete="off"><button class="primary">Create</button></form>` : ""}</div>`;
 }
 

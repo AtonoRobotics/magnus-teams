@@ -1,53 +1,70 @@
-//! Admin › People › Workspaces: a server admin deletes a workspace or
-//! changes who is in it, audited and after a step-up, and the workspace's
-//! own rules still hold. ana is a server admin in no workspace.
+//! Team Admin (the owner, 2026-11-11). sam is the server's owner, ana an
+//! admin, mo a member, lee a member who will be a workspace admin. A Magnus
+//! admin makes someone a Team Admin (the server's owner was made one when
+//! the role came in) and sees workspaces only as names,
+//! Team Admins and counts; they neither join, change nor delete one. Only a
+//! Team Admin starts a workspace, and owns it; its Team Admins (its owner
+//! and its admins) delete it.
 
-use super::tests::{server, PASSWORD};
+use super::tests::{server_with, PASSWORD};
 use axum::Router;
 use reqwest::Method;
 use serde_json::json;
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_server_admin_deletes_a_workspace_after_a_step_up_and_it_is_audited() {
-    let s = server(|_| Router::new()).await;
-    let (sam, mo, ana) = (s.token("sam").await, s.token("mo").await, s.token("ana").await);
-    let ws = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await.1["id"].as_str().unwrap().to_string();
-    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/members"), json!({ "person": "mo", "role": "admin" })).await.0, 200);
-    assert_eq!(s.call(&mo, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 403, "a workspace admin deleted the workspace");
-    assert_eq!(s.call(&mo, Method::DELETE, &format!("/v1/admin/workspaces/{ws}"), None).await.0, 403, "a member reached the admin route");
+const LEE: &str = "[[people]]\nid = \"lee\"\nname = \"Lee\"\n";
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_magnus_admin_makes_team_admins_and_stays_out_of_their_workspaces() {
+    let s = server_with(LEE, |_| Router::new()).await;
+    let (sam, ana, mo, lee) = (s.token("sam").await, s.token("ana").await, s.token("mo").await, s.token("lee").await);
+    // Nobody starts a workspace without the role, a server admin included.
+    for (who, t) in [("an admin", &ana), ("a member", &mo)] {
+        assert_eq!(s.post(t, "/v1/workspaces", json!({ "name": "Launch" })).await.0, 403, "{who} started a workspace without being a Team Admin");
+    }
+    // The server's owner was made one when Team Admin came in.
+    assert_eq!(s.get(&sam, "/v1/admin/standing").await.1["team_admin"], true, "the server's owner was not seeded as a Team Admin");
+    assert_eq!(s.get(&mo, "/v1/admin/standing").await.1["team_admin"], false);
+    let grant = "/v1/admin/people/mo/team-admin";
+    assert_eq!(s.call(&mo, Method::PUT, grant, Some(json!({ "on": true }))).await.0, 403, "a member made themselves a Team Admin");
+    let (st, v) = s.call(&ana, Method::PUT, grant, Some(json!({ "on": true }))).await;
+    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "the grant went through without a step-up: {v}");
+    assert_eq!(s.post(&ana, "/v1/admin/step-up", json!({ "password": PASSWORD })).await.0, 200);
+    assert_eq!(s.call(&ana, Method::PUT, grant, Some(json!({ "on": true }))).await.0, 200);
+    assert_eq!(s.audited("team_admin_set").len(), 1);
+    assert_eq!(s.get(&mo, "/v1/admin/standing").await.1["team_admin"], true);
+
+    // mo starts one and owns it, and makes lee an admin of it.
+    let (st, v) = s.post(&mo, "/v1/workspaces", json!({ "name": "Launch" })).await;
+    assert_eq!(st, 200, "{v}");
+    let ws = v["id"].as_str().unwrap().to_string();
+    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}")).await.1["role"], "owner");
+    assert_eq!(s.post(&mo, &format!("/v1/workspaces/{ws}/members"), json!({ "person": "lee", "role": "admin" })).await.0, 200);
+
+    // The Magnus admin sees it by name, Team Admins and counts, and nothing in it.
     let (st, v) = s.get(&ana, "/v1/admin/workspaces").await;
     assert_eq!(st, 200, "{v}");
-    assert_eq!(v["workspaces"][0]["name"], "Launch");
-    let path = format!("/v1/admin/workspaces/{ws}");
-    let (st, v) = s.call(&ana, Method::DELETE, &path, None).await;
-    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "a delete went through without a step-up: {v}");
-    assert_eq!(s.post(&ana, "/v1/admin/step-up", json!({ "password": PASSWORD })).await.0, 200);
-    let (st, v) = s.call(&ana, Method::DELETE, &path, None).await;
-    assert_eq!(st, 200, "{v}");
-    let entry = s.audited("workspace_deleted");
-    assert_eq!(entry.len(), 1);
-    assert_eq!((entry[0]["admin"].as_str(), entry[0]["before"]["name"].as_str()), (Some("ana"), Some("Launch")));
-    for t in [&sam, &mo] {
-        assert_eq!(s.get(t, &format!("/v1/workspaces/{ws}/home")).await.0, 404, "a member still reads a deleted workspace");
-    }
-    assert!(s.get(&sam, "/v1/workspaces").await.1.as_array().unwrap().is_empty());
-    s.done().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_server_admin_adds_and_removes_members_but_the_workspace_keeps_its_owner() {
-    let s = server(|_| Router::new()).await;
-    let (sam, mo, ana) = (s.token("sam").await, s.token("mo").await, s.token("ana").await);
-    let ws = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await.1["id"].as_str().unwrap().to_string();
-    assert_eq!(s.post(&ana, "/v1/admin/step-up", json!({ "password": PASSWORD })).await.0, 200);
+    let w = &v["workspaces"][0];
+    assert_eq!((w["name"].as_str(), w["members"].as_u64(), w["channels"].as_u64()), (Some("Launch"), Some(2), Some(1)), "{v}");
+    assert_eq!(w["team_admins"].as_array().map(Vec::len), Some(2), "{v}");
+    assert!(!v.to_string().contains("general"), "the admin list carries the workspace's channels: {v}");
+    // ... and cannot join, change or delete it, nor read it.
     let members = format!("/v1/admin/workspaces/{ws}/members");
-    assert_eq!(s.post(&ana, &members, json!({ "person": "mo", "role": "member" })).await.0, 200);
-    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}/home")).await.0, 200, "the person added cannot read it");
-    assert_eq!(s.audited("workspace_member_set").len(), 1);
-    assert_eq!(s.call(&ana, Method::DELETE, &format!("{members}/sam"), None).await.0, 403, "the only owner was removed");
-    assert_eq!(s.call(&ana, Method::DELETE, &format!("{members}/mo"), None).await.0, 200);
-    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}/home")).await.0, 404, "the person removed still reads it");
-    assert_eq!(s.audited("workspace_member_removed").len(), 1);
+    let (st, _) = s.post(&ana, &members, json!({ "person": "ana", "role": "owner" })).await;
+    assert!(st == 404 || st == 405, "the admin added themselves to a workspace: {st}");
+    let (st, _) = s.call(&ana, Method::DELETE, &format!("/v1/admin/workspaces/{ws}"), None).await;
+    assert!(st == 404 || st == 405, "the admin deleted a workspace: {st}");
+    for t in [&ana, &sam] {
+        assert_eq!(s.get(t, &format!("/v1/workspaces/{ws}")).await.0, 404, "someone outside the workspace read it");
+        assert_eq!(s.call(t, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 404, "someone outside the workspace deleted it");
+    }
+
+    // Taking the role back stops mo starting another; Launch stays theirs.
+    assert_eq!(s.call(&ana, Method::PUT, grant, Some(json!({ "on": false }))).await.0, 200);
+    assert_eq!(s.post(&mo, "/v1/workspaces", json!({ "name": "Second" })).await.0, 403);
+    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}")).await.1["role"], "owner");
+
+    // A workspace's Team Admin who is its admin, not its owner, deletes it.
+    assert_eq!(s.call(&lee, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 200, "the workspace's admin could not delete it");
+    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}")).await.0, 404);
     s.done().await;
 }

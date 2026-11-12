@@ -147,5 +147,5 @@ async fn standing(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
     };
     let admin = admin_of(&p, k.accounts.role(&p.id).await);
     let until = crate::api::credential(&h).and_then(guard::stepped_up_until);
-    Json(json!({ "admin": admin, "owner": p.is_owner(), "step_up_seconds": ADMIN_STEP_UP_SECONDS, "stepped_up_until": if admin { until } else { None } })).into_response()
+    Json(json!({ "admin": admin, "owner": p.is_owner(), "team_admin": k.is_team_admin(&p), "step_up_seconds": ADMIN_STEP_UP_SECONDS, "stepped_up_until": if admin { until } else { None } })).into_response()
 }

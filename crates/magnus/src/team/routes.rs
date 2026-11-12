@@ -86,9 +86,10 @@ async fn list(State(k): K, h: HeaderMap) -> Reply {
 
 async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
     let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
-    // The same owners and admins the app offers the form to (`/v1/admin/standing`).
-    if !crate::admin_app::admin_of(&p, k.accounts.role(&p.id).await) {
-        return err(StatusCode::FORBIDDEN, "an owner or admin creates a workspace");
+    // Only a Team Admin starts one, and owns it (the owner, 2026-11-11); the
+    // app offers the form to them alone (`/v1/admin/standing`).
+    if !k.is_team_admin(&p) {
+        return err(StatusCode::FORBIDDEN, "a Team Admin starts a workspace: a Magnus admin can make you one");
     }
     if !short(&b.name) {
         return err(StatusCode::BAD_REQUEST, "a workspace needs a short name");
@@ -110,8 +111,10 @@ async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().filter(|f| w.sees_file(&f.name, &p.id)).collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
 }
 
+/// Delete the workspace: any of its Team Admins (its owner and its admins)
+/// may (the owner, 2026-11-11).
 async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Owner).await);
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
     if let Err(e) = k.delete_workspace(&format!("person:{}", p.id), &ws).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }

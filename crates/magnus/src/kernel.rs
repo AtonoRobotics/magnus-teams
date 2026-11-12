@@ -188,6 +188,8 @@ impl Kernel {
         if retired > 0 {
             tracing::info!("retired {retired} items of asks no longer made");
         }
+        // Whoever owned a workspace when Team Admin came in is one (once).
+        k.seed_team_admins().await?;
         // The search index catches up with the log (a restore, a missed
         // write, a new embedding model) without holding up the boot.
         let sync = k.clone();
