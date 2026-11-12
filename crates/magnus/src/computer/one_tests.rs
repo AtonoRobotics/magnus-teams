@@ -452,3 +452,26 @@ async fn an_account_added_from_the_command_line_has_its_computer_at_once() {
     assert!(!super::super::tell_server(stopped.path(), "lu").await.unwrap(), "a stopped server was taken for a running one");
     s.done().await;
 }
+
+/// A person's computer is theirs alone: the server's owner and an admin may
+/// pause it, and see, change or run nothing on it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_admin_pauses_a_persons_computer_and_does_nothing_else_to_it() {
+    let s = server().await;
+    let id = s.made_by_hand(&person("mo")).await;
+    let mo = s.k.person("mo").unwrap();
+    for who in ["sam", "ana"] {
+        let p = s.k.person(who).unwrap();
+        assert!(matches!(s.k.computer_json(&p, &id), Err(Refused::NotFound(_))), "{who} read mo's computer");
+        assert!(matches!(s.k.add_computer_destination(&p, &id, "evil.example").await, Err(Refused::NotFound(_))), "{who} widened mo's egress");
+        assert!(matches!(s.k.issue_surrogate(&p, &id, "gh", "theirs", "api.github.com").await, Err(Refused::NotFound(_))), "{who} put a credential on mo's computer");
+        assert!(matches!(s.k.restore_computer(&p, &id).await, Err(Refused::NotFound(_))), "{who} restored mo's volume");
+        assert!(matches!(s.k.reset_computer(&p, &id, true).await, Err(Refused::NotFound(_))), "{who} reset mo's computer");
+        assert!(matches!(s.k.kill_computer(&p, &id, KillMode::Destroy, false).await, Err(Refused::NotFound(_))), "{who} destroyed mo's computer");
+        assert!(s.k.kill_computer(&p, &id, KillMode::Pause, false).await.is_ok(), "{who} could not pause mo's computer");
+    }
+    assert!(s.k.vault.get(&crate::computer::egress::surrogate::vault_name(&id, "gh")).unwrap().is_none(), "a credential reached mo's computer");
+    assert!(s.k.computer_json(&mo, &id).is_ok(), "mo cannot see their own computer");
+    assert!(s.k.add_computer_destination(&mo, &id, "example.org").await.is_ok(), "mo cannot change their own computer");
+    s.done().await;
+}

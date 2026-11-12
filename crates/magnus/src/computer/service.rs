@@ -27,11 +27,22 @@ const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.cr
 const ZERO_FREE_WAIT: Duration = Duration::from_secs(30 * 60);
 static HELPER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// A person's computer is theirs alone to change, read or run things on:
+/// "Nothing on one user's computer is reachable from another's" (spec rev
+/// 145, Multi-agent and multi-user boundaries), the server's owner and
+/// admins included. A workspace's is its owners' and admins'.
 fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
     match owner {
-        Owner::Person(p) => who.id == *p || who.is_owner() || who.has_role("admin"),
-        Owner::Workspace(w) => who.is_owner() || who.has_role("admin") || s.team.role(w, &who.id).is_some_and(|r| r >= WorkspaceRole::Admin),
+        Owner::Person(p) => who.id == *p,
+        Owner::Workspace(w) => s.team.role(w, &who.id).is_some_and(|r| r >= WorkspaceRole::Admin),
     }
+}
+
+/// Stopping is always safe, so a server owner or admin may pause anyone's
+/// computer (spec rev 145, Agents: "An admin can pause or stop any one of
+/// them"); nothing more.
+fn may_stop(s: &State, who: &Person, owner: &Owner) -> bool {
+    may_control(s, who, owner) || who.is_owner() || who.has_role("admin")
 }
 
 pub(super) fn failed(e: anyhow::Error) -> Refused {
@@ -71,6 +82,11 @@ impl Kernel {
     /// The person sees "no such computer" for one that is not theirs.
     pub(super) fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
         self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
+    }
+
+    /// A computer `who` may pause, and nothing else.
+    fn stoppable_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
+        self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_stop(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
     pub(super) async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
@@ -283,7 +299,7 @@ impl Kernel {
 
     /// One step: the log first, so nothing can act on it from here on, then the VM.
     pub async fn kill_computer(&self, who: &Person, id: &str, mode: KillMode, delete_volume: bool) -> Result<Value, Refused> {
-        let c = self.controlled_computer(who, id)?;
+        let c = if mode == KillMode::Pause && !delete_volume { self.stoppable_computer(who, id)? } else { self.controlled_computer(who, id)? };
         self.kill_this(who, &c, mode, delete_volume).await
     }
 

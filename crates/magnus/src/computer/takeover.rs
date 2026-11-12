@@ -119,11 +119,12 @@ impl State {
 }
 
 /// Whose it is to use: the person it belongs to. An operator, admin or owner
-/// reaches its screen and files only through a session its user granted.
+/// reaches its screen and files only through a session its user granted. A
+/// workspace's is its members', and a server admin outside it is not one.
 fn may_open(s: &crate::state::State, who: &Person, owner: &Owner) -> bool {
     match owner {
         Owner::Person(p) => who.id == *p,
-        Owner::Workspace(w) => who.is_owner() || who.has_role("admin") || s.team.role(w, &who.id).is_some_and(|r| r >= crate::team::Role::Member),
+        Owner::Workspace(w) => s.team.role(w, &who.id).is_some_and(|r| r >= crate::team::Role::Member),
     }
 }
 
@@ -319,7 +320,10 @@ impl Kernel {
         Ok(c)
     }
 
+    /// A session reaches the user's files, as they do, and nothing else of
+    /// the computer: not its home, its browser profiles or their cookies.
     pub async fn operator_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
+        let path = super::service::user_path(path)?;
         let c = self.operator_session(who, id, &format!("the file {path}")).await?;
         self.computer_file_for(&c, json!({ "op": "read", "path": path })).await
     }
@@ -392,5 +396,6 @@ mod tests {
         let s = crate::state::State::default();
         assert!(may_open(&s, &p("alice", json!([])), &owner));
         assert!(!may_open(&s, &p("root", json!(["owner", "admin"])), &owner), "an admin opened a person's computer without a session");
+        assert!(!may_open(&s, &p("root", json!(["owner", "admin"])), &Owner::Workspace("w".into())), "a server admin outside a workspace opened its computer");
     }
 }
