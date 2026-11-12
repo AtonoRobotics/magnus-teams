@@ -18,18 +18,10 @@ pub enum Answer {
     Invalid(String),
 }
 
-/// May `p` set policy for `layer`? (E7: separate from approving.)
+/// May `p` set policy for `layer`? (E7: separate from approving.) A
+/// person's own layer is theirs alone; see `policy_layers::may_write`.
 pub fn may_set_policy(p: &Person, layer: &str) -> bool {
-    if p.is_owner() {
-        return true;
-    }
-    if let Some(u) = layer.strip_prefix("user/") {
-        return u == p.id && p.has_role("policy:user");
-    }
-    if let Some(g) = layer.strip_prefix("group/") {
-        return p.has_role(&format!("policy:group:{g}"));
-    }
-    false
+    crate::policy_layers::may_write(p, layer)
 }
 
 pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
@@ -290,6 +282,10 @@ impl Kernel {
             ("policy_proposal", "accept") => {
                 let layer = item.details["layer"].as_str().unwrap_or_default().to_string();
                 let add = item.details["cedar"].as_str().unwrap_or_default();
+                // Accepting cannot loosen what a layer above holds.
+                if let Err(why) = crate::policy_layers::tightens_only(&layer, add) {
+                    return Ok(Answer::Invalid(why));
+                }
                 let current = self.read(|s| s.policies.get(&layer).cloned()).unwrap_or_else(|| if layer == "org" { crate::policy::DEFAULT_ORG.to_string() } else { String::new() });
                 let next = format!("{current}\n{add}\n");
                 if let Err(e) = crate::policy::validate(&next) {

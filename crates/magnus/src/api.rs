@@ -1542,6 +1542,9 @@ async fn put_policy(State(k): K, h: HeaderMap, Path(layer): Path<String>, Json(b
     if let Err(e) = crate::policy::validate(&cedar) {
         return err(StatusCode::BAD_REQUEST, format!("the policy does not parse: {e}"));
     }
+    if let Err(why) = crate::policy_layers::tightens_only(&layer, &cedar) {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+    }
     match k.emit(&format!("person:{}", p.id), Ev::PolicySet { layer, cedar }).await {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
         Err(e) => internal(e),

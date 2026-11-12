@@ -645,7 +645,9 @@ impl Kernel {
                 let layer_ok = crate::policy::proposable(&layer, &run.person);
                 match (layer_ok, crate::policy::validate(&cedar)) {
                     (true, Ok(())) => {
-                        if let Some(denied) = self.loop_deny(run, "suggest", None) {
+                        if let Err(why) = crate::policy_layers::tightens_only(&layer, &cedar) {
+                            self.result(rid, call_id, format!("{why} A retry with the same text will not help."), true).await?;
+                        } else if let Some(denied) = self.loop_deny(run, "suggest", None) {
                             self.result(rid, call_id, format!("{denied}. A retry will not help."), true).await?;
                         } else {
                             let item = self

@@ -225,13 +225,11 @@ pub fn check(text: &str) -> Vec<Value> {
     out
 }
 
-/// A layer an admin may write: the organisation's, a group's, or a known
-/// person's.
-pub fn layer_ok(k: &Kernel, layer: &str) -> bool {
-    layer == "org"
-        || layer.strip_prefix("user/").is_some_and(|u| k.cfg.person(u).is_some())
-        || layer.strip_prefix("group/").is_some_and(|g| !g.is_empty() && !g.contains('/') && g.len() <= 100)
-        || layer.strip_prefix("task/").is_some_and(|t| k.read(|s| s.tasks.contains_key(t)))
+/// A layer an admin may read and write: the organisation's or a group's. A
+/// person's own layer and their tasks' are theirs alone (the owner,
+/// 2026-11-11), so the admin's editor neither lists nor changes them.
+pub fn layer_ok(_k: &Kernel, layer: &str) -> bool {
+    crate::policy_layers::kept_by_the_server(layer) && layer.len() <= 106
 }
 
 impl Kernel {
@@ -239,7 +237,7 @@ impl Kernel {
     /// was written), the draft if there is one, and its versions.
     pub fn policy_sets(&self) -> Vec<Value> {
         let (live, drafts, history) = self.read(|s| (s.policies.clone(), s.policy_drafts.clone(), s.policy_history.clone()));
-        let mut layers: Vec<String> = live.keys().chain(drafts.keys()).cloned().collect();
+        let mut layers: Vec<String> = live.keys().chain(drafts.keys()).filter(|l| crate::policy_layers::kept_by_the_server(l)).cloned().collect();
         layers.push("org".into());
         layers.sort();
         layers.dedup();
@@ -269,7 +267,10 @@ impl Kernel {
         if cedar.as_ref().is_some_and(|c| c.len() > 256 * 1024) {
             return Err((StatusCode::BAD_REQUEST, "a policy set is at most 256 KB".into()));
         }
-        let problems = cedar.as_deref().map(check).unwrap_or_default();
+        let mut problems = cedar.as_deref().map(check).unwrap_or_default();
+        if let Some(Err(why)) = cedar.as_deref().map(|c| crate::policy_layers::tightens_only(layer, c)) {
+            problems.push(json!({ "message": why }));
+        }
         self.emit(actor, Ev::PolicyDrafted { layer: layer.into(), cedar }).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
         Ok(json!({ "id": layer, "problems": problems }))
     }
@@ -280,7 +281,10 @@ impl Kernel {
         if !layer_ok(self, layer) {
             return Err((StatusCode::NOT_FOUND, "no such policy layer".into()));
         }
-        let problems = check(cedar);
+        let mut problems = check(cedar);
+        if let Err(why) = crate::policy_layers::tightens_only(layer, cedar) {
+            problems.push(json!({ "message": why }));
+        }
         if !problems.is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -298,6 +302,9 @@ impl Kernel {
 
     /// Every version of a layer, newest first.
     pub fn policy_history(&self, layer: &str) -> Vec<Value> {
+        if !layer_ok(self, layer) {
+            return vec![];
+        }
         let mut v: Vec<Value> = self.read(|s| {
             s.policy_history
                 .iter()
@@ -327,21 +334,26 @@ impl Kernel {
         let audience = Audience::parse(&s("audience")).or(known.as_ref().map(|f| f.audience)).unwrap_or(Audience::Private);
         let app = tool.split_once("__").map(|(a, _)| a.to_string()).unwrap_or_else(|| tool.clone());
         let facts = crate::policy::ToolFacts { name: &tool, app: &app, risk, audience };
+        // Only the layers the server keeps: a person's own rules and their
+        // tasks' are theirs, and may narrow what this answer says.
         let mut policies: BTreeMap<String, String> = self.read(|s| s.policies.clone());
+        policies.retain(|l, _| crate::policy_layers::kept_by_the_server(l));
         if b["drafts"].as_bool().unwrap_or(false) {
             for (l, d) in self.read(|s| s.policy_drafts.clone()) {
-                policies.insert(l, d);
+                if crate::policy_layers::kept_by_the_server(&l) {
+                    policies.insert(l, d);
+                }
             }
         }
         if let Some(over) = b["cedar"].as_object() {
             for (l, c) in over {
-                if let Some(c) = c.as_str() {
+                if let Some(c) = c.as_str().filter(|_| crate::policy_layers::kept_by_the_server(l)) {
                     policies.insert(l.clone(), c.to_string());
                 }
             }
         }
-        let layers: Vec<String> = crate::policy::layers_for(&policies, &person, b["task"].as_str()).into_iter().map(|(l, _)| l).collect();
-        let outcome = crate::policy::decide(&policies, &person, b["task"].as_str(), &facts, b["untrusted"].as_bool().unwrap_or(false), b["private"].as_bool().unwrap_or(false))
+        let layers: Vec<String> = crate::policy::layers_for(&policies, &person, None).into_iter().map(|(l, _)| l).collect();
+        let outcome = crate::policy::decide(&policies, &person, None, &facts, b["untrusted"].as_bool().unwrap_or(false), b["private"].as_bool().unwrap_or(false))
             .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
         let (decision, rule, reason) = match outcome {
             crate::policy::Outcome::Allow { rule } => ("allow", Some(rule), None),

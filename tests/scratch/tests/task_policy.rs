@@ -43,13 +43,17 @@ async fn a_tasks_own_layer_forbids_what_it_names_for_that_task_alone() {
     assert_eq!(carol.put_policy("task/task_nonexistent", cedar).await.as_u16(), 404);
     assert!(carol.put_policy(&layer, cedar).await.is_success());
     // She reads back what she set, and nobody else's task's layer is shown to
-    // others; the console drafts and applies it like any layer (review of #157).
+    // others, the owner included; the admin's editor neither drafts nor
+    // applies it, as it is hers (the owner, 2026-11-11).
     assert_eq!(carol.get("/v1/policies").await.1["layers"][&layer], cedar, "carol cannot read her task's layer");
-    assert!(app.api("bob").get("/v1/policies").await.1["layers"].get(&layer).is_none(), "bob reads carol's task's layer");
+    for other in ["bob", "alice"] {
+        assert!(app.api(other).get("/v1/policies").await.1["layers"].get(&layer).is_none(), "{other} reads carol's task's layer");
+    }
+    assert_eq!(alice.put_policy(&layer, cedar).await.as_u16(), 403, "the owner set carol's task's policy");
     let (st, v) = control(&app, "POST", "/v1/admin/policy/draft", json!({ "actor": "admin:alice", "layer": layer, "cedar": cedar })).await;
-    assert_eq!(st, 200, "the console cannot draft a task's layer: {v}");
+    assert_eq!(st, 404, "the admin's editor drafted a task's layer: {v}");
     let (st, v) = control(&app, "POST", "/v1/admin/policy/apply", json!({ "actor": "admin:alice", "layer": layer, "cedar": cedar })).await;
-    assert_eq!(st, 200, "the console cannot apply a task's layer: {v}");
+    assert_eq!(st, 404, "the admin's editor applied a task's layer: {v}");
     go.store(true, Ordering::SeqCst);
     carol.wait_settled(&fenced).await;
     carol.wait_settled(&other).await;
