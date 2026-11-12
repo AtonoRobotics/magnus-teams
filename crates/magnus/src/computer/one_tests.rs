@@ -214,6 +214,9 @@ async fn everyone_gets_one_computer_on_start_and_the_next_start_makes_no_more() 
     assert_eq!(s.k.my_computer(&sam, None).await.unwrap()["id"], json!(s.computers_of(&person("sam"))[0].id), "asking for a computer did not give the one there is");
     let mo = s.k.person("mo").unwrap();
     assert!(s.k.my_computer(&mo, Some(ws)).await.is_err(), "a member was given the workspace's computer to look after");
+    let ana = s.k.person("ana").unwrap();
+    assert!(s.k.my_computer(&ana, Some(ws)).await.is_err(), "a server admin outside the workspace was given its computer");
+    assert!(s.k.my_computer(&sam, Some(ws)).await.is_ok(), "the workspace's Team Admin was refused its computer");
     assert_eq!(s.asked("create").len(), made, "asking for a computer made one");
     s.done().await;
 }

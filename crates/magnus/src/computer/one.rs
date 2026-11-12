@@ -169,9 +169,11 @@ impl Kernel {
     pub async fn my_computer(&self, who: &crate::config::Person, workspace: Option<&str>) -> Result<Value, Refused> {
         let owner = match workspace {
             Some(w) => {
-                let admin = who.is_owner() || who.has_role("admin") || self.read(|s| s.team.role(w, &who.id).is_some_and(|r| r >= WorkspaceRole::Admin));
+                // Its Team Admins: a server admin outside the team pauses it
+                // from Admin, and is told nothing of it here.
+                let admin = self.read(|s| s.team.role(w, &who.id).is_some_and(|r| r >= WorkspaceRole::Admin));
                 if !admin {
-                    return Err(Refused::Denied("only an admin looks after a workspace's computer".into()));
+                    return Err(Refused::Denied("only the workspace's Team Admins look after its computer".into()));
                 }
                 Owner::Workspace(w.to_string())
             }

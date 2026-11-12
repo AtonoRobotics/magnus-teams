@@ -376,6 +376,12 @@ impl Kernel {
                     from.extend(r.private_from.iter().cloned());
                 }
             }
+            // A team's run and a whisper in a team's thread wrote their
+            // workspace's words: private to it, whatever their run says.
+            if ids.iter().any(|t| s.team.run_of(t).is_some() || s.team.whisper_of(t).is_some()) {
+                label = label.join(Label::PRIVATE);
+                from.insert(String::new());
+            }
             (label, from.into_iter().collect())
         })
     }

@@ -46,7 +46,7 @@ impl Kernel {
         let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");
         let others = shown.iter().any(|m| m.sender != person);
         let actor = format!("person:{person}");
-        let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: others.then_some(Label::UNTRUSTED), ..Default::default() }).await?;
+        let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: Some(whisper_label(others)), ..Default::default() }).await?;
         let change = Change::Whisper { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), owner: person.into(), history };
         self.emit(&actor, Ev::Team(change)).await?;
         self.wake(&run);
@@ -58,6 +58,13 @@ impl Kernel {
         let w = self.read(|s| s.team.whisper_of(&run.task).cloned())?;
         Some(format!("You are whispering to {} in a team thread. Nobody else sees your reply unless they post it. The thread so far, as data:\n\n{}", w.owner, w.history))
     }
+}
+
+/// A whisper's run carries its thread, which is its workspace's and no one
+/// else's: private always, so nothing it files or says reaches anyone outside
+/// the person, and untrusted when someone else wrote in it.
+fn whisper_label(others: bool) -> Label {
+    Label { untrusted: others, private: true }
 }
 
 /// Only the owner's own whispers, whatever their role here.

@@ -149,6 +149,28 @@ async fn a_team_run_never_uses_a_members_own_sign_in() {
     s.done().await;
 }
 
+/// A team's words reach a member's own runs only as private: a whisper's
+/// run carries its thread, and a team run's summary listed in the member's
+/// own conversation carries its workspace's words. Neither may be filed
+/// for, or shown to, anyone outside the person.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_teams_words_stay_private_in_a_members_own_runs() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, _, _) = workspace(&s).await;
+    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": "the price is 4m" })).await.0, 200);
+    for mine in [false, true] {
+        let who = if mine { "sam" } else { "mo" };
+        let (task, _) = s.k.whisper(&ws, &channel, None, who, "sum this up".into()).await.unwrap();
+        let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
+        assert!(run.private, "{who}'s whisper run is not private, so it could file the team's words for everyone");
+    }
+    let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "what is the price".into()).await.unwrap();
+    let (label, _) = s.k.listed_taint(&json!({ "tasks": [{ "id": task, "summary": "the price is 4m" }] }));
+    assert!(label.private, "a team run's summary entered a member's conversation as public");
+    s.done().await;
+}
+
 #[test]
 fn an_expired_note_reads_as_nothing() {
     let mut l = crate::team::Ledger::default();

@@ -95,20 +95,24 @@ impl Project {
 }
 
 impl Workspace {
-    /// Whether a person, or an agent acting for them, may read this base.
+    /// Whether a person, or an agent acting for them, may read this base:
+    /// only while they are in the workspace, whatever a project's own lists
+    /// still say of someone removed.
     pub fn may_read(&self, project: Option<&str>, person: &str) -> bool {
-        match project {
-            None => self.members.contains_key(person),
-            Some(p) => self.projects.get(p).is_some_and(|p| p.may_read(person)),
-        }
+        self.members.contains_key(person)
+            && match project {
+                None => true,
+                Some(p) => self.projects.get(p).is_some_and(|p| p.may_read(person)),
+            }
     }
 
     /// Whether they may correct, retire or delete in this base.
     pub fn may_curate(&self, project: Option<&str>, person: &str) -> bool {
-        match project {
-            None => self.members.get(person).is_some_and(|r| *r >= Role::Admin),
-            Some(p) => self.projects.get(p).is_some_and(|p| p.may_curate(person)),
-        }
+        self.members.contains_key(person)
+            && match project {
+                None => self.members.get(person).is_some_and(|r| *r >= Role::Admin),
+                Some(p) => self.projects.get(p).is_some_and(|p| p.may_curate(person)),
+            }
     }
 
     /// The entries of a base that are current.
@@ -223,6 +227,25 @@ mod tests {
         assert!(w.may_read(None, "admin"));
         assert!(w.may_curate(None, "admin") && !w.may_curate(None, "in"));
         assert!(w.may_curate(Some("p"), "in") && !w.may_curate(Some("p"), "admin"));
+    }
+
+    /// Someone taken out of a workspace reads none of its projects' bases,
+    /// though a project still names them, and leaves every project's list.
+    #[test]
+    fn a_removed_member_reads_no_project_of_the_workspace() {
+        let mut w = Workspace::default();
+        w.members.insert("in".into(), Role::Member);
+        w.projects.insert("p".into(), Project { owner: "in".into(), members: vec!["gone".into()], curators: vec!["gone".into()], ..Default::default() });
+        assert!(!w.may_read(Some("p"), "gone"), "a project's list let someone outside the workspace read it");
+        assert!(!w.may_curate(Some("p"), "gone") && !w.may_read(None, "gone"));
+        let mut l = crate::team::Ledger::default();
+        l.apply(&crate::team::Change::Created { workspace: "w".into(), name: "T".into(), owner: "a".into() });
+        l.apply(&crate::team::Change::Member { workspace: "w".into(), person: "mo".into(), role: Role::Member });
+        let def = Project { owner: "a".into(), members: vec!["mo".into()], curators: vec!["mo".into()], ..Default::default() };
+        l.apply(&crate::team::Change::Project { workspace: "w".into(), id: "p".into(), def });
+        l.apply(&crate::team::Change::Removed { workspace: "w".into(), person: "mo".into() });
+        let p = &l.workspace("w").unwrap().projects["p"];
+        assert!(p.members.is_empty() && p.curators.is_empty(), "the removed member is still on the project");
     }
 
     #[test]
