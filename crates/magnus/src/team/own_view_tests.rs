@@ -44,12 +44,12 @@ fn texts(items: &[Value]) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sender_deletes_their_message_for_everyone_and_from_the_log() {
     let s = server_with("", |_| Router::new()).await;
-    let (ws, sam, mo, _) = workspace(&s).await;
+    let (ws, sam, mo, ana) = workspace(&s).await;
     let c = general(&s, &ws);
     let id = say(&s, &mo, &ws, &c, "the door code is 4471").await;
     let path = format!("/v1/workspaces/{ws}/channels/{c}/messages/{id}");
     assert_eq!(s.call(&mo, Method::PUT, &path, Some(json!({ "text": "the door code is 4472" }))).await.0, 200);
-    assert_eq!(s.call(&sam, Method::DELETE, &path, None).await.0, 403, "someone else deleted mo's message");
+    assert_eq!(s.call(&ana, Method::DELETE, &path, None).await.0, 403, "a guest deleted mo's message");
     let (st, v) = s.call(&mo, Method::DELETE, &path, None).await;
     assert_eq!(st, 200, "{v}");
     for t in [&sam, &mo] {

@@ -74,16 +74,20 @@ impl Kernel {
     }
 }
 
-/// Only its sender deletes a message, as only they edit it.
+/// Its sender deletes a message, as only they edit it; and the workspace's
+/// owners and admins moderate its channels: "The teams admin can moderate
+/// and delete it only from teams" (the owner, 2026-11-11). A direct
+/// conversation is its people's alone.
 pub(super) async fn unsend(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     let found = k.read(|s| {
         let w = s.team.workspace(&ws).filter(|w| w.sees(&channel, &p.id))?;
         w.channels.get(&channel)?.messages.iter().find(|m| m.id == id && !w.chat.unsent.contains(&m.id)).cloned()
     });
     let Some(m) = found else { return err(StatusCode::NOT_FOUND, "no such message") };
-    if m.sender != p.id {
-        return err(StatusCode::FORBIDDEN, "only who wrote a message deletes it");
+    let moderates = role >= Role::Admin && !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.direct.contains_key(&channel)));
+    if m.sender != p.id && !moderates {
+        return err(StatusCode::FORBIDDEN, "only who wrote a message, or the workspace's admins, delete it");
     }
     if let Err(e) = k.unsend(&actor(&p), &ws, &channel, &m).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));

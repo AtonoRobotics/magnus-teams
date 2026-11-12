@@ -79,6 +79,29 @@ async fn an_admin_deletes_the_shared_copy_only() {
     s.done().await;
 }
 
+/// The workspace's owner takes a message down from a channel; a direct
+/// conversation stays its people's, and a member moderates nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_admin_moderates_a_channel_and_not_a_direct_conversation() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, mo) = workspace(&s).await;
+    let general = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.iter().find(|(_, c)| c.name == "general").map(|(id, _)| id.clone()).unwrap());
+    let say = |t: String, c: String, text: &'static str| {
+        let (ws, s) = (ws.clone(), &s);
+        async move { s.post(&t, &format!("/v1/workspaces/{ws}/channels/{c}/messages"), json!({ "text": text })).await.1["id"].as_str().unwrap().to_string() }
+    };
+    let gone = |c: &str, id: &str| format!("/v1/workspaces/{ws}/channels/{c}/messages/{id}");
+    let by_sam = say(sam.clone(), general.clone(), "the launch is friday").await;
+    assert_eq!(s.call(&mo, Method::DELETE, &gone(&general, &by_sam), None).await.0, 403, "a member deleted someone else's message");
+    let by_mo = say(mo.clone(), general.clone(), "something off-colour").await;
+    assert_eq!(s.call(&sam, Method::DELETE, &gone(&general, &by_mo), None).await.0, 200, "the workspace's owner could not moderate");
+    let (_, v) = s.post(&mo, &format!("/v1/workspaces/{ws}/direct"), json!({ "people": ["sam"] })).await;
+    let dm = v["id"].as_str().unwrap().to_string();
+    let private = say(mo.clone(), dm.clone(), "just between us").await;
+    assert_eq!(s.call(&sam, Method::DELETE, &gone(&dm, &private), None).await.0, 403, "an admin deleted mo's direct message");
+    s.done().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn nobody_writes_over_someone_elses_file() {
     let s = server_with("", |_| Router::new()).await;

@@ -65,7 +65,7 @@ function messageText(m, agent, files) {
 
 /**
  * One message, with its actions. A pending one shows as sending.
- * @param {TeamMessage} m @param {{ me: string, ws: string, channel: string, name: (id: string) => string, guest: boolean, files?: Object<string, string>, inThread?: boolean, editing?: string }} c
+ * @param {TeamMessage} m @param {{ me: string, ws: string, channel: string, name: (id: string) => string, guest: boolean, moderates?: boolean, files?: Object<string, string>, inThread?: boolean, editing?: string }} c
  */
 function messageHtml(m, c) {
   if (m.deleted) return deletedHtml(m, c);
@@ -77,7 +77,7 @@ function messageHtml(m, c) {
   const editing = c.editing === m.id;
   const text = editing ? `<form class="tm-edit" data-edit-form><textarea aria-label="Edit message" rows="2">${esc(m.text)}</textarea><div class="row"><button class="primary">Save</button><button type="button" data-edit-cancel>Cancel</button></div></form>` : messageText(m, agent, c.files);
   const actions = m.state ? "" : `<div class="tm-actions" role="toolbar" aria-label="Message actions">${TEAM_QUICK_REACTIONS.map(e => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}
-    ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${mine && !agent ? `<button data-edit>Edit</button><button data-delete-msg>Delete</button>` : ""}${c.guest ? "" : `<button data-pin>${m.pinned ? "Unpin" : "Pin"}</button><button data-make-task>Task</button>`}</div>`;
+    ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${mine && !agent ? `<button data-edit>Edit</button><button data-delete-msg>Delete</button>` : c.moderates ? `<button data-delete-msg>Delete</button>` : ""}${c.guest ? "" : `<button data-pin>${m.pinned ? "Unpin" : "Pin"}</button><button data-make-task>Task</button>`}</div>`;
   return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
     <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
     ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}</div>${actions}</article>`;
@@ -183,7 +183,8 @@ const TeamChat = {
   ctx(inThread) {
     const s = this.s, home = Team.home;
     const name = id => id === "agent" ? home.agent.name : s.view.names?.[id] || home.members.find(m => m.id === id)?.name || id;
-    return { me: home.me, ws: s.ws, channel: s.channel, name, guest: home.role === "guest", files: s.files, inThread, editing: s.editing };
+    const direct = !!home.channels.find(x => x.id === s.channel)?.direct;
+    return { me: home.me, ws: s.ws, channel: s.channel, name, guest: home.role === "guest", moderates: !direct && (home.role === "owner" || home.role === "admin"), files: s.files, inThread, editing: s.editing };
   },
 
   async refresh(first = false) {
