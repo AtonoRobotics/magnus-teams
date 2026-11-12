@@ -22,9 +22,36 @@ pub const CHANGED: &str = "the text changed since you opened it; read it again";
 
 pub fn router(k: Arc<Kernel>) -> Router<Arc<Kernel>> {
     Router::new()
-        .route(TERMS_PATH, get(|State(k): K| async move { page(&documents::terms(&k.cfg.legal)) }))
-        .route(PRIVACY_PATH, get(|State(k): K| async move { page(&documents::privacy(&k.cfg.legal)) }))
-        .route(TESTERS_PATH, get(|State(k): K| async move { page(&documents::testers(&k.cfg.legal)) }))
+        .route(
+            TERMS_PATH,
+            get(|State(k): K| async move {
+                if k.cfg.legal.is_set() {
+                    page(&documents::terms(&k.cfg.legal))
+                } else {
+                    err(StatusCode::NOT_FOUND, NOT_SET_UP)
+                }
+            }),
+        )
+        .route(
+            PRIVACY_PATH,
+            get(|State(k): K| async move {
+                if k.cfg.legal.is_set() {
+                    page(&documents::privacy(&k.cfg.legal))
+                } else {
+                    err(StatusCode::NOT_FOUND, NOT_SET_UP)
+                }
+            }),
+        )
+        .route(
+            TESTERS_PATH,
+            get(|State(k): K| async move {
+                if k.cfg.legal.is_set() {
+                    page(&documents::testers(&k.cfg.legal))
+                } else {
+                    err(StatusCode::NOT_FOUND, NOT_SET_UP)
+                }
+            }),
+        )
         .route("/v1/legal", get(standing))
         .route("/v1/legal/terms", post(accept_terms))
         .route("/v1/legal/usage", post(choose_usage))
@@ -34,6 +61,9 @@ pub fn router(k: Arc<Kernel>) -> Router<Arc<Kernel>> {
         .merge(crate::admin_app::guarded(Router::new().route("/v1/admin/testers", get(testers)).route("/v1/admin/testers/invite", post(invite)), k))
 }
 
+/// The answer to everything but the standing while no `[legal]` is set.
+pub const NOT_SET_UP: &str = "this server's agreements are not set up yet";
+
 fn page(d: &documents::Doc) -> Response {
     crate::admin_app::invite_page::shell(d.title, &documents::html(d))
 }
@@ -42,6 +72,9 @@ fn page(d: &documents::Doc) -> Response {
 /// the documents as they read now.
 pub fn standing_of(k: &Kernel, person: &str) -> Value {
     let l = &k.cfg.legal;
+    if !l.is_set() {
+        return json!({ "set_up": false, "terms_due": false, "usage_due": false });
+    }
     let now = Versions::of(l);
     let (terms, usage, tester, invited) =
         k.read(|s| (s.legal.terms_of(person).cloned(), s.legal.usage_of(person).cloned(), s.legal.tester_of(person).cloned(), s.legal.invited_by(person).cloned()));
@@ -67,6 +100,9 @@ async fn standing(State(k): K, h: HeaderMap) -> Response {
 
 /// Record `c` for the signed-in person and answer with their standing.
 async fn record(k: &Kernel, person: &str, c: Change) -> Response {
+    if !k.cfg.legal.is_set() {
+        return err(StatusCode::CONFLICT, NOT_SET_UP);
+    }
     match k.emit(&format!("person:{person}"), Ev::Legal(c)).await {
         Ok(_) => Json(standing_of(k, person)).into_response(),
         Err(e) => internal(e),
@@ -146,6 +182,9 @@ async fn testers(State(k): K, Extension(_a): Extension<Admin>) -> Response {
 /// `{ "person": <id> }`: ask them to join. Only they can join, by accepting
 /// the Tester Terms themselves.
 async fn invite(State(k): K, Extension(a): Extension<Admin>, Json(b): Json<Value>) -> Response {
+    if !k.cfg.legal.is_set() {
+        return err(StatusCode::CONFLICT, NOT_SET_UP);
+    }
     let Some(person) = b["person"].as_str().filter(|p| k.person(p).is_some()) else { return err(StatusCode::NOT_FOUND, "no such person") };
     if k.read(|s| s.legal.tester_of(person).is_some()) {
         return err(StatusCode::CONFLICT, "they are already a tester");

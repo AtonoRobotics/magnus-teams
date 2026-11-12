@@ -43,6 +43,13 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Was a `[legal]` section given at all? Without one the server runs as
+    /// before the agreements: nobody is asked, nobody can accept or join
+    /// the tester program, and developer views show nobody else's runs.
+    pub fn is_set(&self) -> bool {
+        !(self.operator.trim().is_empty() && self.contact.trim().is_empty() && self.governing_law.trim().is_empty() && self.tester_copy_days == 0)
+    }
+
     /// Startup refuses a server whose agreements would be missing a fact.
     pub fn check(&self) -> anyhow::Result<()> {
         let mut missing = vec![];

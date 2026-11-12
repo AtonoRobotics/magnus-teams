@@ -977,7 +977,11 @@ impl Config {
         let mut cfg: Config = toml::from_str(&text)?;
         cfg.path = path.canonicalize()?;
         cfg.outcomes.check()?;
-        cfg.legal.check()?;
+        if cfg.legal.is_set() {
+            cfg.legal.check()?;
+        } else {
+            tracing::warn!("{}: no [legal] section, so the Terms of Use, usage-data choice and tester program are off until it is added", path.display());
+        }
         if cfg.admin.is_some() {
             tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
         }
@@ -1161,6 +1165,21 @@ mod tests {
         let text = format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{LEGAL}[[connectors]]\nname = \"mail\"\naudience = \"public\"\nlabel = \"private+untrusted\"\n{connector}");
         std::fs::write(&p, text).unwrap();
         Config::load(&p)
+    }
+
+    /// A server configured before the agreements still starts on an update:
+    /// with no `[legal]` at all the agreements are off, and a partial one is
+    /// still refused, naming what is missing.
+    #[test]
+    fn a_server_with_no_legal_section_still_starts_and_a_partial_one_does_not() {
+        let d = tempfile::tempdir().unwrap();
+        let p = d.path().join("magnus.toml");
+        let base = "[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n";
+        std::fs::write(&p, base).unwrap();
+        assert!(!Config::load(&p).unwrap().legal.is_set());
+        std::fs::write(&p, format!("{base}[legal]\ncontact = \"a@b.c\"\n")).unwrap();
+        let e = Config::load(&p).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(e.contains("operator"), "{e}");
     }
 
     /// The console is retired, and a server's config written for it still

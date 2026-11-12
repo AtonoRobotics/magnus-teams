@@ -11,7 +11,7 @@
  * @typedef {{ id: string, title: string, version: string, path: string, sections: AgreementSection[], attribution: string }} AgreementDoc
  * @typedef {{ version: string, title: string, text: string[], yes: string, no: string }} UsagePrompt
  * @typedef {{
- *   terms_due: boolean, usage_due: boolean,
+ *   set_up?: boolean, terms_due: boolean, usage_due: boolean,
  *   usage: { share: boolean, current: boolean } | null,
  *   tester: { version: string, current: boolean } | null,
  *   invited_by: string | null,
@@ -97,6 +97,10 @@ async function agreementsSection(el) {
   const draw = async () => {
     /** @type {AgreementStanding} */
     const st = await api("GET", "/v1/legal");
+    if (st.set_up === false) {
+      paint(el, `<h2>Agreements</h2><p class="small muted">This server's agreements are not set up yet.</p>`);
+      return;
+    }
     const d = st.documents, u = st.usage && st.usage.current ? st.usage.share : null;
     const tester = st.tester && st.tester.current;
     paint(el, `<h2>Agreements</h2>
