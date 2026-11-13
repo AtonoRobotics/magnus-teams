@@ -16,6 +16,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// How long startup waits for the log's database.
+const LOG_WAIT: Duration = Duration::from_secs(15);
+/// How often people's sign-in sessions are checked with the identity provider.
+const SESSIONS_EVERY: Duration = Duration::from_secs(300);
+/// The sweep's pause between passes.
+const SWEEP_TICK: Duration = Duration::from_millis(500);
+
 pub const HARNESS_VERSION: &str = concat!("magnus-", env!("CARGO_PKG_VERSION"));
 
 /// The record a sign-in resolves: the config first, else the server's own
@@ -131,7 +138,7 @@ impl Kernel {
         // The kernel before this one (a switch of releases, a restart, a
         // crash) may still be letting go of the log: Postgres frees its lock
         // only once it sees that connection closed.
-        let log = Log::open_waiting(&cfg.database.url, Duration::from_secs(15)).await?;
+        let log = Log::open_waiting(&cfg.database.url, LOG_WAIT).await?;
         // A removal stopped after its record: its content goes now.
         if let Err(e) = log.finish_removals().await {
             tracing::warn!("could not finish removals (has `magnus migrate` run since this release was installed?): {e:#}");
@@ -148,15 +155,15 @@ impl Kernel {
         let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
         let devices = crate::devices::Devices::open(&cfg.appliance.state_dir)?;
         let oidc = crate::admin_app::identity_provider::Slot::at_boot(&cfg, &state, vault.clone())?;
-        let adapters = Adapters::new(&cfg.appliance.state_dir, vault.clone(), &cfg.adapters);
+        let adapters = Adapters::new(&cfg.appliance.state_dir, vault.clone(), &cfg.adapters, cfg.host.clone());
         let writer = crate::commit::Writer::new(log, state, cfg!(debug_assertions).then(|| cfg.appliance.state_dir.clone()));
         let live_text = Arc::new(Live { tx: tokio::sync::broadcast::channel(1024).0, so_far: Mutex::new(HashMap::new()) });
         let k = Arc::new(Kernel {
-            web: Web::new(&cfg.web),
+            web: Web::new(&cfg.web)?,
             sandboxes: Sandboxes::new(cfg.sandbox.clone(), &cfg.appliance.state_dir),
             brokered: crate::brokered::Brokered::new(cfg.sandbox.clone(), cfg.brokered.clone(), &cfg.appliance.state_dir),
-            browser: crate::browser::Browser::new(cfg.browser.clone(), &cfg.appliance.state_dir),
-            mcp: Mcp::new().allowing_private(cfg.web.allow_private_networks),
+            browser: crate::browser::Browser::new(cfg.browser.clone(), &cfg.appliance.state_dir, cfg.host.clone()),
+            mcp: Mcp::new()?.allowing_private(cfg.web.allow_private_networks),
             adapters,
             vault,
             accounts,
@@ -228,7 +235,7 @@ impl Kernel {
         let t = Instant::now();
         let e = self.emit_all(vec![(actor, ev)]).await?.pop().context("the log gave back no event")?;
         let us = t.elapsed().as_micros() as u64;
-        let mut c = self.capture.lock().unwrap();
+        let mut c = self.capture.lock().unwrap_or_else(|e| e.into_inner());
         c.total_us += us;
         c.max_us = c.max_us.max(us);
         c.recent.push_back(us);
@@ -261,25 +268,24 @@ impl Kernel {
                 crate::commit::Batch { evs: evs.into_iter().map(|(a, e)| (a.to_string(), e)).collect(), owners }
             })
             .await?;
-        self.capture.lock().unwrap().appends += es.len() as u64;
+        self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
         Ok(es)
     }
 
-    /// Debug builds only, for the sweep interleaving tests: while
-    /// `<state_dir>/<gate>` exists, the sweep waits here after writing
-    /// `what` to `<state_dir>/<ack>` so the test knows it arrived.
-    /// Removing the gate lets it go on. Release builds, the only ones
-    /// shipped, have none of this.
+    /// Debug builds only, for the sweep interleaving tests: while `<state_dir>/<gate>` exists, the sweep waits here after writing `what`
+    /// to `<state_dir>/<ack>` so the test knows it arrived. Removing the gate lets it go on. Release builds, the only ones shipped, have none of this.
     #[cfg(debug_assertions)]
     async fn debug_gate(&self, gate: &str, ack: &str, what: &str) {
         let dir = &self.cfg.appliance.state_dir;
         if !dir.join(gate).exists() {
             return;
         }
+        const HOLD_MOST: Duration = Duration::from_secs(120);
+        const POLL: Duration = Duration::from_millis(10);
         let _ = std::fs::write(dir.join(ack), what);
         let start = std::time::Instant::now();
-        while dir.join(gate).exists() && start.elapsed() < std::time::Duration::from_secs(120) {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        while dir.join(gate).exists() && start.elapsed() < HOLD_MOST {
+            tokio::time::sleep(POLL).await;
         }
         let _ = std::fs::remove_file(dir.join(ack));
     }
@@ -305,23 +311,15 @@ impl Kernel {
     }
 
     pub fn read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
-        f(&self.writer.state.lock().unwrap())
+        f(&self.writer.state.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    /// A person as every decision sees them: from the config, with the
-    /// groups and roles the identity provider gave at their latest sign-in
-    /// in place of the config's (E2).
-    /// A person's rights: the identity provider's where it names them, else
-    /// the roles the owner set in Settings, else the config's.
-    /// The identity provider people sign in through, if the appliance has one.
-    /// End the sessions, and pause the schedules, of people the identity
-    /// provider has turned off or no longer knows: once now, then every five
-    /// minutes. Everyone signed in or with a schedule is asked about; a
-    /// provider that cannot be asked changes nothing (owner's ruling 12).
+    /// End the sessions, and pause the schedules, of people the identity provider has turned off or no longer knows: once now, then
+    /// every five minutes. Everyone signed in or with a schedule is asked about; a provider that cannot be asked changes nothing (owner's ruling 12).
     pub fn watch_sessions(self: &Arc<Self>) {
         let k = self.clone();
         tokio::spawn(async move {
-            let mut t = tokio::time::interval(std::time::Duration::from_secs(300));
+            let mut t = tokio::time::interval(SESSIONS_EVERY);
             loop {
                 t.tick().await;
                 k.end_turned_off().await;
@@ -435,7 +433,7 @@ impl Kernel {
     }
 
     pub fn wake(self: &Arc<Self>, run: &str) {
-        if !self.drivers.lock().unwrap().insert(run.to_string()) {
+        if !self.drivers.lock().unwrap_or_else(|e| e.into_inner()).insert(run.to_string()) {
             return;
         }
         let k = self.clone();
@@ -445,7 +443,7 @@ impl Kernel {
                 Ok(()) => k.clone().drive(&run).await,
                 Err(e) => Err(e),
             };
-            k.drivers.lock().unwrap().remove(&run);
+            k.drivers.lock().unwrap_or_else(|e| e.into_inner()).remove(&run);
             if let Err(e) = r {
                 tracing::error!("run {run}: {e:#}");
                 // Stop it with a notice rather than retry it unseen (K24).
@@ -464,11 +462,11 @@ impl Kernel {
     }
 
     pub fn any_driving(&self) -> bool {
-        !self.drivers.lock().unwrap().is_empty()
+        !self.drivers.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
     }
 
     pub fn driving(&self, run: &str) -> bool {
-        self.drivers.lock().unwrap().contains(run)
+        self.drivers.lock().unwrap_or_else(|e| e.into_inner()).contains(run)
     }
 
     /// Create a task for `person` with the current model and budgets.
@@ -787,13 +785,13 @@ impl Kernel {
             // Scheduled polls of watched reads (#406).
             self.poll_due(now).await;
             self.expire_notes().await;
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(SWEEP_TICK).await;
         }
     }
 
     /// Release a run's resources when it stops moving.
     pub async fn on_stop(&self, run: &str, terminal: bool) {
-        self.leases.lock().unwrap().retain(|_, holder| holder != run);
+        self.leases.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, holder| holder != run);
         if terminal {
             self.close_run_browsers(run).await;
             self.sandboxes.destroy(run).await;
@@ -976,20 +974,20 @@ pub struct Live {
 
 impl Live {
     pub fn send(&self, run: &str, text: &str) {
-        let mut so_far = self.so_far.lock().unwrap();
+        let mut so_far = self.so_far.lock().unwrap_or_else(|e| e.into_inner());
         so_far.entry(run.to_string()).or_default().push_str(text);
         let _ = self.tx.send((run.to_string(), text.to_string()));
     }
 
     /// The run's reply is complete (or failed): nothing more streams for it.
     pub fn end(&self, run: &str) {
-        self.so_far.lock().unwrap().remove(run);
+        self.so_far.lock().unwrap_or_else(|e| e.into_inner()).remove(run);
     }
 
     /// The run's reply so far and what streams after it, with nothing lost
     /// or repeated between the two.
     pub fn subscribe(&self, run: &str) -> (String, tokio::sync::broadcast::Receiver<(String, String)>) {
-        let so_far = self.so_far.lock().unwrap();
+        let so_far = self.so_far.lock().unwrap_or_else(|e| e.into_inner());
         (so_far.get(run).cloned().unwrap_or_default(), self.tx.subscribe())
     }
 }

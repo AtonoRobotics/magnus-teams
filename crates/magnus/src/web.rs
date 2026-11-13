@@ -7,6 +7,9 @@ use std::time::Duration;
 
 const MAX_BYTES: usize = 5 * 1024 * 1024;
 const MAX_TEXT: usize = 60_000;
+/// A fetch: the connection, then the whole request.
+const CONNECT_WAIT: Duration = Duration::from_secs(10);
+const FETCH_WAIT: Duration = Duration::from_secs(45);
 
 pub struct Web {
     http: reqwest::Client,
@@ -31,18 +34,17 @@ pub(crate) fn private_ip(ip: IpAddr) -> bool {
 }
 
 impl Web {
-    pub fn new(cfg: &crate::config::Web) -> Web {
-        Web {
+    pub fn new(cfg: &crate::config::Web) -> Result<Web> {
+        Ok(Web {
             http: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(45))
+                .connect_timeout(CONNECT_WAIT)
+                .timeout(FETCH_WAIT)
                 .redirect(reqwest::redirect::Policy::none())
                 .user_agent("Mozilla/5.0 (compatible; Magnus/0.1)")
-                .build()
-                .expect("http client"),
+                .build()?,
             allow_private: cfg.allow_private_networks,
             search_url: cfg.search_url.clone(),
-        }
+        })
     }
 
     pub fn can_search(&self) -> bool {
@@ -79,8 +81,8 @@ impl Web {
             let pinned = self.check_host(&url).await?;
             let client = match &pinned {
                 Some((host, addr)) => reqwest::Client::builder()
-                    .connect_timeout(Duration::from_secs(10))
-                    .timeout(Duration::from_secs(45))
+                    .connect_timeout(CONNECT_WAIT)
+                    .timeout(FETCH_WAIT)
                     .redirect(reqwest::redirect::Policy::none())
                     .user_agent("Mozilla/5.0 (compatible; Magnus/0.1)")
                     .resolve(host, *addr)
@@ -168,7 +170,7 @@ mod tests {
     }
 
     fn web(allow_private_networks: bool) -> Web {
-        Web::new(&crate::config::Web { allow_private_networks, search_url: None })
+        Web::new(&crate::config::Web { allow_private_networks, search_url: None }).unwrap()
     }
 
     /// An IPv4 address written as IPv6 (`::ffff:a.b.c.d`) is that IPv4

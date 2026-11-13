@@ -1,7 +1,7 @@
 //! Integration tests for the browser sidecar and the sandbox desktop, using
 //! real Chromium and a real Firecracker VM.
 
-use magnus::{boundary::computer_command, browser::Browser, config, sandbox::Sandboxes};
+use magnus::{boundary::computer_command, browser::Browser, config, sandbox::Sandboxes, spawn::HostEnv};
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -36,6 +36,7 @@ async fn browser_navigates_clicks_types_and_screenshots() {
             allow: vec!["127.0.0.1".into()],
         }),
         dir.path(),
+        HostEnv::from_process(),
     );
     let url = page_server().await;
     let v = b.request("r1", json!({ "op": "navigate", "url": url })).await.unwrap();
@@ -69,6 +70,7 @@ async fn browser_snapshot_never_shows_a_secret_field_value() {
             allow: vec!["127.0.0.1".into()],
         }),
         dir.path(),
+        HostEnv::from_process(),
     );
     let url = page_server().await;
     let v = b.request("r1", json!({ "op": "navigate", "url": format!("{url}/sign-in") })).await.unwrap();
@@ -115,6 +117,7 @@ async fn browser_cannot_read_the_appliances_files_or_execute_a_navigation_script
             allow: vec!["127.0.0.1".into()],
         }),
         dir.path(),
+        HostEnv::from_process(),
     );
     let url = page_server().await;
     b.request("r1", json!({ "op": "navigate", "url": url })).await.unwrap();
@@ -208,6 +211,7 @@ async fn closing_the_browser_closes_every_runs_pages_and_a_later_request_starts_
             allow: vec!["127.0.0.1".into()],
         }),
         dir.path(),
+        HostEnv::from_process(),
     );
     let url = page_server().await;
     for run in ["r1", "r2"] {
@@ -308,7 +312,7 @@ async fn own_name(port: u16) -> (String, Vec<std::net::IpAddr>) {
 async fn the_browser_refuses_loopback_however_it_is_written_including_mapped_ipv4() {
     let (port, hits) = private_site().await;
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[])), dir.path());
+    let b = Browser::new(Some(sidecar(&[])), dir.path(), HostEnv::from_process());
     for host in [
         "localhost",
         "LocalHost.",
@@ -332,7 +336,7 @@ async fn the_browser_refuses_loopback_however_it_is_written_including_mapped_ipv
 async fn the_browser_refuses_metadata_link_local_and_private_network_addresses() {
     let (port, hits) = private_site().await;
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[])), dir.path());
+    let b = Browser::new(Some(sidecar(&[])), dir.path(), HostEnv::from_process());
     // This machine's own LAN address first: a private address that answers.
     let (_, ips) = own_name(port).await;
     let lan: Vec<String> = ips.iter().filter(|ip| matches!(ip, std::net::IpAddr::V4(v) if v.is_private())).map(|ip| ip.to_string()).collect();
@@ -367,13 +371,13 @@ async fn a_name_resolving_to_a_private_address_is_refused_unless_the_owner_allow
     let ips: Vec<_> = tokio::net::lookup_host((name.as_str(), port)).await.unwrap().map(|a| a.ip()).collect();
     assert!(!ips.is_empty(), "{name} does not resolve");
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[])), dir.path());
+    let b = Browser::new(Some(sidecar(&[])), dir.path(), HostEnv::from_process());
     refused(&b, &format!("http://{name}:{port}/")).await;
     refused(&b, &format!("http://rebind.localhost:{port}/")).await;
     assert_eq!(hits.load(Ordering::SeqCst), 0, "{name} ({ips:?}) was fetched");
 
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[format!("{name}:{port}")])), dir.path());
+    let b = Browser::new(Some(sidecar(&[format!("{name}:{port}")])), dir.path(), HostEnv::from_process());
     let v = b.request("r1", json!({ "op": "navigate", "url": format!("http://{name}:{port}/") })).await.unwrap();
     assert!(v["text"].as_str().unwrap().contains("PRIVATE-CANARY"), "{}", v["text"]);
     // Allowing the name allows that site, not every private address.
@@ -386,7 +390,7 @@ async fn an_allowed_sites_redirect_to_a_private_address_is_refused() {
     let (port, hits) = private_site().await;
     let (site, _) = allowed_site(port).await;
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[site.trim_start_matches("http://").to_string()])), dir.path());
+    let b = Browser::new(Some(sidecar(&[site.trim_start_matches("http://").to_string()])), dir.path(), HostEnv::from_process());
     let v = b.request("r1", json!({ "op": "navigate", "url": site })).await.unwrap();
     assert!(v["text"].as_str().unwrap().contains("Allowed page"), "{}", v["text"]);
     refused(&b, &format!("{site}/redirect")).await;
@@ -400,7 +404,7 @@ async fn an_allowed_pages_images_frames_fetches_and_websockets_never_reach_a_pri
     let (port, hits) = private_site().await;
     let (site, done) = allowed_site(port).await;
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[site.trim_start_matches("http://").to_string()])), dir.path());
+    let b = Browser::new(Some(sidecar(&[site.trim_start_matches("http://").to_string()])), dir.path(), HostEnv::from_process());
     let v = b.request("r1", json!({ "op": "navigate", "url": format!("{site}/subrequests") })).await.unwrap();
     assert!(v["text"].as_str().unwrap().contains("Subrequests"), "{}", v["text"]);
     for _ in 0..200 {
@@ -470,7 +474,7 @@ async fn a_name_whose_first_allowed_address_refuses_is_reached_at_the_next() {
     let app = axum::Router::new().fallback(|| async { axum::response::Html("<html><body><p>SECOND-ADDRESS</p></body></html>") });
     tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[name.to_string()])), dir.path());
+    let b = Browser::new(Some(sidecar(&[name.to_string()])), dir.path(), HostEnv::from_process());
     let v = b.request("r1", json!({ "op": "navigate", "url": format!("http://{name}:{port}/") })).await.unwrap();
     assert!(v["text"].as_str().unwrap().contains("SECOND-ADDRESS"), "{ips:?}: {}", v["text"]);
     b.close("r1").await;
@@ -519,7 +523,7 @@ async fn a_request_whose_origin_disconnects_mid_body_fails_promptly() {
         }
     });
     let dir = tempfile::tempdir().unwrap();
-    let b = Browser::new(Some(sidecar(&[site.trim_start_matches("http://").to_string()])), dir.path());
+    let b = Browser::new(Some(sidecar(&[site.trim_start_matches("http://").to_string()])), dir.path(), HostEnv::from_process());
     let started = std::time::Instant::now();
     let v = b.request("r1", json!({ "op": "navigate", "url": format!("{site}/") })).await.unwrap();
     assert!(v["text"].as_str().unwrap().contains("Cut"), "{}", v["text"]);

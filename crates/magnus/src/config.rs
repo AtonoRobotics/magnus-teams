@@ -47,6 +47,9 @@ pub struct Config {
     /// The file this was read from: a new release is checked against it.
     #[serde(skip)]
     pub path: PathBuf,
+    /// What child processes inherit from Magnus's own environment, read once here.
+    #[serde(skip, default = "crate::spawn::HostEnv::from_process")]
+    pub host: crate::spawn::HostEnv,
     /// Removable modules, on or off for every model, and per model.
     #[serde(default)]
     pub modules: Modules,
@@ -112,9 +115,8 @@ pub struct Appliance {
     pub state_dir: PathBuf,
     /// Plain HTTP. Passwords are refused here except from this machine.
     pub listen: String,
-    /// HTTPS for people's apps on the network. Without `tls_cert` and
-    /// `tls_key`, the appliance makes its own certificate on first start and
-    /// apps pin it on first connection.
+    /// HTTPS for people's apps on the network. Without `tls_cert` and `tls_key`, the appliance
+    /// makes its own certificate on first start and apps pin it on first connection.
     #[serde(default)]
     pub tls_listen: Option<String>,
     pub tls_cert: Option<PathBuf>,
@@ -145,9 +147,8 @@ impl Default for SignIn {
     }
 }
 
-/// An OpenID Connect provider (Keycloak, for one). People approve the
-/// sign-in on its own page (the device-code grant, RFC 8628); its endpoints
-/// come from its discovery document.
+/// An OpenID Connect provider (Keycloak, for one). People approve the sign-in on its own page
+/// (the device-code grant, RFC 8628); its endpoints come from its discovery document.
 #[derive(Deserialize, Clone, Debug)]
 pub struct Oidc {
     /// For example `https://identity.example.com/realms/magnus`.
@@ -193,8 +194,7 @@ pub struct Oidc {
     /// as `https://127.0.0.1:19446`. Unset: the issuer's host.
     #[serde(default)]
     pub status_admin_url: Option<String>,
-    /// A PEM certificate authority to trust for that address, when a
-    /// private one issued its certificate.
+    /// A PEM certificate authority to trust for that address, when a private one issued its certificate.
     #[serde(default)]
     pub status_admin_ca: Option<std::path::PathBuf>,
 }

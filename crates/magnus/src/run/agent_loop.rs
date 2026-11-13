@@ -27,6 +27,8 @@ const MOST_BACKOFF_DOUBLINGS: u32 = 6;
 
 /// The longest wait between attempts at a failed model call (the backoff
 /// below doubles from one second up to this).
+/// How long an app's live tool list is reused before it is asked again.
+pub(super) const LIVE_TOOLS_FRESH: Duration = Duration::from_secs(2);
 const LONGEST_BACKOFF: Duration = Duration::from_millis(500 * 2u64.pow(MOST_BACKOFF_DOUBLINGS));
 
 /// How long to wait before attempt `next_attempt` (1 for the first retry)

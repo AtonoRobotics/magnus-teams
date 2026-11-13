@@ -23,6 +23,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// The longest one call to the certificate issuer may take.
+const ISSUER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Cloudflare's API. Tests pass their own server; the config does not.
 pub const CF_API: &str = "https://api.cloudflare.com/client/v4";
 
@@ -168,11 +171,11 @@ impl Devices {
     }
 
     pub fn get(&self, id: &str) -> Option<Device> {
-        self.inner.lock().unwrap().devices.get(id).cloned()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).devices.get(id).cloned()
     }
 
     pub fn list(&self, person: Option<&str>) -> Vec<Device> {
-        let g = self.inner.lock().unwrap();
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut out: Vec<Device> = g.devices.values().filter(|d| person.map(|p| d.person == p).unwrap_or(true)).cloned().collect();
         out.sort_by(|a, b| b.created.cmp(&a.created));
         out
@@ -183,7 +186,7 @@ impl Devices {
     }
 
     pub fn live_id(&self, fingerprint: &str) -> Option<String> {
-        let g = self.inner.lock().unwrap();
+        let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         g.devices.values().find(|d| d.live() && d.matches(fingerprint)).map(|d| d.id.clone())
     }
 
@@ -199,7 +202,7 @@ impl Devices {
             return Err(IssueError::Unavailable("device certificates need a zone id and a Cloudflare token".into()));
         }
         {
-            let g = self.inner.lock().unwrap();
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             let live = g.devices.values().filter(|d| d.person == person && d.live()).count();
             if live >= MAX_PER_PERSON {
                 return Err(IssueError::Limited("This account already has 20 paired devices. Revoke one before pairing another."));
@@ -226,7 +229,7 @@ impl Devices {
         };
         let cf_id = device.cloudflare_id.clone();
         let saved = {
-            let mut g = self.inner.lock().unwrap();
+            let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             g.devices.insert(id.clone(), device);
             g.issued.entry(person.to_string()).or_default().push(now);
             match self.save(&g.devices) {
@@ -248,7 +251,7 @@ impl Devices {
     /// means it is already gone, which is the state we want.
     pub async fn revoke(&self, cf: &Cloudflare, id: &str) -> std::result::Result<Device, IssueError> {
         let cloudflare_id = {
-            let g = self.inner.lock().unwrap();
+            let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             match g.devices.get(id) {
                 Some(d) if d.live() => d.cloudflare_id.clone(),
                 Some(_) => return Err(IssueError::Rejected("that device is already revoked")),
@@ -256,7 +259,7 @@ impl Devices {
             }
         };
         cloudflare_revoke(cf, &cloudflare_id).await?;
-        let mut g = self.inner.lock().unwrap();
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let Some(d) = g.devices.get_mut(id) else { return Err(IssueError::Rejected("no such device")) };
         d.revoked = Some(Utc::now());
         let out = d.clone();
@@ -290,7 +293,7 @@ struct CfCert {
 
 async fn cloudflare_sign(cf: &Cloudflare, csr: &str) -> std::result::Result<CfCert, IssueError> {
     let url = format!("{}/zones/{}/client_certificates", cf.api.trim_end_matches('/'), cf.zone.trim());
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
+    let client = reqwest::Client::builder().timeout(ISSUER_TIMEOUT).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
     let r = client
         .post(&url)
         .bearer_auth(&cf.token)
@@ -315,7 +318,7 @@ async fn cloudflare_sign(cf: &Cloudflare, csr: &str) -> std::result::Result<CfCe
 
 async fn cloudflare_revoke(cf: &Cloudflare, id: &str) -> std::result::Result<(), IssueError> {
     let url = format!("{}/zones/{}/client_certificates/{}", cf.api.trim_end_matches('/'), cf.zone.trim(), id);
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
+    let client = reqwest::Client::builder().timeout(ISSUER_TIMEOUT).build().map_err(|e| IssueError::Upstream(e.to_string()))?;
     let r = client.delete(&url).bearer_auth(&cf.token).send().await.map_err(|e| IssueError::Upstream(e.to_string()))?;
     if r.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(());
@@ -353,7 +356,7 @@ mod tests {
                 post(move |Json(b): Json<serde_json::Value>| {
                     let posted = posted.clone();
                     async move {
-                        posted.lock().unwrap().push(format!("POST {}", b["validity_days"]));
+                        posted.lock().unwrap_or_else(|e| e.into_inner()).push(format!("POST {}", b["validity_days"]));
                         Json(serde_json::json!({
                             "success": true,
                             "result": {
@@ -371,7 +374,7 @@ mod tests {
                 axum::routing::delete(move |Path((_, id)): Path<(String, String)>| {
                     let deleted = deleted.clone();
                     async move {
-                        deleted.lock().unwrap().push(format!("DELETE {id}"));
+                        deleted.lock().unwrap_or_else(|e| e.into_inner()).push(format!("DELETE {id}"));
                         Json(serde_json::json!({ "success": true, "result": { "id": id } }))
                     }
                 }),
@@ -413,7 +416,7 @@ mod tests {
         assert!(raw.contains(&issued.fingerprint));
         assert!(devices.is_live("61:61"), "Cloudflare's punctuation of the fingerprint did not match");
         assert!(devices.is_live(&issued.fingerprint));
-        assert_eq!(calls.lock().unwrap().as_slice(), ["POST 365"]);
+        assert_eq!(calls.lock().unwrap_or_else(|e| e.into_inner()).as_slice(), ["POST 365"]);
         let listed = devices.list(Some("ada"));
         assert_eq!(listed.len(), 1);
         assert!(devices.list(Some("other")).is_empty());
@@ -427,7 +430,7 @@ mod tests {
         let issued = devices.issue(&cf(api.clone()), "ada", "laptop", &csr()).await.unwrap();
         devices.revoke(&cf(api), &issued.device).await.unwrap();
         assert!(!devices.is_live(&issued.fingerprint));
-        assert_eq!(calls.lock().unwrap().last().map(String::as_str), Some("DELETE cf-cert-1"));
+        assert_eq!(calls.lock().unwrap_or_else(|e| e.into_inner()).last().map(String::as_str), Some("DELETE cf-cert-1"));
         let again = devices.revoke(&cf("http://127.0.0.1:1".into()), &issued.device).await;
         assert!(matches!(again, Err(IssueError::Rejected(_))));
     }
@@ -444,7 +447,7 @@ mod tests {
         }
         let extra = devices.issue(&cf(api), "ada", "one more", &csr()).await;
         assert!(matches!(extra, Err(IssueError::Limited(_))));
-        assert_eq!(calls.lock().unwrap().len(), MAX_PER_HOUR);
+        assert_eq!(calls.lock().unwrap_or_else(|e| e.into_inner()).len(), MAX_PER_HOUR);
     }
 
     #[test]
@@ -452,7 +455,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let devices = Devices::open(dir.path()).unwrap();
         {
-            let mut g = devices.inner.lock().unwrap();
+            let mut g = devices.inner.lock().unwrap_or_else(|e| e.into_inner());
             for i in 0..MAX_PER_PERSON {
                 let id = format!("dev_{i}");
                 g.devices.insert(

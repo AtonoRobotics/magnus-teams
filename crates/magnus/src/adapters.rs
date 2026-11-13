@@ -18,6 +18,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+/// How long a launched adapter has to answer hello, and how often it is tried.
+const START_WAIT: Duration = Duration::from_secs(15);
+const START_POLL: Duration = Duration::from_millis(30);
+/// How long a replaced adapter process lives on to finish what it has in flight.
+const RETIRE_AFTER: Duration = Duration::from_secs(600);
+/// The longest an adapter's stream may go without an event.
+const STREAM_STALL: Duration = Duration::from_secs(600);
+
 pub struct Running {
     pub cfg: config::Adapter,
     pub socket: PathBuf,
@@ -28,7 +36,7 @@ pub struct Running {
 
 impl Drop for Running {
     fn drop(&mut self) {
-        let mut c = self.child.lock().unwrap();
+        let mut c = self.child.lock().unwrap_or_else(|e| e.into_inner());
         let _ = c.kill();
         let _ = c.wait();
         let _ = std::fs::remove_file(&self.socket);
@@ -41,6 +49,7 @@ pub struct Adapters {
     running: RwLock<HashMap<String, Arc<Running>>>,
     configs: RwLock<HashMap<String, config::Adapter>>,
     generation: std::sync::atomic::AtomicU64,
+    host: crate::spawn::HostEnv,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +77,7 @@ pub struct TurnOut {
 }
 
 impl Adapters {
-    pub fn new(state_dir: &std::path::Path, vault: Arc<Vault>, cfgs: &[config::Adapter]) -> Adapters {
+    pub fn new(state_dir: &std::path::Path, vault: Arc<Vault>, cfgs: &[config::Adapter], host: crate::spawn::HostEnv) -> Adapters {
         let dir = state_dir.join("adapters");
         let _ = std::fs::create_dir_all(&dir);
         Adapters {
@@ -77,6 +86,7 @@ impl Adapters {
             running: RwLock::new(HashMap::new()),
             configs: RwLock::new(cfgs.iter().map(|c| (c.id.clone(), c.clone())).collect()),
             generation: std::sync::atomic::AtomicU64::new(0),
+            host,
         }
     }
 
@@ -88,7 +98,7 @@ impl Adapters {
         let log = std::fs::OpenOptions::new().create(true).append(true).open(self.dir.join(format!("{}.log", cfg.id)))?;
         let mut cmd = Command::new(&cfg.command[0]);
         cmd.args(&cfg.command[1..]).arg("--socket").arg(&socket);
-        cmd.env_clear().env("PATH", std::env::var("PATH").unwrap_or_default());
+        cmd.env_clear().env("PATH", &self.host.path);
         cmd.stdin(Stdio::null()).stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log));
         let child = crate::spawn::spawn(cmd).with_context(|| format!("start adapter {}", cfg.id))?;
         let mut running = Running { cfg: cfg.clone(), socket: socket.clone(), adapter: String::new(), version: String::new(), child: Mutex::new(child) };
@@ -108,25 +118,25 @@ impl Adapters {
                     }
                 }
             }
-            if let Ok(Some(st)) = running.child.lock().unwrap().try_wait() {
+            if let Ok(Some(st)) = running.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
                 anyhow::bail!("adapter {} exited at start ({st})", cfg.id);
             }
-            anyhow::ensure!(start.elapsed() < Duration::from_secs(15), "adapter {} did not start within 15s", cfg.id);
-            tokio::time::sleep(Duration::from_millis(30)).await;
+            anyhow::ensure!(start.elapsed() < START_WAIT, "adapter {} did not start within {}s", cfg.id, START_WAIT.as_secs());
+            tokio::time::sleep(START_POLL).await;
         }
     }
 
     /// The running process for `id`, started (or restarted) if needed.
     pub async fn get(&self, id: &str) -> Result<Arc<Running>> {
         if let Some(r) = self.running.read().await.get(id) {
-            if r.child.lock().unwrap().try_wait().ok().flatten().is_none() {
+            if r.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait().ok().flatten().is_none() {
                 return Ok(r.clone());
             }
         }
         let cfg = self.configs.read().await.get(id).cloned().ok_or_else(|| anyhow!("no adapter named {id}"))?;
         let mut w = self.running.write().await;
         if let Some(r) = w.get(id) {
-            if r.child.lock().unwrap().try_wait().ok().flatten().is_none() {
+            if r.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait().ok().flatten().is_none() {
                 return Ok(r.clone());
             }
         }
@@ -142,7 +152,7 @@ impl Adapters {
         let old = self.running.write().await.insert(r.cfg.id.clone(), r);
         if let Some(old) = old {
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(600)).await;
+                tokio::time::sleep(RETIRE_AFTER).await;
                 drop(old);
             });
         }
@@ -322,7 +332,7 @@ async fn read_turn(call: &mut proto::Call, id: &str, on_text: &mut impl FnMut(&s
     let mut calls = vec![];
     let (mut state, mut usage, mut served) = (None, None, None);
     loop {
-        let ev = tokio::time::timeout(Duration::from_secs(600), call.next())
+        let ev = tokio::time::timeout(STREAM_STALL, call.next())
             .await
             .map_err(|_| AdapterError { usage: usage.clone(), ..AdapterError::unavailable("adapter stream stalled for 10 minutes") })?
             .map_err(|e| AdapterError { class: ErrorClass::Malformed, message: format!("adapter stream: {e}"), retry_after_s: None, usage: usage.clone() })?;

@@ -8,6 +8,9 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 const PROTOCOL: &str = "2025-06-18";
+/// A call to an app's server: the connection, then the whole call.
+const CONNECT_WAIT: Duration = Duration::from_secs(10);
+const CALL_WAIT: Duration = Duration::from_secs(120);
 
 /// What an app says when it wants a sign-in (HTTP 401 at initialize).
 pub const UNAUTHORIZED: &str = "the app asks for a sign-in (HTTP 401)";
@@ -104,12 +107,8 @@ struct Session {
 }
 
 impl Mcp {
-    pub fn new() -> Mcp {
-        Mcp {
-            allow_private: false,
-            http: reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(120)).build().expect("http client"),
-            views: Default::default(),
-        }
+    pub fn new() -> Result<Mcp> {
+        Ok(Mcp { allow_private: false, http: reqwest::Client::builder().connect_timeout(CONNECT_WAIT).timeout(CALL_WAIT).build()?, views: Default::default() })
     }
 
     /// With the appliance's rule on private addresses.

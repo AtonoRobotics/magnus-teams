@@ -21,7 +21,13 @@ const WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
 pub fn main() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_env("MAGNUS_LOG").unwrap_or_else(|_| "info".into())).with_writer(std::io::stderr).init();
     let args: Vec<String> = std::env::args().collect();
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build().expect("tokio runtime");
+    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(WORKER_STACK_BYTES).build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("magnus: start the async runtime: {e}");
+            std::process::exit(1);
+        }
+    };
     let r = rt.block_on(async {
         match args.get(1).map(String::as_str) {
             Some("migrate") => migrate(&args).await,
@@ -419,7 +425,7 @@ async fn conformance(args: &[String]) -> Result<()> {
     };
     let vault = std::sync::Arc::new(crate::vault::Vault::open(&cfg.appliance.state_dir)?);
     let a = cfg.adapters.iter().find(|a| a.id == id).context("no such adapter in the config")?.clone();
-    let adapters = crate::adapters::Adapters::new(&cfg.appliance.state_dir, vault, &cfg.adapters);
+    let adapters = crate::adapters::Adapters::new(&cfg.appliance.state_dir, vault, &cfg.adapters, cfg.host.clone());
     let r = adapters.launch(&a).await?;
     let report = adapters.conformance(&r, &model).await;
     println!("{}", serde_json::to_string_pretty(&report)?);

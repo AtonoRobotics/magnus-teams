@@ -37,6 +37,8 @@ pub const BROKERED: &str = "brokered";
 /// As long as the sandbox waits for its guest: an instance boots in about a
 /// second, so this only ends one that never will.
 const BOOT_WAIT: Duration = Duration::from_secs(30);
+/// How often a booting instance is looked at.
+const BOOT_POLL: Duration = Duration::from_millis(50);
 /// As long as a remote app's call may take (`apps::Mcp`).
 const CALL_WAIT: Duration = Duration::from_secs(120);
 /// How long the proxy waits to reach a provider host.
@@ -108,12 +110,12 @@ struct Instance {
 
 impl Instance {
     fn alive(&self) -> bool {
-        self.child.lock().unwrap().as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none())
+        self.child.lock().unwrap_or_else(|e| e.into_inner()).as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none())
     }
 
     /// The microVM, its proxy and its files go.
     fn stop(&self) {
-        if let Some(mut c) = self.child.lock().unwrap().take() {
+        if let Some(mut c) = self.child.lock().unwrap_or_else(|e| e.into_inner()).take() {
             let _ = c.kill();
             let _ = c.wait();
         }
@@ -188,7 +190,7 @@ impl Brokered {
         let mut cmd = Command::new(&sb.firecracker);
         cmd.arg("--api-sock").arg(dir.join("api.sock")).arg("--config-file").arg(dir.join("vm.json")).arg("--level").arg("Error");
         cmd.env_clear().stdin(Stdio::null()).stdout(Stdio::from(console.try_clone()?)).stderr(Stdio::from(console));
-        *inst.child.lock().unwrap() = Some(crate::spawn::spawn(cmd).context("start firecracker")?);
+        *inst.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(crate::spawn::spawn(cmd).context("start firecracker")?);
         let start = Instant::now();
         loop {
             if connect(&vsock).await.is_ok() {
@@ -202,7 +204,7 @@ impl Brokered {
             if start.elapsed() > BOOT_WAIT {
                 anyhow::bail!("{}'s microVM did not come up within {}s", c.name, BOOT_WAIT.as_secs());
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(BOOT_POLL).await;
         }
     }
 
@@ -244,7 +246,7 @@ impl Brokered {
     /// How many stops have covered `person`'s instance of `app`: a call
     /// takes it before its token, and sends nothing if it has changed.
     pub fn generation(&self, app: &str, person: &str) -> u64 {
-        let s = self.stops.lock().unwrap();
+        let s = self.stops.lock().unwrap_or_else(|e| e.into_inner());
         let (a, p) = (Some(app.to_string()), Some(person.to_string()));
         [(None, None), (a.clone(), None), (None, p.clone()), (a, p)].iter().map(|k| s.get(k).copied().unwrap_or(0)).sum()
     }
@@ -257,7 +259,7 @@ impl Brokered {
         // A stop that took the lock first has run by now.
         fence().map_err(|e| anyhow!(e))?;
         if let Some(i) = m.get(&key).filter(|i| i.alive()) {
-            *i.used.lock().unwrap() = Instant::now();
+            *i.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
             return Ok(i.clone());
         }
         let i = Arc::new(self.launch(c, Some(c.hosts.clone())).await?);
@@ -278,7 +280,7 @@ impl Brokered {
                     if !m.get(&key).is_some_and(|x| Arc::ptr_eq(x, &i)) {
                         return;
                     }
-                    let left = idle.saturating_sub(i.used.lock().unwrap().elapsed());
+                    let left = idle.saturating_sub(i.used.lock().unwrap_or_else(|e| e.into_inner()).elapsed());
                     if left.is_zero() && i.busy.load(Ordering::SeqCst) == 0 {
                         m.remove(&key);
                         i.stop();
@@ -315,7 +317,7 @@ impl Brokered {
         })
         .await
         .unwrap_or_else(|_| Err(CallError::Unknown(format!("{} did not answer within {}s", c.name, CALL_WAIT.as_secs()))));
-        *inst.used.lock().unwrap() = Instant::now();
+        *inst.used.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
         inst.busy.fetch_sub(1, Ordering::SeqCst);
         let r = out.map_err(|e| Mcp::clean_err(e, Some(token)))?;
         let text = r["content"].as_array().into_iter().flatten().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n");
@@ -359,7 +361,7 @@ impl Brokered {
     /// (with neither) all of them. How many were stopped.
     pub async fn stop(&self, app: Option<&str>, person: Option<&str>) -> usize {
         let mut m = self.instances.lock().await;
-        *self.stops.lock().unwrap().entry((app.map(String::from), person.map(String::from))).or_default() += 1;
+        *self.stops.lock().unwrap_or_else(|e| e.into_inner()).entry((app.map(String::from), person.map(String::from))).or_default() += 1;
         let gone: Vec<Key> = m.keys().filter(|(a, p)| app.is_none_or(|x| x == a) && person.is_none_or(|x| x == p)).cloned().collect();
         for k in &gone {
             if let Some(i) = m.remove(k) {

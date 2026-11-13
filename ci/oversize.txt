@@ -6,7 +6,7 @@ crates/magnus/src/connectors.rs 1632
 crates/magnus/src/control.rs 820
 crates/magnus/src/dev.rs 974
 crates/magnus/src/events.rs 1404
-crates/magnus/src/kernel.rs 1034
+crates/magnus/src/kernel.rs 1032
 crates/magnus/src/run/mod.rs 907
 crates/magnus/src/state.rs 2793
 tests/scratch/tests/app.rs 819

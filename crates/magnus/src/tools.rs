@@ -286,11 +286,20 @@ fn component(kinds: &[&str]) -> Value {
     }, "required": ["type"] })
 }
 
+/// `instructions/tools.json`. It is compiled in and parsed by a test; were it broken, the tools would go out
+/// without descriptions rather than the server stop.
+fn tool_descriptions() -> Value {
+    serde_json::from_str(include_str!("../instructions/tools.json")).unwrap_or_else(|e| {
+        tracing::error!("instructions/tools.json does not parse: {e}");
+        Value::Null
+    })
+}
+
 /// The tools a chat turn may call besides reads: start a task, propose a
 /// schedule the person confirms in the thread, and control their tasks and
 /// schedules.
 pub fn chat_specs() -> Vec<ToolSpec> {
-    let desc: Value = serde_json::from_str(include_str!("../instructions/tools.json")).expect("tools.json");
+    let desc = tool_descriptions();
     let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
     // No budget is the model's to set: a task's comes from the server (spec rev 133).
     let evidence = json!({ "type": "array", "minItems": 1, "description": d("suggest.evidence"), "items": { "type": "object", "properties": {
@@ -363,7 +372,7 @@ pub const LOAD_ALL: usize = 40;
 
 /// `find_tools`, offered only when a run's apps have more tools than `LOAD_ALL`.
 pub fn find_tools_spec() -> ToolSpec {
-    let desc: Value = serde_json::from_str(include_str!("../instructions/tools.json")).expect("tools.json");
+    let desc = tool_descriptions();
     ToolSpec {
         name: "find_tools".into(),
         description: desc["find_tools"].as_str().unwrap_or_default().to_string(),
@@ -372,7 +381,7 @@ pub fn find_tools_spec() -> ToolSpec {
 }
 
 pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool) -> Vec<ToolSpec> {
-    let desc: Value = serde_json::from_str(include_str!("../instructions/tools.json")).expect("tools.json");
+    let desc = tool_descriptions();
     let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
     let mut v = vec![
         ToolSpec { name: "find_apps".into(), description: d("find_apps"), input_schema: obj(json!({ "query": { "type": "string" } }), &[]) },
@@ -657,6 +666,16 @@ fn address(part: &str) -> Option<String> {
     };
     let a = inner.trim().trim_matches('"').trim().to_lowercase();
     (!a.is_empty()).then_some(a)
+}
+
+#[cfg(test)]
+mod descriptions_tests {
+    /// The descriptions are compiled in; a broken file would send the tools out without them.
+    #[test]
+    fn the_tool_descriptions_parse() {
+        let d: serde_json::Value = serde_json::from_str(include_str!("../instructions/tools.json")).unwrap();
+        assert!(d.is_object() && super::tool_descriptions() == d);
+    }
 }
 
 #[cfg(test)]

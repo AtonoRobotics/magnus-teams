@@ -15,6 +15,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, NoTls};
 
+/// How often startup asks for the log's database again while it waits.
+const OPEN_RETRY: std::time::Duration = std::time::Duration::from_millis(250);
+
 #[derive(Clone, Debug)]
 pub struct Event {
     pub seq: i64,
@@ -259,15 +262,17 @@ pub fn split(mut body: Value) -> (Value, Option<Content>) {
             None => (Some(&mut body), *f),
         };
         let Some(o) = outer.and_then(Value::as_object_mut) else { continue };
-        if o.get(inner).is_some_and(|v| !v.is_null()) {
-            taken.insert(f.to_string(), o.remove(inner).unwrap());
+        if let Some(v) = o.get_mut(inner).filter(|v| !v.is_null()).map(Value::take) {
+            o.remove(inner);
+            taken.insert(f.to_string(), v);
         }
     }
     if taken.is_empty() {
         return (body, None);
     }
     let content = Content { salt: rand::random::<[u8; 32]>().to_vec(), body: Value::Object(taken) };
-    let bytes = serde_json::to_vec(&content.body).expect("JSON serializes");
+    // A Value always serializes, and its Display is the same compact JSON as `serde_json::to_vec`.
+    let bytes = content.body.to_string().into_bytes();
     body["content"] = json!({ "sha256": hash(&content.salt, &bytes), "bytes": bytes.len() });
     (body, Some(content))
 }
@@ -438,7 +443,7 @@ impl Log {
             match Log::open(url).await {
                 Err(e) if start.elapsed() < wait => {
                     tracing::info!("waiting for the log: {e:#}");
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    tokio::time::sleep(OPEN_RETRY).await;
                 }
                 r => return r,
             }

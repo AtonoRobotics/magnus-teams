@@ -50,6 +50,8 @@ const PENDING: &str = "update.json";
 /// switch. Every step survives a restart at any point (the invariants), so
 /// waiting only saves repeating a model reply in flight; a minute covers one.
 const DRAIN: Duration = Duration::from_secs(60);
+/// How often the drain looks for runs still driving.
+const DRAIN_POLL: Duration = Duration::from_millis(100);
 
 /// The directory the running programs were started from. Fixed at the
 /// first look: once the directory is moved aside the kernel's link to the
@@ -341,7 +343,7 @@ impl Kernel {
         self.suspend_for_update().await?;
         let start = std::time::Instant::now();
         while self.any_driving() && start.elapsed() < DRAIN {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(DRAIN_POLL).await;
         }
         let dir = install_dir()?;
         let r = started_as().and_then(|how| {
