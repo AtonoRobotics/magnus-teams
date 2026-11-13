@@ -18,4 +18,4 @@ The personal chat and the team export now share one Markdown and file-name helpe
 
 **Retry asks the words, not the card's title.** The app re-sent `@Magnus` and the work card's title, which is the request cut to 80 characters; the server asks the request's own words.
 
-**Reason.** The app hid Share and Save for a private answer and Save for a guest, but the generic file route and the direct-message route would have done either for anyone who asked them directly. A rule about whose data goes where belongs where the data is.
+**Reason.** The app hid Share and Save for a private answer, but it built both from routes that do not know what they carry: the generic file route and the direct-message route took the private answer's words from its requester's app as any other text. A rule about whose data goes where belongs where the data is, and a message's words are now taken from what the server shows that person.
