@@ -59,14 +59,23 @@ pub struct Spent {
 pub fn spent(s: &State, month: &str) -> Spent {
     let mut out = Spent::default();
     let Some((start, end)) = bounds(month) else { return out };
-    for r in s.runs.values().filter(|r| r.created_at >= start && r.created_at < end && r.usd > 0.0) {
-        out.total_usd += r.usd;
-        *out.by_person.entry(r.person.clone()).or_default() += r.usd;
-        *out.by_agent.entry(agent_of(s, &r.id)).or_default() += r.usd;
-        *out.by_model.entry(format!("{}/{}", r.config.adapter, r.config.model)).or_default() += r.usd;
+    for r in s.runs.values().filter(|r| r.created_at >= start && r.created_at < end) {
+        let usd = super::calls::legacy(s, r);
+        out.total_usd += usd;
+        *out.by_person.entry(r.person.clone()).or_default() += usd;
+        *out.by_agent.entry(agent_of(s, &r.id)).or_default() += usd;
+        *out.by_model.entry(format!("{}/{}", r.config.adapter, r.config.model)).or_default() += usd;
         let (id, name) = project_of(s, &r.id).unwrap_or_default();
         let e = out.by_project.entry(id).or_insert((name, 0.0));
-        e.1 += r.usd;
+        e.1 += usd;
+    }
+    for c in s.spend.calls.values().filter(|c| c.month == month) {
+        out.total_usd += c.usd;
+        *out.by_person.entry(c.person.clone()).or_default() += c.usd;
+        *out.by_agent.entry(c.workspace.as_ref().map(|w| format!("team:{w}")).unwrap_or_else(|| "personal".into())).or_default() += c.usd;
+        *out.by_model.entry(c.model.clone()).or_default() += c.usd;
+        let (id, name) = project_of(s, &c.run).unwrap_or_default();
+        out.by_project.entry(id).or_insert((name, 0.0)).1 += c.usd;
     }
     out
 }
@@ -74,9 +83,6 @@ pub fn spent(s: &State, month: &str) -> Spent {
 /// What the server and one person spent in the month, without the rest of
 /// the breakdown: what a run's start reads.
 pub fn spent_by(s: &State, month: &str, person: &str) -> (f64, f64) {
-    let Some((start, end)) = bounds(month) else { return (0.0, 0.0) };
-    s.runs
-        .values()
-        .filter(|r| r.created_at >= start && r.created_at < end)
-        .fold((0.0, 0.0), |(all, theirs), r| (all + r.usd, theirs + if r.person == person { r.usd } else { 0.0 }))
+    let spent = spent(s, month);
+    (spent.total_usd, spent.by_person.get(person).copied().unwrap_or_default())
 }

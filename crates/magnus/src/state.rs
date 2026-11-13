@@ -1382,7 +1382,14 @@ impl State {
             Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::LocalComputer(c) => self.local.apply(c),
             Ev::LocalFile(c) => self.local.files.apply(c),
-            Ev::Team(c) => self.team.apply_at(c, e.seq),
+            Ev::Team(c) => {
+                match c {
+                    crate::team::Change::Removed { workspace, person } => self.computers.revoke_member_control(workspace, person),
+                    crate::team::Change::Member { workspace, person, role } if *role < crate::team::Role::Member => self.computers.revoke_member_control(workspace, person),
+                    _ => {}
+                }
+                self.team.apply_at(c, e.seq);
+            }
             Ev::AccountLink(c) => self.account_links.apply(c),
             Ev::Legal(c) => self.legal.apply(c),
             Ev::Push(c) => self.push.apply(c),

@@ -43,14 +43,16 @@ fn month_start(now: DateTime<Utc>) -> DateTime<Utc> {
 pub fn spent_this_month(s: &State, ws: &str, now: DateTime<Utc>) -> Spent {
     let since = month_start(now);
     let mut out = Spent::default();
-    for r in s.team.runs_of(ws).into_iter().filter(|r| !r.sub) {
-        let Some(run) = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)) else { continue };
-        if run.created_at < since {
-            continue;
-        }
-        let usd = run.spent_usd();
+    for run in s.runs.values().filter(|r| r.created_at >= since) {
+        let Some(t) = s.authority(&run.id).and_then(|t| s.team.run_of(&t.task_id)).filter(|t| t.workspace == ws) else { continue };
+        let usd = crate::spend::calls::legacy(s, run);
         out.total_usd += usd;
-        *out.channels_usd.entry(r.channel.clone()).or_default() += usd;
+        *out.channels_usd.entry(t.channel.clone()).or_default() += usd;
+    }
+    let month = crate::spend::month::key(now);
+    for c in s.spend.calls.values().filter(|c| c.workspace.as_deref() == Some(ws) && c.month == month) {
+        out.total_usd += c.usd;
+        *out.channels_usd.entry(c.channel.clone()).or_default() += c.usd;
     }
     out
 }

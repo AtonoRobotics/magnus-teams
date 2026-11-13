@@ -273,7 +273,7 @@ async fn screens(AxState(k): K, h: HeaderMap) -> Response {
     let lens = k.lens(&p);
     let (screens, held) = k.read(|s| {
         let held: Vec<Value> = s.tools.held.iter().map(|(t, x)| json!({ "tool": t, "hash": x.hash, "verdict": x.verdict, "finding": x.finding })).collect();
-        let sight = |v: &Value| v["run"].as_str().and_then(|r| s.runs.get(r)).map_or(crate::anonymize::Sight::Full, |r| lens.sight(&r.person));
+        let sight = |v: &Value| v["run"].as_str().and_then(|r| s.runs.get(r)).map_or(crate::anonymize::Sight::Full, |r| lens.run_sight(&r.id, &r.person));
         (s.tools.screens.iter().rev().filter_map(|v| lens.show(sight(v), v.clone())).collect::<Vec<Value>>(), held)
     });
     Json(json!({ "screens": screens, "held": held })).into_response()

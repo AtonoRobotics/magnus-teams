@@ -418,7 +418,6 @@ impl Ledger {
             Change::Removed { workspace, person } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.members.remove(person);
-                    w.held.remove(person);
                     // Out of every project too, so no project's list lets
                     // them back in (`Workspace::may_read`).
                     for d in w.projects.values_mut() {

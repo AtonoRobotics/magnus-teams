@@ -40,6 +40,8 @@ pub struct Kernel {
     /// Held while a person's relationship notes are read and a new version
     /// written, so two changes at once never lose one.
     pub(crate) notes: tokio::sync::Mutex<()>,
+    pub(crate) team_files: tokio::sync::Mutex<()>,
+    pub(crate) paid_calls: tokio::sync::Mutex<()>,
     pub vault: Arc<Vault>,
     pub accounts: crate::accounts::Accounts,
     /// Computers paired with this appliance, and the certificates Cloudflare
@@ -166,6 +168,8 @@ impl Kernel {
             writer,
             decide: tokio::sync::Mutex::new(()),
             notes: tokio::sync::Mutex::new(()),
+            team_files: tokio::sync::Mutex::new(()),
+            paid_calls: tokio::sync::Mutex::new(()),
             drivers: Mutex::new(HashSet::new()),
             leases: Mutex::new(HashMap::new()),
             live_tools: tokio::sync::Mutex::new(HashMap::new()),
@@ -787,6 +791,7 @@ impl Kernel {
             // Scheduled polls of watched reads (#406).
             self.poll_due(now).await;
             self.expire_notes().await;
+            self.finish_removed_files().await;
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }

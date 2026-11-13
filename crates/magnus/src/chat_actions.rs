@@ -389,7 +389,7 @@ impl Kernel {
         let Some(allowance) = self.aux_max_tokens(&run.id, "spoken script", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
             return Ok(text_of(e));
         };
-        let out = self.adapters.complete(&adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let out = self.paid_complete(&run.id, &run.person, &adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let script = out.blocks.iter().filter_map(|b| if let Block::Text { text } = b { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n").trim().to_string();
         let script: String = script.chars().take(crate::compose::MAX_SPOKEN).collect();
         self.emit(

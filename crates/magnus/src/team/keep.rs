@@ -41,7 +41,7 @@ impl Kernel {
 
     /// Every file still held for `person` in `ws` goes to their library,
     /// before the held folder goes.
-    pub(super) async fn keep_held(&self, actor: &str, ws: &str, person: &str) {
+    pub(super) async fn keep_held(&self, actor: &str, ws: &str, person: &str) -> Result<()> {
         let held: Vec<File> = self.read(|s| s.team.workspace(ws).and_then(|w| w.held.get(person)).map(|f| f.values().cloned().collect()).unwrap_or_default());
         let dir = held_dir(self, ws, person);
         for f in held {
@@ -49,17 +49,32 @@ impl Kernel {
                 Ok(bytes) => self.keep_in_library(actor, person, &f.name, &bytes).await.map(|_| ()),
                 Err(e) => Err(e.into()),
             };
-            if let Err(e) = kept {
-                tracing::error!("workspace {ws}: keeping {} for {person}: {e:#}", f.name);
-            }
+            kept?;
+            // The source remains until its personal copy and completion record are durable.
+            self.emit(actor, Ev::Team(super::Change::Released { workspace: ws.into(), person: person.into(), name: f.name })).await?;
         }
+        Ok(())
     }
 
     /// `keep_held` for everyone who holds something in `ws`.
-    pub(super) async fn keep_all_held(&self, actor: &str, ws: &str) {
+    pub(super) async fn keep_all_held(&self, actor: &str, ws: &str) -> Result<()> {
         let people: Vec<String> = self.read(|s| s.team.workspace(ws).map(|w| w.held.iter().filter(|(_, f)| !f.is_empty()).map(|(p, _)| p.clone()).collect()).unwrap_or_default());
         for p in &people {
-            self.keep_held(actor, ws, p).await;
+            self.keep_held(actor, ws, p).await?;
+        }
+        Ok(())
+    }
+
+    /// Revocation is immediate; failed preservation is retried from its durable metadata.
+    pub(crate) async fn finish_removed_files(&self) {
+        let _files = self.team_files.lock().await;
+        let pending: Vec<(String, String)> =
+            self.read(|s| s.team.all().flat_map(|w| w.held.keys().filter(|p| !w.members.contains_key(*p)).map(|p| (w.id.clone(), p.clone()))).collect());
+        for (ws, person) in pending {
+            match self.keep_held("kernel", &ws, &person).await {
+                Ok(()) => self.remove_held(&ws, &person).await,
+                Err(e) => tracing::warn!("preserving removed member's files in {ws}: {e:#}"),
+            }
         }
     }
 }

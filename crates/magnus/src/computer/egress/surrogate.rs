@@ -22,6 +22,10 @@ fn tokens(value: &str) -> Vec<&str> {
     value.match_indices(PREFIX).filter_map(|(at, _)| value.get(at..at + PREFIX.len() + TOKEN_CHARS)).filter(|t| t[PREFIX.len()..].bytes().all(|b| b.is_ascii_hexdigit())).collect()
 }
 
+fn secure_origin(tls: bool, port: u16) -> bool {
+    tls && port == 443
+}
+
 fn bound_to(pattern: &str, host: &str) -> bool {
     match pattern.strip_prefix("*.") {
         Some(suffix) => host.len() > suffix.len() + 1 && host.ends_with(suffix) && host.as_bytes()[host.len() - suffix.len() - 1] == b'.',
@@ -31,12 +35,15 @@ fn bound_to(pattern: &str, host: &str) -> bool {
 
 /// The head to send: with real credentials if every surrogate in it may be
 /// swapped here, or the reason not to send it at all. Nothing partial goes.
-pub(super) async fn swapped(k: &Kernel, computer: &str, mut head: Head, host: &str) -> Result<(Head, Scrubber), (Head, String)> {
+pub(super) async fn swapped(k: &Kernel, computer: &str, mut head: Head, host: &str, tls: bool, port: u16) -> Result<(Head, Scrubber), (Head, String)> {
     let Some(c) = k.read(|s| s.computers.get(computer).cloned()) else { return Ok((head, Scrubber::default())) };
     let mut swaps: Vec<(usize, String, String)> = vec![];
     for (index, (_, value)) in head.headers.iter().enumerate() {
         for token in tokens(value) {
             let Some(found) = c.surrogates.iter().find(|s| s.hash == hash(token)) else { continue };
+            if !secure_origin(tls, port) {
+                return Err((head, "real credentials require verified HTTPS on port 443".into()));
+            }
             if !bound_to(&found.host, host) {
                 let reason = format!("the credential {} is not for {host}", found.name);
                 return Err((head, reason));
@@ -81,7 +88,7 @@ pub(super) struct Scrubber {
 }
 
 impl Scrubber {
-    fn add(&mut self, real: String, token: String) {
+    pub(super) fn add(&mut self, real: String, token: String) {
         if real.len() >= MIN_ECHO_BYTES {
             self.pairs.push((real.into_bytes(), token.into_bytes()));
         }
@@ -148,6 +155,13 @@ const MIN_ECHO_BYTES: usize = 8;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn credentials_require_the_secure_origin() {
+        assert!(super::secure_origin(true, 443));
+        for (tls, port) in [(false, 80), (false, 443), (true, 80)] {
+            assert!(!super::secure_origin(tls, port));
+        }
+    }
     use super::*;
 
     #[test]

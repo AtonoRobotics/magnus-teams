@@ -229,7 +229,7 @@ impl Kernel {
             .await?;
             let live = self.live_text.clone();
             let rid = run_id.to_string();
-            let out = self.adapters.complete(adapter, model, &system, messages.clone(), tools.clone(), max_tokens, |t| live.send(&rid, t)).await;
+            let out = self.paid_complete(run_id, &run.person, adapter, model, &system, messages.clone(), tools.clone(), max_tokens, |t| live.send(&rid, t)).await;
             live.end(&rid);
             match out {
                 Ok(t) => {

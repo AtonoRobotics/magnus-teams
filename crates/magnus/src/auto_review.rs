@@ -98,6 +98,14 @@ fn cache_key(person: &str, tool: &str, destination: &Value, content_hash: &str, 
     hex::encode(h.finalize())
 }
 
+fn decision_hash(run: &str, document: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(run.as_bytes());
+    h.update([0]);
+    h.update(document.as_bytes());
+    hex::encode(h.finalize())
+}
+
 fn cached(key: &str) -> Option<Verdict> {
     let mut slot = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let map = slot.get_or_insert_with(HashMap::new);
@@ -175,7 +183,8 @@ impl Kernel {
         let (adapter, model) = self.default_model();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
         let reply =
-            tokio::time::timeout(REVIEW_TIMEOUT, self.adapters.complete(&adapter, &model, SYSTEM, messages, vec![review_tool()], CREDENTIAL_REVIEW_MAX_TOKENS, |_| {})).await;
+            tokio::time::timeout(REVIEW_TIMEOUT, self.paid_complete("", person, &adapter, &model, SYSTEM, messages, vec![review_tool()], CREDENTIAL_REVIEW_MAX_TOKENS, |_| {}))
+                .await;
         let Some(verdict) = reply.ok().and_then(|r| r.ok()).and_then(|out| verdict_of(&out.blocks)) else {
             return Verdict::Ask("Auto Review could not be reached".to_string());
         };
@@ -199,10 +208,6 @@ impl Kernel {
         let mut rules = self.policy_texts(&run.person, Some(&run.task));
         rules.extend(self.rule_texts(&run.person));
         let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
-        let key = cache_key(&run.person, &a.tool, &destination, content_hash, (run.untrusted, run.private), &version, standing);
-        if let Some(hit) = cached(&key) {
-            return Ok(hit);
-        }
         let asked = self.asked(&self.requester_run(run)).await.unwrap_or_default();
         let Some(finding) = self.outgoing_finding(a, run).await else {
             return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
@@ -210,6 +215,11 @@ impl Kernel {
         let doc = document(a, f.risk.as_str(), &destination, &asked, &rules, standing, finding.as_deref());
         if doc.len() > MAX_DOCUMENT_BYTES {
             return Ok(Verdict::Ask("the action is too large for Auto Review to read".to_string()));
+        }
+        // Read the current request and classifier finding before considering a hit.
+        let key = cache_key(&run.person, &a.tool, &destination, &decision_hash(&run.id, &doc), (run.untrusted, run.private), &version, standing);
+        if let Some(hit) = cached(&key) {
+            return Ok(hit);
         }
         let tool = review_tool();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
@@ -228,6 +238,22 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_reviews_do_not_cross_requests_effects_findings_or_runs() {
+        let a =
+            Action { run: "r".into(), call_id: "c".into(), step_id: "s".into(), tool: "mail__send".into(), input: json!({"body":"hi"}), issuer: crate::boundary::Issuer::Model };
+        let doc = |asked, effect, finding| document(&a, effect, &json!("bob"), asked, &[], "asked for by the person", finding);
+        let allowed = decision_hash("r", &doc("send it", "irreversible", None));
+        for other in [
+            decision_hash("r", &doc("do not send it", "irreversible", None)),
+            decision_hash("other-run", &doc("send it", "irreversible", None)),
+            decision_hash("r", &doc("send it", "financial", None)),
+            decision_hash("r", &doc("send it", "irreversible", Some("private attachment"))),
+        ] {
+            assert_ne!(allowed, other);
+        }
+    }
 
     fn review(decision: &str, reason: &str) -> Vec<Block> {
         vec![Block::ToolCall { id: "1".into(), name: "review".into(), input: json!({ "decision": decision, "reason": reason }) }]

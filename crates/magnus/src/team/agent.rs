@@ -237,6 +237,8 @@ impl Kernel {
     }
 
     async fn team_read(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
+        let _files = self.team_files.lock().await;
+        anyhow::ensure!(self.read(|s| s.team.role(&t.workspace, &t.requester).is_some_and(|r| r >= Role::Member)), "membership no longer permits file access");
         let name = a.input["name"].as_str().context("name is required")?;
         let known = self.read(|s| s.team.workspace(&t.workspace).is_some_and(|w| w.sees_file(name, &t.requester)));
         if !known || !fit_name(name) {
@@ -249,6 +251,8 @@ impl Kernel {
     /// A file built from what this run read under the requester's own
     /// entitlements stays with them until they share it.
     async fn team_write(self: &Arc<Self>, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
+        let _files = self.team_files.lock().await;
+        anyhow::ensure!(self.read(|s| s.team.role(&t.workspace, &t.requester).is_some_and(|r| r >= Role::Member)), "membership no longer permits file access");
         let name = a.input["name"].as_str().context("name is required")?;
         let content = a.input["content"].as_str().context("content is required")?;
         if !fit_name(name) || content.len() > MAX_TEAM_FILE_BYTES {

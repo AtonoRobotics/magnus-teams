@@ -109,7 +109,7 @@ async fn modules(AxState(k): K, h: HeaderMap) -> Response {
     models.extend(k.cfg.modules.model.iter().map(|x| x.model.clone()).filter(|x| *x != first));
     let acted = k.read(|s| {
         let mut n: HashMap<&str, usize> = HashMap::new();
-        for r in s.runs.values().filter(|r| lens.sight(&r.person) != Sight::Hidden) {
+        for r in s.runs.values().filter(|r| lens.run_sight(&r.id, &r.person) != Sight::Hidden) {
             *n.entry("lost_reset").or_default() += r.cuts.len();
             *n.entry("escalation").or_default() += r.escalated.is_some() as usize;
             *n.entry("reviewer").or_default() += r.reviewed as usize;
@@ -208,7 +208,7 @@ async fn runs(AxState(k): K, h: HeaderMap, Query(q): Query<RunQuery>) -> Respons
             .filter(|r| q.experiment.as_deref().is_none_or(|e| r.experiment.as_ref().is_some_and(|x| x.id == e)))
             .filter(|r| q.failure.as_deref().is_none_or(|f| failure(s, r, stall) == Some(f)))
             .filter(|r| ids.as_ref().is_none_or(|i| i.contains(&r.id)))
-            .filter_map(|r| lens.show(lens.sight(&r.person), summary(s, r, stall, &w)))
+            .filter_map(|r| lens.show(lens.run_sight(&r.id, &r.person), summary(s, r, stall, &w)))
             .collect()
     });
     list.truncate(q.limit.unwrap_or(500));
@@ -330,7 +330,7 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
     let req = dev!(k, h);
     let lens = k.lens(&req);
     // A run its person has not let developers see is, to them, no run.
-    let Some(run) = k.read(|s| s.runs.get(&id).cloned()).filter(|r| lens.sight(&r.person) != Sight::Hidden) else { return err(StatusCode::NOT_FOUND, "no such run") };
+    let Some(run) = k.read(|s| s.runs.get(&id).cloned()).filter(|r| lens.run_sight(&r.id, &r.person) != Sight::Hidden) else { return err(StatusCode::NOT_FOUND, "no such run") };
     // Another developer reads the run's shape, not the words of the calls
     // that are its person's alone (#257).
     let redact = req.id != run.person;
@@ -498,7 +498,7 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
     };
     let s = k.read(|s| summary(s, &run, k.cfg.observability.stall_minutes, &w));
     let v = json!({ "run": s, "steps": out, "actions": actions, "records": records, "harness": harness, "events": events.len() });
-    Json(lens.show(lens.sight(&run.person), v)).into_response()
+    Json(lens.show(lens.run_sight(&run.id, &run.person), v)).into_response()
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -511,12 +511,12 @@ struct LogQuery {
 async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<LogQuery>) -> Response {
     let req = dev!(k, h);
     let lens = k.lens(&req);
-    let Some(person) = k.read(|s| s.runs.get(&id).map(|r| r.person.clone())).filter(|p| lens.sight(p) != Sight::Hidden) else {
+    let Some(person) = k.read(|s| s.runs.get(&id).map(|r| r.person.clone())).filter(|p| lens.run_sight(&id, p) != Sight::Hidden) else {
         return err(StatusCode::NOT_FOUND, "no such run");
     };
     match k.run_events(&id).await {
         Ok(evs) => {
-            let sight = lens.sight(&person);
+            let sight = lens.run_sight(&id, &person);
             let redact = req.id != person;
             let call_tool = call_tools(&evs);
             let after = q.after.unwrap_or(0);
@@ -549,7 +549,7 @@ async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): 
 async fn grade(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
     let p = dev!(k, h);
     let lens = k.lens(&p);
-    if k.read(|s| s.runs.get(&id).is_none_or(|r| lens.sight(&r.person) == Sight::Hidden)) {
+    if k.read(|s| s.runs.get(&id).is_none_or(|r| lens.run_sight(&r.id, &r.person) == Sight::Hidden)) {
         return err(StatusCode::NOT_FOUND, "no such run");
     }
     let (Some(grader), Some(passed)) = (b["grader"].as_str(), b["passed"].as_bool()) else {
@@ -660,7 +660,7 @@ async fn experiments(AxState(k): K, h: HeaderMap) -> Response {
     let lens = k.lens(&p);
     let list: Vec<Value> = k.read(|s| {
         let mut by: BTreeMap<String, Vec<&Run>> = BTreeMap::new();
-        for r in s.runs.values().filter(|r| lens.sight(&r.person) != Sight::Hidden) {
+        for r in s.runs.values().filter(|r| lens.run_sight(&r.id, &r.person) != Sight::Hidden) {
             if let Some(t) = &r.experiment {
                 by.entry(t.id.clone()).or_default().push(r);
             }
@@ -697,7 +697,7 @@ async fn experiment(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q
         Err(e) => return internal(e),
     };
     let v = k.read(|s| {
-        let rs: Vec<&Run> = s.runs.values().filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id) && lens.sight(&r.person) != Sight::Hidden).collect();
+        let rs: Vec<&Run> = s.runs.values().filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id) && lens.run_sight(&r.id, &r.person) != Sight::Hidden).collect();
         if rs.is_empty() {
             return None;
         }
@@ -872,7 +872,7 @@ fn request_rows(s: &State, id: &str, w: &crate::recall::Words, lens: &Lens) -> V
         .runs
         .values()
         .filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id) && s.tasks.get(&r.task).is_some_and(|t| t.is_chat_turn()))
-        .filter_map(|r| lens.show(lens.sight(&r.person), request_trial(s, r, w)))
+        .filter_map(|r| lens.show(lens.run_sight(&r.id, &r.person), request_trial(s, r, w)))
         .collect();
     rows.sort_by_key(|v| (v["case"].as_str().unwrap_or_default().to_string(), v["config"].as_str().unwrap_or_default().to_string(), v["trial"].as_u64()));
     rows
@@ -891,7 +891,7 @@ fn compare(s: &State, id: &str, rows: &[Value], base: Option<&str>, w: &crate::r
         for r in s.runs.values() {
             let Some(t) = r.experiment.as_ref() else { continue };
             if t.id != id
-                && lens.sight(&r.person) != Sight::Hidden
+                && lens.run_sight(&r.id, &r.person) != Sight::Hidden
                 && cases.contains(t.case.as_str())
                 && s.tasks.get(&r.task).is_some_and(|t| t.is_chat_turn())
                 && r.created_at < mine
