@@ -77,6 +77,13 @@ pub struct Facts {
     pub reaches_self: bool,
 }
 
+impl<'a> From<&'a Facts> for ToolFacts<'a> {
+    /// What a policy sees of a tool.
+    fn from(f: &'a Facts) -> Self {
+        ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience }
+    }
+}
+
 /// Look up a tool by the name the model uses.
 pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
     if let Some(b) = tools::builtin(tool) {
@@ -134,17 +141,6 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
         return false;
     }
     f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer" || f.app == "local" || f.app == "connector" || f.app == "team"
-}
-
-/// Whether a sent search found mail: what `found` points at is not empty.
-fn found_at(read: &Value, found: &str) -> bool {
-    match read.pointer(found).unwrap_or(&Value::Null) {
-        Value::Null => false,
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
-        Value::String(s) => !s.trim().is_empty(),
-        _ => true,
-    }
 }
 
 pub fn has_rights(person: &Person, f: &Facts) -> bool {
@@ -668,7 +664,7 @@ impl Kernel {
         }
         let (untrusted, private) = (run.untrusted, run.private);
         let policies = self.read(|s| s.policies.clone());
-        let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
+        let facts = ToolFacts::from(f);
         let outcome = policy::decide(&policies, person, Some(&run.task), &facts, untrusted, private)?;
         // A policy's ask is no longer an ask of its own (spec rev 140): Auto
         // Review judges every boundary action. Only its denials stand here.
@@ -827,7 +823,7 @@ impl Kernel {
             return None;
         }
         let person = self.person(&run.person)?;
-        let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
+        let facts = ToolFacts::from(f);
         match policy::grant_covers(&g.cedar, &person, &facts) {
             Ok(true) => Some(g.id),
             Ok(false) => None,
@@ -855,89 +851,6 @@ impl Kernel {
         Ok(said.iter().flat_map(|t| tools::addresses_in(t)).collect())
     }
 
-    /// Read where an action goes from what it acts on, when its tool says
-    /// how (a draft's To, Cc and Bcc through `get_draft`, never the model's
-    /// words), with the person's own sign-in. Whatever stops the read stops
-    /// the action: nothing is sent to an address no one has seen.
-    async fn destinations(&self, a: &Action, f: &Facts, run: &Run, person: &Person) -> std::result::Result<Option<Shown>, String> {
-        let Some((c, d)) = f.connector.as_ref().and_then(|c| c.destinations.get(&f.remote).map(|d| (c, d))) else { return Ok(None) };
-        let nothing = format!("Nothing was sent to {}.", f.app);
-        let Some(id) = a.input.get(&d.id).filter(|v| !v.is_null()) else {
-            return Err(format!("{} names no {}, so who it goes to cannot be read. {nothing}", a.tool, d.id));
-        };
-        if self.read(|s| s.turned_off.contains(&person.id)) {
-            return Err(format!("{}'s account is turned off at the organisation's sign-in. {nothing}", person.id));
-        }
-        let secret = match &c.credential {
-            Some(_) => match self.connector_secret(c, &person.id).await {
-                Ok(Some(s)) => Some(s),
-                Ok(None) => {
-                    return Err(format!(
-                        "{} is not connected for the person this task is for (or their sign-in expired), so who {} goes to cannot be read. {nothing}",
-                        f.app, a.tool
-                    ))
-                }
-                Err(e) => return Err(format!("{e:#}. {nothing}")),
-            },
-            None => None,
-        };
-        let bearer = secret.as_ref().map(|s| s.expose());
-        // The preview read is authorized like any read (#184): its own
-        // access check, pin validation and policy decision, audited as a
-        // Decision of its own. Nothing read here reaches the model, but
-        // the read still goes to the provider, so a task layer forbidding
-        // it denies the send. Ask fails closed the same way: the send
-        // cannot show where it goes without the read.
-        let read_name = format!("{}__{}", f.app, d.read);
-        let Some(rf) = facts(self, &read_name) else {
-            return Err(format!("{}'s destination read {} is not a known classified tool, so who {} goes to cannot be read. {nothing}", f.app, d.read, a.tool));
-        };
-        if !has_rights(person, &rf) {
-            return Err(format!("{} does not have access to {} (identity-provider groups), so who {} goes to cannot be read. {nothing}", person.id, f.app, a.tool));
-        }
-        if let Err((why, _)) = self.check_pin(c, &rf, &person.id, &a.run).await {
-            return Err(format!("{why}, so who {} goes to cannot be read. {nothing}", a.tool));
-        }
-        let preview = Action {
-            run: a.run.clone(),
-            call_id: format!("preview:{}", a.call_id),
-            step_id: a.step_id.clone(),
-            tool: read_name.clone(),
-            input: json!({ d.id.as_str(): id }),
-            issuer: Issuer::Model,
-        };
-        let policies = self.read(|s| s.policies.clone());
-        let rfacts = ToolFacts { name: &rf.name, app: &rf.app, risk: rf.risk, audience: rf.audience };
-        match policy::decide(&policies, person, Some(&run.task), &rfacts, run.untrusted, run.private) {
-            Ok(Outcome::Allow { rule }) => self.decision(&preview, "allow", "destinations", "permitted", Some(rule)).await.map_err(|e| format!("{e:#}"))?,
-            Ok(Outcome::Deny { reason, rule }) => {
-                self.decision(&preview, "deny", "destinations", &reason, rule).await.map_err(|e| format!("{e:#}"))?;
-                return Err(format!("policy forbids the destination read ({read_name}): {reason}. {nothing}"));
-            }
-            Ok(Outcome::Ask { rule }) => {
-                self.decision(&preview, "deny", "destinations", &format!("policy asks before the destination read ({rule})"), Some(rule)).await.map_err(|e| format!("{e:#}"))?;
-                return Err(format!("policy asks before the destination read ({read_name}), so who {} goes to cannot be shown without it. {nothing}", a.tool));
-            }
-            Err(e) => return Err(format!("the destination read ({read_name}) cannot be judged: {e:#}. {nothing}")),
-        }
-        let args = json!({ d.id.as_str(): id });
-        let out = self.connector_call(c, &person.id, &f.app, bearer, &d.read, &args).await;
-        let read = match out {
-            Ok(o) if !o.is_error => o.structured.or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null),
-            Ok(o) => return Err(format!("{} could not read {id} to see who {} goes to: {}. {nothing}", f.app, a.tool, o.text)),
-            Err(crate::apps::CallError::NotSent(m) | crate::apps::CallError::Unknown(m) | crate::apps::CallError::BadAnswer(m)) => {
-                return Err(format!("{} could not be read to see who {} goes to: {m}. {nothing}", f.app, a.tool))
-            }
-            Err(crate::apps::CallError::NeedsScope(_)) => return Err(format!("{} wants more access to read who {} goes to. {nothing}", f.app, a.tool)),
-        };
-        let field = |p: &String| (p.rsplit('/').next().unwrap_or_default().to_string(), read.pointer(p).cloned().unwrap_or(Value::Null));
-        let recipients: std::collections::BTreeMap<String, Vec<String>> = d.recipients.iter().map(field).map(|(k, v)| (k, tools::addresses(&v))).collect();
-        if recipients.values().all(|v| v.is_empty()) {
-            return Err(format!("{id} names no recipients at {}, so {} would reach no one Magnus can show. {nothing}", f.app, a.tool));
-        }
-        Ok(Some(Shown { recipients, content: d.content.iter().map(field).collect(), bound: d.bound.iter().map(field).collect() }))
-    }
-
     /// Call a read tool of a connector through the person's own sign-in, as
     /// the gate reads a draft: over whatever transport it uses.
     pub(crate) async fn connector_call(
@@ -956,81 +869,6 @@ impl Kernel {
         } else {
             self.mcp.call(&c.url, bearer, read, args, None).await
         }
-    }
-
-    /// Whether the person has mailed `address` before (#210): the
-    /// manifest's sent search, through their own sign-in. Whatever stops
-    /// the read counts as not mailed: the send asks rather than passing on
-    /// an unchecked claim.
-    async fn mailed_before(&self, a: &Action, f: &Facts, run: &Run, person: &Person, address: &str) -> Result<bool> {
-        let (Some(c), Some(s)) = (f.connector.as_ref(), f.connector.as_ref().and_then(|c| c.sent.as_ref())) else { return Ok(false) };
-        if self.read(|s| s.turned_off.contains(&person.id)) {
-            return Ok(false);
-        }
-        let secret = match &c.credential {
-            Some(_) => match self.connector_secret(c, &person.id).await {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::warn!("sent mail for {}: {e:#}", person.id);
-                    return Ok(false);
-                }
-            },
-            None => None,
-        };
-        let bearer = secret.as_ref().map(|s| s.expose());
-        // The sent search is authorized like any read (#371): its own
-        // access check, pin validation and policy decision, audited as a
-        // Decision of its own, as for destination previews (#184).
-        // Whatever stops the read counts as not mailed.
-        let read_name = format!("{}__{}", f.app, s.read);
-        let Some(rf) = facts(self, &read_name) else {
-            tracing::warn!("sent mail for {}: {read_name} is not a known classified tool", person.id);
-            return Ok(false);
-        };
-        if !has_rights(person, &rf) {
-            tracing::warn!("sent mail for {}: no access to {}", person.id, f.app);
-            return Ok(false);
-        }
-        if let Err((why, _)) = self.check_pin(c, &rf, &person.id, "").await {
-            tracing::warn!("sent mail for {}: {why}", person.id);
-            return Ok(false);
-        }
-        let query = s.query.replace("{address}", address);
-        let search = Action {
-            run: a.run.clone(),
-            call_id: format!("sent:{}", a.call_id),
-            step_id: a.step_id.clone(),
-            tool: read_name.clone(),
-            input: json!({ s.input.as_str(): query }),
-            issuer: Issuer::Model,
-        };
-        let policies = self.read(|s| s.policies.clone());
-        let rfacts = ToolFacts { name: &rf.name, app: &rf.app, risk: rf.risk, audience: rf.audience };
-        match policy::decide(&policies, person, Some(&run.task), &rfacts, run.untrusted, run.private) {
-            Ok(Outcome::Allow { rule }) => self.decision(&search, "allow", "mailed_before", "permitted", Some(rule)).await?,
-            Ok(Outcome::Deny { reason, rule }) => {
-                self.decision(&search, "deny", "mailed_before", &reason, rule).await?;
-                return Ok(false);
-            }
-            Ok(Outcome::Ask { rule }) => {
-                self.decision(&search, "deny", "mailed_before", &format!("policy asks before the sent search ({rule})"), Some(rule)).await?;
-                return Ok(false);
-            }
-            Err(e) => {
-                tracing::warn!("sent mail for {}: the search cannot be judged: {e:#}", person.id);
-                return Ok(false);
-            }
-        }
-        let args = json!({ s.input.as_str(): query });
-        let out = self.connector_call(c, &person.id, &f.app, bearer, &s.read, &args).await;
-        let read = match out {
-            Ok(o) if !o.is_error => o.structured.or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null),
-            _ => {
-                tracing::warn!("sent mail for {}: the search would not answer", person.id);
-                return Ok(false);
-            }
-        };
-        Ok(found_at(&read, &s.found))
     }
 
     async fn call(self: &Arc<Self>, a: &Action, f: &Facts, bearer: Option<&str>, key: &str, stops: u64) -> std::result::Result<(String, bool, Option<Value>), CallFailure> {

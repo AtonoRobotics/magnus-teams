@@ -230,7 +230,7 @@ impl Kernel {
             return None;
         }
         let person = self.person(&run.person)?;
-        let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
+        let facts = ToolFacts::from(f);
         let rules = self.rules_for(&run.person);
         rules.into_iter().filter(|r| r.live() && r.effect() == Effect::Allow).find_map(|r| {
             let cedar = r.compiled.as_ref()?.cedar.clone();

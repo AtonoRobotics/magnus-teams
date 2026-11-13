@@ -53,7 +53,7 @@ impl Kernel {
     /// The person's own block or ask-first rule that takes in this action.
     pub(crate) fn stopping_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<Rule> {
         let person = self.person(&run.person)?;
-        let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
+        let facts = ToolFacts::from(f);
         strongest(self.rules_for(&run.person), &person, &facts, &crate::rules::destinations_of(a, shown))
     }
 
