@@ -105,7 +105,8 @@ async fn read_backs_may_only_read() {
     // A read-back that would write: the server refuses the configuration.
     let writer = crm_spec(&crm).read_back("crm", "set_status", "claim_status", &[("id", "/input/id")], &[]);
     let model = FakeModel::start(steps(vec![fail("unexpected turn")])).await;
-    let started = tokio::time::timeout(Duration::from_secs(60), tokio::spawn(async move { Appliance::start(writer, &model).await })).await.expect("the server neither started nor refused");
+    let started =
+        tokio::time::timeout(Duration::from_secs(60), tokio::spawn(async move { Appliance::start(writer, &model).await })).await.expect("the server neither started nor refused");
     assert!(started.is_err(), "the server started with a read-back that writes");
 }
 
@@ -140,9 +141,13 @@ async fn a_sent_email_ends_with_a_receipt_and_a_read_back_and_no_contract() {
     let mail = mailbox().start().await;
     let send = tool("mail__send", json!({ "to": "bob@corp.example", "subject": "Q3 numbers", "body": "Attached are the Q3 numbers." }));
     let model = FakeModel::start(steps(vec![send, complete("Sent Bob the Q3 numbers."), fail("unexpected turn")])).await;
-    let spec = Spec::default()
-        .app("mail", &mail, "public", "private", &[("send", "irreversible"), ("get_message", "read")])
-        .read_back("mail", "send", "get_message", &[("message_id", "/result/message_id")], &[("/input/to", "/to"), ("/input/subject", "/subject")]);
+    let spec = Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible"), ("get_message", "read")]).read_back(
+        "mail",
+        "send",
+        "get_message",
+        &[("message_id", "/result/message_id")],
+        &[("/input/to", "/to"), ("/input/subject", "/subject")],
+    );
     let app = Appliance::start(spec, &model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());

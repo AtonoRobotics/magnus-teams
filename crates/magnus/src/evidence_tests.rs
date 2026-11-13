@@ -94,3 +94,10 @@ fn the_status_line_follows_the_plan_or_the_last_action() {
     s.apply(&ev(5, "kernel", json!({ "kind": "completed", "run": "r1", "summary": "done" })));
     assert_eq!(status_line(&s.runs["r1"]), None);
 }
+
+#[test]
+fn a_tool_name_that_starts_with_a_wide_letter_is_said_without_a_panic() {
+    assert_eq!(doing("éditer_fiche"), "Éditer fiche");
+    assert_eq!(doing("crm__ébauche"), "Ébauche in crm");
+    assert_eq!(doing(""), "");
+}

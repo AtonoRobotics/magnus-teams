@@ -27,6 +27,25 @@ function receiptRow(r) {
   return `<li data-receipt="${esc(r.call_id)}"><div>${esc(r.what)}</div><div class="small faint">${esc(r.tool)} · ${esc(when(r.at))}</div>${readBackLine(r.read_back)}</li>`;
 }
 
+// A running task's status line changes with every step it takes. Drawn into
+// the card's HTML, each step changed the conversation's HTML and the whole
+// thread was redrawn on every poll (0.2.6-test.109: the chat window kept
+// refreshing). The card holds a fixed slot; the line is set in place.
+/** @type {Record<string, string>} */
+const StatusLines = {};
+/** @param {{ task_id: string, status_line?: string|null }} t @param {string} cls */
+function statusLineSlot(t, cls) {
+  StatusLines[t.task_id] = t.status_line || "Working on it";
+  return `<span class="${cls}" data-status-line="${esc(t.task_id)}">Working on it</span>`;
+}
+/** @param {ParentNode|null|undefined} root */
+function liveStatusLines(root) {
+  for (const el of root?.querySelectorAll?.("[data-status-line]") || []) {
+    const line = StatusLines[el.dataset.statusLine];
+    if (line && el.textContent !== line) el.textContent = line;
+  }
+}
+
 // The result's evidence, after the deliverable: receipts with their
 // read-backs, sources, and anything not done.
 /** @param {{ evidence?: Evidence }} t */
