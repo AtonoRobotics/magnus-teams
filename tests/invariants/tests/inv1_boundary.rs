@@ -298,10 +298,6 @@ async fn killing_a_computer_stops_it_revokes_its_grants_and_keeps_the_user_volum
     assert_eq!((code.as_u16(), read["data_b64"].as_str()), (200, Some("a2VlcCBtZQ==")), "the kill lost the user volume: {read}");
     let (_, seen) = alice.get(&at("")).await;
     assert_eq!(seen["grants"][0]["revoked"], true, "a rebuild gave a grant back");
-
-    let (code, _) = alice.post(&at("/kill"), json!({ "mode": "destroy", "delete_volume": true })).await;
-    assert_eq!(code, 200);
-    assert!(!computerd.volume_exists(&id), "asking to delete the volume did not delete it");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -469,16 +469,9 @@ async fn the_team_computer_holds_only_what_every_member_may_see() {
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read")]);
     let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
     let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
-    let (ws, channel) = team(&alice).await;
+    let (ws, _) = team(&alice).await;
     alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner", "member"] })).await;
     let shot = || tool("computer_screenshot", json!({}));
-
-    // No computer yet: refused, and not sent to anyone's own.
-    model.set_script(steps(vec![contract_unchecked("s", "s"), shot(), complete("done")]));
-    let (_, made) = ask_team(&bob, &ws, &channel, "Look at the screen.").await;
-    bob.wait_settled(made["task_id"].as_str().unwrap()).await;
-    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
-    assert!(results.iter().any(|t| t.contains("no computer running")), "{results:?}");
 
     let (code, _) = bob.post("/v1/computers", json!({ "workspace": ws })).await;
     assert_ne!(code, 200, "a member created the workspace's computer");

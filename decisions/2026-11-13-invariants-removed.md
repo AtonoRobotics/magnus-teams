@@ -23,3 +23,5 @@ Two tests fail, and neither patch touches them:
 - inv1 `a_computer_reaches_only_declared_destinations_even_as_root` fails with "Broken pipe" on the harness's command into the guest. It passed in the run before, so this is the same intermittent dropped guest connection after a cold boot.
 
 **Proven again** on main `b0acf61`, in the same way: 121 of 123 pass, including every changed test. inv1 passed this time. The failures were `desktop_screens` at line 88, and inv2 `an_attachment_opens_only_in_a_per_run_sandbox`, where writing a file into a freshly booted computer was refused (`inv2_credentials.rs:489`). inv2 passed in the run at `fe18577`, and neither patch touches it. It is the same intermittent guest connection as inv1's.
+
+**Applied** to `tests/invariants/` on 2026-11-13, after the six-invariant patch (branch `inv-no-contracts`, on the owner's "Approve the invariants rewrite."); the patch file is removed.
