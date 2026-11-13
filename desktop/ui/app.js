@@ -1376,122 +1376,18 @@ function chosenModel(root) {
 
 // ---------- Chat ----------
 
-// A message is answered, or becomes a task or a schedule to confirm: the
-// model decides. A conversation goes on until the person starts a new one;
-// opening Magnus returns to the latest. What it starts shows in the thread
-// as it goes: tasks with their status, the decisions they wait on (the same
-// cards as under Needs you), schedules, results and their files.
-function composer(placeholder, picker) {
-  return `<form id="say" class="say"><label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}" required></textarea>
-    <div class="row small" id="pending"></div>
-    <div class="say-bar">${picker}<span class="grow"></span>${attachButton("Attach files", true)}<button class="send" id="send" aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
-}
-// Files added to the next message: uploaded at once, sent with it. What is
-// typed and attached stays with this conversation while the person moves
-// around the app (#544).
-function wireComposer(thread, project, record) {
-  const form = $("#say"), box = $("#msg",form), pending = $("#pending",form), input = $("[data-attach]",form), epoch = MessageDrafts.epoch();
-  let replacing = null, active = true;
-  box.value = record.text;
-  const model = $("[data-model]",form);
-  if (record.model && record.modelUnder === model.dataset.default && [...model.options].some(o => o.value === record.model)) model.value = record.model;
-  const fit = () => { box.style.height = "auto"; box.style.height = `${Math.min(box.scrollHeight, innerHeight / 3)}px`; };
-  const selected = () => { record.selection = [box.selectionStart,box.selectionEnd]; };
-  const read = (selection=true) => { record.text = box.value; record.model = model?.value || ""; record.modelUnder = model?.dataset.default || ""; if(selection)selected(); };
-  const chips = () => record.files.map(f => `<span class="attachment-chip" data-upload="${esc(f.uid)}"><span>${esc(f.name)}</span><span class="small muted">${esc(f.state === "ready" ? "Ready" : f.state === "uploading" ? "Uploading…" : f.state === "unavailable" ? "Unavailable" : "Failed")}</span>${f.error ? `<span class="small">${esc(f.error)}</span>` : ""}${["failed","unavailable"].includes(f.state) ? `<button type="button" data-retry-upload="${esc(f.uid)}">Retry</button>` : ""}<button type="button" class="icon-btn" data-remove-upload="${esc(f.uid)}" aria-label="Remove ${esc(f.name)} from message" title="Remove ${esc(f.name)} from message">${icon("close")}</button></span>`).join("");
-  // The record is shared by every composer mounted on this conversation:
-  // a send that finishes after the person left and came back updates the
-  // one now showing, and a send in flight stays in flight there too.
-  const show = () => {
-    if (!active || !form.isConnected) return;
-    if (box.value !== record.text) { box.value = record.text; fit(); }
-    paint(pending,chips());
-    $("#send",form).disabled = !!record.sending || record.files.some(f => f.state !== "ready");
-  };
-  const unsubscribe = MessageDrafts.subscribe(show);
-  async function startUpload(slot, file) {
-    const currentEpoch = MessageDrafts.epoch(); slot.state = "uploading"; delete slot.error;
-    MessageDrafts.originals.set(slot.uid,file); MessageDrafts.changed();
-    try {
-      const [ref] = await upload([file],record.thread ? {thread:record.thread} : record.project ? {project:record.project} : {});
-      if (currentEpoch !== MessageDrafts.epoch() || !record.files.includes(slot)) return;
-      Object.assign(slot,{id:ref.id,name:ref.name,media_type:ref.media_type,size:ref.size,state:"ready"});
-    } catch (err) {
-      if (currentEpoch !== MessageDrafts.epoch() || !record.files.includes(slot)) return;
-      slot.state = "failed"; slot.error = err.message || "Upload failed. Retry or remove this file.";
-    }
-    MessageDrafts.changed();
-  }
-  input.onchange = e => {
-    const files = [...e.target.files]; e.target.value = "";
-    for (const [i,file] of files.entries()) {
-      const slot = i === 0 && replacing ? record.files.find(f => f.uid === replacing) : null;
-      const item = slot || {uid:MessageDrafts.uid(),name:file.name,media_type:file.type,size:file.size,state:"uploading"};
-      if (!slot) record.files.push(item);
-      item.name = file.name; startUpload(item,file);
-    }
-    replacing = null;
-  };
-  pending.onclick = e => {
-    const remove = e.target.closest("[data-remove-upload]"), retry = e.target.closest("[data-retry-upload]");
-    // Removing a file takes it off this message; the shared file stays in Files.
-    if (remove) { const uid=remove.dataset.removeUpload; record.files=record.files.filter(f=>f.uid!==uid); MessageDrafts.originals.delete(uid); MessageDrafts.changed(); }
-    if (retry) {
-      const uid=retry.dataset.retryUpload, slot=record.files.find(f=>f.uid===uid), original=MessageDrafts.originals.get(uid);
-      if (original) startUpload(slot,original); else { replacing=uid; input.click(); }
-    }
-  };
-  box.oninput = () => { read(); fit(); };
-  box.onselect = selected;
-  model?.addEventListener("change",read);
-  // Enter sends; Shift+Enter and an input method's Enter do not.
-  box.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); form.requestSubmit(); } };
-  form.onsubmit = async e => {
-    e.preventDefault(); read();
-    const text=record.text.trim(); if (!text || record.sending) return;
-    if (record.files.some(f=>f.state!=="ready")) { toast("Wait for uploads, or retry/remove unavailable files before sending."); return; }
-    const files=[...record.files], body={text, model:chosenModel(form), files:files.map(f=>f.id)};
-    if (record.thread) body.thread=record.thread; else if (record.project) body.project=record.project;
-    record.sending=true; MessageDrafts.changed();
-    try {
-      const response=await api("POST","/v1/chat",body);
-      if (epoch !== MessageDrafts.epoch()) return;
-      // A secret typed into chat was hidden by the server: say so, and where a sign-in belongs.
-      if (response?.hidden?.length) toast(`Magnus hid the ${[...new Set(response.hidden)].join(" and ")} in your message: it is not kept, and Magnus never sees it. When Magnus needs a sign-in, it asks for it through a secure form.`, 8000);
-      // Clear what was sent; anything typed or attached meanwhile stays.
-      if (record.text.trim()===text) { record.text=""; record.selection=[0,0]; }
-      record.files=record.files.filter(f=>!files.includes(f));
-      if (!record.thread && response?.thread) {
-        MessageDrafts.discard(record.id);
-        const next=MessageDrafts.forThread(response.thread); next.text=record.text; next.files=record.files; next.model=record.model; next.modelUnder=record.modelUnder;
-        if (App.workspace && App.draftRecord === record) { history.replaceState(history.state,"",`#/chat/${enc(response.thread)}`); record.sending=false; await go(); return; }
-      }
-      await refresh();
-    } catch (err) {
-      if (epoch !== MessageDrafts.epoch()) return;
-      // The message stays in the box. A lost response may still have been
-      // accepted, so say so and never send it again by itself (UX-08).
-      const rejected=err.status>=400 && err.status<500 && typeof err.body?.error === "string";
-      toast(rejected ? err.message : "Send outcome not confirmed. Your message is still here; check the conversation before sending it again.");
-      if (!rejected) refresh().catch(()=>{});
-    } finally { record.sending=false; MessageDrafts.changed(); }
-  };
-  onLeave(() => { if (active) { read(false); active=false; unsubscribe(); } });
-  // Only a missing/expired reference is marked unavailable. A connection
-  // failure does not silently turn a valid attachment into a missing one.
-  for (const f of record.files.filter(f=>f.state==="ready")) api("GET",`/v1/files/${enc(f.id)}/info`).catch(err=>{
-    if ([404,410].includes(err.status) && epoch===MessageDrafts.epoch() && record.files.includes(f)) { f.state="unavailable"; f.error="Select the file again or remove it."; MessageDrafts.changed(); }
-  });
-  fit(); show();
-  box.setSelectionRange(...(record.selection || [box.value.length,box.value.length]));
-}
+// The chat is the one chat view (chat-view.js) with the personal
+// conversation (personal-chat.js) and the one composer (chat-composer.js).
+// A conversation goes on until the person starts a new one; opening Magnus
+// returns to the latest.
 
-// Lays out a conversation; false when the person moved on while it loaded.
+// Lays out a conversation; its view, or false when the person moved on
+// while it loaded.
 async function chatLayout(main, thread, project) {
   const seq = App.seq;
   App.thread = thread;
   sidebar();
-  paint(main, `<section class="conv"><header class="conv-head" id="conv-head"></header><div id="banners"></div><div id="thread" class="thread" aria-live="off"></div><button type="button" class="jump-latest" data-jump-latest hidden>New activity · Jump to latest</button><div id="composer"></div></section>`);
+  paint(main, ChatView.layout({ banners: true }));
   convHead(thread, project);
   banners();
   $("#banners", main).onclick = e => {
@@ -1504,15 +1400,9 @@ async function chatLayout(main, thread, project) {
   paint($("#composer", main), composer(thread ? "Reply, or give Magnus more to do" : "Ask anything, or give Magnus work to do", picker));
   const record = MessageDrafts.forThread(thread,project);
   App.draftRecord = record;
-  wireComposer(thread, project,record);
-  $("[data-jump-latest]",main).onclick = () => {
-    const root=$("#thread",main); root.scrollTop=root.scrollHeight; ReadingAnchors.remember(root);
-    record.anchor={follow:true}; $("[data-jump-latest]",main).hidden=true;
-  };
-  onLeave(ReadingAnchors.watch($("#thread",main),record));
-  return true;
+  wireComposer($("#say", main), record, personalComposer());
+  return ChatView.mount(main, personalChat(thread), { framed: true, record });
 }
-
 // Above the conversation: its project (a link to it) and its title, and
 // what can be done to the whole conversation.
 function convHead(thread, project) {
@@ -1534,160 +1424,11 @@ async function showNewChat(main, project) {
 }
 
 async function showThread(main, thread) {
-  if (!await chatLayout(main, thread, null)) return;
-  // An answer being written shows as it streams; `live` holds its text so far.
-  const ui = { editing: null, sharing: null, declining: null, people: [], live: {} };
-  const listening = {};
-  const listen = entries => {
-    const running = new Set(entries.filter(e => e.kind === "turn" && e.status === "running").map(e => e.task_id));
-    for (const id of running) if (!listening[id]) listening[id] = Magnus.live(id, t => {
-      ui.live[id] = (ui.live[id] || "") + t;
-      const el = $(`[data-live="${CSS.escape(id)}"]`, main);
-      if(el){
-        const root=$("#thread",main), followed=ReadingAnchors.capture(root)?.follow;
-        ReadingAnchors.hold(root,()=>{patchLive(el,ui.live[id]);loadMarkdownImages(el);});
-        if(!followed)$("[data-jump-latest]",main).hidden=false;
-      }
-    });
-    for (const id of Object.keys(listening)) if (!running.has(id)) { listening[id](); delete listening[id]; delete ui.live[id]; }
-  };
-  let shown = [], drawRevision=0;
-  onLeave(()=>Resources.forget("Conversation"));
-  const draw = async () => {
-    const revision=++drawRevision;
-    const entries = await Resources.read("Conversation", `/v1/chat/${enc(thread)}`, "entries");
-    if (!entries || revision!==drawRevision) return;
-    if (App.thread !== thread) return;
-    shown = entries;
-    // A decision the thread now waits on, not read yet: read the inbox first.
-    const waits = entries.flatMap(e => e.kind === "tasks" ? e.tasks.map(t => t.waiting_item) : e.kind === "sub_agents" ? e.agents.map(a => a.waiting_item) : [e.waiting_item]).filter(Boolean);
-    if (waits.some(id => !App.inbox.some(i => i.id === id))) await pollInbox();
-    convHead(thread);
-    ui.composed = [];
-    // A result that comes after the person has moved on (a message of theirs
-    // since the task started) quotes what they asked.
-    ui.movedOn = new Set();
-    const startedAt = {};
-    let lastMessage = -1;
-    entries.forEach((e, i) => {
-      if (e.kind === "message") lastMessage = i;
-      if (e.kind === "tasks") for (const t of e.tasks) startedAt[t.task_id] = i;
-      if (e.kind === "result" && startedAt[e.task_id] !== undefined && lastMessage > startedAt[e.task_id]) ui.movedOn.add(e.task_id);
-    });
-    const body = entries.map(e => `<div class="entry ${e.kind === "message" ? "me" : "them"}" data-entry="${esc(e.id || "")}" data-kind="${esc(e.kind)}">${entry(e, ui)}${msgActions(e, ui)}</div>`).join("");
-    const el = $("#thread", main);
-    if (!el) return;
-    const anchor = ui.drawn ? ReadingAnchors.capture(el) : App.draftRecord?.anchor || {follow:true};
-    const newActivity = ui.entryIds && entries.some(e=>e.id && !ui.entryIds.has(e.id));
-    ui.entryIds=new Set(entries.map(e=>e.id)); ui.drawn=true;
-    const grew = paint(el, body); liveStatusLines(el);
-    ReadingAnchors.restore(el,anchor); ReadingAnchors.remember(el,anchor);
-    if (newActivity && !anchor.follow) $("[data-jump-latest]",main).hidden=false;
-    bindConnectorActs(el);
-    keepHeights(el);
-    motion(el, ui);
-    for (const e of entries.filter(e => e.view)) fill($(`iframe[data-shown="${CSS.escape(e.id)}"]`, main), e.view, e.task_id);
-    for (const [id, view, , task] of ui.composed) fill($(`iframe[data-view="${CSS.escape(id)}"]`, el), view, task);
-    listen(entries);
-    loadGlimpses(el);
-
-  };
-  const path = (id, act) => `/v1/chat/${enc(thread)}/entries/${enc(id)}/${act}`;
-  const msgAct = async (b, el) => {
-    const id = el.dataset.entry, e = shown.find(x => x.id === id), act = b.dataset.msgAct;
-    if (!e) return;
-    switch (act) {
-      case "copy": await copyText(entryText(e)); return toast("Copied.");
-      case "edit": drafts[`edit-${id}`] = e.text; ui.editing = id; return draw();
-      case "edit-cancel": ui.editing = null; return draw();
-      case "edit-send": {
-        const text = $(`#edit-${CSS.escape(id)}`, main).value.trim();
-        if (!text) return toast("Write the message first.");
-        b.disabled = true; await api("POST", path(id, "resend"), { text }); ui.editing = null; delete drafts[`edit-${id}`]; return draw();
-      }
-      case "retry": b.disabled = true; await api("POST", path(id, "resend"), {}); return draw();
-      case "branch": { const r = await api("POST", path(id, "branch"), {}); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; return; }
-      case "share": ui.people = (await api("GET", "/v1/directory")).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw();
-      case "share-cancel": ui.sharing = null; return draw();
-      case "share-send": {
-        const to = $("[data-share-to]", el).value;
-        b.disabled = true; await api("POST", path(id, "share"), { person: to }); ui.sharing = null;
-        toast(`Shared with ${ui.people.find(p => p.id === to)?.name || to}.`); return draw();
-      }
-      case "export": return toast(`Saved ${await Magnus.download(path(id, "export"), safeName(e))}`);
-      case "save": await api("POST", path(id, "save"), {}); return toast("Saved to Files.");
-      case "listen": return readAloud(api("POST",path(id,"spoken"),{}).then(r=>r.script),id);
-      case "hush": return hush();
-      case "feedback": {
-        const d = document.createElement("dialog"); d.className = "feedback-dialog"; d.setAttribute("aria-label", "Feedback");
-        d.innerHTML = `<h2>Feedback</h2>${e.task_id ? verdictBar(e.task_id, e.verdict) : ""}<div class="row">${["great", "annoying"].map(a => `<button data-msg-act="${a}" aria-pressed="${e.reaction === a}">${a === "great" ? "That was great" : "That was annoying"}</button>`).join("")}</div><button data-close-feedback>Close feedback</button>`;
-        d.onclick = async event => { const action=event.target.closest("[data-msg-act]");if(event.target.closest("[data-close-feedback]"))d.close();if(action){const status=document.createElement("p");status.className="small";status.setAttribute("role","status");status.textContent="Saving feedback…";d.append(status);try{await msgAct(action,el);d.close();}catch(err){status.textContent="Feedback was not confirmed. Try again when connected.";toast(err.message);action.disabled=false;}} };
-        d.onclose = () => { d.remove(); $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, main)?.focus({preventScroll:true}); };
-        document.body.append(d); d.showModal(); return;
-      }
-      case "great": case "annoying": b.disabled = true; await api("POST", path(id, "reaction"), { reaction: e.reaction === act ? null : act }); return draw();
-      case "task": { const r = await api("POST", path(id, "task"), {}); toast("Started a task."); await refresh(); return r; }
-      case "delete":
-        if (!await ask("Delete this message? It leaves this chat and what Magnus reads next, and waits in the trash until it is gone for good.", "Delete")) return;
-        await api("POST", path(id, "delete"), {}); await draw();
-        const heading = $("#conv-head h1"); if (heading) { heading.tabIndex = -1; heading.focus({preventScroll:true}); } return;
-    }
-  };
-  App.redraw = draw;
-  onLeave(() => { App.redraw = null; listen([]); hush(); });
-  $("#thread", main).onclick = async e => {
-    const m = e.target.closest("[data-msg-act]");
-    if (m) { try { await msgAct(m, m.closest("[data-entry]")); } catch (err) { toast(err.message); m.disabled = false; } return; }
-
-    // The live cards' buttons act directly, not through Magnus.
-    const ta = e.target.closest("[data-task-act]"), sa = e.target.closest("[data-sched-act]");
-    if (ta || sa) {
-      e.preventDefault();
-      const el = ta || sa;
-      el.disabled = true;
-      try {
-        if (ta) {
-          if (!await ask("Stop this task? What it already did stays done.", "Stop")) { el.disabled = false; return; }
-          await api("POST", `/v1/tasks/${enc(ta.dataset.task)}/cancel`, {}); toast("Stopped.");
-        } else {
-          const id = enc(sa.dataset.scheduleId), k = sa.dataset.schedAct;
-          if (k === "cancel") {
-            const ended = App.schedules.find(x => x.id === sa.dataset.scheduleId)?.ended;
-            if (!await ask(ended ? "Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks." : "Cancel this schedule? No more of its runs start, and a run still going stops.", ended ? "Delete schedule" : "Cancel schedule")) { el.disabled = false; return; }
-            await api("DELETE", `/v1/schedules/${id}`); toast(ended ? "The schedule is deleted." : "The schedule is cancelled.");
-          } else { await api("POST", `/v1/schedules/${id}/${k}`, {}); toast(k === "pause" ? "Paused." : "Resumed."); }
-        }
-        await refresh();
-      } catch (err) { toast(err.message); el.disabled = false; }
-      return;
-    }
-    const b = e.target.closest("[data-decide]");
-    if (!b) return;
-    const card = b.closest("[data-card]").dataset.card, decision = b.dataset.decide;
-    // Decline asks for the reason first; Magnus reads it before suggesting again.
-    if (decision === "decline-open" || decision === "decline-cancel") { ui.declining = decision === "decline-open" ? card : null; return draw(); }
-    const body = { decision };
-    // A grant card accepted: the grant as the person set it in the form.
-    const box = b.closest("[data-card]");
-    if (box.matches(".grant") && decision === "confirm") {
-      Object.assign(body, readGrantForm(box));
-      if (!body.apps.length) return toast("Choose at least one app.");
-    }
-    const no = decision === "decline";
-    if (no) {
-      body.reason = ($(`#why-${CSS.escape(card)}`, main)?.value || "").trim();
-      if (!body.reason) return toast("Say why, so Magnus knows.");
-    }
-    b.disabled = true;
-    try {
-      const r = await api("POST", `/v1/chat/cards/${enc(card)}`, body);
-      toast(no ? "Declined." : decision === "later" ? "Not now." : r.grant ? "Granted." : r.task ? "Started." : "Scheduled.");
-      ui.declining = null; delete drafts[`why-${card}`];
-      for (const k of Object.keys(drafts)) if (k.startsWith(`g-${card}-`)) delete drafts[k];
-      await refresh();
-    } catch (err) { toast(err.message); b.disabled = false; }
-  };
-  await draw();
+  const view = await chatLayout(main, thread, null);
+  if (!view) return;
+  App.redraw = view.draw;
+  onLeave(() => { App.redraw = null; view.conv.stop(); hush(); });
+  await view.draw();
 }
 
 // Open a conversation in place, with `panel` beside it. Replacing the
@@ -1773,9 +1514,9 @@ function standing(t) {
 function taskCard(t) {
   const why = t.status === "suspended" ? esc(WAITING[t.waiting_on] || "") : t.status === "running" ? statusLineSlot(t, "sub why") : "";
   const [ic, pill] = standing(t);
-  return `<li class="tcard" data-chat-task="${esc(t.task_id)}" data-status="${esc(t.status)}"><a class="rg-row${Panel.what === `task:${t.task_id}` ? " open" : ""}" href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}" title="${esc(t.text)}">
-    <span class="st ${ic}">${icon(ic)}</span><span class="rg-main"><span class="ttl">${esc(t.title)}</span>${t.status === "running" ? why : why ? `<span class="sub why">${why}</span>` : `<span class="sub">${esc(firstLine(t.text))}</span>`}</span>${pill}${icon("chev", "chev")}</a>
-    ${ENDED.includes(t.status) ? "" : `<div class="card-acts"><button class="link small" data-task-act="cancel" data-task="${esc(t.task_id)}">Stop</button></div>`}</li>`;
+  return ChatView.workRow({ id: t.task_id, status: t.status, icon: ic, pill, title: t.title, tip: t.text,
+    sub: t.status === "running" ? why : why ? `<span class="sub why">${why}</span>` : `<span class="sub">${esc(firstLine(t.text))}</span>`,
+    href: `#/task/${enc(t.task_id)}`, open: `task:${t.task_id}`, opened: Panel.what === `task:${t.task_id}`, stop: !ENDED.includes(t.status) });
 }
 // A schedule where it was confirmed: a row that opens it, with when it runs
 // next and how its last run went.
@@ -1944,34 +1685,11 @@ const ICONS = {
   delete: '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', // trash-2
 };
 
-// What a person can do with each entry. Edit is for their own messages,
-// Retry for Magnus's answers, and Read aloud for an answer, from a script
-// written for listening; a reaction (great or annoying, pressed again to
-// take it back) for each of Magnus's messages; the rest for every entry. Each is an icon, named
-// by its tooltip and, for screen readers, by hidden text.
-function msgActions(e, ui) {
-  if (!e.id || e.kind === "sub_agents") return "";
-  const mine = e.kind === "message", magnus = e.kind === "answer" || e.kind === "turn";
-  const said = ["answer", "turn", "result", "tasks", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"].includes(e.kind);
-  const id = `message-menu-${enc(e.id)}`, reading = voice.entry === e.id;
-  const button = (a, label) => `<button class="icon" data-msg-act="${a}"${a==="listen" || a==="hush" ? ` data-voice-entry="${esc(e.id)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
-  const primary = mine ? button("edit", "Edit") : button("copy", "Copy response") + (e.kind === "answer" && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : "");
-  const actions = [mine && ["copy", "Copy message"], magnus && ["retry", "Retry"], ["branch", "Branch"], ["share", "Share"], ["export", "Export"], ["save", "Save to Files"], ["task", "Make a task"], said && ["feedback", "Feedback"], ["delete", "Delete message"]].filter(Boolean);
-  const share = ui.sharing === e.id ? `<div class="row small share-to"><label class="sr" for="share-${esc(e.id)}">Share with</label>
-    <select id="share-${esc(e.id)}" data-share-to>${ui.people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
-    <button class="primary" data-msg-act="share-send">Share</button><button class="link" data-msg-act="share-cancel">Cancel</button></div>` : "";
-  return `<div class="msg-actions small" role="group" aria-label="Message actions">${primary}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${esc(id)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
-    <div id="${esc(id)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${actions.map(([a, label]) => `<button role="menuitem" tabindex="-1" data-msg-act="${a}">${label}</button>`).join("")}</div></div></div>${share}`;
-}
-
+// What only the personal chat draws: the chat view (chat-view.js) draws a
+// message and an answer itself, for every conversation.
 function entry(e, ui = {}) {
   switch (e.kind) {
-    case "message": return ui.editing === e.id
-      ? `<div class="msg me editing"><label class="sr" for="edit-${esc(e.id)}">Edit and resend</label><textarea id="edit-${esc(e.id)}" rows="3" data-draft="edit-${esc(e.id)}"></textarea>
-        <div class="row small"><button class="primary" data-msg-act="edit-send">Send</button><button class="link" data-msg-act="edit-cancel">Cancel</button></div></div>`
-      : `<div class="msg me"><div class="small faint">You · ${esc(when(e.at))}</div><div>${Compose.maskedText(e.text)}</div>${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}</div>`;
     case "opener": return `<div class="msg magnus" data-opener><div class="small faint">Magnus · ${esc(when(e.at))}</div><div class="small muted">${e.app_title ? `You connected ${esc(e.app_title)}, so I had a look at what I could take over there.` : "You are new here, so I had a look at what I could take over for you."}</div></div>`;
-    case "answer": return `<div class="msg magnus" data-answer data-task="${esc(e.task_id)}"><div class="small faint">Magnus${e.model ? ` · ${esc(e.model.model)}` : ""} · ${esc(when(e.at))}</div><div class="answer-body">${Compose.markdown(e.text || "")}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}</div>`;
     case "turn": return e.status === "failed" || e.status === "cancelled"
       ? `<div class="msg magnus"><div class="small bad">Could not answer: ${esc(e.text || e.status)}</div></div>`
       : `<div class="msg magnus"><div class="small faint">${e.status === "running" ? "Working on an answer…" : esc(WAITING[e.waiting_on] || "paused")}</div>${e.status === "running" ? `<div class="pre" data-live="${esc(e.task_id)}">${Compose.markdown(ui.live?.[e.task_id] || "")}</div>` : ""}</div>${waitingCard(e.waiting_item, ui)}`;

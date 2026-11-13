@@ -14,7 +14,7 @@ const calls = [], told = [], store = {};
 const body = { children: [], append(el) { this.children.push(el); } };
 const sandbox = {
   UI: {}, route: () => {}, esc, voice: { entry: null }, ICONS: new Proxy({}, { get: () => "" }), App: { canReadAloud: true }, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
-  icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`,
+  icon: k => `<svg data-icon="${k}"></svg>`, chip: st => `<span class="chip">${st}</span>`, statusLineSlot: (t, cls) => `<span class="${cls}">${t.status_line}</span>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`,
   Magnus: { kind: "web", notifyPermission: () => "granted", notify: (t, b) => told.push([t, b]) },
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: async (m, p, b) => { calls.push([m, p, b]); return {}; },
@@ -23,9 +23,13 @@ const sandbox = {
   location: { hash: "#/inbox", origin: "https://server", pathname: "/" }, setTimeout: () => 0, clearTimeout: () => {}, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
-vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, Notices };`, sandbox);
-const { Team, Notices } = sandbox.__x;
+const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, Notices, ChatView };`, sandbox);
+
+// An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
+// chat's entry, its files as file entries, work no message carries as a `tasks` entry.
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
+const { Team, Notices, ChatView } = sandbox.__x;
 
 const home = {
   id: "w", name: "Alpha", role: "admin", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, computer: null,
@@ -50,17 +54,18 @@ assert.match(sandbox.railHtml(home, { kind: "channel", id: "c2" }).split("team-a
 assert.equal(sandbox.firstChannel({ ...home, channels: [home.channels[1], home.channels[0]] }), "c1", "a workspace opened on an archived channel");
 
 // A deleted message keeps its place only where it has replies; one's own
-// message can be deleted, someone else's cannot.
-const ctx = { me: "sam", ws: "w", channel: "c1", name: id => id, guest: false };
-const gone = sandbox.messageHtml({ id: "m1", sender: "dana", text: "", thread: null, at: "", deleted: true, replies: 2 }, ctx);
+// message can be deleted, someone else's cannot (by a member: a Team Admin
+// moderates a channel). Each is drawn by the one chat view (chat-view.js).
+const channelState = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {}, pinsOnly: false, whispers: [], hidden: new Set(), unreadAtOpen: 0 };
+const messageHtml = (m, thread = null) => ChatView.item(sandbox.teamEntry(served(m), sandbox.teamReader(channelState, thread)), { conv: sandbox.teamConversation(channelState, thread), ui: { editing: null, sharing: null } });
+const gone = messageHtml({ id: "m1", sender: "dana", text: "", thread: null, at: "", deleted: true, replies: 2 });
 assert.match(gone, /This message was deleted\.[^]*2 replies/);
 assert.doesNotMatch(gone, /data-react|data-msg-act/, "a deleted message offers actions");
-assert.match(sandbox.messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" }, ctx), /data-msg-act="delete"/, "one's own message cannot be deleted");
-assert.doesNotMatch(sandbox.messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "" }, ctx), /data-msg-act="delete"/, "someone else's message can be deleted");
-const view = { messages: [{ id: "a", text: "x" }, { id: "b", text: "y", replies: 1 }] };
-sandbox.applyLocal(view, { op: "delete", id: "a" });
-sandbox.applyLocal(view, { op: "delete", id: "b" });
-assert.deepEqual(view.messages.map(m => [m.id, !!m.deleted]), [["b", true]], "a deleted message did not leave at once");
+// Who may delete is the server's to say (crates/magnus/src/team/may.rs,
+// held in member_view_tests.rs); the controls follow what it says.
+const M = words => Object.fromEntries(["edit", "retry", "feedback", "share", "save", "task", "pin", "delete"].map(k => [k, words.split(" ").includes(k)]));
+assert.match(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "", may: M("edit share save task pin delete") }), /data-msg-act="delete"/, "a message the server lets me delete offers no Delete");
+assert.doesNotMatch(messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "", may: M("share save task pin") }), /data-msg-act="delete"/, "a message the server does not let me delete offers Delete");
 
 // The people page: an admin manages members and admins, not the owner; the
 // last owner cannot leave; people on the server are offered by name.
@@ -129,22 +134,20 @@ assert.equal(Notices.offer(), true, "a browser not yet asked is not offered syst
 assert.equal(Notices.systemOn(), false);
 // The team chat has the personal chat's message controls (owner, 2026-11-13).
 const acts = html => [...html.matchAll(/data-msg-act="([a-z-]+)"/g)].map(x => x[1]);
-const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", thread: null, at: "" };
-for (const a of ["copy", "listen", "retry", "branch", "share", "export", "save", "task", "pin", "feedback", "delete"]) assert.ok(acts(sandbox.messageHtml(answer, ctx)).includes(a), `the agent's answer to me offers no ${a}`);
-for (const a of ["edit", "copy", "branch", "share", "export", "save", "task", "pin", "delete"]) assert.ok(acts(sandbox.messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" }, ctx)).includes(a), `my message offers no ${a}`);
-const theirs = acts(sandbox.messageHtml({ ...answer, requester: "dana" }, ctx));
+const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", thread: null, at: "", may: M("retry feedback share save task pin delete") };
+for (const a of ["copy", "listen", "retry", "branch", "share", "export", "save", "task", "pin", "feedback", "delete"]) assert.ok(acts(messageHtml(answer)).includes(a), `the agent's answer to me offers no ${a}`);
+for (const a of ["edit", "copy", "branch", "share", "export", "save", "task", "pin", "delete"]) assert.ok(acts(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "", may: M("edit share save task pin delete") })).includes(a), `my message offers no ${a}`);
+const theirs = acts(messageHtml({ ...answer, requester: "dana", may: M("share save task pin") }));
 assert.ok(!theirs.includes("retry") && !theirs.includes("feedback"), "someone else's answer can be retried or judged by me");
-const private_ = acts(sandbox.messageHtml({ ...answer, private: true }, ctx));
+const private_ = acts(messageHtml({ ...answer, private: true, may: M("retry feedback task pin delete") }));
 assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer only I may see can be shared or saved for the team");
 // They sit under the post as the personal chat's do, not in a toolbar that
-// shows only on hover (owner, 2026-11-13: "it did not change at all").
-const post = sandbox.messageHtml(answer, ctx);
-// Still inside the post's body where the controls begin: more divs opened than closed since it.
-const from = post.indexOf('<div class="tm-body">'), at = post.indexOf('<div class="msg-actions small"');
-const between = post.slice(from, at), depth = (between.match(/<div\b/g) || []).length - (between.match(/<\/div>/g) || []).length;
-assert.ok(from >= 0 && at > from && depth > 0, "a post's controls are not under it, in its body");
+// shows only on hover (owner, 2026-11-13: "it did not change at all"): the
+// entry is the personal chat's, the message first and its controls after.
+const post = messageHtml(answer);
+assert.match(post, /^<div class="entry them" data-entry="agent:t1" data-kind="answer"><div class="msg magnus"[^]*<div class="msg-actions small"[^]*<\/div>$/, "a post's controls are not under it, as the personal chat's are");
 // A post with no words, a work card, can still be reacted to and replied to.
-const card = sandbox.messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t9", requester: "dana", status: "working", steps: 0, doing: null, title: "x", long: false, thread: null, reason: null } }, ctx);
+const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task_id: "t9", requester: "dana", status: "running", steps: 0, doing: null, title: "x", long: false, thread: null, waiting_on: null } });
 assert.ok(card.includes("data-reply") && card.includes('data-react="'), "a work card cannot be reacted to or replied to");
 // The reactions menu is a row, and says so, so Left and Right move along it.
 assert.match(post, /class="action-menu reactions"[^>]*aria-orientation="horizontal"/, "the reactions row does not say it is a row");

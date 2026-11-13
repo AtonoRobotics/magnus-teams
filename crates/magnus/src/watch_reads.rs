@@ -82,31 +82,29 @@ pub fn args(w: &Watch, now: DateTime<Utc>) -> Value {
 impl crate::kernel::Kernel {
     /// Poll one watched read for the person: call it once, exactly with
     /// the watch's arguments, through their own sign-in, with no model
-    /// and no task. Only the read is checked as the gate checks any:
-    /// a read the app classes, the person's right to the app, and its
-    /// screened definition. The answer goes only to the diff, which keeps
-    /// ids, so nothing the app returns reaches a model here; a review it
-    /// wakes reads the items itself, through the boundary.
+    /// and no task. The read is authorised as the gate authorises any
+    /// (`Kernel::authorised_read`): a read the app classes, no switch or
+    /// turn-off holding the person's work on the app, their right to it,
+    /// its screened definition and policy. The answer goes only to the
+    /// diff, which keeps ids, so nothing the app returns reaches a model
+    /// here; a review it wakes reads the items itself, through the boundary.
     pub(crate) async fn poll_read(self: &Arc<Self>, person: &str, app: &str, w: &Watch, now: DateTime<Utc>) -> Result<(), String> {
+        use crate::authorised_read::Refused;
         let c = self.connector(app).ok_or("the app is no longer offered")?;
         let p = self.person(person).ok_or("no such person")?;
-        let f = crate::boundary::facts(self, &format!("{app}__{}", w.tool)).ok_or("the watched tool is not one of the app's")?;
-        if f.risk != crate::tools::Risk::Read {
-            return Err("the watched tool is not a read".into());
-        }
-        if !crate::boundary::has_rights(&p, &f) {
-            return Err("the person may not use the app".into());
-        }
-        self.check_pin(&c, &f, person, "").await.map_err(|(why, _)| why)?;
-        let secret = match &c.credential {
-            Some(_) => self.connector_secret(&c, person).await.map_err(|e| format!("{e:#}"))?,
-            None => None,
-        };
-        let out = self.connector_call(&c, person, app, secret.as_ref().map(|s| s.expose()), &w.tool, &args(w, now)).await.map_err(|e| format!("{e:?}"))?;
-        if out.is_error {
-            return Err(out.text);
-        }
-        let data = out.structured.or_else(|| serde_json::from_str(&out.text).ok()).unwrap_or(Value::Null);
+        let read = crate::authorised_read::SideRead { person: &p, app, read: &w.tool, args: args(w, now), within: None };
+        let data = self.authorised_read(read).await.map_err(|r| match r {
+            Refused::Unknown => "the watched tool is not one of the app's".into(),
+            Refused::NotARead => "the watched tool is not a read".into(),
+            Refused::Held(h) => h.said(),
+            Refused::NoRights => "the person may not use the app".into(),
+            Refused::Pin(why) | Refused::Failed(why) | Refused::Secret(why) | Refused::Unjudged(why) => why,
+            Refused::Denied(reason) => format!("policy forbids the poll: {reason}"),
+            Refused::Asks(rule) => format!("policy asks before the poll ({rule}), and no one is there to ask"),
+            Refused::NotConnected => "the person is not connected to the app".into(),
+            Refused::Call(e) => format!("{e:?}"),
+            Refused::Audit(e) => format!("{e:#}"),
+        })?;
         self.note_watched(person, app, &w.tool, &c.watch, &data).await;
         Ok(())
     }

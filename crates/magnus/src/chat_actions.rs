@@ -269,14 +269,11 @@ async fn share(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, S
 }
 
 fn markdown(e: &Value) -> String {
-    format!("**{}** · {}\n\n{}\n", speaker(e), e["at"].as_str().unwrap_or_default(), text_of(e))
+    crate::message_file::markdown(speaker(e), e["at"].as_str().unwrap_or_default(), &text_of(e))
 }
 
 fn file_name(e: &Value) -> String {
-    let words: String = text_of(e).split_whitespace().take(6).collect::<Vec<_>>().join(" ");
-    let clean: String = words.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { ' ' }).collect();
-    let name = clean.split_whitespace().collect::<Vec<_>>().join("-");
-    format!("{}.md", if name.is_empty() { "message".into() } else { name })
+    crate::message_file::file_name(&text_of(e))
 }
 
 /// The entry as a Markdown file to save on this computer.

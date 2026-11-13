@@ -1,12 +1,23 @@
-// A workspace channel: messages with threads, mentions, reactions, edits,
-// pins, drafts, typing and presence; the team agent's work as live cards
-// with the requester named; and a composer with no button to ask the
-// agent: mention it or name it. Changes show at once and sync behind.
+// A workspace channel is the one chat view (chat-view.js) with a
+// conversation of several people: this file is only where a channel's items
+// come from, what each control does there, and what only several people
+// have (who sent each message, mentions, reactions, threads, the requester
+// named on the agent's work, an answer only its requester sees, who is
+// typing, a catch-up, and one's own Magnus whispering). A thread opens in the
+// same view beside its channel. The composer is the personal chat's
+// (chat-composer.js); there is no button to ask the agent: mention it or
+// name it.
 
 /**
- * @typedef {{ task: string, requester: string, status: "working"|"waiting"|"done"|"failed"|"stopped", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
- * @typedef {{ id: string, sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, state?: "sending"|"failed", files?: string[], task?: string, private?: boolean, deleted?: boolean }} TeamMessage
+ * A channel's items as the server sends them: the personal chat's entries
+ * (crates/magnus/src/chat_entry.rs, built in crates/magnus/src/team/items.rs).
+ * A request's work is a personal task row, with whom it is for and where it shows.
+ * @typedef {{ task_id: string, title: string, text: string, status: "running"|"suspended"|"completed"|"failed"|"cancelled", waiting_on: ?string, status_line: ?string, requester: string, steps: number, doing: ?string, long: boolean, thread: ?string, started: string }} TeamWork
+ * @typedef {{ id: string, name: string, media_type?: string, size?: number }} TeamFile
+ * @typedef {{ id: string, kind: "message"|"answer"|"tasks"|"deleted", files?: TeamFile[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, tasks?: TeamWork[], from_run?: string, task?: string, task_id?: string, private?: boolean, deleted?: boolean, may?: May }} TeamMessage
  * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
+ * Who is reading, to read a channel's items into the chat view's kinds.
+ * @typedef {{ me: string, ws: string, channel: string, name: (id: string) => string, inThread?: boolean }} TeamReader
  */
 
 const TEAM_TYPING_PING_MS = 3000, TEAM_QUICK_REACTIONS = ["👍", "✅", "👀", "🎉"], TEAM_CATCH_UP_AFTER = 8, TEAM_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
@@ -16,8 +27,8 @@ function teamFileStem(who, at) {
   return `${who} ${String(at || "").slice(0, 16).replace("T", " ").replace(":", "-")}`.replace(/[\/\0]/g, "-").trim().slice(0, 150);
 }
 
-/** A dropped image as a data URL, for its preview. */
-function dataUrl(file) {
+/** An image as a data URL, for its preview. @param {File} file */
+function teamPreviewUrl(file) {
   return new Promise(ok => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => ok(null); r.readAsDataURL(file); });
 }
 
@@ -45,116 +56,37 @@ function workTitle(text) {
 }
 
 /**
- * The agent's live card: what it is doing, for whom, and where the work is.
- * @param {TeamWork} w @param {(id: string) => string} name @param {string} ws @param {string} channel @param {boolean} [inThread] shown in its own thread already
+ * The agent's work on a request as the chat view's work row: the personal
+ * chat's task row, with the requester named and its thread to open. Its
+ * status is the task's, as the personal chat's tasks have.
+ * @param {TeamWork} w @param {TeamReader} r @returns {ChatWork}
  */
-function workCard(w, name, ws, channel, inThread = false) {
-  const who = name(w.requester), title = workTitle(w.title);
-  const line = w.status === "working" ? esc(w.doing ? doingWords(w.doing) : "Thinking it through")
-    : w.status === "waiting" ? `Waiting for ${esc(who)} to answer an ask`
-    : w.status === "done" ? "Done" : w.status === "failed" ? `Could not finish${w.reason ? `: ${esc(w.reason)}` : ""}` : "Stopped";
-  const thread = w.thread && !inThread ? `<a class="small" href="${teamHref(ws, { kind: "channel", id: channel, thread: w.thread })}" data-open-thread="${esc(w.thread)}">Open its thread</a>` : "";
-  return `<div class="tm-work" data-status="${esc(w.status)}" data-task="${esc(w.task)}"><div class="tm-work-title">${w.status === "working" ? `<span class="team-spinner" aria-hidden="true"></span>` : ""}<strong>${esc(title)}</strong> <span class="small faint">for ${esc(who)}</span></div><div class="small">${line}</div>${thread}</div>`;
-}
-
-/** Text with mentions marked and files shown. People's words stay plain. */
-function messageText(m, agent, files) {
-  const lines = String(m.text || "").split("\n");
-  const attached = lines.filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim());
-  const text = lines.filter(l => !l.startsWith("📎 ")).join("\n");
-  const body = agent ? Compose.markdown(text) : `<div class="pre">${Compose.maskedText(text)}</div>`;
-  const marked = body.replace(/(^|[\s(>])@([A-Za-z][\w.-]*(?: [A-Z][\w-]*)?)/g, (all, pre, who) => `${pre}<span class="mention">@${who}</span>`);
-  const chips = attached.map(f => `<div class="tm-file">${files?.[f] ? `<img src="${esc(files[f])}" alt="${esc(f)}">` : icon("file")}<span>${esc(f)}</span><button class="link small" data-team-download="${esc(f)}">Download</button></div>`).join("");
-  return marked + chips;
+function teamWork(w, r) {
+  const who = r.name(w.requester), status = w.status;
+  const line = status === "running" ? (w.doing ? doingWords(w.doing) : "Thinking it through")
+    : status === "suspended" ? `Waiting for ${who} to answer an ask`
+    : status === "completed" ? "Done" : status === "failed" ? `Could not finish${w.waiting_on ? `: ${w.waiting_on}` : ""}` : "Stopped";
+  const needs = status === "suspended" && w.requester === r.me;
+  const icon = needs ? "need" : { running: "working", suspended: "working", completed: "done" }[status] || "stopped";
+  const sub = status === "running" ? statusLineSlot({ task_id: w.task_id, status_line: line }, "sub why") : `<span class="sub why">${esc(line)}</span>`;
+  const thread = w.thread && !r.inThread ? teamHref(r.ws, { kind: "channel", id: r.channel, thread: w.thread }) : undefined;
+  return { id: w.task_id, status, icon, pill: needs ? `<span class="chip warn">Needs you</span>` : chip(status), title: workTitle(w.title), tip: thread ? "Open its thread" : workTitle(w.title), sub, by: who, href: thread };
 }
 
 /**
- * One message, with its actions. A pending one shows as sending.
- * @param {TeamMessage} m @param {{ me: string, ws: string, channel: string, name: (id: string) => string, guest: boolean, moderates?: boolean, files?: Object<string, string>, inThread?: boolean, editing?: string }} c
+ * A channel's item as the chat view's entry. The server sends the personal
+ * chat's entry (a person's message, the agent's answer, the tasks it began
+ * with no words yet, or a deleted message's place) with the files it carries;
+ * here only the words lose their 📎 lines and names are put to ids. Work the
+ * agent began itself is drawn as the chat view's work card.
+ * @param {TeamMessage} m @param {TeamReader} r @returns {ChatEntry}
  */
-function messageHtml(m, c) {
-  if (m.deleted) return deletedHtml(m, c);
-  const agent = m.sender === "agent", mine = m.sender === c.me;
-  const who = agent ? "Magnus" : c.name(m.sender);
-  const reactions = Object.entries(m.reactions || {}).map(([e, people]) => `<button class="tm-reaction${people.includes(c.me) ? " on" : ""}" data-react="${esc(e)}" aria-pressed="${people.includes(c.me)}" title="${esc(people.map(c.name).join(", "))}">${esc(e)} ${people.length}</button>`).join("");
-  const replies = !c.inThread && m.replies ? `<a class="tm-replies small" href="${teamHref(c.ws, { kind: "channel", id: c.channel, thread: m.id })}" data-open-thread="${esc(m.id)}">${m.replies} ${m.replies === 1 ? "reply" : "replies"}${m.last_reply ? ` · last ${esc(when(m.last_reply))}` : ""}</a>` : "";
-  const state = m.state === "sending" ? `<span class="small faint">Sending…</span>` : m.state === "failed" ? `<span class="small bad">Not sent</span> <button class="link small" data-retry="${esc(m.id)}">Retry</button>` : "";
-  const editing = c.editing === m.id;
-  const text = editing ? `<form class="tm-edit" data-edit-form><textarea aria-label="Edit message" rows="2">${esc(m.text)}</textarea><div class="row"><button class="primary">Save</button><button type="button" data-edit-cancel>Cancel</button></div></form>` : messageText(m, agent, c.files);
-  const actions = m.state ? "" : teamMsgActions(m, c, agent, mine);
-  const sharing = c.sharing === m.id ? `<div class="row small share-to"><label class="sr" for="tshare-${esc(m.id)}">Share with</label>
-    <select id="tshare-${esc(m.id)}" data-share-to>${(c.people || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
-    <button class="primary" data-msg-act="share-send">Share</button><button class="link" data-msg-act="share-cancel">Cancel</button></div>` : "";
-  return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
-    <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
-    ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}${actions}${sharing}</div></article>`;
-}
-
-/**
- * The personal chat's message controls, on a team message: Edit or Copy and
- * Read aloud at hand, the rest in a menu (owner, 2026-11-13: "the same
- * message controls as the other chat window"). Retry and Feedback are for
- * who asked the agent; what only they may see is not shared or saved for
- * the team.
- * @param {TeamMessage} m @param {{ me: string, guest: boolean, moderates?: boolean, inThread?: boolean }} c @param {boolean} agent @param {boolean} mine
- */
-function teamMsgActions(m, c, agent, mine) {
-  const id = `team-menu-${enc(m.id)}`, entry = `team:${m.id}`, reading = voice.entry === entry, asked = agent && m.requester === c.me && !!m.task;
-  /** An icon button: `a` names its icon and, unless attrs say otherwise, its action. */
-  const button = (a, label, attrs = `data-msg-act="${a}"`, cls = "icon") => `<button class="${cls}" ${attrs}${a === "listen" || a === "hush" ? ` data-voice-entry="${esc(entry)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
-  const reactId = `team-react-${enc(m.id)}`;
-  const react = `<div class="message-menu-wrap">${button("great", "Add a reaction", `data-menu="${esc(reactId)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(reactId)}"`, "icon menu-trigger")}
-    <div id="${esc(reactId)}" class="action-menu reactions" role="menu" aria-label="Reactions" aria-orientation="horizontal" hidden>${TEAM_QUICK_REACTIONS.map(e => `<button role="menuitem" tabindex="-1" data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}</div></div>`;
-  const reply = c.inThread ? "" : button("reply", "Reply in thread", "data-reply");
-  // A post with no words (a work card) can still be reacted to and replied to.
-  if (!m.text) return `<div class="msg-actions small" role="group" aria-label="Message actions">${react}${reply}</div>`;
-  const primary = react + reply + (mine && !agent ? button("edit", "Edit") : button("copy", "Copy message") + (agent && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : ""));
-  const deletes = (mine && !agent) || c.moderates || (agent && m.requester === c.me);
-  const actions = [mine && !agent && ["copy", "Copy message"], asked && ["retry", "Retry"], ["branch", "Branch"], !m.private && ["share", "Share"], ["export", "Export"],
-    !c.guest && !m.private && ["save", "Save to Files"], !c.guest && ["task", "Make a task"], !c.guest && ["pin", m.pinned ? "Unpin" : "Pin"], asked && ["feedback", "Feedback"], deletes && ["delete", "Delete message"]].filter(Boolean);
-  return `<div class="msg-actions small" role="group" aria-label="Message actions">${primary}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${esc(id)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
-    <div id="${esc(id)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${actions.map(([a, label]) => `<button role="menuitem" tabindex="-1" data-msg-act="${a}">${label}</button>`).join("")}</div></div></div>`;
-}
-
-/** Where a deleted message stood: its replies still hang from it. @param {TeamMessage} m */
-function deletedHtml(m, c) {
-  const replies = !c.inThread && m.replies ? `<a class="tm-replies small" href="${teamHref(c.ws, { kind: "channel", id: c.channel, thread: m.id })}" data-open-thread="${esc(m.id)}">${m.replies} ${m.replies === 1 ? "reply" : "replies"}</a>` : "";
-  return `<article class="tm deleted" data-msg="${esc(m.id)}"><div class="tm-body"><div class="small">This message was deleted.</div>${replies}</div></article>`;
-}
-
-/**
- * The server's messages with what is still on its way. A pending message
- * leaves once its real one arrives.
- * @param {TeamMessage[]} messages @param {Array<TeamMessage & { real?: string }>} pending
- */
-function mergePending(messages, pending) {
-  const have = new Set(messages.map(m => m.id));
-  return [...messages, ...pending.filter(p => !(p.real && have.has(p.real)))];
-}
-
-/**
- * A change shown before the server confirms it.
- * @param {TeamView} view @param {{ op: string, id?: string, text?: string, emoji?: string, me?: string, on?: boolean, pinned?: boolean }} o
- */
-function applyLocal(view, o) {
-  const m = view.messages.find(x => x.id === o.id);
-  if (!m) return view;
-  if (o.op === "edit") { m.text = o.text; m.edited = true; }
-  if (o.op === "pin") m.pinned = o.pinned;
-  if (o.op === "delete") { if (m.replies) Object.assign(m, { deleted: true, text: "", reactions: {} }); else view.messages = view.messages.filter(x => x !== m); }
-  if (o.op === "react") {
-    const r = m.reactions = { ...(m.reactions || {}) };
-    const people = new Set(r[o.emoji] || []);
-    if (o.on) people.add(o.me); else people.delete(o.me);
-    if (people.size) r[o.emoji] = [...people]; else delete r[o.emoji];
-  }
-  return view;
-}
-
-/** The @word being typed at the caret, if any. */
-function mentionAt(text, caret) {
-  const m = text.slice(0, caret).match(/(?:^|\s)@([\w.-]*)$/);
-  return m ? m[1] : null;
+function teamEntry(m, r) {
+  if (m.kind === "deleted") return { id: m.id, kind: "deleted", at: m.at, sender: m.sender, replies: m.replies, thread: m.thread };
+  const text = String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n");
+  const work = m.work || (m.kind === "tasks" ? m.tasks?.[0] : undefined);
+  return { id: m.id, kind: m.kind === "tasks" ? "work" : m.kind, at: m.at, sender: m.sender, text, files: m.files || [], edited: m.edited, pinned: m.pinned, may: m.may, reactions: m.reactions, replies: m.replies, last_reply: m.last_reply,
+    thread: m.thread, task_id: m.task_id || m.task, private: m.private, requester: m.requester, for: m.kind !== "message" && m.requester ? r.name(m.requester) : undefined, work: work ? teamWork(work, r) : undefined };
 }
 
 /** Who a partial @mention could be: the team agent first, then people. */
@@ -180,6 +112,15 @@ function channelFaces(home, c, project) {
   return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
+/** What only a channel's head has: who is in it, how the agent takes part, notifications, pins, archive. */
+function channelTools(home, c, project, pinsOnly) {
+  const helpful = c.mode === "when_helpful";
+  return `${channelFaces(home, c, project)}${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span class="sr">Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Magnus replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Magnus joins when it can help</option></select></label>`}
+      <select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select>
+      <button type="button" data-pins aria-pressed="${pinsOnly}">${pinsOnly ? "All messages" : "Pinned"}</button>
+      <button type="button" data-archive="${c.archived ? "off" : "on"}" title="${c.archived ? "Back to your list" : "Off your list until someone writes here"}">${c.archived ? "Unarchive" : "Archive"}</button>${c.direct ? `<button type="button" class="danger" data-clear-conversation>Delete conversation</button>` : ""}`;
+}
+
 /** Drafts survive a switch of channel and a restart, where storage allows. */
 const TeamDrafts = {
   key: (ws, ch, th) => `team-draft:${ws}:${ch}:${th || ""}`,
@@ -191,33 +132,45 @@ const TeamChat = {
   s: null,
 
   async open(center, side, ws, place) {
-    const s = this.s = { ws, channel: place.id, thread: place.thread, center, side, view: { messages: [], typing: [], names: {} }, pending: [], files: TeamChat.s?.files || {}, editing: null, pinsOnly: false, whispers: [], hidden: new Set(), tray: [], lastRead: "", typedAt: 0 };
+    const s = this.s = { ws, channel: place.id, thread: place.thread, center, side, view: { messages: [], typing: [], names: {} }, files: TeamChat.s?.files || {}, pinsOnly: false, whispers: [], hidden: new Set(), lastRead: "", typedAt: 0, views: [] };
     const c = Team.home.channels.find(x => x.id === s.channel);
     if (!c) { paint(center, `<p class="empty">This channel is gone, or not yours to see.</p>`); paint(side, ""); return; }
     s.unreadAtOpen = c.unread;
     center.closest(".team-shell")?.classList.toggle("threaded", !!s.thread);
-    center.innerHTML = `<header class="team-head" id="tc-head"></header><div class="team-scroll" id="tc-list" aria-live="polite"></div><div class="team-typing small faint" id="tc-typing" aria-live="polite"></div><div id="tc-whispers"></div>${this.composer("tc", ws, s.channel, null)}`;
-    this.bind(center, false);
+    s.views = [this.mount(center, null)];
+    if (s.thread) s.views.push(this.mount(side, s.thread));
     await this.refresh(true);
-    $("#tc-text", center)?.focus({ preventScroll: true });
+    $("textarea", center)?.focus({ preventScroll: true });
   },
 
-  composer(prefix, ws, channel, thread) {
-    const guest = Team.home.role === "guest";
-    const c = Team.home.channels.find(x => x.id === channel);
-    const where = thread ? "Reply in thread" : c ? `Message ${channelTitle(Team.home, c)}` : "Message";
-    return `<form class="team-composer" id="${prefix}-form" data-thread="${esc(thread || "")}"><div class="team-tray" id="${prefix}-tray"></div>
-      <div class="team-mentions" id="${prefix}-mentions" role="listbox" hidden></div>
-      <textarea id="${prefix}-text" rows="2" placeholder="${esc(where)}. Mention @Magnus or name it to ask the team agent." aria-label="${esc(where)}">${esc(TeamDrafts.get(ws, channel, thread))}</textarea>
-      <div class="row"><span class="attachment-picker"><button type="button" class="icon-btn" data-team-attach aria-label="Add files">${icon("attach")}</button><input type="file" multiple hidden data-team-files></span>
-      ${guest ? "" : `<label class="small"><input type="checkbox" id="${prefix}-whisper"> Only my Magnus sees this</label>`}<button class="primary" aria-label="Send">${icon("send")}</button></div></form>`;
-  },
-
-  ctx(inThread) {
-    const s = this.s, home = Team.home;
-    const name = id => id === "agent" ? home.agent.name : s.view.names?.[id] || home.members.find(m => m.id === id)?.name || id;
-    const direct = !!home.channels.find(x => x.id === s.channel)?.direct;
-    return { me: home.me, ws: s.ws, channel: s.channel, name, guest: home.role === "guest", moderates: !direct && (home.role === "owner" || home.role === "admin"), files: s.files, inThread, editing: s.editing, sharing: s.sharing, people: home.members.filter(m => m.id !== home.me) };
+  /** The chat view of the channel, or of one of its threads, with its composer. */
+  mount(root, thread) {
+    const s = this.s, home = Team.home, c = home.channels.find(x => x.id === s.channel);
+    const record = MessageDrafts.forThread(`team:${s.ws}:${s.channel}:${thread || ""}`);
+    if (!record.text && !record.files.length) record.text = TeamDrafts.get(s.ws, s.channel, thread);
+    const view = ChatView.mount(root, teamConversation(s, thread), { side: !!thread, record });
+    const where = thread ? "Reply in thread" : c ? `Message ${channelTitle(home, c)}` : "Message";
+    const guest = home.role === "guest";
+    // The personal composer's model picker, first in the bar as there: a
+    // member's request runs on their pick (decisions/2026-11-13-team-composer-model.md).
+    const bar = `<span data-picker></span>${guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`}`;
+    const slot = $(".composer-slot", view.section);
+    paint(slot, composer(`${where}. Mention @${home.agent.name} or name it to ask the team agent.`, bar, { side: !!thread, label: where, mentions: true }));
+    modelPicker().then(html => {
+      const at = $("[data-picker]", slot);
+      if (!at) return;
+      at.outerHTML = html;
+      // A guest's messages never start the agent, so there is no model to pick.
+      const sel = $("select[data-model]", slot);
+      if (guest && sel) { sel.disabled = true; sel.title = "Guests chat here; only members can ask the team agent, so no model runs for you."; }
+    });
+    wireComposer($("form.say", slot), view.record, teamComposer(s, thread));
+    view.section.addEventListener("change", e => {
+      if (e.target.matches("[data-agent-mode]")) this.setting("agent", { mode: e.target.value }, x => { x.mode = e.target.value; });
+      if (e.target.matches("[data-notify]")) this.setting("notify", { level: e.target.value }, x => { x.notify = e.target.value; });
+    });
+    $(".conv-head", view.section).onclick = e => this.headClick(e);
+    return view;
   },
 
   async refresh(first = false) {
@@ -227,130 +180,32 @@ const TeamChat = {
     const [view, whispers] = await Promise.all([api("GET", `${base}/view`), Team.home.role === "guest" ? [] : api("GET", `${base}/whispers`).catch(() => [])]);
     if (s !== this.s) return;
     s.view = view; s.whispers = whispers;
-    this.draw(first);
+    await this.draw(first);
     const newest = view.messages.at(-1)?.at || "";
     if (newest && newest !== s.lastRead) { s.lastRead = newest; api("POST", `${base}/read`, {}).catch(() => {}); }
   },
 
-  draw(scroll = false) {
-    const s = this.s, home = Team.home, c = home.channels.find(x => x.id === s.channel);
+  /** Draw the channel (and its open thread) again from what is held. */
+  async draw() {
+    const s = this.s, c = s && Team.home.channels.find(x => x.id === s.channel);
     if (!c) return;
-    const project = home.projects.find(p => p.id === c.project);
-    const helpful = c.mode === "when_helpful";
-    paint($("#tc-head", s.center), `<div><h1>${esc(channelTitle(home, c))}</h1>${project ? `<a class="small faint" href="${teamHref(s.ws, { kind: "project", id: project.id })}">${esc(project.name)}</a>` : ""}</div>
-      <div class="team-head-tools">${channelFaces(home, c, project)}${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span class="sr">Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Magnus replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Magnus joins when it can help</option></select></label>`}
-      <select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select>
-      <button type="button" data-pins aria-pressed="${s.pinsOnly}">${s.pinsOnly ? "All messages" : "Pinned"}</button>
-      <button type="button" data-archive="${c.archived ? "off" : "on"}" title="${c.archived ? "Back to your list" : "Off your list until someone writes here"}">${c.archived ? "Unarchive" : "Archive"}</button>${c.direct ? `<button type="button" class="danger" data-clear-conversation>Delete conversation</button>` : ""}</div>`);
-    const all = mergePending(s.view.messages, s.pending);
-    const roots = all.filter(m => !m.thread && (!s.pinsOnly || m.pinned));
-    const catchUp = s.unreadAtOpen >= TEAM_CATCH_UP_AFTER && home.role !== "guest" ? `<button type="button" class="chip run" data-catch-up>Catch me up: ${s.unreadAtOpen} new</button>` : "";
-    const list = $("#tc-list", s.center), atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
-    const changed = paint(list, `${catchUp}${roots.map(m => messageHtml(m, this.ctx(false))).join("") || `<p class="empty">${s.pinsOnly ? "Nothing pinned yet." : `No messages yet. ${esc(home.agent.name)} is here: mention it to ask for anything.`}</p>`}`);
-    if (changed && (scroll || atBottom)) list.scrollTop = list.scrollHeight;
-    const typing = s.view.typing || [];
-    paint($("#tc-typing", s.center), typing.length ? `${esc(typing.join(", "))} ${typing.length === 1 ? "is" : "are"} ${typing.includes(home.agent.name) && typing.length === 1 ? "working" : "typing"}…` : "");
-    const ws = s.whispers.filter(w => !w.shared && !s.hidden.has(w.task));
-    paint($("#tc-whispers", s.center), ws.map(w => `<div class="tm-whisper" data-whisper="${esc(w.task)}"><div class="small"><strong>Your Magnus</strong> · only you can see this</div><div class="pre">${esc(w.text || "Working on it…")}</div>${w.done && w.text ? `<div class="row"><button class="primary" data-share="${esc(w.task)}">Share</button><button data-not-now="${esc(w.task)}">Not now</button></div>` : ""}</div>`).join(""));
-    if (s.thread) this.drawThread(); else TeamPanel.side(s.side, s.ws, c.project, s.channel);
+    await Promise.all(s.views.map(v => v.draw()));
+    if (!s.thread) TeamPanel.side(s.side, s.ws, c.project, s.channel);
   },
 
-  drawThread() {
-    const s = this.s, root = mergePending(s.view.messages, s.pending).find(m => m.id === s.thread);
-    let box = $("#tc-thread", s.side);
-    if (!box) {
-      s.side.innerHTML = `<header class="team-side-head"><h2>Thread</h2><a href="${teamHref(s.ws, { kind: "channel", id: s.channel })}" aria-label="Close thread">${icon("close")}</a></header><div class="team-scroll" id="tc-thread"></div>${this.composer("tt", s.ws, s.channel, s.thread)}`;
-      this.bind(s.side, true);
-      box = $("#tc-thread", s.side);
-    }
-    const replies = mergePending(s.view.messages, s.pending).filter(m => m.thread === s.thread);
-    const changed = paint(box, root || replies.length ? `${root ? messageHtml(root, this.ctx(true)) : ""}<div class="tm-thread-count small faint">${replies.length} ${replies.length === 1 ? "reply" : "replies"}</div>${replies.map(m => messageHtml(m, this.ctx(true))).join("")}` : `<p class="empty">This thread is empty.</p>`);
-    if (changed) box.scrollTop = box.scrollHeight;
+  /** Ask in this channel, from outside its composer (the command menu, Catch me up). */
+  async send(text, thread) {
+    const s = this.s, r = await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/messages`, { text, thread: thread || undefined });
+    if (r.agent) toast(`${Team.home.agent.name} is on it.`);
+    if (r.limited) toast(r.limited, 8000);
+    await this.refresh();
   },
 
-  /** Sends at once into the list, and syncs behind. */
-  async send(text, thread, whisper, files) {
-    const s = this.s, base = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`;
-    if (whisper) {
-      try { await api("POST", `${base}/messages`, { text, thread, whisper: true }); toast("Your Magnus is on it. Only you will see its answer."); await this.refresh(); } catch (err) { toast(err.message); }
-      return;
-    }
-    const names = files.map(f => f.name);
-    const full = [text, ...names.map(n => `📎 ${n}`)].filter(Boolean).join("\n");
-    const p = { id: `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`, sender: Team.home.me, text: full, thread: thread || null, at: new Date().toISOString(), state: "sending" };
-    s.pending.push(p);
-    this.draw(true);
-    try {
-      const c = Team.home.channels.find(x => x.id === s.channel);
-      for (const f of files) {
-        s.files[f.name] = f.preview || s.files[f.name];
-        await Magnus.putBytes(`/v1/workspaces/${enc(s.ws)}/files/${enc(f.name)}${c?.project ? `?project=${enc(c.project)}` : ""}`, new Uint8Array(await f.file.arrayBuffer()));
-      }
-      const r = await api("POST", `${base}/messages`, { text: full, thread: thread || undefined });
-      p.real = r.id; delete p.state;
-      if (r.agent) toast(`${Team.home.agent.name} is on it.`);
-      if (r.limited) toast(r.limited, 8000);
-      await this.refresh();
-    } catch (err) { p.state = "failed"; p.error = err.message; this.draw(); toast(err.message); }
-  },
-
-  /** A change shown now; on failure the server's truth comes back. */
-  async change(o, call) {
-    applyLocal(this.s.view, o);
-    this.draw();
-    try { await call(); } catch (err) { toast(err.message); await this.refresh(); }
-  },
-
-  bind(root, inThread) {
-    const prefix = inThread ? "tt" : "tc", form = $(`#${prefix}-form`, root), box = $(`#${prefix}-text`, root), s = this.s;
-    const thread = () => form.dataset.thread || null;
-    const tray = () => paint($(`#${prefix}-tray`, root), s.tray.filter(f => f.prefix === prefix).map((f, i) => `<span class="tm-file">${f.preview ? `<img src="${esc(f.preview)}" alt="">` : icon("file")}${esc(f.name)}<button type="button" class="link small" data-untray="${i}" aria-label="Remove ${esc(f.name)}">Remove</button></span>`).join(""));
-    const addFiles = async list => {
-      for (const file of list) s.tray.push({ prefix, file, name: file.name, preview: file.type?.startsWith("image/") && file.size <= TEAM_PREVIEW_MAX_BYTES ? await dataUrl(file) : null });
-      tray();
-    };
-    const submit = () => {
-      const text = box.value.trim(), files = s.tray.filter(f => f.prefix === prefix);
-      if (!text && !files.length) return;
-      const whisper = $(`#${prefix}-whisper`, root)?.checked;
-      s.tray = s.tray.filter(f => f.prefix !== prefix); tray();
-      box.value = ""; TeamDrafts.set(s.ws, s.channel, thread(), "");
-      this.send(text, thread(), whisper, files);
-    };
-    form.onsubmit = e => { e.preventDefault(); submit(); };
-    const menu = $(`#${prefix}-mentions`, root);
-    const choose = name => { const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `); box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length); menu.hidden = true; };
-    box.onkeydown = e => {
-      if (!menu.hidden && (e.key === "Enter" || e.key === "Tab")) { const first = $("[data-mention]", menu); if (first) { e.preventDefault(); choose(first.dataset.mention); return; } }
-      if (e.key === "Escape") menu.hidden = true;
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
-    };
-    box.oninput = () => {
-      TeamDrafts.set(s.ws, s.channel, thread(), box.value);
-      const partial = mentionAt(box.value, box.selectionStart);
-      const choices = partial === null ? [] : mentionChoices(Team.home, partial);
-      menu.hidden = !choices.length;
-      menu.innerHTML = choices.map(p => `<button type="button" role="option" data-mention="${esc(p.name)}">${avatar(p.name, p.agent)}${esc(p.name)}${p.agent ? ` <span class="small faint">team agent</span>` : ""}</button>`).join("");
-      if (Date.now() - s.typedAt > TEAM_TYPING_PING_MS) { s.typedAt = Date.now(); api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/typing`, {}).catch(() => {}); }
-    };
-    menu.onclick = e => { const b = e.target.closest("[data-mention]"); if (b) { choose(b.dataset.mention); box.focus(); } };
-    root.addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); root.classList.add("dropping"); } });
-    root.addEventListener("dragleave", () => root.classList.remove("dropping"));
-    root.addEventListener("drop", e => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); root.classList.remove("dropping"); addFiles(e.dataTransfer.files); });
-    root.addEventListener("change", e => { if (e.target.matches("[data-team-files]")) { addFiles(e.target.files); e.target.value = ""; } });
-    root.addEventListener("submit", e => {
-      const f = e.target.closest("[data-edit-form]");
-      if (!f) return;
-      e.preventDefault();
-      const id = f.closest("[data-msg]").dataset.msg, text = $("textarea", f).value.trim();
-      s.editing = null;
-      if (text) this.change({ op: "edit", id, text }, () => api("PUT", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/messages/${enc(id)}`, { text }));
-    });
-    root.addEventListener("change", e => {
-      if (e.target.matches("[data-agent-mode]")) this.setting("agent", { mode: e.target.value }, c => { c.mode = e.target.value; });
-      if (e.target.matches("[data-notify]")) this.setting("notify", { level: e.target.value }, c => { c.notify = e.target.value; });
-    });
-    root.addEventListener("click", e => this.click(e, root, tray));
+  async headClick(e) {
+    const s = this.s, t = e.target;
+    if (t.closest("[data-pins]")) { s.pinsOnly = !s.pinsOnly; await this.draw(); return; }
+    if (t.closest("[data-archive]")) { await this.archive(t.closest("[data-archive]").dataset.archive === "on"); return; }
+    if (t.closest("[data-clear-conversation]")) await this.clear();
   },
 
   /** Put this conversation away, or bring it back: the caller's list only. */
@@ -359,7 +214,7 @@ const TeamChat = {
     try {
       await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/archive`, { on });
       await loadHome(s.ws);
-      if (on) { toast("Archived. It comes back when someone writes in it."); this.away(); } else { toast("Back on your list."); this.draw(); }
+      if (on) { toast("Archived. It comes back when someone writes in it."); this.away(); } else { toast("Back on your list."); await this.draw(); }
     } catch (err) { toast(err.message); }
   },
 
@@ -385,84 +240,6 @@ const TeamChat = {
   async setting(what, body, local) {
     const s = this.s, c = Team.home.channels.find(x => x.id === s.channel);
     if (c) local(c);
-    try { await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/${what}`, body); } catch (err) { toast(err.message); await loadHome(s.ws); this.draw(); }
-  },
-
-  async click(e, root, tray) {
-    const s = this.s, base = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`, t = e.target;
-    const msg = t.closest("[data-msg]")?.dataset.msg, m = s.view.messages.find(x => x.id === msg);
-    if (t.closest("[data-team-attach]")) { $("[data-team-files]", root).click(); return; }
-    if (t.closest("[data-untray]")) { const i = Number(t.closest("[data-untray]").dataset.untray), mine = s.tray.filter(f => f.prefix === (root === s.side ? "tt" : "tc")); s.tray = s.tray.filter(f => f !== mine[i]); tray(); return; }
-    if (t.closest("[data-pins]")) { s.pinsOnly = !s.pinsOnly; this.draw(); return; }
-    if (t.closest("[data-archive]")) { await this.archive(t.closest("[data-archive]").dataset.archive === "on"); return; }
-    if (t.closest("[data-clear-conversation]")) { await this.clear(); return; }
-    if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; this.send(`@${Team.home.agent.name} catch me up on what I missed here`, null, false, []); return; }
-    if (t.closest("[data-team-download]")) { const n = t.closest("[data-team-download]").dataset.teamDownload; try { await Magnus.download(`/v1/workspaces/${enc(s.ws)}/files/${enc(n)}`, n); } catch (err) { toast(err.message); } return; }
-    if (t.closest("[data-retry]")) { const p = s.pending.find(x => x.id === t.closest("[data-retry]").dataset.retry); if (p) { s.pending = s.pending.filter(x => x !== p); this.send(p.text, p.thread, false, []); } return; }
-    if (t.closest("[data-share-answer]")) { try { await api("POST", `/v1/workspaces/${enc(s.ws)}/answers/${enc(t.closest("[data-share-answer]").dataset.shareAnswer)}/share`, {}); await this.refresh(); } catch (err) { toast(err.message); } return; }
-    if (t.closest("[data-share]")) { try { await api("POST", `/v1/workspaces/${enc(s.ws)}/whispers/${enc(t.closest("[data-share]").dataset.share)}/share`, {}); await this.refresh(); } catch (err) { toast(err.message); } return; }
-    if (t.closest("[data-not-now]")) { s.hidden.add(t.closest("[data-not-now]").dataset.notNow); this.draw(); return; }
-    if (t.closest("[data-open-thread]")) { e.preventDefault(); location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: t.closest("[data-open-thread]").dataset.openThread }); return; }
-    if (!m) return;
-    // A choice from a menu closes it first, focus back on its button, so the
-    // redraw does not reopen a menu that the document then shuts.
-    if (t.closest('[role="menuitem"]')) Menus.close(true);
-    if (t.closest("[data-react]")) {
-      const emoji = t.closest("[data-react]").dataset.react, on = !(m.reactions?.[emoji] || []).includes(Team.home.me);
-      this.change({ op: "react", id: msg, emoji, me: Team.home.me, on }, () => api("POST", `${base}/messages/${enc(msg)}/react`, { emoji, on }));
-    }
-    if (t.closest("[data-reply]")) location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: msg });
-    if (t.closest("[data-edit-cancel]")) { s.editing = null; this.draw(); }
-    const act = t.closest("[data-msg-act]");
-    if (act) { try { await this.msgAct(act.dataset.msgAct, m, act); } catch (err) { toast(err.message); act.disabled = false; } }
-  },
-
-  /** What a message's controls do: the personal chat's, in the team's terms. */
-  async msgAct(act, m, b) {
-    const s = this.s, home = Team.home, base = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`, msg = m.id;
-    const who = m.sender === "agent" ? home.agent.name : s.view.names?.[m.sender] || home.members.find(x => x.id === m.sender)?.name || m.sender;
-    const text = String(m.text || "");
-    switch (act) {
-      case "copy": await copyText(text); return toast("Copied.");
-      case "listen": return readAloud(text, `team:${msg}`);
-      case "hush": return hush();
-      case "edit": s.editing = msg; this.draw(); $(`[data-msg="${CSS.escape(msg)}"] [data-edit-form] textarea`)?.focus(); return;
-      case "retry": {
-        const ask = s.view.messages.find(x => x.work?.task === m.task)?.work?.title;
-        if (!ask) return toast("The request is no longer here to ask again.");
-        b.disabled = true; return this.send(`@${home.agent.name} ${workTitle(ask)}`, m.thread, false, []);
-      }
-      case "branch": App.appSearch = `From the team chat, ${who} wrote:\n${text.split("\n").map(l => `> ${l}`).join("\n")}\n\n`; location.hash = "#/chat/new"; return;
-      case "share": if (!home.members.some(x => x.id !== home.me)) return toast("Nobody else is in this workspace."); s.sharing = msg; return this.draw();
-      case "share-cancel": s.sharing = null; return this.draw();
-      case "share-send": {
-        const to = $(`[data-msg="${CSS.escape(msg)}"] [data-share-to]`)?.value;
-        if (!to) return;
-        b.disabled = true;
-        const dm = await api("POST", `/v1/workspaces/${enc(s.ws)}/direct`, { people: [to] });
-        await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(dm.id)}/messages`, { text: `${who} wrote:\n${text.split("\n").map(l => `> ${l}`).join("\n")}` });
-        s.sharing = null; toast(`Shared with ${home.members.find(x => x.id === to)?.name || to}.`); return this.draw();
-      }
-      case "export": return toast(`Saved ${await Magnus.download(`${base}/messages/${enc(msg)}/export`, `${teamFileStem(who, m.at)}.md`)}`);
-      case "save": await Magnus.putBytes(`/v1/workspaces/${enc(s.ws)}/files/${enc(`${teamFileStem(who, m.at)}.md`)}`, new TextEncoder().encode(`**${who}** · ${m.at}\n\n${text}\n`)); return toast("Saved to Files.");
-      case "task": {
-        const c = home.channels.find(x => x.id === s.channel);
-        await api("POST", `/v1/workspaces/${enc(s.ws)}/tasks`, { title: firstLine(text).slice(0, 200), project: c?.project || undefined, from: { channel: s.channel, message: msg } });
-        toast("Added to the board."); TeamPanel.refresh(); return;
-      }
-      case "pin": return this.change({ op: "pin", id: msg, pinned: !m.pinned }, () => api("POST", `${base}/messages/${enc(msg)}/pin`, { pinned: !m.pinned }));
-      case "feedback": {
-        const d = document.createElement("dialog"); d.className = "feedback-dialog"; d.setAttribute("aria-label", "Feedback");
-        d.innerHTML = `<h2>Feedback</h2>${verdictBar(m.task, null)}<button data-close-feedback>Close feedback</button>`;
-        d.onclick = e => { if (e.target.closest("[data-close-feedback]")) d.close(); };
-        d.onclose = () => d.remove();
-        document.body.append(d); d.showModal(); return;
-      }
-      case "delete":
-        if (!await ask("Delete this message for everyone? It cannot be brought back.", "Delete")) return;
-        // What was sent from here goes too, or it would show again as on its way.
-        s.pending = s.pending.filter(p => p.real !== msg);
-        return this.change({ op: "delete", id: msg }, () => api("DELETE", `${base}/messages/${enc(msg)}`));
-    }
+    try { await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/${what}`, body); } catch (err) { toast(err.message); await loadHome(s.ws); await this.draw(); }
   },
 };

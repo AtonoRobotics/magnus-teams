@@ -39,14 +39,23 @@ pub fn router() -> Router<Arc<Kernel>> {
 
 impl Kernel {
     /// A personal run, its person's own in every way, that also has the thread.
-    pub(super) async fn whisper(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, text: String) -> Result<(String, String)> {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn whisper(
+        self: &Arc<Self>,
+        workspace: &str,
+        channel: &str,
+        thread: Option<String>,
+        person: &str,
+        text: String,
+        model: Option<(String, String)>,
+    ) -> Result<(String, String)> {
         let all: Vec<Message> = self.read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.clone())).unwrap_or_default();
         let here: Vec<&Message> = all.iter().filter(|m| thread.is_none() || m.thread == thread || Some(&m.id) == thread.as_ref()).collect();
         let shown = &here[here.len().saturating_sub(HISTORY_MESSAGES)..];
         let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");
         let others = shown.iter().any(|m| m.sender != person);
         let actor = format!("person:{person}");
-        let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: Some(whisper_label(others)), ..Default::default() }).await?;
+        let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: Some(whisper_label(others)), model, ..Default::default() }).await?;
         let change = Change::Whisper { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), owner: person.into(), history };
         self.emit(&actor, Ev::Team(change)).await?;
         self.wake(&run);

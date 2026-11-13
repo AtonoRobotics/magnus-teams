@@ -69,7 +69,7 @@ async fn a_sender_deletes_their_message_for_everyone_and_from_the_log() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agents_answer_is_deleted_by_who_asked_or_an_admin() {
     let s = server_with("", |_| Router::new()).await;
-    let (ws, _sam, mo, ana) = workspace(&s).await;
+    let (ws, sam, mo, ana) = workspace(&s).await;
     let c = general(&s, &ws);
     let (task, _) = s.k.team_request(&ws, &c, None, "mo", "what is the door code".into()).await.unwrap();
     let run = s.k.read(|st| st.tasks[&task].run_id.clone());
@@ -81,6 +81,12 @@ async fn the_agents_answer_is_deleted_by_who_asked_or_an_admin() {
     let (st, v) = s.call(&mo, Method::DELETE, &path, None).await;
     assert_eq!(st, 200, "who asked could not delete the answer: {v}");
     assert!(!view(&s, &mo, &ws, &c).await.iter().any(|m| m["id"] == json!(id) && m["deleted"] != json!(true)), "the deleted answer is still shown");
+    // The plain list of what was said hides it too: it once showed it.
+    for t in [&mo, &sam] {
+        let (st, said) = s.get(t, &format!("/v1/workspaces/{ws}/channels/{c}/messages")).await;
+        assert_eq!(st, 200, "{said}");
+        assert!(!said.to_string().contains("4471"), "the deleted answer is still listed: {said}");
+    }
     assert_eq!(s.call(&mo, Method::DELETE, &path, None).await.0, 404, "a deleted answer was deleted again");
     s.done().await;
 }

@@ -146,7 +146,8 @@ impl crate::kernel::Kernel {
         // Everyone the server keeps: config people and those invited since.
         let people: Vec<String> = self.everyone().into_iter().map(|(id, _)| id).collect();
         for person in people {
-            if self.read(|s| s.turned_off.contains(&person) || s.reviewing(&person)) {
+            let start = crate::halts::Subject::new_work(&person, false);
+            if self.read(|s| crate::halts::may_proceed(s, &start, crate::halts::Phase::Start).is_some() || s.reviewing(&person)) {
                 continue;
             }
             let prefs = self.read(|s| s.preferences.get(&person).cloned().unwrap_or(serde_json::Value::Null));
@@ -236,13 +237,17 @@ impl crate::kernel::Kernel {
         }
         let people: Vec<String> = self.everyone().into_iter().map(|(id, _)| id).collect();
         for person in people {
-            if self.read(|s| s.turned_off.contains(&person)) {
+            // A poll is work done for the person through their sign-in: the
+            // server's switch, theirs, their agent's, the app's, and their
+            // account turned off each hold it (decisions/2026-11-13-one-authorised-read.md).
+            let held = |app: Option<&str>| self.hold(&crate::halts::Subject::person_app(&person, app), crate::halts::Phase::Call).is_some();
+            if held(None) {
                 continue;
             }
             let watches: Vec<(String, crate::config::Watch)> = self
                 .connectors()
                 .iter()
-                .filter(|c| self.connected(c, &person) && !self.lapsed(c, &person))
+                .filter(|c| self.connected(c, &person) && !self.lapsed(c, &person) && !held(Some(&c.name)))
                 .flat_map(|c| c.watch.iter().map(|w| (c.name.clone(), w.clone())))
                 .filter(|(_, w)| w.poll_minutes.is_some())
                 .collect();

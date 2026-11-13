@@ -137,14 +137,20 @@ impl Ledger {
         self.held.insert(tool.into(), Held { hash: hash.into(), verdict: UNSCREENED.into(), finding: "changed before definitions were screened".into() });
     }
 
+    /// The definition a tool is offered and called with, or why it is not:
+    /// the one judgement both the offer and the boundary read.
+    pub fn usable(&self, tool: &str) -> std::result::Result<&Pin, String> {
+        match (self.held.get(tool), self.pins.get(tool)) {
+            (Some(h), _) if h.verdict == FAILED => Err(format!("{tool} is held back: its description failed the screen for instructions aimed at the agent ({})", h.finding)),
+            (Some(_), _) => Err(format!("{tool}'s definition changed and could not be screened yet; it is held until it is, or until the app is connected again")),
+            (None, None) => Err(format!("{tool}'s definition has not been screened yet")),
+            (None, Some(p)) => Ok(p),
+        }
+    }
+
     /// Why a tool is not offered, or None when it is.
     pub fn refusal(&self, tool: &str) -> Option<String> {
-        match self.held.get(tool) {
-            Some(h) if h.verdict == FAILED => Some(format!("{tool} is held back: its description failed the screen for instructions aimed at the agent ({})", h.finding)),
-            Some(_) => Some(format!("{tool}'s definition changed and could not be screened yet; it is held until it is, or until the app is connected again")),
-            None if !self.pins.contains_key(tool) => Some(format!("{tool}'s definition has not been screened yet")),
-            None => None,
-        }
+        self.usable(tool).err()
     }
 }
 
@@ -221,7 +227,13 @@ impl Kernel {
 
     /// Why a tool may not be used now, or None when it may.
     pub(crate) fn tool_refusal(&self, tool: &str) -> Option<String> {
-        self.read(|s| s.tools.refusal(tool))
+        self.usable_pin(tool).err()
+    }
+
+    /// The screened definition a tool is offered with, or why it is not
+    /// offered: the same judgement `tool_refusal` gives the boundary.
+    pub(crate) fn usable_pin(&self, tool: &str) -> std::result::Result<Pin, String> {
+        self.read(|s| s.tools.usable(tool).cloned())
     }
 }
 
@@ -255,6 +267,19 @@ mod tests {
         l.apply(Utc::now(), &screened(UNSCREENED, "d"));
         assert!(l.refusal("crm__send").is_some());
         assert_eq!(l.refusal("crm__other"), Some("crm__other's definition has not been screened yet".into()));
+    }
+
+    /// The offer and the boundary read one judgement: a tool held back
+    /// keeps its earlier pin, and is offered with it no more than called.
+    #[test]
+    fn a_held_tool_is_neither_offered_its_old_definition_nor_called() {
+        let mut l = Ledger::default();
+        l.apply(Utc::now(), &screened(PASSED, "a"));
+        assert_eq!(l.usable("crm__send").map(|p| p.hash.clone()), Ok("a".into()));
+        l.apply(Utc::now(), &screened(FAILED, "b"));
+        assert!(l.pins.contains_key("crm__send"), "the earlier pin was dropped");
+        assert_eq!(l.usable("crm__send").err(), l.refusal("crm__send"));
+        assert!(l.usable("crm__send").is_err(), "a held tool was offered its earlier definition");
     }
 
     #[test]

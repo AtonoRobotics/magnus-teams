@@ -1,6 +1,7 @@
-// The team workspace as teams.js, team-chat.js, team-panel.js and
-// team-command.js draw it: the rail, messages with the agent's live work,
-// optimistic changes, mentions, the board and the command menu.
+// The team workspace as teams.js, team-chat.js, team-conversation.js,
+// team-panel.js and team-command.js draw it: the rail, messages with the
+// agent's live work (drawn by the one chat view, chat-view.js), mentions, the
+// board and the command menu.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -14,14 +15,19 @@ const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
   UI: {}, route: () => {}, esc, voice: { entry: null }, ICONS: new Proxy({}, { get: () => "" }), App: { canReadAloud: true }, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
-  icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
+  chosenModel: form => form?.picked, modelPicker: async () => "",
+  icon: k => `<svg data-icon="${k}"></svg>`, chip: st => `<span class="chip">${st}</span>`, statusLineSlot: (t, cls) => `<span class="${cls}" data-status-line="${t.task_id}">${t.status_line}</span>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },
   document: { addEventListener: (type, f) => (listeners[type] ||= []).push(f) }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
-vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts };`, sandbox);
+const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts, ChatView };`, sandbox);
+
+// An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
+// chat's entry, its files as file entries, work no message carries as a `tasks` entry.
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
 const { Team, TeamChat } = sandbox.__x;
 
 // Places and links.
@@ -65,67 +71,70 @@ assert.match(rail, /data-dm="leo"/, "someone without a conversation yet cannot b
 assert.doesNotMatch(rail, /data-dm="dana"/, "someone already in a direct message is listed twice");
 assert.equal(sandbox.firstChannel(home), "c1", "a workspace does not open where the mentions are");
 
-// The agent's live work, with the requester named and its own thread.
-const name = id => ({ dana: "Dana", leo: "Leo", sam: "Sam" })[id] || id;
-const work = { task: "t1", requester: "dana", status: "working", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", reason: null };
-const card = sandbox.workCard(work, name, "w", "c1");
+// A channel's items, drawn by the one chat view as the personal chat draws
+// its own: the state a channel holds, and one item drawn there.
+const name = id => ({ dana: "Dana", leo: "Leo", sam: "Sam", agent: "Magnus" })[id] || id;
+const channelState = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {}, pinsOnly: false, whispers: [], hidden: new Set(), unreadAtOpen: 0, typedAt: 0 };
+const draw = (m, o = {}) => {
+  const st = { ...channelState, ...(o.s || {}) }, thread = o.thread || null;
+  const conv = sandbox.teamConversation(st, thread), r = sandbox.teamReader(st, thread);
+  return sandbox.__x.ChatView.item(sandbox.teamEntry(served(m), r), { conv, ui: { editing: null, sharing: null, ...(o.ui || {}) } });
+};
+Team.home = home;
+
+// The agent's live work: the personal chat's task row, with the requester
+// named and its own thread to open.
+const work = { task_id: "t1", requester: "dana", status: "running", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", waiting_on: null };
+const workItem = w => draw({ id: "w1", sender: "agent", requester: w.requester, text: "", thread: null, at: "", work: w });
+const card = workItem(work);
+assert.match(card, /class="reqgroup chatcard"[^]*class="tcard"/, "the work card is not the personal chat's task row");
 assert.match(card, /for Dana/, "the work card does not name the requester");
 assert.match(card, /Reading a team file/);
 // A team reply is a chat turn: no step count, as no Magnus chat shows one (owner, 2026-11-13).
 assert.doesNotMatch(card, /step \d/, "the work card counts steps");
-assert.match(card, /data-open-thread="m1"/, "long work has no thread to open");
-assert.match(sandbox.workCard({ ...work, status: "waiting" }, name, "w", "c1"), /Waiting for Dana to answer an ask/);
-assert.match(sandbox.workCard({ ...work, status: "failed", reason: "<no access>" }, name, "w", "c1"), /Could not finish: &#60;no access&#62;/);
-assert.doesNotMatch(sandbox.workCard({ ...work, thread: null }, name, "w", "c1"), /data-open-thread/);
+assert.match(card, /href="#\/team\/w\/c\/c1\/t\/m1"/, "long work has no thread to open");
+assert.match(workItem({ ...work, status: "suspended" }), /Waiting for Dana to answer an ask/);
+assert.match(workItem({ ...work, status: "failed", waiting_on: "<no access>" }), /Could not finish: &#60;no access&#62;/);
+assert.doesNotMatch(workItem({ ...work, thread: null }), /\/t\/m1/);
+assert.match(workItem({ ...work, requester: "sam", status: "suspended" }), /Needs you/, "work waiting on me does not say it needs me");
 
-// Messages: the agent's marked as such and for whom, people's escaped,
-// mentions marked, reactions, replies, edits and pending states.
-const ctx = { me: "sam", ws: "w", channel: "c1", name, guest: false, files: {}, inThread: false, editing: null };
-const asked = sandbox.messageHtml({ id: "m1", sender: "dana", text: "@Magnus pull together <b>feedback</b>", thread: null, at: "2026-11-09T10:02:00Z", reactions: { "👍": ["sam", "leo"] }, replies: 3, last_reply: "2026-11-09T10:14:00Z", work }, ctx);
+// Messages: whose each is, people's words escaped, mentions marked,
+// reactions, replies and edits; the agent's answer for whom.
+const asked = draw({ id: "m1", sender: "dana", text: "@Magnus pull together <b>feedback</b>", thread: null, at: "2026-11-09T10:02:00Z", reactions: { "👍": ["sam", "leo"] }, replies: 3, last_reply: "2026-11-09T10:14:00Z", work });
+assert.match(asked, /class="entry them"[^]*class="msg person"[^]*Dana/, "someone else's message is not drawn as theirs");
 assert.match(asked, /<span class="mention">@Magnus<\/span>/, "a mention is not marked");
 assert.doesNotMatch(asked, /<b>feedback/, "a person's words were not escaped");
-assert.match(asked, /class="tm-reaction on"[^>]*>👍 2/, "my reaction is not shown as mine");
+assert.match(asked, /class="reaction on"[^>]*>👍 2/, "my reaction is not shown as mine");
 assert.match(asked, /3 replies/);
-assert.match(asked, /tm-work/, "the agent's work does not show on the asking message");
+assert.match(asked, /data-chat-work="t1"/, "the agent's work does not show on the asking message");
 assert.doesNotMatch(asked, /data-msg-act="edit"/, "someone else's message can be edited");
-const answer = sandbox.messageHtml({ id: "agent:t1", sender: "agent", requester: "dana", text: "Done. **Three** themes.", thread: "m1", at: "2026-11-09T10:31:00Z" }, ctx);
-assert.match(answer, /team agent<\/span> <span class="small faint">for Dana/, "the agent's answer does not say who asked");
+const answer = draw({ id: "agent:t1", sender: "agent", requester: "dana", text: "Done. **Three** themes.", thread: "m1", at: "2026-11-09T10:31:00Z" });
+assert.match(answer, /class="msg magnus"[^]*Magnus · for Dana/, "the agent's answer does not say who asked");
 assert.match(answer, /<p>Done/, "the agent's answer is not rich content");
-const mine = sandbox.messageHtml({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", edited: true }, ctx);
+const mine = draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", edited: true, may: { edit: true, share: true, delete: true } });
+assert.match(mine, /class="entry me"[^]*class="msg me"[^]*You/, "my own message is not drawn as the personal chat draws mine");
 assert.match(mine, /data-msg-act="edit"/, "my own message cannot be edited");
-assert.match(mine, /\(edited\)/);
-assert.match(sandbox.messageHtml({ id: "tmp", sender: "sam", text: "hi", thread: null, at: "", state: "sending" }, ctx), /Sending…/);
-assert.match(sandbox.messageHtml({ id: "tmp", sender: "sam", text: "hi", thread: null, at: "", state: "failed" }, ctx), /data-retry="tmp"/, "a failed send cannot be retried");
-assert.doesNotMatch(sandbox.messageHtml({ id: "m3", sender: "leo", text: "hi", thread: null, at: "" }, { ...ctx, guest: true }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks");
-assert.match(sandbox.messageHtml({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }, ctx), /tm-file[^]*plan\.pdf[^]*data-team-download="plan.pdf"/, "a dropped file does not show");
-assert.match(sandbox.messageHtml({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { ...ctx, files: { "shot.png": "data:image/png;base64,AA" } }), /<img src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
+assert.match(mine, / · edited/);
+assert.match(draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", may: { edit: true } }, { ui: { editing: "m2" } }), /msg me editing[^]*data-msg-act="edit-send"/, "a team message is not edited as a personal one is");
+assert.doesNotMatch(draw({ id: "m3", sender: "leo", text: "hi", thread: null, at: "", may: { share: true } }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks the server refuses");
+assert.match(draw({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }), /class="previews"[^]*class="fprev"[^]*plan\.pdf[^]*data-team-download="plan.pdf"/, "a dropped file does not show as a personal chat's file does");
+assert.match(draw({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { s: { files: { "shot.png": "data:image/png;base64,AA" } } }), /<img alt="" src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
 
-// Optimistic changes: shown at once, merged when the server has them.
-const pending = [{ id: "tmp-1", sender: "sam", text: "a", thread: null, at: "", real: "m7" }, { id: "tmp-2", sender: "sam", text: "b", thread: null, at: "", state: "sending" }];
-assert.deepEqual(plain(sandbox.mergePending([{ id: "m7" }], pending).map(m => m.id)), ["m7", "tmp-2"], "a confirmed message shows twice");
-const view = { messages: [{ id: "m1", text: "x", reactions: {} }] };
-sandbox.applyLocal(view, { op: "react", id: "m1", emoji: "🎉", me: "sam", on: true });
-assert.deepEqual(plain([...view.messages[0].reactions["🎉"]]), ["sam"]);
-sandbox.applyLocal(view, { op: "react", id: "m1", emoji: "🎉", me: "sam", on: false });
-assert.equal(view.messages[0].reactions["🎉"], undefined, "an empty reaction stays");
-sandbox.applyLocal(view, { op: "edit", id: "m1", text: "y" });
-sandbox.applyLocal(view, { op: "pin", id: "m1", pinned: true });
-assert.equal(view.messages[0].text + view.messages[0].edited + view.messages[0].pinned, "ytruetrue");
-
-let release;
-reply = (m, p) => p.endsWith("/messages") ? new Promise(r => { release = r; }) : Promise.resolve({});
-TeamChat.s = { ws: "w", channel: "c1", pending: [], files: {}, view: { messages: [] } };
-TeamChat.draw = () => {}; TeamChat.refresh = async () => {};
-const sent = TeamChat.send("@Magnus what is left?", null, false, []);
-assert.equal(TeamChat.s.pending.length, 1, "a message does not show before the server answers");
-assert.equal(TeamChat.s.pending[0].state, "sending");
-release({ id: "m8", agent: "mentioned" });
-await sent;
-assert.equal(TeamChat.s.pending[0].real, "m8");
+// Sending: what the composer sends to a channel. The composer is the
+// personal chat's: the words stay in the box until the server has them.
+reply = async () => ({ id: "m8", agent: "mentioned" });
+TeamChat.refresh = async () => {};
+let then = await sandbox.teamComposer({ ...channelState }, null).send({ text: "@Magnus what is left?", files: [], form: null });
 assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/messages", { text: "@Magnus what is left?" }], "asking the agent needed more than a mention");
-reply = async () => { throw new Error("offline"); };
-await TeamChat.send("later", null, false, []);
-assert.equal(TeamChat.s.pending.at(-1).state, "failed", "a failed send is not marked");
+await then();
+await sandbox.teamComposer({ ...channelState }, "m1").send({ text: "see", files: [{ name: "plan.pdf" }], form: null });
+assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/messages", { text: "see\n📎 plan.pdf", thread: "m1" }], "a reply in a thread lost its thread or its file");
+// The composer's model picker is the personal one: a request runs on its pick.
+const picked = { adapter: "a", model: "fast" };
+await sandbox.teamComposer({ ...channelState }, null).send({ text: "@Magnus plan it", files: [], form: { picked } });
+assert.deepEqual(plain(calls.at(-1)[2].model), picked, "a team request does not carry the model the composer picked");
+assert.match(TeamChat.mount.toString(), /modelPicker\(\)/, "the team composer has no model picker");
+reply = async () => ({});
 
 // Mentions: the agent first, then people.
 assert.equal(sandbox.mentionAt("hey @Ma", 7), "Ma");
@@ -163,7 +172,7 @@ for (const role of ["member", "admin", "owner"]) {
 Team.home = home;
 assert.equal(sandbox.workTitle("@Magnus pull together the feedback\nmore"), "Pull together the feedback", "a work card's title keeps the mention that asked");
 assert.equal(sandbox.workTitle("Magnus, sum it up"), "Magnus, sum it up");
-assert.match(card, /<strong>Pull together the alpha feedback<\/strong>/);
+assert.match(card, /<span class="ttl">Pull together the alpha feedback<\/span>/);
 
 // The command menu: making things by typing their name, asking the agent,
 // settings for the channel, and search.
@@ -218,11 +227,11 @@ assert.match(spendCard, /#magnus-alpha<\/span><span class="small faint">\$4 of \
 Team.home = home;
 assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as nothing");
 assert.equal(sandbox.teamUsd(12), "$12");
-assert.match(sandbox.workCard({ ...work, doing: null, steps: 1 }, name, "w", "c1"), /Thinking it through/, "work with no action yet says it is starting");
+assert.match(workItem({ ...work, doing: null, steps: 1 }), /Thinking it through/, "work with no action yet says it is starting");
 
-assert.doesNotMatch(sandbox.workCard({ ...work, doing: null, steps: 0 }, name, "w", "c1"), /step|Starting/, "a reply not begun yet counts steps");
-assert.doesNotMatch(sandbox.workCard(work, name, "w", "c1", true), /data-open-thread/, "a work card inside its own thread links to that thread");
-assert.match(sandbox.workCard({ ...work, doing: "task_complete" }, name, "w", "c1"), /Finishing up/);
+assert.doesNotMatch(workItem({ ...work, doing: null, steps: 0 }), /step|Starting/, "a reply not begun yet counts steps");
+assert.doesNotMatch(draw({ id: "w1", sender: "agent", requester: "dana", text: "", thread: "m1", at: "", work }, { thread: "m1" }), /\/t\/m1/, "a work card inside its own thread links to that thread");
+assert.match(workItem({ ...work, doing: "task_complete" }), /Finishing up/);
 
 // The channel's header shows who is in it, with the agent always there.
 const faces = sandbox.channelFaces(home, home.channels[0], home.projects[0]);

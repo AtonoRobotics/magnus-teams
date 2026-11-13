@@ -313,11 +313,12 @@ impl Kernel {
         let who = self.person(&run.person).map(|p| if p.name.is_empty() { p.id.clone() } else { p.name.clone() }).unwrap_or_else(|| run.person.clone());
         // A team run is told of no member's own apps (spec rev 142), and
         // any run only of what `poll_due` polls for its person.
-        let watched_on = self.cfg.proactive.on && self.team_of(&run.task).is_none() && !self.read(|s| s.turned_off.contains(&run.person));
+        let held = |app: Option<&str>| self.hold(&crate::halts::Subject::person_app(&run.person, app), crate::halts::Phase::Call).is_some();
+        let watched_on = self.cfg.proactive.on && self.team_of(&run.task).is_none() && !held(None);
         let mut watched: Vec<(String, u64)> = if watched_on {
             self.connectors()
                 .iter()
-                .filter(|c| self.connected(c, &run.person) && !self.lapsed(c, &run.person))
+                .filter(|c| self.connected(c, &run.person) && !self.lapsed(c, &run.person) && !held(Some(&c.name)))
                 .filter_map(|c| c.watch.iter().filter_map(|w| w.poll_minutes).min().map(|m| (c.title.clone().unwrap_or_else(|| c.name.clone()), m.max(1))))
                 .collect()
         } else {
@@ -466,8 +467,7 @@ impl Kernel {
                         tracing::warn!("screen {name}: {e:#}");
                     }
                 }
-                let usable = self.read(|s| s.tools.pins.get(&name).cloned().filter(|_| s.tools.refusal(&name).is_none()));
-                if let Some(p) = usable {
+                if let Ok(p) = self.usable_pin(&name) {
                     let spec = if p.shown {
                         ToolSpec { name, description: p.description, input_schema: p.input_schema }
                     } else {

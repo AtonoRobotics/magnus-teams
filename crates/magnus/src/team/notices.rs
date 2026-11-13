@@ -7,6 +7,7 @@
 use super::chat::{mentions, Notify};
 use super::chat_routes::name_of;
 use super::conversation::{AGENT_ID, AGENT_NAME};
+use super::member_view::{author, MemberView, Runs};
 use super::routes::{Reply, K};
 use crate::api::who;
 use crate::kernel::Kernel;
@@ -73,62 +74,58 @@ fn preview(text: &str) -> String {
 pub fn collect(s: &Shared, person: &str, name: &str, after: At) -> Vec<Notice> {
     let mut out = vec![];
     for w in s.team.of(person) {
-        for (cid, ch) in w.channels.iter().filter(|(id, c)| w.sees(id, person) && w.in_project(c.project.as_deref(), person)) {
-            let level = w.notify_level(cid, person);
-            if level == Notify::Off {
-                continue;
-            }
-            let direct = w.chat.direct.get(cid);
-            let others = direct.map(|d| if d.agent { vec![AGENT_ID.to_string()] } else { d.people.iter().filter(|p| *p != person).cloned().collect() });
-            let read = w.chat.read.get(person).and_then(|c| c.get(cid)).copied();
-            let since = Some(after).max(read).max(w.cleared(cid, person));
-            let notice = |id: String, kind: Kind, sender: String, thread: Option<String>, at: At, text: &str| Notice {
-                id,
-                kind,
-                workspace: w.id.clone(),
-                workspace_name: w.name.clone(),
-                channel: cid.clone(),
-                channel_name: ch.name.clone(),
-                direct: others.clone(),
-                thread,
-                sender,
-                at,
-                preview: preview(text),
-            };
-            for m in ch.messages.iter().filter(|m| since.is_none_or(|t| m.at > t) && m.sender != person && !m.text.is_empty() && !w.chat.unsent.contains(&m.id)) {
-                let kind = if mentions(&m.text, person, name) {
-                    Kind::Mention
-                } else if level == Notify::Mentions {
-                    continue;
-                } else if direct.is_some() {
-                    Kind::Direct
-                } else {
-                    Kind::Message
-                };
-                let sender = if m.sender.starts_with("agent:") { AGENT_ID.to_string() } else { m.sender.clone() };
-                out.push(notice(m.id.clone(), kind, sender, m.thread.clone(), m.at, &m.text));
-            }
-            for r in s.team.runs_in(&w.id, cid).into_iter().filter(|r| r.requester == person) {
-                let Some(task) = s.tasks.get(&r.task) else { continue };
-                let Some(run) = s.runs.get(&task.run_id) else { continue };
-                let Some(at) = run.ended_at.filter(|at| *at > after && run.status.terminal()) else { continue };
-                let text = match run.status {
-                    crate::state::Status::Completed => run.summary.clone().unwrap_or_default(),
-                    crate::state::Status::Failed => format!("I could not finish this: {}", run.reason.as_deref().unwrap_or("it failed")),
-                    _ => continue,
-                };
-                let thread = super::conversation::placement(
-                    r.thread.as_deref(),
-                    w.chat.asked.get(&r.task).map(String::as_str),
-                    super::conversation::is_long(task.created_at, at, run.replies.len()),
-                );
-                out.push(notice(format!("agent:{}", r.task), Kind::Answer, AGENT_ID.to_string(), thread, at, &text));
-            }
-        }
+        out.extend(of_workspace(&MemberView::new(&s.team, w, person, s), name, after, chrono::Utc::now()));
     }
     out.sort_by_key(|n| n.at);
     let extra = out.len().saturating_sub(MAX_NOTICES);
     out.drain(..extra);
+    out
+}
+
+/// One workspace's notices, from what this person sees of it: nothing
+/// deleted, nothing from before they deleted the conversation for
+/// themselves, and an answer as they may read it.
+pub fn of_workspace<R: Runs>(v: &MemberView<R>, name: &str, after: At, now: At) -> Vec<Notice> {
+    let (w, person) = (v.workspace(), v.person());
+    let mut out = vec![];
+    for (cid, ch) in v.channels() {
+        let level = w.notify_level(cid, person);
+        if level == Notify::Off {
+            continue;
+        }
+        let direct = w.chat.direct.get(cid);
+        let others = direct.map(|d| if d.agent { vec![AGENT_ID.to_string()] } else { d.people.iter().filter(|p| *p != person).cloned().collect() });
+        let read = w.chat.read.get(person).and_then(|c| c.get(cid)).copied();
+        let since = Some(after).max(read);
+        let notice = |id: String, kind: Kind, sender: String, thread: Option<String>, at: At, text: &str| Notice {
+            id,
+            kind,
+            workspace: w.id.clone(),
+            workspace_name: w.name.clone(),
+            channel: cid.clone(),
+            channel_name: ch.name.clone(),
+            direct: others.clone(),
+            thread,
+            sender,
+            at,
+            preview: preview(text),
+        };
+        for m in v.messages(cid).into_iter().filter(|m| since.is_none_or(|t| m.at > t) && m.sender != person && !m.text.is_empty()) {
+            let kind = if mentions(&m.text, person, name) {
+                Kind::Mention
+            } else if level == Notify::Mentions {
+                continue;
+            } else if direct.is_some() {
+                Kind::Direct
+            } else {
+                Kind::Message
+            };
+            out.push(notice(m.id.clone(), kind, author(&m.sender).0.to_string(), m.thread.clone(), m.at, &m.text));
+        }
+        for a in v.answers(cid, now).into_iter().filter(|a| a.requester == person && a.at > after) {
+            out.push(notice(a.id.clone(), Kind::Answer, AGENT_ID.to_string(), a.thread.clone(), a.at, &a.text));
+        }
+    }
     out
 }
 

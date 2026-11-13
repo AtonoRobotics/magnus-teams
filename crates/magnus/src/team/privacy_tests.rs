@@ -104,12 +104,12 @@ async fn a_private_answer_reaches_only_its_requester_until_shared() {
     let mut private = run.clone();
     private.private = true;
     let secret = "your inbox says the deal closes Friday".to_string();
-    assert_eq!(super::answer_for(&private, secret.clone(), "mo", "mo"), (secret.clone(), true));
+    assert_eq!(super::member_view::answer_as(private.private, secret.clone(), "mo", "mo"), (secret.clone(), true));
     for viewer in ["sam", "ana"] {
-        let (text, only) = super::answer_for(&private, secret.clone(), "mo", viewer);
+        let (text, only) = super::member_view::answer_as(private.private, secret.clone(), "mo", viewer);
         assert!(only && !text.contains("Friday"), "{viewer} was shown a private answer: {text}");
     }
-    assert_eq!(super::answer_for(&run, "hello".into(), "mo", "ana"), ("hello".to_string(), false));
+    assert_eq!(super::member_view::answer_as(run.private, "hello".into(), "mo", "ana"), ("hello".to_string(), false));
     // Sharing: only the requester, and only once it has finished.
     assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await.0, 404, "someone else shared mo's answer");
     assert_eq!(s.post(&ana, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await.0, 403);
@@ -161,7 +161,7 @@ async fn a_teams_words_stay_private_in_a_members_own_runs() {
     assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": "the price is 4m" })).await.0, 200);
     for mine in [false, true] {
         let who = if mine { "sam" } else { "mo" };
-        let (task, _) = s.k.whisper(&ws, &channel, None, who, "sum this up".into()).await.unwrap();
+        let (task, _) = s.k.whisper(&ws, &channel, None, who, "sum this up".into(), None).await.unwrap();
         let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
         assert!(run.private, "{who}'s whisper run is not private, so it could file the team's words for everyone");
     }

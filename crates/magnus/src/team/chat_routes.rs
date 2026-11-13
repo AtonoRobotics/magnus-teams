@@ -2,12 +2,15 @@
 //! reads now, editing, reactions, pins, per-channel settings, direct
 //! conversations, read markers, typing and the activity view.
 use super::chat::{AgentMode, Chat, Direct, Notify};
-use super::conversation::{is_long, placement, AGENT_ID, AGENT_NAME};
+use super::conversation::{AGENT_ID, AGENT_NAME};
+use super::items;
+use super::member_view::MemberView;
 use super::routes::{has_channel, member, new_id, send, Reply, K};
-use super::{presence, Change, Message, Role, Workspace};
+use super::{presence, Change, Role, Workspace};
 use crate::api::err;
+use crate::config::Person;
 use crate::kernel::Kernel;
-use crate::state::State as Shared;
+use crate::message_file;
 use axum::extract::{Path, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
@@ -22,7 +25,6 @@ use std::sync::Arc;
 const MAX_MESSAGE_CHARS: usize = 20_000;
 const MAX_EMOJI_CHARS: usize = 16;
 const MAX_ACTIVITY_ITEMS: usize = 100;
-const MAX_TITLE_CHARS: usize = 80;
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -62,7 +64,7 @@ async fn home(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let channels: Vec<Value> = w
         .channels
         .iter()
-        .filter(|(id, c)| w.sees(id, &p.id) && w.in_project(c.project.as_deref(), &p.id))
+        .filter(|(id, _)| w.sees(id, &p.id))
         .map(|(id, c)| {
             let (unread, mentions) = w.unread(id, &p.id, &me);
             let direct = w.chat.direct.get(id).map(|d| json!({ "people": d.people, "agent": d.agent }));
@@ -90,110 +92,9 @@ async fn home(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     .into_response()
 }
 
-fn status_word(s: crate::state::Status) -> &'static str {
-    use crate::state::Status::*;
-    match s {
-        Running => "working",
-        Suspended => "waiting",
-        Completed => "done",
-        Failed => "failed",
-        Cancelled => "stopped",
-    }
-}
-
-/// How an agent's answer is named among a channel's messages: by its request.
-pub(super) const ANSWER_PREFIX: &str = "agent:";
-
-/// What the agent answers in the thread once a request ends: its result,
-/// or why it could not finish.
-pub(super) fn answer_text(run: &crate::state::Run) -> Option<String> {
-    match run.status {
-        crate::state::Status::Completed => run.summary.clone(),
-        crate::state::Status::Failed => Some(format!("I could not finish this: {}", run.reason.as_deref().unwrap_or("it failed"))),
-        _ => None,
-    }
-}
-
-/// The last tool the run called: what it is doing now.
-fn doing(run: &crate::state::Run) -> Option<String> {
-    run.replies.iter().rev().flat_map(|r| r.blocks.iter().rev()).find_map(|b| match b {
-        magnus_adapter_proto::Block::ToolCall { name, .. } => Some(name.clone()),
-        _ => None,
-    })
-}
-
-/// Each request's live card and finished answer, in the channel or the
-/// thread they belong in.
-fn agent_items(s: &Shared, w: &Workspace, channel: &str, viewer: &str, now: chrono::DateTime<chrono::Utc>) -> (Vec<Value>, BTreeMap<String, Value>) {
-    let (mut items, mut cards) = (vec![], BTreeMap::new());
-    let texts: BTreeMap<&str, &str> = w.channels.get(channel).map(|c| c.messages.iter().map(|m| (m.id.as_str(), m.text.as_str())).collect()).unwrap_or_default();
-    for r in s.team.runs_in(&w.id, channel) {
-        let Some(task) = s.tasks.get(&r.task) else { continue };
-        let Some(run) = s.runs.get(&task.run_id) else { continue };
-        let steps = run.replies.len();
-        let long = is_long(task.created_at, run.ended_at.unwrap_or(now), steps);
-        let asked = w.chat.asked.get(&r.task).map(String::as_str);
-        let thread = placement(r.thread.as_deref(), asked, long);
-        let title: String = asked.and_then(|m| texts.get(m)).map_or("Following up", |t| t).chars().take(MAX_TITLE_CHARS).collect();
-        let card = json!({
-            "task": r.task, "requester": r.requester, "status": status_word(run.status), "steps": steps,
-            "doing": doing(run), "title": title, "long": long, "thread": thread, "started": task.created_at, "reason": run.reason,
-        });
-        match asked {
-            Some(m) => {
-                cards.insert(m.to_string(), card);
-            }
-            None => items.push(
-                json!({ "id": format!("work:{}", r.task), "sender": AGENT_ID, "requester": r.requester, "text": "", "thread": r.thread, "at": task.created_at, "work": card }),
-            ),
-        }
-        let answer = answer_text(run);
-        let id = format!("{ANSWER_PREFIX}{}", r.task);
-        // A deleted answer leaves its place, as a deleted message does.
-        if let Some(text) = answer.filter(|_| !w.chat.unsent.contains(&id)) {
-            let (text, private) = super::answer_for(run, text, &r.requester, viewer);
-            let at = run.ended_at.unwrap_or(now);
-            items.push(json!({ "id": id, "sender": AGENT_ID, "requester": r.requester, "task": r.task, "text": text, "thread": thread, "at": at, "private": private }));
-        }
-    }
-    (items, cards)
-}
-
 /// An item's time, for ordering: its text form does not sort.
 pub(super) fn when(item: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>> {
     item["at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
-}
-
-fn message_item(w: &Workspace, m: &Message) -> Value {
-    let reactions = w.chat.reactions.get(&m.id).cloned().unwrap_or_default();
-    let (sender, requester) = match m.sender.strip_prefix("agent:") {
-        Some(r) => (AGENT_ID.to_string(), Some(r.to_string())),
-        None => (m.sender.clone(), None),
-    };
-    let deleted = w.chat.unsent.contains(&m.id);
-    json!({ "id": m.id, "sender": sender, "requester": requester, "text": m.text, "thread": m.thread, "at": m.at, "edited": w.chat.edited.contains(&m.id), "pinned": w.chat.pins.contains(&m.id), "reactions": reactions, "deleted": deleted })
-}
-
-/// What a person sees of a channel, in order: its messages with the agent's
-/// work cards on them, and the agent's answers, from after they cleared it.
-fn shown_items(k: &Kernel, ws: &str, channel: &str, viewer: &str) -> Vec<Value> {
-    let now = chrono::Utc::now();
-    let mut items = k.read(|s| {
-        let Some(w) = s.team.workspace(ws) else { return vec![] };
-        let (agent, cards) = agent_items(s, w, channel, viewer, now);
-        let mut items: Vec<Value> = w.channels.get(channel).map(|c| c.messages.iter().map(|m| message_item(w, m)).collect()).unwrap_or_default();
-        for item in &mut items {
-            if let Some(card) = item["id"].as_str().and_then(|id| cards.get(id)) {
-                item["work"] = card.clone();
-            }
-        }
-        items.extend(agent);
-        items
-    });
-    let cleared = k.read(|s| s.team.workspace(ws).and_then(|w| w.cleared(channel, viewer)));
-    items.retain(|i| cleared.is_none_or(|c| when(i).is_some_and(|at| at > c)));
-    items.sort_by_key(when);
-    items
 }
 
 /// One message as a Markdown file, as this person sees it: the team chat
@@ -201,17 +102,12 @@ fn shown_items(k: &Kernel, ws: &str, channel: &str, viewer: &str) -> Vec<Value> 
 /// 2026-11-13).
 async fn export(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
-    }
-    let Some(item) =
-        shown_items(&k, &ws, &channel, &p.id).into_iter().find(|i| i["id"] == json!(id) && i["deleted"] != json!(true) && i["text"].as_str().is_some_and(|t| !t.is_empty()))
-    else {
-        return err(StatusCode::NOT_FOUND, "no such message");
-    };
-    let text = |f: &str| item[f].as_str().unwrap_or_default().to_string();
-    let body = format!("**{}** · {}\n\n{}\n", name_of(&k, &text("sender")), text("at"), text("text"));
-    ([(CONTENT_TYPE, "text/markdown; charset=utf-8"), (CONTENT_DISPOSITION, "attachment; filename=\"message.md\"")], body).into_response()
+    let now = chrono::Utc::now();
+    let found = k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| (m.author().to_string(), m.at(), m.text().to_string()))));
+    let Some((by, at, text)) = found.filter(|(_, _, t)| !t.is_empty()) else { return err(StatusCode::NOT_FOUND, "no such message") };
+    let body = message_file::markdown(&name_of(&k, &by), &message_file::at_text(at), &text);
+    let name = message_file::file_name(&text);
+    ([(CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], body).into_response()
 }
 
 /// A channel as it reads now: messages with their reactions, edits, pins
@@ -222,28 +118,14 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
     presence::seen(&ws, &p.id);
-    let mut items = shown_items(&k, &ws, &channel, &p.id);
+    let now = chrono::Utc::now();
+    let items = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| items::timeline(&v, &channel, now)).unwrap_or_default());
     let working = k.read(|s| s.team.runs_in(&ws, &channel).iter().any(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|run| !run.status.terminal())));
-    let mut replies: BTreeMap<String, (usize, Value)> = BTreeMap::new();
-    for i in items.iter().filter(|i| i["thread"].is_string()) {
-        let e = replies.entry(i["thread"].as_str().unwrap_or_default().to_string()).or_insert((0, Value::Null));
-        e.0 += 1;
-        e.1 = i["at"].clone();
-    }
-    for i in &mut items {
-        if let Some((n, last)) = i["id"].as_str().and_then(|id| replies.get(id)) {
-            i["replies"] = json!(n);
-            i["last_reply"] = last.clone();
-        }
-    }
-    // A deleted message with no replies leaves nothing behind.
-    items.retain(|i| i["deleted"] != json!(true) || i["replies"].is_number());
     let mut typing: Vec<String> = presence::typing_in(&ws, &channel).into_iter().filter(|t| t != &p.id).map(|t| name_of(&k, &t)).collect();
     if working {
         typing.push(AGENT_NAME.to_string());
     }
-    let names: BTreeMap<String, String> =
-        items.iter().filter_map(|i| i["sender"].as_str()).chain(items.iter().filter_map(|i| i["requester"].as_str())).map(|id| (id.to_string(), name_of(&k, id))).collect();
+    let names: BTreeMap<String, String> = items.iter().flat_map(|i| i.sender.iter().chain(i.requester.as_ref())).map(|id| (id.clone(), name_of(&k, id))).collect();
     Json(json!({ "messages": items, "typing": typing, "names": names })).into_response()
 }
 
@@ -255,12 +137,8 @@ struct Edit {
 /// Only who wrote a message edits it.
 async fn edit(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<Edit>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    let by = k
-        .read(|s| s.team.workspace(&ws).filter(|w| w.sees(&channel, &p.id)).and_then(|w| w.channels.get(&channel)?.messages.iter().find(|m| m.id == id).map(|m| m.sender.clone())));
-    let Some(by) = by else { return err(StatusCode::NOT_FOUND, "no such message") };
-    if by != p.id {
-        return err(StatusCode::FORBIDDEN, "only who wrote a message edits it");
-    }
+    // One deleted for everyone stays deleted: an edit would put words back.
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.edit, "only who wrote a message edits it"));
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
         return err(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
@@ -296,6 +174,7 @@ async fn pin(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, S
     if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.pin, "a guest pins nothing"));
     ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Pinned { channel, id, pinned: b.pinned } }).await);
     Json(json!({ "ok": true })).into_response()
 }
@@ -377,14 +256,21 @@ async fn direct(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json
     if b.agent && role == Role::Guest {
         return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
     }
-    let found = Direct { people: people.clone(), agent: b.agent };
+    let id = ok_or_return!(direct_between(&k, &p, &w, people, b.agent).await);
+    Json(json!({ "id": id })).into_response()
+}
+
+/// The direct conversation between these people (the caller among them),
+/// made the first time.
+pub(super) async fn direct_between(k: &Kernel, p: &Person, w: &Workspace, people: Vec<String>, agent: bool) -> Result<String, Box<Reply>> {
+    let found = Direct { people: people.clone(), agent };
     if let Some((id, _)) = w.chat.direct.iter().find(|(_, d)| **d == found) {
-        return Json(json!({ "id": id })).into_response();
+        return Ok(id.clone());
     }
     let id = new_id();
-    ok_or_return!(send(&k, &p, Change::Channel { workspace: ws.clone(), channel: id.clone(), name: String::new() }).await);
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Direct { channel: id.clone(), people, agent: b.agent } }).await);
-    Json(json!({ "id": id })).into_response()
+    send(k, p, Change::Channel { workspace: w.id.clone(), channel: id.clone(), name: String::new() }).await?;
+    send(k, p, Change::Chat { workspace: w.id.clone(), chat: Chat::Direct { channel: id.clone(), people, agent } }).await?;
+    Ok(id)
 }
 
 /// Mentions of this person, replies in threads they took part in, and their
@@ -393,11 +279,11 @@ async fn activity(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     let me = name_of(&k, &p.id);
     let out = k.read(|s| {
-        let Some(w) = s.team.workspace(&ws) else { return json!({}) };
+        let Some(v) = MemberView::of(s, &ws, &p.id) else { return json!({}) };
         let (mut mentions, mut replies) = (vec![], vec![]);
-        for (cid, ch) in w.channels.iter().filter(|(id, c)| w.sees(id, &p.id) && w.in_project(c.project.as_deref(), &p.id)) {
+        for (cid, ch) in v.channels() {
             let mine: Vec<&str> = ch.messages.iter().filter(|m| m.sender == p.id).map(|m| m.thread.as_deref().unwrap_or(&m.id)).collect();
-            for m in ch.messages.iter().filter(|m| m.sender != p.id && !w.chat.unsent.contains(&m.id) && w.kept_for(cid, &p.id, m.at)) {
+            for m in v.messages(cid).into_iter().filter(|m| m.sender != p.id) {
                 let item = json!({ "channel": cid, "channel_name": ch.name, "id": m.id, "sender": m.sender, "text": m.text, "thread": m.thread, "at": m.at });
                 if super::chat::mentions(&m.text, &p.id, &me) {
                     mentions.push(item);

@@ -66,15 +66,24 @@ try {
 
   // alice deletes her own message: gone for bob too.
   await alice.evaluate(h => { location.hash = h; }, `#/team/${ws}/c/${dm}`);
-  await alice.locator("#tc-text").fill("sent to the wrong person");
-  await alice.locator("#tc-text").press("Enter");
-  const mine = alice.locator("article.tm.mine", { hasText: "sent to the wrong person" });
+  // A channel is the personal chat's view (chat-view.js): its composer and list.
+  await alice.locator("#msg").fill("sent to the wrong person");
+  await alice.locator("#msg").press("Enter");
+  const mine = alice.locator("#thread .entry.me", { hasText: "sent to the wrong person" });
   await mine.waitFor();
   await mine.hover();
-  await mine.getByRole("button", { name: "Delete", exact: true }).click();
+  // Delete sits in the message's menu, as in the personal chat (message-controls.js).
+  await mine.getByRole("button", { name: "More message actions", exact: true }).click();
+  await mine.getByRole("menuitem", { name: "Delete message", exact: true }).click();
   await alice.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
   await mine.waitFor({ state: "detached" });
-  const bobs = await call(bob, "GET", `${base}/channels/${dm}/view`);
+  // It leaves alice's list at once and the server behind: wait for that.
+  let bobs;
+  for (let i = 0; i < 50; i++) {
+    bobs = await call(bob, "GET", `${base}/channels/${dm}/view`);
+    if (!JSON.stringify(bobs).includes("wrong person")) break;
+    await new Promise(r => setTimeout(r, 200));
+  }
   assert.ok(!JSON.stringify(bobs).includes("wrong person"), "bob still sees the deleted message");
 
   // The conversation deleted from alice's list only.

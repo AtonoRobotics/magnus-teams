@@ -2,6 +2,7 @@
 use super::agent::{held_dir, volume_dir};
 use super::chat::Chat;
 use super::conversation::Why;
+use super::member_view::MemberView;
 use super::{fit_name, Change, File, Message, Role};
 use crate::api::{err, who};
 use crate::config::Person;
@@ -49,6 +50,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::own_view::router())
         .merge(super::membership::router())
         .merge(super::notices::router())
+        .merge(super::message_actions::router())
 }
 
 pub(super) fn new_id() -> String {
@@ -105,10 +107,13 @@ async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
 
 async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    let w = k.read(|s| s.team.workspace(&ws).cloned());
-    let Some(w) = w else { return err(StatusCode::NOT_FOUND, "no such workspace") };
-    let channels: Vec<Value> = w.channels.iter().filter(|(id, _)| w.sees(id, &p.id)).map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().filter(|f| w.sees_file(&f.name, &p.id)).collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
+    let seen = k.read(|s| {
+        let v = MemberView::of(s, &ws, &p.id)?;
+        let channels: Vec<Value> = v.channels().map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
+        Some((v.workspace().clone(), channels, v.files().cloned().collect::<Vec<File>>()))
+    });
+    let Some((w, channels, files)) = seen else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
 }
 
 /// Delete the workspace: any of its Team Admins (its owner and its admins)
@@ -170,32 +175,19 @@ async fn add_channel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b):
 
 /// Whether the channel is there and this person sees it.
 pub(super) fn has_channel(k: &Kernel, ws: &str, channel: &str, person: &str) -> bool {
-    k.read(|s| s.team.workspace(ws).is_some_and(|w| w.sees(channel, person)))
+    k.read(|s| MemberView::of(s, ws, person).is_some_and(|v| v.sees(channel)))
 }
 
-/// A channel's messages, with each finished request's answer in its place.
+/// A channel's messages, with each finished request's answer in its place:
+/// what was said, as the channel view shows it to this person.
 async fn messages(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
-    let view = k.read(|s| {
-        let w = s.team.workspace(&ws);
-        let kept = |m: &&Message| w.is_some_and(|w| w.kept_for(&channel, &p.id, m.at) && !w.chat.unsent.contains(&m.id));
-        let mut out: Vec<Value> = w.and_then(|w| w.channels.get(&channel)).map(|c| c.messages.iter().filter(kept).map(|m| json!(m)).collect()).unwrap_or_default();
-        for r in s.team.runs_in(&ws, &channel) {
-            let Some(run) = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()) else { continue };
-            if run.ended_at.is_some_and(|at| !w.is_some_and(|w| w.kept_for(&channel, &p.id, at))) {
-                continue;
-            }
-            if let Some(text) = run.summary.clone() {
-                let (text, private) = super::answer_for(run, text, &r.requester, &p.id);
-                out.push(json!({ "sender": "agent", "requester": r.requester, "task": r.task, "text": text, "thread": r.thread, "private": private }));
-            }
-        }
-        out
-    });
-    Json(view).into_response()
+    let now = chrono::Utc::now();
+    let said = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| super::items::said(&v, &channel, now)).unwrap_or_default());
+    Json(said).into_response()
 }
 
 #[derive(Deserialize)]
@@ -209,6 +201,10 @@ struct NewMessage {
     /// For the sender's own agent only, and it does not reach the channel.
     #[serde(default)]
     whisper: bool,
+    /// The model the composer's picker chose, as a personal message's
+    /// `model`: `{"adapter", "model"}`. The server's default when absent.
+    #[serde(default)]
+    model: serde_json::Value,
 }
 
 async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> Reply {
@@ -222,26 +218,48 @@ async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(Stri
     if (b.agent || b.whisper) && role == Role::Guest {
         return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
     }
+    let model = match crate::api::chosen_model(&k, &json!({ "model": b.model })).await {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
     if b.whisper {
-        return match k.whisper(&ws, &channel, b.thread, &p.id, b.text).await {
+        return match k.whisper(&ws, &channel, b.thread, &p.id, b.text, model).await {
             Ok((task, run)) => Json(json!({ "task_id": task, "run_id": run })).into_response(),
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         };
     }
-    super::presence::sent(&ws, &channel, &p.id);
-    let message = Message { id: new_id(), sender: p.id.clone(), text: b.text.clone(), thread: b.thread.clone(), at: chrono::Utc::now() };
+    post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent, model).await
+}
+
+/// Post a message as `p`, and have the team agent take it on when asked, or
+/// when it is mentioned, named or, where the channel allows, of help.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn post_and_ask(
+    k: &Arc<Kernel>,
+    p: &Person,
+    role: Role,
+    ws: &str,
+    channel: &str,
+    thread: Option<String>,
+    text: String,
+    asked: bool,
+    model: Option<(String, String)>,
+) -> Reply {
+    super::presence::sent(ws, channel, &p.id);
+    let message = Message { id: new_id(), sender: p.id.clone(), text: text.clone(), thread: thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
-    ok_or_return!(send(&k, &p, Change::Message { workspace: ws.clone(), channel: channel.clone(), message }).await);
-    // No button to press: mentioned, named or, where the channel allows, of help.
-    let why = if b.agent { Some(Why::Asked) } else { k.read(|s| s.team.workspace(&ws).and_then(|w| w.agent_answers(&channel, role, &b.text))) };
+    ok_or_return!(send(k, p, Change::Message { workspace: ws.to_string(), channel: channel.to_string(), message }).await);
+    let why = if asked { Some(Why::Asked) } else { k.read(|s| s.team.workspace(ws).and_then(|w| w.agent_answers(channel, role, &text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
     // The message is posted; the agent stays out once a spend limit is reached.
-    if let Err(limited) = k.team_budget_left(&ws, &channel) {
+    if let Err(limited) = k.team_budget_left(ws, channel) {
         return Json(json!({ "id": id, "limited": limited })).into_response();
     }
-    match k.team_request(&ws, &channel, b.thread, &p.id, b.text).await {
+    match k.team_request_on(ws, channel, thread, &p.id, text, model).await {
         Ok((task, run)) => {
-            ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Asked { channel, message: id.clone(), task: task.clone() } }).await);
+            ok_or_return!(
+                send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await
+            );
             Json(json!({ "id": id, "task_id": task, "run_id": run, "agent": why })).into_response()
         }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),

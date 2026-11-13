@@ -147,7 +147,7 @@ impl Kernel {
         for (workspace, channel, thread, person) in quiet {
             let ask = "This thread went quiet with a question unanswered. Follow up in it: answer if you can from what the team has, or say who could.".to_string();
             self.emit("poll", Ev::Team(Change::Chat { workspace: workspace.clone(), chat: Chat::FollowedUp { channel: channel.clone(), thread: thread.clone() } })).await?;
-            self.team_request_as("poll", &workspace, &channel, Some(thread), &person, ask).await?;
+            self.team_request_as("poll", &workspace, &channel, Some(thread), &person, ask, None).await?;
         }
         Ok(())
     }
