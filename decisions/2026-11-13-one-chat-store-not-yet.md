@@ -34,3 +34,5 @@ reads them. Everything above the store is now one: the entry type
 owner still wants one store, it should be its own change with a replay test
 over a copy of the production log before and after, and an owner review of
 the inv8 tests it touches.
+
+**Decided (owner, 2026-11-13): keep the two stores.** The personal and team chats share everything above the store, and their words stay where they are.
