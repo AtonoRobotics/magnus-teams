@@ -237,10 +237,43 @@ fn work_sits_on_the_message_that_asked() {
     x.say("c", "m1", "mo", "@Magnus pull together the feedback", None, 1);
     x.answered("c", "t1", "mo", Some("m1"), "Here it is.", false, 2);
     x.answered("c", "t2", "mo", None, "Following up.", false, 3);
+    for t in ["t1", "t2"] {
+        if let Some(o) = x.runs.get_mut(t) {
+            (o.status, o.summary, o.ended) = (Status::Running, None, None);
+        }
+    }
     let now = x.at(10);
     let shown = timeline(&x.view("sam"), "c", now);
     let m1 = shown.iter().find(|i| i.id == "m1").unwrap();
-    assert_eq!(m1.work.as_ref().map(|w| (w.task.as_str(), w.title.as_str(), w.status)), Some(("t1", "@Magnus pull together the feedback", "done")));
+    assert_eq!(m1.work.as_ref().map(|w| (w.task.as_str(), w.title.as_str(), w.status)), Some(("t1", "@Magnus pull together the feedback", Status::Running)));
     let alone = shown.iter().find(|i| i.id == "work:t2").expect("work the agent began itself is not shown");
     assert_eq!((alone.sender.as_str(), alone.requester.as_deref()), ("agent", Some("mo")));
+}
+
+/// As the personal chat's turn gives way to its answer, a short request's
+/// card is gone once it is done: the answer stands in its place. Long work
+/// keeps its row, as a task a personal message started keeps its card; so
+/// does work stopped with no answer, as a stopped personal turn keeps its line.
+#[test]
+fn a_short_requests_card_gives_way_to_its_answer() {
+    let mut x = World::new();
+    x.say("c", "m1", "mo", "@Magnus plan the launch", None, 1);
+    x.answered("c", "t1", "mo", Some("m1"), "Here is the plan.", false, 2);
+    x.say("c", "m2", "mo", "@Magnus research the market", None, 3);
+    x.answered("c", "t2", "mo", Some("m2"), "Here is the research.", false, 4000);
+    if let Some(o) = x.runs.get_mut("t2") {
+        (o.started, o.steps) = (x.t0, 200);
+    }
+    x.say("c", "m3", "mo", "@Magnus book the hall", None, 5);
+    x.answered("c", "t3", "mo", Some("m3"), "", false, 6);
+    if let Some(o) = x.runs.get_mut("t3") {
+        (o.status, o.summary) = (Status::Cancelled, None);
+    }
+    let now = x.at(5000);
+    let shown = timeline(&x.view("mo"), "c", now);
+    let card = |id: &str| shown.iter().find(|i| i.id == id).and_then(|i| i.work.as_ref()).map(|w| w.status);
+    assert_eq!(card("m1"), None, "a done short request still shows its card under the answer");
+    assert!(shown.iter().any(|i| i.id == "agent:t1" && i.text == "Here is the plan."), "the answer is not there");
+    assert_eq!(card("m2"), Some(Status::Completed), "long work lost its row");
+    assert_eq!(card("m3"), Some(Status::Cancelled), "work that was stopped lost its line");
 }

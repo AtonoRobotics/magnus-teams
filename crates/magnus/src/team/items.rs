@@ -8,6 +8,7 @@
 use super::conversation::AGENT_ID;
 use super::member_view::{author, Answer, MemberView, Runs, Work};
 use super::{Message, Workspace};
+use crate::state::Status;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -162,7 +163,11 @@ impl TeamItem {
 /// message is left only where replies still hang from it.
 pub fn timeline<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamItem> {
     let w = v.workspace();
-    let work = v.work(channel, now);
+    // As a personal chat turn gives way to its answer, a short request's
+    // card goes once it has answered; long work keeps its row, as a task a
+    // personal message started keeps its card.
+    let mut work = v.work(channel, now);
+    work.retain(|x| x.long || !matches!(x.status, Status::Completed | Status::Failed));
     let mut items: Vec<TeamItem> = v
         .places(channel)
         .into_iter()
