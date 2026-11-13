@@ -8,6 +8,7 @@
 
 use crate::config::{Connector, Person};
 use crate::events::Ev;
+use crate::halts;
 use crate::kernel::{new_id, Kernel};
 use crate::policy::{self, Outcome, ToolFacts};
 use crate::state::{Intent, Run, Status};
@@ -471,7 +472,7 @@ impl Kernel {
 
         // 7. Credentials, last.
         if let Some((_, why)) = self.halt_of(&a.run, Some(&a.tool)) {
-            return self.deny(a, "credentials", &why.replace("kill switch engaged", "the kill switch is engaged"), false, None).await;
+            return self.deny(a, "credentials", &why, false, None).await;
         }
         // The person's own sign-in, never anyone else's.
         let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
@@ -1034,13 +1035,15 @@ impl Kernel {
 
     async fn call(self: &Arc<Self>, a: &Action, f: &Facts, bearer: Option<&str>, key: &str, stops: u64) -> std::result::Result<(String, bool, Option<Value>), CallFailure> {
         if let Some(c) = &f.connector {
-            // A person turned off has no apps until they are back.
+            // A person turned off has no apps until they are back; a switch
+            // pulled since the gate's last look holds the call too.
             let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
-            if self.read(|s| s.turned_off.contains(&person)) {
-                return Err(CallFailure::NotDone(format!(
-                    "{person}'s account is turned off at the organisation's sign-in, so their apps answer no calls for them until they are back. Nothing was sent to {}.",
-                    f.app
-                )));
+            if let Some(h) = self.read(|s| s.runs.get(&a.run).and_then(|r| halts::may_proceed(s, &halts::Subject::of_run(s, r, Some(&a.tool)), halts::Phase::Call))) {
+                let why = match h {
+                    halts::Hold::TurnedOff(_) => format!("{}, so their apps answer no calls for them until they are back", h.said()),
+                    _ => h.said(),
+                };
+                return Err(CallFailure::NotDone(format!("{why}. Nothing was sent to {}.", f.app)));
             }
             let k = (c.idempotency == "header").then_some(key);
             // The last fence: the run, read live, is still running. The

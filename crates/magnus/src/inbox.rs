@@ -325,11 +325,10 @@ impl Kernel {
             // title, the suggesting run's model and taint, and it starts now
             // (#393).
             ("suggestion", "accept") => {
-                if self.read(|s| s.kill_switch) {
-                    return Ok(Answer::Conflict("the kill switch is engaged"));
-                }
-                if self.refuse_new(&item.person, false).is_some() {
-                    return Ok(Answer::Conflict("a kill switch or a pause holds this person's agent"));
+                match self.hold(&crate::halts::Subject::new_work(&item.person, false), crate::halts::Phase::Start) {
+                    Some(crate::halts::Hold::Server) => return Ok(Answer::Conflict("the kill switch is engaged")),
+                    Some(_) => return Ok(Answer::Conflict("a kill switch or a pause holds this person's agent")),
+                    None => {}
                 }
                 let from = self.read(|s| {
                     item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| (r.config.adapter.clone(), r.config.model.clone(), Label { untrusted: r.untrusted, private: r.private }))

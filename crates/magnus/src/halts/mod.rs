@@ -11,10 +11,12 @@
 //! covers everything done for them: their own agent and the team agent's
 //! work they asked for (`decisions/2026-11-11-kill-switch-levels.md`).
 mod agents;
+mod hold;
 mod kernel;
 #[cfg(test)]
 mod tests;
 
+pub use hold::{may_proceed, Hold, Phase, Subject};
 pub use kernel::{is_refusal, refused, Halted};
 
 use crate::state::{Run, Schedule, State};
@@ -176,31 +178,14 @@ pub fn connector_of(tool: &str) -> Option<&str> {
 /// the reason it waits with. `tool`, when it is about to call one, brings
 /// in that tool's connector's switch.
 pub fn halt(s: &State, run: &Run, tool: Option<&str>) -> Option<(String, String)> {
-    if s.kill_switch {
-        return Some((SERVER_REASON.into(), "kill switch engaged".into()));
-    }
-    let scopes = [Some(Scope::Person(run.person.clone())), Some(Scope::Agent(agent_of(s, run))), tool.and_then(connector_of).map(|c| Scope::Connector(c.into()))];
-    scopes.into_iter().flatten().find(|x| s.halts.on.contains_key(x)).map(|x| (x.reason(), format!("{} is on", x.said())))
+    may_proceed(s, &Subject::of_run(s, run, tool), Phase::Continue).map(|h| (h.reason(), h.said()))
 }
 
 /// Why new work for `person` may not start, if it may not: `team` when the
-/// team agent would do it. The server's switch is the caller's.
+/// team agent would do it. The server's switch, the switches below it, a
+/// pause, and the person turned off.
 pub fn holds_new(s: &State, person: &str, team: bool) -> Option<String> {
-    let agent = if team { TEAM_AGENT.to_string() } else { agent_of_person(person) };
-    for x in [Scope::Person(person.into()), Scope::Agent(agent.clone())] {
-        if s.halts.on.contains_key(&x) {
-            return Some(format!("{} is on: nothing new starts until an admin releases it.", capital(&x.said())));
-        }
-    }
-    s.halts.paused.contains_key(&agent).then(|| {
-        let who = if team { "The team agent".to_string() } else { format!("{person}'s agent") };
-        format!("{who} is paused: nothing new starts until an admin resumes it.")
-    })
-}
-
-fn capital(s: &str) -> String {
-    let mut c = s.chars();
-    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+    may_proceed(s, &Subject::new_work(person, team), Phase::Start).map(|h| h.refusal())
 }
 
 /// Whether a running run falls under a switch now being pulled: for a

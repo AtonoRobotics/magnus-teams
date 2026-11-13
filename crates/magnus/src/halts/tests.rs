@@ -165,3 +165,69 @@ fn scopes_parse_only_as_agents_exist() {
     assert_eq!(Scope::parse("person", " "), None);
     assert_eq!(Scope::parse("server", "x"), None);
 }
+
+fn turn_off(s: &mut State, seq: i64, person: &str) {
+    ev(s, seq, "kernel", json!({ "kind": "person_turned_off", "person": person, "why": "the provider turned them off" }));
+}
+
+/// What holds each phase of one person's work, by what is pulled: the
+/// table the boundary, the poll, the sweep and new work all read.
+#[test]
+fn each_hold_covers_the_phases_it_names_and_no_others() {
+    use Phase::*;
+    let bob = |connector: Option<&str>| Subject::person_app("bob", connector);
+    type Setup = fn(&mut State);
+    let cases: [(&str, Setup, Subject, [bool; 3]); 7] = [
+        ("nothing", |_| {}, bob(Some("mail")), [false, false, false]),
+        ("the server's switch", |s| ev(s, 5, "person:alice", json!({ "kind": "kill_switch", "engaged": true })), bob(None), [true, true, true]),
+        ("bob's switch", |s| engage(s, 5, json!({ "level": "person", "id": "bob" })), bob(None), [true, true, true]),
+        ("bob's agent's switch", |s| engage(s, 5, json!({ "level": "agent", "id": "person:bob" })), bob(None), [true, true, true]),
+        ("mail's switch, reaching mail", |s| engage(s, 5, json!({ "level": "connector", "id": "mail" })), bob(Some("mail")), [true, true, true]),
+        ("a pause", |s| ev(s, 5, "admin:root", json!({ "kind": "halt", "change": "paused", "agent": "person:bob", "name": "Root" })), bob(Some("mail")), [true, false, false]),
+        ("bob turned off", |s| turn_off(s, 5, "bob"), bob(Some("mail")), [true, false, true]),
+    ];
+    for (what, setup, who, held) in cases {
+        let mut s = world();
+        setup(&mut s);
+        for (phase, want) in [Start, Continue, Call].into_iter().zip(held) {
+            assert_eq!(may_proceed(&s, &who, phase).is_some(), want, "{what} at {phase:?}");
+        }
+    }
+    // A connector's switch holds only work that reaches it.
+    let mut s = world();
+    engage(&mut s, 5, json!({ "level": "connector", "id": "mail" }));
+    assert_eq!(may_proceed(&s, &bob(Some("notes")), Call), None);
+    assert_eq!(may_proceed(&s, &bob(None), Start), None);
+}
+
+#[test]
+fn a_hold_says_itself_without_rewording() {
+    let mut s = world();
+    ev(&mut s, 5, "person:alice", json!({ "kind": "kill_switch", "engaged": true }));
+    engage(&mut s, 6, json!({ "level": "person", "id": "bob" }));
+    let (reason, why) = halt(&s, &s.runs["rb"], None).unwrap();
+    assert_eq!((reason.as_str(), why.as_str()), ("kill_switch", "the kill switch is engaged"), "the server's switch is not first");
+    assert_eq!(holds_new(&s, "bob", false).unwrap(), crate::kernel::KillSwitchOn.to_string());
+    ev(&mut s, 7, "person:alice", json!({ "kind": "kill_switch", "engaged": false }));
+    let (reason, why) = halt(&s, &s.runs["rb"], None).unwrap();
+    assert_eq!((reason.as_str(), why.as_str()), ("kill_switch:person:bob", "the kill switch on bob's agents is on"));
+    assert_eq!(holds_new(&s, "bob", false).unwrap(), "The kill switch on bob's agents is on: nothing new starts until an admin releases it.");
+    ev(&mut s, 8, "admin:root", json!({ "kind": "halt", "change": "released", "scope": { "level": "person", "id": "bob" } }));
+    ev(&mut s, 9, "admin:root", json!({ "kind": "halt", "change": "paused", "agent": "person:bob", "name": "Root" }));
+    assert_eq!(holds_new(&s, "bob", false).unwrap(), "bob's agent is paused: nothing new starts until an admin resumes it.");
+}
+
+/// New work for a person turned off at the organisation's sign-in is
+/// refused, as their schedules already stop (decisions/2026-11-13-one-hold.md);
+/// what they had running goes on, and only their apps refuse it.
+#[test]
+fn a_person_turned_off_starts_nothing_new_and_their_running_work_is_not_stopped() {
+    let mut s = world();
+    turn_off(&mut s, 5, "bob");
+    assert!(holds_new(&s, "bob", false).unwrap().contains("turned off"));
+    assert!(holds_new(&s, "bob", true).is_some(), "the team agent started work bob asked for while he is turned off");
+    assert!(holds_new(&s, "alice", false).is_none());
+    assert_eq!(halt(&s, &s.runs["rb"], Some("mail__list")), None, "his running run was stopped");
+    let call = Subject::of_run(&s, &s.runs["rb"], Some("mail__list"));
+    assert_eq!(may_proceed(&s, &call, Phase::Call), Some(Hold::TurnedOff("bob".into())));
+}

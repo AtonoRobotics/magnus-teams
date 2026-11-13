@@ -43,12 +43,15 @@ static SWITCHING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 impl Kernel {
     /// New work for `person` (by the team agent when `team`), refused when
-    /// a switch or a pause holds it: the server's first.
+    /// a switch, a pause or their account turned off holds it: the
+    /// server's first.
     pub fn refuse_new(&self, person: &str, team: bool) -> Option<anyhow::Error> {
-        self.read(|s| match s.kill_switch {
-            true => Some(KillSwitchOn.into()),
-            false => super::holds_new(s, person, team).map(|why| Halted(why).into()),
-        })
+        self.read(|s| super::may_proceed(s, &super::Subject::new_work(person, team), super::Phase::Start)).map(|h| h.error())
+    }
+
+    /// What holds `who`'s work at `phase` now, if anything does.
+    pub fn hold(&self, who: &super::Subject, phase: super::Phase) -> Option<super::Hold> {
+        self.read(|s| super::may_proceed(s, who, phase))
     }
 
     /// The switch that holds a run now, if one does: the reason it waits
