@@ -12,7 +12,7 @@ const ui = name => readFileSync(new URL(`../ui/${name}`, import.meta.url), "utf8
 const context = { setTimeout, clearTimeout, console, crypto: { randomUUID: () => "u" },
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
   document: { addEventListener() {} }, window: { addEventListener() {} }, location: { hash: "" } };
-vm.runInNewContext(`${ui("app.js")};\n${ui("evidence.js")};\nglobalThis.T = { taskCard, liveStatusLines };`, context);
+vm.runInNewContext(`${ui("chat-view.js")};\n${ui("app.js")};\n${ui("evidence.js")};\nglobalThis.T = { taskCard, liveStatusLines };`, context);
 const { taskCard, liveStatusLines } = context.T;
 
 const task = line => ({ task_id: "t1", title: "Plan the launch", text: "Plan the launch", status: "running", status_line: line });

@@ -66,9 +66,10 @@ try {
 
   // alice deletes her own message: gone for bob too.
   await alice.evaluate(h => { location.hash = h; }, `#/team/${ws}/c/${dm}`);
-  await alice.locator("#tc-text").fill("sent to the wrong person");
-  await alice.locator("#tc-text").press("Enter");
-  const mine = alice.locator("article.tm.mine", { hasText: "sent to the wrong person" });
+  // A channel is the personal chat's view (chat-view.js): its composer and list.
+  await alice.locator("#msg").fill("sent to the wrong person");
+  await alice.locator("#msg").press("Enter");
+  const mine = alice.locator("#thread .entry.me", { hasText: "sent to the wrong person" });
   await mine.waitFor();
   await mine.hover();
   // Delete sits in the message's menu, as in the personal chat (message-controls.js).

@@ -45,42 +45,12 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-side .team-scroll { padding: 0; }
 .team-side-head { display: flex; justify-content: space-between; align-items: center; }
 .team-side-head h2 { font-size: 15px; margin: 4px 0 10px; }
-.tm { display: flex; gap: 10px; padding: 6px 8px; border-radius: 8px; }
-.tm:hover, .tm:focus-within { background: var(--row-sel); }
-.tm.sending { opacity: .6; }
-.tm.failed { box-shadow: inset 3px 0 0 var(--bad); }
-.tm-body { flex: 1; min-width: 0; }
-.tm-head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
-.tm .pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* A post's controls sit under it, as the personal chat's do (owner, 2026-11-13). */
-.tm .msg-actions { margin-top: 4px; }
 .action-menu.reactions:not([hidden]) { display: flex; width: auto; gap: 2px; }
 .action-menu.reactions button { width: auto; min-width: 36px; text-align: center; padding: 6px 8px; font-size: 16px; }
-.tm-reactions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.tm-reaction { border: 1px solid var(--line); border-radius: 12px; padding: 0 8px; background: var(--surface); font-size: 13px; }
-.tm-reaction.on { border-color: var(--accent); background: var(--accent-soft); }
-.tm-replies { display: inline-block; margin-top: 4px; }
-.tm-work { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--surface); }
-.tm-work[data-status="waiting"] { border-left-color: var(--warn); }
-.tm-work[data-status="failed"] { border-left-color: var(--bad); }
-.tm-work[data-status="done"] { border-left-color: var(--ok); }
-.tm-work-title { display: flex; gap: 6px; align-items: center; }
 .team-spinner { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: team-spin 1s linear infinite; }
 @keyframes team-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .team-spinner { animation: none; } }
-.mention { color: var(--accent-text); background: var(--accent-soft); border-radius: 4px; padding: 0 2px; }
-.tm-file { display: inline-flex; align-items: center; gap: 6px; margin: 4px 6px 0 0; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; }
-.tm-file img { max-width: 160px; max-height: 120px; border-radius: 4px; }
-.tm-whisper { margin: 0 20px 8px; padding: 8px 10px; border: 1px dashed var(--accent); border-radius: 8px; background: var(--accent-soft); }
-.team-typing { min-height: 18px; padding: 0 20px; }
-.team-composer { margin: 0 20px 16px; padding: 8px; border: 1px solid var(--line-strong, var(--line)); border-radius: 10px; background: var(--surface); position: relative; }
-.team-side .team-composer { margin: 8px 0 0; }
-.team-composer textarea { width: 100%; border: 0; resize: vertical; background: none; color: var(--fg); }
-.team-composer .row { justify-content: flex-end; }
-.team-mentions { position: absolute; bottom: 100%; left: 8px; background: var(--raised, var(--surface)); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; display: flex; flex-direction: column; min-width: 200px; }
-.team-mentions[hidden] { display: none; }
-.team-mentions button { display: flex; gap: 8px; align-items: center; border: 0; background: none; padding: 4px 8px; text-align: left; }
-.team-mentions button:first-child, .team-mentions button:hover { background: var(--row-sel); }
 .dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .team-card { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .team-card h3 { font-size: 13px; margin: 0 0 6px; display: flex; justify-content: space-between; }
@@ -143,4 +113,12 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 @media (max-width: 700px) { #notices { right: 16px; left: 16px; width: auto; bottom: 16px; } }
 /* A rail's archived conversations, folded away at its foot. */
 .team-archived summary { cursor: pointer; }
-.tm.deleted .tm-body { color: var(--faint); font-style: italic; }
+
+
+/* A channel and its thread are the one chat view (chat-view.js): the
+   centre and the side hold its section, which scrolls its own list. */
+.team-center > section.conv { flex: 1; min-height: 0; }
+.team-side:has(> section.conv) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.team-side > section.conv { flex: 1; min-height: 0; }
+.team-center .conv-head .row { flex-wrap: wrap; justify-content: flex-end; }
+.team-head-faces .team-avatar { width: 24px; height: 24px; }

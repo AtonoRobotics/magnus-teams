@@ -107,16 +107,18 @@ const sandbox = {
   document: { addEventListener: () => {} }, location: { hash: "" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["message-controls.js", "teams.js", "team-chat.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
-vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat };`, sandbox);
+const files = ["message-controls.js", "chat-view.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, MessageControls };`, sandbox);
 const { Team, TeamChat } = sandbox.__x;
 Team.home = { me: "sam", role: "member", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1" }], projects: [] };
-TeamChat.s = { ws: "w", channel: "c1", view: { messages: [], names: {} }, pending: [], center: { isConnected: false } };
-TeamChat.draw = () => {};
-const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", at: "" };
+TeamChat.refresh = async () => {};
+const state = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {} };
+const view = { section: {}, ui: { editing: null, sharing: null, people: [] }, draw: async () => {} };
+const answer = sandbox.teamEntry({ id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", at: "" }, sandbox.teamReader(state, null));
+const conv = sandbox.teamConversation(state, null);
 for (const [act, route, body_] of [["save", "save", {}], ["share-send", "share", { person: "dana" }], ["retry", "retry", {}]]) {
   calls.length = 0;
-  await TeamChat.msgAct(act, answer, { disabled: false });
+  await sandbox.__x.MessageControls.run(act, conv.actions(answer, view, { disabled: false }, {}));
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["POST", `/v1/workspaces/w/channels/c1/messages/agent%3At1/${route}`, body_], `${act} did not go to the server`);
 }
 console.log("message controls ok");

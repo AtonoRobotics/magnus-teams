@@ -96,16 +96,17 @@ await step("browse, edit and bulk delete files", async () => {
 
 // The team workspace is a team chat (decisions/2026-11-09-team-workspace-experience.md):
 // a new workspace opens on its first channel, files and knowledge belong to a
-// project, and people join by invite.
-const composer = () => page.locator("#tc-form");
+// project, and people join by invite. A channel is the one chat view, the
+// personal chat's (chat-view.js): its composer and list are the same.
+const composer = () => page.locator("#say");
 
 await step("use a team", async () => {
   await page.getByRole("link", { name: "Teams" }).click();
   await page.locator("#team-name").fill("Research");
   await page.getByRole("button", { name: "Create" }).click();
-  await page.locator("#tc-text").fill("Hello team");
+  await page.locator("#msg").fill("Hello team");
   await composer().getByRole("button", { name: "Send" }).click();
-  await page.locator("#tc-list", { hasText: "Hello team" }).waitFor();
+  await page.locator("#thread [data-entry]", { hasText: "Hello team" }).waitFor();
   // The workspace's own rail is the left column: the app's navigation folds
   // to icons and its bar goes, so there is one rail, not two.
   assert.equal(await page.evaluate(() => document.body.dataset.navigation), "compact", "the app's navigation stays open beside the team rail");
@@ -113,14 +114,14 @@ await step("use a team", async () => {
 });
 
 await step("whisper and share it", async () => {
-  await page.locator("#tc-text").fill("Say something privately");
-  await page.locator("#tc-whisper").check();
+  await page.locator("#msg").fill("Say something privately");
+  await page.locator("#say [data-whisper]").check();
   await composer().getByRole("button", { name: "Send" }).click();
   // Checking is internal (spec rev 140): no review comes first.
-  await page.locator("#tc-whispers", { hasText: "A private answer" }).waitFor();
-  assert.equal(await page.locator("#tc-list", { hasText: "A private answer" }).count(), 0, "the whisper reached the channel");
-  await page.locator("#tc-whispers").getByRole("button", { name: "Share" }).click();
-  await page.locator("#tc-list", { hasText: "A private answer" }).waitFor();
+  await page.locator("#thread [data-whisper]", { hasText: "A private answer" }).waitFor();
+  assert.equal(await page.locator("#thread [data-entry]", { hasText: "A private answer" }).count(), 0, "the whisper reached the channel");
+  await page.locator("#thread [data-whisper]").getByRole("button", { name: "Share" }).click();
+  await page.locator("#thread [data-entry]", { hasText: "A private answer" }).waitFor();
 });
 
 await step("invite someone, and keep files and knowledge in a project", async () => {

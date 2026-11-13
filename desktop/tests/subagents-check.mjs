@@ -43,11 +43,12 @@ assert.match(card, /data-item="i1"/, "the decision a sub-agent waits on is not i
 assert.match(card, /Why it stopped[\s\S]*The site refused the card\./, "a failed sub-agent does not say why");
 assert.match(sandbox.subAgentsCard({ ...entry, agents: [entry.agents[1]] }), /A sub-agent on this request/);
 
-// app.js draws the entry with the card, waits on what the sub-agents wait
-// on, offers no message actions for it, and the page loads subagents.js.
-const app = ui("app.js");
+// app.js draws the entry with the card; the personal chat (personal-chat.js)
+// waits on what the sub-agents wait on and offers no message actions for
+// it; and the page loads subagents.js.
+const app = ui("app.js"), personal = ui("personal-chat.js");
 assert.match(app, /case "sub_agents": return subAgentsCard\(e, ui\);/, "the conversation does not draw sub-agents");
-assert.match(app, /e\.kind === "sub_agents" \? e\.agents\.map\(a => a\.waiting_item\)/, "a sub-agent's decision is not read before the thread is drawn");
-assert.match(app, /if \(!e\.id \|\| e\.kind === "sub_agents"\) return "";/, "the sub-agents card offers message actions");
+assert.match(personal, /e\.kind === "sub_agents" \? e\.agents\.map\(a => a\.waiting_item\)/, "a sub-agent's decision is not read before the thread is drawn");
+assert.match(personal, /if \(!e\.id \|\| e\.kind === "sub_agents"\) return null;/, "the sub-agents card offers message actions");
 assert.match(ui("index.html"), /<script src="subagents\.js"><\/script>/, "the page does not load subagents.js");
 console.log("sub-agents ok");

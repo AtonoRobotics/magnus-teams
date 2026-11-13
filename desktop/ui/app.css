@@ -107,7 +107,7 @@ body.with-detail main { border-radius: var(--main-radius); }
 main:has(> section.conv) { padding: 0; overflow: hidden; }
 section.conv { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 /* The thread and the composer: a 760px column, as the design draws them. */
-section.conv #composer, section.conv #banners { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; padding-left: 32px; padding-right: 32px; }
+section.conv .composer-slot, section.conv #banners { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; padding-left: 32px; padding-right: 32px; }
 /* The thread scrolls across the conversation's width; its padding keeps the
    same 760px column (696px of text, at least 32px either side). */
 section.conv .thread { flex: 1; min-height: 0; overflow-y: auto; width: 100%; padding-left: max(32px, calc((100% - 696px) / 2)); padding-right: max(32px, calc((100% - 696px) / 2)); }
@@ -120,7 +120,7 @@ section.conv .thread { flex: 1; min-height: 0; overflow-y: auto; width: 100%; pa
 .conv-head .row { flex-wrap: nowrap; gap: 4px; flex: none; }
 .conv-head select { height: 36px; font-size: 14px; font-weight: 500; padding: 0 10px; max-width: 180px; border: 1px solid var(--btn-border); border-radius: 10px; background: var(--button-bg); color: var(--fg); }
 .hello { margin-top: 24px; }
-#composer { flex: none; background: var(--main); padding-top: 8px; padding-bottom: 24px; }
+.composer-slot { flex: none; background: var(--main); padding-top: 8px; padding-bottom: 24px; }
 aside.detail { background: var(--panel); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border-left: 1px solid var(--panel-edge); height: 100vh; overflow-y: auto; padding: 0; min-width: 0; display: flex; flex-direction: column; }
 aside.detail[hidden] { display: none; }
 .detail-head { position: sticky; top: 0; z-index: 2; background: var(--panel); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 20px 24px 14px; }
@@ -384,8 +384,8 @@ dialog.ask .row { justify-content: flex-end; gap: 8px; }
 .say-bar { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .say-bar .grow { display: block; flex: 1; min-width: 0; }
 .say-bar .icon-btn, .say-bar label.button { width: 44px; height: 44px; border-radius: 12px; color: var(--muted); }
-.say #pending { order: -1; min-width: 0; }
-.say #pending:empty { display: none; }
+.say .pending { order: -1; min-width: 0; }
+.say .pending:empty { display: none; }
 .say-bar label.icon-btn { margin: 0; }
 button.send { width: 44px; height: 44px; border-radius: 12px; padding: 0; display: grid; place-items: center; background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 button.send:hover { background: var(--accent); filter: brightness(1.08); }
@@ -675,13 +675,13 @@ section.conv .thread { padding-left: max(16px, calc((100% - 696px) / 2)); paddin
 /* Match the 696px reading column without applying pane-sized padding inside a capped wrapper.
    The banners are capped too: padding sized from the pane inside them left a
    wide window's notice a column one word wide. */
-section.conv #composer, section.conv #banners { max-width: 728px; padding-left: 16px; padding-right: 16px; }
+section.conv .composer-slot, section.conv #banners { max-width: 728px; padding-left: 16px; padding-right: 16px; }
 .banner-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .conv-head { padding: 12px 16px; }
 .conv-head select { max-width: min(160px, 38vw); }
 .entry, .detail-body { font-size: 15px; line-height: 1.5; }
 .entry > *, .detail-body > *, .layer > *, .libpage { min-width: 0; max-width: 100%; }
-#composer { padding-bottom: 16px; }
+.composer-slot { padding-bottom: 16px; }
 .activity-views { display: flex; flex-wrap: wrap; gap: 8px; }
 .activity-views a { min-height: 44px; padding: 10px 12px; display: inline-flex; align-items: center; }
 .activity-views a[aria-current=page] { font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
@@ -693,9 +693,9 @@ section.conv #composer, section.conv #banners { max-width: 728px; padding-left: 
    the page (--workspace-top), which iOS pans when its keyboard opens. */
 .shell { position: relative; top: var(--workspace-top, 0px); }
 body.short-viewport section.conv .thread { flex: 1 1 0; min-height: 0; padding-top: 8px; padding-bottom: 8px; }
-body.short-viewport section.conv:has(#composer:focus-within) > .conv-head { display: none; }
-body.short-viewport section.conv:has(#composer:focus-within) > #banners { flex: none; max-height: 44px; overflow-y: auto; }
-body.short-viewport #composer { padding-top: 4px; padding-bottom: 8px; }
+body.short-viewport section.conv:has(.composer-slot:focus-within) > .conv-head { display: none; }
+body.short-viewport section.conv:has(.composer-slot:focus-within) > #banners { flex: none; max-height: 44px; overflow-y: auto; }
+body.short-viewport .composer-slot { padding-top: 4px; padding-bottom: 8px; }
 @media (max-width: 400px) { .conv-head { flex-wrap: wrap; gap: 8px; } .conv-head .row { margin-left: auto; } .detail-head { padding: 16px; } .detail-body { padding: 0 16px 16px; } .workspace-bar { gap: 0; padding: 0 4px; } .workspace-selectors button { padding: 0 8px; } }
 html[data-motion] aside.detail.opening { animation: none; }
 [hidden] { display: none !important; }
@@ -767,7 +767,7 @@ nav.side a { position: relative; }
   input:not([type="checkbox"]):not([type="radio"]), select { min-width:44px; min-height:44px; }
 }
 .attachment-picker { display: inline-flex; }
-#composer .attachment-picker button { min-width: 44px; min-height: 44px; }
+.composer-slot .attachment-picker button { min-width: 44px; min-height: 44px; }
 .attachment-chip { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 12px; max-width: 100%; overflow-wrap: anywhere; }
 .attachment-chip button { min-width: 36px; min-height: 36px; }
 .jump-latest { align-self: center; margin: 4px; min-height: 36px; padding: 8px 16px; border-radius: 12px; background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong); }
@@ -805,3 +805,29 @@ body[data-navigation=drawer] .connection-status { grid-column: 1; }
 /* Agent-built HTML sets no height of its own in the opaque-origin sandbox. */
 iframe.ui-html { width: 100%; height: 480px; border: 1px solid var(--line); border-radius: 12px; }
 
+
+/* One chat view for every conversation (chat-view.js). What only a
+   conversation of several people has: another person's message, who sent
+   it, a mention, the mention picker, reactions, replies, and a thread
+   beside the channel. */
+.chat-status { flex: none; min-height: 18px; width: 100%; max-width: 760px; margin: 0 auto; padding: 0 32px; }
+.chat-status:empty { display: none; }
+.msg.person { align-self: flex-start; max-width: 78%; background: var(--surface); border: 1px solid var(--line); border-radius: 18px 18px 18px 6px; }
+.msg.person.deleted { color: var(--faint); font-style: italic; }
+.byline { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.byline .team-avatar { width: 20px; height: 20px; font-size: 10px; }
+.mention { color: var(--accent-text); background: var(--accent-soft); border-radius: 4px; padding: 0 2px; }
+.say:has(.say-mentions) { position: relative; }
+.say-mentions { position: absolute; bottom: 100%; left: 8px; z-index: 5; background: var(--raised, var(--surface)); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 16px rgb(0 0 0 / .15); padding: 4px; min-width: 200px; }
+.say-mentions[hidden] { display: none; }
+.say-mentions button { display: flex; gap: 8px; align-items: center; width: 100%; border: 0; background: none; padding: 4px 8px; text-align: left; }
+.say-mentions button:first-child, .say-mentions button:hover { background: var(--row-sel); }
+.sub.by { color: var(--muted); }
+.entry .reactions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.entry .reaction { border: 1px solid var(--line); border-radius: 12px; padding: 0 8px; background: var(--surface); font-size: 13px; }
+.entry .reaction.on { border-color: var(--accent); background: var(--accent-soft); }
+.entry .replies { display: inline-block; margin-top: 4px; }
+.entry .private-note { margin-top: 6px; }
+section.conv.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; }
+section.conv.side .thread { padding-left: 16px; padding-right: 16px; }
+section.conv.side .composer-slot { padding-left: 12px; padding-right: 12px; }
