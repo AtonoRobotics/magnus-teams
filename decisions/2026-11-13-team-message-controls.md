@@ -31,3 +31,10 @@ post should match"): the controls sit in a row of icons under each post, as
 the personal chat's do, always shown. React (a menu of the quick reactions)
 and Reply in thread join that row as icons; the hover-only floating toolbar
 of text buttons is gone, because it hid the new controls.
+
+Review follow-up (same day): a work card with no text still shows React and
+Reply. Picking a reaction from the menu closes the menu and gives focus back
+to the button that opened it. After a redraw, focus goes back to the same
+post, not to the first post that has the same control. The reactions menu
+is a row, so Left and Right move along it (`aria-orientation="horizontal"`,
+which Menus now honours). The two icons now live in the shared ICONS set.

@@ -139,6 +139,15 @@ assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer 
 // They sit under the post as the personal chat's do, not in a toolbar that
 // shows only on hover (owner, 2026-11-13: "it did not change at all").
 const post = sandbox.messageHtml(answer, ctx);
-assert.match(post, /<div class="tm-body">[\s\S]*<div class="msg-actions small"/, "a post's controls are not under it");
+// Still inside the post's body where the controls begin: more divs opened than closed since it.
+const from = post.indexOf('<div class="tm-body">'), at = post.indexOf('<div class="msg-actions small"');
+const between = post.slice(from, at), depth = (between.match(/<div\b/g) || []).length - (between.match(/<\/div>/g) || []).length;
+assert.ok(from >= 0 && at > from && depth > 0, "a post's controls are not under it, in its body");
+// A post with no words, a work card, can still be reacted to and replied to.
+const card = sandbox.messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t9", requester: "dana", status: "working", steps: 0, doing: null, title: "x", long: false, thread: null, reason: null } }, ctx);
+assert.ok(card.includes("data-reply") && card.includes('data-react="'), "a work card cannot be reacted to or replied to");
+// The reactions menu is a row, and says so, so Left and Right move along it.
+assert.match(post, /class="action-menu reactions"[^>]*aria-orientation="horizontal"/, "the reactions row does not say it is a row");
+assert.match(readFileSync(join(here, "../ui/app.js"), "utf8"), /aria-orientation"\) === "horizontal"/, "menus ignore a row's orientation");
 assert.ok(!post.includes("tm-actions") && !readFileSync(join(here, "../ui/teams.css"), "utf8").includes(".tm-actions"), "a post's controls hide in a hover toolbar");
 console.log("team own ok");

@@ -304,7 +304,7 @@ function paint(el, html) {
   const opened = new Set($$("details[data-key]", el).filter(d => d.open).map(d => d.dataset.key));
   const focused = el.contains(active) ? active?.dataset?.draft : undefined;
   const control = el.contains(active) && !focused ? {
-    id:active.id, entry:active.closest("[data-entry]")?.dataset.entry,
+    id:active.id, entry:active.closest("[data-entry]")?.dataset.entry, msg:active.closest("[data-msg]")?.dataset.msg,
     act:active.dataset?.msgAct, label:active.getAttribute("aria-label"), open:active.dataset?.open,
     tag:active.tagName.toLowerCase(),
   } : null;
@@ -319,7 +319,7 @@ function paint(el, html) {
   $$("[data-draft]", el).forEach(i => { const v = drafts[i.dataset.draft]; if (v === undefined) return; if (i.type === "checkbox") i.checked = !!v; else i.value = v; });
   if (focused) $(`[data-draft="${CSS.escape(focused)}"]`, el)?.focus({preventScroll:true});
   if (control) {
-    const within=control.entry ? $(`[data-entry="${CSS.escape(control.entry)}"]`,el) : el;
+    const within=control.entry ? $(`[data-entry="${CSS.escape(control.entry)}"]`,el) : control.msg ? $(`[data-msg="${CSS.escape(control.msg)}"]`,el) : el;
     const target=control.id ? $(`#${CSS.escape(control.id)}`,el) : within && (control.act ? $(`[data-msg-act="${CSS.escape(control.act)}"]`,within) : control.open ? $(`[data-open="${CSS.escape(control.open)}"]`,within) : control.label ? $(`${control.tag}[aria-label="${CSS.escape(control.label)}"]`,within) : null);
     target?.focus({preventScroll:true});
   }
@@ -547,9 +547,11 @@ const Menus = (() => {
       if (!current) return;
       if (e.key === "Escape") { e.preventDefault(); close(true); return; }
       if (e.key === "Tab") { trigger?.focus({ preventScroll: true }); close(); return; }
-      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+      // A menu drawn as a row (aria-orientation="horizontal") moves with Left and Right.
+      const row = current.getAttribute("aria-orientation") === "horizontal", next = row ? "ArrowRight" : "ArrowDown", prev = row ? "ArrowLeft" : "ArrowUp";
+      if (![next, prev, "Home", "End"].includes(e.key)) return;
       e.preventDefault(); const list = items(), n = list.indexOf(document.activeElement);
-      const at = e.key === "Home" ? 0 : e.key === "End" ? list.length - 1 : (n + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length;
+      const at = e.key === "Home" ? 0 : e.key === "End" ? list.length - 1 : (n + (e.key === next ? 1 : -1) + list.length) % list.length;
       list[at]?.focus({ preventScroll: true });
     });
     document.addEventListener("scroll", e => {
@@ -1937,6 +1939,7 @@ const ICONS = {
   save: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>', // folder-plus
   task: '<path d="M16 5H3"/><path d="M11 12H3"/><path d="M16 19H3"/><path d="M18 9v6"/><path d="M21 12h-6"/>', // list-plus
   great: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>', // smile
+  reply: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
   annoying: '<circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>', // frown
   delete: '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>', // trash-2
 };

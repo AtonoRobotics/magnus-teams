@@ -11,12 +11,6 @@
 
 const TEAM_TYPING_PING_MS = 3000, TEAM_QUICK_REACTIONS = ["👍", "✅", "👀", "🎉"], TEAM_CATCH_UP_AFTER = 8, TEAM_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 
-/** The team's own message controls, drawn as the personal chat's icons are. */
-const TEAM_ICONS = {
-  react: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>', // smile
-  reply: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>', // reply
-};
-
 /** A file name for a message: who wrote it and when, with nothing a name may not hold. */
 function teamFileStem(who, at) {
   return `${who} ${String(at || "").slice(0, 16).replace("T", " ").replace(":", "-")}`.replace(/[\/\0]/g, "-").trim().slice(0, 150);
@@ -87,7 +81,7 @@ function messageHtml(m, c) {
   const state = m.state === "sending" ? `<span class="small faint">Sending…</span>` : m.state === "failed" ? `<span class="small bad">Not sent</span> <button class="link small" data-retry="${esc(m.id)}">Retry</button>` : "";
   const editing = c.editing === m.id;
   const text = editing ? `<form class="tm-edit" data-edit-form><textarea aria-label="Edit message" rows="2">${esc(m.text)}</textarea><div class="row"><button class="primary">Save</button><button type="button" data-edit-cancel>Cancel</button></div></form>` : messageText(m, agent, c.files);
-  const actions = m.state || !m.text ? "" : teamMsgActions(m, c, agent, mine);
+  const actions = m.state ? "" : teamMsgActions(m, c, agent, mine);
   const sharing = c.sharing === m.id ? `<div class="row small share-to"><label class="sr" for="tshare-${esc(m.id)}">Share with</label>
     <select id="tshare-${esc(m.id)}" data-share-to>${(c.people || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
     <button class="primary" data-msg-act="share-send">Share</button><button class="link" data-msg-act="share-cancel">Cancel</button></div>` : "";
@@ -106,12 +100,14 @@ function messageHtml(m, c) {
  */
 function teamMsgActions(m, c, agent, mine) {
   const id = `team-menu-${enc(m.id)}`, entry = `team:${m.id}`, reading = voice.entry === entry, asked = agent && m.requester === c.me && !!m.task;
-  const button = (a, label) => `<button class="icon" data-msg-act="${a}"${a === "listen" || a === "hush" ? ` data-voice-entry="${esc(entry)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
-  const icon = (svg, attrs, label) => `<button class="icon" ${attrs} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg></button>`;
+  /** An icon button: `a` names its icon and, unless attrs say otherwise, its action. */
+  const button = (a, label, attrs = `data-msg-act="${a}"`, cls = "icon") => `<button class="${cls}" ${attrs}${a === "listen" || a === "hush" ? ` data-voice-entry="${esc(entry)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
   const reactId = `team-react-${enc(m.id)}`;
-  const react = `<div class="message-menu-wrap">${icon(TEAM_ICONS.react, `data-menu="${esc(reactId)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(reactId)}"`, "Add a reaction").replace('class="icon"', 'class="icon menu-trigger"')}
-    <div id="${esc(reactId)}" class="action-menu reactions" role="menu" aria-label="Reactions" hidden>${TEAM_QUICK_REACTIONS.map(e => `<button role="menuitem" tabindex="-1" data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}</div></div>`;
-  const reply = c.inThread ? "" : icon(TEAM_ICONS.reply, "data-reply", "Reply in thread");
+  const react = `<div class="message-menu-wrap">${button("great", "Add a reaction", `data-menu="${esc(reactId)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(reactId)}"`, "icon menu-trigger")}
+    <div id="${esc(reactId)}" class="action-menu reactions" role="menu" aria-label="Reactions" aria-orientation="horizontal" hidden>${TEAM_QUICK_REACTIONS.map(e => `<button role="menuitem" tabindex="-1" data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}</div></div>`;
+  const reply = c.inThread ? "" : button("reply", "Reply in thread", "data-reply");
+  // A post with no words (a work card) can still be reacted to and replied to.
+  if (!m.text) return `<div class="msg-actions small" role="group" aria-label="Message actions">${react}${reply}</div>`;
   const primary = react + reply + (mine && !agent ? button("edit", "Edit") : button("copy", "Copy message") + (agent && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : ""));
   const deletes = (mine && !agent) || c.moderates || (agent && m.requester === c.me);
   const actions = [mine && !agent && ["copy", "Copy message"], asked && ["retry", "Retry"], ["branch", "Branch"], !m.private && ["share", "Share"], ["export", "Export"],
@@ -408,6 +404,9 @@ const TeamChat = {
     if (t.closest("[data-not-now]")) { s.hidden.add(t.closest("[data-not-now]").dataset.notNow); this.draw(); return; }
     if (t.closest("[data-open-thread]")) { e.preventDefault(); location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: t.closest("[data-open-thread]").dataset.openThread }); return; }
     if (!m) return;
+    // A choice from a menu closes it first, focus back on its button, so the
+    // redraw does not reopen a menu that the document then shuts.
+    if (t.closest('[role="menuitem"]')) Menus.close(true);
     if (t.closest("[data-react]")) {
       const emoji = t.closest("[data-react]").dataset.react, on = !(m.reactions?.[emoji] || []).includes(Team.home.me);
       this.change({ op: "react", id: msg, emoji, me: Team.home.me, on }, () => api("POST", `${base}/messages/${enc(msg)}/react`, { emoji, on }));

@@ -45,7 +45,7 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-side .team-scroll { padding: 0; }
 .team-side-head { display: flex; justify-content: space-between; align-items: center; }
 .team-side-head h2 { font-size: 15px; margin: 4px 0 10px; }
-.tm { display: flex; gap: 10px; padding: 6px 8px; border-radius: 8px; position: relative; }
+.tm { display: flex; gap: 10px; padding: 6px 8px; border-radius: 8px; }
 .tm:hover, .tm:focus-within { background: var(--row-sel); }
 .tm.sending { opacity: .6; }
 .tm.failed { box-shadow: inset 3px 0 0 var(--bad); }
