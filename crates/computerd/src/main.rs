@@ -23,9 +23,11 @@ fn kill_all(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn open_snapshot(key: &str, from: &str, to: &str) -> Result<()> {
-    let key: [u8; magnus_computerd::seal::KEY_BYTES] = std::fs::read(key)?.try_into().map_err(|_| anyhow::anyhow!("not a snapshot key"))?;
-    magnus_computerd::seal::open(&key, &mut std::fs::File::open(from)?, &mut std::fs::File::create(to)?)
+fn open_snapshot(key_path: &str, from: &str, to: &str) -> Result<()> {
+    let key: [u8; magnus_computerd::seal::KEY_BYTES] = std::fs::read(key_path)?.try_into().map_err(|_| anyhow::anyhow!("not a snapshot key"))?;
+    // The key lies beside the snapshot's other files, its format among them.
+    let dir = Path::new(key_path).parent().unwrap_or(Path::new("."));
+    magnus_computerd::computers::snapshot::open_stored(dir, &key, Path::new(from), &mut std::fs::File::create(to)?)
 }
 
 fn self_update(config: &Path) -> Result<()> {

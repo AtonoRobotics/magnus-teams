@@ -13,6 +13,9 @@ const SNAPSHOT_DIR: &str = "snapshot";
 const KEY_FILE: &str = "key";
 /// Set when a snapshot is taken: it is valid only on this base image.
 const BASE_FILE: &str = "base";
+/// How the memory and state are sealed (`sparse::FORMAT`); a snapshot
+/// without it was sealed whole, before 2026-11-13.
+pub const FORMAT_FILE: &str = "format";
 const BUFFER_BYTES: usize = 1 << 20;
 const RESET_ENTROPY_BYTES: usize = 64;
 const MACHINE_ID_BYTES: usize = 16;
@@ -101,9 +104,10 @@ impl Computers {
             let from = open_from_vm(&self.jail_root(id).join(name), uid)?;
             bytes += from.metadata()?.len();
             let to = File::options().write(true).create_new(true).mode(0o600).open(part.join(name)).context("store a snapshot")?;
-            seal::seal(&key, &mut BufReader::with_capacity(BUFFER_BYTES, from), &mut BufWriter::with_capacity(BUFFER_BYTES, to))?;
+            crate::sparse::seal(&key, &mut BufReader::with_capacity(BUFFER_BYTES, from), &mut BufWriter::with_capacity(BUFFER_BYTES, to))?;
         }
         File::options().write(true).create_new(true).mode(0o600).open(part.join(KEY_FILE))?.write_all(&key)?;
+        std::fs::write(part.join(FORMAT_FILE), crate::sparse::FORMAT)?;
         std::fs::write(part.join(BASE_FILE), snapshot_base(&meta))?;
         remove_if_there(&self.jail(id))?;
         self.discard_snapshot_locked(id)?;
@@ -142,8 +146,8 @@ impl Computers {
         let key: [u8; KEY_BYTES] = std::fs::read(dir.join(KEY_FILE))?.try_into().map_err(|_| anyhow::anyhow!("a snapshot's key is damaged"))?;
         for name in FILES {
             let to_path = self.jail_root(id).join(name);
-            let to = File::options().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&to_path).context("restore a snapshot")?;
-            seal::open(&key, &mut BufReader::with_capacity(BUFFER_BYTES, File::open(dir.join(name))?), &mut BufWriter::with_capacity(BUFFER_BYTES, to))?;
+            let mut to = File::options().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(&to_path).context("restore a snapshot")?;
+            open_stored(&dir, &key, &dir.join(name), &mut to)?;
             chown(&to_path, Some(uid), Some(uid)).context("give the VM its snapshot")?;
         }
         took.mark("open_snapshot");
@@ -171,6 +175,16 @@ impl Computers {
         eprintln!("magnus-computerd: computer {} {how} in {} ms ({})", id.as_str(), steps.total_ms(), steps.words());
         Wake { resumed, overlay_fresh, took_ms: steps }
     }
+}
+
+/// Opens one stored file of a snapshot into `to`, as it was sealed: sparse
+/// when the snapshot says so, else whole.
+pub fn open_stored(dir: &Path, key: &[u8; KEY_BYTES], from: &Path, to: &mut File) -> Result<()> {
+    let from = BufReader::with_capacity(BUFFER_BYTES, File::open(from)?);
+    if std::fs::read_to_string(dir.join(FORMAT_FILE)).is_ok_and(|f| f.trim() == crate::sparse::FORMAT) {
+        return crate::sparse::open(key, &mut { from }, to);
+    }
+    seal::open(key, &mut { from }, &mut BufWriter::with_capacity(BUFFER_BYTES, to))
 }
 
 /// What a snapshot is valid on: the base image the VM booted from, which is

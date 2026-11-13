@@ -11,4 +11,5 @@ pub mod relay;
 pub mod seal;
 pub mod self_update;
 pub mod server;
+pub mod sparse;
 pub mod version;

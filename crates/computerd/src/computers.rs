@@ -19,7 +19,7 @@ pub mod backup;
 mod guest;
 pub mod network;
 mod sealed;
-mod snapshot;
+pub mod snapshot;
 mod sparse;
 mod sweep;
 mod took;
