@@ -4,7 +4,7 @@
 //! can carry that data out (K34). What carries it is an address the model
 //! wrote. So, as Claude's web fetch and ChatGPT's link check do, the
 //! address's origin decides, not an ask per page:
-//! - a search goes to the search provider, which no page chooses;
+//! - a search query can transmit private data and keeps the boundary check;
 //! - reading the page already open (snapshot, screenshot, back) sends nothing;
 //! - opening an address that appears, exactly, in what the person wrote or
 //!   in what a search or a page returned carries nothing the model added.
@@ -28,39 +28,30 @@ pub(crate) fn sends_nothing_new(a: &Action, f: &Facts, known: impl Fn(&str) -> b
         return false;
     }
     match a.tool.as_str() {
-        "web_search" | "browser_snapshot" | "browser_screenshot" | "browser_back" => true,
-        "web_fetch" | "browser_navigate" => a.input["url"].as_str().is_some_and(|u| is_search(u.trim()) || known(u.trim())),
+        "browser_snapshot" | "browser_screenshot" | "browser_back" => true,
+        "web_fetch" | "browser_navigate" => a.input["url"].as_str().is_some_and(|u| known(u.trim())),
         _ => false,
     }
-}
-
-/// The search pages of the common engines, by host and path: what a
-/// search from the browser opens when the server has no search provider.
-/// Like `web_search`, the query goes to the search provider, which no page
-/// chooses (spec: reads pass without review; owner, 2026-11-13: every web
-/// search asked).
-const SEARCH_PAGES: [(&str, &str); 7] = [
-    ("www.google.com", "/search"),
-    ("google.com", "/search"),
-    ("www.bing.com", "/search"),
-    ("bing.com", "/search"),
-    ("duckduckgo.com", "/"),
-    ("html.duckduckgo.com", "/html/"),
-    ("search.brave.com", "/search"),
-];
-
-/// Whether `url` is a search on one of the common engines, over https.
-pub(crate) fn is_search(url: &str) -> bool {
-    let Ok(u) = url::Url::parse(url) else { return false };
-    let host = u.host_str().unwrap_or_default().to_ascii_lowercase();
-    u.scheme() == "https" && u.query_pairs().any(|(k, _)| k == "q") && SEARCH_PAGES.iter().any(|(h, p)| *h == host && u.path() == *p)
 }
 
 /// Whether `url` appears, exactly, in one of `texts`. A trailing slash is
 /// not data, so "https://a.example/" matches "https://a.example".
 pub(crate) fn appears_in(url: &str, texts: &[String]) -> bool {
     let url = url.strip_suffix('/').unwrap_or(url);
-    url.len() > "https://".len() && texts.iter().any(|t| t.contains(url))
+    url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some())
+        && texts.iter().any(|t| {
+            t.split_whitespace().any(|token| {
+                let token = if let Some((_, link)) = token.split_once("](") {
+                    link.strip_suffix(')').unwrap_or(token)
+                } else {
+                    [("<", ">"), ("(", ")"), ("[", "]"), ("\"", "\""), ("'", "'"), ("`", "`")]
+                        .iter()
+                        .find_map(|(left, right)| token.strip_prefix(left).and_then(|s| s.strip_suffix(right)))
+                        .unwrap_or(token)
+                };
+                token.strip_suffix('/').unwrap_or(token) == url
+            })
+        })
 }
 
 /// The host of the page a browser action acts on: the address of the run's
@@ -125,10 +116,9 @@ mod tests {
     }
 
     #[test]
-    fn a_search_and_the_open_page_carry_nothing_out() {
-        for t in ["web_search", "browser_snapshot", "browser_screenshot", "browser_back"] {
-            let app = if t == "web_search" { "web" } else { "browser" };
-            assert!(sends_nothing_new(&action(t, json!({ "query": "x" })), &facts(app, Risk::Read), |_| false), "{t} asked");
+    fn the_open_page_carries_nothing_out() {
+        for t in ["browser_snapshot", "browser_screenshot", "browser_back"] {
+            assert!(sends_nothing_new(&action(t, json!({})), &facts("browser", Risk::Read), |_| false), "{t} asked");
         }
     }
 
@@ -145,15 +135,20 @@ mod tests {
     }
 
     #[test]
-    fn a_search_from_the_browser_is_a_search() {
-        let go = |u: &str| sends_nothing_new(&action("browser_navigate", json!({ "url": u })), &facts("browser", Risk::Read), |_| false);
-        assert!(go("https://www.google.com/search?q=steadywin+gim8108"), "a Google search asked");
-        assert!(go("https://duckduckgo.com/?q=jetson+nano"), "a DuckDuckGo search asked");
-        assert!(go("https://www.bing.com/search?q=freecad"));
-        assert!(!go("http://www.google.com/search?q=x"), "a search over plain http passed");
-        assert!(!go("https://www.google.com/url?q=https://collect.example/data"), "a redirect through the engine passed as a search");
-        assert!(!go("https://google.com.collect.example/search?q=x"), "a look-alike host passed as a search");
-        assert!(!go("https://www.google.com/search"), "a search page with no query passed");
+    fn searches_do_not_exempt_private_queries() {
+        assert!(!sends_nothing_new(&action("web_search", json!({ "query": "private salary" })), &facts("web", Risk::Read), |_| false));
+        assert!(!sends_nothing_new(&action("browser_navigate", json!({ "url": "https://www.google.com/search?q=private+salary" })), &facts("browser", Risk::Read), |_| false));
+    }
+
+    #[test]
+    fn provenance_requires_the_complete_url() {
+        let texts = vec!["[link](https://example.com/collect?value=123456)".into()];
+        assert!(appears_in("https://example.com/collect?value=123456", &texts));
+        assert!(!appears_in("https://example.com/collect?value=123", &texts));
+        assert!(!appears_in("https://example.com", &texts));
+        for suffix in ["'secret", "(secret)", "[secret]"] {
+            assert!(!appears_in("https://example.com/123", &[format!("https://example.com/123{suffix}")]));
+        }
     }
 
     #[test]

@@ -66,7 +66,7 @@ impl ReadBack {
 /// matches when each of its items does, anything else is equal.
 pub fn holds(want: &Value, got: &Value) -> bool {
     match (want, got) {
-        (Value::Null, _) => true,
+        (Value::Null, _) | (_, Value::Null) => false,
         (Value::Array(ws), _) => ws.iter().all(|w| holds(w, got)),
         (w, Value::Array(gs)) => gs.iter().any(|g| holds(w, g)),
         (Value::String(w), Value::String(g)) => g.to_lowercase().contains(&w.trim().to_lowercase()),
@@ -85,9 +85,25 @@ fn read_input(rb: &ReadBack, had: &Value) -> Value {
 fn differs(rb: &ReadBack, had: &Value, found: &Value) -> Vec<String> {
     rb.expect
         .iter()
-        .filter(|(from, to)| !holds(&had.pointer(from).cloned().unwrap_or(Value::Null), &found.pointer(to).cloned().unwrap_or(Value::Null)))
+        .filter(|(from, to)| !had.pointer(from).zip(found.pointer(to)).is_some_and(|(want, got)| matches_field(from, want, got)))
         .map(|(from, _)| from.rsplit('/').next().unwrap_or(from).to_string())
         .collect()
+}
+
+/// Recipient headers are address sets; content must survive unchanged.
+fn matches_field(from: &str, want: &Value, got: &Value) -> bool {
+    if want.is_null() || got.is_null() {
+        return false;
+    }
+    if from.starts_with("/shown/recipients/") {
+        let expected = crate::tools::addresses(want);
+        let actual = crate::tools::addresses(got);
+        return expected.into_iter().collect::<std::collections::BTreeSet<_>>() == actual.into_iter().collect();
+    }
+    if from.starts_with("/shown/content/") || from.starts_with("/bound/") {
+        return !want.is_null() && want == got;
+    }
+    holds(want, got)
 }
 
 /// Whether an action is read back: the model's own, irreversible or a
@@ -109,7 +125,7 @@ impl Kernel {
             self.emit("kernel", record(None, Value::Null, None, note.clone())).await?;
             return Ok(note);
         };
-        let had = json!({ "input": a.input, "result": data.cloned().unwrap_or(Value::Null), "shown": shown.map(Shown::details) });
+        let had = json!({ "input": a.input, "result": data.cloned().unwrap_or(Value::Null), "shown": shown.map(Shown::details), "bound": shown.map(|s| &s.bound) });
         let read = format!("{}__{}", f.app, rb.read);
         let check = Action {
             run: a.run.clone(),
@@ -167,6 +183,34 @@ mod tests {
         assert_eq!(read_input(&rb, &had), json!({ "id": "42", "view": "full" }));
         assert!(differs(&rb, &had, &json!({ "status": "closed" })).is_empty());
         assert_eq!(differs(&rb, &had, &json!({ "status": "open" })), vec!["status".to_string()]);
+    }
+
+    #[test]
+    fn gmail_checks_all_recipients_and_visible_content() {
+        let manifest: toml::Value = toml::from_str(include_str!("../../../catalog/google-gmail.toml")).unwrap();
+        let rb: ReadBack = manifest["read_back"]["send_draft"].clone().try_into().unwrap();
+        let had = json!({"bound": {"digest": "parts-hash"}, "shown": {"recipients": {"to": ["a@example.com"], "cc": ["c@example.com"], "bcc": ["b@example.com"]}, "content": {"subject": "Subject", "body": "Exact body", "attachments": [{"filename": "a.txt", "size": 12}]}}});
+        let got = json!({"digest": "parts-hash", "to": "A <a@example.com>", "cc": "c@example.com", "bcc": "b@example.com", "subject": "Subject", "body": "Exact body", "attachments": [{"filename": "a.txt", "size": 12}]});
+        assert!(differs(&rb, &had, &got).is_empty());
+        for key in ["to", "cc", "bcc", "subject", "body", "attachments", "digest"] {
+            let mut changed = got.clone();
+            changed[key] = json!("wrong");
+            assert!(!differs(&rb, &had, &changed).is_empty(), "{key} was not checked");
+        }
+        let mut extra = got.clone();
+        extra["to"] = json!("a@example.com, extra@example.com");
+        assert!(!differs(&rb, &had, &extra).is_empty());
+        extra = got.clone();
+        extra["body"] = json!("Exact body with injected content");
+        assert!(!differs(&rb, &had, &extra).is_empty());
+    }
+
+    #[test]
+    fn missing_expected_fields_never_match() {
+        let rb = ReadBack { read: "get".into(), input: BTreeMap::new(), expect: BTreeMap::from([("/missing".into(), "/status".into())]) };
+        assert!(!differs(&rb, &json!({}), &json!({"status": "closed"})).is_empty());
+        assert!(!differs(&rb, &json!({}), &json!({})).is_empty());
+        assert!(!holds(&Value::Null, &Value::Null));
     }
 
     #[test]

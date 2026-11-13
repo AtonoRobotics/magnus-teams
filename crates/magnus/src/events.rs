@@ -1292,7 +1292,6 @@ pub enum Ev {
         seqs: Vec<i64>,
     },
 }
-
 /// What each kind of event holds that a person or a source wrote. It is kept
 /// beside the log in the content store, where it can be deleted; the log
 /// keeps the rest. A dotted name is a field of a field.
@@ -1311,6 +1310,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("contract", &["contract"]),
     ("plan", &["plan"]),
     ("verification", &["criterion", "evidence"]),
+    ("evidence", &["found", "sources", "note"]),
     ("completed", &["summary", "view", "spoken"]),
     ("failed", &["reason"]),
     ("item", &["summary", "details"]),
@@ -1337,7 +1337,6 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("spend", &["reason", "note"]),
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
 ];
-
 /// The content fields of one kind of event; none for most.
 pub fn content_fields(kind: &str) -> &'static [&'static str] {
     CONTENT.iter().find(|(k, _)| *k == kind).map(|(_, f)| *f).unwrap_or(&[])

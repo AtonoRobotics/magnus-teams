@@ -63,6 +63,28 @@ async fn a_sender_deletes_their_message_for_everyone_and_from_the_log() {
     s.done().await;
 }
 
+/// The agent's answer is drawn from its request, not kept as a message, and
+/// it is deleted as one: by who asked or an admin, for everyone (owner,
+/// 2026-11-13: deleting it said "no such message").
+#[tokio::test(flavor = "multi_thread")]
+async fn the_agents_answer_is_deleted_by_who_asked_or_an_admin() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, _sam, mo, ana) = workspace(&s).await;
+    let c = general(&s, &ws);
+    let (task, _) = s.k.team_request(&ws, &c, None, "mo", "what is the door code".into()).await.unwrap();
+    let run = s.k.read(|st| st.tasks[&task].run_id.clone());
+    s.k.emit("kernel", crate::events::Ev::Completed { run, summary: "The door code is 4471.".into(), view: None, spoken: None }).await.unwrap();
+    let id = format!("agent:{task}");
+    assert!(view(&s, &mo, &ws, &c).await.iter().any(|m| m["id"] == json!(id)), "the answer is not in the channel");
+    let path = format!("/v1/workspaces/{ws}/channels/{c}/messages/{id}");
+    assert_eq!(s.call(&ana, Method::DELETE, &path, None).await.0, 403, "a guest deleted mo's answer");
+    let (st, v) = s.call(&mo, Method::DELETE, &path, None).await;
+    assert_eq!(st, 200, "who asked could not delete the answer: {v}");
+    assert!(!view(&s, &mo, &ws, &c).await.iter().any(|m| m["id"] == json!(id) && m["deleted"] != json!(true)), "the deleted answer is still shown");
+    assert_eq!(s.call(&mo, Method::DELETE, &path, None).await.0, 404, "a deleted answer was deleted again");
+    s.done().await;
+}
+
 /// Replayed after its text was erased, a deleted message keeps its place
 /// and nothing else; one whose event was erased is not read as a message.
 #[test]

@@ -5,7 +5,7 @@
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
     let src = &src[src.find("pub enum Ev {").unwrap()..src.find("pub const CONTENT").unwrap()];
-    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "rule", "spend"].contains(k)) {
+    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "rule", "spend", "evidence"].contains(k)) {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
         let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
         let body = &src[start..start + src[start..].find("\n    },").unwrap()];
@@ -49,4 +49,17 @@ fn a_rules_words_are_content_and_read_once_deleted() {
     let (record, content) = crate::log::split(serde_json::to_value(&ev).unwrap());
     assert!(record.get("words").is_none(), "the words stayed in the record");
     assert_eq!(content.unwrap().body["words"], "ask me first");
+}
+
+/// Evidence is a tagged family too; every content field must remain readable
+/// after deletion, rather than matching only the outer Ev variant's spelling.
+#[test]
+fn evidence_content_fields_have_defaults() {
+    let src = include_str!("evidence.rs");
+    let src = &src[src.find("pub enum Change {").unwrap()..src.find("impl Change").unwrap()];
+    for field in super::content_fields("evidence") {
+        let declaration = format!("\n        {field}: ");
+        assert!(src.contains(&declaration), "missing evidence field {field}");
+        assert_eq!(src.matches(&declaration).count(), src.matches(&format!("#[serde(default)]{declaration}")).count());
+    }
 }

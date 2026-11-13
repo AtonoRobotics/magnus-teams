@@ -99,6 +99,19 @@ fn status_word(s: crate::state::Status) -> &'static str {
     }
 }
 
+/// How an agent's answer is named among a channel's messages: by its request.
+pub(super) const ANSWER_PREFIX: &str = "agent:";
+
+/// What the agent answers in the thread once a request ends: its result,
+/// or why it could not finish.
+pub(super) fn answer_text(run: &crate::state::Run) -> Option<String> {
+    match run.status {
+        crate::state::Status::Completed => run.summary.clone(),
+        crate::state::Status::Failed => Some(format!("I could not finish this: {}", run.reason.as_deref().unwrap_or("it failed"))),
+        _ => None,
+    }
+}
+
 /// The last tool the run called: what it is doing now.
 fn doing(run: &crate::state::Run) -> Option<String> {
     run.replies.iter().rev().flat_map(|r| r.blocks.iter().rev()).find_map(|b| match b {
@@ -132,15 +145,13 @@ fn agent_items(s: &Shared, w: &Workspace, channel: &str, viewer: &str, now: chro
                 json!({ "id": format!("work:{}", r.task), "sender": AGENT_ID, "requester": r.requester, "text": "", "thread": r.thread, "at": task.created_at, "work": card }),
             ),
         }
-        let answer = match run.status {
-            crate::state::Status::Completed => run.summary.clone(),
-            crate::state::Status::Failed => Some(format!("I could not finish this: {}", run.reason.as_deref().unwrap_or("it failed"))),
-            _ => None,
-        };
-        if let Some(text) = answer {
+        let answer = answer_text(run);
+        let id = format!("{ANSWER_PREFIX}{}", r.task);
+        // A deleted answer leaves its place, as a deleted message does.
+        if let Some(text) = answer.filter(|_| !w.chat.unsent.contains(&id)) {
             let (text, private) = super::answer_for(run, text, &r.requester, viewer);
             let at = run.ended_at.unwrap_or(now);
-            items.push(json!({ "id": format!("agent:{}", r.task), "sender": AGENT_ID, "requester": r.requester, "task": r.task, "text": text, "thread": thread, "at": at, "private": private }));
+            items.push(json!({ "id": id, "sender": AGENT_ID, "requester": r.requester, "task": r.task, "text": text, "thread": thread, "at": at, "private": private }));
         }
     }
     (items, cards)

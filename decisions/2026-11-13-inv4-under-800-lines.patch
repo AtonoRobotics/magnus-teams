@@ -1,0 +1,29 @@
+--- a/tests/invariants/tests/inv4_taint.rs	2026-11-12 21:27:02.966596908 -0800
++++ b/tests/invariants/tests/inv4_taint.rs	2026-11-12 21:27:11.935591656 -0800
+@@ -197,11 +197,8 @@
+     assert_eq!(w.notes.effects("save"), 1, "two of three must not be blocked");
+ }
+ 
+-/// Private data going to a new destination after untrusted input asks the
+-/// person before anything goes (spec, What still asks, case 3). Their Allow
+-/// covers the rest of the task for the same destinations, and Allow always
+-/// saves a narrow rule, as on every card (spec, How an ask looks; owner,
+-/// 2026-11-13). Auto Review never answers it alone.
++/// Private data to a new destination after untrusted input asks first (case 3);
++/// Allow covers the task for those destinations, Allow always saves a rule (owner, 2026-11-13).
+ #[tokio::test(flavor = "multi_thread")]
+ async fn private_data_posted_after_untrusted_input_asks_the_person_first() {
+     let w = world().await;
+@@ -220,10 +217,8 @@
+     let card = alice.wait_item(&id, "approval").await;
+     assert_eq!(w.chat.effects("post"), 0, "private data went out before the person answered");
+     assert_eq!(card["ask"]["allow_scope"], "task", "case 3's Allow does not cover the rest of the task: {card}");
+-    let offers = card["ask"]["offers"].as_array().cloned().unwrap_or_default();
+-    assert!(offers.contains(&json!("allow")) && offers.contains(&json!("dont_allow")), "{card}");
+-    let named = card["ask"]["destinations"].as_array().is_some_and(|d| !d.is_empty());
+-    assert_eq!(offers.contains(&json!("allow_always")), named, "Allow always is offered only with a destination to name: {card}");
++    let (offers, named) = (card["ask"]["offers"].as_array().cloned().unwrap_or_default(), card["ask"]["destinations"].as_array().is_some_and(|d| !d.is_empty()));
++    assert!(offers.contains(&json!("allow")) && offers.contains(&json!("dont_allow")) && offers.contains(&json!("allow_always")) == named, "{card}");
+ }
+ 
+ #[tokio::test(flavor = "multi_thread")]

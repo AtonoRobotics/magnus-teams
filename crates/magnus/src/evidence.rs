@@ -45,7 +45,11 @@ pub enum Change {
     },
     /// The sources a finished result cites: each claim and the call it
     /// came from.
-    Sources { run: String, sources: Vec<Source> },
+    Sources {
+        run: String,
+        #[serde(default)]
+        sources: Vec<Source>,
+    },
 }
 
 impl Change {
