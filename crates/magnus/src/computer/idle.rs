@@ -39,6 +39,13 @@ fn idle_for(id: &str) -> Duration {
     slot.get_or_insert_with(HashMap::new).entry(id.to_string()).or_insert_with(Instant::now).elapsed()
 }
 
+/// A limit configured in minutes. A number too large to count in seconds
+/// is as good as no limit: it must never wrap to a short one, which would
+/// hibernate or stop every computer at once.
+fn minutes_limit(minutes: u64) -> Duration {
+    Duration::from_secs(minutes.saturating_mul(SECONDS_PER_MINUTE))
+}
+
 /// Whether a browser VM has gone unused long enough to stop.
 pub(super) fn idle_browser(id: &str, role: &Role, limit: Duration) -> bool {
     !matches!(role, Role::Computer) && idle_for(id) >= limit
@@ -47,8 +54,8 @@ pub(super) fn idle_browser(id: &str, role: &Role, limit: Duration) -> bool {
 pub(super) fn schedule(k: Arc<Kernel>) {
     let minutes = k.cfg.computer.as_ref().map(|c| c.idle_hibernate_minutes).unwrap_or(0);
     // Zero keeps computers running; the browsers are still tended.
-    let limit = if minutes > 0 { Duration::from_secs(minutes * SECONDS_PER_MINUTE) } else { Duration::MAX };
-    let run_limit = Duration::from_secs(k.cfg.computer.as_ref().map_or(0, |c| c.max_run_minutes) * SECONDS_PER_MINUTE);
+    let limit = if minutes > 0 { minutes_limit(minutes) } else { Duration::MAX };
+    let run_limit = minutes_limit(k.cfg.computer.as_ref().map_or(0, |c| c.max_run_minutes));
     let Some(socket) = k.cfg.computer.as_ref().map(|c| c.socket.clone()) else { return };
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(IDLE_POLL);
@@ -137,6 +144,13 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_huge_minutes_setting_is_no_limit_not_a_short_one() {
+        assert_eq!(minutes_limit(u64::MAX), Duration::from_secs(u64::MAX));
+        assert_eq!(minutes_limit(u64::MAX / 30), Duration::from_secs(u64::MAX), "the limit wrapped");
+        assert_eq!(minutes_limit(15), Duration::from_secs(15 * 60));
+    }
 
     /// A computer the machine stopped is recorded stopped, or asleep when it
     /// kept a snapshot; one still running or paused is left alone.

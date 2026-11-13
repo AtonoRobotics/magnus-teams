@@ -54,13 +54,13 @@ fn seen() -> &'static Mutex<BTreeMap<PathBuf, Seen>> {
 }
 
 pub fn last_seen(socket: &Path) -> Option<Seen> {
-    seen().lock().ok().and_then(|m| m.get(socket).cloned())
+    seen().lock().unwrap_or_else(|e| e.into_inner()).get(socket).cloned()
 }
 
+/// Always written, a poisoned lock too: a stale answer would gate reset
+/// and erase on a computerd that is no longer there.
 fn remember(socket: &Path, s: Seen) {
-    if let Ok(mut m) = seen().lock() {
-        m.insert(socket.to_path_buf(), s);
-    }
+    seen().lock().unwrap_or_else(|e| e.into_inner()).insert(socket.to_path_buf(), s);
 }
 
 pub fn is_bad_request(e: &anyhow::Error) -> bool {

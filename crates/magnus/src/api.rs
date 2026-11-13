@@ -408,14 +408,18 @@ async fn revoke_device(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Res
     Json(json!({ "ok": true })).into_response()
 }
 
+/// How far back [`may_begin`] counts one address's sign-ins.
+const SIGN_IN_BEGIN_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 /// Sign-ins begun from one address in the last ten minutes: at most a
 /// quarter of the provider's waiting ones (`max_pending`), which everyone
 /// shares, so no one address can fill them and stop every first sign-in.
 fn may_begin(k: &Kernel, peer: SocketAddr) -> bool {
     let most = k.cfg.sign_in.oidc.as_ref().map_or(25, |o| (o.max_pending / 4).max(5));
     static BEGUN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, Vec<std::time::Instant>>>> = std::sync::OnceLock::new();
-    let mut m = BEGUN.get_or_init(Default::default).lock().unwrap();
-    let window = std::time::Duration::from_secs(600);
+    // A panic elsewhere while holding it leaves counts that are still counts.
+    let mut m = BEGUN.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    let window = SIGN_IN_BEGIN_WINDOW;
     m.retain(|_, v| {
         v.retain(|t| t.elapsed() < window);
         !v.is_empty()

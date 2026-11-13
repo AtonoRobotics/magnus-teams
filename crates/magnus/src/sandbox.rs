@@ -19,6 +19,25 @@ use tokio::net::UnixStream;
 
 const GUEST_PORT: u32 = 52;
 
+/// How long past a command's own timeout its VM has to reply.
+const EXEC_REPLY_GRACE_SECONDS: u64 = 15;
+/// How long one file read or write in a VM may take.
+const FILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long one ping of a booting guest may take.
+const PING_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a VM has to come up.
+const BOOT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long the image's check-tool resolver may run.
+const CHECK_TOOLS_TIMEOUT_SECONDS: u64 = 60;
+/// How long a stopping VM has to flush its disk.
+const SYNC_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long to wait for the reply to a command that may run `timeout_s`:
+/// its timeout and a grace, never wrapping, whatever the caller asked.
+fn exec_reply_timeout(timeout_s: u64) -> Duration {
+    Duration::from_secs(timeout_s.saturating_add(EXEC_REPLY_GRACE_SECONDS))
+}
+
 /// What the image's resolver found in one check command.
 #[derive(Debug, serde::Deserialize)]
 pub struct Resolved {
@@ -126,7 +145,7 @@ impl Sandboxes {
         // Wait for the guest agent.
         let start = std::time::Instant::now();
         loop {
-            if let Ok(v) = request(&vm.vsock, &json!({ "op": "ping" }), Duration::from_secs(2)).await {
+            if let Ok(v) = request(&vm.vsock, &json!({ "op": "ping" }), PING_TIMEOUT).await {
                 if v["ok"] == true {
                     return Ok(vm);
                 }
@@ -135,8 +154,8 @@ impl Sandboxes {
                 let log = std::fs::read_to_string(dir.join("console.log")).unwrap_or_default();
                 return Err(anyhow!("the sandbox VM exited during boot ({st}): {}", log.chars().rev().take(800).collect::<String>().chars().rev().collect::<String>()));
             }
-            if start.elapsed() > Duration::from_secs(30) {
-                return Err(anyhow!("the sandbox VM did not come up within 30s"));
+            if start.elapsed() > BOOT_TIMEOUT {
+                return Err(anyhow!("the sandbox VM did not come up within {}s", BOOT_TIMEOUT.as_secs()));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -161,7 +180,7 @@ impl Sandboxes {
             for (name, data) in files {
                 let safe: String = name.chars().map(|c| if c == '/' || c == '\\' { '_' } else { c }).collect();
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-                request(&vm.vsock, &json!({ "op": "write", "path": format!("/workspace/inputs/{safe}"), "data_b64": b64 }), Duration::from_secs(60)).await?;
+                request(&vm.vsock, &json!({ "op": "write", "path": format!("/workspace/inputs/{safe}"), "data_b64": b64 }), FILE_REQUEST_TIMEOUT).await?;
             }
         }
         vms.insert(run.to_string(), vm.clone());
@@ -170,18 +189,18 @@ impl Sandboxes {
 
     pub async fn exec(&self, run: &str, command: &str, timeout_s: u64) -> Result<Value> {
         let vm = self.vm(run).await?;
-        request(&vm.vsock, &json!({ "op": "exec", "command": command, "timeout_s": timeout_s }), Duration::from_secs(timeout_s + 15)).await
+        request(&vm.vsock, &json!({ "op": "exec", "command": command, "timeout_s": timeout_s }), exec_reply_timeout(timeout_s)).await
     }
 
     pub async fn write(&self, run: &str, path: &str, data: &[u8]) -> Result<Value> {
         let vm = self.vm(run).await?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-        request(&vm.vsock, &json!({ "op": "write", "path": path, "data_b64": b64 }), Duration::from_secs(60)).await
+        request(&vm.vsock, &json!({ "op": "write", "path": path, "data_b64": b64 }), FILE_REQUEST_TIMEOUT).await
     }
 
     pub async fn read(&self, run: &str, path: &str) -> Result<Vec<u8>> {
         let vm = self.vm(run).await?;
-        let v = request(&vm.vsock, &json!({ "op": "read", "path": path }), Duration::from_secs(60)).await?;
+        let v = request(&vm.vsock, &json!({ "op": "read", "path": path }), FILE_REQUEST_TIMEOUT).await?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
         }
@@ -193,12 +212,12 @@ impl Sandboxes {
     /// VM is stopped first so its disk is consistent; its next use boots it
     /// again on the same disk.
     pub async fn exec_check(&self, run: &str, command: &str, timeout_s: u64) -> Result<Value> {
-        self.in_check_vm(run, json!({ "op": "exec", "command": command, "timeout_s": timeout_s }), Duration::from_secs(timeout_s + 15)).await
+        self.in_check_vm(run, json!({ "op": "exec", "command": command, "timeout_s": timeout_s }), exec_reply_timeout(timeout_s)).await
     }
 
     /// Read a file as a contract check sees it, in a check VM.
     pub async fn read_check(&self, run: &str, path: &str) -> Result<Vec<u8>> {
-        let v = self.in_check_vm(run, json!({ "op": "read", "path": path }), Duration::from_secs(60)).await?;
+        let v = self.in_check_vm(run, json!({ "op": "read", "path": path }), FILE_REQUEST_TIMEOUT).await?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
         }
@@ -216,9 +235,12 @@ impl Sandboxes {
         let result = async {
             let vm = self.launch_in(&dir, true).await?;
             let arg = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(commands)?);
-            let v =
-                request(&vm.vsock, &json!({ "op": "exec", "command": format!("python3 -I /usr/local/lib/magnus/check_tools.py {arg}"), "timeout_s": 60 }), Duration::from_secs(75))
-                    .await?;
+            let v = request(
+                &vm.vsock,
+                &json!({ "op": "exec", "command": format!("python3 -I /usr/local/lib/magnus/check_tools.py {arg}"), "timeout_s": CHECK_TOOLS_TIMEOUT_SECONDS }),
+                exec_reply_timeout(CHECK_TOOLS_TIMEOUT_SECONDS),
+            )
+            .await?;
             anyhow::ensure!(
                 v["exit_code"] == json!(0),
                 "the image's resolver failed: {}",
@@ -265,7 +287,7 @@ impl Sandboxes {
     /// Stop the run's VM and keep its disk (suspend).
     pub async fn stop(&self, run: &str) {
         if let Some(vm) = self.vms.lock().await.remove(run) {
-            let _ = request(&vm.vsock, &json!({ "op": "sync" }), Duration::from_secs(5)).await;
+            let _ = request(&vm.vsock, &json!({ "op": "sync" }), SYNC_TIMEOUT).await;
             drop(vm);
         }
     }
@@ -294,4 +316,15 @@ async fn request(vsock: &Path, req: &Value, timeout: Duration) -> Result<Value> 
     })
     .await
     .map_err(|_| anyhow!("the sandbox did not answer in time"))?
+}
+
+#[cfg(test)]
+mod exec_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn a_huge_command_timeout_does_not_wrap_to_a_short_wait() {
+        assert_eq!(exec_reply_timeout(u64::MAX), Duration::from_secs(u64::MAX));
+        assert_eq!(exec_reply_timeout(30), Duration::from_secs(30 + EXEC_REPLY_GRACE_SECONDS));
+    }
 }

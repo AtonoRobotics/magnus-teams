@@ -64,22 +64,29 @@ pub async fn since(url: &str, computer: &str, after: i64, limit: i64, own: bool)
         .context("read the egress audit")?;
     Ok(rows
         .iter()
-        .map(|r| {
+        .filter_map(|r| {
+            let id: i64 = r.get(0);
             let phase: String = r.get(2);
             let port: i32 = r.get(4);
             let path: String = r.get(6);
-            Entry {
-                id: r.get(0),
+            // A port no proxy could have used is a damaged row: shown as
+            // port 0 it would be a request that never happened.
+            let Ok(port) = u16::try_from(port) else {
+                tracing::warn!("egress audit row {id} of {computer} has port {port}, out of range; not shown");
+                return None;
+            };
+            Some(Entry {
+                id,
                 at: r.get(1),
                 verdict: verdict(&phase),
                 phase,
                 host: r.get(3),
-                port: u16::try_from(port).unwrap_or_default(),
+                port,
                 method: r.get(5),
                 path: shown_path(&path, own),
                 address: r.get(7),
                 detail: r.get(8),
-            }
+            })
         })
         .collect())
 }
@@ -120,6 +127,17 @@ mod tests {
         assert_eq!(newer.len(), 2, "rows at or before the last seen came back");
         assert_eq!(newer[0].path, "/simple?k=1");
         assert_eq!(since(&url, "a", 0, 1, true).await.unwrap().len(), 1, "the limit was ignored");
+        // A damaged row with a port no proxy could use is left out, not shown as port 0.
+        let db = crate::log::connect(&url).await.unwrap();
+        db.batch_execute(
+            "INSERT INTO public.computer_egress (computer, phase, host, port, method, path) VALUES ('c', 'intent', 'bad.example', 70000, 'GET', '/'), ('c', 'intent', 'good.example', 443, 'GET', '/')",
+        )
+        .await
+        .unwrap();
+        let c = since(&url, "c", 0, 100, true).await.unwrap();
+        let hosts: Vec<(&str, u16)> = c.iter().map(|e| (e.host.as_str(), e.port)).collect();
+        assert_eq!(hosts, [("good.example", 443)], "a row with an impossible port was shown");
+        drop(db);
         drop(audit);
         *READER.lock().await = None;
         admin.batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)")).await.unwrap();

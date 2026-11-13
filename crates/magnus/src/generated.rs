@@ -356,8 +356,12 @@ impl Kernel {
     }
 
     /// Its token and grants revoked, its rules removed, its file gone.
+    /// Grants and rules go even when the token cannot be revoked, since
+    /// taking a permission away is always safe; the connector itself stays
+    /// then, with the reason, so the token is not lost from view and the
+    /// person can try again.
     async fn delete_generated(&self, person: &str, c: &Connector) -> Result<usize> {
-        let revoked = self.revoke_all(c).await.map_err(|_| anyhow::anyhow!("its token could not be revoked"))?;
+        let revoked = token_revoked(self.revoke_all(c).await);
         let actor = format!("person:{person}");
         let (grants, rules) = self.read(|s| {
             let grants: Vec<String> = s.grants.values().filter(|g| g.person == person && g.revoked.is_none() && g.apps.contains(&c.name)).map(|g| g.id.clone()).collect();
@@ -365,15 +369,25 @@ impl Kernel {
             (grants, rules)
         });
         for id in grants {
-            self.emit(&actor, Ev::GrantRevoked { id, person: person.to_string() }).await?;
+            if let Err(e) = self.emit(&actor, Ev::GrantRevoked { id: id.clone(), person: person.to_string() }).await {
+                tracing::error!("deleting {}: grant {id} was not revoked: {e:#}", c.name);
+            }
         }
         for id in rules {
-            self.emit(&actor, Ev::Rule(crate::rules::Change::Removed { id })).await?;
+            if let Err(e) = self.emit(&actor, Ev::Rule(crate::rules::Change::Removed { id: id.clone() })).await {
+                tracing::error!("deleting {}: rule {id} was not removed: {e:#}", c.name);
+            }
         }
+        let revoked = revoked?;
         self.emit(&actor, Ev::ConnectorRemoved { name: c.name.clone() }).await?;
         self.sync_definitions(person).await;
         Ok(revoked)
     }
+}
+
+/// The tokens revoked, or why they could not be, with the vault's cause.
+fn token_revoked(r: Result<usize, crate::connectors::Refusal>) -> Result<usize> {
+    r.map_err(|(_, why)| anyhow::anyhow!("its token could not be revoked: {why}"))
 }
 
 type K = State<Arc<Kernel>>;
@@ -443,6 +457,13 @@ mod tests {
                 input_schema: any_object(),
             }],
         }
+    }
+
+    #[test]
+    fn a_token_that_could_not_be_revoked_says_why() {
+        let e = token_revoked(Err((axum::http::StatusCode::INTERNAL_SERVER_ERROR, "the vault is locked".into()))).unwrap_err();
+        assert!(format!("{e:#}").contains("the vault is locked"), "the cause was dropped: {e:#}");
+        assert_eq!(token_revoked(Ok(2)).unwrap(), 2);
     }
 
     #[test]

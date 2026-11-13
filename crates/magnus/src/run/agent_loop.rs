@@ -18,9 +18,31 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Half the first wait between attempts at a failed model call: the backoff
+/// doubles from one second.
+const BACKOFF_BASE: Duration = Duration::from_millis(500);
+
+/// The most doublings of [`BACKOFF_BASE`].
+const MOST_BACKOFF_DOUBLINGS: u32 = 6;
+
 /// The longest wait between attempts at a failed model call (the backoff
 /// below doubles from one second up to this).
-const LONGEST_BACKOFF: Duration = Duration::from_millis(500 * 2u64.pow(6));
+const LONGEST_BACKOFF: Duration = Duration::from_millis(500 * 2u64.pow(MOST_BACKOFF_DOUBLINGS));
+
+/// How long to wait before attempt `next_attempt` (1 for the first retry)
+/// of a model call that failed as unavailable or over a usage limit, or
+/// `None` when the provider says it will not pass within
+/// [`LONGEST_BACKOFF`]: the task pauses then instead of waiting, whatever
+/// the class, so no provider's answer can hold a run asleep. An answer
+/// that is not a positive number is no answer.
+pub(crate) fn retry_delay(next_attempt: u32, retry_after_s: Option<f64>) -> Option<Duration> {
+    let backoff = (BACKOFF_BASE * 2u32.pow(next_attempt.min(MOST_BACKOFF_DOUBLINGS))).min(LONGEST_BACKOFF);
+    match retry_after_s {
+        Some(s) if s > LONGEST_BACKOFF.as_secs_f64() => None,
+        Some(s) if s > 0.0 => Some(backoff.max(Duration::from_secs_f64(s)).min(LONGEST_BACKOFF)),
+        _ => Some(backoff),
+    }
+}
 
 pub enum Flow {
     Continue,
@@ -278,18 +300,16 @@ impl Kernel {
                 }
                 Err(e) => {
                     self.emit("kernel", Ev::ModelError { run: run_id.into(), step, attempt, class: e.class, message: e.message.clone(), usage: e.usage.clone() }).await?;
+                    let wait = retry_delay(attempt + 1, e.retry_after_s);
                     match e.class {
-                        // An outage, or a rate limit the provider says will
-                        // pass within the longest backoff, is waited out and
-                        // asked again; a limit it says lasts longer (a spent
-                        // quota) persists, and pauses the task below.
-                        ErrorClass::Unavailable | ErrorClass::UsageLimit
-                            if attempt < run.config.max_retries && (e.class == ErrorClass::Unavailable || e.retry_after_s.is_none_or(|s| s <= LONGEST_BACKOFF.as_secs_f64())) =>
-                        {
+                        // An outage or a rate limit the provider says will
+                        // pass within the longest backoff is waited out and
+                        // asked again; one it says lasts longer (a spent
+                        // quota, a long outage) persists, and pauses the
+                        // task below.
+                        ErrorClass::Unavailable | ErrorClass::UsageLimit if attempt < run.config.max_retries && wait.is_some() => {
                             attempt += 1;
-                            let backoff = Duration::from_millis(500 * 2u64.pow(attempt.min(6))).min(LONGEST_BACKOFF);
-                            let asked = e.retry_after_s.filter(|s| s.is_finite() && *s > 0.0).map(Duration::from_secs_f64).unwrap_or_default();
-                            tokio::time::sleep(backoff.max(asked)).await;
+                            tokio::time::sleep(wait.unwrap_or(LONGEST_BACKOFF)).await;
                         }
                         ErrorClass::Malformed => {
                             self.emit("kernel", Ev::Notice { run: run_id.into(), step, text: format!("Your previous reply could not be used: {}. Reply again.", e.message) })
@@ -319,5 +339,34 @@ impl Kernel {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unbounded_retry_after_pauses_instead_of_sleeping() {
+        assert_eq!(retry_delay(1, Some(1e12)), None);
+        assert_eq!(retry_delay(1, Some(f64::INFINITY)), None);
+        assert_eq!(retry_delay(1, Some(LONGEST_BACKOFF.as_secs_f64() + 1.0)), None);
+    }
+
+    #[test]
+    fn a_retry_after_within_the_longest_backoff_is_waited() {
+        assert_eq!(retry_delay(1, Some(20.0)), Some(Duration::from_secs(20)));
+        assert_eq!(retry_delay(1, Some(LONGEST_BACKOFF.as_secs_f64())), Some(LONGEST_BACKOFF));
+    }
+
+    #[test]
+    fn no_usable_answer_backs_off_by_doubling_up_to_the_longest() {
+        assert_eq!(retry_delay(1, None), Some(Duration::from_secs(1)));
+        assert_eq!(retry_delay(2, Some(f64::NAN)), Some(Duration::from_secs(2)));
+        assert_eq!(retry_delay(3, Some(-5.0)), Some(Duration::from_secs(4)));
+        for n in 0..100 {
+            assert!(retry_delay(n, None).is_some_and(|d| d <= LONGEST_BACKOFF));
+        }
+        assert_eq!(retry_delay(u32::MAX, None), Some(LONGEST_BACKOFF));
     }
 }

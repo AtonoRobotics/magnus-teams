@@ -150,3 +150,19 @@ async fn a_request_computerd_does_not_list_is_refused_before_it_is_sent() {
     assert!(!asked.lock().unwrap().iter().any(|o| o == "a_request_from_the_future"), "it was sent anyway");
     super::super::client::ask(&socket, json!({ "op": "capacity" })).await.unwrap();
 }
+
+#[test]
+fn what_was_seen_is_kept_after_a_panic_poisoned_the_record() {
+    let socket = PathBuf::from(format!("/nonexistent/poison-{}.sock", uuid::Uuid::new_v4().simple()));
+    remember(&socket, Seen::Old);
+    // A panic while the record is held poisons its lock.
+    let _ = std::thread::spawn(|| {
+        let _held = seen().lock();
+        panic!("poison the record");
+    })
+    .join();
+    assert!(seen().is_poisoned());
+    let now = known("2.0.0", None, &["reset"]);
+    remember(&socket, now.clone());
+    assert_eq!(last_seen(&socket), Some(now), "a stale or missing answer was served after a poisoned lock");
+}
