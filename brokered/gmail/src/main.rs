@@ -268,7 +268,10 @@ fn get_thread(a: &Value, t: &str) -> Result<Value, Failure> {
 }
 
 fn get_message(a: &Value, t: &str) -> Result<Value, Failure> {
-    Ok(message(&gmail("GET", &format!("/messages/{}?format=full", id(a, "message_id")?), t, None)?))
+    let raw = gmail("GET", &format!("/messages/{}?format=full", id(a, "message_id")?), t, None)?;
+    let mut shown = message(&raw);
+    shown["digest"] = json!(digest(&raw, t)?);
+    Ok(shown)
 }
 
 fn list_drafts(a: &Value, t: &str) -> Result<Value, Failure> {

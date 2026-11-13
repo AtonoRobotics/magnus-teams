@@ -41,7 +41,7 @@ pub(crate) fn appears_in(url: &str, texts: &[String]) -> bool {
     url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some())
         && texts.iter().any(|t| {
             t.split_whitespace().any(|token| {
-                let token = if let Some((_, link)) = token.split_once("](") {
+                let token = if let Some((_, link)) = token.strip_prefix('[').and_then(|t| t.split_once("](")) {
                     link.strip_suffix(')').unwrap_or(token)
                 } else {
                     [("<", ">"), ("(", ")"), ("[", "]"), ("\"", "\""), ("'", "'"), ("`", "`")]
@@ -146,6 +146,7 @@ mod tests {
         assert!(appears_in("https://example.com/collect?value=123456", &texts));
         assert!(!appears_in("https://example.com/collect?value=123", &texts));
         assert!(!appears_in("https://example.com", &texts));
+        assert!(!appears_in("https://example.com/123", &["https://other.example/](https://example.com/123)".into()]));
         for suffix in ["'secret", "(secret)", "[secret]"] {
             assert!(!appears_in("https://example.com/123", &[format!("https://example.com/123{suffix}")]));
         }

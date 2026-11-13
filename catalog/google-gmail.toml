@@ -1,5 +1,5 @@
 id = "google-gmail"
-version = "1.3.0"
+version = "1.4.0"
 name = "Gmail"
 summary = "Magnus can search and read your email, write drafts and send one when your request needs it, and file, label or trash messages."
 # The Library's card and page (connectors spec, Catalog and connector
@@ -21,7 +21,7 @@ tint = "#B3261E"
 # each person's runs in a microVM of its own that reaches only Gmail's API,
 # and people sign in at Google.
 kind = "brokered"
-endpoint = "sha256:411dcf71dded982040b2d76fa649eb070ca7fd48cf83b70a07dd791509bec148"
+endpoint = "sha256:48d5860a9f423ceb37dbff8f87d7ed5ac32b3a6e2baf44fe30b759cd298bafd8"
 hosts = ["gmail.googleapis.com"]
 issuer = "https://accounts.google.com"
 # A draft it sends reaches anyone the person writes to. What comes back is
@@ -108,11 +108,11 @@ bound = ["/message/digest"]
 
 # What the server reads back after a send (spec rev 147, Read-back): the
 # sent message itself, which must carry the subject and reach every address
-# the gate read from the draft.
+# the gate read from the draft, plus exact content and every MIME part.
 [read_back.send_draft]
 read = "get_message"
 input = { message_id = "/result/message_id" }
-expect = { "/shown/content/subject" = "/subject", "/shown/recipients/to" = "/to" }
+expect = { "/shown/content/subject" = "/subject", "/shown/recipients/to" = "/to", "/shown/recipients/cc" = "/cc", "/shown/recipients/bcc" = "/bcc", "/shown/content/body" = "/body", "/shown/content/attachments" = "/attachments", "/bound/digest" = "/digest" }
 
 # Whether the person has mailed an address before: sent mail searched for
 # it, a recipient-provenance source beside their own words (#210).
