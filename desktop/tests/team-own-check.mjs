@@ -23,7 +23,7 @@ const sandbox = {
   location: { hash: "#/inbox", origin: "https://server", pathname: "/" }, setTimeout: () => 0, clearTimeout: () => {}, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["message-controls.js", "teams.js", "team-chat.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, Notices };`, sandbox);
 const { Team, Notices } = sandbox.__x;
 

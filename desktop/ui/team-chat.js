@@ -82,38 +82,38 @@ function messageHtml(m, c) {
   const editing = c.editing === m.id;
   const text = editing ? `<form class="tm-edit" data-edit-form><textarea aria-label="Edit message" rows="2">${esc(m.text)}</textarea><div class="row"><button class="primary">Save</button><button type="button" data-edit-cancel>Cancel</button></div></form>` : messageText(m, agent, c.files);
   const actions = m.state ? "" : teamMsgActions(m, c, agent, mine);
-  const sharing = c.sharing === m.id ? `<div class="row small share-to"><label class="sr" for="tshare-${esc(m.id)}">Share with</label>
-    <select id="tshare-${esc(m.id)}" data-share-to>${(c.people || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
-    <button class="primary" data-msg-act="share-send">Share</button><button class="link" data-msg-act="share-cancel">Cancel</button></div>` : "";
+  const sharing = c.sharing === m.id ? MessageControls.shareRow(`tshare-${m.id}`, c.people) : "";
   return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
     <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
     ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}${actions}${sharing}</div></article>`;
 }
 
 /**
- * The personal chat's message controls, on a team message: Edit or Copy and
- * Read aloud at hand, the rest in a menu (owner, 2026-11-13: "the same
- * message controls as the other chat window"). Retry and Feedback are for
- * who asked the agent; what only they may see is not shared or saved for
- * the team.
+ * The personal chat's message controls, on a team message (message-controls.js),
+ * after the team's own React and Reply in thread (owner, 2026-11-13: "the
+ * same message controls as the other chat window"). Retry and Feedback are
+ * for who asked the agent; what only they may see is not shared or saved
+ * for the team, and the server holds to that too.
  * @param {TeamMessage} m @param {{ me: string, guest: boolean, moderates?: boolean, inThread?: boolean }} c @param {boolean} agent @param {boolean} mine
  */
 function teamMsgActions(m, c, agent, mine) {
-  const id = `team-menu-${enc(m.id)}`, entry = `team:${m.id}`, reading = voice.entry === entry, asked = agent && m.requester === c.me && !!m.task;
-  /** An icon button: `a` names its icon and, unless attrs say otherwise, its action. */
-  const button = (a, label, attrs = `data-msg-act="${a}"`, cls = "icon") => `<button class="${cls}" ${attrs}${a === "listen" || a === "hush" ? ` data-voice-entry="${esc(entry)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
+  const entry = `team:${m.id}`, asked = agent && m.requester === c.me && !!m.task;
+  /** The team's own icon buttons: React's menu and Reply in thread. */
+  const button = (a, label, attrs, cls = "icon") => `<button class="${cls}" ${attrs} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
   const reactId = `team-react-${enc(m.id)}`;
   const react = `<div class="message-menu-wrap">${button("great", "Add a reaction", `data-menu="${esc(reactId)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(reactId)}"`, "icon menu-trigger")}
     <div id="${esc(reactId)}" class="action-menu reactions" role="menu" aria-label="Reactions" aria-orientation="horizontal" hidden>${TEAM_QUICK_REACTIONS.map(e => `<button role="menuitem" tabindex="-1" data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}</div></div>`;
   const reply = c.inThread ? "" : button("reply", "Reply in thread", "data-reply");
   // A post with no words (a work card) can still be reacted to and replied to.
   if (!m.text) return `<div class="msg-actions small" role="group" aria-label="Message actions">${react}${reply}</div>`;
-  const primary = react + reply + (mine && !agent ? button("edit", "Edit") : button("copy", "Copy message") + (agent && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : ""));
-  const deletes = (mine && !agent) || c.moderates || (agent && m.requester === c.me);
-  const actions = [mine && !agent && ["copy", "Copy message"], asked && ["retry", "Retry"], ["branch", "Branch"], !m.private && ["share", "Share"], ["export", "Export"],
-    !c.guest && !m.private && ["save", "Save to Files"], !c.guest && ["task", "Make a task"], !c.guest && ["pin", m.pinned ? "Unpin" : "Pin"], asked && ["feedback", "Feedback"], deletes && ["delete", "Delete message"]].filter(Boolean);
-  return `<div class="msg-actions small" role="group" aria-label="Message actions">${primary}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${esc(id)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
-    <div id="${esc(id)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${actions.map(([a, label]) => `<button role="menuitem" tabindex="-1" data-msg-act="${a}">${label}</button>`).join("")}</div></div></div>`;
+  const deletes = (mine && !agent) || !!c.moderates || (agent && m.requester === c.me);
+  const list = MessageControls.controls({ mine, agent, readable: agent, retry: asked, feedback: asked, private: !!m.private, pinned: !!m.pinned, deletes }, { guest: c.guest, pins: true, canReadAloud: App.canReadAloud, reading: voice.entry === entry });
+  return MessageControls.html(teamMenuId(m.id), list, { voiceEntry: entry, lead: react + reply });
+}
+
+/** The id of a team message's "More message actions" menu. @param {string} id */
+function teamMenuId(id) {
+  return `team-menu-${enc(id)}`;
 }
 
 /** Where a deleted message stood: its replies still hang from it. @param {TeamMessage} m */
@@ -417,52 +417,53 @@ const TeamChat = {
     if (act) { try { await this.msgAct(act.dataset.msgAct, m, act); } catch (err) { toast(err.message); act.disabled = false; } }
   },
 
-  /** What a message's controls do: the personal chat's, in the team's terms. */
+  /**
+   * What a message's controls do, in the team's terms (message-controls.js
+   * runs them). Share, Save to Files and Retry are the server's: it finds
+   * the message as this person sees it and keeps the workspace's rules.
+   */
   async msgAct(act, m, b) {
-    const s = this.s, home = Team.home, base = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`, msg = m.id;
+    const s = this.s, home = Team.home, base = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`, msg = m.id, at = `${base}/messages/${enc(msg)}`;
     const who = m.sender === "agent" ? home.agent.name : s.view.names?.[m.sender] || home.members.find(x => x.id === m.sender)?.name || m.sender;
     const text = String(m.text || "");
-    switch (act) {
-      case "copy": await copyText(text); return toast("Copied.");
-      case "listen": return readAloud(text, `team:${msg}`);
-      case "hush": return hush();
-      case "edit": s.editing = msg; this.draw(); $(`[data-msg="${CSS.escape(msg)}"] [data-edit-form] textarea`)?.focus(); return;
-      case "retry": {
-        const ask = s.view.messages.find(x => x.work?.task === m.task)?.work?.title;
-        if (!ask) return toast("The request is no longer here to ask again.");
-        b.disabled = true; return this.send(`@${home.agent.name} ${workTitle(ask)}`, m.thread, false, []);
-      }
-      case "branch": App.appSearch = `From the team chat, ${who} wrote:\n${text.split("\n").map(l => `> ${l}`).join("\n")}\n\n`; location.hash = "#/chat/new"; return;
-      case "share": if (!home.members.some(x => x.id !== home.me)) return toast("Nobody else is in this workspace."); s.sharing = msg; return this.draw();
-      case "share-cancel": s.sharing = null; return this.draw();
-      case "share-send": {
+    return MessageControls.run(act, {
+      copy: async () => { await copyText(text); toast("Copied."); },
+      // No team route writes a spoken script: the answer is read as written.
+      listen: () => readAloud(text, `team:${msg}`),
+      hush: () => hush(),
+      edit: () => { s.editing = msg; this.draw(); $(`[data-msg="${CSS.escape(msg)}"] [data-edit-form] textarea`)?.focus(); },
+      retry: async () => {
+        b.disabled = true;
+        const r = await api("POST", `${at}/retry`, {});
+        if (r.agent) toast(`${home.agent.name} is on it.`);
+        if (r.limited) toast(r.limited, 8000);
+        await this.refresh();
+      },
+      branch: () => { App.appSearch = `From the team chat, ${who} wrote:\n${text.split("\n").map(l => `> ${l}`).join("\n")}\n\n`; location.hash = "#/chat/new"; },
+      share: () => { if (!home.members.some(x => x.id !== home.me)) return toast("Nobody else is in this workspace."); s.sharing = msg; this.draw(); },
+      shareCancel: () => { s.sharing = null; this.draw(); },
+      shareSend: async () => {
         const to = $(`[data-msg="${CSS.escape(msg)}"] [data-share-to]`)?.value;
         if (!to) return;
         b.disabled = true;
-        const dm = await api("POST", `/v1/workspaces/${enc(s.ws)}/direct`, { people: [to] });
-        await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(dm.id)}/messages`, { text: `${who} wrote:\n${text.split("\n").map(l => `> ${l}`).join("\n")}` });
-        s.sharing = null; toast(`Shared with ${home.members.find(x => x.id === to)?.name || to}.`); return this.draw();
-      }
-      case "export": return toast(`Saved ${await Magnus.download(`${base}/messages/${enc(msg)}/export`, `${teamFileStem(who, m.at)}.md`)}`);
-      case "save": await Magnus.putBytes(`/v1/workspaces/${enc(s.ws)}/files/${enc(`${teamFileStem(who, m.at)}.md`)}`, new TextEncoder().encode(`**${who}** · ${m.at}\n\n${text}\n`)); return toast("Saved to Files.");
-      case "task": {
+        await api("POST", `${at}/share`, { person: to });
+        s.sharing = null; toast(`Shared with ${home.members.find(x => x.id === to)?.name || to}.`); this.draw();
+      },
+      export: async () => toast(`Saved ${await Magnus.download(`${at}/export`, `${teamFileStem(who, m.at)}.md`)}`),
+      save: async () => { await api("POST", `${at}/save`, {}); toast("Saved to Files."); },
+      task: async () => {
         const c = home.channels.find(x => x.id === s.channel);
         await api("POST", `/v1/workspaces/${enc(s.ws)}/tasks`, { title: firstLine(text).slice(0, 200), project: c?.project || undefined, from: { channel: s.channel, message: msg } });
-        toast("Added to the board."); TeamPanel.refresh(); return;
-      }
-      case "pin": return this.change({ op: "pin", id: msg, pinned: !m.pinned }, () => api("POST", `${base}/messages/${enc(msg)}/pin`, { pinned: !m.pinned }));
-      case "feedback": {
-        const d = document.createElement("dialog"); d.className = "feedback-dialog"; d.setAttribute("aria-label", "Feedback");
-        d.innerHTML = `<h2>Feedback</h2>${verdictBar(m.task, null)}<button data-close-feedback>Close feedback</button>`;
-        d.onclick = e => { if (e.target.closest("[data-close-feedback]")) d.close(); };
-        d.onclose = () => d.remove();
-        document.body.append(d); d.showModal(); return;
-      }
-      case "delete":
+        toast("Added to the board."); TeamPanel.refresh();
+      },
+      pin: () => this.change({ op: "pin", id: msg, pinned: !m.pinned }, () => api("POST", `${at}/pin`, { pinned: !m.pinned })),
+      feedback: () => ({ task: m.task, verdict: null, focus: () => $(`[data-menu="${CSS.escape(teamMenuId(msg))}"]`) }),
+      delete: async () => {
         if (!await ask("Delete this message for everyone? It cannot be brought back.", "Delete")) return;
         // What was sent from here goes too, or it would show again as on its way.
         s.pending = s.pending.filter(p => p.real !== msg);
-        return this.change({ op: "delete", id: msg }, () => api("DELETE", `${base}/messages/${enc(msg)}`));
-    }
+        return this.change({ op: "delete", id: msg }, () => api("DELETE", at));
+      },
+    });
   },
 };

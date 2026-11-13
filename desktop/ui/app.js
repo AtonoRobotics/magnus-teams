@@ -1593,45 +1593,44 @@ async function showThread(main, thread) {
 
   };
   const path = (id, act) => `/v1/chat/${enc(thread)}/entries/${enc(id)}/${act}`;
+  // The personal chat's side of the message controls (message-controls.js).
   const msgAct = async (b, el) => {
-    const id = el.dataset.entry, e = shown.find(x => x.id === id), act = b.dataset.msgAct;
+    const id = el.dataset.entry, e = shown.find(x => x.id === id);
     if (!e) return;
-    switch (act) {
-      case "copy": await copyText(entryText(e)); return toast("Copied.");
-      case "edit": drafts[`edit-${id}`] = e.text; ui.editing = id; return draw();
-      case "edit-cancel": ui.editing = null; return draw();
-      case "edit-send": {
+    return MessageControls.run(b.dataset.msgAct, {
+      copy: async () => { await copyText(entryText(e)); toast("Copied."); },
+      edit: () => { drafts[`edit-${id}`] = e.text; ui.editing = id; return draw(); },
+      editCancel: () => { ui.editing = null; return draw(); },
+      editSend: async () => {
         const text = $(`#edit-${CSS.escape(id)}`, main).value.trim();
         if (!text) return toast("Write the message first.");
         b.disabled = true; await api("POST", path(id, "resend"), { text }); ui.editing = null; delete drafts[`edit-${id}`]; return draw();
-      }
-      case "retry": b.disabled = true; await api("POST", path(id, "resend"), {}); return draw();
-      case "branch": { const r = await api("POST", path(id, "branch"), {}); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; return; }
-      case "share": ui.people = (await api("GET", "/v1/directory")).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw();
-      case "share-cancel": ui.sharing = null; return draw();
-      case "share-send": {
+      },
+      retry: async () => { b.disabled = true; await api("POST", path(id, "resend"), {}); return draw(); },
+      branch: async () => { const r = await api("POST", path(id, "branch"), {}); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; },
+      share: async () => { ui.people = (await api("GET", "/v1/directory")).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw(); },
+      shareCancel: () => { ui.sharing = null; return draw(); },
+      shareSend: async () => {
         const to = $("[data-share-to]", el).value;
         b.disabled = true; await api("POST", path(id, "share"), { person: to }); ui.sharing = null;
         toast(`Shared with ${ui.people.find(p => p.id === to)?.name || to}.`); return draw();
-      }
-      case "export": return toast(`Saved ${await Magnus.download(path(id, "export"), safeName(e))}`);
-      case "save": await api("POST", path(id, "save"), {}); return toast("Saved to Files.");
-      case "listen": return readAloud(api("POST",path(id,"spoken"),{}).then(r=>r.script),id);
-      case "hush": return hush();
-      case "feedback": {
-        const d = document.createElement("dialog"); d.className = "feedback-dialog"; d.setAttribute("aria-label", "Feedback");
-        d.innerHTML = `<h2>Feedback</h2>${e.task_id ? verdictBar(e.task_id, e.verdict) : ""}<div class="row">${["great", "annoying"].map(a => `<button data-msg-act="${a}" aria-pressed="${e.reaction === a}">${a === "great" ? "That was great" : "That was annoying"}</button>`).join("")}</div><button data-close-feedback>Close feedback</button>`;
-        d.onclick = async event => { const action=event.target.closest("[data-msg-act]");if(event.target.closest("[data-close-feedback]"))d.close();if(action){const status=document.createElement("p");status.className="small";status.setAttribute("role","status");status.textContent="Saving feedback…";d.append(status);try{await msgAct(action,el);d.close();}catch(err){status.textContent="Feedback was not confirmed. Try again when connected.";toast(err.message);action.disabled=false;}} };
-        d.onclose = () => { d.remove(); $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, main)?.focus({preventScroll:true}); };
-        document.body.append(d); d.showModal(); return;
-      }
-      case "great": case "annoying": b.disabled = true; await api("POST", path(id, "reaction"), { reaction: e.reaction === act ? null : act }); return draw();
-      case "task": { const r = await api("POST", path(id, "task"), {}); toast("Started a task."); await refresh(); return r; }
-      case "delete":
+      },
+      export: async () => toast(`Saved ${await Magnus.download(path(id, "export"), safeName(e))}`),
+      save: async () => { await api("POST", path(id, "save"), {}); toast("Saved to Files."); },
+      listen: () => readAloud(api("POST", path(id, "spoken"), {}).then(r => r.script), id),
+      hush: () => hush(),
+      feedback: () => ({
+        task: e.task_id, verdict: e.verdict, reaction: e.reaction,
+        react: async a => { await api("POST", path(id, "reaction"), { reaction: e.reaction === a ? null : a }); await draw(); },
+        focus: () => $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, main),
+      }),
+      task: async () => { const r = await api("POST", path(id, "task"), {}); toast("Started a task."); await refresh(); return r; },
+      delete: async () => {
         if (!await ask("Delete this message? It leaves this chat and what Magnus reads next, and waits in the trash until it is gone for good.", "Delete")) return;
         await api("POST", path(id, "delete"), {}); await draw();
-        const heading = $("#conv-head h1"); if (heading) { heading.tabIndex = -1; heading.focus({preventScroll:true}); } return;
-    }
+        const heading = $("#conv-head h1"); if (heading) { heading.tabIndex = -1; heading.focus({preventScroll:true}); }
+      },
+    });
   };
   App.redraw = draw;
   onLeave(() => { App.redraw = null; listen([]); hush(); });
@@ -1953,15 +1952,8 @@ function msgActions(e, ui) {
   if (!e.id || e.kind === "sub_agents") return "";
   const mine = e.kind === "message", magnus = e.kind === "answer" || e.kind === "turn";
   const said = ["answer", "turn", "result", "tasks", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"].includes(e.kind);
-  const id = `message-menu-${enc(e.id)}`, reading = voice.entry === e.id;
-  const button = (a, label) => `<button class="icon" data-msg-act="${a}"${a==="listen" || a==="hush" ? ` data-voice-entry="${esc(e.id)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
-  const primary = mine ? button("edit", "Edit") : button("copy", "Copy response") + (e.kind === "answer" && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : "");
-  const actions = [mine && ["copy", "Copy message"], magnus && ["retry", "Retry"], ["branch", "Branch"], ["share", "Share"], ["export", "Export"], ["save", "Save to Files"], ["task", "Make a task"], said && ["feedback", "Feedback"], ["delete", "Delete message"]].filter(Boolean);
-  const share = ui.sharing === e.id ? `<div class="row small share-to"><label class="sr" for="share-${esc(e.id)}">Share with</label>
-    <select id="share-${esc(e.id)}" data-share-to>${ui.people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
-    <button class="primary" data-msg-act="share-send">Share</button><button class="link" data-msg-act="share-cancel">Cancel</button></div>` : "";
-  return `<div class="msg-actions small" role="group" aria-label="Message actions">${primary}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${esc(id)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
-    <div id="${esc(id)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${actions.map(([a, label]) => `<button role="menuitem" tabindex="-1" data-msg-act="${a}">${label}</button>`).join("")}</div></div></div>${share}`;
+  const list = MessageControls.controls({ mine, agent: !mine, readable: e.kind === "answer", retry: magnus, feedback: said, deletes: true }, { canReadAloud: App.canReadAloud, reading: voice.entry === e.id });
+  return MessageControls.html(`message-menu-${enc(e.id)}`, list, { voiceEntry: e.id }) + (ui.sharing === e.id ? MessageControls.shareRow(`share-${e.id}`, ui.people) : "");
 }
 
 function entry(e, ui = {}) {
