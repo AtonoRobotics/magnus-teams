@@ -17,12 +17,16 @@ pub mod conversation;
 #[cfg(test)]
 mod invite_tests;
 pub mod invites;
+pub mod items;
 mod join_page;
 mod kb_routes;
 mod keep;
 #[cfg(test)]
 mod keep_tests;
 pub(crate) mod knowledge;
+pub mod member_view;
+#[cfg(test)]
+mod member_view_tests;
 pub(crate) mod membership;
 #[cfg(test)]
 mod membership_tests;
@@ -608,19 +612,6 @@ impl Ledger {
 
     pub fn runs_by(&self, workspace: &str, person: &str) -> Vec<&TeamRun> {
         self.runs.values().filter(|r| r.workspace == workspace && r.requester == person).collect()
-    }
-}
-
-/// A finished request's answer as one viewer of the thread may read it, and
-/// whether it is the requester's alone. A run that read data only its
-/// requester may see answers them alone (spec rev 142: data fetched under one
-/// member's entitlements stays in that requester's run); the thread sees that
-/// it answered, and the requester shares the answer if they choose.
-pub(crate) fn answer_for(run: &crate::state::Run, text: String, requester: &str, viewer: &str) -> (String, bool) {
-    match (run.private, viewer == requester) {
-        (false, _) => (text, false),
-        (true, true) => (text, true),
-        (true, false) => (format!("I answered {requester} directly: the answer holds data only they may see."), true),
     }
 }
 

@@ -1,7 +1,8 @@
 //! One search over a workspace: messages, files, tasks and knowledge, each
 //! limited to what the person searching may see.
+use super::member_view::{MemberView, Runs};
 use super::routes::{member, Reply, K};
-use super::{Role, Workspace};
+use super::Role;
 use crate::kernel::Kernel;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -24,7 +25,8 @@ fn snippet(text: &str) -> String {
 }
 
 /// What matches every word of the query, by kind.
-pub fn find(w: &Workspace, person: &str, query: &str) -> Value {
+pub fn find<R: Runs>(v: &MemberView<R>, query: &str) -> Value {
+    let (w, person) = (v.workspace(), v.person());
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     if words.is_empty() {
         return json!({ "messages": [], "files": [], "tasks": [], "knowledge": [] });
@@ -34,20 +36,15 @@ pub fn find(w: &Workspace, person: &str, query: &str) -> Value {
         words.iter().all(|w| t.contains(w.as_str()))
     };
     let mut messages = vec![];
-    for (id, ch) in w.channels.iter().filter(|(id, c)| w.sees(id, person) && w.in_project(c.project.as_deref(), person)) {
-        for m in ch.messages.iter().rev().filter(|m| hit(&m.text) && w.kept_for(id, person, m.at)).take(MAX_RESULTS_PER_KIND) {
+    for (id, ch) in v.channels() {
+        for m in v.messages(id).into_iter().rev().filter(|m| hit(&m.text)).take(MAX_RESULTS_PER_KIND) {
             messages.push(json!({ "channel": id, "channel_name": ch.name, "id": m.id, "thread": m.thread, "sender": m.sender, "text": snippet(&m.text), "at": m.at }));
         }
     }
     messages.sort_by_key(|m| std::cmp::Reverse(super::chat_routes::when(m)));
     messages.truncate(MAX_RESULTS_PER_KIND);
-    let files: Vec<Value> = w
-        .files
-        .values()
-        .filter(|f| w.in_project(w.chat.file_projects.get(&f.name).map(String::as_str), person) && hit(&f.name))
-        .take(MAX_RESULTS_PER_KIND)
-        .map(|f| json!({ "name": f.name, "by": f.by, "project": w.chat.file_projects.get(&f.name) }))
-        .collect();
+    let files: Vec<Value> =
+        v.files().filter(|f| hit(&f.name)).take(MAX_RESULTS_PER_KIND).map(|f| json!({ "name": f.name, "by": f.by, "project": w.chat.file_projects.get(&f.name) })).collect();
     let tasks: Vec<Value> = w
         .chat
         .tasks
@@ -69,7 +66,7 @@ pub fn find(w: &Workspace, person: &str, query: &str) -> Value {
 async fn search(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     let query = q.get("q").cloned().unwrap_or_default();
-    let out = k.read(|s| s.team.workspace(&ws).map(|w| find(w, &p.id, &query)));
+    let out = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| find(&v, &query)));
     Json(out.unwrap_or_else(|| json!({}))).into_response()
 }
 
@@ -77,8 +74,15 @@ async fn search(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Que
 mod tests {
     use super::super::chat::{Direct, Task};
     use super::super::knowledge::{Entry, Project};
-    use super::super::{Channel, File, Message};
+    use super::super::member_view::Outcome;
+    use super::super::{Channel, File, Ledger, Message, Workspace};
     use super::*;
+    use std::collections::BTreeMap;
+
+    fn look(w: &Workspace, person: &str, q: &str) -> Value {
+        let (ledger, runs) = (Ledger::default(), BTreeMap::<String, Outcome>::new());
+        find(&MemberView::new(&ledger, w, person, &runs), q)
+    }
 
     fn said(id: &str, text: &str) -> Message {
         Message { id: id.into(), sender: "ann".into(), text: text.into(), thread: None, at: chrono::Utc::now() }
@@ -96,14 +100,14 @@ mod tests {
         w.projects.insert("p".into(), Project { id: "p".into(), owner: "ann".into(), ..Default::default() });
         w.chat.tasks.insert("t".into(), Task { id: "t".into(), project: Some("p".into()), title: "Plan the launch".into(), ..Default::default() });
         w.knowledge.insert("k".into(), Entry { id: "k".into(), statement: "Launch is in March".into(), ..Default::default() });
-        let ann = find(&w, "ann", "LAUNCH");
+        let ann = look(&w, "ann", "LAUNCH");
         assert_eq!(ann["messages"].as_array().unwrap().len(), 2);
         assert_eq!(ann["files"].as_array().unwrap().len(), 1);
         assert_eq!(ann["tasks"].as_array().unwrap().len(), 1);
         assert_eq!(ann["knowledge"].as_array().unwrap().len(), 1);
-        let bo = find(&w, "bo", "launch");
+        let bo = look(&w, "bo", "launch");
         assert_eq!(bo["messages"].as_array().unwrap().len(), 1, "another's direct message stays out");
         assert!(bo["tasks"].as_array().unwrap().is_empty(), "a project bo is not in stays out");
-        assert!(find(&w, "ann", "launch march")["messages"].as_array().unwrap().is_empty(), "every word must match");
+        assert!(look(&w, "ann", "launch march")["messages"].as_array().unwrap().is_empty(), "every word must match");
     }
 }

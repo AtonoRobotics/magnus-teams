@@ -2,6 +2,7 @@
 use super::agent::{held_dir, volume_dir};
 use super::chat::Chat;
 use super::conversation::Why;
+use super::member_view::MemberView;
 use super::{fit_name, Change, File, Message, Role};
 use crate::api::{err, who};
 use crate::config::Person;
@@ -105,10 +106,13 @@ async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
 
 async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    let w = k.read(|s| s.team.workspace(&ws).cloned());
-    let Some(w) = w else { return err(StatusCode::NOT_FOUND, "no such workspace") };
-    let channels: Vec<Value> = w.channels.iter().filter(|(id, _)| w.sees(id, &p.id)).map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": w.files.values().filter(|f| w.sees_file(&f.name, &p.id)).collect::<Vec<_>>(), "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
+    let seen = k.read(|s| {
+        let v = MemberView::of(s, &ws, &p.id)?;
+        let channels: Vec<Value> = v.channels().map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
+        Some((v.workspace().clone(), channels, v.files().cloned().collect::<Vec<File>>()))
+    });
+    let Some((w, channels, files)) = seen else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
 }
 
 /// Delete the workspace: any of its Team Admins (its owner and its admins)
@@ -170,32 +174,19 @@ async fn add_channel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b):
 
 /// Whether the channel is there and this person sees it.
 pub(super) fn has_channel(k: &Kernel, ws: &str, channel: &str, person: &str) -> bool {
-    k.read(|s| s.team.workspace(ws).is_some_and(|w| w.sees(channel, person)))
+    k.read(|s| MemberView::of(s, ws, person).is_some_and(|v| v.sees(channel)))
 }
 
-/// A channel's messages, with each finished request's answer in its place.
+/// A channel's messages, with each finished request's answer in its place:
+/// what was said, as the channel view shows it to this person.
 async fn messages(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
-    let view = k.read(|s| {
-        let w = s.team.workspace(&ws);
-        let kept = |m: &&Message| w.is_some_and(|w| w.kept_for(&channel, &p.id, m.at) && !w.chat.unsent.contains(&m.id));
-        let mut out: Vec<Value> = w.and_then(|w| w.channels.get(&channel)).map(|c| c.messages.iter().filter(kept).map(|m| json!(m)).collect()).unwrap_or_default();
-        for r in s.team.runs_in(&ws, &channel) {
-            let Some(run) = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()) else { continue };
-            if run.ended_at.is_some_and(|at| !w.is_some_and(|w| w.kept_for(&channel, &p.id, at))) {
-                continue;
-            }
-            if let Some(text) = run.summary.clone() {
-                let (text, private) = super::answer_for(run, text, &r.requester, &p.id);
-                out.push(json!({ "sender": "agent", "requester": r.requester, "task": r.task, "text": text, "thread": r.thread, "private": private }));
-            }
-        }
-        out
-    });
-    Json(view).into_response()
+    let now = chrono::Utc::now();
+    let said = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| super::items::said(&v, &channel, now)).unwrap_or_default());
+    Json(said).into_response()
 }
 
 #[derive(Deserialize)]

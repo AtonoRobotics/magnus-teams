@@ -104,12 +104,12 @@ async fn a_private_answer_reaches_only_its_requester_until_shared() {
     let mut private = run.clone();
     private.private = true;
     let secret = "your inbox says the deal closes Friday".to_string();
-    assert_eq!(super::answer_for(&private, secret.clone(), "mo", "mo"), (secret.clone(), true));
+    assert_eq!(super::member_view::answer_as(private.private, secret.clone(), "mo", "mo"), (secret.clone(), true));
     for viewer in ["sam", "ana"] {
-        let (text, only) = super::answer_for(&private, secret.clone(), "mo", viewer);
+        let (text, only) = super::member_view::answer_as(private.private, secret.clone(), "mo", viewer);
         assert!(only && !text.contains("Friday"), "{viewer} was shown a private answer: {text}");
     }
-    assert_eq!(super::answer_for(&run, "hello".into(), "mo", "ana"), ("hello".to_string(), false));
+    assert_eq!(super::member_view::answer_as(run.private, "hello".into(), "mo", "ana"), ("hello".to_string(), false));
     // Sharing: only the requester, and only once it has finished.
     assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await.0, 404, "someone else shared mo's answer");
     assert_eq!(s.post(&ana, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await.0, 403);

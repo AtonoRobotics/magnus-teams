@@ -3,6 +3,7 @@
 //! a conversation away or deleting it from their own list, which leaves
 //! everyone else's as it was.
 use super::chat::Chat;
+use super::member_view::MemberView;
 use super::routes::{has_channel, member, send, Reply, K};
 use super::{Change, Message, Role, Workspace};
 use crate::api::err;
@@ -74,37 +75,21 @@ impl Kernel {
     }
 }
 
-/// The agent's answer to a request in this channel, as a message: its id is
-/// `agent:<task>`, and it is the requester's, as their message would be.
-fn answer_message(s: &crate::state::State, ws: &str, channel: &str, id: &str) -> Option<Message> {
-    let task = id.strip_prefix(super::chat_routes::ANSWER_PREFIX)?;
-    let w = s.team.workspace(ws)?;
-    if w.chat.unsent.contains(id) {
-        return None;
-    }
-    let r = s.team.runs_in(ws, channel).into_iter().find(|r| r.task == task)?;
-    let run = s.runs.get(&s.tasks.get(task)?.run_id)?;
-    let text = super::chat_routes::answer_text(run)?;
-    Some(Message { id: id.to_string(), sender: format!("agent:{}", r.requester), text, thread: r.thread.clone(), at: run.ended_at? })
-}
-
 /// Its sender deletes a message, as only they edit it; and the workspace's
 /// owners and admins moderate its channels: "The teams admin can moderate
 /// and delete it only from teams" (the owner, 2026-11-11). A direct
 /// conversation is its people's alone.
 pub(super) async fn unsend(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    let found = k.read(|s| {
-        let w = s.team.workspace(&ws).filter(|w| w.sees(&channel, &p.id))?;
-        w.channels.get(&channel)?.messages.iter().find(|m| m.id == id && !w.chat.unsent.contains(&m.id)).cloned()
-    });
     // The agent's answer is drawn from its request's result, not kept as a
     // message: it is found by its request (owner, 2026-11-13: deleting one
     // said "no such message").
-    let Some(m) = found.or_else(|| k.read(|s| answer_message(s, &ws, &channel, &id))) else { return err(StatusCode::NOT_FOUND, "no such message") };
+    let now = chrono::Utc::now();
+    let found =
+        k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| (m.as_message(), m.author() == p.id || m.requester() == Some(p.id.as_str())))));
+    let Some((m, theirs)) = found else { return err(StatusCode::NOT_FOUND, "no such message") };
     let moderates = role >= Role::Admin && !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.direct.contains_key(&channel)));
     // The agent's answer to someone, or its post for them, is theirs to delete.
-    let theirs = m.sender == p.id || m.sender == format!("{}{}", super::chat_routes::ANSWER_PREFIX, p.id);
     if !theirs && !moderates {
         return err(StatusCode::FORBIDDEN, "only who wrote a message, or the workspace's admins, delete it");
     }
