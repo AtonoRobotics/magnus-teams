@@ -384,7 +384,7 @@ mod tests {
         let token = s.token("sam").await;
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(axum::http::header::AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
-        let start = || Change::TakeoverStarted { id: "screen".into(), by: "sam".into(), at: Utc::now(), cause: "test".into(), runs: vec![] };
+        let start = || Change::TakeoverStarted { id: "screen".into(), by: "sam".into(), at: Utc::now(), cause: Some("test".into()), runs: vec![] };
         s.k.emit("test", Ev::Computer(start())).await.unwrap();
         let ticket = || {
             let v = s.k.read(|s| s.computers.get("screen").unwrap().control_version);

@@ -190,6 +190,7 @@ impl Kernel {
     /// Back up now: write the file, restore it in memory, record both, and
     /// drop backups older than `keep_days`.
     pub async fn back_up(&self, actor: &str) -> Result<Value> {
+        let files_guard = self.team_files.lock().await;
         let _one = backing_up().lock().await;
         let mut rows = self.log.dump().await?;
         let through = rows.last().map(|r| r["seq"].as_i64().unwrap_or(0)).unwrap_or(0);
@@ -210,6 +211,7 @@ impl Kernel {
         let accounts = tokio::task::spawn_blocking(move || dump_accounts(&cfg)).await??;
         let cfg = self.cfg.clone();
         let team_files = tokio::task::spawn_blocking(move || crate::team::pack_files(&cfg)).await??;
+        drop(files_guard);
         let made = chrono::Utc::now();
         let doc = json!({
             "format": FORMAT, "made_at": made, "through_seq": through, "scrubbed_through": scrubbed, "events": rows,

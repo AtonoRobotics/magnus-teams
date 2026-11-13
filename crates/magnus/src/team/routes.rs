@@ -268,6 +268,7 @@ async fn grant_connector(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json
     }
     ok_or_return!(send(&k, &p, Change::Connector { workspace: ws.clone(), app: b.app.clone(), roles: b.roles.clone() }).await);
     if b.roles.is_empty() {
+        super::connectors::cancel_flows(&ws, &b.app).await;
         if let Err(e) = k.disconnect(&b.app, &super::connectors::principal(&ws)).await {
             return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
         }

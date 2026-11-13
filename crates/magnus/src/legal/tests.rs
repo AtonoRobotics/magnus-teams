@@ -238,3 +238,41 @@ async fn developer_views_show_testers_in_full_sharers_anonymised_and_nobody_else
     assert_eq!(s.get(&dev, "/v1/dev/runs/run-tess/log").await.0, 404, "a former tester who never shared is still shown");
     s.done().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tester_consent_does_not_expose_the_teams_requests_or_replies() {
+    let s = server().await;
+    answer(&s, "tess", None, true).await;
+    run_of(&s, "tess").await;
+    s.k.emit("test", Ev::Team(crate::team::Change::Created { workspace: "w".into(), name: "W".into(), owner: "tess".into() })).await.unwrap();
+    s.k.emit(
+        "test",
+        Ev::Team(crate::team::Change::Run {
+            workspace: "w".into(),
+            channel: "c".into(),
+            thread: None,
+            task: "task-tess".into(),
+            requester: "tess".into(),
+            history: "another member's confidential text".into(),
+            sub: false,
+            outside: false,
+        }),
+    )
+    .await
+    .unwrap();
+    let db = crate::log::connect(&s.k.cfg.database.url).await.unwrap();
+    let role = url::Url::parse(&s.k.cfg.database.url).unwrap().username().to_string();
+    db.batch_execute(&crate::log::content_walls_sql(&role)).await.unwrap();
+    let dev = s.token("dev").await;
+    for path in ["/v1/dev/runs/run-tess", "/v1/dev/runs/run-tess/log"] {
+        assert_eq!(s.get(&dev, path).await.0, 404, "{path} disclosed a team run");
+    }
+    for path in ["/v1/dev/runs", "/v1/dev/metrics", "/v1/dev/modules", "/v1/dev/tool-screens"] {
+        let (status, value) = s.get(&dev, path).await;
+        assert_eq!(status, 200);
+        for secret in ["SECRET-tess", "REPLY-tess", "run-tess", "confidential"] {
+            assert!(!value.to_string().contains(secret), "{path} disclosed {secret}");
+        }
+    }
+    s.done().await;
+}

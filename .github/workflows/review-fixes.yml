@@ -24,9 +24,12 @@ jobs:
       - name: Unit and database regressions
         run: cargo test --workspace --lib --bins
       - name: Desktop checks
+        if: success() || failure()
         run: |
           for test in desktop/tests/*-check.mjs; do node "$test" || exit; done
       - name: Size ratchet
+        if: success() || failure()
         run: sh ci/ratchet.sh size
       - name: Clippy ratchet
+        if: success() || failure()
         run: sh ci/ratchet.sh clippy

@@ -30,6 +30,10 @@ pub(crate) fn principal(ws: &str) -> String {
     format!("workspace:{ws}")
 }
 
+pub(super) async fn cancel_flows(ws: &str, app: &str) {
+    flows().lock().await.retain(|_, f| f.workspace != ws || f.app != app);
+}
+
 impl Kernel {
     pub(crate) fn connector_principal(&self, run: &str, fallback: &str) -> String {
         self.read(|s| s.authority(run).and_then(|t| s.team.run_of(&t.task_id)).map(|t| principal(&t.workspace))).unwrap_or_else(|| fallback.to_string())
@@ -48,6 +52,40 @@ pub(super) fn router() -> Router<Arc<Kernel>> {
 
 fn granted(k: &Kernel, ws: &str, app: &str) -> bool {
     k.read(|s| s.team.workspace(ws).is_some_and(|w| w.connectors.get(app).is_some_and(|r| !r.is_empty())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::Ev;
+    use crate::team::Change;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn oauth_completion_rechecks_actor_workspace_grant_and_membership() {
+        let s = crate::admin_app::tests::server_with(
+            "[[connectors]]\nname='crm'\nurl='https://crm.example/mcp'\ncredential='connector_crm'\nauth='oauth'\naudience='internal'\nlabel='private'\n",
+            |_| Router::new(),
+        )
+        .await;
+        let (sam, mo) = (s.token("sam").await, s.token("mo").await);
+        for ws in ["a", "b"] {
+            s.k.emit("test", Ev::Team(Change::Created { workspace: ws.into(), name: ws.into(), owner: "sam".into() })).await.unwrap();
+            s.k.emit("test", Ev::Team(Change::Member { workspace: ws.into(), person: "mo".into(), role: Role::Admin })).await.unwrap();
+            s.k.emit("test", Ev::Team(Change::Connector { workspace: ws.into(), app: "crm".into(), roles: vec![Role::Owner, Role::Admin] })).await.unwrap();
+        }
+        let state = uuid::Uuid::new_v4().to_string();
+        flows().lock().await.insert(state.clone(), Flow { actor: "sam".into(), workspace: "a".into(), app: "crm".into(), at: Instant::now() });
+        let body = json!({"state":state,"code":"not-exchanged"});
+        assert_eq!(s.post(&mo, "/v1/workspaces/a/apps/crm/sign-in/complete", body.clone()).await.0, 400);
+        assert_eq!(s.post(&sam, "/v1/workspaces/b/apps/crm/sign-in/complete", body.clone()).await.0, 400);
+        assert!(flows().lock().await.contains_key(&state), "another actor consumed the flow");
+        s.k.emit("test", Ev::Team(Change::Member { workspace: "a".into(), person: "sam".into(), role: Role::Member })).await.unwrap();
+        assert_eq!(s.post(&sam, "/v1/workspaces/a/apps/crm/sign-in/complete", body.clone()).await.0, 403);
+        cancel_flows("a", "crm").await;
+        assert!(!flows().lock().await.contains_key(&state));
+        assert!(s.k.vault.get(&crate::connectors::connection_name("crm", &principal("a"))).unwrap().is_none());
+        s.done().await;
+    }
 }
 
 async fn list(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
@@ -129,6 +167,7 @@ async fn complete(State(k): K, h: HeaderMap, Path((ws, app)): Path<(String, Stri
 async fn disconnect(State(k): K, h: HeaderMap, Path((ws, app)): Path<(String, String)>) -> Reply {
     let _files = k.team_files.lock().await;
     let _ = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+    cancel_flows(&ws, &app).await;
     match k.disconnect(&app, &principal(&ws)).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
