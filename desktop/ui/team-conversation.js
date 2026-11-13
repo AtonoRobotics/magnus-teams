@@ -31,11 +31,11 @@ function teamComposer(s, thread) {
     },
     send: async ({ text, files, form }) => {
       if ($("[data-whisper]", form)?.checked) {
-        await api("POST", `${base()}/messages`, { text, thread: thread || undefined, whisper: true });
+        await api("POST", `${base()}/messages`, { text, thread: thread || undefined, whisper: true, model: chosenModel(form) });
         return async () => { toast("Your Magnus is on it. Only you will see its answer."); await TeamChat.refresh(); };
       }
       const full = [text, ...files.map(f => `📎 ${f.name}`)].join("\n");
-      const r = await api("POST", `${base()}/messages`, { text: full, thread: thread || undefined });
+      const r = await api("POST", `${base()}/messages`, { text: full, thread: thread || undefined, model: Team.home.role === "guest" ? undefined : chosenModel(form) });
       return async () => {
         if (r.agent) toast(`${Team.home.agent.name} is on it.`);
         if (r.limited) toast(r.limited, 8000);

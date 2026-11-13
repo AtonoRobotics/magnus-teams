@@ -15,6 +15,7 @@ const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
   UI: {}, route: () => {}, esc, voice: { entry: null }, ICONS: new Proxy({}, { get: () => "" }), App: { canReadAloud: true }, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
+  chosenModel: form => form?.picked, modelPicker: async () => "",
   icon: k => `<svg data-icon="${k}"></svg>`, chip: st => `<span class="chip">${st}</span>`, statusLineSlot: (t, cls) => `<span class="${cls}" data-status-line="${t.task_id}">${t.status_line}</span>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },
@@ -129,6 +130,11 @@ assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/mes
 await then();
 await sandbox.teamComposer({ ...channelState }, "m1").send({ text: "see", files: [{ name: "plan.pdf" }], form: null });
 assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/messages", { text: "see\n📎 plan.pdf", thread: "m1" }], "a reply in a thread lost its thread or its file");
+// The composer's model picker is the personal one: a request runs on its pick.
+const picked = { adapter: "a", model: "fast" };
+await sandbox.teamComposer({ ...channelState }, null).send({ text: "@Magnus plan it", files: [], form: { picked } });
+assert.deepEqual(plain(calls.at(-1)[2].model), picked, "a team request does not carry the model the composer picked");
+assert.match(TeamChat.mount.toString(), /modelPicker\(\)/, "the team composer has no model picker");
 reply = async () => ({});
 
 // Mentions: the agent first, then people.

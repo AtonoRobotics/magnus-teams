@@ -157,7 +157,7 @@ async fn retry(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String,
     }
     let asked = m.workspace.chat.asked.get(task).and_then(|a| m.workspace.channels.get(&channel)?.messages.iter().find(|x| &x.id == a && !x.text.is_empty()).cloned());
     let Some(asked) = asked.filter(|a| !m.workspace.chat.unsent.contains(&a.id)) else { return err(StatusCode::CONFLICT, "the request is no longer here to ask again") };
-    post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true).await
+    post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, None).await
 }
 
 #[cfg(test)]

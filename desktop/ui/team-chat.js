@@ -145,9 +145,20 @@ const TeamChat = {
     if (!record.text && !record.files.length) record.text = TeamDrafts.get(s.ws, s.channel, thread);
     const view = ChatView.mount(root, teamConversation(s, thread), { side: !!thread, record });
     const where = thread ? "Reply in thread" : c ? `Message ${channelTitle(home, c)}` : "Message";
-    const bar = home.role === "guest" ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`;
+    const guest = home.role === "guest";
+    // The personal composer's model picker, first in the bar as there: a
+    // member's request runs on their pick (decisions/2026-11-13-team-composer-model.md).
+    const bar = `<span data-picker></span>${guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`}`;
     const slot = $(".composer-slot", view.section);
     paint(slot, composer(`${where}. Mention @${home.agent.name} or name it to ask the team agent.`, bar, { side: !!thread, label: where, mentions: true }));
+    modelPicker().then(html => {
+      const at = $("[data-picker]", slot);
+      if (!at) return;
+      at.outerHTML = html;
+      // A guest's messages never start the agent, so there is no model to pick.
+      const sel = $("select[data-model]", slot);
+      if (guest && sel) { sel.disabled = true; sel.title = "Guests chat here; only members can ask the team agent, so no model runs for you."; }
+    });
     wireComposer($("form.say", slot), view.record, teamComposer(s, thread));
     view.section.addEventListener("change", e => {
       if (e.target.matches("[data-agent-mode]")) this.setting("agent", { mode: e.target.value }, x => { x.mode = e.target.value; });

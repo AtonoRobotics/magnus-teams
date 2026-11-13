@@ -161,7 +161,7 @@ async fn a_teams_words_stay_private_in_a_members_own_runs() {
     assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": "the price is 4m" })).await.0, 200);
     for mine in [false, true] {
         let who = if mine { "sam" } else { "mo" };
-        let (task, _) = s.k.whisper(&ws, &channel, None, who, "sum this up".into()).await.unwrap();
+        let (task, _) = s.k.whisper(&ws, &channel, None, who, "sum this up".into(), None).await.unwrap();
         let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
         assert!(run.private, "{who}'s whisper run is not private, so it could file the team's words for everyone");
     }

@@ -201,6 +201,10 @@ struct NewMessage {
     /// For the sender's own agent only, and it does not reach the channel.
     #[serde(default)]
     whisper: bool,
+    /// The model the composer's picker chose, as a personal message's
+    /// `model`: `{"adapter", "model"}`. The server's default when absent.
+    #[serde(default)]
+    model: serde_json::Value,
 }
 
 async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> Reply {
@@ -214,19 +218,33 @@ async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(Stri
     if (b.agent || b.whisper) && role == Role::Guest {
         return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
     }
+    let model = match crate::api::chosen_model(&k, &json!({ "model": b.model })).await {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
     if b.whisper {
-        return match k.whisper(&ws, &channel, b.thread, &p.id, b.text).await {
+        return match k.whisper(&ws, &channel, b.thread, &p.id, b.text, model).await {
             Ok((task, run)) => Json(json!({ "task_id": task, "run_id": run })).into_response(),
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         };
     }
-    post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent).await
+    post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent, model).await
 }
 
 /// Post a message as `p`, and have the team agent take it on when asked, or
 /// when it is mentioned, named or, where the channel allows, of help.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn post_and_ask(k: &Arc<Kernel>, p: &Person, role: Role, ws: &str, channel: &str, thread: Option<String>, text: String, asked: bool) -> Reply {
+pub(super) async fn post_and_ask(
+    k: &Arc<Kernel>,
+    p: &Person,
+    role: Role,
+    ws: &str,
+    channel: &str,
+    thread: Option<String>,
+    text: String,
+    asked: bool,
+    model: Option<(String, String)>,
+) -> Reply {
     super::presence::sent(ws, channel, &p.id);
     let message = Message { id: new_id(), sender: p.id.clone(), text: text.clone(), thread: thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
@@ -237,7 +255,7 @@ pub(super) async fn post_and_ask(k: &Arc<Kernel>, p: &Person, role: Role, ws: &s
     if let Err(limited) = k.team_budget_left(ws, channel) {
         return Json(json!({ "id": id, "limited": limited })).into_response();
     }
-    match k.team_request(ws, channel, thread, &p.id, text).await {
+    match k.team_request_on(ws, channel, thread, &p.id, text, model).await {
         Ok((task, run)) => {
             ok_or_return!(
                 send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await

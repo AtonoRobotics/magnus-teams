@@ -44,3 +44,27 @@ async fn posting_in_the_team_workspace_asks_no_one() {
     assert!(crate::run::TEAM_INSTRUCTIONS.contains("never ask the member to post"), "the team prompt lets it hand a post back to the member");
     s.done().await;
 }
+
+/// A team request runs on the model the member picked in the composer, as a
+/// personal message does; a model no adapter offers is refused before
+/// anything is posted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_team_request_runs_on_the_model_its_member_picked() {
+    let s = server_with("", |_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let (_, v) = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await;
+    let ws = v["id"].as_str().unwrap().to_string();
+    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    let path = format!("/v1/workspaces/{ws}/channels/{channel}/messages");
+    let (st, v) = s.post(&sam, &path, json!({ "text": "plan it", "agent": true, "model": { "adapter": "nowhere", "model": "none" } })).await;
+    assert_eq!(st, 400, "a model no adapter offers was taken: {v}");
+    assert!(s.k.read(|st| st.team.workspace(&ws).unwrap().channels[&channel].messages.is_empty()), "the refused message was posted");
+    let (adapter, model) = s.k.default_model();
+    let (st, v) = s.post(&sam, &path, json!({ "text": "plan it", "agent": true, "model": { "adapter": adapter, "model": model } })).await;
+    assert_eq!(st, 200, "{v}");
+    let picked = ("other".to_string(), "picked-model".to_string());
+    let (task, _) = s.k.team_request_on(&ws, &channel, None, "sam", "plan it".into(), Some(picked.clone())).await.unwrap();
+    let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
+    assert_eq!((run.config.adapter, run.config.model), picked, "the picked model was not the run's");
+    s.done().await;
+}

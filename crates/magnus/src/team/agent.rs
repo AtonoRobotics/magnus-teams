@@ -188,11 +188,26 @@ impl Kernel {
     /// Takes a member's request. The run is theirs, so what it may do and
     /// who is asked follows them. Other people's words come in only as data.
     pub(super) async fn team_request(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, text: String) -> Result<(String, String)> {
-        self.team_request_as(&format!("person:{person}"), workspace, channel, thread, person, text).await
+        self.team_request_on(workspace, channel, thread, person, text, None).await
+    }
+
+    /// A member's request on the model they chose in the composer, as a
+    /// personal message runs on its pick; the server's default otherwise.
+    pub(super) async fn team_request_on(
+        self: &Arc<Self>,
+        workspace: &str,
+        channel: &str,
+        thread: Option<String>,
+        person: &str,
+        text: String,
+        model: Option<(String, String)>,
+    ) -> Result<(String, String)> {
+        self.team_request_as(&format!("person:{person}"), workspace, channel, thread, person, text, model).await
     }
 
     /// A request for a member that `actor` started: the member, or the
     /// agent's own follow-up on their behalf.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn team_request_as(
         self: &Arc<Self>,
         actor: &str,
@@ -201,6 +216,7 @@ impl Kernel {
         thread: Option<String>,
         person: &str,
         text: String,
+        model: Option<(String, String)>,
     ) -> Result<(String, String)> {
         let earlier: Vec<Message> = self
             .read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.iter().filter(|m| !m.text.is_empty()).cloned().collect()))
@@ -215,7 +231,7 @@ impl Kernel {
         let left = self.team_budget_left(workspace, channel).map_err(anyhow::Error::msg)?;
         let budget = left.map(|usd| crate::config::Budget { max_usd: self.cfg.budget.max_usd.min(usd), ..self.cfg.budget.clone() });
         let team = TeamRun { workspace: workspace.into(), channel: channel.into(), thread, task: String::new(), requester: person.into(), history, sub: false, outside };
-        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), team: Some(team), budget, ..Default::default() };
+        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), team: Some(team), budget, model, ..Default::default() };
         self.create_run(actor, person, text, vec![], new_run).await
     }
 
