@@ -146,7 +146,7 @@ assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer 
 const post = messageHtml(answer);
 assert.match(post, /^<div class="entry them" data-entry="agent:t1" data-kind="answer"><div class="msg magnus"[^]*<div class="msg-actions small"[^]*<\/div>$/, "a post's controls are not under it, as the personal chat's are");
 // A post with no words, a work card, can still be reacted to and replied to.
-const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t9", requester: "dana", status: "working", steps: 0, doing: null, title: "x", long: false, thread: null, reason: null } });
+const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t9", requester: "dana", status: "running", steps: 0, doing: null, title: "x", long: false, thread: null, reason: null } });
 assert.ok(card.includes("data-reply") && card.includes('data-react="'), "a work card cannot be reacted to or replied to");
 // The reactions menu is a row, and says so, so Left and Right move along it.
 assert.match(post, /class="action-menu reactions"[^>]*aria-orientation="horizontal"/, "the reactions row does not say it is a row");

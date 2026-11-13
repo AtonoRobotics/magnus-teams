@@ -18,8 +18,9 @@ type At = chrono::DateTime<chrono::Utc>;
 pub struct TeamWork {
     pub task: String,
     pub requester: String,
-    /// working, waiting, done, failed or stopped.
-    pub status: &'static str,
+    /// The task's status as the personal chat sends a task's: running,
+    /// suspended, completed, failed or cancelled.
+    pub status: crate::state::Status,
     pub steps: usize,
     pub doing: Option<String>,
     pub title: String,
@@ -72,23 +73,12 @@ pub struct TeamItem {
     pub last_reply: Option<At>,
 }
 
-fn status_word(s: crate::state::Status) -> &'static str {
-    use crate::state::Status::*;
-    match s {
-        Running => "working",
-        Suspended => "waiting",
-        Completed => "done",
-        Failed => "failed",
-        Cancelled => "stopped",
-    }
-}
-
 impl TeamWork {
     pub fn of(w: &Work) -> TeamWork {
         TeamWork {
             task: w.task.clone(),
             requester: w.requester.clone(),
-            status: status_word(w.status),
+            status: w.status,
             steps: w.steps,
             doing: w.doing.clone(),
             title: w.title.clone(),

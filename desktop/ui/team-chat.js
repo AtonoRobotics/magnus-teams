@@ -10,7 +10,7 @@
 
 /**
  * A channel's items as the server sends them (crates/magnus/src/team/items.rs).
- * @typedef {{ task: string, requester: string, status: "working"|"waiting"|"done"|"failed"|"stopped", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
+ * @typedef {{ task: string, requester: string, status: "running"|"suspended"|"completed"|"failed"|"cancelled", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
  * @typedef {{ id: string, kind: "message"|"answer"|"work"|"deleted", files?: string[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, task?: string, private?: boolean, deleted?: boolean }} TeamMessage
  * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
  * Who is reading, to read a channel's items into the chat view's kinds.
@@ -52,22 +52,20 @@ function workTitle(text) {
   return t ? t[0].toUpperCase() + t.slice(1) : firstLine(text);
 }
 
-/** A team request's status, in the personal chat's words for a task's. */
-const TEAM_STATUS = { working: "running", waiting: "suspended", done: "completed", failed: "failed", stopped: "cancelled" };
-
 /**
  * The agent's work on a request as the chat view's work row: the personal
- * chat's task row, with the requester named and its thread to open.
+ * chat's task row, with the requester named and its thread to open. Its
+ * status is the task's, as the personal chat's tasks have.
  * @param {TeamWork} w @param {TeamReader} r @returns {ChatWork}
  */
 function teamWork(w, r) {
-  const who = r.name(w.requester), status = TEAM_STATUS[w.status] || w.status;
-  const line = w.status === "working" ? (w.doing ? doingWords(w.doing) : "Thinking it through")
-    : w.status === "waiting" ? `Waiting for ${who} to answer an ask`
-    : w.status === "done" ? "Done" : w.status === "failed" ? `Could not finish${w.reason ? `: ${w.reason}` : ""}` : "Stopped";
-  const needs = w.status === "waiting" && w.requester === r.me;
-  const icon = needs ? "need" : { working: "working", waiting: "working", done: "done" }[w.status] || "stopped";
-  const sub = w.status === "working" ? statusLineSlot({ task_id: w.task, status_line: line }, "sub why") : `<span class="sub why">${esc(line)}</span>`;
+  const who = r.name(w.requester), status = w.status;
+  const line = status === "running" ? (w.doing ? doingWords(w.doing) : "Thinking it through")
+    : status === "suspended" ? `Waiting for ${who} to answer an ask`
+    : status === "completed" ? "Done" : status === "failed" ? `Could not finish${w.reason ? `: ${w.reason}` : ""}` : "Stopped";
+  const needs = status === "suspended" && w.requester === r.me;
+  const icon = needs ? "need" : { running: "working", suspended: "working", completed: "done" }[status] || "stopped";
+  const sub = status === "running" ? statusLineSlot({ task_id: w.task, status_line: line }, "sub why") : `<span class="sub why">${esc(line)}</span>`;
   const thread = w.thread && !r.inThread ? teamHref(r.ws, { kind: "channel", id: r.channel, thread: w.thread }) : undefined;
   return { id: w.task, status, icon, pill: needs ? `<span class="chip warn">Needs you</span>` : chip(status), title: workTitle(w.title), tip: thread ? "Open its thread" : workTitle(w.title), sub, by: who, href: thread };
 }

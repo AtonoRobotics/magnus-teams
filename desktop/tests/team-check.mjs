@@ -82,7 +82,7 @@ Team.home = home;
 
 // The agent's live work: the personal chat's task row, with the requester
 // named and its own thread to open.
-const work = { task: "t1", requester: "dana", status: "working", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", reason: null };
+const work = { task: "t1", requester: "dana", status: "running", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", reason: null };
 const workItem = w => draw({ id: "w1", sender: "agent", requester: w.requester, text: "", thread: null, at: "", work: w });
 const card = workItem(work);
 assert.match(card, /class="reqgroup chatcard"[^]*class="tcard"/, "the work card is not the personal chat's task row");
@@ -91,10 +91,10 @@ assert.match(card, /Reading a team file/);
 // A team reply is a chat turn: no step count, as no Magnus chat shows one (owner, 2026-11-13).
 assert.doesNotMatch(card, /step \d/, "the work card counts steps");
 assert.match(card, /href="#\/team\/w\/c\/c1\/t\/m1"/, "long work has no thread to open");
-assert.match(workItem({ ...work, status: "waiting" }), /Waiting for Dana to answer an ask/);
+assert.match(workItem({ ...work, status: "suspended" }), /Waiting for Dana to answer an ask/);
 assert.match(workItem({ ...work, status: "failed", reason: "<no access>" }), /Could not finish: &#60;no access&#62;/);
 assert.doesNotMatch(workItem({ ...work, thread: null }), /\/t\/m1/);
-assert.match(workItem({ ...work, requester: "sam", status: "waiting" }), /Needs you/, "work waiting on me does not say it needs me");
+assert.match(workItem({ ...work, requester: "sam", status: "suspended" }), /Needs you/, "work waiting on me does not say it needs me");
 
 // Messages: whose each is, people's words escaped, mentions marked,
 // reactions, replies and edits; the agent's answer for whom.

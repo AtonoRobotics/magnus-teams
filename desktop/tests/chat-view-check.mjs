@@ -64,7 +64,7 @@ for (const html of [answer, answerTeam]) assert.match(html, /class="icon menu-tr
 
 // Work: the personal chat's task row, in a team the requester named.
 const taskRow = ChatView.workRow({ id: "t1", status: "running", icon: "working", pill: "", title: "Plan", sub: "", href: "#/task/t1" });
-const teamRow = draw(team, sandbox.teamEntry(served({ id: "w1", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t1", requester: "dana", status: "working", steps: 0, doing: null, title: "Plan", long: false, thread: null, reason: null } }), reader));
+const teamRow = draw(team, sandbox.teamEntry(served({ id: "w1", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t1", requester: "dana", status: "running", steps: 0, doing: null, title: "Plan", long: false, thread: null, reason: null } }), reader));
 assert.match(taskRow, /^<li class="tcard" data-chat-task="t1" data-status="running"><a class="rg-row"/);
 assert.match(teamRow, /<div class="reqgroup chatcard" data-chat-work="t1"><ul class="rg-rows"><li class="tcard" data-chat-task="t1" data-status="running"><div class="rg-row"/, "team work is not the personal chat's task row");
 
