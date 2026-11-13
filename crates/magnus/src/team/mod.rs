@@ -132,6 +132,7 @@ pub enum Change {
     },
     FilePublished {
         workspace: String,
+        #[serde(default)]
         file: File,
         project: Option<String>,
         blob: String,
