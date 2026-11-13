@@ -25,7 +25,7 @@ pub use mcp::FakeMcp;
 pub use model::{review, review_document, script, steps, tool, tools, Conversation, FakeModel, Reply};
 pub use web::FakeWeb;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use std::time::Duration;
 
 /// An organization policy that lets the agent read, make reversible writes and
