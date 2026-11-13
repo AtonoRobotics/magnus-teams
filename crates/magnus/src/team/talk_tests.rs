@@ -27,3 +27,20 @@ async fn a_team_request_talks_like_chat_not_like_a_task() {
     }
     s.done().await;
 }
+
+/// Everything in the workspace is seen by the team (owner, 2026-11-13): a
+/// post, a file or a fact there is not a send, so it never asks the member
+/// first. A member's private work goes to their own agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn posting_in_the_team_workspace_asks_no_one() {
+    let s = server_with("", |_| Router::new()).await;
+    for tool in ["team_post", "team_write_file", "team_note", "team_add_fact", "team_fix_entry", "team_create"] {
+        let f = crate::boundary::facts(&s.k, tool).unwrap();
+        assert!(f.reaches_self, "{tool} is treated as a send out of the workspace");
+    }
+    for tool in ["team_read_file", "team_read_knowledge", "web_fetch"] {
+        assert!(!crate::boundary::facts(&s.k, tool).unwrap().reaches_self, "{tool} reaches only the team");
+    }
+    assert!(crate::run::TEAM_INSTRUCTIONS.contains("never ask the member to post"), "the team prompt lets it hand a post back to the member");
+    s.done().await;
+}

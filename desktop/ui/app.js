@@ -1578,7 +1578,7 @@ async function showThread(main, thread) {
     const anchor = ui.drawn ? ReadingAnchors.capture(el) : App.draftRecord?.anchor || {follow:true};
     const newActivity = ui.entryIds && entries.some(e=>e.id && !ui.entryIds.has(e.id));
     ui.entryIds=new Set(entries.map(e=>e.id)); ui.drawn=true;
-    const grew = paint(el, body);
+    const grew = paint(el, body); liveStatusLines(el);
     ReadingAnchors.restore(el,anchor); ReadingAnchors.remember(el,anchor);
     if (newActivity && !anchor.follow) $("[data-jump-latest]",main).hidden=false;
     bindConnectorActs(el);
@@ -1769,10 +1769,10 @@ function standing(t) {
 // A task in its conversation: one row that opens it beside the thread, its
 // status live; what it waits on from the person follows the request's rows.
 function taskCard(t) {
-  const why = t.status === "suspended" ? WAITING[t.waiting_on] || "" : t.status === "running" ? t.status_line || "Working on it" : "";
+  const why = t.status === "suspended" ? esc(WAITING[t.waiting_on] || "") : t.status === "running" ? statusLineSlot(t, "sub why") : "";
   const [ic, pill] = standing(t);
   return `<li class="tcard" data-chat-task="${esc(t.task_id)}" data-status="${esc(t.status)}"><a class="rg-row${Panel.what === `task:${t.task_id}` ? " open" : ""}" href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}" title="${esc(t.text)}">
-    <span class="st ${ic}">${icon(ic)}</span><span class="rg-main"><span class="ttl">${esc(t.title)}</span>${why ? `<span class="sub why">${esc(why)}</span>` : `<span class="sub">${esc(firstLine(t.text))}</span>`}</span>${pill}${icon("chev", "chev")}</a>
+    <span class="st ${ic}">${icon(ic)}</span><span class="rg-main"><span class="ttl">${esc(t.title)}</span>${t.status === "running" ? why : why ? `<span class="sub why">${why}</span>` : `<span class="sub">${esc(firstLine(t.text))}</span>`}</span>${pill}${icon("chev", "chev")}</a>
     ${ENDED.includes(t.status) ? "" : `<div class="card-acts"><button class="link small" data-task-act="cancel" data-task="${esc(t.task_id)}">Stop</button></div>`}</li>`;
 }
 // A schedule where it was confirmed: a row that opens it, with when it runs
@@ -2493,7 +2493,7 @@ async function drawPanel() {
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${head || `<h2>${esc(title)}</h2>`}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`);
+  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${head || `<h2>${esc(title)}</h2>`}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
   if (!changed) {
     reportOpenedSoon();
     if (Panel.focusNext) { const heading=$("h2",el); if (heading) { heading.tabIndex=-1; heading.focus({preventScroll:true}); } Panel.focusNext=false; }
@@ -2581,7 +2581,7 @@ async function taskView(id, composed) {
   const layers = { outcome, contract, trace: tl ? trace(tl) : "" };
   const [, pill] = standing({ ...t, waiting_item: items.find(i => i.can_respond)?.id });
   const head = `<h2 class="ptitle" data-task="${esc(t.task_id)}">${esc(t.title || t.text)}</h2>
-    <div class="row small dh-sub">${pill}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : running && t.status_line ? `<span class="muted" data-status-line>${esc(t.status_line)}</span>` : ""}</div>`;
+    <div class="row small dh-sub">${pill}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : running && t.status_line ? statusLineSlot(t, "muted") : ""}</div>`;
   const body = `${items.map(i => card(i, composed)).join("")}
     ${(t.app_offers || []).filter(o => o.state !== "connected").map(appOfferCard).join("")}
     ${running ? `<div class="live" id="plive" aria-live="polite">${esc(Panel.liveText) || `<span class="faint">Working…</span>`}</div>` : ""}

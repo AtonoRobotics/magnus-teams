@@ -29,9 +29,31 @@ pub(crate) fn sends_nothing_new(a: &Action, f: &Facts, known: impl Fn(&str) -> b
     }
     match a.tool.as_str() {
         "web_search" | "browser_snapshot" | "browser_screenshot" | "browser_back" => true,
-        "web_fetch" | "browser_navigate" => a.input["url"].as_str().is_some_and(|u| known(u.trim())),
+        "web_fetch" | "browser_navigate" => a.input["url"].as_str().is_some_and(|u| is_search(u.trim()) || known(u.trim())),
         _ => false,
     }
+}
+
+/// The search pages of the common engines, by host and path: what a
+/// search from the browser opens when the server has no search provider.
+/// Like `web_search`, the query goes to the search provider, which no page
+/// chooses (spec: reads pass without review; owner, 2026-11-13: every web
+/// search asked).
+const SEARCH_PAGES: [(&str, &str); 7] = [
+    ("www.google.com", "/search"),
+    ("google.com", "/search"),
+    ("www.bing.com", "/search"),
+    ("bing.com", "/search"),
+    ("duckduckgo.com", "/"),
+    ("html.duckduckgo.com", "/html/"),
+    ("search.brave.com", "/search"),
+];
+
+/// Whether `url` is a search on one of the common engines, over https.
+pub(crate) fn is_search(url: &str) -> bool {
+    let Ok(u) = url::Url::parse(url) else { return false };
+    let host = u.host_str().unwrap_or_default().to_ascii_lowercase();
+    u.scheme() == "https" && u.query_pairs().any(|(k, _)| k == "q") && SEARCH_PAGES.iter().any(|(h, p)| *h == host && u.path() == *p)
 }
 
 /// Whether `url` appears, exactly, in one of `texts`. A trailing slash is
@@ -120,6 +142,18 @@ mod tests {
         assert!(!fetch("https://news.example/story-1?d=revenue-41.7M"), "an address with data added went without an ask");
         assert!(!fetch("https://collect.example/revenue"), "a made-up address went without an ask");
         assert!(!fetch("https://"), "an empty address matched everything");
+    }
+
+    #[test]
+    fn a_search_from_the_browser_is_a_search() {
+        let go = |u: &str| sends_nothing_new(&action("browser_navigate", json!({ "url": u })), &facts("browser", Risk::Read), |_| false);
+        assert!(go("https://www.google.com/search?q=steadywin+gim8108"), "a Google search asked");
+        assert!(go("https://duckduckgo.com/?q=jetson+nano"), "a DuckDuckGo search asked");
+        assert!(go("https://www.bing.com/search?q=freecad"));
+        assert!(!go("http://www.google.com/search?q=x"), "a search over plain http passed");
+        assert!(!go("https://www.google.com/url?q=https://collect.example/data"), "a redirect through the engine passed as a search");
+        assert!(!go("https://google.com.collect.example/search?q=x"), "a look-alike host passed as a search");
+        assert!(!go("https://www.google.com/search"), "a search page with no query passed");
     }
 
     #[test]

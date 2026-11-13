@@ -79,7 +79,10 @@ pub struct Facts {
 /// Look up a tool by the name the model uses.
 pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
     if let Some(b) = tools::builtin(tool) {
-        return Some(Facts { name: tool.into(), app: b.app.into(), risk: b.risk, label: b.label, audience: b.audience, connector: None, remote: tool.into(), reaches_self: false });
+        // A team tool's change stays in its own workspace, which the whole
+        // team sees: a post or a file there is not a send (owner, 2026-11-13).
+        let reaches_self = b.app == "team" && b.risk.changes_state();
+        return Some(Facts { name: tool.into(), app: b.app.into(), risk: b.risk, label: b.label, audience: b.audience, connector: None, remote: tool.into(), reaches_self });
     }
     let (app, remote) = tool.split_once("__")?;
     let c = k.connector(app)?;

@@ -117,7 +117,7 @@ pub type Class<'a> = &'a dyn Fn(&str) -> Option<(String, Risk)>;
 pub fn receipts(s: &State, run: &Run, class: Class) -> Vec<Value> {
     let mut done: Vec<&crate::state::Intent> =
         run.intents.values().filter(|i| i.issuer == "model" && changes(class, &i.tool)).filter(|i| i.result.as_ref().is_some_and(|r| !r.is_error && r.status == "done")).collect();
-    done.sort_by_key(|i| i.at);
+    done.sort_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)));
     done.into_iter()
         .map(|i| {
             let dests = destinations_of(&i.input);
@@ -232,7 +232,7 @@ pub fn status_line(run: &Run) -> Option<String> {
             return Some(format!("{goal} · step {} of {}", n + 1, units.len()));
         }
     }
-    let last = run.intents.values().filter(|i| i.issuer == "model").max_by_key(|i| i.at)?;
+    let last = run.intents.values().filter(|i| i.issuer == "model").max_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)))?;
     Some(doing(&last.tool))
 }
 
@@ -245,9 +245,15 @@ fn doing(tool: &str) -> String {
         ("web_search", _) => "Searching the web".into(),
         ("web_fetch", _) | ("browser_navigate", _) | ("browser_snapshot", _) => "Reading a page".into(),
         (t, _) if t.starts_with("sandbox_") || t.starts_with("computer_") => "Working on its computer".into(),
-        (_, Some(a)) => format!("{}{} in {a}", verb[..1].to_uppercase(), &verb[1..]),
-        _ => format!("{}{}", verb.get(..1).unwrap_or_default().to_uppercase(), verb.get(1..).unwrap_or_default()),
+        (_, Some(a)) => format!("{} in {a}", capitalised(&verb)),
+        _ => capitalised(&verb),
     }
+}
+
+/// The first letter upper case, whatever its width in bytes.
+fn capitalised(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
 }
 
 impl crate::kernel::Kernel {

@@ -54,6 +54,7 @@ jobs:
       - run: node desktop/tests/globals-check.mjs
       - run: node desktop/tests/asks-check.mjs
       - run: node desktop/tests/evidence-check.mjs
+      - run: node desktop/tests/status-line-check.mjs
       - run: node desktop/tests/dev-reasoning-check.mjs
       - run: node desktop/tests/banners-check.mjs
       - run: node desktop/tests/wording-check.mjs
