@@ -11,6 +11,12 @@
 
 const TEAM_TYPING_PING_MS = 3000, TEAM_QUICK_REACTIONS = ["👍", "✅", "👀", "🎉"], TEAM_CATCH_UP_AFTER = 8, TEAM_PREVIEW_MAX_BYTES = 4 * 1024 * 1024;
 
+/** The team's own message controls, drawn as the personal chat's icons are. */
+const TEAM_ICONS = {
+  react: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/>', // smile
+  reply: '<polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>', // reply
+};
+
 /** A file name for a message: who wrote it and when, with nothing a name may not hold. */
 function teamFileStem(who, at) {
   return `${who} ${String(at || "").slice(0, 16).replace("T", " ").replace(":", "-")}`.replace(/[\/\0]/g, "-").trim().slice(0, 150);
@@ -81,14 +87,13 @@ function messageHtml(m, c) {
   const state = m.state === "sending" ? `<span class="small faint">Sending…</span>` : m.state === "failed" ? `<span class="small bad">Not sent</span> <button class="link small" data-retry="${esc(m.id)}">Retry</button>` : "";
   const editing = c.editing === m.id;
   const text = editing ? `<form class="tm-edit" data-edit-form><textarea aria-label="Edit message" rows="2">${esc(m.text)}</textarea><div class="row"><button class="primary">Save</button><button type="button" data-edit-cancel>Cancel</button></div></form>` : messageText(m, agent, c.files);
-  const actions = m.state ? "" : `<div class="tm-actions" role="toolbar" aria-label="Message actions">${TEAM_QUICK_REACTIONS.map(e => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}
-    ${c.inThread ? "" : `<button data-reply aria-label="Reply in thread">Reply</button>`}${m.text ? teamMsgActions(m, c, agent, mine) : ""}</div>`;
+  const actions = m.state || !m.text ? "" : teamMsgActions(m, c, agent, mine);
   const sharing = c.sharing === m.id ? `<div class="row small share-to"><label class="sr" for="tshare-${esc(m.id)}">Share with</label>
     <select id="tshare-${esc(m.id)}" data-share-to>${(c.people || []).map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
     <button class="primary" data-msg-act="share-send">Share</button><button class="link" data-msg-act="share-cancel">Cancel</button></div>` : "";
   return `<article class="tm${agent ? " agent" : ""}${mine ? " mine" : ""}${m.state ? ` ${m.state}` : ""}" data-msg="${esc(m.id)}">${avatar(who, agent)}<div class="tm-body">
     <div class="tm-head"><strong>${esc(who)}</strong>${agent ? ` <span class="chip run">team agent</span>${m.requester ? ` <span class="small faint">for ${esc(c.name(m.requester))}</span>` : ""}` : ""} <time class="small faint" datetime="${esc(m.at)}">${esc(when(m.at))}</time>${m.edited ? ` <span class="small faint">(edited)</span>` : ""}${m.pinned ? ` <span class="small faint">· pinned</span>` : ""} ${state}</div>
-    ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}${sharing}</div>${actions}</article>`;
+    ${text}${agent && m.private && m.requester === c.me && m.task ? `<div class="small faint">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(m.task)}">Post it to the thread</button></div>` : ""}${m.work ? workCard(m.work, c.name, c.ws, c.channel, c.inThread) : ""}${reactions ? `<div class="tm-reactions">${reactions}</div>` : ""}${replies}${actions}${sharing}</div></article>`;
 }
 
 /**
@@ -97,16 +102,21 @@ function messageHtml(m, c) {
  * message controls as the other chat window"). Retry and Feedback are for
  * who asked the agent; what only they may see is not shared or saved for
  * the team.
- * @param {TeamMessage} m @param {{ me: string, guest: boolean, moderates?: boolean }} c @param {boolean} agent @param {boolean} mine
+ * @param {TeamMessage} m @param {{ me: string, guest: boolean, moderates?: boolean, inThread?: boolean }} c @param {boolean} agent @param {boolean} mine
  */
 function teamMsgActions(m, c, agent, mine) {
   const id = `team-menu-${enc(m.id)}`, entry = `team:${m.id}`, reading = voice.entry === entry, asked = agent && m.requester === c.me && !!m.task;
   const button = (a, label) => `<button class="icon" data-msg-act="${a}"${a === "listen" || a === "hush" ? ` data-voice-entry="${esc(entry)}"` : ""} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
-  const primary = mine && !agent ? button("edit", "Edit") : button("copy", "Copy message") + (agent && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : "");
+  const icon = (svg, attrs, label) => `<button class="icon" ${attrs} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${svg}</svg></button>`;
+  const reactId = `team-react-${enc(m.id)}`;
+  const react = `<div class="message-menu-wrap">${icon(TEAM_ICONS.react, `data-menu="${esc(reactId)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(reactId)}"`, "Add a reaction").replace('class="icon"', 'class="icon menu-trigger"')}
+    <div id="${esc(reactId)}" class="action-menu reactions" role="menu" aria-label="Reactions" hidden>${TEAM_QUICK_REACTIONS.map(e => `<button role="menuitem" tabindex="-1" data-react="${e}" aria-label="React ${e}">${e}</button>`).join("")}</div></div>`;
+  const reply = c.inThread ? "" : icon(TEAM_ICONS.reply, "data-reply", "Reply in thread");
+  const primary = react + reply + (mine && !agent ? button("edit", "Edit") : button("copy", "Copy message") + (agent && App.canReadAloud ? button(reading ? "hush" : "listen", reading ? "Stop reading" : "Read aloud") : ""));
   const deletes = (mine && !agent) || c.moderates || (agent && m.requester === c.me);
   const actions = [mine && !agent && ["copy", "Copy message"], asked && ["retry", "Retry"], ["branch", "Branch"], !m.private && ["share", "Share"], ["export", "Export"],
     !c.guest && !m.private && ["save", "Save to Files"], !c.guest && ["task", "Make a task"], !c.guest && ["pin", m.pinned ? "Unpin" : "Pin"], asked && ["feedback", "Feedback"], deletes && ["delete", "Delete message"]].filter(Boolean);
-  return `<div class="msg-actions small">${primary}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${esc(id)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+  return `<div class="msg-actions small" role="group" aria-label="Message actions">${primary}<div class="message-menu-wrap"><button class="icon menu-trigger" data-menu="${esc(id)}" aria-label="More message actions" data-tooltip="More message actions" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
     <div id="${esc(id)}" class="action-menu" role="menu" aria-label="More message actions" hidden>${actions.map(([a, label]) => `<button role="menuitem" tabindex="-1" data-msg-act="${a}">${label}</button>`).join("")}</div></div></div>`;
 }
 

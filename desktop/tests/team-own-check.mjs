@@ -136,4 +136,9 @@ const theirs = acts(sandbox.messageHtml({ ...answer, requester: "dana" }, ctx));
 assert.ok(!theirs.includes("retry") && !theirs.includes("feedback"), "someone else's answer can be retried or judged by me");
 const private_ = acts(sandbox.messageHtml({ ...answer, private: true }, ctx));
 assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer only I may see can be shared or saved for the team");
+// They sit under the post as the personal chat's do, not in a toolbar that
+// shows only on hover (owner, 2026-11-13: "it did not change at all").
+const post = sandbox.messageHtml(answer, ctx);
+assert.match(post, /<div class="tm-body">[\s\S]*<div class="msg-actions small"/, "a post's controls are not under it");
+assert.ok(!post.includes("tm-actions") && !readFileSync(join(here, "../ui/teams.css"), "utf8").includes(".tm-actions"), "a post's controls hide in a hover toolbar");
 console.log("team own ok");

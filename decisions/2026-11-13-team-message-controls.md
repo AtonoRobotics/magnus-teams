@@ -25,3 +25,9 @@ What each does in a workspace:
 - An answer marked as holding data only the requester may see offers no Share
   and no Save to Files, so neither moves it to others.
 - Guests are offered no Save to Files, Make a task or Pin, as before.
+
+Layout (owner, after the first version: "team chat is unchanged… The ui per
+post should match"): the controls sit in a row of icons under each post, as
+the personal chat's do, always shown. React (a menu of the quick reactions)
+and Reply in thread join that row as icons; the hover-only floating toolbar
+of text buttons is gone, because it hid the new controls.
