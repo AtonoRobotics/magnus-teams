@@ -14,7 +14,15 @@
 //! are checked are the bytes that are installed. Then the release's own
 //! installer runs from root's copy. A release older than, or the same as,
 //! the one installed is never installed.
+//!
+//! The base image computers boot is the release's `computer.ext4`, the
+//! minimal image built for them; the release's `rootfs.ext4` is the
+//! per-task sandbox's and is never installed here
+//! (`decisions/2026-11-13-minimal-computer-image.md`). It is installed under
+//! computerd's own name for its base image, `rootfs.ext4` in the images
+//! directory, so installed machines and their `base.id` keep their layout.
 
+use crate::config::BASE_IMAGE;
 use crate::version::{installed, VERSION_FILE};
 use anyhow::{bail, ensure, Context, Result};
 use base64::Engine;
@@ -52,7 +60,8 @@ const INSTALLER: &str = "install-computerd.sh";
 const UNIT: &str = "magnus-computerd.service";
 const HASHES: &str = "images.sha256";
 const KERNEL: &str = "vmlinux";
-const ROOTFS: &str = "rootfs.ext4";
+/// The computer's base image as a release names it.
+pub const COMPUTER_IMAGE: &str = "computer.ext4";
 const MEMBERS: [&str; 5] = [VERSION_FILE, PROGRAM, INSTALLER, UNIT, HASHES];
 const BASE_ID: &str = "base.id";
 
@@ -97,7 +106,8 @@ pub struct Staged {
     pub installer: PathBuf,
     pub program: PathBuf,
     pub kernel: PathBuf,
-    pub rootfs: PathBuf,
+    /// The computer's base image, from the release's `computer.ext4`.
+    pub base: PathBuf,
 }
 
 #[derive(Debug, PartialEq)]
@@ -196,11 +206,11 @@ fn stage(p: &Paths, package: &[u8], version: &str) -> Result<Staged> {
             let mut out = std::fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(p.staging.join(&name))?;
             let copied = std::io::copy(&mut (&mut entry).take(MAX_MEMBER_BYTES + 1), &mut out)?;
             ensure!(copied <= MAX_MEMBER_BYTES, "{name} in the package is too large");
-        } else if (name == KERNEL || name == ROOTFS) && kind.is_symlink() {
+        } else if (name == KERNEL || name == COMPUTER_IMAGE) && kind.is_symlink() {
             let target = entry.link_name()?.context("a link with no target")?.into_owned();
             ensure!(target.components().all(|c| matches!(c, Component::Normal(_) | Component::ParentDir)), "{name} links outside the release: {}", target.display());
             links.push((name, p.links_from.join(target)));
-        } else if (name == KERNEL || name == ROOTFS) && kind.is_file() {
+        } else if (name == KERNEL || name == COMPUTER_IMAGE) && kind.is_file() {
             entry.unpack(p.staging.join(format!("{name}.from-package")))?;
             links.push((name.clone(), p.staging.join(format!("{name}.from-package"))));
         }
@@ -220,7 +230,7 @@ fn stage(p: &Paths, package: &[u8], version: &str) -> Result<Staged> {
     let image = |name: &str| -> Result<PathBuf> {
         let want = wanted(name)?;
         if installed_hash(p, name).as_deref() == Some(want.as_str()) {
-            return Ok(p.images_dir.join(name));
+            return Ok(p.images_dir.join(installed_as(name)));
         }
         let from = links.iter().find(|(n, _)| n == name).map(|(_, f)| f.clone()).with_context(|| format!("the release has no {name}"))?;
         let to = p.staging.join(name);
@@ -233,17 +243,26 @@ fn stage(p: &Paths, package: &[u8], version: &str) -> Result<Staged> {
         Ok(to)
     };
     let kernel = image(KERNEL)?;
-    let rootfs = image(ROOTFS)?;
-    Ok(Staged { version: version.into(), installer: p.staging.join(INSTALLER), program: p.staging.join(PROGRAM), kernel, rootfs })
+    let base = image(COMPUTER_IMAGE)?;
+    Ok(Staged { version: version.into(), installer: p.staging.join(INSTALLER), program: p.staging.join(PROGRAM), kernel, base })
+}
+
+/// The name a release's image has in the images directory.
+fn installed_as(name: &str) -> &str {
+    if name == COMPUTER_IMAGE {
+        BASE_IMAGE
+    } else {
+        name
+    }
 }
 
 /// The installed image's sha256: the base image's is its `base.id`.
 fn installed_hash(p: &Paths, name: &str) -> Option<String> {
-    let file = p.images_dir.join(name);
+    let file = p.images_dir.join(installed_as(name));
     if !file.is_file() {
         return None;
     }
-    if name == ROOTFS {
+    if name == COMPUTER_IMAGE {
         return std::fs::read_to_string(p.images_dir.join(BASE_ID)).ok().map(|s| s.trim().to_ascii_lowercase());
     }
     sha256_file(&file).ok()
@@ -251,16 +270,8 @@ fn installed_hash(p: &Paths, name: &str) -> Option<String> {
 
 /// Run the staged installer as root, with nothing from this environment.
 pub fn run_installer(user: &str, s: &Staged) -> Result<()> {
-    let status = Command::new("/bin/sh")
-        .arg(&s.installer)
-        .arg(&s.program)
-        .arg(&s.kernel)
-        .arg(&s.rootfs)
-        .arg(user)
-        .env_clear()
-        .env("PATH", SAFE_PATH)
-        .status()
-        .context("run the installer")?;
+    let status =
+        Command::new("/bin/sh").arg(&s.installer).arg(&s.program).arg(&s.kernel).arg(&s.base).arg(user).env_clear().env("PATH", SAFE_PATH).status().context("run the installer")?;
     ensure!(status.success(), "the installer for {} failed", s.version);
     Ok(())
 }

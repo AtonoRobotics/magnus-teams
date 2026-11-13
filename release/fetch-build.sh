@@ -6,7 +6,7 @@
 #   release/fetch-build.sh RUN_ID DEST
 #
 # Copies the build's programs/, dist/ and brokered/ into DEST. Copies its
-# sandbox image into the local image store (~/magnus-ci/sandbox/<hash>, or
+# sandbox image (and the computer's, computer.ext4) into the local image store (~/magnus-ci/sandbox/<hash>, or
 # MAGNUS_SANDBOX_STORE) only when the store does not already hold it, since
 # an image is a few gigabytes and changes only with the sandbox's sources.
 # Prints the image's directory.
@@ -24,9 +24,9 @@ rsync -a -e "$ssh_" "$host:$src/programs" "$host:$src/dist" "$host:$src/brokered
 h=$($ssh_ "$host" "cat $src/image-hash")
 case $h in ????????????????) ;; *) echo "bad image hash from the build: $h" >&2; exit 3 ;; esac
 store=${MAGNUS_SANDBOX_STORE:-$HOME/magnus-ci/sandbox}
-if [ ! -f "$store/$h/rootfs.ext4" ]; then
+if [ ! -f "$store/$h/rootfs.ext4" ] || [ ! -f "$store/$h/computer.ext4" ]; then
   rm -rf "$store/$h.part" && mkdir -p "$store/$h.part"
-  rsync -a --sparse -e "$ssh_" "$host:$src/image/vmlinux" "$host:$src/image/rootfs.ext4" "$store/$h.part/" >&2
+  rsync -a --sparse -e "$ssh_" "$host:$src/image/vmlinux" "$host:$src/image/rootfs.ext4" "$host:$src/image/computer.ext4" "$store/$h.part/" >&2
   mv -T "$store/$h.part" "$store/$h"
 fi
 touch "$store/$h"

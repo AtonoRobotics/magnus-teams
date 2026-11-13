@@ -2,7 +2,12 @@
 # Installs magnus-computerd, the root service that starts computer VMs. Run
 # with sudo on any machine that has computers, and again to update it:
 #
-#   sudo sh install-computerd.sh <magnus-computerd> <vmlinux> <rootfs.ext4> [user Magnus runs as] [release directory]
+#   sudo sh install-computerd.sh <magnus-computerd> <vmlinux> <computer.ext4> [user Magnus runs as] [release directory]
+#
+# <computer.ext4> is the computer's base image, the minimal one a release
+# carries for computers (decisions/2026-11-13-minimal-computer-image.md),
+# not the per-task sandbox's rootfs.ext4. It is installed as the service's
+# images/rootfs.ext4, the name its base image has always had here.
 #
 # Everything root reads afterwards is copied here into root-owned places, so
 # nothing the appliance's own user can write is trusted. It also adds the
@@ -21,7 +26,7 @@
 # beside the program: it is what the service tells Magnus it is.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "run this with sudo" >&2; exit 1; }
-[ $# -ge 3 ] || { echo "usage: sudo sh $0 <magnus-computerd> <vmlinux> <rootfs.ext4> [user] [release directory]" >&2; exit 1; }
+[ $# -ge 3 ] || { echo "usage: sudo sh $0 <magnus-computerd> <vmlinux> <computer.ext4> [user] [release directory]" >&2; exit 1; }
 binary=$1 kernel=$2 rootfs=$3 user=${4:-${SUDO_USER:-}} releases=${5:-}
 [ -n "$user" ] && id "$user" >/dev/null 2>&1 || { echo "name the user Magnus runs as" >&2; exit 1; }
 here=$(dirname "$0")

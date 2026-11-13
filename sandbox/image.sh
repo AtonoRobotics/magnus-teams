@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The sandbox guest for this checkout, built from its own sandbox sources
+# The sandbox guest for this checkout (rootfs.ext4, and computer.ext4, the
+# computer's base image), built from its own sandbox sources
 # (the guest program, check_tools.py, the image) and kept by their hash
 # under $MAGNUS_SANDBOX_STORE (default ~/magnus-ci/sandbox): built only when
 # they change, so tests and the appliance always run the image of the code.
@@ -13,7 +14,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 cd "$here/.."
 h=$( { git rev-parse HEAD:sandbox; git rev-parse HEAD:Cargo.lock; } | sha256sum | cut -c1-16)
 d="${MAGNUS_SANDBOX_STORE:-$HOME/magnus-ci/sandbox}/$h"
-if [ ! -f "$d/rootfs.ext4" ]; then
+if [ ! -f "$d/rootfs.ext4" ] || [ ! -f "$d/computer.ext4" ]; then
   rm -rf sandbox/out "$d.part" && mkdir -p "$d.part" && ln -s "$d.part" sandbox/out
   sandbox/build.sh >&2
   rm -rf "$d" && mv "$d.part" "$d"

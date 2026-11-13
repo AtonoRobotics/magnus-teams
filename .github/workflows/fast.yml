@@ -36,6 +36,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: sh ci/production-guard-check.sh
       - run: python3 -I sandbox/desktop/test_desktop.py
+      - run: python3 -I sandbox/test_images.py
       - run: node desktop/tests/ui-spec-check.mjs
       - run: node desktop/tests/rfb-check.mjs
       - run: node desktop/tests/screen-check.mjs

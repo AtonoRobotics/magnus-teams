@@ -8,7 +8,7 @@
 # Writes ~/magnus-teams-release/RUN_ID/ with programs/ (those named in
 # release/appliance-programs, from target/release), dist/ (the desktop
 # packages), brokered/ (the connectors' server images), image (a link to
-# the sandbox image's directory) and image-hash. Keeps the last three runs.
+# the directory of the sandbox image and the computer's, computer.ext4) and image-hash. Keeps the last three runs.
 set -eu
 run=$1 image=$2 brokered=$3
 case $run in *[!0-9]*) echo "RUN_ID: digits only" >&2; exit 2 ;; esac

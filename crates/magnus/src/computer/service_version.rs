@@ -22,7 +22,10 @@ pub const OUTDATED: &str = "The computer service on this server is older than Ma
 pub const BEHIND: &str = "The computer service is older than this server: computers may fail to start or reset until it is updated.";
 /// The sha256 of the release's images, beside the programs.
 const IMAGE_HASHES: &str = "images.sha256";
-const BASE_IMAGE: &str = "rootfs.ext4";
+/// The computer's base image, beside the programs: the minimal image built
+/// for computers, never the per-task sandbox's `rootfs.ext4`
+/// (`decisions/2026-11-13-minimal-computer-image.md`).
+const BASE_IMAGE: &str = "computer.ext4";
 /// Computerd's words for a request it cannot read.
 const BAD_REQUEST: &str = "bad request";
 
@@ -156,6 +159,13 @@ pub fn update_command(install_dir: &Path, kernel: &Path, rootfs: &Path, user: &s
     format!("sudo sh {} {} {} {} {} {}", s(&install_dir.join("install-computerd.sh")), s(&install_dir.join("magnus-computerd")), s(kernel), s(rootfs), quoted(user), s(releases))
 }
 
+/// The kernel and base image the update command installs: the sandbox's
+/// kernel, and the computer's own base image from the install directory.
+pub fn update_images(install_dir: &Path, sandbox_kernel: Option<&Path>) -> (PathBuf, PathBuf) {
+    let kernel = sandbox_kernel.map_or_else(|| install_dir.join("vmlinux"), Path::to_path_buf);
+    (kernel, install_dir.join(BASE_IMAGE))
+}
+
 /// The user this server runs as.
 fn user_name() -> String {
     let uid = unsafe { libc::getuid() };
@@ -185,8 +195,8 @@ pub fn report(cfg: &crate::config::Config, socket: &Path) -> Value {
         return json!({ "checked": true, "behind": false, "version": version, "expected": shipped.version });
     }
     let dir = crate::update::install_dir().unwrap_or_default();
-    let (kernel, rootfs) = cfg.sandbox.as_ref().map_or_else(|| (dir.join("vmlinux"), dir.join(BASE_IMAGE)), |s| (s.kernel_image.clone(), s.rootfs.clone()));
-    let command = update_command(&dir, &kernel, &rootfs, &user_name(), &cfg.updates_dir().join("appliance"));
+    let (kernel, base) = update_images(&dir, cfg.sandbox.as_ref().map(|s| s.kernel_image.as_path()));
+    let command = update_command(&dir, &kernel, &base, &user_name(), &cfg.updates_dir().join("appliance"));
     json!({ "checked": true, "behind": true, "version": version, "expected": shipped.version, "message": BEHIND, "command": command })
 }
 

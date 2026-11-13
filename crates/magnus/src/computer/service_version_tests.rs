@@ -56,8 +56,20 @@ fn only_a_listed_request_is_surely_served() {
 fn the_release_base_image_id_comes_from_its_signed_hashes() {
     let d = tempfile::tempdir().unwrap();
     assert_eq!(shipped_base_id(d.path()), None);
-    std::fs::write(d.path().join("images.sha256"), "11AA  vmlinux\n22bb  rootfs.ext4\n").unwrap();
-    assert_eq!(shipped_base_id(d.path()).as_deref(), Some("22bb"));
+    std::fs::write(d.path().join("images.sha256"), "11AA  vmlinux\n22bb  rootfs.ext4\n33CC  computer.ext4\n").unwrap();
+    assert_eq!(shipped_base_id(d.path()).as_deref(), Some("33cc"), "the computer's base is computer.ext4, not the sandbox's rootfs.ext4");
+}
+
+/// The update installs the computer's own image, whatever the sandbox's
+/// rootfs is (decisions/2026-11-13-minimal-computer-image.md).
+#[test]
+fn the_update_installs_the_computer_image_not_the_sandboxs() {
+    let dir = Path::new("/home/sam/.magnus-teams/bin");
+    let (kernel, base) = update_images(dir, Some(Path::new("/x/vmlinux")));
+    assert_eq!(kernel, Path::new("/x/vmlinux"));
+    assert_eq!(base, dir.join("computer.ext4"));
+    let (kernel, base) = update_images(dir, None);
+    assert_eq!((kernel, base), (dir.join("vmlinux"), dir.join("computer.ext4")));
 }
 
 #[test]

@@ -3,7 +3,9 @@ use std::cell::RefCell;
 
 const PROGRAM_BYTES: &[u8] = b"#!/bin/sh\necho new computerd\n";
 const KERNEL_BYTES: &[u8] = b"a kernel";
-const ROOTFS_BYTES: &[u8] = b"a base image";
+const COMPUTER_BYTES: &[u8] = b"the computer's base image";
+/// The per-task sandbox's image, in the same release: never the computer's base.
+const SANDBOX_BYTES: &[u8] = b"the sandbox's image, with the document toolchain";
 
 fn sha(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
@@ -25,7 +27,8 @@ fn signed(secret: &minisign::SecretKey, data: &[u8], version: &str) -> String {
 }
 
 /// A package as `release/publish.sh` makes one: `./`-prefixed members, the
-/// images as links into the user's sandbox directory.
+/// images as links into the user's sandbox directory, the sandbox's own
+/// `rootfs.ext4` among them.
 fn package(version: &str, hashes: &str) -> Vec<u8> {
     let mut b = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
     let mut add = |name: &str, data: &[u8]| {
@@ -41,7 +44,7 @@ fn package(version: &str, hashes: &str) -> Vec<u8> {
     add("magnus-computerd.service", b"[Service]\n");
     add("images.sha256", hashes.as_bytes());
     add("magnus", b"the kernel program, not root's business");
-    for name in ["vmlinux", "rootfs.ext4"] {
+    for name in ["vmlinux", "rootfs.ext4", "computer.ext4"] {
         let mut h = tar::Header::new_gnu();
         h.set_entry_type(tar::EntryType::Symlink);
         h.set_size(0);
@@ -52,7 +55,7 @@ fn package(version: &str, hashes: &str) -> Vec<u8> {
 }
 
 fn good_hashes() -> String {
-    format!("{}  vmlinux\n{}  rootfs.ext4\n", sha(KERNEL_BYTES), sha(ROOTFS_BYTES))
+    format!("{}  vmlinux\n{}  rootfs.ext4\n{}  computer.ext4\n", sha(KERNEL_BYTES), sha(SANDBOX_BYTES), sha(COMPUTER_BYTES))
 }
 
 /// A user's release directory with `version` published and signed, and a
@@ -76,7 +79,8 @@ fn release(version: &str, installed: &str) -> Release {
     std::fs::write(&paths.key, b64(&kp.pk.to_box().unwrap().into_string())).unwrap();
     std::fs::write(paths.program_dir.join("VERSION"), format!("{installed}\n")).unwrap();
     std::fs::write(root.join("sandbox/abc/vmlinux"), KERNEL_BYTES).unwrap();
-    std::fs::write(root.join("sandbox/abc/rootfs.ext4"), ROOTFS_BYTES).unwrap();
+    std::fs::write(root.join("sandbox/abc/rootfs.ext4"), SANDBOX_BYTES).unwrap();
+    std::fs::write(root.join("sandbox/abc/computer.ext4"), COMPUTER_BYTES).unwrap();
     let r = Release { _dir: dir, paths, secret: kp.sk };
     r.publish(version, &package(version, &good_hashes()), None);
     r
@@ -101,10 +105,10 @@ impl Release {
         let r = run(&self.paths, |s| {
             assert_eq!(std::fs::read(&s.program).unwrap(), PROGRAM_BYTES);
             assert_eq!(std::fs::read(&s.kernel).unwrap(), KERNEL_BYTES);
-            assert_eq!(std::fs::read(&s.rootfs).unwrap(), ROOTFS_BYTES);
+            assert_eq!(std::fs::read(&s.base).unwrap(), COMPUTER_BYTES, "the computer's base is the release's computer.ext4");
             assert!(s.program.starts_with(&self.paths.staging) && s.installer.starts_with(&self.paths.staging));
             *got.borrow_mut() =
-                Some(Staged { version: s.version.clone(), installer: s.installer.clone(), program: s.program.clone(), kernel: s.kernel.clone(), rootfs: s.rootfs.clone() });
+                Some(Staged { version: s.version.clone(), installer: s.installer.clone(), program: s.program.clone(), kernel: s.kernel.clone(), base: s.base.clone() });
             Ok(())
         });
         (r, got.into_inner())
@@ -166,9 +170,9 @@ fn a_package_signed_as_another_version_is_refused() {
 #[test]
 fn an_image_changed_after_signing_is_refused() {
     let r = release("0.2.6-test.81", "0.2.6-test.80");
-    std::fs::write(r.paths.links_from.join("../sandbox/abc/rootfs.ext4"), b"a base image with a back door").unwrap();
+    std::fs::write(r.paths.links_from.join("../sandbox/abc/computer.ext4"), b"a base image with a back door").unwrap();
     let (out, staged) = r.update();
-    assert!(format!("{:#}", out.unwrap_err()).contains("is not the rootfs.ext4 the release was signed with"));
+    assert!(format!("{:#}", out.unwrap_err()).contains("is not the computer.ext4 the release was signed with"));
     assert!(staged.is_none());
     assert!(!r.paths.staging.exists(), "the copy is not left behind");
 }
@@ -187,13 +191,13 @@ fn an_older_or_the_same_release_is_not_installed() {
 fn an_unchanged_image_is_taken_from_roots_own_copy() {
     let r = release("0.2.6-test.81", "0.2.6-test.80");
     std::fs::write(r.paths.images_dir.join("vmlinux"), KERNEL_BYTES).unwrap();
-    std::fs::write(r.paths.images_dir.join("rootfs.ext4"), ROOTFS_BYTES).unwrap();
-    std::fs::write(r.paths.images_dir.join("base.id"), format!("{}\n", sha(ROOTFS_BYTES))).unwrap();
-    std::fs::remove_file(r.paths.links_from.join("../sandbox/abc/rootfs.ext4")).unwrap();
+    std::fs::write(r.paths.images_dir.join("rootfs.ext4"), COMPUTER_BYTES).unwrap();
+    std::fs::write(r.paths.images_dir.join("base.id"), format!("{}\n", sha(COMPUTER_BYTES))).unwrap();
+    std::fs::remove_file(r.paths.links_from.join("../sandbox/abc/computer.ext4")).unwrap();
     let (out, staged) = r.update();
     assert!(matches!(out.unwrap(), Outcome::Installed { .. }));
     let s = staged.unwrap();
-    assert_eq!(s.rootfs, r.paths.images_dir.join("rootfs.ext4"));
+    assert_eq!(s.base, r.paths.images_dir.join("rootfs.ext4"));
     assert_eq!(s.kernel, r.paths.images_dir.join("vmlinux"));
 }
 
@@ -201,4 +205,30 @@ fn an_unchanged_image_is_taken_from_roots_own_copy() {
 fn the_built_in_key_is_the_release_key() {
     let text = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(BUILT_IN_KEY.trim()).unwrap()).unwrap();
     assert!(minisign_verify::PublicKey::decode(&text).is_ok());
+}
+
+/// The computer boots the minimal image made for it, not the per-task
+/// sandbox's (decisions/2026-11-13-minimal-computer-image.md): a release
+/// carries both, and only `computer.ext4` reaches the installer.
+#[test]
+fn the_computers_base_is_the_computer_image_not_the_sandboxs() {
+    let r = release("0.2.6-test.81", "0.2.6-test.80");
+    let (out, staged) = r.update();
+    assert!(matches!(out.unwrap(), Outcome::Installed { .. }));
+    // `update` checks the installer was handed COMPUTER_BYTES as the base.
+    let s = staged.expect("the installer ran");
+    assert!(s.base.ends_with("computer.ext4"), "{}", s.base.display());
+}
+
+/// A base already installed is known by its `base.id`, which is the
+/// computer image's hash: the sandbox's hash does not count as installed.
+#[test]
+fn a_base_installed_from_the_sandbox_image_is_replaced() {
+    let r = release("0.2.6-test.81", "0.2.6-test.80");
+    std::fs::write(r.paths.images_dir.join("rootfs.ext4"), SANDBOX_BYTES).unwrap();
+    std::fs::write(r.paths.images_dir.join("base.id"), format!("{}\n", sha(SANDBOX_BYTES))).unwrap();
+    let (out, staged) = r.update();
+    assert!(matches!(out.unwrap(), Outcome::Installed { .. }));
+    let s = staged.unwrap();
+    assert!(s.base.starts_with(&r.paths.staging), "the computer image was copied in, not the installed sandbox image kept");
 }
