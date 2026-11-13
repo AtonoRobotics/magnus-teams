@@ -40,6 +40,32 @@ fn a_month_is_its_calendar_month() {
     assert!(month::bounds("nope").is_none());
 }
 
+#[test]
+fn new_receipts_and_reservations_are_counted_once_in_the_call_month() {
+    let mut s = State::default();
+    run(&mut s, 1, "ada", 1, "a/main", 2.0);
+    let charge = calls::Charge {
+        id: "c".into(),
+        run: "r1".into(),
+        person: "ada".into(),
+        workspace: None,
+        channel: String::new(),
+        model: "a/review".into(),
+        month: "2026-12".into(),
+        usd: 1.0,
+        settled: false,
+    };
+    spend(&mut s, 2, Change::CallReserved { charge, baseline: Some(2.0) });
+    assert_eq!(month::spent(&s, "2026-11").total_usd, 2.0);
+    assert_eq!(month::spent(&s, "2026-12").total_usd, 1.0);
+    spend(&mut s, 3, Change::CallSettled { id: "c".into(), usd: 0.25 });
+    // The caller's normal reply still updates run.usd: it must not charge twice.
+    s.runs.get_mut("r1").unwrap().usd += 0.25;
+    assert_eq!(month::spent(&s, "2026-11").total_usd, 2.0);
+    assert_eq!(month::spent(&s, "2026-12").by_model["a/review"], 0.25);
+    assert_eq!(month::spent_by(&s, "2026-12", "ada"), (0.25, 0.25));
+}
+
 /// Limits cascade: a person's own limit, then the server's, whichever is
 /// tighter; no person passes the server's.
 #[test]

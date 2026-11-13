@@ -1,6 +1,5 @@
 //! The projection of the event log: tasks, runs, inbox, approvals, policy.
-//! It holds nothing the log does not; `State::apply` is the only writer, and a
-//! boot replays every event through it.
+//! State::apply is the only writer; boot replays every event through it.
 
 use crate::events::{Ev, RunConfig};
 use crate::log::Event;

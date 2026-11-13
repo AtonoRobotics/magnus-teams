@@ -92,7 +92,7 @@ fn version_of(name: &str, text: &str) -> String {
 }
 
 /// The harness section of a run's system context (#270): what wakes it,
-/// what it keeps, what bounds it, and only the capabilities offered —
+/// what it keeps, what bounds it, and only the capabilities offered â€”
 /// `search`, `sandbox` and `browser` as this appliance offers them.
 /// `watched` names the person's connected apps whose new items wake you,
 /// each with how often it is checked: what you are told is what the poller
@@ -307,7 +307,7 @@ impl Kernel {
 
     /// What a run's system context says about its own harness (#270): what
     /// wakes it, what it keeps, what bounds it, and only the capabilities
-    /// this appliance actually offers it — generated from what is
+    /// this appliance actually offers it â€” generated from what is
     /// offered, so its opinions about itself rest on facts, not guesses.
     fn harness_context(&self, run: &Run) -> String {
         let who = self.person(&run.person).map(|p| if p.name.is_empty() { p.id.clone() } else { p.name.clone() }).unwrap_or_else(|| run.person.clone());
@@ -425,21 +425,28 @@ impl Kernel {
     async fn app_tool_specs(&self, run: &Run) -> Vec<ToolSpec> {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
-        let team = self.team_of(&run.task).is_some();
+        let principal = self.connector_principal(&run.id, &run.person);
+        let team = self.team_of(&run.task);
         for c in self.connectors() {
             // A team run never lists, let alone uses, a member's own sign-in.
-            if team && crate::team::signs_in_per_person(&c) {
+            if team.as_ref().is_some_and(|t| {
+                !self.read(|s| {
+                    s.team
+                        .role(&t.workspace, &t.requester)
+                        .is_some_and(|role| s.team.workspace(&t.workspace).and_then(|w| w.connectors.get(&c.name)).is_some_and(|roles| roles.contains(&role)))
+                })
+            }) {
                 continue;
             }
             // An app people sign in to is offered only to a run whose
             // person has signed in to it themselves.
-            if !self.connected(&c, &run.person) || self.lapsed(&c, &run.person) {
+            if !self.connected(&c, &principal) || self.lapsed(&c, &principal) {
                 continue;
             }
-            let live = self.live_app_tools(&c, &run.person).await;
+            let live = self.live_app_tools(&c, &principal).await;
             // An app refusing Magnus its tools offers none, not even those
             // pinned before: the index says it refuses (app_tools.rs).
-            if live.is_none() && self.refused_apps.lock().unwrap().contains_key(&crate::connectors::connection_name(&c.name, &run.person)) {
+            if live.is_none() && self.refused_apps.lock().unwrap().contains_key(&crate::connectors::connection_name(&c.name, &principal)) {
                 continue;
             }
             // Tools a third-party server added since it was connected.

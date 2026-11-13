@@ -13,7 +13,7 @@ const calls = [], listeners = {};
 const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
-  UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
+  App: { appliance: "test", me: { id: "sam" } }, UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
   icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },

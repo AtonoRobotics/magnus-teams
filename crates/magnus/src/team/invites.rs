@@ -56,6 +56,7 @@ impl Kernel {
     /// Join the workspaces whose live invite is bound to this person's
     /// address, each with the role it carries; each invite then ends.
     async fn join_bound(&self, person: &str) -> anyhow::Result<Vec<String>> {
+        let _files = self.team_files.lock().await;
         let Some(email) = self.accounts.local_person(person).and_then(|l| l.email) else { return Ok(vec![]) };
         let now = chrono::Utc::now();
         let bound: Vec<(String, Invite, bool)> = self.read(|s| {
@@ -121,6 +122,7 @@ struct NewInvite {
 /// By email: someone the server already knows joins at once; anyone else
 /// gets an account invitation by email. Without an email, a link.
 async fn invite(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, mine) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
     let role = b.role.unwrap_or(Role::Member);
     if role > mine {
@@ -182,6 +184,7 @@ async fn by_link(k: &Kernel, p: &Person, ws: String, role: Role) -> Reply {
 /// address is used once, and only by the holder of that address; a link
 /// works until it expires.
 async fn join(State(k): K, h: HeaderMap, Path(code): Path<String>) -> Reply {
+    let _files = k.team_files.lock().await;
     let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
     let Some((ws, _, inv)) = live(&k, &code) else { return err(StatusCode::NOT_FOUND, "that invite has ended") };
     let mine = k.accounts.local_person(&p.id).and_then(|l| l.email);

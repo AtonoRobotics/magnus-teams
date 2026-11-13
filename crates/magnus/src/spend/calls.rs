@@ -21,6 +21,45 @@ pub struct Charge {
     pub settled: bool,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin_app::tests::server_with;
+    use axum::Router;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_reviews_reserve_the_same_monthly_allowance_once() {
+        let s = server_with("", |_| Router::new()).await;
+        s.k.emit("test", Ev::Spend(Change::LimitSet { scope: super::super::Scope::Server, usd: Some(1.0) })).await.unwrap();
+        let (a, b) = tokio::join!(s.k.reserve_model_call("", "sam", "a", "m", 0.6, 0.2, 100), s.k.reserve_model_call("", "mo", "a", "m", 0.6, 0.2, 100));
+        assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+        let charge = a.or(b).unwrap().0;
+        let before = s.k.read(|s| month::spent(s, &charge.month).total_usd);
+        assert_eq!(before, 0.8, "an in-flight or unknown charge was not counted");
+        // Replaying the reservation keeps it charged, including an interrupted review.
+        let mut replay = State::default();
+        replay.spend.apply(chrono::Utc::now(), &Change::CallReserved { charge: charge.clone(), baseline: None });
+        assert_eq!(month::spent(&replay, &charge.month).total_usd, before);
+        s.k.emit("test", Ev::Spend(Change::CallSettled { id: charge.id, usd: 0.1 })).await.unwrap();
+        assert_eq!(s.k.read(|s| month::spent(s, &charge.month).total_usd), 0.1);
+        assert!(s.k.reserve_model_call("", "mo", "a", "m", 0.6, 0.2, 100).await.is_ok());
+        s.done().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn workspace_reviews_stop_at_the_workspace_limit() {
+        let s = server_with("", |_| Router::new()).await;
+        s.k.emit("test", Ev::Team(crate::team::Change::Created { workspace: "w".into(), name: "W".into(), owner: "sam".into() })).await.unwrap();
+        s.k.emit("test", Ev::Team(crate::team::Change::Chat { workspace: "w".into(), chat: crate::team::chat::Chat::SpendLimit { channel: None, usd: Some(0.5) } })).await.unwrap();
+        assert!(s.k.reserve_model_call("", "workspace:w", "a", "m", 0.6, 0.0, 100).await.is_err());
+        assert!(s.k.read(|s| s.spend.calls.is_empty()));
+        assert!(s.k.reserve_model_call("", "workspace:w", "a", "m", 0.1, 0.2, 100).await.is_ok());
+        assert!(s.k.reserve_model_call("", "workspace:w", "a", "m", 0.3, 0.0, 100).await.is_err());
+        assert_eq!(s.k.read(|s| crate::team::spend::spent_this_month(s, "w", chrono::Utc::now()).total_usd), 0.1 + 0.2);
+        s.done().await;
+    }
+}
+
 pub fn legacy(s: &State, run: &crate::state::Run) -> f64 {
     s.spend.call_baselines.get(&run.id).copied().unwrap_or(run.usd)
 }
@@ -67,10 +106,35 @@ impl Kernel {
     ) -> Result<TurnOut, AdapterError> {
         let input = self.adapters.estimate_prompt(adapter, model, system, messages.clone(), tools.clone()).await.map_err(refused)?;
         let (input_usd, output_usd) = self.adapters.quote(adapter, model, input, max_tokens).await.map_err(refused)?;
+        let (charge, tokens) = self.reserve_model_call(run, principal, adapter, model, input_usd, output_usd, max_tokens).await?;
+        let result = self.adapters.complete(adapter, model, system, messages, tools, tokens, on_text).await;
+        let usage = match &result {
+            Ok(out) => Some(&out.usage),
+            Err(e) => e.usage.as_ref(),
+        };
+        if let Some(usage) = usage {
+            if !usage.cost_usd.is_finite() || usage.cost_usd < 0.0 {
+                return Err(refused("the provider returned invalid usage; reservation retained"));
+            }
+            let _guard = self.paid_calls.lock().await;
+            self.emit("kernel:spend", Ev::Spend(Change::CallSettled { id: charge.id, usd: usage.cost_usd })).await.map_err(refused)?;
+        }
+        result
+    }
+    async fn reserve_model_call(
+        &self,
+        run: &str,
+        principal: &str,
+        adapter: &str,
+        model: &str,
+        input_usd: f64,
+        output_usd: f64,
+        max_tokens: u32,
+    ) -> Result<(Charge, u32), AdapterError> {
         if !input_usd.is_finite() || !output_usd.is_finite() || input_usd < 0.0 || output_usd < 0.0 {
             return Err(refused("the provider returned an invalid price"));
         }
-        let (charge, tokens) = {
+        let reserved = {
             let _guard = self.paid_calls.lock().await;
             let (person, workspace, channel, baseline, left) = self.read(|s| {
                 let r = s.runs.get(run);
@@ -100,18 +164,7 @@ impl Kernel {
             self.emit("kernel:spend", Ev::Spend(Change::CallReserved { charge: charge.clone(), baseline })).await.map_err(refused)?;
             (charge, tokens)
         };
-        let result = self.adapters.complete(adapter, model, system, messages, tools, tokens, on_text).await;
-        let usage = match &result {
-            Ok(out) => Some(&out.usage),
-            Err(e) => e.usage.as_ref(),
-        };
-        if let Some(usage) = usage {
-            if !usage.cost_usd.is_finite() || usage.cost_usd < 0.0 {
-                return Err(refused("the provider returned invalid usage; reservation retained"));
-            }
-            let _guard = self.paid_calls.lock().await;
-            self.emit("kernel:spend", Ev::Spend(Change::CallSettled { id: charge.id, usd: usage.cost_usd })).await.map_err(refused)?;
-        }
-        result
+
+        Ok(reserved)
     }
 }

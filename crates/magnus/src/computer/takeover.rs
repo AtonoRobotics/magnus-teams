@@ -375,6 +375,38 @@ impl Kernel {
 mod tests {
     use super::*;
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_live_display_loses_authority_on_handback_membership_or_session_revocation() {
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        s.k.emit("test", Ev::Team(crate::team::Change::Created { workspace: "w".into(), name: "W".into(), owner: "sam".into() })).await.unwrap();
+        s.k.emit("test", Ev::Computer(Change::Created { id: "screen".into(), owner: Owner::Workspace("w".into()) })).await.unwrap();
+        s.k.emit("test", Ev::Computer(Change::Started { id: "screen".into() })).await.unwrap();
+        let token = s.token("sam").await;
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+        let start = || Change::TakeoverStarted { id: "screen".into(), by: "sam".into(), at: Utc::now(), cause: "test".into(), runs: vec![] };
+        s.k.emit("test", Ev::Computer(start())).await.unwrap();
+        let ticket = || {
+            let v = s.k.read(|s| s.computers.get("screen").unwrap().control_version);
+            redeem(&issue("screen", "sam", headers.clone(), v), "screen").unwrap()
+        };
+        let old = ticket();
+        assert!(super::super::display::authorized(&s.k, "screen", &old).await);
+        s.k.emit("test", Ev::Computer(Change::TakeoverEnded { id: "screen".into(), by: "sam".into(), at: Utc::now() })).await.unwrap();
+        s.k.emit("test", Ev::Computer(start())).await.unwrap();
+        assert!(!super::super::display::authorized(&s.k, "screen", &old).await, "retaking revived an old stream");
+        let current = ticket();
+        let session = s.k.accounts.session(&token).await.unwrap();
+        s.k.accounts.end("sam", &session.id).await.unwrap();
+        assert!(!super::super::display::authorized(&s.k, "screen", &current).await, "sign-out left a live stream authorized");
+        // A role downgrade also invalidates its generation immediately.
+        let before = s.k.read(|s| s.computers.get("screen").unwrap().control_version);
+        s.k.emit("test", Ev::Team(crate::team::Change::Member { workspace: "w".into(), person: "sam".into(), role: crate::team::Role::Guest })).await.unwrap();
+        assert!(s.k.read(|s| s.computers.get("screen").unwrap().control_version > before));
+        assert!(s.k.read(|s| s.computers.get("screen").unwrap().controller.is_none()));
+        s.done().await;
+    }
+
     #[test]
     fn a_ticket_works_once_and_only_for_its_computer() {
         let t = issue("a", "alice", axum::http::HeaderMap::new(), 0);

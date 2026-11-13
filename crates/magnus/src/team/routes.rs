@@ -1,5 +1,5 @@
 //! The workspaces' HTTP API.
-use super::agent::{held_dir, volume_dir};
+use super::agent::held_dir;
 use super::chat::Chat;
 use super::conversation::Why;
 use super::{fit_name, Change, File, Message, Role};
@@ -38,6 +38,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/connectors", post(grant_connector))
         .route("/v1/workspaces/{ws}/files/{name}", get(read_file).put(write_file).delete(delete_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/v1/workspaces/{ws}/held/{name}/share", post(share_held))
+        .merge(super::connectors::router())
         .merge(super::kb_routes::router())
         .merge(super::chat_routes::router())
         .merge(super::project_routes::router())
@@ -260,11 +261,17 @@ struct GrantConnector {
 }
 
 async fn grant_connector(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<GrantConnector>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
     if !k.connectors().iter().any(|c| c.name == b.app) {
         return err(StatusCode::NOT_FOUND, "no such app");
     }
-    ok_or_return!(send(&k, &p, Change::Connector { workspace: ws, app: b.app, roles: b.roles }).await);
+    ok_or_return!(send(&k, &p, Change::Connector { workspace: ws.clone(), app: b.app.clone(), roles: b.roles.clone() }).await);
+    if b.roles.is_empty() {
+        if let Err(e) = k.disconnect(&b.app, &super::connectors::principal(&ws)).await {
+            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+        }
+    }
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -275,7 +282,7 @@ async fn read_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, St
     if !known || !fit_name(&name) {
         return err(StatusCode::NOT_FOUND, "no such file");
     }
-    match tokio::fs::read(volume_dir(&k, &ws).join(&name)).await {
+    match tokio::fs::read(super::files::path(&k, &ws, &name)).await {
         Ok(bytes) => bytes.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     }
@@ -296,36 +303,9 @@ async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
         Some(_) => return err(StatusCode::NOT_FOUND, "no such project"),
         None => k.read(|s| s.team.workspace(&ws).and_then(|w| w.chat.file_projects.get(&name).cloned())),
     };
-    let dir = volume_dir(&k, &ws);
-    let staged = dir.with_file_name("uploads").join(new_id());
-    let write = async {
-        use tokio::io::AsyncWriteExt;
-        tokio::fs::create_dir_all(staged.parent().ok_or_else(|| std::io::Error::other("missing upload directory"))?).await?;
-        tokio::fs::create_dir_all(&dir).await?;
-        let mut file = tokio::fs::File::create(&staged).await?;
-        file.write_all(&body).await?;
-        file.sync_all().await
-    }
-    .await;
-    if let Err(e) = write {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
-    }
-    let actor = format!("person:{}", p.id);
     let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
-    // Scope is committed with the file, never after it. Readers hold the same
-    // lock, and a crash cannot put the new bytes under the previous scope.
-    if let Err(e) = k
-        .emit_all(vec![
-            (&actor, Ev::Team(Change::File { workspace: ws.clone(), file })),
-            (&actor, Ev::Team(Change::Chat { workspace: ws, chat: Chat::FileIn { name: name.clone(), project } })),
-        ])
-        .await
-    {
-        let _ = tokio::fs::remove_file(&staged).await;
+    if let Err(e) = k.publish_team_file(&format!("person:{}", p.id), &ws, file, project, &body).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
-    }
-    if let Err(e) = tokio::fs::rename(&staged, dir.join(&name)).await {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
     Json(json!({ "ok": true })).into_response()
 }
@@ -340,7 +320,7 @@ async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, 
         return err(StatusCode::FORBIDDEN, "only who added it, or an admin, may delete it");
     }
     if fit_name(&name) {
-        if let Err(e) = tokio::fs::remove_file(volume_dir(&k, &ws).join(&name)).await {
+        if let Err(e) = tokio::fs::remove_file(super::files::path(&k, &ws, &name)).await {
             tracing::warn!("{name}: {e}");
         }
     }
@@ -367,16 +347,11 @@ async fn share_held(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     if let Err(e) = k.keep_in_library(&format!("person:{}", p.id), &p.id, &name, &bytes).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    let target = volume_dir(&k, &ws);
-    if let Err(e) = async {
-        tokio::fs::create_dir_all(&target).await?;
-        tokio::fs::rename(&from, target.join(&name)).await
+    let project = k.read(|s| s.team.workspace(&ws).and_then(|w| w.chat.file_projects.get(&name).cloned()));
+    if let Err(e) = k.publish_team_file(&format!("person:{}", p.id), &ws, file, project, &bytes).await {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    .await
-    {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
-    }
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
     ok_or_return!(send(&k, &p, Change::Released { workspace: ws, person: p.id.clone(), name }).await);
+    let _ = tokio::fs::remove_file(from).await;
     Json(json!({ "ok": true })).into_response()
 }

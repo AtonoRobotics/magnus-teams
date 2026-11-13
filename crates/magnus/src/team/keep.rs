@@ -45,13 +45,22 @@ impl Kernel {
         let held: Vec<File> = self.read(|s| s.team.workspace(ws).and_then(|w| w.held.get(person)).map(|f| f.values().cloned().collect()).unwrap_or_default());
         let dir = held_dir(self, ws, person);
         for f in held {
-            let kept = match tokio::fs::read(dir.join(&f.name)).await {
-                Ok(bytes) => self.keep_in_library(actor, person, &f.name, &bytes).await.map(|_| ()),
-                Err(e) => Err(e.into()),
-            };
-            kept?;
-            // The source remains until its personal copy and completion record are durable.
-            self.emit(actor, Ev::Team(super::Change::Released { workspace: ws.into(), person: person.into(), name: f.name })).await?;
+            let bytes = tokio::fs::read(dir.join(&f.name)).await?;
+            self.emit_all(vec![
+                (
+                    actor,
+                    Ev::FileUploaded {
+                        id: new_id("file"),
+                        person: person.into(),
+                        name: f.name.clone(),
+                        media_type: crate::boundary::media_type_for(&f.name),
+                        data_b64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                        thread: None,
+                    },
+                ),
+                (actor, Ev::Team(super::Change::Released { workspace: ws.into(), person: person.into(), name: f.name })),
+            ])
+            .await?;
         }
         Ok(())
     }

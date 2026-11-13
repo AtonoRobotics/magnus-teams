@@ -13,7 +13,9 @@ macro_rules! ok_or_return {
 mod agent;
 pub mod chat;
 mod chat_routes;
+pub(crate) mod connectors;
 pub mod conversation;
+mod files;
 #[cfg(test)]
 mod invite_tests;
 pub mod invites;
@@ -127,6 +129,12 @@ pub enum Change {
         workspace: String,
         #[serde(default)]
         file: File,
+    },
+    FilePublished {
+        workspace: String,
+        file: File,
+        project: Option<String>,
+        blob: String,
     },
     FileRemoved {
         workspace: String,
@@ -306,6 +314,7 @@ pub struct Workspace {
     pub channels: BTreeMap<String, Channel>,
     pub connectors: BTreeMap<String, Vec<Role>>,
     pub files: BTreeMap<String, File>,
+    pub file_blobs: BTreeMap<String, String>,
     /// Person, then file name.
     pub held: BTreeMap<String, BTreeMap<String, File>>,
     /// Every entry, of the workspace's own base and of each project's.
@@ -447,6 +456,13 @@ impl Ledger {
                     }
                 }
             }
+            Change::FilePublished { workspace, file, project, blob } => {
+                if let Some(w) = self.workspaces.get_mut(workspace) {
+                    w.files.insert(file.name.clone(), file.clone());
+                    w.file_blobs.insert(file.name.clone(), blob.clone());
+                    super::team::chat::apply(w, &chat::Chat::FileIn { name: file.name.clone(), project: project.clone() });
+                }
+            }
             Change::File { workspace, file } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.files.insert(file.name.clone(), file.clone());
@@ -455,6 +471,8 @@ impl Ledger {
             Change::FileRemoved { workspace, name } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.files.remove(name);
+                    w.file_blobs.remove(name);
+                    w.chat.file_projects.remove(name);
                 }
             }
             Change::Held { workspace, person, file } => {
@@ -652,13 +670,15 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_member_forgets_what_was_held_for_them() {
+    fn removing_a_member_retains_pending_preservation() {
         let mut l = made();
         l.apply(&Change::Member { workspace: "w".into(), person: "bob".into(), role: Role::Member });
         l.apply(&Change::Held { workspace: "w".into(), person: "bob".into(), file: File { name: "f".into(), size: 1, by: "bob".into() } });
         l.apply(&Change::Removed { workspace: "w".into(), person: "bob".into() });
         assert_eq!(l.role("w", "bob"), None);
-        assert!(l.workspace("w").unwrap().held.is_empty());
+        assert!(l.workspace("w").unwrap().held["bob"].contains_key("f"));
+        l.apply(&Change::Released { workspace: "w".into(), person: "bob".into(), name: "f".into() });
+        assert!(l.workspace("w").unwrap().held["bob"].is_empty());
     }
 
     #[test]

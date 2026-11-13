@@ -33,6 +33,7 @@ async fn a_persons_own_rules_are_theirs_and_only_tighten() {
 
     // The owner keeps the organisation's and the groups' layers; a group's
     // still only tightens.
+    assert_eq!(s.post(&sam, "/v1/admin/step-up", json!({ "password": "a-long-admin-password" })).await.0, 200);
     let (path, body) = put("group/staff", PERMIT);
     assert_eq!(s.call(&sam, Method::PUT, &path, body).await.0, 422, "a group's layer loosened the organisation's");
     let (path, body) = put("org", PERMIT);

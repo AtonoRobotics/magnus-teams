@@ -1,6 +1,4 @@
-//! The kernel: wiring, the single writer, boot, and the sweeper that keeps
-//! runs moving. Every change goes through `emit`: append to the log first,
-//! then apply to the projection.
+//! Kernel wiring, boot and sweeps; append changes before applying them.
 
 use crate::adapters::Adapters;
 use crate::apps::{AppTool, Mcp};
@@ -18,9 +16,7 @@ use std::time::{Duration, Instant};
 
 pub const HARNESS_VERSION: &str = concat!("magnus-", env!("CARGO_PKG_VERSION"));
 
-/// The record a sign-in resolves: the config first, else the server's own
-/// directory, where a local person has no token, groups or roles: a member,
-/// nothing more. Split out so tests reach it without a kernel (Postgres).
+/// Resolve config identities before the local directory's member identities.
 pub(crate) fn resolve_person(cfg: &Config, accounts: &crate::accounts::Accounts, id: &str) -> Option<Person> {
     if let Some(p) = cfg.person(id) {
         return Some(p.clone());

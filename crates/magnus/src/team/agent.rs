@@ -93,7 +93,7 @@ impl Kernel {
                 Some(roles) if !roles.contains(&role) => {
                     Some(format!("{app} is not open to the {role:?} role in this workspace, so the team agent cannot use it for {}", t.requester))
                 }
-                Some(_) if self.connector(app).is_none_or(|c| signs_in_per_person(&c)) => Some(format!(
+                Some(_) if self.connector(app).is_none_or(|c| !self.connected(&c, &super::connectors::principal(&t.workspace))) => Some(format!(
                     "{app} acts through each person's own sign-in, and a team thread never uses a member's own sign-in; the workspace has no sign-in of its own for it"
                 )),
                 Some(_) => None,
@@ -124,7 +124,8 @@ impl Kernel {
         };
         let role = self.read(|s| s.team.role(&t.workspace, &t.requester));
         let granted = self.read(|s| s.team.workspace(&t.workspace).map(|w| w.connectors.clone())).unwrap_or_default();
-        let personal: std::collections::BTreeSet<String> = self.connectors().into_iter().filter(signs_in_per_person).map(|c| c.name).collect();
+        let personal: std::collections::BTreeSet<String> =
+            self.connectors().into_iter().filter(|c| signs_in_per_person(c) && !self.connected(c, &super::connectors::principal(&t.workspace))).map(|c| c.name).collect();
         let allowed = |name: &str| match name.split_once("__") {
             Some((app, _)) => !personal.contains(app) && role.is_some_and(|r| granted.get(app).is_some_and(|roles| roles.contains(&r))),
             // Offered only where the boundary would let it through.
@@ -244,7 +245,7 @@ impl Kernel {
         if !known || !fit_name(name) {
             return Ok((format!("the team volume has no file called {name}"), true, None));
         }
-        let bytes = tokio::fs::read(volume_dir(self, &t.workspace).join(name)).await?;
+        let bytes = tokio::fs::read(super::files::path(self, &t.workspace, name)).await?;
         Ok((String::from_utf8_lossy(&bytes).into_owned(), false, None))
     }
 
@@ -265,16 +266,19 @@ impl Kernel {
         }
         let file = File { name: name.to_string(), size: content.len() as u64, by: t.requester.clone() };
         let actor = format!("run:{}", a.run);
-        let (dir, change, said) = if private {
-            let d = held_dir(self, &t.workspace, &t.requester);
-            let c = Change::Held { workspace: t.workspace.clone(), person: t.requester.clone(), file };
-            (d, c, format!("{name} holds data only {} may see, so it is kept in their space. It reaches the team volume when they share it.", t.requester))
+        let said = if private {
+            let dir = held_dir(self, &t.workspace, &t.requester);
+            tokio::fs::create_dir_all(&dir).await?;
+            tokio::fs::write(dir.join(name), content).await?;
+            self.emit(&actor, crate::events::Ev::Team(Change::Held { workspace: t.workspace.clone(), person: t.requester.clone(), file })).await?;
+            format!("{name} holds data only {} may see, so it is kept in their space. It reaches the team volume when they share it.", t.requester)
         } else {
-            (volume_dir(self, &t.workspace), Change::File { workspace: t.workspace.clone(), file }, format!("{name} is on the team volume."))
+            let project = self.read(|s| {
+                s.team.workspace(&t.workspace).and_then(|w| w.chat.file_projects.get(name).cloned().or_else(|| w.channels.get(&t.channel).and_then(|c| c.project.clone())))
+            });
+            self.publish_team_file(&actor, &t.workspace, file, project, content.as_bytes()).await?;
+            format!("{name} is on the team volume.")
         };
-        tokio::fs::create_dir_all(&dir).await?;
-        tokio::fs::write(dir.join(name), content).await?;
-        self.emit(&actor, crate::events::Ev::Team(change)).await?;
         Ok((said, false, None))
     }
 
