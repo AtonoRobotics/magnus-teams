@@ -23,6 +23,9 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts, ChatView };`, sandbox);
+
+// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
+const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
 const { Team, TeamChat } = sandbox.__x;
 
 // Places and links.
@@ -73,7 +76,7 @@ const channelState = { ws: "w", channel: "c1", view: { messages: [], names: {} }
 const draw = (m, o = {}) => {
   const st = { ...channelState, ...(o.s || {}) }, thread = o.thread || null;
   const conv = sandbox.teamConversation(st, thread), r = sandbox.teamReader(st, thread);
-  return sandbox.__x.ChatView.item(sandbox.teamEntry(m, r), { conv, ui: { editing: null, sharing: null, ...(o.ui || {}) } });
+  return sandbox.__x.ChatView.item(sandbox.teamEntry(served(m), r), { conv, ui: { editing: null, sharing: null, ...(o.ui || {}) } });
 };
 Team.home = home;
 

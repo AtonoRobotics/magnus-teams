@@ -23,6 +23,9 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "personal-chat.js", "teams.js", "team-chat.js", "team-conversation.js"].map(ui);
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { ChatView, Team };`, sandbox);
+
+// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
+const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
 const { ChatView, Team } = sandbox.__x;
 Team.home = { id: "w", role: "member", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1", name: "general", direct: null }], projects: [] };
 const state = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {}, pinsOnly: false, whispers: [], hidden: new Set(), unreadAtOpen: 0, typedAt: 0 };
@@ -46,14 +49,14 @@ const reader = sandbox.teamReader(state, null);
 
 // One's own message: the same entry, bubble and controls in both.
 const mine = draw(personal, { id: "e1", kind: "message", text: "Hello", at: "t" });
-const mineTeam = draw(team, sandbox.teamEntry({ id: "m1", sender: "sam", text: "Hello", thread: null, at: "t" }, reader));
+const mineTeam = draw(team, sandbox.teamEntry(served({ id: "m1", sender: "sam", text: "Hello", thread: null, at: "t" }), reader));
 assert.match(mine, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline">You · at<\/div><div>Hello<\/div><\/div>/, "the personal chat's own message changed");
 assert.match(mineTeam, /^<div class="entry me"[^>]*><div class="msg me"><div class="small faint byline"><span class="team-avatar"[^]*<\/span>You · at<\/div><div>Hello<\/div><\/div>/, "a team message of one's own is not the personal chat's");
 assert.equal(skeleton(mineTeam.replace(/<span class="team-avatar"[^]*?<\/span>/, "")).replace(/<div class="msg-actions[^]*$/, ""), skeleton(mine).replace(/<div class="msg-actions[^]*$/, ""), "one's own message is drawn two ways");
 
 // Magnus's answer: the same, with the requester named in a team.
 const answer = draw(personal, { id: "e2", kind: "answer", text: "Done", at: "t", task_id: "t1" });
-const answerTeam = draw(team, sandbox.teamEntry({ id: "a1", sender: "agent", requester: "dana", task: "t1", text: "Done", thread: null, at: "t" }, reader));
+const answerTeam = draw(team, sandbox.teamEntry(served({ id: "a1", sender: "agent", requester: "dana", task: "t1", text: "Done", thread: null, at: "t" }), reader));
 assert.match(answer, /^<div class="entry them"[^>]*><div class="msg magnus" data-answer data-task="t1"><div class="small faint byline">Magnus · at<\/div><div class="answer-body"><p>Done<\/p><\/div><\/div><div class="msg-actions small"/, "the personal chat's answer changed");
 assert.match(answerTeam, /^<div class="entry them"[^>]*><div class="msg magnus" data-answer data-task="t1"><div class="small faint byline">[^]*Magnus · for Dana · at<\/div><div class="answer-body"><p>Done<\/p><\/div><\/div><div class="msg-actions small"/, "a team answer is not the personal chat's");
 // Both answers' controls are the one module's row and menu.
@@ -61,7 +64,7 @@ for (const html of [answer, answerTeam]) assert.match(html, /class="icon menu-tr
 
 // Work: the personal chat's task row, in a team the requester named.
 const taskRow = ChatView.workRow({ id: "t1", status: "running", icon: "working", pill: "", title: "Plan", sub: "", href: "#/task/t1" });
-const teamRow = draw(team, sandbox.teamEntry({ id: "w1", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t1", requester: "dana", status: "working", steps: 0, doing: null, title: "Plan", long: false, thread: null, reason: null } }, reader));
+const teamRow = draw(team, sandbox.teamEntry(served({ id: "w1", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t1", requester: "dana", status: "working", steps: 0, doing: null, title: "Plan", long: false, thread: null, reason: null } }), reader));
 assert.match(taskRow, /^<li class="tcard" data-chat-task="t1" data-status="running"><a class="rg-row"/);
 assert.match(teamRow, /<div class="reqgroup chatcard" data-chat-work="t1"><ul class="rg-rows"><li class="tcard" data-chat-task="t1" data-status="running"><div class="rg-row"/, "team work is not the personal chat's task row");
 
@@ -69,12 +72,17 @@ assert.match(teamRow, /<div class="reqgroup chatcard" data-chat-work="t1"><ul cl
 assert.match(draw(personal, { id: "e3", kind: "suggestion_card" }), /data-personal-only="suggestion_card"/);
 // Mentions are marked only where there are people to mention.
 assert.doesNotMatch(draw(personal, { id: "e4", kind: "message", text: "mail @dana", at: "" }), /class="mention"/, "the personal chat marks mentions");
-assert.match(draw(team, sandbox.teamEntry({ id: "m4", sender: "dana", text: "hi @Sam", thread: null, at: "" }, reader)), /class="mention">@Sam/);
+assert.match(draw(team, sandbox.teamEntry(served({ id: "m4", sender: "dana", text: "hi @Sam", thread: null, at: "" }), reader)), /class="mention">@Sam/);
 // The word after a name is not part of it unless someone has both.
-assert.match(draw(team, sandbox.teamEntry({ id: "m5", sender: "sam", text: "@Magnus Plan the launch", thread: null, at: "" }, reader)), /<span class="mention">@Magnus<\/span> Plan the launch/, "the word after a mention was taken into it");
+assert.match(draw(team, sandbox.teamEntry(served({ id: "m5", sender: "sam", text: "@Magnus Plan the launch", thread: null, at: "" }), reader)), /<span class="mention">@Magnus<\/span> Plan the launch/, "the word after a mention was taken into it");
 Team.home.members.push({ id: "ds", name: "Dana Smith" });
-assert.match(draw(team, sandbox.teamEntry({ id: "m6", sender: "sam", text: "ask @Dana Smith", thread: null, at: "" }, reader)), /<span class="mention">@Dana Smith<\/span>/, "a two-word name is not one mention");
+assert.match(draw(team, sandbox.teamEntry(served({ id: "m6", sender: "sam", text: "ask @Dana Smith", thread: null, at: "" }), reader)), /<span class="mention">@Dana Smith<\/span>/, "a two-word name is not one mention");
 Team.home.members.pop();
+
+// The server says what an item is and what it carries; the app does not guess.
+const told = sandbox.teamEntry({ id: "a2", kind: "answer", sender: "agent", text: "", files: ["plan.pdf"], thread: null, at: "" }, reader);
+assert.equal(told.kind, "answer", "the app guessed an item's kind");
+assert.deepEqual(JSON.parse(JSON.stringify(told.files)), [{ name: "plan.pdf" }], "the app did not take the server's files");
 
 // The one view and the one composer: no team copy of either is left.
 for (const f of ["team-chat.js", "team-conversation.js"]) {

@@ -11,7 +11,7 @@
 /**
  * A channel's items as the server sends them (crates/magnus/src/team/items.rs).
  * @typedef {{ task: string, requester: string, status: "working"|"waiting"|"done"|"failed"|"stopped", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
- * @typedef {{ id: string, sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, task?: string, private?: boolean, deleted?: boolean }} TeamMessage
+ * @typedef {{ id: string, kind: "message"|"answer"|"work"|"deleted", files?: string[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, task?: string, private?: boolean, deleted?: boolean }} TeamMessage
  * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
  * Who is reading, to read a channel's items into the chat view's kinds.
  * @typedef {{ me: string, ws: string, channel: string, name: (id: string) => string, inThread?: boolean }} TeamReader
@@ -73,20 +73,17 @@ function teamWork(w, r) {
 }
 
 /**
- * A channel's item as the chat view's entry: a person's message, the
- * agent's answer, or its work with no words yet. Attached files are the
- * message's 📎 lines.
+ * A channel's item as the chat view's entry. The server says which kind it
+ * is (a person's message, the agent's answer, its work with no words yet, or
+ * a deleted message) and which files it carries (crates/magnus/src/team/items.rs);
+ * here only the words lose their 📎 lines and names are put to ids.
  * @param {TeamMessage} m @param {TeamReader} r @returns {ChatEntry}
  */
 function teamEntry(m, r) {
-  if (m.deleted) return { id: m.id, kind: "deleted", at: m.at, sender: m.sender, replies: m.replies, thread: m.thread };
-  const lines = String(m.text || "").split("\n");
-  const files = lines.filter(l => l.startsWith("📎 ")).map(l => ({ name: l.slice(2).trim() }));
-  const text = lines.filter(l => !l.startsWith("📎 ")).join("\n");
-  const agent = m.sender === "agent";
-  const kind = !agent ? "message" : text ? "answer" : "work";
-  return { id: m.id, kind, at: m.at, sender: m.sender, text, files, edited: m.edited, pinned: m.pinned, reactions: m.reactions, replies: m.replies, last_reply: m.last_reply,
-    thread: m.thread, task_id: m.task, private: m.private, requester: m.requester, for: agent && m.requester ? r.name(m.requester) : undefined, work: m.work ? teamWork(m.work, r) : undefined };
+  if (m.kind === "deleted") return { id: m.id, kind: "deleted", at: m.at, sender: m.sender, replies: m.replies, thread: m.thread };
+  const text = String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n");
+  return { id: m.id, kind: m.kind, at: m.at, sender: m.sender, text, files: (m.files || []).map(name => ({ name })), edited: m.edited, pinned: m.pinned, reactions: m.reactions, replies: m.replies, last_reply: m.last_reply,
+    thread: m.thread, task_id: m.task, private: m.private, requester: m.requester, for: m.kind !== "message" && m.requester ? r.name(m.requester) : undefined, work: m.work ? teamWork(m.work, r) : undefined };
 }
 
 /** Who a partial @mention could be: the team agent first, then people. */

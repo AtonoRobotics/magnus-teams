@@ -25,6 +25,9 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, Notices, ChatView };`, sandbox);
+
+// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
+const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
 const { Team, Notices, ChatView } = sandbox.__x;
 
 const home = {
@@ -53,7 +56,7 @@ assert.equal(sandbox.firstChannel({ ...home, channels: [home.channels[1], home.c
 // message can be deleted, someone else's cannot (by a member: a Team Admin
 // moderates a channel). Each is drawn by the one chat view (chat-view.js).
 const channelState = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {}, pinsOnly: false, whispers: [], hidden: new Set(), unreadAtOpen: 0 };
-const messageHtml = (m, thread = null) => ChatView.item(sandbox.teamEntry(m, sandbox.teamReader(channelState, thread)), { conv: sandbox.teamConversation(channelState, thread), ui: { editing: null, sharing: null } });
+const messageHtml = (m, thread = null) => ChatView.item(sandbox.teamEntry(served(m), sandbox.teamReader(channelState, thread)), { conv: sandbox.teamConversation(channelState, thread), ui: { editing: null, sharing: null } });
 const gone = messageHtml({ id: "m1", sender: "dana", text: "", thread: null, at: "", deleted: true, replies: 2 });
 assert.match(gone, /This message was deleted\.[^]*2 replies/);
 assert.doesNotMatch(gone, /data-react|data-msg-act/, "a deleted message offers actions");

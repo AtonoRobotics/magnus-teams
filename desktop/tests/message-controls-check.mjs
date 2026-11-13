@@ -109,12 +109,15 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, MessageControls };`, sandbox);
+
+// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
+const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
 const { Team, TeamChat } = sandbox.__x;
 Team.home = { me: "sam", role: "member", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1" }], projects: [] };
 TeamChat.refresh = async () => {};
 const state = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {} };
 const view = { section: {}, ui: { editing: null, sharing: null, people: [] }, draw: async () => {} };
-const answer = sandbox.teamEntry({ id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", at: "" }, sandbox.teamReader(state, null));
+const answer = sandbox.teamEntry(served({ id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", at: "" }), sandbox.teamReader(state, null));
 const conv = sandbox.teamConversation(state, null);
 for (const [act, route, body_] of [["save", "save", {}], ["share-send", "share", { person: "dana" }], ["retry", "retry", {}]]) {
   calls.length = 0;

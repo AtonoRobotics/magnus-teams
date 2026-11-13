@@ -1,7 +1,10 @@
 //! The team chat's items as they travel to the app: a person's message, the
-//! agent's live work, and its answer. Defined once here; the app's JSDoc
-//! (`TeamMessage`, `TeamWork` in desktop/ui/team-chat.js) is held to them by
-//! `desktop/tests/fixtures/team-items.json`.
+//! agent's live work, and its answer. Each says which kind of the chat
+//! view's items it is (`kind`: the personal chat's `message` and `answer`,
+//! with `work` and `deleted`) and the files it carries, so the app's one chat
+//! view (desktop/ui/chat-view.js) reads it as it reads a personal chat entry
+//! (decisions/2026-11-13-one-chat-view.md). Defined once here; the app's
+//! JSDoc (`TeamMessage`, `TeamWork` in desktop/ui/team-chat.js) follows them.
 use super::conversation::AGENT_ID;
 use super::member_view::{author, Answer, MemberView, Runs, Work};
 use super::{Message, Workspace};
@@ -31,6 +34,12 @@ pub struct TeamWork {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct TeamItem {
     pub id: String,
+    /// The chat view's kind: `message` (a person's), `answer` (the agent's
+    /// words), `work` (the agent's work with no words yet) or `deleted`.
+    pub kind: &'static str,
+    /// The files it carries, by name: its `📎` lines.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
     /// A person, or the agent.
     pub sender: String,
     /// Whom the agent wrote it for.
@@ -91,10 +100,17 @@ impl TeamWork {
     }
 }
 
+/// The files a message carries: its lines that begin with a paperclip.
+pub fn attached(text: &str) -> Vec<String> {
+    text.lines().filter_map(|l| l.strip_prefix("📎 ")).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect()
+}
+
 impl TeamItem {
-    fn bare(id: String, sender: String, requester: Option<String>, text: String, thread: Option<String>, at: At) -> TeamItem {
+    fn bare(kind: &'static str, id: String, sender: String, requester: Option<String>, text: String, thread: Option<String>, at: At) -> TeamItem {
         TeamItem {
             id,
+            kind,
+            files: attached(&text),
             sender,
             requester,
             text,
@@ -115,12 +131,20 @@ impl TeamItem {
     /// A message, with its edits, pin, reactions and whether it was deleted.
     pub fn message(w: &Workspace, m: &Message) -> TeamItem {
         let (sender, requester) = author(&m.sender);
+        let deleted = w.chat.unsent.contains(&m.id);
+        let kind = if deleted {
+            "deleted"
+        } else if sender == AGENT_ID {
+            "answer"
+        } else {
+            "message"
+        };
         TeamItem {
             edited: Some(w.chat.edited.contains(&m.id)),
             pinned: Some(w.chat.pins.contains(&m.id)),
             reactions: Some(w.chat.reactions.get(&m.id).cloned().unwrap_or_default()),
-            deleted: Some(w.chat.unsent.contains(&m.id)),
-            ..TeamItem::bare(m.id.clone(), sender.to_string(), requester.map(String::from), m.text.clone(), m.thread.clone(), m.at)
+            deleted: Some(deleted),
+            ..TeamItem::bare(kind, m.id.clone(), sender.to_string(), requester.map(String::from), m.text.clone(), m.thread.clone(), m.at)
         }
     }
 
@@ -128,7 +152,7 @@ impl TeamItem {
     pub fn work(w: &Work) -> TeamItem {
         TeamItem {
             work: Some(TeamWork::of(w)),
-            ..TeamItem::bare(format!("work:{}", w.task), AGENT_ID.into(), Some(w.requester.clone()), String::new(), w.asked_in.clone(), w.started)
+            ..TeamItem::bare("work", format!("work:{}", w.task), AGENT_ID.into(), Some(w.requester.clone()), String::new(), w.asked_in.clone(), w.started)
         }
     }
 
@@ -137,7 +161,7 @@ impl TeamItem {
         TeamItem {
             task: Some(a.task.clone()),
             private: Some(a.private),
-            ..TeamItem::bare(a.id.clone(), AGENT_ID.into(), Some(a.requester.clone()), a.text.clone(), a.thread.clone(), a.at)
+            ..TeamItem::bare("answer", a.id.clone(), AGENT_ID.into(), Some(a.requester.clone()), a.text.clone(), a.thread.clone(), a.at)
         }
     }
 }
@@ -182,4 +206,27 @@ pub fn said<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamItem>
     items.extend(v.answers(channel, now).iter().map(TeamItem::answer));
     items.sort_by_key(|i| i.at);
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at() -> At {
+        chrono::DateTime::from_timestamp(0, 0).unwrap_or_default()
+    }
+
+    /// Each item says which of the chat view's kinds it is, and its files,
+    /// so the app reads it as a personal chat entry.
+    #[test]
+    fn an_item_is_one_of_the_chat_views_kinds_with_its_files() {
+        let said = TeamItem::bare("message", "m1".into(), "sam".into(), None, "see this\n📎 plan.pdf\n📎  \n📎 shot.png".into(), None, at());
+        assert_eq!(said.files, ["plan.pdf", "shot.png"]);
+        let v = serde_json::to_value(&said).unwrap_or_default();
+        assert_eq!(v["kind"], "message");
+        assert_eq!(v["files"], serde_json::json!(["plan.pdf", "shot.png"]));
+        let quiet = serde_json::to_value(TeamItem::bare("answer", "a1".into(), AGENT_ID.into(), None, "done".into(), None, at())).unwrap_or_default();
+        assert_eq!(quiet["kind"], "answer");
+        assert!(quiet.get("files").is_none(), "an item with no files says it has some");
+    }
 }
