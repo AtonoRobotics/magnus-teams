@@ -92,7 +92,7 @@ fn version_of(name: &str, text: &str) -> String {
 }
 
 /// The harness section of a run's system context (#270): what wakes it,
-/// what it keeps, what bounds it, and only the capabilities offered â€”
+/// what it keeps, what bounds it, and only the capabilities offered —
 /// `search`, `sandbox` and `browser` as this appliance offers them.
 /// `watched` names the person's connected apps whose new items wake you,
 /// each with how often it is checked: what you are told is what the poller
@@ -307,7 +307,7 @@ impl Kernel {
 
     /// What a run's system context says about its own harness (#270): what
     /// wakes it, what it keeps, what bounds it, and only the capabilities
-    /// this appliance actually offers it â€” generated from what is
+    /// this appliance actually offers it — generated from what is
     /// offered, so its opinions about itself rest on facts, not guesses.
     fn harness_context(&self, run: &Run) -> String {
         let who = self.person(&run.person).map(|p| if p.name.is_empty() { p.id.clone() } else { p.name.clone() }).unwrap_or_else(|| run.person.clone());

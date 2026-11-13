@@ -1,7 +1,6 @@
-//! What was spent in a calendar month (UTC), and on what. A run's own
-//! model calls are its `usd`; a sub-agent's are in its own run, so summing
-//! every run's `usd` counts each dollar once. A run counts in the month it
-//! started, as the team's limits count it.
+//! What was spent or reserved in a calendar month (UTC), and on what.
+//! Calls belong to the month they were reserved. Legacy run receipts keep
+//! their original start-month attribution, up to the first reservation.
 
 use crate::state::State;
 use chrono::{DateTime, Datelike, TimeZone, Utc};

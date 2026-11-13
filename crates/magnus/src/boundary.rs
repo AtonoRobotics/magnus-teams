@@ -260,7 +260,7 @@ pub(crate) enum Gate {
 
 impl Kernel {
     /// An auxiliary model call's output allowance: the full allowance when
-    /// its worst case fits what the run has left, None when it does not â€”
+    /// its worst case fits what the run has left, None when it does not —
     /// the caller skips the call. Auxiliary calls are optional extras
     /// (verdicts, memory, extractions, spoken scripts), never the run's
     /// work, so they run whole or not at all: a truncated judgment is

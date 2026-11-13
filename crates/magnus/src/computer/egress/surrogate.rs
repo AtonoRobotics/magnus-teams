@@ -89,7 +89,7 @@ pub(super) struct Scrubber {
 
 impl Scrubber {
     pub(super) fn add(&mut self, real: String, token: String) {
-        if real.len() >= MIN_ECHO_BYTES {
+        if !real.is_empty() {
             self.pairs.push((real.into_bytes(), token.into_bytes()));
         }
     }
@@ -150,9 +150,6 @@ impl Scrubber {
     }
 }
 
-/// Anything shorter would turn ordinary text into surrogates.
-const MIN_ECHO_BYTES: usize = 8;
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -180,13 +177,28 @@ mod tests {
     }
 
     #[test]
-    fn with_nothing_swapped_the_stream_is_untouched_and_a_short_value_is_ignored() {
+    fn with_nothing_swapped_the_stream_is_untouched() {
         let mut none = Scrubber::default();
         assert_eq!(none.push(b"abc"), b"abc");
         assert!(!none.active());
-        let mut short = Scrubber::default();
-        short.add("abc".into(), "zzz".into());
-        assert!(!short.active());
+    }
+
+    #[test]
+    fn short_credentials_cannot_escape_in_headers_or_split_bodies() {
+        for value in ["a", "abc", "1234567"] {
+            for size in 1..=value.len() {
+                let mut scrub = Scrubber::default();
+                scrub.add(value.into(), "msur_hidden".into());
+                assert!(scrub.active(), "short credentials must also require identity encoding");
+                assert_eq!(scrub.text(&format!("X-Echo: {value}\r\n")), "X-Echo: msur_hidden\r\n");
+                let mut out = Vec::new();
+                for chunk in value.as_bytes().chunks(size) {
+                    out.extend(scrub.push(chunk));
+                }
+                out.extend(scrub.finish());
+                assert_eq!(out, b"msur_hidden");
+            }
+        }
     }
 
     #[test]

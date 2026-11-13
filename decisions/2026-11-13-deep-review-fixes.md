@@ -9,7 +9,8 @@ behavior. No production deployment is included in this branch.
 - Surrogate credentials require verified HTTPS on port 443. Responses are decoded
   from HTTP framing before scrubbing. Ambiguous framing is rejected; credential
   requests ask for identity encoding and reject a compressed response. Reframed
-  output does not retain stale content lengths or chunk sizes.
+  output does not retain stale content lengths or chunk sizes. Short secrets
+  are scrubbed too; their length does not exempt them from echo protection.
 - Auto Review keys include the current request, effect, classifier finding and run.
   Legacy organization/group policy writes use the existing admin step-up/audit gate.
 - Tester consent does not authorize developer access to workspace or whisper runs,
