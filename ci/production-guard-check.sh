@@ -21,7 +21,21 @@ for c in \
   "cargo +nightly check" \
   "(cd desktop/src-tauri && cargo tauri build --bundles deb)" \
   "ci/ratchet.sh clippy" \
-  "sh ci/acceptance.sh"; do
+  "sh ci/acceptance.sh" \
+  "cargo test # ci/on-strix-beta.sh" \
+  "echo ci/on-strix-beta.sh; cargo build" \
+  "ci/on-strix-beta.sh a cargo test; cargo test" \
+  "ci/on-strix-beta.sh a cargo test && cargo build -p magnus" \
+  "ci/on-strix-beta.sh a \"\$(cargo build)\"" \
+  "sh -c 'cargo test'" \
+  "bash -c \"cargo build\"" \
+  "bash -lc 'cd x && cargo clippy --workspace'" \
+  "sh -c \"sh -c 'cargo check'\"" \
+  "echo \"\$(cargo build)\"" \
+  "nice -n 5 bash -c 'timeout 60 cargo test'" \
+  "bash <<EOF
+cargo build
+EOF"; do
   check deny "$here" "$c"
   check allow "not-$here" "$c"
 done
@@ -32,7 +46,26 @@ for c in \
   "ci/ratchet.sh size" \
   "cargo tree" \
   "git commit -m 'run cargo test on strix'" \
-  "ls; grep cargo build.rs"; do
+  "ls; grep cargo build.rs" \
+  "git status" \
+  "git log --oneline -5 && git diff --stat" \
+  "ci/on-strix-beta.sh review-sec-ci cargo test --workspace --lib --bins 2>&1 | tail -30" \
+  "cd /tmp/x && ci/on-strix-beta.sh a cargo test -p magnus-guest" \
+  "ci/on-strix-beta.sh a sh -c 'cargo build; cargo test'" \
+  "ci/on-strix-beta.sh a ci/ratchet.sh clippy" \
+  "STRIX_BETA=me@host ci/on-strix-beta.sh a cargo clippy" \
+  "git commit -m \"cargo test; cargo build\"" \
+  "git commit -F - <<'EOF'
+Fix it
+cargo test passes now
+EOF" \
+  "git commit -m \"\$(cat <<'EOF'
+cargo build is fine on Strix
+EOF
+)\"" \
+  "echo 'a; cargo build' > notes.txt" \
+  "sh ci/production-guard-check.sh" \
+  "cargo fmt --all --check && ci/ratchet.sh size"; do
   check allow "$here" "$c"
 done
 [ $fail = 0 ] && echo "production guard: ok"
