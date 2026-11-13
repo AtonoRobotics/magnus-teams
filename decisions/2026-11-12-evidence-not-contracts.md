@@ -59,3 +59,5 @@ Follow-on choices:
   what is retired and are removed; tests of criteria review and the verifier
   in other suites are removed, and the autonomy retry scenario now gets its
   authority from the organisation's policy instead of a grant.
+
+Applied: the invariants patch landed in `0438887` (2026-11-12). Its file was removed on 2026-11-13; its content was checked to be in the tree.

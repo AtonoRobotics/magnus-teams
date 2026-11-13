@@ -82,3 +82,7 @@ stops the server with a message naming each and the line to add:
 The invariants harness writes its own config and so needs the section too:
 `decisions/2026-11-11-invariants-legal-section.patch` (`git apply` it; edits
 to `tests/invariants/` wait for the owner).
+
+## The invariants' `[legal]` patch: not applied (2026-11-13)
+
+`2026-11-11-invariants-legal-section.patch` was written when `[legal]` was required and a server without it would not start. Since `3cc8780` a server with no `[legal]` section starts with the agreements off; only a partial section is refused (`Config::load`). The invariants harness writes no section, so its server starts. No invariant tests the agreements, and the API records acceptance without gating on it, so the section changes nothing they check. The production server (`~/.magnus-teams/magnus.toml`) has no `[legal]` either, so the harness runs the configuration production runs. The patch was removed unapplied. When the agreements are switched on in production, the harness should get the section too.
