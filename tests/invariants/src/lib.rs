@@ -57,35 +57,11 @@ pub fn canary(tag: &str) -> String {
     format!("CANARY-{tag}-{}", uuid::Uuid::new_v4().simple())
 }
 
-/// A `task_contract` call with one criterion checked against the world:
-/// `tool(input)` must return a result whose JSON value at `pointer` equals `equals`.
-pub fn contract_checked(goal: &str, tool: &str, input: Value, pointer: &str, equals: Value) -> Reply {
-    model::tool(
-        "task_contract",
-        json!({
-            "goal": goal,
-            "assumptions": [],
-            "irreversible_actions": [],
-            "criteria": [{
-                "id": "c1",
-                "description": format!("{tool} shows {pointer} = {equals}"),
-                "check": { "tool": tool, "input": input, "expect": [{ "pointer": pointer, "equals": equals }] }
-            }]
-        }),
-    )
-}
-
-/// A `task_contract` call whose only criterion has no executable check.
-pub fn contract_unchecked(goal: &str, criterion: &str) -> Reply {
-    model::tool(
-        "task_contract",
-        json!({
-            "goal": goal,
-            "assumptions": [],
-            "irreversible_actions": [],
-            "criteria": [{ "id": "c1", "description": criterion }]
-        }),
-    )
+/// A `task_plan` call with one active unit, the task's goal. A plan is
+/// optional and records progress only (spec rev 147, which retired task
+/// contracts); scripts open with it so the agent's first turn changes nothing.
+pub fn plan(goal: &str) -> Reply {
+    model::tool("task_plan", json!({ "title": goal, "units": [{ "id": "u1", "goal": goal, "status": "active" }] }))
 }
 
 /// The example tasks' results are actions, so the deliverable is the record

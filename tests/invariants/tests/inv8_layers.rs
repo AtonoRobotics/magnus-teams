@@ -16,7 +16,7 @@ fn close_42() -> Reply {
 }
 
 fn crm_script() -> magnus_invariants::model::Script {
-    steps(vec![contract_unchecked("close record 42", "closed"), close_42(), fail("done")])
+    steps(vec![plan("close record 42"), close_42(), fail("done")])
 }
 
 async fn crm_app(model: &FakeModel) -> (FakeMcp, Appliance) {
@@ -28,12 +28,7 @@ async fn crm_app(model: &FakeModel) -> (FakeMcp, Appliance) {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_user_layer_cannot_widen_the_organization_layer() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("say hi", "said"),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
-        fail("done"),
-    ]))
-    .await;
+    let model = FakeModel::start(steps(vec![plan("say hi"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), fail("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     assert!(alice.put_policy("org", &org_policy("")).await.is_success());
@@ -97,8 +92,7 @@ async fn a_group_layer_narrows_its_members() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_never_exceeds_the_persons_own_access() {
     let finance = mcp::finance().start().await;
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("get the Q3 report", "report fetched"), tool("finance__get_report", json!({ "quarter": "Q3" })), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("get the Q3 report"), tool("finance__get_report", json!({ "quarter": "Q3" })), fail("done")])).await;
     let app = Appliance::start(Spec::default().app("finance", &finance, "internal", "private", &[("get_report", "read")]).access("finance", &["finance"]), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     // The organization lets the agent do anything at all.
@@ -120,12 +114,7 @@ async fn the_agent_never_exceeds_the_persons_own_access() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ask_is_answered_by_its_requester_alone() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("say hi", "said"),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
-        fail("done"),
-    ]))
-    .await;
+    let model = FakeModel::start(steps(vec![plan("say hi"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), fail("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let (bob, carol) = (app.api("bob"), app.api("carol"));
     let id = carol.submit("Email bob hello.").await;
@@ -276,12 +265,12 @@ async fn a_sub_agent_never_holds_more_than_its_parent() {
     // A sub-agent works under its parent's grant and no other: a grant named
     // when it starts is read as nothing (decisions/2026-11-10-sub-agents-carry-parent-authority.md).
     let parent = vec![
-        contract_unchecked("delegate", "done"),
-        tool("start_sub_agent", json!({ "goal": CHILD_GOAL, "tools": ["task_contract", "web_fetch", "task_complete"], "grant": "not-a-grant-this-run-holds" })),
+        plan("delegate"),
+        tool("start_sub_agent", json!({ "goal": CHILD_GOAL, "tools": ["task_plan", "web_fetch", "task_complete"], "grant": "not-a-grant-this-run-holds" })),
         complete("done"),
     ];
     let child = vec![
-        contract_unchecked("read", "read"),
+        plan("read"),
         tool("web_fetch", json!({ "url": site.url("/p") })),
         tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
         complete("the child's report"),
@@ -346,7 +335,7 @@ async fn the_agent_cannot_touch_a_desktop_or_folder_not_connected() {
     let read = |p: std::path::PathBuf| tool("local_read_file", json!({ "path": p }));
 
     // No connection: nothing runs.
-    let model = FakeModel::start(steps(vec![contract_unchecked("read", "read"), read(outside.join("secret")), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("read"), read(outside.join("secret")), complete("done")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let task = alice.submit("Read that file.").await;
@@ -355,7 +344,7 @@ async fn the_agent_cannot_touch_a_desktop_or_folder_not_connected() {
     assert!(!model.requests().iter().any(|r| r.text().contains(&secret)), "the agent reached outside a granted folder");
 
     // Connected: only the granted folder, whatever the path says.
-    let mut replies = vec![contract_unchecked("read", "read"), read(granted.join("ok.txt")), read(outside.join("secret")), read(granted.join("link"))];
+    let mut replies = vec![plan("read"), read(granted.join("ok.txt")), read(outside.join("secret")), read(granted.join("link"))];
     replies.push(tool("local_exec", json!({ "command": format!("cat {}", outside.join("secret").display()), "cwd": granted })));
     replies.push(complete("done"));
     model.set_script(steps(replies));
@@ -370,8 +359,7 @@ async fn the_agent_cannot_touch_a_desktop_or_folder_not_connected() {
 
     // A ceiling only tightens: "allow" under "ask" still asks.
     let target = granted.join("new.txt");
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("write", "written"), tool("local_write_file", json!({ "path": target, "content": "made" })), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("write"), tool("local_write_file", json!({ "path": target, "content": "made" })), complete("done")])).await;
     let app = Appliance::start(Spec::default().section("local", json!({ "ceiling": "ask" })), &model).await;
     let alice = app.api("alice");
     let _computer = connect_computer(&app, "alice", "laptop", "allow", &granted).await;
@@ -401,12 +389,12 @@ async fn a_local_command_gets_the_network_only_as_a_reviewed_send() {
     assert!(alice.put_policy("org", &org_policy(&permit_execute("local_exec"))).await.is_success());
     let fetch = format!("curl -s -m 3 {}/p", web.base);
 
-    model.set_script(steps(vec![contract_unchecked("x", "x"), tool("local_exec", json!({ "command": fetch, "cwd": path })), complete("done")]));
+    model.set_script(steps(vec![plan("x"), tool("local_exec", json!({ "command": fetch, "cwd": path })), complete("done")]));
     let task = alice.submit("Fetch without network.").await;
     alice.wait_settled(&task).await;
     assert!(web.hits().is_empty(), "a local command reached the network without asking for it");
 
-    model.set_script(steps(vec![contract_unchecked("x", "x"), tool("local_exec", json!({ "command": fetch, "cwd": path, "network": true })), complete("done")]));
+    model.set_script(steps(vec![plan("x"), tool("local_exec", json!({ "command": fetch, "cwd": path, "network": true })), complete("done")]));
     let task = alice.submit("Install something.").await;
     alice.wait_settled(&task).await;
     assert!(!web.hits().is_empty(), "a command allowed the network could not use it");
@@ -417,7 +405,7 @@ async fn a_local_command_gets_the_network_only_as_a_reviewed_send() {
     model.set_reviewer(script(|_| async { review("allow", "fine") }));
     let before = web.hits().len();
     model.set_script(steps(vec![
-        contract_unchecked("x", "x"),
+        plan("x"),
         tool("web_fetch", json!({ "url": web.url("/p") })),
         tool("local_read_file", json!({ "path": path.join("private.txt") })),
         tool("local_exec", json!({ "command": fetch, "cwd": path, "network": true })),
@@ -451,7 +439,7 @@ async fn the_agent_yields_while_the_person_is_using_their_computer() {
         async move { eventually("the job ran", PATIENCE, || async { file.exists().then_some(()) }).await }
     };
 
-    model.set_script(steps(vec![contract_unchecked("w", "w"), write("first.txt"), write("second.txt"), complete("done")]));
+    model.set_script(steps(vec![plan("w"), write("first.txt"), write("second.txt"), complete("done")]));
     let task = alice.submit("Write them.").await;
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert!(!path.join("first.txt").exists(), "the agent worked on a computer while its person was using it");

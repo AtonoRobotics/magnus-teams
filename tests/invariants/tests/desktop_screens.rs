@@ -45,10 +45,10 @@ async fn the_desktop_screens_work_on_a_real_computer() {
                 };
             }
             if text.contains("privately") {
-                return if turn == 0 { contract_unchecked("say", "said") } else { complete("A private answer") };
+                return if turn == 0 { plan("say") } else { complete("A private answer") };
             }
             match turn {
-                0 => contract_unchecked("read", "read"),
+                0 => plan("read"),
                 1 => tool("crm__get_record", json!({ "id": "held-by-monitor" })),
                 _ => complete("done"),
             }

@@ -33,8 +33,7 @@ async fn a_generated_connector_is_approved_private_to_its_person_and_gone_when_d
     let computerd = Computerd::start();
     let secret = canary("api-token");
     let site = FakeWeb::start(&[("/forecast/oslo", "cold and clear")]).await;
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("build it", "built"), tool("connector_build", json!({ "definition": definition(&site.base) })), complete("built")])).await;
+    let model = FakeModel::start(steps(vec![plan("build it"), tool("connector_build", json!({ "definition": definition(&site.base) })), complete("built")])).await;
     let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
     let (alice, carol) = (app.api("alice"), app.api("carol"));
     let (_, made) = alice.post("/v1/computers", json!({})).await;
@@ -59,7 +58,7 @@ async fn a_generated_connector_is_approved_private_to_its_person_and_gone_when_d
 
     assert_eq!(carol.put(&format!("/v1/connectors/{name}/token"), json!({ "token": "x" })).await.0, 404, "another person set its token");
     assert!(alice.put(&format!("/v1/connectors/{name}/token"), json!({ "token": secret })).await.0.is_success());
-    model.set_script(steps(vec![contract_unchecked("read", "read"), tool(&format!("{name}__forecast"), json!({ "city": "oslo" })), complete("read")]));
+    model.set_script(steps(vec![plan("read"), tool(&format!("{name}__forecast"), json!({ "city": "oslo" })), complete("read")]));
     let read = alice.submit("What is the forecast?").await;
     settled(&alice, &read).await;
     let hit = site.seen().into_iter().find(|s| s.path == "/forecast/oslo").expect("the connector called its address");
@@ -83,7 +82,7 @@ async fn a_generated_connector_is_approved_private_to_its_person_and_gone_when_d
     assert!(!listing.to_string().contains(&name), "its file stayed on the volume: {listing}");
 
     let calls = site.seen().len();
-    model.set_script(steps(vec![contract_unchecked("read", "read"), tool(&format!("{name}__forecast"), json!({ "city": "oslo" })), complete("read")]));
+    model.set_script(steps(vec![plan("read"), tool(&format!("{name}__forecast"), json!({ "city": "oslo" })), complete("read")]));
     let after = alice.submit("And now?").await;
     settled(&alice, &after).await;
     assert_eq!(site.seen().len(), calls, "a deleted connector was still called");

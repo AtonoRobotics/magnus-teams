@@ -71,7 +71,7 @@ async fn ask_team(who: &Api, ws: &str, channel: &str, text: &str) -> (reqwest::S
 #[tokio::test(flavor = "multi_thread")]
 async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
     let crm = mcp::crm().start().await;
-    let close = || vec![contract_unchecked("close record 42", "closed"), close_42(), complete("done")];
+    let close = || vec![plan("close record 42"), close_42(), complete("done")];
     let model = FakeModel::start(steps(close())).await;
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "irreversible")]);
     let app = Appliance::start(spec, &model).await;
@@ -111,7 +111,7 @@ async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
     let (_, made) = alice.post(&format!("/v1/workspaces/{ws}/channels"), json!({ "name": "alice-only" })).await;
     let quiet = made["id"].as_str().unwrap().to_string();
     let write = tool("team_write_file", json!({ "name": "held.txt", "content": "from the record" }));
-    model.set_script(steps(vec![contract_unchecked("save", "saved"), tool("crm__get_record", json!({ "id": "42" })), write, complete("done")]));
+    model.set_script(steps(vec![plan("save"), tool("crm__get_record", json!({ "id": "42" })), write, complete("done")]));
     let (_, made) = ask_team(&alice, &ws, &quiet, "Save record 42 as a file.").await;
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
     assert_eq!(alice.get(&format!("/v1/workspaces/{ws}/files/held.txt")).await.0, 404, "data fetched under one member's entitlements reached the team volume");
@@ -137,7 +137,7 @@ async fn personal_context_and_credentials_never_serve_a_team_thread() {
     let vault = canary("vault-entry");
     let note = canary("relationship-note");
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![contract_unchecked("remember", "remembered"), tool("memory_write", json!({ "fact": memory })), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("remember"), tool("memory_write", json!({ "fact": memory })), complete("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     let task = alice.submit("Remember this.").await;
@@ -154,11 +154,11 @@ async fn personal_context_and_credentials_never_serve_a_team_thread() {
 
     let send = || tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
     let before = model.requests().len();
-    model.set_script(steps(vec![contract_unchecked("use what you can", "used"), tool("memory_search", json!({ "query": "anything" })), send(), complete("done")]));
+    model.set_script(steps(vec![plan("use what you can"), tool("memory_search", json!({ "query": "anything" })), send(), complete("done")]));
     let (code, made) = ask_team(&alice, &ws, &channel, "Use anything of mine that would help.").await;
     assert_eq!(code, 200, "{made}");
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    model.set_script(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")]));
+    model.set_script(steps(vec![plan("send"), send(), complete("done")]));
     let (code, made) = ask_team(&bob, &ws, &channel, "Send the note from Alice's mail.").await;
     assert_eq!(code, 200, "{made}");
     bob.wait_settled(made["task_id"].as_str().unwrap()).await;
@@ -197,8 +197,8 @@ async fn a_sub_agent_in_a_team_thread_keeps_the_threads_limits() {
     let spawn = tool("start_sub_agent", json!({ "goal": CHILD_GOAL }));
     let write = tool("team_write_file", json!({ "name": "from-child.txt", "content": "built from the record" }));
     let model = FakeModel::start(parent_and_child(
-        vec![contract_unchecked("c", "d"), spawn.clone(), complete("done")],
-        vec![contract_unchecked("c", "d"), close_42(), tool("memory_search", json!({ "query": "x" })), complete("child done")],
+        vec![plan("c"), spawn.clone(), complete("done")],
+        vec![plan("c"), close_42(), tool("memory_search", json!({ "query": "x" })), complete("child done")],
     ))
     .await;
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "irreversible")]);
@@ -218,10 +218,7 @@ async fn a_sub_agent_in_a_team_thread_keeps_the_threads_limits() {
     let (_, made) = alice.post(&in_team(&ws, "channels"), json!({ "name": "quiet" })).await;
     let quiet = made["id"].as_str().unwrap().to_string();
     alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner"] })).await;
-    model.set_script(parent_and_child(
-        vec![contract_unchecked("c", "d"), tool("crm__get_record", json!({ "id": "42" })), spawn, complete("done")],
-        vec![contract_unchecked("c", "d"), write, complete("child done")],
-    ));
+    model.set_script(parent_and_child(vec![plan("c"), tool("crm__get_record", json!({ "id": "42" })), spawn, complete("done")], vec![plan("c"), write, complete("child done")]));
     let (_, made) = ask_team(&alice, &ws, &quiet, "Save it through a helper.").await;
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
     assert_eq!(alice.get(&in_team(&ws, "files/from-child.txt")).await.0, 404, "data fetched under one member's entitlements reached the team volume through a sub-agent");
@@ -239,14 +236,14 @@ async fn a_workspace_ceiling_only_tightens_a_members_computer() {
     let _computer = connect_computer(&app, "alice", "laptop", "allow", &path).await;
     let write = |n: &str| tool("local_write_file", json!({ "path": path.join(n), "content": "x" }));
 
-    model.set_script(steps(vec![contract_unchecked("w", "w"), write("free.txt"), complete("done")]));
+    model.set_script(steps(vec![plan("w"), write("free.txt"), complete("done")]));
     let task = alice.submit("Write it.").await;
     alice.wait_settled(&task).await;
     assert!(path.join("free.txt").exists(), "allow did not allow, so this test shows nothing");
 
     let (code, v) = alice.post(&in_team(&ws, "local_ceiling"), json!({ "mode": "ask" })).await;
     assert_eq!(code, 200, "{v}");
-    model.set_script(steps(vec![contract_unchecked("w", "w"), write("held.txt"), complete("done")]));
+    model.set_script(steps(vec![plan("w"), write("held.txt"), complete("done")]));
     let task = alice.submit("Write another.").await;
     alice.wait_item(&task, "approval").await;
     assert!(!path.join("held.txt").exists(), "a member's computer went past the workspace's ceiling");
@@ -260,7 +257,7 @@ async fn a_workspace_ceiling_only_tightens_a_members_computer() {
 async fn working_notes_are_scratch_and_end_with_their_task() {
     let crm = mcp::crm().start().await;
     let note = canary("working-note");
-    let model = FakeModel::start(steps(vec![contract_unchecked("n", "n"), tool("team_note", json!({ "text": note })), close_42(), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("n"), tool("team_note", json!({ "text": note })), close_42(), complete("done")])).await;
     let spec = Spec::default().app("crm", &crm, "internal", "principal", &[("update_record", "irreversible")]);
     let app = Appliance::start(spec, &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
@@ -282,7 +279,7 @@ async fn working_notes_are_scratch_and_end_with_their_task() {
     assert!(!gone.to_string().contains(&note), "a working note outlived its task: {gone}");
 
     // The next request in the thread starts with no trace of it.
-    model.set_script(steps(vec![contract_unchecked("n", "n"), complete("done")]));
+    model.set_script(steps(vec![plan("n"), complete("done")]));
     let (_, made) = ask_team(&bob, &ws, &channel, "Anything?").await;
     bob.wait_settled(made["task_id"].as_str().unwrap()).await;
     assert!(!model.requests().into_iter().last().unwrap().text().contains(&note), "a note carried over between requests");
@@ -316,14 +313,14 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
     let (code, _) = bob.post(&in_team(&ws, &format!("knowledge/{entry}/flag")), json!({ "why": "wrong" })).await;
     assert_eq!(code, 404, "someone outside the project reached its entry");
 
-    model.set_script(steps(vec![contract_unchecked("k", "k"), tool("team_read_knowledge", json!({ "project": project })), complete("done")]));
+    model.set_script(steps(vec![plan("k"), tool("team_read_knowledge", json!({ "project": project })), complete("done")]));
     let (_, made) = ask_team(&bob, &ws, &other, "What do we know?").await;
     bob.wait_settled(made["task_id"].as_str().unwrap()).await;
     let reached = model.requests().iter().any(|r| r.text().contains(&secret) || r.last_results().iter().any(|t| t.text.contains(&secret)));
     assert!(!reached, "the team agent read another project's knowledge base for someone not in it");
 
     // The agent working in the project's channel for a member has it, cited.
-    model.set_script(steps(vec![contract_unchecked("k", "k"), complete("done")]));
+    model.set_script(steps(vec![plan("k"), complete("done")]));
     let (_, made) = ask_team(&alice, &ws, &channel, "What did we decide?").await;
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
     let asked = model.requests().into_iter().last().unwrap().text();
@@ -334,7 +331,7 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
     let write = tool("team_write_file", json!({ "name": "note.txt", "content": "a claim" }));
     let learned = canary("from-a-file");
     model.set_script(steps(vec![
-        contract_unchecked("k", "k"),
+        plan("k"),
         write,
         tool("team_read_file", json!({ "name": "note.txt" })),
         tool("team_add_fact", json!({ "text": learned, "workspace_level": true })),
@@ -355,7 +352,7 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
     assert_eq!(bob.post(&in_team(&ws, &format!("knowledge/{entry}/flag")), json!({ "why": "looks stale" })).await.0, 200, "a member could not flag an entry");
     let (code, v) = alice.post(&in_team(&ws, &format!("knowledge/{entry}/retire")), json!({})).await;
     assert_eq!(code, 200, "{v}");
-    model.set_script(steps(vec![contract_unchecked("k", "k"), complete("done")]));
+    model.set_script(steps(vec![plan("k"), complete("done")]));
     let (_, made) = ask_team(&alice, &ws, &channel, "And now?").await;
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
     assert!(!model.requests().into_iter().last().unwrap().text().contains(&secret), "a retired entry was read as current");
@@ -371,7 +368,7 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_whisper_reaches_only_its_owner_until_they_post_it() {
     let said = canary("whispered");
-    let model = FakeModel::start(steps(vec![contract_unchecked("w", "w"), complete(&said)])).await;
+    let model = FakeModel::start(steps(vec![plan("w"), complete(&said)])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
     let (ws, channel) = team(&alice).await;
@@ -408,7 +405,7 @@ async fn a_whisper_reaches_only_its_owner_until_they_post_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn in_a_team_thread_only_the_person_who_asked_answers_an_ask() {
     let crm = mcp::crm().start().await;
-    let model = FakeModel::start(steps(vec![contract_unchecked("c", "c"), close_42(), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("c"), close_42(), complete("done")])).await;
     let spec = Spec::default().app("crm", &crm, "internal", "principal", &[("update_record", "irreversible")]);
     let app = Appliance::start(spec, &model).await;
     let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
@@ -436,7 +433,7 @@ async fn in_a_team_thread_only_the_person_who_asked_answers_an_ask() {
 async fn the_team_agents_own_work_reports_to_the_channel_and_asks_no_one() {
     let crm = mcp::crm().start().await;
     let report = canary("routine-report");
-    let model = FakeModel::start(steps(vec![contract_unchecked("r", "r"), close_42(), complete(&report)])).await;
+    let model = FakeModel::start(steps(vec![plan("r"), close_42(), complete(&report)])).await;
     let spec = Spec::default().app("crm", &crm, "internal", "principal", &[("update_record", "irreversible")]);
     let app = Appliance::start(spec, &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
@@ -485,7 +482,7 @@ async fn the_team_computer_holds_only_what_every_member_may_see() {
     assert_ne!(carol.post(&format!("/v1/computers/{id}/takeover"), json!({})).await.0, 200, "a guest took over the team computer");
 
     // Having read what only the requester may see, nothing reaches it.
-    model.set_script(steps(vec![contract_unchecked("s", "s"), tool("crm__get_record", json!({ "id": "42" })), shot(), complete("done")]));
+    model.set_script(steps(vec![plan("s"), tool("crm__get_record", json!({ "id": "42" })), shot(), complete("done")]));
     let (_, made) = alice.post(&in_team(&ws, "channels"), json!({ "name": "quiet" })).await;
     let quiet = made["id"].as_str().unwrap().to_string();
     let (_, made) = ask_team(&alice, &ws, &quiet, "Read it, then look.").await;
@@ -507,7 +504,7 @@ async fn the_team_computer_holds_only_what_every_member_may_see() {
 /// leaves no words in the record.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_audit_names_the_requester_and_deletion_removes_the_words() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("a", "a"), tool("team_post", json!({ "text": "hello" })), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("a"), tool("team_post", json!({ "text": "hello" })), complete("done")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     let (ws, channel) = team(&alice).await;

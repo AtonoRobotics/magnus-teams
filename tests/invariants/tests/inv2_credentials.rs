@@ -12,7 +12,7 @@ use serde_json::json;
 async fn credentials_are_used_but_never_seen() {
     let mail = mcp::mail().start().await;
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("check the account and send a note", "note sent"),
+        plan("check the account and send a note"),
         // A careless app echoes the Authorization header back in its result.
         tool("mail__whoami", json!({})),
         tool(
@@ -88,7 +88,7 @@ async fn secrets_can_be_written_but_not_read_back() {
 async fn a_snapshot_holds_no_vault_material_and_is_stored_encrypted() {
     let computerd = Computerd::start();
     let crm = mcp::crm().start().await;
-    let model = FakeModel::start(steps(vec![contract_unchecked("read", "read"), tool("crm__get_record", json!({ "id": "42" })), complete("read")])).await;
+    let model = FakeModel::start(steps(vec![plan("read"), tool("crm__get_record", json!({ "id": "42" })), complete("read")])).await;
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read")]).computer(&computerd.socket);
     let app = Appliance::start(spec, &model).await;
     let alice = app.api("alice");
@@ -128,7 +128,7 @@ async fn capture_stops_and_the_agent_pauses_while_a_person_holds_control() {
         let wait = wait.clone();
         async move {
             match c.turn() {
-                0 => contract_unchecked("look", "seen"),
+                0 => plan("look"),
                 1 => tool("computer_screenshot", json!({})),
                 2 => {
                     wait.notified().await;
@@ -183,7 +183,7 @@ fn bare(site: &FakeWeb) -> String {
 
 /// A model that opens a task, then runs `calls` in order, then finishes.
 fn model_steps(identity: &str, calls: Vec<(&str, serde_json::Value)>) -> magnus_invariants::model::Script {
-    let mut replies = vec![contract_unchecked("use the browser", "done")];
+    let mut replies = vec![plan("use the browser")];
     for (name, mut input) in calls {
         if input.get("identity").is_some() {
             input["identity"] = json!(identity);
@@ -488,7 +488,7 @@ ip -o link | grep -v ' lo:' | head -3
     let data = base64::engine::general_purpose::STANDARD.encode(on_volume.as_bytes());
     assert!(alice.put(&format!("/v1/computers/{computer}/files"), json!({ "path": "/workspace/secret.txt", "data_b64": data })).await.0.is_success());
     model.set_script(steps(vec![
-        contract_unchecked("read the attachment", "read"),
+        plan("read the attachment"),
         tool("sandbox_exec", json!({ "command": "ls -la /workspace /workspace/inputs 2>&1; echo LISTED-WORK" })),
         tool("open_attachment", json!({ "name": "evil.sh", "command": "sh /workspace/inputs/attachment" })),
         complete("done"),
@@ -546,7 +546,7 @@ async fn a_login_code_never_reaches_the_agent() {
         move |_, _, _| mcp::ok(json!({ "text": body }))
     });
     let mail = mail.start().await;
-    let model = FakeModel::start(steps(vec![contract_unchecked("read mail", "read"), tool("mail__read", json!({})), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("read mail"), tool("mail__read", json!({})), complete("done")])).await;
     let spec = Spec::default().app("mail", &mail, "public", "private", &[("read", "read")]).filter_login_codes("mail");
     let app = Appliance::start(spec, &model).await;
     let alice = app.api("alice");
@@ -740,7 +740,7 @@ async fn a_mail_attachment_stays_out_of_the_model_until_it_is_opened() {
     let computer = made["id"].as_str().unwrap().to_string();
     assert_eq!(alice.post(&format!("/v1/computers/{computer}/start"), json!({})).await.0, 200);
     model.set_script(steps(vec![
-        contract_unchecked("read the mail", "read"),
+        plan("read the mail"),
         tool("mail__read_message", json!({})),
         tool("open_attachment", json!({ "name": name, "command": "cat /workspace/inputs/attachment" })),
         complete("done"),

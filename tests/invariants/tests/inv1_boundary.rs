@@ -47,8 +47,7 @@ async fn sandbox_has_no_network_device_and_reaches_nothing() {
     probe.push_str("python3 -c \"import socket; socket.getaddrinfo('example.com', 80)\" >/dev/null 2>&1 && echo RESOLVED; ");
     probe.push_str("echo PROBE-DONE");
 
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("probe the sandbox", "probe ran"), tool("sandbox_exec", json!({ "command": probe })), fail("probe finished")])).await;
+    let model = FakeModel::start(steps(vec![plan("probe the sandbox"), tool("sandbox_exec", json!({ "command": probe })), fail("probe finished")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Check what the sandbox can reach.").await;
@@ -67,12 +66,8 @@ async fn sandbox_has_no_network_device_and_reaches_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn action_is_not_executed_when_its_intent_cannot_be_recorded() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("send a note", "note sent"),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
-        fail("stopping"),
-    ]))
-    .await;
+    let model =
+        FakeModel::start(steps(vec![plan("send a note"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), fail("stopping")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     // The log refuses exactly this action's intent; everything before it,
     // the model's reply and the boundary's decision, is recorded.
@@ -112,12 +107,8 @@ async fn action_is_not_executed_when_its_intent_cannot_be_recorded() {
 #[tokio::test(flavor = "multi_thread")]
 async fn missing_credential_denies_the_action() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("send a note", "note sent"),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
-        fail("could not send"),
-    ]))
-    .await;
+    let model =
+        FakeModel::start(steps(vec![plan("send a note"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), fail("could not send")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]).without_secret("mail"), &model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
@@ -134,7 +125,7 @@ async fn missing_credential_denies_the_action() {
 #[tokio::test(flavor = "multi_thread")]
 async fn prohibited_tools_never_run_even_if_policy_permits_everything() {
     let crm = mcp::crm().start().await;
-    let model = FakeModel::start(steps(vec![contract_unchecked("clean up", "records removed"), tool("crm__delete_all", json!({})), fail("could not delete")])).await;
+    let model = FakeModel::start(steps(vec![plan("clean up"), tool("crm__delete_all", json!({})), fail("could not delete")])).await;
     let app = Appliance::start(Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("delete_all", "prohibited")]), &model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", "permit(principal, action, resource);").await.is_success());
@@ -148,12 +139,7 @@ async fn prohibited_tools_never_run_even_if_policy_permits_everything() {
 #[tokio::test(flavor = "multi_thread")]
 async fn tools_the_owner_has_not_classified_cannot_run() {
     let crm = mcp::crm().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("update", "record updated"),
-        tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } })),
-        fail("could not update"),
-    ]))
-    .await;
+    let model = FakeModel::start(steps(vec![plan("update"), tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } })), fail("could not update")])).await;
     // update_record exists on the server but the owner classified only get_record.
     let app = Appliance::start(Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read")]), &model).await;
     let alice = app.api("alice");
@@ -174,7 +160,7 @@ async fn kill_switch_stops_actions_and_release_resumes_nothing() {
         async move {
             let send = tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
             match c.turn() {
-                0 => contract_unchecked("send a note", "note sent"),
+                0 => plan("send a note"),
                 1 => {
                     if !e.swap(true, Ordering::SeqCst) {
                         let (url, tok) = b.lock().await.clone().unwrap();
@@ -218,12 +204,7 @@ async fn kill_switch_stops_actions_and_release_resumes_nothing() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_changed_tool_definition_is_disabled_and_hidden() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("send a note", "note sent"),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
-        fail("done"),
-    ]))
-    .await;
+    let model = FakeModel::start(steps(vec![plan("send a note"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), fail("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
@@ -630,7 +611,7 @@ async fn auto_review_cannot_be_disabled_and_asks_when_it_is_down() {
         review("allow", "too late")
     });
     for (name, reviewer) in [("garbage", garbage), ("an error", error), ("a timeout", silent)] {
-        let model = FakeModel::start(steps(vec![contract_unchecked("send it", "sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
+        let model = FakeModel::start(steps(vec![plan("send it"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
         model.set_reviewer(reviewer);
         let (drafts, app) = send_app(&model).await;
         let alice = app.api("alice");
@@ -758,8 +739,7 @@ async fn a_takeover_ticket_works_once_and_never_appears_in_a_url() {
 #[tokio::test(flavor = "multi_thread")]
 async fn adding_a_destination_goes_through_auto_review() {
     let computerd = Computerd::start();
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("reach it", "reachable"), tool("add_computer_destination", json!({ "host": "new.example" })), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("reach it"), tool("add_computer_destination", json!({ "host": "new.example" })), complete("done")])).await;
     model.set_reviewer(script(|_| async { review("deny", "not this one") }));
     let (app, id) = computer_with_network(Spec::default(), &computerd, &model).await;
     let alice = app.api("alice");

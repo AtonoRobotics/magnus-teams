@@ -178,7 +178,7 @@ async fn a_purchase_is_a_one_time_card_the_person_approved_and_the_agent_never_s
         let identity = identity.clone();
         async move {
             match c.turn() {
-                0 => contract_unchecked("buy it", "bought"),
+                0 => plan("buy it"),
                 1 => tool("browser_as_navigate", json!({ "identity": identity, "url": "http://shop.test/pay" })),
                 2 => tool("purchase_request", buy("http://shop.test/pay")),
                 3 => tool("purchase_fill", fill(&purchase_in(&c), &identity)),
@@ -218,7 +218,7 @@ async fn a_purchase_declined_in_link_ends_there_and_no_saved_card_stands_in() {
         let identity = identity.clone();
         async move {
             match c.turn() {
-                0 => contract_unchecked("buy it", "bought"),
+                0 => plan("buy it"),
                 1 => tool("browser_as_navigate", json!({ "identity": identity, "url": "http://shop.test/pay" })),
                 2 => tool("purchase_request", buy("http://shop.test/pay")),
                 _ => complete("could not buy it"),
@@ -249,7 +249,7 @@ async fn a_saved_card_is_approved_at_every_fill_and_works_only_at_its_seller() {
         let identity = identity.clone();
         async move {
             match c.turn() {
-                0 => contract_unchecked("buy it", "bought"),
+                0 => plan("buy it"),
                 1 => tool("browser_as_navigate", json!({ "identity": identity, "url": "http://shop.test/pay" })),
                 2 => tool("purchase_request", buy("http://other.test/buy")),
                 3 => tool("purchase_fill", fill(&purchase_in(&c), &identity)),

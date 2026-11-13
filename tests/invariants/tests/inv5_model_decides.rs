@@ -11,20 +11,18 @@ use magnus_invariants::{mcp, *};
 use serde_json::{json, Value};
 use std::time::Duration;
 
-/// True if `v` appears as `input` of a requested tool call, or as the input of
-/// a check written inside a requested contract.
+/// True if `args` is the `input` of a call to `tool` the model requested.
+/// Since spec rev 147 there are no contracts, so no check the model wrote
+/// for the kernel to run: every app call must be one the model asked for.
 fn requested(model: &FakeModel, tool: &str, args: &Value) -> bool {
-    model.requested_calls().iter().any(|(name, input)| {
-        (name == tool && input == args)
-            || (name == "task_contract" && input["criteria"].as_array().into_iter().flatten().any(|c| c["check"]["tool"] == tool && &c["check"]["input"] == args))
-    })
+    model.requested_calls().iter().any(|(name, input)| name == tool && input == args)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_app_call_traces_to_a_model_decision() {
     let crm = mcp::crm().start().await;
     let model = FakeModel::start(steps(vec![
-        contract_checked("close record 42", "crm__get_record", json!({ "id": "42" }), "/status", json!("closed")),
+        plan("close record 42"),
         tool("crm__get_record", json!({ "id": "42" })),
         tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } })),
         complete("closed"),
@@ -44,12 +42,9 @@ async fn every_app_call_traces_to_a_model_decision() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_denial_goes_back_to_the_model_which_decides_what_next() {
     let crm = mcp::crm().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("close record 42", "record closed"),
-        tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } })),
-        fail("the update was denied"),
-    ]))
-    .await;
+    let model =
+        FakeModel::start(steps(vec![plan("close record 42"), tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } })), fail("the update was denied")]))
+            .await;
     let app = Appliance::start(Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")]), &model).await;
     let alice = app.api("alice");
     let policy = org_policy(r#"forbid(principal, action, resource == Tool::"crm__update_record");"#);
@@ -70,7 +65,7 @@ async fn an_exhausted_budget_suspends_and_notifies() {
     let crm = mcp::crm().start().await;
     let model = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("look", "looked"),
+            0 => plan("look"),
             _ => tool("crm__get_record", json!({ "id": "42" })),
         }
     }))
@@ -96,7 +91,7 @@ async fn a_model_outage_suspends_the_run_and_resume_uses_the_pinned_model() {
     alice.wait_item(&id, "notice").await;
     never("the kernel kept calling the failed provider", Duration::from_secs(3), || async { model.requests().len() > 3 }).await;
 
-    model.set_script(steps(vec![contract_unchecked("say hello", "said"), fail("nothing to do")]));
+    model.set_script(steps(vec![plan("say hello"), fail("nothing to do")]));
     let (st, _) = alice.post(&format!("/v1/tasks/{id}/resume"), json!({})).await;
     assert!(st.is_success());
     alice.wait_status(&id, &["failed"]).await;
@@ -105,7 +100,7 @@ async fn a_model_outage_suspends_the_run_and_resume_uses_the_pinned_model() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reply_without_a_tool_call_does_not_end_the_run() {
-    let model = FakeModel::start(steps(vec![Reply::Text("All done, I think.".into()), contract_unchecked("say hello", "said"), fail("nothing to do")])).await;
+    let model = FakeModel::start(steps(vec![Reply::Text("All done, I think.".into()), plan("say hello"), fail("nothing to do")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Say hello.").await;
@@ -118,7 +113,7 @@ async fn a_reply_without_a_tool_call_does_not_end_the_run() {
 async fn the_principal_can_cancel_and_nothing_else_ends_a_run() {
     let model = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("wait", "waited"),
+            0 => plan("wait"),
             _ => tool("wait_until", json!({ "at": "2099-01-01T00:00:00Z", "reason": "waiting for the year" })),
         }
     }))

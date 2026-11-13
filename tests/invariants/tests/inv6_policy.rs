@@ -26,7 +26,7 @@ async fn mail_app(model: &FakeModel) -> (FakeMcp, Appliance) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn without_owner_policy_an_irreversible_action_waits_for_approval() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("say hi", "said"), send("hello"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("say hi"), send("hello"), fail("done")])).await;
     let (mail, app) = mail_app(&model).await;
     let alice = app.api("alice");
     let id = alice.submit("Email bob hello.").await;
@@ -38,7 +38,7 @@ async fn without_owner_policy_an_irreversible_action_waits_for_approval() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn owner_policy_grants_autonomy() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("say hi", "said"), send("hello"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("say hi"), send("hello"), fail("done")])).await;
     let (mail, app) = mail_app(&model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
@@ -51,7 +51,7 @@ async fn owner_policy_grants_autonomy() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_proposes_and_only_the_owner_grants() {
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("say hi", "said"),
+        plan("say hi"),
         tool("propose_policy", json!({ "layer": "org", "cedar": permit_execute("mail__send"), "rationale": "bob gets a hello every week" })),
         send("hello"),
         fail("done"),
@@ -81,7 +81,7 @@ async fn the_agent_proposes_and_only_the_owner_grants() {
 /// been used stops it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_action_approval_covers_one_action() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("say hi twice", "said"), send("hello"), send("hello"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("say hi twice"), send("hello"), send("hello"), fail("done")])).await;
     let (mail, app) = mail_app(&model).await;
     let alice = app.api("alice");
     let id = alice.submit("Email bob twice.").await;
@@ -102,7 +102,7 @@ async fn a_one_action_approval_covers_one_action() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_approval_channel_needs_a_person() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("say hi", "said"), send("hello"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("say hi"), send("hello"), fail("done")])).await;
     let (mail, app) = mail_app(&model).await;
     let alice = app.api("alice");
     let id = alice.submit("Email bob hello.").await;
@@ -223,7 +223,7 @@ async fn an_expired_background_ask_runs_nothing() {
 
     // A message.
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("send it", "sent"),
+        plan("send it"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),
         fail("not sent"),
@@ -260,7 +260,7 @@ async fn an_expired_background_ask_runs_nothing() {
     assert!(drafts.calls_to("send_draft").is_empty(), "an expired ask ran");
 
     // An install waits with its ask.
-    let model = FakeModel::start(steps(vec![contract_unchecked("install it", "installed"), tool("apps__install_app", json!({})), fail("not installed")])).await;
+    let model = FakeModel::start(steps(vec![plan("install it"), tool("apps__install_app", json!({})), fail("not installed")])).await;
     model.set_reviewer(script(|_| async { review("ask", "a person should decide") }));
     let apps =
         FakeMcp::builder().tool("install_app", "Install an app.", json!({ "type": "object", "properties": {} }), |_, _, _| mcp::ok(json!({ "status": "installed" }))).start().await;
@@ -316,7 +316,7 @@ fn hard_denial_model(stored: String, bobs: String) -> model::Script {
 async fn a_button_in_rendered_ui_is_a_request_not_an_approval() {
     let mail = mcp::mail().start().await;
     let send = || tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
-    let model = FakeModel::start(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("send"), send(), complete("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");
     let waiting = alice.submit("Send a note.").await;
@@ -324,12 +324,12 @@ async fn a_button_in_rendered_ui_is_a_request_not_an_approval() {
     assert!(!item.is_null(), "the send did not wait for approval");
 
     let button = json!({ "type": "action", "label": "Approve", "request": "Approve the waiting send and send it." });
-    model.set_script(steps(vec![contract_unchecked("offer", "offered"), tool("task_complete", json!({ "summary": "here it is", "deliverable": [button] }))]));
+    model.set_script(steps(vec![plan("offer"), tool("task_complete", json!({ "summary": "here it is", "deliverable": [button] }))]));
     let offered = alice.submit("Offer a button.").await;
     alice.wait_settled(&offered).await;
 
     model.set_reviewer(script(|_| async { review("deny", "no") }));
-    model.set_script(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")]));
+    model.set_script(steps(vec![plan("send"), send(), complete("done")]));
     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
     let (code, made) = alice.post(&format!("/v1/tasks/{offered}/actions/0"), json!({})).await;
     assert_eq!(code, 200, "{made}");
@@ -358,13 +358,9 @@ fn fence(body: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_element_not_in_the_catalog_is_refused_not_guessed() {
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("show", "shown"),
-        Reply::Text(fence("marquee Hello")),
-        tool("task_complete", json!({ "summary": fence("marquee Hello") })),
-        complete("done"),
-    ]))
-    .await;
+    let model =
+        FakeModel::start(steps(vec![plan("show"), Reply::Text(fence("marquee Hello")), tool("task_complete", json!({ "summary": fence("marquee Hello") })), complete("done")]))
+            .await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let task = alice.submit("Show something.").await;
@@ -384,7 +380,7 @@ async fn an_element_not_in_the_catalog_is_refused_not_guessed() {
     // What the client says it can draw is all that may be written for it.
     assert!(alice.put("/v1/ui/catalog", json!({ "version": catalog["version"], "elements": ["text"] })).await.0.is_success());
     let before = model.requests().len();
-    model.set_script(steps(vec![contract_unchecked("show", "shown"), Reply::Text(fence("stat label=Revenue value=1")), complete("done")]));
+    model.set_script(steps(vec![plan("show"), Reply::Text(fence("stat label=Revenue value=1")), complete("done")]));
     let task = alice.submit("Show a number.").await;
     alice.wait_settled(&task).await;
     assert!(model.requests()[before..].iter().any(|r| r.text().contains("cannot be drawn")), "an element this client cannot draw was accepted");
@@ -394,7 +390,7 @@ async fn an_element_not_in_the_catalog_is_refused_not_guessed() {
 async fn a_form_is_a_request_with_only_the_answers_it_asked_for() {
     let mail = mcp::mail().start().await;
     let send = || tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
-    let model = FakeModel::start(steps(vec![contract_unchecked("send", "sent"), send(), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("send"), send(), complete("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");
     let waiting = alice.submit("Send a note.").await;
@@ -403,15 +399,12 @@ async fn a_form_is_a_request_with_only_the_answers_it_asked_for() {
     let form = "form title=Details submit=Send request=\"Approve the waiting send\"\n  field name=email label=Email required";
     let answer = serde_json::to_string(&fence(form)).unwrap();
     let summary: serde_json::Value = serde_json::from_str(&answer).unwrap();
-    model.set_script(steps(vec![
-        contract_unchecked("offer", "offered"),
-        tool("task_complete", json!({ "summary": summary, "deliverable": [{ "type": "text", "text": "offered" }] })),
-    ]));
+    model.set_script(steps(vec![plan("offer"), tool("task_complete", json!({ "summary": summary, "deliverable": [{ "type": "text", "text": "offered" }] }))]));
     let offered = alice.submit("Offer a form.").await;
     settle_reviewed(&alice, &offered).await;
 
     let before = model.requests().len();
-    model.set_script(steps(vec![contract_unchecked("read", "read"), complete("done")]));
+    model.set_script(steps(vec![plan("read"), complete("done")]));
     let extra = canary("not-asked-for");
     let (code, made) = alice.post(&format!("/v1/tasks/{offered}/actions/0"), json!({ "fence": 0, "values": { "email": "ada@corp.example", "evil": extra } })).await;
     assert_eq!(code, 200, "{made}");
@@ -486,7 +479,7 @@ async fn an_image_is_made_behind_a_placeholder_and_goes_with_its_run() {
     let picture = "aGVsbG8tcGljdHVyZQ==";
     let web = FakeWeb::start(&[("/images/generations", &format!("{{\"data\":[{{\"b64_json\":\"{picture}\"}}]}}"))]).await;
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("draw", "drawn"),
+        plan("draw"),
         tool("image_generate", json!({ "prompt": "a red barn" })),
         tool("image_generate", json!({ "prompt": "a blue barn", "quality": "premium" })),
         complete("done"),
@@ -529,7 +522,7 @@ async fn an_image_is_made_behind_a_placeholder_and_goes_with_its_run() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_connectors_view_is_kept_for_its_person_and_can_only_ask() {
     let crm = mcp::crm().view("get_record", "ui://crm/record", "<p>the record view</p>").start().await;
-    let model = FakeModel::start(steps(vec![contract_unchecked("look", "looked"), tool("crm__get_record", json!({ "id": "42" })), complete("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("look"), tool("crm__get_record", json!({ "id": "42" })), complete("done")])).await;
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")]);
     let bob_token = spec.token("bob");
     let app = Appliance::start(spec, &model).await;
@@ -549,7 +542,7 @@ async fn a_connectors_view_is_kept_for_its_person_and_can_only_ask() {
     let before = crm.effects("update_record");
     let (code, made) = alice.post(&format!("/v1/ui/apps/{id}/request"), json!({ "tool": "update_record", "arguments": { "id": "42" } })).await;
     assert_eq!(code, 200, "{made}");
-    model.set_script(steps(vec![contract_unchecked("read", "read"), complete("done")]));
+    model.set_script(steps(vec![plan("read"), complete("done")]));
     let started = made["task_id"].as_str().unwrap();
     alice.wait_settled(started).await;
     assert_eq!(alice.task(started).await["taint"]["untrusted"], json!(true), "what a view asked for was trusted");

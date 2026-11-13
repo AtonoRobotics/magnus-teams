@@ -23,7 +23,7 @@ fn send() -> Reply {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_kernel_cannot_rewrite_the_log() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("nothing", "nothing"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("nothing"), fail("done")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Do nothing.").await;
@@ -58,7 +58,7 @@ async fn the_kernel_cannot_rewrite_the_log() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn content_is_kept_beside_the_log_not_in_it() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("nothing", "nothing"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("nothing"), fail("done")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Plan the walrus migration for the third quarter.").await;
@@ -80,7 +80,7 @@ async fn content_is_kept_beside_the_log_not_in_it() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_removed_items_content_is_gone_and_its_record_stays() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("nothing", "nothing"), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("nothing"), fail("done")])).await;
     let mut app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Plan the walrus migration for the third quarter.").await;
@@ -112,7 +112,7 @@ async fn a_removed_items_content_is_gone_and_its_record_stays() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_running_task_cannot_be_deleted() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![contract_checked("send the report", "mail__list_sent", json!({}), "/count", json!(1)), send(), complete("sent")])).await;
+    let model = FakeModel::start(steps(vec![plan("send the report"), send(), complete("sent")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible"), ("list_sent", "read")]), &model).await;
     let alice = app.api("alice");
     // No permit for send: the run waits for approval, not ended.
@@ -131,7 +131,7 @@ async fn a_running_task_cannot_be_deleted() {
 #[tokio::test(flavor = "multi_thread")]
 async fn crash_after_a_side_effect_does_not_repeat_it() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![contract_checked("send the report", "mail__list_sent", json!({}), "/count", json!(1)), send(), complete("sent")])).await;
+    let model = FakeModel::start(steps(vec![plan("send the report"), send(), complete("sent")])).await;
     let mut app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible"), ("list_sent", "read")]), &model).await;
     let alice = app.api("alice");
     assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
@@ -154,7 +154,7 @@ async fn crash_after_a_side_effect_does_not_repeat_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn crash_against_an_app_without_idempotency_asks_instead_of_resending() {
     let mail = mcp::mail().honor_idempotency(false).start().await;
-    let model = FakeModel::start(steps(vec![contract_checked("send the report", "mail__list_sent", json!({}), "/count", json!(1)), send(), complete("sent")])).await;
+    let model = FakeModel::start(steps(vec![plan("send the report"), send(), complete("sent")])).await;
     let mut app =
         Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible"), ("list_sent", "read")]).not_idempotent("mail"), &model).await;
     let alice = app.api("alice");
@@ -199,7 +199,7 @@ fn snapshot_inbox(items: &[Value]) -> Vec<(String, String, String, String)> {
 #[tokio::test(flavor = "multi_thread")]
 async fn all_state_is_rebuilt_from_the_event_log_and_its_content() {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![contract_checked("send the report", "mail__list_sent", json!({}), "/count", json!(1)), send(), complete("sent")])).await;
+    let model = FakeModel::start(steps(vec![plan("send the report"), send(), complete("sent")])).await;
     let mut app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible"), ("list_sent", "read")]), &model).await;
     let alice = app.api("alice");
     // No permit for send: the run waits for approval.
@@ -237,7 +237,7 @@ async fn repeated_crashes_never_repeat_an_effect() {
     let chat = mcp::chat().start().await;
     let model = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_checked("post four updates", "chat__list_posts", json!({}), "/count", json!(4)),
+            0 => plan("post four updates"),
             n @ 1..=4 => tool("chat__post", json!({ "channel": "team", "text": format!("update {n}") })),
             _ => complete("posted"),
         }
@@ -424,7 +424,7 @@ async fn a_deleted_file_is_gone_at_once_and_nothing_outlives_the_purge_window() 
         seen_by_model.lock().unwrap().push_str(&c.body["system"].to_string());
         async move {
             match c.turn() {
-                0 => contract_unchecked("nothing", "nothing"),
+                0 => plan("nothing"),
                 _ => fail("done"),
             }
         }
