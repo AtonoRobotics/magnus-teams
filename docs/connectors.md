@@ -22,10 +22,10 @@ one commit), 2026-11-02.
 - [x] No connector shows the user a form: no address, key, token, client ID or header fields in the app (`desktop/tests/connectors.mjs`, "asks nothing here", and the owner's Settings › Connectors)
 - [ ] A service whose provider offers no sign-in is not in the catalog (every catalog manifest signs in; an admin can no longer add a server with a key, `add-by-sign-in`, but can still add one that asks for no sign-in at all: open with the owner)
 - [ ] Desktop programs detected and enabled with one consent (no detection, no bridge)
-- [ ] Non-technical users: nothing in connect, use or repair needs configuration, a terminal or a developer console (repair of a broken sign-in is untested; the Google client secret is put in by a CI step or typed in the admin console)
-- [ ] Removable modules: each connector added, disabled or removed without rebuilding Magnus (disable: admin console, `admin_connectors.rs`; add or remove a catalog connector needs a release, manifests are compiled in)
+- [ ] Non-technical users: nothing in connect, use or repair needs configuration, a terminal or a developer console (repair of a broken sign-in is untested; the Google client secret is put in by a CI step or by an admin in the app's Admin › Connectors)
+- [ ] Removable modules: each connector added, disabled or removed without rebuilding Magnus (disable: the app's Admin › Connectors, `desktop/ui/admin-connectors.js`; add or remove a catalog connector needs a release, manifests are compiled in)
 - [x] Isolation: a person's connections and tokens are theirs alone; no one else's agent acts through them (`connectors.rs` `the_owner_adds_an_app_each_person_signs_in_with_their_own_account_and_the_kill_switch_revokes_every_sign_in`)
-- [x] Connector results are the organisation's data by default, private where the data-access policy says (ruling 14; `data_access.rs` `the_admin_reads_a_persons_data_unless_the_policy_makes_it_private`)
+- [x] Connector results are the person's own data: no admin, and not the server's owner, reads them (`decisions/2026-11-11-a-magnus-admin-supports-and-reads-nothing.md`, which replaces ruling 14)
 - [x] Org control: admins decide which connectors their users may use: on or off for the organisation (`admin_connectors.rs`), and allowed or blocked per group (`library-groups`; `library_groups.rs`)
 - [ ] Done: every launch-catalog connector meets all six on Windows and Linux, against an appliance reached through pyrallon.ai
 - [ ] Done: Magnus, asked about any catalog service, says whether it can work with it and offers that connector's card (no catalog tools for the agent)
@@ -38,7 +38,7 @@ one commit), 2026-11-02.
 - [ ] Browse: or asks Magnus (no catalog tools)
 - [ ] Connect: click Connect, sign in on the provider's page, approve, the card turns Connected (works against a fake app, `app-apps.mjs`; never shown for a real provider. Google's completion was refused because the desktop app dropped `iss`; it now carries it back, see Connect flow, and is still untested against Google's token endpoint)
 - [x] Never asked, in the app: no client ID, secret, address, key, token, redirect URI or scope (`connectors.mjs`)
-- [ ] Never asked, in the admin console: the console still asks an admin for Google's client secret (Security › Connectors and credentials, `desktop/admin/admin.js` `connectorPanel` credential form) until the relay holds it; adding an app asks for no key (`add-by-sign-in`, `admin_connectors.rs`)
+- [ ] Never asked, in Admin: Admin › Connectors still asks an admin for Google's client secret until the relay holds it; adding an app asks for no key (`add-by-sign-in`). The VPN-only admin console that also asked is retired (`decisions/2026-11-11-console-retired.md`)
 - [ ] Where the org's credentials live: Alpha Vector's client IDs and secrets in the relay's secret store, nowhere in the app, console or manifests, the appliance getting client IDs from the relay (today: client IDs in `catalog/registrations.toml`, compiled in; Google's secret in the appliance's vault, put there by `release/admin-on-appliance.sh` from the repository secret)
 - [x] The connector form asking for a client ID, client secret and web address is deleted from the app, not hidden (#67; `connectors.mjs`, the owner's Settings › Connectors ask for nothing)
 - [ ] Acceptance: on a fresh install a user connects Gmail, Slack, GitHub and Vercel with only clicks and the providers' login pages (Slack is brokered, `catalog/slack.toml`, and signs in through `https://magnus.pyrallon.ai/oauth/slack/callback`, which the appliance sends on to `http://127.0.0.1:17321/callback`; GitHub's and Vercel's manifests sign in with the owner's clients, Vercel's only once Vercel approves it, `decisions/2026-11-10-github-and-vercel-connectors.md`; Gmail's desktop completion dropped `iss` and was refused, which the app now returns, and no test exchanges a code with Google)
@@ -54,7 +54,7 @@ one commit), 2026-11-02.
 - [x] The agent chooses connectors and tools; no scripted workflows (`inv5_model_decides.rs` `every_app_call_traces_to_a_model_decision`)
 - [x] Ruling: a signed manifest's tool classes count as the owner's classification; an unclassified tool cannot run (compiled-in manifests stand in for signed ones; `inv1_boundary.rs` `tools_the_owner_has_not_classified_cannot_run`)
 - [x] Ruling: a layer below the organisation only narrows (`inv8_layers.rs`)
-- [x] Ruling: a person's data, connector results included, is the organisation's by default; a data-access policy can make it private (`data_access.rs`)
+- [x] Ruling (2026-11-11, replacing ruling 14): a person's data, connector results included, is theirs; admins support accounts and the server and read no one's data (`decisions/2026-11-11-a-magnus-admin-supports-and-reads-nothing.md`)
 - [ ] Ruling: turning a person's identity-provider account off pauses their connections and schedules (schedules pause, `people.rs` `a_person_turned_off_in_keycloak_loses_their_sessions_and_their_schedules_pause`; connections are not refused)
 - [x] Ruling: the kill switch revokes every connection (`kill_switch.rs` `the_kill_switch_revokes_sign_ins_seals_the_vault_and_releasing_resumes_nothing`, `connectors.rs`)
 
@@ -66,7 +66,7 @@ one commit), 2026-11-02.
 - [ ] All three reach the agent the same way, as MCP tools on the appliance, in one library (remote and brokered run, `catalog::kind_problem`, `brokered.rs`, Gmail brokered; no local)
 - [ ] Remote called from the appliance's MCP client, brokered beside it, local through the desktop app; the relay talks only to providers' token endpoints
 - [ ] A service moves from brokered to remote with no change visible to the user
-- [x] An org admin adds a remote MCP server by its address, in the admin console only (`admin_connectors.rs` `the_console_sets_rotates_and_revokes_the_organisations_credentials_and_never_shows_one`; gone from the app, `connectors.mjs`)
+- [ ] An org admin adds a remote MCP server by its address: this lived in the retired admin console (`decisions/2026-11-11-console-retired.md`) and is not yet in the app's Admin › Connectors; it stays out of the person's own Connectors screen (`connectors.mjs`)
 - [x] Magnus discovers the added server's sign-in from its address; then it is a card like any other, each user logging in (`connectors.rs`, the server's 401 and metadata)
 - [x] A server that asks for a key, token or client details instead of a sign-in is refused, and the admin told why (`admin_connectors.rs` `the_console_sets_rotates_and_revokes_the_organisations_credentials_and_never_shows_one`: a key, a client ID, a server answering 401 with no sign-in, and one whose sign-in registers no client, each refused with the reason)
 
@@ -253,8 +253,8 @@ one commit), 2026-11-02.
 ### Isolation
 
 - [x] A connection belongs to one user; no admin or other user can act through it (`connectors.rs`)
-- [x] What it returns is the organisation's data by default: the admin can read it, each read recorded and shown to the user (`admin_people.rs` `root_suspends_a_persons_schedule_reads_their_data_on_the_record_and_deletes_them_for_good`, `data_access.rs`)
-- [x] Where the policy makes data private, admins see metadata only: which connectors each user connected and when last used (`data_access.rs`; the console's connectors list shows counts and last use, `admin_connectors.rs`)
+- [x] What it returns is the person's own data: no admin reads it (`decisions/2026-11-11-a-magnus-admin-supports-and-reads-nothing.md`, which removed the admin data read and the data-access policy's organisation default)
+- [x] Admins see metadata only: which connectors are connected and when last used, without content (the app's Admin › Connectors)
 - [x] When an admin removes a user, every connection is revoked at the provider and its tokens deleted (`person_admin.rs` `erase_person`; `admin_people.rs`: Bob's calendar sign-in revoked at the app, both tokens)
 - [x] When the identity provider turns a user off, their connections refuse every call and schedules pause until they are back; tokens stay in the vault unused (`PersonTurnedOff`, cleared by their next sign-in; `turned_off_apps.rs`; schedules, `people.rs`)
 
@@ -283,7 +283,7 @@ one commit), 2026-11-02.
 - [ ] A new version needing more access asks through the scope-approval card the first time a tool needs it
 - [ ] Withdrawal: appliances disable the connector, revoke its connections and tell affected users in their Library
 - [ ] Relay availability: unreachable, confidential connections work until their access tokens expire; public ones unaffected
-- [x] Kill switch, from the app or the admin console: refuses every connector call, revokes every connection at its provider, deletes the tokens and seals the vault; releasing restores none (`kill_switch.rs`, `connectors.rs`, `inv1_boundary.rs` `kill_switch_stops_actions_and_release_resumes_nothing`; the relay part with the relay)
+- [x] Kill switch, from the app or `magnus kill` on the server itself: refuses every connector call, revokes every connection at its provider, deletes the tokens and seals the vault; releasing restores none (`kill_switch.rs`, `connectors.rs`, `inv1_boundary.rs` `kill_switch_stops_actions_and_release_resumes_nothing`; the relay part with the relay)
 
 ## Building connectors
 
