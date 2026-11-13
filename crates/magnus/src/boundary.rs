@@ -1183,8 +1183,10 @@ impl Kernel {
                 }
                 "deliver_file" => {
                     let path = s("path");
-                    let bytes = self.sandboxes.read(&a.run, &path).await?;
-                    anyhow::ensure!(bytes.len() <= 25 * 1024 * 1024, "{path} is larger than 25 MB");
+                    let Some((bytes, from)) = self.delivered_bytes(&a.run, &path, &a.input).await? else {
+                        return Ok((format!("{path} is in neither your sandbox nor your computer's /workspace/: check the path and deliver it again."), true, None));
+                    };
+                    anyhow::ensure!(bytes.len() <= crate::computer::MAX_DELIVER_BYTES, "{path} is larger than 25 MB");
                     let name = a.input["name"].as_str().map(String::from).unwrap_or_else(|| path.rsplit('/').next().unwrap_or("file").to_string());
                     let media_type = media_type_for(&name);
                     use base64::Engine;
@@ -1195,7 +1197,7 @@ impl Kernel {
                         Ev::Output { id: id.clone(), run: a.run.clone(), name: name.clone(), media_type, data_b64: base64::engine::general_purpose::STANDARD.encode(bytes) },
                     )
                     .await?;
-                    Ok((format!("Delivered {name} ({size} bytes) to the person."), false, Some(json!({ "output_id": id }))))
+                    Ok((format!("Delivered {name} ({size} bytes) from {} to the person.", from.said()), false, Some(json!({ "output_id": id }))))
                 }
                 "memory_write" => {
                     let run = self.read(|st| st.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("run"))?;

@@ -5,6 +5,7 @@
 mod agent_tools;
 mod apps;
 mod client;
+mod deliver;
 mod desktop;
 mod devview;
 mod display;
@@ -27,6 +28,7 @@ mod takeover;
 mod wake;
 
 pub(crate) use agent_tools::specs as agent_specs;
+pub(crate) use deliver::MAX_DELIVER_BYTES;
 pub(crate) use driving::request_spec;
 pub use egress::migrate_sql;
 use egress::surrogate as egress_surrogate;

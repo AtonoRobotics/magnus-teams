@@ -64,6 +64,10 @@ pub struct Connector {
     /// items that wake a review.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub watch: Vec<Value>,
+    /// How the server reads the world back after a tool's action
+    /// (`Spec::read_back`, spec rev 147).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub read_back: BTreeMap<String, Value>,
 }
 
 #[derive(Clone)]
@@ -145,6 +149,7 @@ impl Spec {
             destinations: BTreeMap::new(),
             sent: None,
             watch: vec![],
+            read_back: BTreeMap::new(),
         });
         self
     }
@@ -191,6 +196,18 @@ impl Spec {
     pub fn sent(mut self, app: &str, read: &str, input: &str, query: &str, found: &str) -> Self {
         let c = self.connectors.iter_mut().find(|c| c.name == app).expect("app");
         c.sent = Some(json!({ "read": read, "input": input, "query": query, "found": found }));
+        self
+    }
+
+    /// After `tool` of `app` acts, the server reads the world back with
+    /// `read`, called with `input` (each field a JSON pointer into what the
+    /// action had, `/input/...` or `/result/...`, or a literal), and
+    /// compares `expect`: a pointer into what the action had, to one into
+    /// what the read returned (spec rev 147, Read-back).
+    pub fn read_back(mut self, app: &str, tool: &str, read: &str, input: &[(&str, &str)], expect: &[(&str, &str)]) -> Self {
+        let c = self.connectors.iter_mut().find(|c| c.name == app).expect("app");
+        let map = |m: &[(&str, &str)]| m.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>();
+        c.read_back.insert(tool.into(), json!({ "read": read, "input": map(input), "expect": map(expect) }));
         self
     }
 

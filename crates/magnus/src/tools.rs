@@ -581,7 +581,7 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
         v.push(ToolSpec {
             name: "deliver_file".into(),
             description: d("deliver_file"),
-            input_schema: obj(json!({ "path": { "type": "string" }, "name": { "type": "string" } }), &["path"]),
+            input_schema: obj(json!({ "path": { "type": "string" }, "name": { "type": "string" }, "from": { "type": "string", "enum": ["computer", "sandbox"] } }), &["path"]),
         });
         v.push(ToolSpec {
             name: "sandbox_exec".into(),

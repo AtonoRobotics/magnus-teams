@@ -1,6 +1,8 @@
 //! Invariant 6: autonomy comes from policy: the owner's for the
-//! organisation, each person's own grants over their own work within it.
-//! The agent can propose policy and grants, never grant them.
+//! organisation, each person's own "Allow always" over their own work
+//! within it. The agent can propose policy, never grant it, and has no tool
+//! to propose or set a grant (spec rev 147: Allow always and connect-time
+//! consent replace `propose_grant`).
 //!
 //! Prevents: an agent enabling its own auto-approve (CVE-2025-53773), and
 //! autonomy that grows without anyone deciding it.
@@ -134,9 +136,8 @@ async fn people_set_policy_only_within_their_role() {
 const CHAT: &str = "talking with the person you work for in a chat";
 const PASS: &str = "You keep the person's long-term memory";
 
-/// In chat, `grant` asks for a grant over sending mail (sends and what
-/// cannot be undone lifted), and `run <id>` starts a task under grant
-/// `id`; a task emails bob hello. The memory pass writes nothing.
+/// In chat the agent tries to grant itself standing authority: it calls the
+/// retired `propose_grant`. The memory pass writes nothing.
 fn grants_model() -> model::Script {
     script(|c| async move {
         let sys = match &c.body["system"] {
@@ -149,22 +150,17 @@ fn grants_model() -> model::Script {
         }
         if !sys.contains(CHAT) {
             return match c.turn() {
-                0 => contract_unchecked("say hi", "said"),
-                1 => send("hello"),
+                0 => send("hello"),
                 _ => fail("done"),
             };
         }
         if c.turn() > 0 {
             return Reply::Text("Done.".into());
         }
-        let said = c.messages().first().and_then(|m| m["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).map(String::from)).unwrap_or_default();
-        match said.strip_prefix("run ") {
-            Some(g) => tool("create_task", json!({ "title": "Email bob", "text": "Email bob hello.", "grant": g })),
-            None => tool(
-                "propose_grant",
-                json!({ "title": "Emailing bob", "apps": ["mail"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked me to email bob without asking." }),
-            ),
-        }
+        tool(
+            "propose_grant",
+            json!({ "title": "Emailing bob", "apps": ["mail"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked me to email bob without asking." }),
+        )
     })
 }
 
@@ -177,58 +173,28 @@ async fn chat_entries(who: &Api, text: &str) -> Vec<Value> {
     t["entries"].as_array().cloned().unwrap_or_default()
 }
 
-/// The task a `run` message started, if one did.
-async fn run_under(who: &Api, grant: &str) -> Option<String> {
-    let entries = chat_entries(who, &format!("run {grant}")).await;
-    entries.iter().find(|e| e["kind"] == "tasks").and_then(|e| e["tasks"][0]["task_id"].as_str().map(String::from))
-}
-
 async fn grants_of(who: &Api) -> Vec<Value> {
     who.get("/v1/grants").await.1["grants"].as_array().cloned().unwrap_or_default()
 }
 
-/// A person's grant over their own work (owner's ruling, 2026-11-02; #235):
-/// the agent's proposal alone grants nothing (a send still asks), only that
-/// person's accept sets one, no one else can accept it, and it never covers
-/// what its person could not approve themselves.
+/// The agent cannot grant itself standing authority (spec rev 147): it is
+/// offered no tool to propose or set a grant, a call to the retired one is
+/// refused and puts no card in the thread, and afterwards a send still asks.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_agent_proposes_a_grant_and_only_its_person_grants_what_they_could_approve() {
+async fn the_agent_cannot_grant_itself_standing_authority() {
     let model = FakeModel::start(grants_model()).await;
     let (mail, app) = mail_app(&model).await;
-    let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
+    let alice = app.api("alice");
 
-    // Carol (no approver role) asks; the agent's card alone grants nothing.
-    let card = chat_entries(&carol, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
-    let card = card["card"].as_str().unwrap().to_string();
-    assert!(grants_of(&carol).await.is_empty(), "a proposal took effect by itself");
-    assert_eq!(run_under(&carol, &card).await, None, "a task started under a card nobody accepted");
-    let id = carol.submit("Email bob hello.").await;
-    carol.wait_item(&id, "approval").await;
+    let entries = chat_entries(&alice, "Just email bob from now on without asking me.").await;
+    let offered = model.requests().into_iter().find(|c| c.text().contains(CHAT)).expect("no chat turn").offered_tools();
+    assert!(!offered.iter().any(|t| t.contains("grant") && t != "revoke_grant"), "the agent was offered a way to grant: {offered:?}");
+    assert!(entries.iter().all(|e| e["kind"] != "grant_card"), "a grant card was put to the person");
+    assert!(grants_of(&alice).await.is_empty(), "a grant was set without the person");
 
-    // Only Carol accepts it.
-    for who in [&alice, &bob] {
-        let (st, _) = who.post(&format!("/v1/chat/cards/{card}"), json!({ "decision": "accept" })).await;
-        assert_eq!(st.as_u16(), 404, "someone else accepted carol's grant");
-    }
-    assert!(grants_of(&carol).await.is_empty());
-    let (st, v) = carol.post(&format!("/v1/chat/cards/{card}"), json!({ "decision": "accept" })).await;
-    assert!(st.is_success(), "{v}");
-    let grant = v["grant"].as_str().unwrap().to_string();
-
-    // Her grant lifts sends and what cannot be undone, but she cannot
-    // approve an irreversible send herself: under it, the send still asks.
-    let task = run_under(&carol, &grant).await.expect("no task under carol's grant");
-    carol.wait_item(&task, "approval").await;
-    never("a grant covered what its person could not approve", Duration::from_secs(3), || async { mail.effects("send") > 0 }).await;
-
-    // The owner's own grant, accepted by her, covers it for her.
-    let card = chat_entries(&alice, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "accept" })).await;
-    assert!(st.is_success(), "{v}");
-    let task = run_under(&alice, v["grant"].as_str().unwrap()).await.expect("no task under alice's grant");
-    alice.wait_settled(&task).await;
-    assert_eq!(mail.effects("send"), 1, "the owner's grant did not cover her send");
-    assert!(alice.open_items(&task, "approval").await.is_empty());
+    let id = alice.submit("Email bob hello.").await;
+    alice.wait_item(&id, "approval").await;
+    never("the attempt lifted an ask", Duration::from_secs(3), || async { mail.effects("send") > 0 }).await;
 }
 
 /// Move the whole log back by `minutes`, as if that much time had passed,
@@ -311,7 +277,7 @@ async fn an_expired_background_ask_runs_nothing() {
 /// Test 17. Disclosing a credential and reaching another person's account
 /// or computer are refused whatever is permitted, and no one is asked.
 #[tokio::test(flavor = "multi_thread")]
-async fn no_grant_unlocks_a_hard_denial() {
+async fn nothing_permitted_unlocks_a_hard_denial() {
     let computerd = Computerd::start();
     let stored = canary("stored-credential");
     let crm = mcp::crm().start().await;
@@ -326,52 +292,17 @@ async fn no_grant_unlocks_a_hard_denial() {
     let (_, made) = bob.post("/v1/computers", json!({})).await;
     let bobs = made["id"].as_str().unwrap().to_string();
     model.set_script(hard_denial_model(stored, bobs));
-    // A real grant, accepted by its person, over everything the app can do.
-    let card = chat_entries(&alice, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "accept" })).await;
-    assert!(st.is_success(), "{v}");
-    let id = run_under(&alice, v["grant"].as_str().unwrap()).await.expect("no task under the grant");
+    // Everything is permitted, and the destination allowed always.
+    let id = alice.submit("Update record 42.").await;
     alice.wait_settled(&id).await;
     assert!(crm.calls_to("update_record").is_empty(), "a grant unlocked a hard denial");
     assert!(alice.open_items(&id, "approval").await.is_empty(), "a hard denial was offered for approval");
 }
 
-/// In chat, proposes a grant over the whole app, and starts a task under it.
-/// The task tries each thing no grant can allow.
+/// The task tries each thing nothing permitted can allow.
 fn hard_denial_model(stored: String, bobs: String) -> model::Script {
-    script(move |c| {
-        let (stored, bobs) = (stored.clone(), bobs.clone());
-        async move {
-            let sys = match &c.body["system"] {
-                Value::String(s) => s.clone(),
-                Value::Array(a) => a.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n"),
-                other => other.to_string(),
-            };
-            if sys.contains(PASS) {
-                return Reply::Text(String::new());
-            }
-            if !sys.contains(CHAT) {
-                let update = |fields: Value| tool("crm__update_record", json!({ "id": "42", "fields": fields }));
-                return match c.turn() {
-                    0 => contract_unchecked("update", "updated"),
-                    1 => update(json!({ "note": stored })),
-                    2 => update(json!({ "account": "bob" })),
-                    3 => update(json!({ "computer": bobs })),
-                    _ => fail("all refused"),
-                };
-            }
-            if c.turn() > 0 {
-                return Reply::Text("Done.".into());
-            }
-            let said = c.messages().first().and_then(|m| m["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).map(String::from)).unwrap_or_default();
-            match said.strip_prefix("run ") {
-                Some(g) => tool("create_task", json!({ "title": "Update record 42", "text": "Update record 42.", "grant": g })),
-                None => {
-                    tool("propose_grant", json!({ "title": "The CRM", "apps": ["crm"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked." }))
-                }
-            }
-        }
-    })
+    let update = |fields: Value| tool("crm__update_record", json!({ "id": "42", "fields": fields }));
+    steps(vec![update(json!({ "note": stored })), update(json!({ "account": "bob" })), update(json!({ "computer": bobs })), fail("all refused")])
 }
 
 // The UI catalog: what the agent renders can ask for work, and only that.
