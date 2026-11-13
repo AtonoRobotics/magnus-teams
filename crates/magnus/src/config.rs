@@ -47,6 +47,9 @@ pub struct Config {
     /// The file this was read from: a new release is checked against it.
     #[serde(skip)]
     pub path: PathBuf,
+    /// What child processes inherit from Magnus's own environment, read once here.
+    #[serde(skip, default = "crate::spawn::HostEnv::from_process")]
+    pub host: crate::spawn::HostEnv,
     /// Removable modules, on or off for every model, and per model.
     #[serde(default)]
     pub modules: Modules,

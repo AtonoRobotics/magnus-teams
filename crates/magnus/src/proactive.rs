@@ -9,6 +9,9 @@ use chrono::{DateTime, TimeZone, Timelike, Utc};
 use serde_json::Value;
 use std::sync::Arc;
 
+/// A failed poll mark waits this long times its attempt before it is emitted again.
+const MARK_RETRY_STEP_MS: u64 = 100;
+
 /// The ended task that woke a review: its ID, its outcome line, and the
 /// taint it ended with, which the review starts with (#383, #390).
 pub(crate) struct Ended {
@@ -270,7 +273,7 @@ impl crate::kernel::Kernel {
                 Err(err) if attempt < 2 => {
                     attempt += 1;
                     tracing::debug!("poll mark emit failed, retrying ({attempt}/2): {err:#}");
-                    tokio::time::sleep(std::time::Duration::from_millis(100 * attempt as u64)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(MARK_RETRY_STEP_MS * attempt as u64)).await;
                 }
                 Err(err) => return Err(err),
             }

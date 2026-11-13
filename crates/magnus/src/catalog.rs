@@ -120,7 +120,8 @@ fn pkce_on() -> bool {
 
 pub fn manifests() -> &'static [Manifest] {
     static M: OnceLock<Vec<Manifest>> = OnceLock::new();
-    M.get_or_init(|| SOURCES.iter().map(|s| toml::from_str(s).expect("a catalog manifest parses (checked by a unit test)")).collect())
+    // Compiled in and parsed by a unit test; were one broken, it would be left out rather than the server stop.
+    M.get_or_init(|| SOURCES.iter().filter_map(|s| toml::from_str(s).map_err(|e| tracing::error!("a catalog manifest does not parse: {e}")).ok()).collect())
 }
 
 /// The Library's category chips, in their order.
@@ -157,7 +158,14 @@ impl Client {
 /// Alpha Vector's client with `provider`, if it has one.
 pub fn client(provider: &str) -> Option<&'static Client> {
     static C: OnceLock<BTreeMap<String, Client>> = OnceLock::new();
-    C.get_or_init(|| toml::from_str(include_str!("../../../catalog/registrations.toml")).expect("the catalog's registrations parse (checked by a unit test)")).get(provider)
+    // Compiled in and parsed by a unit test; were it broken, no provider would have a client rather than the server stop.
+    C.get_or_init(|| {
+        toml::from_str(include_str!("../../../catalog/registrations.toml")).unwrap_or_else(|e| {
+            tracing::error!("the catalog's registrations do not parse: {e}");
+            BTreeMap::new()
+        })
+    })
+    .get(provider)
 }
 
 /// The vault name of Alpha Vector's provisioned secret for a provider.
@@ -239,6 +247,7 @@ mod tests {
     fn every_manifest_is_well_formed() {
         let ms = super::manifests();
         assert!(!ms.is_empty());
+        assert_eq!(ms.len(), super::SOURCES.len(), "a manifest does not parse: it was left out");
         let mut ids = std::collections::HashSet::new();
         for m in ms {
             assert!(ids.insert(m.id.clone()), "{} twice", m.id);

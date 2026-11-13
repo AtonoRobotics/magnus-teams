@@ -15,6 +15,14 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
+/// The pause after a failed accept before the next.
+const ACCEPT_RETRY: Duration = Duration::from_millis(100);
+/// How long a new connection has to send its first byte, then to finish the TLS handshake.
+const HANDSHAKE_WAIT: Duration = Duration::from_secs(10);
+/// How long, and how much, a plain-http request is read before it is sent to https.
+const PLAIN_HEAD_WAIT: Duration = Duration::from_secs(10);
+const PLAIN_HEAD_MOST_BYTES: usize = 8192;
+
 /// The server configuration and the fingerprint of its certificate.
 pub fn load(state_dir: &Path, cert: Option<&Path>, key: Option<&Path>) -> Result<(rustls::ServerConfig, String)> {
     let (cert_path, key_path) = match (cert, key) {
@@ -78,7 +86,7 @@ impl Listener {
                     Ok(x) => x,
                     Err(e) => {
                         tracing::warn!("tls accept: {e}");
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        tokio::time::sleep(ACCEPT_RETRY).await;
                         continue;
                     }
                 };
@@ -88,7 +96,7 @@ impl Listener {
                     // Anything else is a browser that was given the address
                     // without https://: send it there instead of TLS bytes.
                     let mut first = [0u8; 1];
-                    match tokio::time::timeout(Duration::from_secs(10), sock.peek(&mut first)).await {
+                    match tokio::time::timeout(HANDSHAKE_WAIT, sock.peek(&mut first)).await {
                         Ok(Ok(1)) if first[0] != 0x16 => {
                             let here = sock.local_addr().unwrap_or(local);
                             return redirect_to_https(sock, here).await;
@@ -96,7 +104,7 @@ impl Listener {
                         Ok(Ok(1)) => {}
                         _ => return,
                     }
-                    match tokio::time::timeout(Duration::from_secs(10), acceptor.accept(sock)).await {
+                    match tokio::time::timeout(HANDSHAKE_WAIT, acceptor.accept(sock)).await {
                         Ok(Ok(s)) => {
                             let _ = tx.send((s, peer)).await;
                         }
@@ -119,14 +127,14 @@ async fn redirect_to_https(mut sock: TcpStream, local: SocketAddr) {
     let mut head = Vec::new();
     let mut buf = [0u8; 1024];
     let read = async {
-        while head.len() < 8192 && !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        while head.len() < PLAIN_HEAD_MOST_BYTES && !head.windows(4).any(|w| w == b"\r\n\r\n") {
             match sock.read(&mut buf).await {
                 Ok(0) | Err(_) => break,
                 Ok(n) => head.extend_from_slice(&buf[..n]),
             }
         }
     };
-    let _ = tokio::time::timeout(Duration::from_secs(10), read).await;
+    let _ = tokio::time::timeout(PLAIN_HEAD_WAIT, read).await;
     let location = https_location(&String::from_utf8_lossy(&head), local);
     let reply = format!("HTTP/1.1 308 Permanent Redirect\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
     let _ = sock.write_all(reply.as_bytes()).await;

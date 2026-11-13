@@ -80,14 +80,22 @@ action "cancel_task", "pause_schedule", "resume_schedule", "edit_schedule", "can
 };
 "#;
 
-fn tool_schema() -> &'static Schema {
-    static S: std::sync::OnceLock<Schema> = std::sync::OnceLock::new();
-    S.get_or_init(|| Schema::from_cedarschema_str(TOOL_SCHEMA).expect("the tool half parses").0)
+/// A schema half, parsed once. Each is compiled in and parsed by a test; were one broken, every
+/// policy would be refused with the reason rather than the server stop.
+type Parsed = std::sync::OnceLock<Result<Schema, String>>;
+
+fn parsed(cell: &'static Parsed, src: &str) -> Result<&'static Schema, String> {
+    cell.get_or_init(|| Schema::from_cedarschema_str(src).map(|s| s.0).map_err(|e| format!("Magnus's policy schema does not parse: {e}"))).as_ref().map_err(Clone::clone)
 }
 
-fn control_schema() -> &'static Schema {
-    static S: std::sync::OnceLock<Schema> = std::sync::OnceLock::new();
-    S.get_or_init(|| Schema::from_cedarschema_str(CONTROL_SCHEMA).expect("the control half parses").0)
+fn tool_schema() -> Result<&'static Schema, String> {
+    static S: Parsed = std::sync::OnceLock::new();
+    parsed(&S, TOOL_SCHEMA)
+}
+
+fn control_schema() -> Result<&'static Schema, String> {
+    static S: Parsed = std::sync::OnceLock::new();
+    parsed(&S, CONTROL_SCHEMA)
 }
 
 /// The schema's loop half (#368): suggest and interrupt spend a
@@ -110,14 +118,14 @@ action "act" appliesTo {
 };
 "#;
 
-fn loop_schema() -> &'static Schema {
-    static S: std::sync::OnceLock<Schema> = std::sync::OnceLock::new();
-    S.get_or_init(|| Schema::from_cedarschema_str(LOOP_SCHEMA).expect("the loop half parses").0)
+fn loop_schema() -> Result<&'static Schema, String> {
+    static S: Parsed = std::sync::OnceLock::new();
+    parsed(&S, LOOP_SCHEMA)
 }
 
-fn served_schema() -> &'static Schema {
-    static S: std::sync::OnceLock<Schema> = std::sync::OnceLock::new();
-    S.get_or_init(|| Schema::from_cedarschema_str(SCHEMA).expect("the served schema parses").0)
+fn served_schema() -> Result<&'static Schema, String> {
+    static S: Parsed = std::sync::OnceLock::new();
+    parsed(&S, SCHEMA)
 }
 
 /// Where an offset falls in the text: its line and column, from 1.
@@ -144,6 +152,12 @@ pub fn check(text: &str) -> Vec<Value> {
     let set = match PolicySet::from_str(text) {
         Ok(s) => s,
         Err(e) => return e.iter().map(|x| problem(text, x, x.to_string())).collect(),
+    };
+    let (tool_schema, control_schema, loop_schema, served_schema) = match (tool_schema(), control_schema(), loop_schema(), served_schema()) {
+        (Ok(t), Ok(c), Ok(l), Ok(s)) => (t, c, l, s),
+        (t, c, l, s) => {
+            return [t.err(), c.err(), l.err(), s.err()].into_iter().flatten().map(|m| json!({ "message": m, "line": 1, "column": 1, "offset": null, "length": null })).collect()
+        }
     };
     let mut tools = HashSet::new();
     let mut controls = HashSet::new();
@@ -174,7 +188,7 @@ pub fn check(text: &str) -> Vec<Value> {
     }
     let mut out = vec![];
     let mut tool_bad = HashSet::new();
-    for e in Validator::new(tool_schema().clone()).validate(&set, ValidationMode::Strict).validation_errors() {
+    for e in Validator::new(tool_schema.clone()).validate(&set, ValidationMode::Strict).validation_errors() {
         let id = e.policy_id().to_string();
         tool_bad.insert(id.clone());
         if tools.contains(id.as_str()) {
@@ -182,7 +196,7 @@ pub fn check(text: &str) -> Vec<Value> {
         }
     }
     let mut control_bad = HashSet::new();
-    for e in Validator::new(control_schema().clone()).validate(&set, ValidationMode::Strict).validation_errors() {
+    for e in Validator::new(control_schema.clone()).validate(&set, ValidationMode::Strict).validation_errors() {
         let id = e.policy_id().to_string();
         control_bad.insert(id.clone());
         if controls.contains(id.as_str()) {
@@ -190,14 +204,14 @@ pub fn check(text: &str) -> Vec<Value> {
         }
     }
     let mut loop_bad = HashSet::new();
-    for e in Validator::new(loop_schema().clone()).validate(&set, ValidationMode::Strict).validation_errors() {
+    for e in Validator::new(loop_schema.clone()).validate(&set, ValidationMode::Strict).validation_errors() {
         let id = e.policy_id().to_string();
         loop_bad.insert(id.clone());
         if loops.contains(id.as_str()) {
             out.push(problem(text, e, e.to_string()));
         }
     }
-    for e in Validator::new(served_schema().clone()).validate(&set, ValidationMode::Strict).validation_errors() {
+    for e in Validator::new(served_schema.clone()).validate(&set, ValidationMode::Strict).validation_errors() {
         if mixed.contains(e.policy_id().to_string().as_str()) {
             out.push(problem(text, e, e.to_string()));
         }
@@ -370,8 +384,9 @@ mod tests {
 
     #[test]
     fn the_schema_parses_and_the_default_policy_fits_it() {
-        let _ = (tool_schema(), control_schema());
-        Schema::from_cedarschema_str(SCHEMA).expect("the served schema parses");
+        for half in [tool_schema(), control_schema(), loop_schema(), served_schema()] {
+            half.unwrap();
+        }
         assert!(check(crate::policy::DEFAULT_ORG).is_empty(), "{:?}", check(crate::policy::DEFAULT_ORG));
     }
 

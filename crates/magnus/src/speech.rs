@@ -75,7 +75,7 @@ pub async fn speak(cfg: &ReadAloud, text: &str) -> Result<Vec<u8>> {
         .kill_on_drop(true)
         .spawn()
         .with_context(|| format!("run {}", cfg.speak.display()))?;
-    let mut stdin = c.stdin.take().expect("piped");
+    let mut stdin = c.stdin.take().context("the voice's input was not piped")?;
     stdin.write_all(text.as_bytes()).await?;
     drop(stdin);
     let out = c.wait_with_output().await?;

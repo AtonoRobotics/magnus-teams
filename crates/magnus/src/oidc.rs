@@ -33,6 +33,9 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+/// The longest one call to the identity provider may take.
+const PROVIDER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[derive(Deserialize, Clone, Debug)]
 struct Discovery {
     issuer: String,
@@ -161,11 +164,11 @@ impl Provider {
         // No redirects: a 307 from the token endpoint would replay the POST,
         // password or client secret included, to wherever it points, plain
         // http among them. Every address used is checked by `checked`.
-        let http = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build()?;
+        let http = reqwest::Client::builder().timeout(PROVIDER_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build()?;
         if let Some(u) = &cfg.status_admin_url {
             checked(u)?;
         }
-        let mut admin = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none());
+        let mut admin = reqwest::Client::builder().timeout(PROVIDER_TIMEOUT).redirect(reqwest::redirect::Policy::none());
         if let Some(ca) = &cfg.status_admin_ca {
             let pem = std::fs::read(ca).with_context(|| format!("reading status_admin_ca {}", ca.display()))?;
             admin = admin.add_root_certificate(reqwest::Certificate::from_pem(&pem).with_context(|| format!("{} is not a PEM certificate", ca.display()))?);
@@ -202,8 +205,8 @@ impl Provider {
 
     /// Room for one more waiting sign-in, after forgetting the expired.
     fn room(&self, now: DateTime<Utc>) -> Result<()> {
-        let mut p = self.pending.lock().unwrap();
-        let mut c = self.code_flows.lock().unwrap();
+        let mut p = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        let mut c = self.code_flows.lock().unwrap_or_else(|e| e.into_inner());
         p.retain(|_, f| f.expires > now);
         c.retain(|_, f| f.expires > now);
         if p.len() + c.len() >= self.cfg.max_pending {
@@ -257,7 +260,10 @@ impl Provider {
             u.query_pairs_mut().append_pair("login_hint", h);
         }
         let expires_in = i64::from(self.cfg.sign_in_minutes) * 60;
-        self.code_flows.lock().unwrap().insert(state.clone(), CodeFlow { verifier, nonce, redirect_uri: redirect_uri.into(), expires: now + Duration::seconds(expires_in), app });
+        self.code_flows
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(state.clone(), CodeFlow { verifier, nonce, redirect_uri: redirect_uri.into(), expires: now + Duration::seconds(expires_in), app });
         Ok(Begun { state, authorize_url: u.into(), expires_in })
     }
 
@@ -266,7 +272,7 @@ impl Provider {
     /// (RFC 9207). Each state finishes once.
     pub async fn finish(&self, state: &str, code: &str, iss: Option<&str>) -> Result<Polled> {
         let now = Utc::now();
-        let Some(f) = self.code_flows.lock().unwrap().remove(state) else { return Ok(Polled::Failed("This sign-in is over. Start again.".into())) };
+        let Some(f) = self.code_flows.lock().unwrap_or_else(|e| e.into_inner()).remove(state) else { return Ok(Polled::Failed("This sign-in is over. Start again.".into())) };
         if f.expires <= now {
             return Ok(Polled::Failed("The sign-in took too long. Start again.".into()));
         }
@@ -497,7 +503,7 @@ impl Provider {
             expires_in,
             interval,
         };
-        self.pending.lock().unwrap().insert(
+        self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(
             flow,
             Pending { device_code: field("device_code")?, verifier, interval: Duration::seconds(interval), next_poll: now, expires: now + Duration::seconds(expires_in), app },
         );
@@ -509,7 +515,7 @@ impl Provider {
     pub async fn poll(&self, flow: &str) -> Result<Polled> {
         let now = Utc::now();
         let (device_code, verifier, app) = {
-            let mut p = self.pending.lock().unwrap();
+            let mut p = self.pending.lock().unwrap_or_else(|e| e.into_inner());
             let Some(f) = p.get(flow) else { return Ok(Polled::Failed("This sign-in is over. Start again.".into())) };
             if f.expires <= now {
                 p.remove(flow);
@@ -534,7 +540,7 @@ impl Provider {
             .await?;
         let status = r.status();
         let b: Value = r.json().await.unwrap_or_default();
-        let mut p = self.pending.lock().unwrap();
+        let mut p = self.pending.lock().unwrap_or_else(|e| e.into_inner());
         if status.is_success() {
             p.remove(flow);
             return match self.signed_in(d, &b, None, now) {

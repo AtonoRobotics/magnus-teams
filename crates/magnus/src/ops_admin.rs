@@ -11,6 +11,11 @@ use crate::kernel::Kernel;
 use axum::http::StatusCode;
 use serde_json::{json, Map, Value};
 
+/// How long the provider list waits for each adapter's models.
+const OVERVIEW_CATALOG_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long one adapter's models are waited for when it is tested or its model made the default.
+const CATALOG_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
 pub type Refusal = (StatusCode, String);
 
 fn failed(e: anyhow::Error) -> Refusal {
@@ -80,7 +85,7 @@ impl Kernel {
         let disabled = self.read(|s| s.providers_off.clone());
         let mut out = vec![];
         for (id, command, running) in self.adapters.list().await {
-            let models = match tokio::time::timeout(std::time::Duration::from_secs(5), self.adapters.catalog(&id)).await {
+            let models = match tokio::time::timeout(OVERVIEW_CATALOG_WAIT, self.adapters.catalog(&id)).await {
                 Ok(Ok(magnus_adapter_proto::Event::Catalog { models })) => Ok(models.into_iter().map(|m| m.id).collect::<Vec<_>>()),
                 Ok(Ok(magnus_adapter_proto::Event::Error { message, .. })) => Err(message),
                 Ok(Ok(other)) => Err(format!("unexpected answer: {other:?}")),
@@ -115,7 +120,7 @@ impl Kernel {
             return Err((StatusCode::NOT_FOUND, "no such provider".into()));
         }
         let t = std::time::Instant::now();
-        let r = tokio::time::timeout(std::time::Duration::from_secs(15), self.adapters.catalog(id)).await;
+        let r = tokio::time::timeout(CATALOG_WAIT, self.adapters.catalog(id)).await;
         let ms = t.elapsed().as_millis() as u64;
         Ok(match r {
             Ok(Ok(magnus_adapter_proto::Event::Catalog { models })) => json!({ "ok": true, "ms": ms, "models": models.into_iter().map(|m| m.id).collect::<Vec<_>>() }),
@@ -144,7 +149,7 @@ impl Kernel {
             if enabled == Some(false) || (enabled.is_none() && self.read(|s| s.providers_off.contains(id))) {
                 return Err((StatusCode::CONFLICT, "a disabled provider's model cannot be the default".into()));
             }
-            let offered = match tokio::time::timeout(std::time::Duration::from_secs(15), self.adapters.catalog(id)).await {
+            let offered = match tokio::time::timeout(CATALOG_WAIT, self.adapters.catalog(id)).await {
                 Ok(Ok(magnus_adapter_proto::Event::Catalog { models })) => models.iter().any(|x| x.id == m),
                 _ => false,
             };

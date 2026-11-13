@@ -226,6 +226,17 @@ pub fn allows(c: &Connector) -> (String, Vec<String>) {
 
 /// A sign-in left unfinished this long is dropped.
 const PENDING_FOR: Duration = Duration::from_secs(15 * 60);
+/// A call to a provider: the connection, then the whole call.
+const CONNECT_WAIT: Duration = Duration::from_secs(10);
+const CALL_WAIT: Duration = Duration::from_secs(30);
+/// The most of a registration's `Retry-After` that is waited.
+const RETRY_AFTER_MOST: Duration = Duration::from_secs(10);
+/// `until_client_known`: how often the sign-in is asked, how long in all, and each ask's limit.
+const KNOWN_POLL: Duration = Duration::from_millis(250);
+const KNOWN_WAIT: Duration = Duration::from_secs(10);
+const PROBE_WAIT: Duration = Duration::from_secs(10);
+/// A refused registration's first wait in seconds, doubled for each try after up to the third.
+const BACKOFF_FIRST_SECS: u64 = 1;
 
 fn pending() -> &'static Mutex<HashMap<String, Pending>> {
     static P: OnceLock<Mutex<HashMap<String, Pending>>> = OnceLock::new();
@@ -238,47 +249,42 @@ fn refreshing() -> &'static tokio::sync::Mutex<()> {
     R.get_or_init(Default::default)
 }
 
+/// The client for provider calls; the default one if it cannot be built with its timeouts.
 fn http() -> reqwest::Client {
-    reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(30)).build().expect("http client")
+    reqwest::Client::builder().connect_timeout(CONNECT_WAIT).timeout(CALL_WAIT).build().unwrap_or_default()
 }
 
-/// How long a refused registration waits before trying again: what the
-/// server's `Retry-After` asks, capped (the seconds form; a date falls
-/// back to the backoff), else 1 s, 2 s, 4 s. The sign-in is interactive,
-/// so the waits stay short.
+/// How long a refused registration waits before trying again: what the server's `Retry-After` asks,
+/// capped (the seconds form; a date falls back to the backoff), else 1 s, 2 s, 4 s. The sign-in is interactive, so the waits stay short.
 fn registration_backoff(headers: &reqwest::header::HeaderMap, attempt: u32) -> Duration {
     if let Some(s) = headers.get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok()) {
-        return Duration::from_secs(s).min(Duration::from_secs(10));
+        return Duration::from_secs(s).min(RETRY_AFTER_MOST);
     }
-    Duration::from_secs(1 << attempt.min(2))
+    Duration::from_secs(BACKOFF_FIRST_SECS << attempt.min(2))
 }
 
-/// A provider may not know a client it registered a moment ago: GitLab.com
-/// answered the sign-in address built from one with 401 invalid_client, "The
-/// requested OAuth 2.0 Client does not exist" (master run 42105845733,
-/// #170), and the person would land on that error. After registering, the
-/// address is handed out once the provider's sign-in answers it with
-/// anything else, asked every quarter second for ten seconds at most in all,
-/// however slowly it answers (how long the person may wait for the sign-in
-/// page); then it is handed out as it is. Redirects are not followed: the
-/// answer is the provider's own.
+/// A provider may not know a client it registered a moment ago: GitLab.com answered the sign-in address built from one with
+/// 401 invalid_client, "The requested OAuth 2.0 Client does not exist" (master run 42105845733, #170), and the person would land
+/// on that error. After registering, the address is handed out once the provider's sign-in answers it with anything else, asked
+/// every quarter second for ten seconds at most in all, however slowly it answers (how long the person may wait for the sign-in
+/// page); then it is handed out as it is. Redirects are not followed: the answer is the provider's own.
 async fn until_client_known(authorize: &str) {
     let known = async {
         while unknown(authorize).await {
-            tokio::time::sleep(Duration::from_millis(250)).await;
+            tokio::time::sleep(KNOWN_POLL).await;
         }
     };
-    let _ = tokio::time::timeout(Duration::from_secs(10), known).await;
+    let _ = tokio::time::timeout(KNOWN_WAIT, known).await;
 }
 
-fn no_redirects() -> reqwest::Client {
-    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(10)).build().expect("http client")
+fn no_redirects() -> reqwest::Result<reqwest::Client> {
+    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(PROBE_WAIT).build()
 }
 
 /// The provider's sign-in says it does not know the client (401
 /// invalid_client, as GitLab.com answers).
 async fn unknown(authorize: &str) -> bool {
-    match no_redirects().get(authorize).send().await {
+    match async { no_redirects()?.get(authorize).send().await }.await {
         Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => r.text().await.unwrap_or_default().contains("invalid_client"),
         _ => false,
     }
@@ -291,7 +297,7 @@ async fn unknown(authorize: &str) -> bool {
 /// nothing about the client, and the kept one stays (review of #215).
 /// Redirects are not followed.
 async fn refused(authorize: &str) -> bool {
-    match no_redirects().get(authorize).send().await {
+    match async { no_redirects()?.get(authorize).send().await }.await {
         Ok(r) if matches!(r.status().as_u16(), 400 | 401) => r.text().await.unwrap_or_default().to_lowercase().contains("client"),
         _ => false,
     }
@@ -710,7 +716,7 @@ impl Kernel {
             }
         }
         let client = Client { token_endpoint: token, revocation_endpoint: s("revocation_endpoint"), client_id, client_secret, resource };
-        let mut p = pending().lock().unwrap();
+        let mut p = pending().lock().unwrap_or_else(|e| e.into_inner());
         p.retain(|_, x| x.at.elapsed() < PENDING_FOR);
         let iss_required = asm["authorization_response_iss_parameter_supported"] == true;
         p.insert(
@@ -737,7 +743,7 @@ impl Kernel {
         // Taken only by the person who started it: anyone else's attempt
         // leaves it waiting for them.
         let p = {
-            let mut m = pending().lock().unwrap();
+            let mut m = pending().lock().unwrap_or_else(|e| e.into_inner());
             match m.get(state) {
                 Some(p) if p.app == app && p.person == person => m.remove(state),
                 _ => None,
@@ -1262,27 +1268,24 @@ fn answer(r: Result<Value, Refusal>, ok: StatusCode) -> Response {
 /// Whether `state` is a Slack sign-in still waiting, started with the
 /// registered https redirect. The pending entry stays: the desktop finishes it.
 fn slack_sign_in_open(state: &str) -> bool {
-    pending().lock().unwrap().get(state).is_some_and(|p| p.app == "slack" && p.redirect_uri == SLACK_OAUTH_CALLBACK && p.at.elapsed() < PENDING_FOR)
+    pending().lock().unwrap_or_else(|e| e.into_inner()).get(state).is_some_and(|p| p.app == "slack" && p.redirect_uri == SLACK_OAUTH_CALLBACK && p.at.elapsed() < PENDING_FOR)
 }
 
 /// The desktop's loopback address with only this sign-in's answer. The code
 /// is not written anywhere else.
 pub(crate) fn slack_handoff_url(state: &str, code: Option<&str>, iss: Option<&str>, error: Option<&str>) -> String {
-    let mut u = url::Url::parse(SLACK_HANDOFF).expect("the handoff is a url");
-    {
-        let mut q = u.query_pairs_mut();
-        if let Some(c) = code.filter(|s| !s.is_empty()) {
-            q.append_pair("code", c);
-        }
-        q.append_pair("state", state);
-        if let Some(i) = iss.filter(|s| !s.is_empty()) {
-            q.append_pair("iss", i);
-        }
-        if let Some(e) = error.filter(|s| !s.is_empty()) {
-            q.append_pair("error", e);
-        }
+    let mut q = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(c) = code.filter(|s| !s.is_empty()) {
+        q.append_pair("code", c);
     }
-    u.to_string()
+    q.append_pair("state", state);
+    if let Some(i) = iss.filter(|s| !s.is_empty()) {
+        q.append_pair("iss", i);
+    }
+    if let Some(e) = error.filter(|s| !s.is_empty()) {
+        q.append_pair("error", e);
+    }
+    format!("{SLACK_HANDOFF}?{}", q.finish())
 }
 
 /// Slack's browser comes here. A waiting sign-in is sent on to the desktop

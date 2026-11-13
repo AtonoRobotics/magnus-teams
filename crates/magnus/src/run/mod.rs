@@ -21,6 +21,9 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// How long an app's live tool list is reused before it is asked again.
+const LIVE_TOOLS_FRESH: Duration = Duration::from_secs(2);
+
 /// Both prompts end with Magnus's character (`instructions/character.md`;
 /// DECISIONS.md, "Identity and characters"): every run speaks in it, on
 /// every model, and its text is in the instructions version each model call
@@ -439,7 +442,7 @@ impl Kernel {
             let live = self.live_app_tools(&c, &run.person).await;
             // An app refusing Magnus its tools offers none, not even those
             // pinned before: the index says it refuses (app_tools.rs).
-            if live.is_none() && self.refused_apps.lock().unwrap().contains_key(&crate::connectors::connection_name(&c.name, &run.person)) {
+            if live.is_none() && self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&crate::connectors::connection_name(&c.name, &run.person)) {
                 continue;
             }
             // Tools a third-party server added since it was connected.
@@ -487,7 +490,7 @@ impl Kernel {
         {
             let cache = self.live_tools.lock().await;
             if let Some((at, tools)) = cache.get(&key) {
-                if at.elapsed() < Duration::from_secs(2) {
+                if at.elapsed() < LIVE_TOOLS_FRESH {
                     return Some(tools.clone());
                 }
             }
@@ -500,7 +503,7 @@ impl Kernel {
         }
         match self.app_tools(c, secret.as_ref().map(|s| s.expose())).await {
             Ok(t) => {
-                self.refused_apps.lock().unwrap().remove(&key);
+                self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
                 self.live_tools.lock().await.insert(key, (Instant::now(), t.clone()));
                 Some(t)
             }
@@ -508,7 +511,7 @@ impl Kernel {
                 tracing::warn!("list tools of {}: {e:#}", c.name);
                 // Only an app that answered refuses; a failed connection is no refusal.
                 if let Some(r) = crate::apps::refusal(&format!("{e:#}")) {
-                    self.refused_apps.lock().unwrap().insert(key, r);
+                    self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).insert(key, r);
                 }
                 None
             }

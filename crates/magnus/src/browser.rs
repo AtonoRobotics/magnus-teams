@@ -10,6 +10,12 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+/// How often, and how many times, a starting sidecar's socket is tried.
+const START_POLL: Duration = Duration::from_millis(100);
+const START_TRIES: u32 = 100;
+/// The longest one browser request may take to answer.
+const ANSWER_WAIT: Duration = Duration::from_secs(90);
+
 /// The browser sidecar's settings (`[browser]`).
 #[derive(Deserialize, Clone, Debug)]
 pub struct Settings {
@@ -47,11 +53,12 @@ pub struct Browser {
     socket: PathBuf,
     child: Mutex<Option<Child>>,
     start: tokio::sync::Mutex<()>,
+    host: crate::spawn::HostEnv,
 }
 
 impl Browser {
-    pub fn new(cfg: Option<Settings>, state_dir: &std::path::Path) -> Browser {
-        Browser { cfg, socket: state_dir.join("browser.sock"), child: Mutex::new(None), start: tokio::sync::Mutex::new(()) }
+    pub fn new(cfg: Option<Settings>, state_dir: &std::path::Path, host: crate::spawn::HostEnv) -> Browser {
+        Browser { cfg, socket: state_dir.join("browser.sock"), child: Mutex::new(None), start: tokio::sync::Mutex::new(()), host }
     }
 
     pub fn available(&self) -> bool {
@@ -60,7 +67,7 @@ impl Browser {
 
     async fn ensure(&self) -> Result<()> {
         let _g = self.start.lock().await;
-        let alive = self.child.lock().unwrap().as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none());
+        let alive = self.child.lock().unwrap_or_else(|e| e.into_inner()).as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none());
         if alive {
             return Ok(());
         }
@@ -71,18 +78,18 @@ impl Browser {
         for site in &cfg.allow {
             cmd.arg("--allow").arg(site);
         }
-        cmd.env_clear().env("PATH", std::env::var("PATH").unwrap_or_default()).env("MAGNUS_CHROMIUM", &cfg.chromium).env("MAGNUS_BWRAP", &cfg.bwrap);
-        if let Ok(h) = std::env::var("HOME") {
+        cmd.env_clear().env("PATH", &self.host.path).env("MAGNUS_CHROMIUM", &cfg.chromium).env("MAGNUS_BWRAP", &cfg.bwrap);
+        if let Some(h) = &self.host.home {
             cmd.env("HOME", h);
         }
         cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         let child = crate::spawn::spawn(cmd).context("start the browser sidecar")?;
-        *self.child.lock().unwrap() = Some(child);
-        for _ in 0..100 {
+        *self.child.lock().unwrap_or_else(|e| e.into_inner()) = Some(child);
+        for _ in 0..START_TRIES {
             if tokio::net::UnixStream::connect(&self.socket).await.is_ok() {
                 return Ok(());
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(START_POLL).await;
         }
         Err(anyhow!("the browser sidecar did not start"))
     }
@@ -94,7 +101,7 @@ impl Browser {
         let (r, mut w) = s.into_split();
         w.write_all(format!("{req}\n").as_bytes()).await?;
         let mut line = String::new();
-        tokio::time::timeout(Duration::from_secs(90), BufReader::new(r).read_line(&mut line)).await.map_err(|_| anyhow!("the browser did not answer in time"))??;
+        tokio::time::timeout(ANSWER_WAIT, BufReader::new(r).read_line(&mut line)).await.map_err(|_| anyhow!("the browser did not answer in time"))??;
         let v: Value = serde_json::from_str(&line).map_err(|_| anyhow!("the browser sent an unreadable answer"))?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
@@ -103,7 +110,7 @@ impl Browser {
     }
 
     pub async fn close(&self, run: &str) {
-        if self.cfg.is_some() && self.child.lock().unwrap().is_some() {
+        if self.cfg.is_some() && self.child.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
             let _ = self.request(run, json!({ "op": "close" })).await;
         }
     }
@@ -111,7 +118,7 @@ impl Browser {
     /// Close every run's pages and the browser with them (the kill switch).
     /// A run that goes on later gets a new browser and a blank page.
     pub async fn close_all(&self) {
-        if self.cfg.is_some() && self.child.lock().unwrap().is_some() {
+        if self.cfg.is_some() && self.child.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
             if let Err(e) = self.request("", json!({ "op": "close_all" })).await {
                 tracing::error!("closing the browser: {e:#}");
             }
