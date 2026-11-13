@@ -29,6 +29,9 @@ host=${STRIX_BETA:-samuel@192.168.0.51}
 ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=strix-beta"
 root=$(cd "$(dirname "$0")/.." && pwd)
 dir=magnus-teams-ci/$name
+# This NAME is in use from now on, so another run's garbage collection
+# (ci/strix-gc.sh) leaves it alone until it ends.
+$ssh_ "$host" "mkdir -p magnus-teams-ci/.used magnus-teams-ci/.running && touch magnus-teams-ci/.used/$name magnus-teams-ci/.running/$name"
 # Files are compared by content, and a changed file gets the time it was
 # copied, not its time here: cargo rebuilds what is newer than its last build,
 # and a file kept at an older time would be skipped and leave a stale build.
@@ -52,5 +55,7 @@ cmd=
 for a in "$@"; do cmd="$cmd '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
 case "$1 ${2:-}" in "cargo test") cmd="cargo build --workspace --bins &&$cmd" ;; esac
 # The browser checks load playwright-core from browser/node_modules, which
-# the copy leaves out.
-exec $ssh_ "$host" "export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/targets/$name MAGNUS_GUEST_KERNEL=\$HOME/$guest/vmlinux MAGNUS_GUEST_ROOTFS=\$HOME/$guest/rootfs.ext4; cd $dir && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && $cmd"
+# the copy leaves out. Strix Beta's disk is garbage-collected before the run
+# and again after it (ci/strix-gc.sh), and the run's exit status is kept.
+gc="sh \$HOME/$dir/ci/strix-gc.sh $name"
+exec $ssh_ "$host" "$gc; (export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/targets/$name MAGNUS_GUEST_KERNEL=\$HOME/$guest/vmlinux MAGNUS_GUEST_ROOTFS=\$HOME/$guest/rootfs.ext4; cd $dir && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && $cmd); rc=\$?; touch \$HOME/magnus-teams-ci/.used/$name; rm -f \$HOME/magnus-teams-ci/.running/$name; $gc; exit \$rc"
