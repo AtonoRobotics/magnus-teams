@@ -118,6 +118,9 @@ pub fn timeline<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamI
         }
     }
     items.retain(|i| i.deleted != Some(true) || i.replies.is_some());
+    for i in &mut items {
+        i.may = super::may::may(v, channel, i);
+    }
     items
 }
 

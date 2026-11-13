@@ -14,33 +14,37 @@ const MessageControls = createRequire(import.meta.url)(join(here, "../ui/message
 const { controls, html, run } = MessageControls;
 const acts = list => list.map(c => (c.primary ? `*${c.act}` : c.act)).join(" ");
 
-// Which controls, as a table: [what, message, caps, expected]. A `*` marks
-// those at hand; the rest are in the menu, in this order.
+// Which controls, as a table: [what, message, caps, expected]. What the
+// viewer may do comes from the server (`may`, decided once in
+// crates/magnus/src/team/may.rs and chat_entry.rs); here it is drawn. A `*`
+// marks those at hand; the rest are in the menu, in this order.
+const M = words => Object.fromEntries(["edit", "retry", "feedback", "share", "save", "task", "pin", "delete"].map(k => [k, words.split(" ").includes(k)]));
 const personal = { canReadAloud: true };
-const team = { pins: true, canReadAloud: true };
+const team = { canReadAloud: true };
 const table = [
-  ["personal: my message", { mine: true, deletes: true }, personal, "*edit copy branch share export save task delete"],
-  ["personal: Magnus's answer", { agent: true, readable: true, retry: true, feedback: true, deletes: true }, personal, "*copy *listen retry branch share export save task feedback delete"],
-  ["personal: Magnus's answer, being read", { agent: true, readable: true, retry: true, feedback: true, deletes: true }, { ...personal, reading: true }, "*copy *hush retry branch share export save task feedback delete"],
-  ["personal: a task's result, nothing to read aloud", { agent: true, feedback: true, deletes: true }, { canReadAloud: false }, "*copy branch share export save task feedback delete"],
-  ["team: my message", { mine: true, deletes: true }, team, "*edit copy branch share export save task pin delete"],
-  ["team: someone else's message", {}, team, "*copy branch share export save task pin"],
-  ["team: someone else's message, pinned, as an admin", { pinned: true, deletes: true }, team, "*copy branch share export save task pin delete"],
-  ["team: the agent's answer to me", { agent: true, readable: true, retry: true, feedback: true, deletes: true }, team, "*copy *listen retry branch share export save task pin feedback delete"],
-  ["team: the agent's answer to someone else", { agent: true, readable: true }, team, "*copy *listen branch share export save task pin"],
-  ["team: an answer only I may see", { agent: true, readable: true, retry: true, feedback: true, private: true, deletes: true }, team, "*copy *listen retry branch export task pin feedback delete"],
-  ["team: an answer only its requester may see, to me as another", { agent: true, readable: true, private: true }, team, "*copy *listen branch export task pin"],
-  ["team: a guest, someone else's message", {}, { ...team, guest: true }, "*copy branch share export"],
-  ["team: a guest's own message", { mine: true, deletes: true }, { ...team, guest: true }, "*edit copy branch share export delete"],
+  ["personal: my message", { mine: true, may: M("edit share save task delete") }, personal, "*edit copy branch share export save task delete"],
+  ["personal: Magnus's answer", { agent: true, readable: true, may: M("retry feedback share save task delete") }, personal, "*copy *listen retry branch share export save task feedback delete"],
+  ["personal: Magnus's answer, being read", { agent: true, readable: true, may: M("retry feedback share save task delete") }, { ...personal, reading: true }, "*copy *hush retry branch share export save task feedback delete"],
+  ["personal: a task's result, nothing to read aloud", { agent: true, may: M("feedback share save task delete") }, { canReadAloud: false }, "*copy branch share export save task feedback delete"],
+  ["team: my message", { mine: true, may: M("edit share save task pin delete") }, team, "*edit copy branch share export save task pin delete"],
+  ["team: someone else's message", { may: M("share save task pin") }, team, "*copy branch share export save task pin"],
+  ["team: someone else's message, pinned, as an admin", { pinned: true, may: M("share save task pin delete") }, team, "*copy branch share export save task pin delete"],
+  ["team: the agent's answer to me", { agent: true, readable: true, may: M("retry feedback share save task pin delete") }, team, "*copy *listen retry branch share export save task pin feedback delete"],
+  ["team: the agent's answer to someone else", { agent: true, readable: true, may: M("share save task pin") }, team, "*copy *listen branch share export save task pin"],
+  ["team: an answer only I may see", { agent: true, readable: true, may: M("retry feedback task pin delete") }, team, "*copy *listen retry branch export task pin feedback delete"],
+  ["team: an answer only its requester may see, to me as another", { agent: true, readable: true, may: M("task pin") }, team, "*copy *listen branch export task pin"],
+  ["team: a guest, someone else's message", { may: M("share") }, team, "*copy branch share export"],
+  ["team: a guest's own message", { mine: true, may: M("edit share delete") }, team, "*edit copy branch share export delete"],
+  ["no word from the server: nothing but what anyone who sees it may do", { mine: true }, team, "*copy branch export"],
 ];
 for (const [what, m, caps, want] of table) assert.equal(acts(controls(m, caps)), want, what);
-const labels = Object.fromEntries(controls({ agent: true, pinned: true, readable: true, deletes: true, feedback: true, retry: true }, team).map(c => [c.act, c.label]));
+const labels = Object.fromEntries(controls({ agent: true, pinned: true, readable: true, may: M("retry feedback share save task pin delete") }, team).map(c => [c.act, c.label]));
 assert.deepEqual(labels, { copy: "Copy response", listen: "Read aloud", retry: "Retry", branch: "Branch", share: "Share", export: "Export", save: "Save to Files", task: "Make a task", pin: "Unpin", feedback: "Feedback", delete: "Delete message" });
 assert.equal(controls({}, team)[0].label, "Copy message", "a person's message is not a response");
 
 // Drawn: what is at hand as icons, the rest in the menu, the surface's own
 // controls first, and read-aloud tied to its entry.
-const drawn = html("menu-1", controls({ agent: true, readable: true, deletes: true }, personal), { voiceEntry: "e1", lead: '<button data-reply></button>' });
+const drawn = html("menu-1", controls({ agent: true, readable: true, may: M("delete") }, personal), { voiceEntry: "e1", lead: '<button data-reply></button>' });
 assert.match(drawn, /^<div class="msg-actions small" role="group" aria-label="Message actions"><button data-reply><\/button><button class="icon" data-msg-act="copy"/);
 assert.match(drawn, /data-msg-act="listen" data-voice-entry="e1"/);
 assert.match(drawn, /<div id="menu-1" class="action-menu" role="menu" aria-label="More message actions" hidden><button role="menuitem" tabindex="-1" data-msg-act="branch">Branch<\/button>/);

@@ -6,7 +6,7 @@
 //! their results, and the schedule cards with what the person decided.
 
 use crate::boundary::Action;
-use crate::chat_entry::{ChatEntry, EntryFile, TaskRow};
+use crate::chat_entry::{ChatEntry, EntryFile, May, TaskRow};
 use crate::events::{ChatOrigin, Ev};
 use crate::kernel::{new_id, Kernel, NewRun};
 use crate::state::{Run, Status, Task};
@@ -333,7 +333,15 @@ impl Kernel {
         // never come back into the thread.
         let hidden_turns: HashSet<String> = hidden.iter().filter_map(|id| id.strip_prefix("a:").map(String::from)).collect();
         let from_hidden = |v: &Value| self.origin_turn(v).is_some_and(|t| hidden_turns.contains(&t));
-        Some(out.into_iter().map(|(.., v)| v).filter(|v| !v["id"].as_str().is_some_and(|id| hidden.contains(id) || trashed.contains(id)) && !from_hidden(v)).collect())
+        let with_may = |mut v: Value| {
+            if let Some(kind) = v["kind"].as_str().filter(|k| *k != "sub_agents" && v["id"].is_string()).map(String::from) {
+                v["may"] = json!(May::personal(&kind));
+            }
+            v
+        };
+        Some(
+            out.into_iter().map(|(.., v)| v).filter(|v| !v["id"].as_str().is_some_and(|id| hidden.contains(id) || trashed.contains(id)) && !from_hidden(v)).map(with_may).collect(),
+        )
     }
 
     /// The chat turn (its task id) that started what an entry shows: a

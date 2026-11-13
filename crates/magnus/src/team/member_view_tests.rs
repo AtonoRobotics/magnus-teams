@@ -277,3 +277,43 @@ fn a_short_requests_card_gives_way_to_its_answer() {
     assert_eq!(card("m2"), Some(Status::Completed), "long work lost its row");
     assert_eq!(card("m3"), Some(Status::Cancelled), "work that was stopped lost its line");
 }
+
+/// What each member may do with each entry is decided once, from the view
+/// and their role, and travels with the entry: who wrote it edits it; who
+/// asked retries and judges the answer; what only its requester may see is
+/// not shared or saved; a guest only shares; owners and admins delete in a
+/// channel, not in a direct conversation.
+#[test]
+fn what_a_member_may_do_travels_with_each_entry() {
+    use crate::chat_entry::May;
+    let mut x = World::new();
+    x.say("c", "m1", "mo", "the plan", None, 1);
+    x.answered("c", "t1", "mo", None, "Here it is.", false, 2);
+    x.answered("c", "t2", "mo", None, "Your inbox says yes.", true, 3);
+    x.ledger.apply(&Change::Channel { workspace: "w".into(), channel: "d".into(), name: String::new() });
+    x.chat(Chat::Direct { channel: "d".into(), people: vec!["sam".into(), "mo".into()], agent: false });
+    x.say("d", "m2", "mo", "between us", None, 4);
+    let now = x.at(10);
+    let may = |who: &str, channel: &str, id: &str| -> May {
+        let shown = timeline(&x.view(who), channel, now);
+        shown.iter().find(|i| i.id == id).and_then(|i| i.may).unwrap_or_else(|| panic!("{who} is not told what they may do with {id}"))
+    };
+    let words = |m: May| -> String {
+        let all = [("edit", m.edit), ("retry", m.retry), ("feedback", m.feedback), ("share", m.share), ("save", m.save), ("task", m.task), ("pin", m.pin), ("delete", m.delete)];
+        all.iter().filter(|(_, on)| *on).map(|(w, _)| *w).collect::<Vec<_>>().join(" ")
+    };
+    for (who, channel, id, want) in [
+        ("mo", "c", "m1", "edit share save task pin delete"),
+        ("mo", "c", "agent:t1", "retry feedback share save task pin delete"),
+        ("mo", "c", "agent:t2", "retry feedback task pin delete"),
+        ("sam", "c", "m1", "share save task pin delete"),
+        ("sam", "c", "agent:t1", "share save task pin delete"),
+        ("sam", "c", "agent:t2", "task pin delete"),
+        ("ana", "c", "m1", "share"),
+        ("ana", "c", "agent:t1", "share"),
+        ("sam", "d", "m2", "share save task pin"),
+        ("mo", "d", "m2", "edit share save task pin delete"),
+    ] {
+        assert_eq!(words(may(who, channel, id)), want, "{who} on {id} in {channel}");
+    }
+}

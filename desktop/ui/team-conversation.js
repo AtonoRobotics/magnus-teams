@@ -79,7 +79,6 @@ function teamExtras(e, r, count) {
 function teamConversation(s, thread) {
   const r = teamReader(s, thread), base = () => `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`;
   const channel = () => Team.home.channels.find(x => x.id === s.channel);
-  const moderates = () => !channel()?.direct && (Team.home.role === "owner" || Team.home.role === "admin");
   const replies = () => s.view.messages.filter(m => m.thread === thread);
   return {
     me: Team.home.me, agentName: Team.home.agent.name, name: r.name,
@@ -103,11 +102,10 @@ function teamConversation(s, thread) {
     // is not shared or saved for the team, and the server holds to that too.
     describe: e => {
       if (e.kind === "work" || e.kind === "deleted") return null;
-      const agent = e.kind === "answer", mine = e.sender === Team.home.me, asked = agent && e.requester === Team.home.me && !!e.task_id;
-      const deletes = (mine && !agent) || moderates() || (agent && e.requester === Team.home.me);
-      return { mine, agent, readable: agent, retry: asked, feedback: asked, private: !!e.private, pinned: !!e.pinned, deletes };
+      const agent = e.kind === "answer";
+      return { mine: e.sender === Team.home.me, agent, readable: agent, pinned: !!e.pinned, may: e.may };
     },
-    caps: () => ({ guest: Team.home.role === "guest", pins: true }),
+    caps: () => ({}),
     file: f => {
       const img = s.files[f.name];
       return `<div class="fprev"><span class="glimpse" aria-hidden="true">${img ? `<img alt="" src="${esc(img)}">` : icon("file")}</span><span class="fchip"><span>${esc(f.name)}</span> <button class="link small" data-team-download="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span></div>`;

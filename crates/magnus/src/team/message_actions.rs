@@ -42,10 +42,8 @@ pub fn router() -> Router<Arc<Kernel>> {
 /// A message as the member sees it, with what the routes here need.
 struct Found {
     author: String,
-    requester: Option<String>,
     text: String,
     at: chrono::DateTime<chrono::Utc>,
-    private: bool,
     task: Option<String>,
     /// The channel's project, if it is in one.
     project: Option<String>,
@@ -61,10 +59,8 @@ fn found(k: &Kernel, ws: &str, channel: &str, id: &str, person: &str) -> Result<
         let m = v.message(channel, id, now).filter(|m| !m.text().is_empty())?;
         Some(Found {
             author: m.author().to_string(),
-            requester: m.requester().map(String::from),
             text: m.text().to_string(),
             at: m.at(),
-            private: m.private(),
             task: m.task().map(String::from),
             project: v.workspace().channels.get(channel).and_then(|c| c.project.clone()),
             workspace: v.workspace().clone(),
@@ -74,12 +70,7 @@ fn found(k: &Kernel, ws: &str, channel: &str, id: &str, person: &str) -> Result<
 }
 
 /// What only its requester may see stays with them.
-fn not_private(m: &Found) -> Result<(), Box<Reply>> {
-    if m.private {
-        return Err(Box::new(err(StatusCode::FORBIDDEN, "this answer holds data only its requester may see: they can post it to the thread themselves")));
-    }
-    Ok(())
-}
+const PRIVATE: &str = "this answer holds data only its requester may see: they can post it to the thread themselves";
 
 /// A message quoted, as a member passes it on.
 fn quoted(who: &str, text: &str) -> String {
@@ -103,8 +94,8 @@ struct ShareTo {
 /// One from a project's channel goes only to the project's people.
 async fn share(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<ShareTo>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.share, PRIVATE));
     let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
-    ok_or_return!(not_private(&m));
     let w = &m.workspace;
     if b.person == p.id || !w.members.contains_key(&b.person) {
         return err(StatusCode::NOT_FOUND, "no such member");
@@ -125,8 +116,8 @@ async fn share(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String,
 /// whole team (or the channel's project) sees.
 async fn save(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.save, PRIVATE));
     let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
-    ok_or_return!(not_private(&m));
     let Some(name) = free_name(&m.workspace, &message_file::file_name(&m.text)) else { return err(StatusCode::CONFLICT, "too many files have that name") };
     let body = message_file::markdown(&name_of(&k, &m.author), &message_file::at_text(m.at), &m.text);
     let dir = volume_dir(&k, &ws);
@@ -152,9 +143,7 @@ async fn retry(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String,
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
     let Some(task) = m.task.as_deref().filter(|_| id.starts_with(ANSWER_PREFIX)) else { return err(StatusCode::BAD_REQUEST, "only the agent's answer is asked again") };
-    if m.requester.as_deref() != Some(p.id.as_str()) {
-        return err(StatusCode::FORBIDDEN, "only who asked asks again");
-    }
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.retry, "only who asked asks again"));
     let asked = m.workspace.chat.asked.get(task).and_then(|a| m.workspace.channels.get(&channel)?.messages.iter().find(|x| &x.id == a && !x.text.is_empty()).cloned());
     let Some(asked) = asked.filter(|a| !m.workspace.chat.unsent.contains(&a.id)) else { return err(StatusCode::CONFLICT, "the request is no longer here to ask again") };
     post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, None).await

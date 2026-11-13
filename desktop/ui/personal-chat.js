@@ -93,9 +93,8 @@ function personalChat(thread) {
     // what Magnus said; the rest for every entry.
     describe: e => {
       if (!e.id || e.kind === "sub_agents") return null;
-      const mine = e.kind === "message", magnus = e.kind === "answer" || e.kind === "turn";
-      const said = ["answer", "turn", "result", "tasks", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"].includes(e.kind);
-      return { mine, agent: !mine, readable: e.kind === "answer", retry: magnus, feedback: said, deletes: true };
+      const mine = e.kind === "message";
+      return { mine, agent: !mine, readable: e.kind === "answer", may: e.may };
     },
     caps: () => ({}),
     actions: (e, view, b, el) => {

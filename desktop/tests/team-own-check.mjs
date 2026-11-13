@@ -61,11 +61,11 @@ const messageHtml = (m, thread = null) => ChatView.item(sandbox.teamEntry(served
 const gone = messageHtml({ id: "m1", sender: "dana", text: "", thread: null, at: "", deleted: true, replies: 2 });
 assert.match(gone, /This message was deleted\.[^]*2 replies/);
 assert.doesNotMatch(gone, /data-react|data-msg-act/, "a deleted message offers actions");
-Team.home = { ...home, role: "member" };
-assert.match(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" }), /data-msg-act="delete"/, "one's own message cannot be deleted");
-assert.doesNotMatch(messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "" }), /data-msg-act="delete"/, "someone else's message can be deleted");
-Team.home = home;
-assert.match(messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "" }), /data-msg-act="delete"/, "a Team Admin cannot take a message down");
+// Who may delete is the server's to say (crates/magnus/src/team/may.rs,
+// held in member_view_tests.rs); the controls follow what it says.
+const M = words => Object.fromEntries(["edit", "retry", "feedback", "share", "save", "task", "pin", "delete"].map(k => [k, words.split(" ").includes(k)]));
+assert.match(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "", may: M("edit share save task pin delete") }), /data-msg-act="delete"/, "a message the server lets me delete offers no Delete");
+assert.doesNotMatch(messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "", may: M("share save task pin") }), /data-msg-act="delete"/, "a message the server does not let me delete offers Delete");
 
 // The people page: an admin manages members and admins, not the owner; the
 // last owner cannot leave; people on the server are offered by name.
@@ -134,12 +134,12 @@ assert.equal(Notices.offer(), true, "a browser not yet asked is not offered syst
 assert.equal(Notices.systemOn(), false);
 // The team chat has the personal chat's message controls (owner, 2026-11-13).
 const acts = html => [...html.matchAll(/data-msg-act="([a-z-]+)"/g)].map(x => x[1]);
-const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", thread: null, at: "" };
+const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", thread: null, at: "", may: M("retry feedback share save task pin delete") };
 for (const a of ["copy", "listen", "retry", "branch", "share", "export", "save", "task", "pin", "feedback", "delete"]) assert.ok(acts(messageHtml(answer)).includes(a), `the agent's answer to me offers no ${a}`);
-for (const a of ["edit", "copy", "branch", "share", "export", "save", "task", "pin", "delete"]) assert.ok(acts(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" })).includes(a), `my message offers no ${a}`);
-const theirs = acts(messageHtml({ ...answer, requester: "dana" }));
+for (const a of ["edit", "copy", "branch", "share", "export", "save", "task", "pin", "delete"]) assert.ok(acts(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "", may: M("edit share save task pin delete") })).includes(a), `my message offers no ${a}`);
+const theirs = acts(messageHtml({ ...answer, requester: "dana", may: M("share save task pin") }));
 assert.ok(!theirs.includes("retry") && !theirs.includes("feedback"), "someone else's answer can be retried or judged by me");
-const private_ = acts(messageHtml({ ...answer, private: true }));
+const private_ = acts(messageHtml({ ...answer, private: true, may: M("retry feedback task pin delete") }));
 assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer only I may see can be shared or saved for the team");
 // They sit under the post as the personal chat's do, not in a toolbar that
 // shows only on hover (owner, 2026-11-13: "it did not change at all"): the

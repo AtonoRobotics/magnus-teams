@@ -80,19 +80,17 @@ impl Kernel {
 /// and delete it only from teams" (the owner, 2026-11-11). A direct
 /// conversation is its people's alone.
 pub(super) async fn unsend(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     // The agent's answer is drawn from its request's result, not kept as a
     // message: it is found by its request (owner, 2026-11-13: deleting one
     // said "no such message").
     let now = chrono::Utc::now();
-    let found =
-        k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| (m.as_message(), m.author() == p.id || m.requester() == Some(p.id.as_str())))));
-    let Some((m, theirs)) = found else { return err(StatusCode::NOT_FOUND, "no such message") };
-    let moderates = role >= Role::Admin && !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.direct.contains_key(&channel)));
-    // The agent's answer to someone, or its post for them, is theirs to delete.
-    if !theirs && !moderates {
-        return err(StatusCode::FORBIDDEN, "only who wrote a message, or the workspace's admins, delete it");
-    }
+    // Who may: who wrote it, whom the agent wrote it for, and the
+    // workspace's admins outside a direct conversation (`may`).
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.delete, "only who wrote a message, or the workspace's admins, delete it"));
+    let Some(m) = k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| m.as_message()))) else {
+        return err(StatusCode::NOT_FOUND, "no such message");
+    };
     if let Err(e) = k.unsend(&actor(&p), &ws, &channel, &m).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }

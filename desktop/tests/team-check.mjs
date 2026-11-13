@@ -111,14 +111,12 @@ assert.doesNotMatch(asked, /data-msg-act="edit"/, "someone else's message can be
 const answer = draw({ id: "agent:t1", sender: "agent", requester: "dana", text: "Done. **Three** themes.", thread: "m1", at: "2026-11-09T10:31:00Z" });
 assert.match(answer, /class="msg magnus"[^]*Magnus · for Dana/, "the agent's answer does not say who asked");
 assert.match(answer, /<p>Done/, "the agent's answer is not rich content");
-const mine = draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", edited: true });
+const mine = draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", edited: true, may: { edit: true, share: true, delete: true } });
 assert.match(mine, /class="entry me"[^]*class="msg me"[^]*You/, "my own message is not drawn as the personal chat draws mine");
 assert.match(mine, /data-msg-act="edit"/, "my own message cannot be edited");
 assert.match(mine, / · edited/);
-assert.match(draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "" }, { ui: { editing: "m2" } }), /msg me editing[^]*data-msg-act="edit-send"/, "a team message is not edited as a personal one is");
-Team.home = { ...home, role: "guest" };
-assert.doesNotMatch(draw({ id: "m3", sender: "leo", text: "hi", thread: null, at: "" }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks");
-Team.home = home;
+assert.match(draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", may: { edit: true } }, { ui: { editing: "m2" } }), /msg me editing[^]*data-msg-act="edit-send"/, "a team message is not edited as a personal one is");
+assert.doesNotMatch(draw({ id: "m3", sender: "leo", text: "hi", thread: null, at: "", may: { share: true } }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks the server refuses");
 assert.match(draw({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }), /class="previews"[^]*class="fprev"[^]*plan\.pdf[^]*data-team-download="plan.pdf"/, "a dropped file does not show as a personal chat's file does");
 assert.match(draw({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { s: { files: { "shot.png": "data:image/png;base64,AA" } } }), /<img alt="" src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
 

@@ -24,6 +24,7 @@ mod keep;
 #[cfg(test)]
 mod keep_tests;
 pub(crate) mod knowledge;
+pub mod may;
 pub mod member_view;
 #[cfg(test)]
 mod member_view_tests;

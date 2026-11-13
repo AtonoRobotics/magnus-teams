@@ -30,4 +30,6 @@ Recommended next steps, in order, each small enough to land alone:
 3. Route a team channel's message actions through the same handler as the personal chat's (`entries/{id}/{act}`), with the member view deciding who may act, so Share, Save, Export, Retry and Delete are one code.
 4. Only then consider storing a channel's messages as the same conversation events as a personal thread, with a reader for the team's existing `Chat` events so old logs replay unchanged.
 
+Done on 2026-11-13: steps 1 and 2 (2026-11-13-one-chat-entry.md), and step 3 as one rule rather than one route (2026-11-13-one-message-actions.md). Step 4 is not done; why, and what it would take, is in 2026-11-13-one-chat-store-not-yet.md.
+
 Step 4 is a change of what is stored, and steps 1 to 3 are what the app needs for one experience; they were not started here because each touches the routes that the invariants hold to (inv8, team privacy) and needs its own review and acceptance run.

@@ -8,13 +8,13 @@
 
 /**
  * What a message is, to its controls.
- * @typedef {{ mine?: boolean, agent?: boolean, readable?: boolean, retry?: boolean, feedback?: boolean, private?: boolean, pinned?: boolean, deletes?: boolean }} ControlledMessage
- * mine: the viewer wrote it. agent: Magnus did. readable: it can be read
- * aloud. retry, feedback: offered to whoever asked for it. private: only
- * its requester may see it, so it is not shared or saved for others.
- * deletes: the viewer may delete it.
- * What the viewer may do here.
- * @typedef {{ guest?: boolean, pins?: boolean, canReadAloud?: boolean, reading?: boolean }} ControlCaps
+ * What the server says the viewer may do with an entry (crates/magnus/src/chat_entry.rs, `May`):
+ * the one rule both chats' controls follow, decided in the team by the member view.
+ * @typedef {{ edit: boolean, retry: boolean, feedback: boolean, share: boolean, save: boolean, task: boolean, pin: boolean, delete: boolean }} May
+ * @typedef {{ mine?: boolean, agent?: boolean, readable?: boolean, pinned?: boolean, may: May }} ControlledMessage
+ * mine: the viewer wrote it. agent: Magnus did. readable: it can be read aloud.
+ * How the viewer is reading.
+ * @typedef {{ canReadAloud?: boolean, reading?: boolean }} ControlCaps
  * One control: its action, its name, and whether it sits at hand or in the menu.
  * @typedef {{ act: string, label: string, primary: boolean }} Control
  * What the Feedback dialog needs: the task to judge, the verdict so far,
@@ -36,22 +36,23 @@ const MessageControls = (() => {
     /** @type {Control[]} */
     const out = [];
     const add = (act, label, primary = false) => out.push({ act, label, primary });
-    const own = m.mine && !m.agent;
+    const may = m.may || {};
+    const own = m.mine && !m.agent && may.edit;
     if (own) add("edit", "Edit", true);
     else {
       add("copy", m.agent ? "Copy response" : "Copy message", true);
       if (m.readable && caps.canReadAloud) add(caps.reading ? "hush" : "listen", caps.reading ? "Stop reading" : "Read aloud", true);
     }
     if (own) add("copy", "Copy message");
-    if (m.retry) add("retry", "Retry");
+    if (may.retry) add("retry", "Retry");
     add("branch", "Branch");
-    if (!m.private) add("share", "Share");
+    if (may.share) add("share", "Share");
     add("export", "Export");
-    if (!caps.guest && !m.private) add("save", "Save to Files");
-    if (!caps.guest) add("task", "Make a task");
-    if (caps.pins && !caps.guest) add("pin", m.pinned ? "Unpin" : "Pin");
-    if (m.feedback) add("feedback", "Feedback");
-    if (m.deletes) add("delete", "Delete message");
+    if (may.save) add("save", "Save to Files");
+    if (may.task) add("task", "Make a task");
+    if (may.pin) add("pin", m.pinned ? "Unpin" : "Pin");
+    if (may.feedback) add("feedback", "Feedback");
+    if (may.delete) add("delete", "Delete message");
     return out;
   }
 

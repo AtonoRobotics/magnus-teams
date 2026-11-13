@@ -138,12 +138,7 @@ struct Edit {
 async fn edit(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<Edit>) -> Reply {
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     // One deleted for everyone stays deleted: an edit would put words back.
-    let now = chrono::Utc::now();
-    let by = k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| m.as_message().sender)));
-    let Some(by) = by else { return err(StatusCode::NOT_FOUND, "no such message") };
-    if by != p.id {
-        return err(StatusCode::FORBIDDEN, "only who wrote a message edits it");
-    }
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.edit, "only who wrote a message edits it"));
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
         return err(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
@@ -179,6 +174,7 @@ async fn pin(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, S
     if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
+    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.pin, "a guest pins nothing"));
     ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Pinned { channel, id, pinned: b.pinned } }).await);
     Json(json!({ "ok": true })).into_response()
 }

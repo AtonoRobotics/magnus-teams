@@ -63,6 +63,31 @@ pub struct TaskRow {
     pub started: Option<At>,
 }
 
+/// What the viewer may do with an entry: the one rule the app draws its
+/// message controls from and the routes keep. Copy, branch, export and read
+/// aloud are anyone's who sees the entry.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct May {
+    pub edit: bool,
+    pub retry: bool,
+    pub feedback: bool,
+    pub share: bool,
+    pub save: bool,
+    pub task: bool,
+    pub pin: bool,
+    pub delete: bool,
+}
+
+impl May {
+    /// In a person's own chat they may do everything to every entry but
+    /// pin: edit their messages, retry Magnus's turns, and judge what
+    /// Magnus said or did.
+    pub fn personal(kind: &str) -> May {
+        let said = matches!(kind, "answer" | "turn" | "result" | "tasks" | "grant_card" | "suggestion_card" | "schedule_card" | "connector_card" | "opener");
+        May { edit: kind == "message", retry: matches!(kind, "answer" | "turn"), feedback: said, share: true, save: true, task: true, pin: false, delete: true }
+    }
+}
+
 /// One entry of a conversation.
 #[derive(Serialize, Clone, Debug, PartialEq, Default)]
 pub struct ChatEntry {
@@ -134,11 +159,31 @@ pub struct ChatEntry {
     pub replies: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_reply: Option<At>,
+    /// What the viewer may do with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub may: Option<May>,
 }
 
 impl ChatEntry {
     /// The entry as JSON, for the places that still add to it.
     pub fn value(&self) -> Value {
         serde_json::to_value(self).unwrap_or(Value::Null)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In their own chat a person edits their messages, retries Magnus's
+    /// turns, judges what Magnus said or did, and pins nothing.
+    #[test]
+    fn a_person_may_do_everything_in_their_own_chat_but_pin() {
+        let mine = May::personal("message");
+        assert!(mine.edit && !mine.retry && !mine.feedback && mine.delete && mine.share && !mine.pin);
+        let answer = May::personal("answer");
+        assert!(!answer.edit && answer.retry && answer.feedback && answer.save && answer.task);
+        let result = May::personal("result");
+        assert!(!result.retry && result.feedback);
     }
 }
