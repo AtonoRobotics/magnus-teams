@@ -50,6 +50,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::own_view::router())
         .merge(super::membership::router())
         .merge(super::notices::router())
+        .merge(super::message_actions::router())
 }
 
 pub(super) fn new_id() -> String {
@@ -219,20 +220,28 @@ async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(Stri
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         };
     }
-    super::presence::sent(&ws, &channel, &p.id);
-    let message = Message { id: new_id(), sender: p.id.clone(), text: b.text.clone(), thread: b.thread.clone(), at: chrono::Utc::now() };
+    post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent).await
+}
+
+/// Post a message as `p`, and have the team agent take it on when asked, or
+/// when it is mentioned, named or, where the channel allows, of help.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn post_and_ask(k: &Arc<Kernel>, p: &Person, role: Role, ws: &str, channel: &str, thread: Option<String>, text: String, asked: bool) -> Reply {
+    super::presence::sent(ws, channel, &p.id);
+    let message = Message { id: new_id(), sender: p.id.clone(), text: text.clone(), thread: thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
-    ok_or_return!(send(&k, &p, Change::Message { workspace: ws.clone(), channel: channel.clone(), message }).await);
-    // No button to press: mentioned, named or, where the channel allows, of help.
-    let why = if b.agent { Some(Why::Asked) } else { k.read(|s| s.team.workspace(&ws).and_then(|w| w.agent_answers(&channel, role, &b.text))) };
+    ok_or_return!(send(k, p, Change::Message { workspace: ws.to_string(), channel: channel.to_string(), message }).await);
+    let why = if asked { Some(Why::Asked) } else { k.read(|s| s.team.workspace(ws).and_then(|w| w.agent_answers(channel, role, &text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
     // The message is posted; the agent stays out once a spend limit is reached.
-    if let Err(limited) = k.team_budget_left(&ws, &channel) {
+    if let Err(limited) = k.team_budget_left(ws, channel) {
         return Json(json!({ "id": id, "limited": limited })).into_response();
     }
-    match k.team_request(&ws, &channel, b.thread, &p.id, b.text).await {
+    match k.team_request(ws, channel, thread, &p.id, text).await {
         Ok((task, run)) => {
-            ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Asked { channel, message: id.clone(), task: task.clone() } }).await);
+            ok_or_return!(
+                send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await
+            );
             Json(json!({ "id": id, "task_id": task, "run_id": run, "agent": why })).into_response()
         }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),

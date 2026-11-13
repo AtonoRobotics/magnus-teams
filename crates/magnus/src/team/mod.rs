@@ -30,6 +30,9 @@ mod member_view_tests;
 pub(crate) mod membership;
 #[cfg(test)]
 mod membership_tests;
+#[cfg(test)]
+mod message_action_tests;
+mod message_actions;
 mod notices;
 mod own_view;
 #[cfg(test)]

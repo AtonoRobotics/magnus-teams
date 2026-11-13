@@ -8,6 +8,7 @@ use super::member_view::MemberView;
 use super::routes::{has_channel, member, new_id, send, Reply, K};
 use super::{presence, Change, Role, Workspace};
 use crate::api::err;
+use crate::config::Person;
 use crate::kernel::Kernel;
 use crate::message_file;
 use axum::extract::{Path, State};
@@ -259,14 +260,21 @@ async fn direct(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json
     if b.agent && role == Role::Guest {
         return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
     }
-    let found = Direct { people: people.clone(), agent: b.agent };
+    let id = ok_or_return!(direct_between(&k, &p, &w, people, b.agent).await);
+    Json(json!({ "id": id })).into_response()
+}
+
+/// The direct conversation between these people (the caller among them),
+/// made the first time.
+pub(super) async fn direct_between(k: &Kernel, p: &Person, w: &Workspace, people: Vec<String>, agent: bool) -> Result<String, Box<Reply>> {
+    let found = Direct { people: people.clone(), agent };
     if let Some((id, _)) = w.chat.direct.iter().find(|(_, d)| **d == found) {
-        return Json(json!({ "id": id })).into_response();
+        return Ok(id.clone());
     }
     let id = new_id();
-    ok_or_return!(send(&k, &p, Change::Channel { workspace: ws.clone(), channel: id.clone(), name: String::new() }).await);
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Direct { channel: id.clone(), people, agent: b.agent } }).await);
-    Json(json!({ "id": id })).into_response()
+    send(k, p, Change::Channel { workspace: w.id.clone(), channel: id.clone(), name: String::new() }).await?;
+    send(k, p, Change::Chat { workspace: w.id.clone(), chat: Chat::Direct { channel: id.clone(), people, agent } }).await?;
+    Ok(id)
 }
 
 /// Mentions of this person, replies in threads they took part in, and their
