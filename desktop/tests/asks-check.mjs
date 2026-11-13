@@ -41,7 +41,7 @@ for (const hidden of ["person_rule", "rule_7", "Auto Review", "never named", "ta
   assert.ok(!card.includes(hidden), `the card shows ${hidden}`);
 }
 
-// A payment and case 3: Allow is one action, and there is no Allow always.
+// A payment: Allow is one action, and there is no Allow always.
 const once = sandbox.askCard(item(["allow", "dont_allow"], "once"), true);
 assert.deepEqual([...once.matchAll(/data-decision="([^"]+)"/g)].map(m => m[1]), ["approve:once", "reject"]);
 // Someone who cannot answer sees no buttons.

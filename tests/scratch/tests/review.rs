@@ -83,8 +83,10 @@ async fn broad_approvals_do_not_cover_taint_asks() {
     })
     .await;
     assert_eq!(mail.effects("send"), 1, "the task-wide approval covered the injected send");
+    // Its own Allow may cover the rest of the task, for that destination
+    // only (spec, How an ask looks).
     let st = alice.respond(second["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "task" })).await;
-    assert_eq!(st, 400, "a taint ask accepted a broad approval");
+    assert!(st.is_success(), "a taint ask refused Allow for the task: {st}");
 }
 
 /// Finding 3b, as of spec rev 145: an ask goes to the requester alone, so an

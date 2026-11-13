@@ -49,19 +49,27 @@ fn allow_covers_the_task_by_kind_and_destinations() {
     assert!(!covers(&riskier, &query(&bob, None, "h9")), "Allow covered the action once it was classed riskier");
 }
 
-/// A payment and private data to a new destination after untrusted input
-/// ask every time: neither a task-wide Allow nor any other approval covers
-/// them, only the approval of that very action, once.
+/// A payment asks every time: no Allow covers another. Private data to a
+/// new destination after untrusted input (case 3) is covered for the rest of
+/// the task only by an Allow given on a case-3 card, for the same
+/// destinations (spec, How an ask looks: "Allow covers the rest of the
+/// task"; owner, 2026-11-13: there was no Allow for the task).
 #[test]
-fn payments_and_the_taint_case_ask_every_time_after_allow() {
+fn a_payment_asks_every_time_and_case_three_is_allowed_for_the_task() {
     let bob = to(&["bob@corp.example"]);
+    let eve = to(&["eve@evil.example"]);
+    assert!(!Reason::Payment.task_wide() && !Reason::Payment.always(), "a payment offered more than one action");
     let allow = approval("task", "t1", Some(OUTSIDE_REQUEST), None, Some(&["bob@corp.example"]));
     for r in [Reason::Payment, Reason::NewDestination] {
-        assert!(!covers(&allow, &query(&bob, Some(r), "h")), "a task-wide Allow covered {r:?}");
-        assert!(!r.task_wide() && !r.always(), "{r:?} offered more than one action");
+        assert!(!covers(&allow, &query(&bob, Some(r), "h")), "an Allow given for another reason covered {r:?}");
     }
     let given_on_payment = approval("task", "t1", Some(crate::payments::MONEY_RULE), None, Some(&["bob@corp.example"]));
     assert!(!covers(&given_on_payment, &query(&bob, None, "h")), "an approval given on a payment card covered the task");
+    assert!(!covers(&given_on_payment, &query(&bob, Some(Reason::Payment), "h2")), "one payment's Allow covered another");
+    assert!(Reason::NewDestination.task_wide() && Reason::NewDestination.always(), "case 3 offered no Allow for the task or Allow always");
+    let task = approval("task", "t1", Some(NEW_DESTINATION), None, Some(&["bob@corp.example"]));
+    assert!(covers(&task, &query(&bob, Some(Reason::NewDestination), "h2")), "Allow on a case-3 card did not cover the rest of the task");
+    assert!(!covers(&task, &query(&eve, Some(Reason::NewDestination), "h2")), "Allow reached another destination");
     let once = approval("once", "t1", Some(NEW_DESTINATION), Some("h1"), Some(&["bob@corp.example"]));
     assert!(covers(&once, &query(&bob, Some(Reason::NewDestination), "h1")));
     assert!(!covers(&once, &query(&bob, Some(Reason::NewDestination), "h2")), "one approval covered a different send");
@@ -71,7 +79,8 @@ fn payments_and_the_taint_case_ask_every_time_after_allow() {
 }
 
 /// Allow always saves a narrow rule: this person, this app's tool, these
-/// destinations. It is offered only for an action Auto Review asked about.
+/// destinations. It is offered wherever a rule can answer: an action Auto
+/// Review asked about, and case 3.
 #[test]
 fn allow_always_makes_a_narrow_rule() {
     let rule = always_rule("alice", "mail", "mail__send", &to(&["Bob <bob@corp.example>"])).unwrap();
@@ -84,7 +93,7 @@ fn allow_always_makes_a_narrow_rule() {
     assert!(!covers("alice", "mail__delete", "bob@corp.example"), "the rule reached another tool");
     assert!(!covers("carol", "mail__send", "bob@corp.example"), "the rule reached another person");
     assert!(always_rule("alice", "mail", "mail__send", &[]).is_err(), "Allow always saved a rule with no destination");
-    assert_eq!(Reason::ALL.iter().filter(|r| r.always()).collect::<Vec<_>>(), vec![&Reason::OutsideRequest]);
+    assert_eq!(Reason::ALL.iter().filter(|r| r.always()).collect::<Vec<_>>(), vec![&Reason::OutsideRequest, &Reason::NewDestination]);
 }
 
 /// A rule answers case 1 and case 3 as its person's approval; never a
@@ -220,7 +229,8 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     let pay = card(&s, &alice, &item(crate::payments::MONEY_RULE, "financial", "alice"));
     assert_eq!((pay["offers"].clone(), pay["allow_scope"].clone()), (json!(["allow", "dont_allow"]), json!("once")));
     let taint = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
-    assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow", "dont_allow"]), json!("once")));
+    // Case 3: Allow for the rest of the task and Allow always, as on every card (spec, How an ask looks).
+    assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow", "allow_always", "dont_allow"]), json!("task")));
     let shown = without_reasoning(&item(OUTSIDE_REQUEST, "irreversible", "alice").details);
     for k in REASONING_FIELDS {
         assert!(shown.get(k).is_none(), "{k} stayed on the user's item");

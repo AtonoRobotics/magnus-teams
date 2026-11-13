@@ -198,10 +198,12 @@ async fn private_data_with_an_external_action_to_a_private_audience_is_allowed()
 }
 
 /// Private data going to a new destination after untrusted input asks the
-/// person, one action at a time (spec rev 140, What still asks, case 3): the
-/// card offers no task-wide Allow and no Allow always.
+/// person before anything goes (spec, What still asks, case 3). Their Allow
+/// covers the rest of the task for the same destinations, and Allow always
+/// saves a narrow rule, as on every card (spec, How an ask looks; owner,
+/// 2026-11-13). Auto Review never answers it alone.
 #[tokio::test(flavor = "multi_thread")]
-async fn private_data_posted_after_untrusted_input_asks_one_action_at_a_time() {
+async fn private_data_posted_after_untrusted_input_asks_the_person_first() {
     let w = world().await;
     let news = w.web.url("/news");
     let model = FakeModel::start(steps(vec![
@@ -216,9 +218,12 @@ async fn private_data_posted_after_untrusted_input_asks_one_action_at_a_time() {
     let alice = app.api("alice");
     let id = alice.submit("Tell the team what the CFO emailed me, with the news.").await;
     let card = alice.wait_item(&id, "approval").await;
-    assert_eq!(w.chat.effects("post"), 0);
-    assert_eq!(card["ask"]["allow_scope"], "once", "case 3 offered a task-wide Allow: {card}");
-    assert_eq!(card["ask"]["offers"], json!(["allow", "dont_allow"]), "case 3 offered Allow always: {card}");
+    assert_eq!(w.chat.effects("post"), 0, "private data went out before the person answered");
+    assert_eq!(card["ask"]["allow_scope"], "task", "case 3's Allow does not cover the rest of the task: {card}");
+    let offers = card["ask"]["offers"].as_array().cloned().unwrap_or_default();
+    assert!(offers.contains(&json!("allow")) && offers.contains(&json!("dont_allow")), "{card}");
+    let named = card["ask"]["destinations"].as_array().is_some_and(|d| !d.is_empty());
+    assert_eq!(offers.contains(&json!("allow_always")), named, "Allow always is offered only with a destination to name: {card}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

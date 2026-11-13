@@ -76,14 +76,18 @@ impl Reason {
 
     /// Whether Allow may cover the rest of the task. A payment and private
     /// data to a new destination are allowed one action at a time.
+    /// Spec, How an ask looks: "Allow covers the rest of the task". Not a
+    /// payment, which asks every time.
     pub fn task_wide(self) -> bool {
-        matches!(self, Reason::OutsideRequest | Reason::AskFirst)
+        self != Reason::Payment
     }
 
-    /// Whether Allow always is offered. Not for a payment or case 3, and not
-    /// for the person's own ask-first rule, which wins over any allow rule.
+    /// Whether Allow always is offered: wherever a rule can answer the ask
+    /// (case 1, and case 3, which asks "unless a rule covers it"). Not for a
+    /// payment, and not for the person's own ask-first rule, which wins over
+    /// any allow rule.
     pub fn always(self) -> bool {
-        self == Reason::OutsideRequest
+        self.rule_answers()
     }
 
     /// Whether an accepted allow rule answers this ask as the person's own
@@ -154,13 +158,16 @@ pub struct Query<'a> {
 }
 
 /// Whether one approval covers this action. Allow ("task") covers the rest
-/// of its task for the same tool, risk and destinations, never a payment or
-/// case 3; those are covered only by the approval of that very action.
+/// of its task for the same tool, risk and destinations (spec, How an ask
+/// looks). Never a payment, covered only by the approval of that very
+/// action; and case 3 only by an Allow the person gave on a case-3 card.
 pub fn covers(ap: &Approval, q: &Query) -> bool {
     if ap.person != q.person || ap.tool != q.tool || ap.risk.as_deref() != Some(q.risk) {
         return false;
     }
-    let wide = q.reason.is_none_or(Reason::task_wide) && Reason::of(ap.reason.as_deref()).is_none_or(Reason::task_wide);
+    let given = Reason::of(ap.reason.as_deref());
+    let same_case = q.reason != Some(Reason::NewDestination) || given == Some(Reason::NewDestination);
+    let wide = same_case && q.reason.is_none_or(Reason::task_wide) && given.is_none_or(Reason::task_wide);
     match ap.scope.as_str() {
         "once" => !ap.used && q.tasks.contains(&ap.task) && ap.input_hash.as_deref() == Some(q.hash),
         "task" => wide && q.tasks.contains(&ap.task) && same_destinations(ap.destinations.as_deref(), q.destinations),
