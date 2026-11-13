@@ -7,7 +7,7 @@
 - **inv8_layers `operator_routes_reach_a_computer_only_in_a_session_its_user_granted`.** Removed: bob's second computer and the check against it. Since rev 142 a person has one computer.
 - **inv8_team `the_team_computer_holds_only_what_every_member_may_see`.** Removed: "no computer running" before the workspace has one. Since rev 142 the workspace always has its computer, made on first use.
 
-**Stale, not removed.** inv4's remaining check expects 403 when an admin asks to delete a person's volume. The route answers 404 by design (`computer/service.rs`), so it does not say whether the computer exists. The check should accept 404. That is an update to what it asserts, so it waits for the owner.
+**Stale, updated (owner, 2026-11-13: "accept 404 too").** inv4's remaining check expected 403 when an admin asks to delete a person's volume. The route answers 404 by design (`computer/service.rs`), so it does not say whether the computer exists. The check now accepts 403 or 404. The volume must still survive.
 
 **Not stale.**
 - inv3 `destroying_a_computer_loses_no_user_work` drops its guest connection after a cold boot. It is to be judged again now the disk has room.
