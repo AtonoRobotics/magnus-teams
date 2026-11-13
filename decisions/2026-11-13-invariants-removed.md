@@ -15,3 +15,9 @@
 - `desktop_screens` fails at line 88.
 
 These are failures in the code or the environment, not in the tests.
+
+**Proof.** On 2026-11-13, both patches were applied in order inside the copied tree on Strix Beta, at main `fe18577`, and the whole invariant suite ran there. 121 of 123 tests pass, including every test the two patches change. Both inv3 failures above pass now that the disk has room.
+
+Two tests fail, and neither patch touches them:
+- `desktop_screens` fails at line 88.
+- inv1 `a_computer_reaches_only_declared_destinations_even_as_root` fails with "Broken pipe" on the harness's command into the guest. It passed in the run before, so this is the same intermittent dropped guest connection after a cold boot.
