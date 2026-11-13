@@ -70,6 +70,11 @@ assert.match(draw(personal, { id: "e3", kind: "suggestion_card" }), /data-person
 // Mentions are marked only where there are people to mention.
 assert.doesNotMatch(draw(personal, { id: "e4", kind: "message", text: "mail @dana", at: "" }), /class="mention"/, "the personal chat marks mentions");
 assert.match(draw(team, sandbox.teamEntry({ id: "m4", sender: "dana", text: "hi @Sam", thread: null, at: "" }, reader)), /class="mention">@Sam/);
+// The word after a name is not part of it unless someone has both.
+assert.match(draw(team, sandbox.teamEntry({ id: "m5", sender: "sam", text: "@Magnus Plan the launch", thread: null, at: "" }, reader)), /<span class="mention">@Magnus<\/span> Plan the launch/, "the word after a mention was taken into it");
+Team.home.members.push({ id: "ds", name: "Dana Smith" });
+assert.match(draw(team, sandbox.teamEntry({ id: "m6", sender: "sam", text: "ask @Dana Smith", thread: null, at: "" }, reader)), /<span class="mention">@Dana Smith<\/span>/, "a two-word name is not one mention");
+Team.home.members.pop();
 
 // The one view and the one composer: no team copy of either is left.
 for (const f of ["team-chat.js", "team-conversation.js"]) {

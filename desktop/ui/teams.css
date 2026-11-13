@@ -120,5 +120,7 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-center > section.conv { flex: 1; min-height: 0; }
 .team-side:has(> section.conv) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 .team-side > section.conv { flex: 1; min-height: 0; }
-.team-center .conv-head .row { flex-wrap: wrap; justify-content: flex-end; }
+.team-center .conv-head { flex-wrap: nowrap; }
+.team-center .conv-title { min-width: 120px; flex: 1 1 120px; }
+.team-center .conv-head .row { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; }
 .team-head-faces .team-avatar { width: 24px; height: 24px; }

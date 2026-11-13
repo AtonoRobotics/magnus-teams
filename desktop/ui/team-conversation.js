@@ -83,6 +83,7 @@ function teamConversation(s, thread) {
   const replies = () => s.view.messages.filter(m => m.thread === thread);
   return {
     me: Team.home.me, agentName: Team.home.agent.name, name: r.name,
+    names: () => [Team.home.agent.name, ...Team.home.members.map(m => m.name)],
     get hello() { return thread ? "This thread is empty." : s.pinsOnly ? "Nothing pinned yet." : `No messages yet. ${Team.home.agent.name} is here: mention it to ask for anything.`; },
     voice: e => `team:${e.id}`,
     load: async () => {

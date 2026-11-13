@@ -33,6 +33,7 @@
  * @property {string} [me] the viewer, in a conversation of several people
  * @property {string} [agentName] the agent's name there
  * @property {(id: string) => string} [name] who an id is: present only with several people
+ * @property {() => string[]} [names] everyone who may be mentioned here
  * @property {(e: ChatEntry) => string} [voice] the read-aloud key of an answer
  * @property {(f: any) => string} [file] an attached file as it shows
  * @property {(e: ChatEntry, view: ChatViewState) => string} [lead] its own controls, first in the row (React, Reply in thread)
@@ -84,7 +85,12 @@ const ChatView = (() => {
 
   /** Mentions marked, in a conversation of several people. @param {string} html @param {ChatConversation} conv */
   function marked(html, conv) {
-    return several(conv) ? html.replace(/(^|[\s(>])@([A-Za-z][\w.-]*(?: [A-Z][\w-]*)?)/g, (all, pre, who) => `${pre}<span class="mention">@${who}</span>`) : html;
+    if (!several(conv)) return html;
+    // A name of two words is one mention only when someone here has it:
+    // "@Dana Smith" is Dana Smith, "@Magnus Plan the launch" is Magnus.
+    const names = new Set((conv.names?.() || []).map(n => n.toLowerCase()));
+    return html.replace(/(^|[\s(>])@([A-Za-z][\w.-]*)( [A-Z][\w-]*)?/g, (all, pre, first, second = "") =>
+      second && names.has(`${first}${second}`.toLowerCase()) ? `${pre}<span class="mention">@${first}${second}</span>` : `${pre}<span class="mention">@${first}</span>${second}`);
   }
 
   /** @param {ChatEntry} e @param {ChatConversation} conv */
