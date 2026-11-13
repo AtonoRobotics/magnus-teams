@@ -36,14 +36,8 @@ async fn a_changed_default_replaces_an_earlier_pick_in_the_composer() {
     assert!(set_password(&app, "alice", PASSWORD));
 
     let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../desktop/tests/model-picker.mjs");
-    let out = tokio::process::Command::new("node")
-        .arg(script)
-        .env("MAGNUS_URL", &app.base)
-        .env("MAGNUS_PERSON", "alice")
-        .env("MAGNUS_PASSWORD", PASSWORD)
-        .env("MAGNUS_CHROMIUM", chromium())
-        .output()
-        .await
-        .unwrap();
+    let mut node = tokio::process::Command::new("node");
+    node.arg(script).env("MAGNUS_URL", &app.base).env("MAGNUS_PERSON", "alice").env("MAGNUS_PASSWORD", PASSWORD).env("MAGNUS_CHROMIUM", chromium());
+    let out = browser_check(node).await;
     assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
 }

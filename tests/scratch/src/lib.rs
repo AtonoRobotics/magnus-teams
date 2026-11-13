@@ -12,6 +12,8 @@ use axum::{
 };
 use magnus_invariants::appliance::bin;
 
+mod browser_check;
+pub use browser_check::*;
 pub mod brokered;
 pub mod catalog;
 mod checks;
