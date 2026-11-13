@@ -209,11 +209,16 @@ impl Kernel {
     /// Everything of a workspace: its work, its computers, its volume and
     /// what the log and the backups hold of it.
     pub(crate) async fn delete_workspace(&self, actor: &str, ws: &str) -> Result<()> {
+        let _files = self.team_files.lock().await;
         let actor = actor.to_string();
         let tasks: Vec<String> = self.read(|s| s.team.runs_of(ws).into_iter().map(|r| r.task.clone()).collect());
         self.end_team_tasks(&actor, &tasks).await;
         // What was held for a member is theirs, not the workspace's.
-        self.keep_all_held(&actor, ws).await;
+        self.keep_all_held(&actor, ws).await?;
+        let apps = self.read(|s| s.team.workspace(ws).map(|w| w.connectors.keys().cloned().collect::<Vec<_>>())).unwrap_or_default();
+        for app in apps {
+            self.disconnect(&app, &super::connectors::principal(ws)).await?;
+        }
         let owner = Owner::Workspace(ws.to_string());
         // Gone with the workspace, by the usual deletion: a reset would put
         // a new one in its place, and no new one is made until it is gone.

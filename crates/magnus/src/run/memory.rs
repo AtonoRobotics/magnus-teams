@@ -77,7 +77,7 @@ impl Kernel {
         let Some(allowance) = self.aux_max_tokens(&run.id, "memory pass", &adapter, &model, MEMORY, vec![msg.clone()], tools.clone(), run.config.max_tokens).await else {
             return Ok(());
         };
-        let out = self.adapters.complete(&adapter, &model, MEMORY, vec![msg], tools, allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let out = self.paid_complete(&run.id, &run.person, &adapter, &model, MEMORY, vec![msg], tools, allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let blocks = out.blocks.clone();
         let pass = self.emit("kernel:memory_pass", Ev::MemoryPass { run: run.id.clone(), model: format!("{adapter}/{model}"), blocks: out.blocks, usage: out.usage }).await?.seq;
         let mut n = 0;

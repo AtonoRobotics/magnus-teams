@@ -176,6 +176,7 @@ struct FileProject {
 }
 
 async fn file_project(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, Json(b): Json<FileProject>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     if !w.sees_file(&name, &p.id) {

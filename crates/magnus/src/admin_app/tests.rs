@@ -113,6 +113,23 @@ impl Server {
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_policy_writes_require_fresh_step_up_and_are_audited() {
+    let s = server(|_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let body = json!({"cedar":"forbid(principal, action, resource == Tool::\"mail__send\");"});
+    for path in ["/v1/policies/org", "/v1/policies/group/staff", "/v1/policies/%6frg", "/v1/policies/group%2Fstaff"] {
+        assert_eq!(s.call(&sam, reqwest::Method::PUT, path, Some(body.clone())).await.0, 403);
+    }
+    assert!(s.audited("policy_set").is_empty());
+    assert_eq!(s.post(&sam, "/v1/admin/step-up", json!({"password":PASSWORD})).await.0, 200);
+    assert_eq!(s.call(&sam, reqwest::Method::PUT, "/v1/policies/org", Some(body.clone())).await.0, 200);
+    assert_eq!(s.audited("policy_set").len(), 1);
+    mark(&sam, Utc::now() - chrono::Duration::seconds(ADMIN_STEP_UP_SECONDS));
+    assert_eq!(s.call(&sam, reqwest::Method::PUT, "/v1/policies/org", Some(body)).await.0, 403);
+    s.done().await;
+}
+
 #[test]
 fn the_window_is_five_minutes() {
     assert_eq!(ADMIN_STEP_UP_SECONDS, 300);

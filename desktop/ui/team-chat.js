@@ -147,11 +147,27 @@ function channelFaces(home, c, project) {
   return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
-/** Drafts survive a switch of channel and a restart, where storage allows. */
+/** Unsent text survives navigation in this account, never sign-out or restart. */
 const TeamDrafts = {
-  key: (ws, ch, th) => `team-draft:${ws}:${ch}:${th || ""}`,
-  get(ws, ch, th) { try { return localStorage.getItem(this.key(ws, ch, th)) || ""; } catch { return ""; } },
-  set(ws, ch, th, v) { try { if (v) localStorage.setItem(this.key(ws, ch, th), v); else localStorage.removeItem(this.key(ws, ch, th)); } catch { /* storage blocked: the draft lives in the box */ } },
+  rows: new Map(),
+  person: null,
+  clear() {
+    this.rows.clear();
+    // Remove the old unscoped persistent entries, including after an upgrade.
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("team-draft:")) localStorage.removeItem(key);
+      }
+    } catch { /* storage may be unavailable */ }
+  },
+  account() {
+    const person = JSON.stringify([App.appliance, App.me?.id]);
+    if (this.person !== person) { this.clear(); this.person = person; }
+  },
+  key: (ws, ch, th) => JSON.stringify([ws, ch, th || ""]),
+  get(ws, ch, th) { this.account(); return this.rows.get(this.key(ws, ch, th)) || ""; },
+  set(ws, ch, th, v) { this.account(); const key = this.key(ws, ch, th); if (v) this.rows.set(key, v); else this.rows.delete(key); },
 };
 
 const TeamChat = {

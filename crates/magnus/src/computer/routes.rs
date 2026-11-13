@@ -293,7 +293,7 @@ async fn close_page(State(k): K, h: HeaderMap, Path((id, page)): Path<(String, S
 
 async fn takeover(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     let p = person!(k, h);
-    answered(k.start_takeover(&p, &id).await)
+    answered(k.start_takeover(&p, &id, h).await)
 }
 
 async fn handback(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
@@ -339,15 +339,18 @@ async fn operator_screen(State(k): K, h: HeaderMap, Path(id): Path<String>) -> R
 async fn display(State(k): K, h: HeaderMap, Path(id): Path<String>, ws: WebSocketUpgrade) -> Response {
     let offered = h.get("sec-websocket-protocol").and_then(|v| v.to_str().ok()).unwrap_or_default();
     let ticket = offered.split(',').map(str::trim).find_map(|p| p.strip_prefix(super::takeover::TICKET_PROTOCOL_PREFIX));
-    let Some(person) = ticket.and_then(|t| super::takeover::redeem(t, &id)) else {
+    let Some(ticket) = ticket.and_then(|t| super::takeover::redeem(t, &id)) else {
         return crate::api::err(StatusCode::FORBIDDEN, "that ticket is not valid");
     };
-    if h.contains_key("authorization") && who(&k, &h).await.map(|p| p.id != person).unwrap_or(true) {
+    if h.contains_key("authorization") && who(&k, &h).await.map(|p| p.id != ticket.person).unwrap_or(true) {
         return crate::api::err(StatusCode::FORBIDDEN, "that ticket is not yours");
     }
+    if !super::display::authorized(&k, &id, &ticket).await {
+        return crate::api::err(StatusCode::FORBIDDEN, "control of this computer has ended");
+    }
     let deflate = super::display::wants_deflate(offered);
-    match k.display_stream(&id, &person).await {
-        Ok(stream) => ws.protocols(super::display::PROTOCOLS).on_upgrade(move |socket| super::display::carry(socket, stream, deflate, id)),
+    match k.display_stream(&id, &ticket.person).await {
+        Ok(stream) => ws.protocols(super::display::PROTOCOLS).on_upgrade(move |socket| super::display::carry(socket, stream, deflate, id, k, ticket)),
         Err(e) => answered(Err(e)),
     }
 }

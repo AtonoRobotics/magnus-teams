@@ -18,6 +18,20 @@ fn ledger(members: &[(&str, Role)]) -> Ledger {
     l
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn concurrent_owner_departures_leave_one_owner() {
+    let s = server_with("", |_| Router::new()).await;
+    let (sam, mo) = (s.token("sam").await, s.token("mo").await);
+    let ws = s.post(&sam, "/v1/workspaces", json!({"name":"W"})).await.1["id"].as_str().unwrap().to_string();
+    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/members"), json!({"person":"mo","role":"owner"})).await.0, 200);
+    let a = format!("/v1/workspaces/{ws}/members/sam");
+    let b = format!("/v1/workspaces/{ws}/members/mo");
+    let (a, b) = tokio::join!(s.call(&sam, Method::DELETE, &a, None), s.call(&mo, Method::DELETE, &b, None));
+    assert_eq!(usize::from(a.0 == 200) + usize::from(b.0 == 200), 1);
+    assert_eq!(s.k.read(|s| s.team.workspace(&ws).unwrap().members.values().filter(|r| **r == Role::Owner).count()), 1);
+    s.done().await;
+}
+
 #[test]
 fn a_workspace_keeps_an_owner_and_nobody_reaches_above_their_role() {
     let l = ledger(&[("mo", Role::Admin), ("ana", Role::Member)]);

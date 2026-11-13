@@ -383,6 +383,8 @@ pub struct Computer {
     queued: Option<u64>,
     /// Who holds the screen, if a person does.
     pub controller: Option<String>,
+    #[serde(skip)]
+    pub control_version: u64,
     pub operators: Vec<OperatorSession>,
     /// What only its user reads: takeovers and operator sessions.
     pub activity: Vec<Activity>,
@@ -485,6 +487,7 @@ impl Ledger {
                 pages: vec![],
                 queued: None,
                 controller: None,
+                control_version: 0,
                 operators: vec![],
                 activity: vec![],
                 role,
@@ -504,7 +507,19 @@ impl Ledger {
         }
     }
 
+    pub fn revoke_member_control(&mut self, workspace: &str, person: &str) {
+        for c in self.computers.values_mut().filter(|c| c.owner == Owner::Workspace(workspace.into()) && c.controller.as_deref() == Some(person)) {
+            c.control_version = c.control_version.saturating_add(1);
+            c.controller = None;
+        }
+    }
+
     pub fn apply(&mut self, change: &Change) {
+        if matches!(change, Change::TakeoverStarted { .. } | Change::TakeoverEnded { .. } | Change::Killed { .. } | Change::Hibernated { .. } | Change::FoundStopped { .. }) {
+            if let Some(c) = self.computers.get_mut(change.computer()) {
+                c.control_version = c.control_version.saturating_add(1);
+            }
+        }
         match change {
             Change::TakeoverStarted { .. } | Change::TakeoverEnded { .. } | Change::OperatorGranted { .. } | Change::OperatorEnded { .. } | Change::OperatorLooked { .. } => {
                 takeover::apply(self, change)

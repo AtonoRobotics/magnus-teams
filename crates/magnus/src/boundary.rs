@@ -392,6 +392,7 @@ impl Kernel {
             // Compare the live definition with the pin right before acting, so
             // a definition changed after it was listed cannot run (B10).
             let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
+            let person = self.connector_principal(&a.run, &person);
             if !self.connected(c, &person) {
                 return self
                     .deny(
@@ -589,7 +590,8 @@ impl Kernel {
     /// after it was listed cannot run unscreened (spec rev 140). The error
     /// says whether trying again may work.
     pub(crate) async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
-        let secret = self.connector_secret(c, person).await.ok().flatten();
+        let principal = self.connector_principal(run, person);
+        let secret = self.connector_secret(c, &principal).await.ok().flatten();
         let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
         let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err((format!("{} no longer offers {}", f.app, f.remote), true)) };
         if let Err(e) = self.pin(c, &f.name, t, Some(run).filter(|r| !r.is_empty())).await {
@@ -868,7 +870,7 @@ impl Kernel {
             return Err(format!("{}'s account is turned off at the organisation's sign-in. {nothing}", person.id));
         }
         let secret = match &c.credential {
-            Some(_) => match self.connector_secret(c, &person.id).await {
+            Some(_) => match self.connector_secret(c, &self.connector_principal(&run.id, &person.id)).await {
                 Ok(Some(s)) => Some(s),
                 Ok(None) => {
                     return Err(format!(
@@ -920,7 +922,7 @@ impl Kernel {
             Err(e) => return Err(format!("the destination read ({read_name}) cannot be judged: {e:#}. {nothing}")),
         }
         let args = json!({ d.id.as_str(): id });
-        let out = self.connector_call(c, &person.id, &f.app, bearer, &d.read, &args).await;
+        let out = self.connector_call(c, &self.connector_principal(&run.id, &person.id), &f.app, bearer, &d.read, &args).await;
         let read = match out {
             Ok(o) if !o.is_error => o.structured.or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null),
             Ok(o) => return Err(format!("{} could not read {id} to see who {} goes to: {}. {nothing}", f.app, a.tool, o.text)),
@@ -967,7 +969,7 @@ impl Kernel {
             return Ok(false);
         }
         let secret = match &c.credential {
-            Some(_) => match self.connector_secret(c, &person.id).await {
+            Some(_) => match self.connector_secret(c, &self.connector_principal(&run.id, &person.id)).await {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::warn!("sent mail for {}: {e:#}", person.id);
@@ -990,7 +992,7 @@ impl Kernel {
             tracing::warn!("sent mail for {}: no access to {}", person.id, f.app);
             return Ok(false);
         }
-        if let Err((why, _)) = self.check_pin(c, &rf, &person.id, "").await {
+        if let Err((why, _)) = self.check_pin(c, &rf, &person.id, &run.id).await {
             tracing::warn!("sent mail for {}: {why}", person.id);
             return Ok(false);
         }
@@ -1021,7 +1023,7 @@ impl Kernel {
             }
         }
         let args = json!({ s.input.as_str(): query });
-        let out = self.connector_call(c, &person.id, &f.app, bearer, &s.read, &args).await;
+        let out = self.connector_call(c, &self.connector_principal(&run.id, &person.id), &f.app, bearer, &s.read, &args).await;
         let read = match out {
             Ok(o) if !o.is_error => o.structured.or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null),
             _ => {
@@ -1041,6 +1043,10 @@ impl Kernel {
                     "{person}'s account is turned off at the organisation's sign-in, so their apps answer no calls for them until they are back. Nothing was sent to {}.",
                     f.app
                 )));
+            }
+            let person = self.connector_principal(&a.run, &person);
+            if let Some(why) = self.read(|s| s.runs.get(&a.run).cloned()).and_then(|r| self.team_refusal(a, &r)) {
+                return Err(CallFailure::NotDone(why));
             }
             let k = (c.idempotency == "header").then_some(key);
             // The last fence: the run, read live, is still running. The

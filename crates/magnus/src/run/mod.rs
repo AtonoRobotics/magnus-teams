@@ -425,21 +425,28 @@ impl Kernel {
     async fn app_tool_specs(&self, run: &Run) -> Vec<ToolSpec> {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
-        let team = self.team_of(&run.task).is_some();
+        let principal = self.connector_principal(&run.id, &run.person);
+        let team = self.team_of(&run.task);
         for c in self.connectors() {
             // A team run never lists, let alone uses, a member's own sign-in.
-            if team && crate::team::signs_in_per_person(&c) {
+            if team.as_ref().is_some_and(|t| {
+                !self.read(|s| {
+                    s.team
+                        .role(&t.workspace, &t.requester)
+                        .is_some_and(|role| s.team.workspace(&t.workspace).and_then(|w| w.connectors.get(&c.name)).is_some_and(|roles| roles.contains(&role)))
+                })
+            }) {
                 continue;
             }
             // An app people sign in to is offered only to a run whose
             // person has signed in to it themselves.
-            if !self.connected(&c, &run.person) || self.lapsed(&c, &run.person) {
+            if !self.connected(&c, &principal) || self.lapsed(&c, &principal) {
                 continue;
             }
-            let live = self.live_app_tools(&c, &run.person).await;
+            let live = self.live_app_tools(&c, &principal).await;
             // An app refusing Magnus its tools offers none, not even those
             // pinned before: the index says it refuses (app_tools.rs).
-            if live.is_none() && self.refused_apps.lock().unwrap().contains_key(&crate::connectors::connection_name(&c.name, &run.person)) {
+            if live.is_none() && self.refused_apps.lock().unwrap().contains_key(&crate::connectors::connection_name(&c.name, &principal)) {
                 continue;
             }
             // Tools a third-party server added since it was connected.

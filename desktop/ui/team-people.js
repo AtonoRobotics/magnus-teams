@@ -50,6 +50,7 @@ async function teamPeople(center, side, ws) {
   paint(center, teamPeopleHtml(home, candidates));
   paint(side, "");
   bindInvite(center, ws);
+  if (admin) await teamApps(center, ws);
   const again = async () => { await loadHome(ws); return teamPeople(center, side, ws); };
   const who = e => e.target.closest("[data-member]");
   center.onchange = async e => {

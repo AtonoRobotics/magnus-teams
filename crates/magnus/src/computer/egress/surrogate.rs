@@ -22,6 +22,10 @@ fn tokens(value: &str) -> Vec<&str> {
     value.match_indices(PREFIX).filter_map(|(at, _)| value.get(at..at + PREFIX.len() + TOKEN_CHARS)).filter(|t| t[PREFIX.len()..].bytes().all(|b| b.is_ascii_hexdigit())).collect()
 }
 
+fn secure_origin(tls: bool, port: u16) -> bool {
+    tls && port == 443
+}
+
 fn bound_to(pattern: &str, host: &str) -> bool {
     match pattern.strip_prefix("*.") {
         Some(suffix) => host.len() > suffix.len() + 1 && host.ends_with(suffix) && host.as_bytes()[host.len() - suffix.len() - 1] == b'.',
@@ -31,12 +35,15 @@ fn bound_to(pattern: &str, host: &str) -> bool {
 
 /// The head to send: with real credentials if every surrogate in it may be
 /// swapped here, or the reason not to send it at all. Nothing partial goes.
-pub(super) async fn swapped(k: &Kernel, computer: &str, mut head: Head, host: &str) -> Result<(Head, Scrubber), (Head, String)> {
+pub(super) async fn swapped(k: &Kernel, computer: &str, mut head: Head, host: &str, tls: bool, port: u16) -> Result<(Head, Scrubber), (Head, String)> {
     let Some(c) = k.read(|s| s.computers.get(computer).cloned()) else { return Ok((head, Scrubber::default())) };
     let mut swaps: Vec<(usize, String, String)> = vec![];
     for (index, (_, value)) in head.headers.iter().enumerate() {
         for token in tokens(value) {
             let Some(found) = c.surrogates.iter().find(|s| s.hash == hash(token)) else { continue };
+            if !secure_origin(tls, port) {
+                return Err((head, "real credentials require verified HTTPS on port 443".into()));
+            }
             if !bound_to(&found.host, host) {
                 let reason = format!("the credential {} is not for {host}", found.name);
                 return Err((head, reason));
@@ -81,8 +88,8 @@ pub(super) struct Scrubber {
 }
 
 impl Scrubber {
-    fn add(&mut self, real: String, token: String) {
-        if real.len() >= MIN_ECHO_BYTES {
+    pub(super) fn add(&mut self, real: String, token: String) {
+        if !real.is_empty() {
             self.pairs.push((real.into_bytes(), token.into_bytes()));
         }
     }
@@ -143,11 +150,15 @@ impl Scrubber {
     }
 }
 
-/// Anything shorter would turn ordinary text into surrogates.
-const MIN_ECHO_BYTES: usize = 8;
-
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn credentials_require_the_secure_origin() {
+        assert!(super::secure_origin(true, 443));
+        for (tls, port) in [(false, 80), (false, 443), (true, 80)] {
+            assert!(!super::secure_origin(tls, port));
+        }
+    }
     use super::*;
 
     #[test]
@@ -166,13 +177,28 @@ mod tests {
     }
 
     #[test]
-    fn with_nothing_swapped_the_stream_is_untouched_and_a_short_value_is_ignored() {
+    fn with_nothing_swapped_the_stream_is_untouched() {
         let mut none = Scrubber::default();
         assert_eq!(none.push(b"abc"), b"abc");
         assert!(!none.active());
-        let mut short = Scrubber::default();
-        short.add("abc".into(), "zzz".into());
-        assert!(!short.active());
+    }
+
+    #[test]
+    fn short_credentials_cannot_escape_in_headers_or_split_bodies() {
+        for value in ["a", "abc", "1234567"] {
+            for size in 1..=value.len() {
+                let mut scrub = Scrubber::default();
+                scrub.add(value.into(), "msur_hidden".into());
+                assert!(scrub.active(), "short credentials must also require identity encoding");
+                assert_eq!(scrub.text(&format!("X-Echo: {value}\r\n")), "X-Echo: msur_hidden\r\n");
+                let mut out = Vec::new();
+                for chunk in value.as_bytes().chunks(size) {
+                    out.extend(scrub.push(chunk));
+                }
+                out.extend(scrub.finish());
+                assert_eq!(out, b"msur_hidden");
+            }
+        }
     }
 
     #[test]

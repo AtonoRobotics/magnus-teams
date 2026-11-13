@@ -19,6 +19,37 @@ async fn workspace(s: &Server) -> (String, String, String) {
     (ws, sam, s.token("mo").await)
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn preservation_failure_keeps_the_source_and_retries_after_removal() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, mo) = workspace(&s).await;
+    hold(&s, &ws, "first.txt", "first").await;
+    hold(&s, &ws, "second.txt", "second").await;
+    let missing = held_dir(&s.k, &ws, "mo").join("second.txt");
+    std::fs::remove_file(&missing).unwrap();
+    assert_eq!(s.call(&sam, Method::DELETE, &format!("/v1/workspaces/{ws}/members/mo"), None).await.0, 200);
+    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}/home")).await.0, 404);
+    assert!(s.k.read(|s| s.team.workspace(&ws).unwrap().held["mo"].contains_key("second.txt")));
+    assert_eq!(in_library(&s, "first.txt").await.len(), 1);
+    std::fs::write(&missing, "second").unwrap();
+    s.k.finish_removed_files().await;
+    assert_eq!(in_library(&s, "first.txt").await.len(), 1, "retry duplicated a preserved file");
+    assert_eq!(in_library(&s, "second.txt").await, vec!["second"]);
+    assert!(!held_dir(&s.k, &ws, "mo").exists());
+    s.done().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_deletion_stops_before_discarding_an_unpreserved_file() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, _, _) = workspace(&s).await;
+    hold(&s, &ws, "missing.txt", "valuable").await;
+    std::fs::remove_file(held_dir(&s.k, &ws, "mo").join("missing.txt")).unwrap();
+    assert!(s.k.delete_workspace("person:sam", &ws).await.is_err());
+    assert!(s.k.read(|s| s.team.workspace(&ws).is_some()));
+    s.done().await;
+}
+
 /// A file the team agent kept back for mo, as `team_write` does for a run
 /// that read mo's own data.
 async fn hold(s: &Server, ws: &str, name: &str, text: &str) {
@@ -113,7 +144,7 @@ async fn nobody_writes_over_someone_elses_file() {
     };
     assert_eq!(put(mo.clone(), "mo's notes").await, 200);
     assert_eq!(put(sam.clone(), "sam's words").await, 409, "the workspace's owner wrote over mo's file");
-    assert_eq!(std::fs::read_to_string(volume_dir(&s.k, &ws).join("notes.txt")).unwrap(), "mo's notes");
+    assert_eq!(std::fs::read_to_string(super::files::path(&s.k, &ws, "notes.txt")).unwrap(), "mo's notes");
     assert_eq!(s.k.read(|st| st.team.workspace(&ws).unwrap().files["notes.txt"].by.clone()), "mo");
     assert_eq!(put(mo.clone(), "mo's notes, again").await, 200, "mo could not update their own file");
     s.done().await;

@@ -24,7 +24,7 @@ const home = {
   projects: [],
 };
 const sandbox = {
-  UI: {}, route: () => {}, esc, enc: encodeURIComponent, $$: () => [], paint: () => true, when: () => "", firstLine: s => String(s || ""),
+  teamApps: async () => {}, UI: {}, route: () => {}, esc, enc: encodeURIComponent, $$: () => [], paint: () => true, when: () => "", firstLine: s => String(s || ""),
   $: (sel, root) => root?.q?.(sel) ?? null,
   icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => confirm, kb: n => `${n} B`,
   Magnus: { kind: "web" }, Compose: { markdown: s => esc(s), maskedText: s => esc(s) },

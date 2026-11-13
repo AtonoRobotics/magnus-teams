@@ -113,6 +113,7 @@ pub enum Sight {
 /// anonymised, and the key that makes pseudonyms.
 pub struct Lens {
     viewer: String,
+    hidden_runs: BTreeSet<String>,
     key: Option<Vec<u8>>,
     full: BTreeSet<String>,
     shared: BTreeSet<String>,
@@ -122,7 +123,15 @@ impl Lens {
     /// `full`: testers; `shared`: those who said yes to anonymous usage
     /// data. Without a key nobody is shown anonymised.
     pub fn new(viewer: &str, key: Option<Vec<u8>>, full: BTreeSet<String>, shared: BTreeSet<String>) -> Lens {
-        Lens { viewer: viewer.into(), key, full, shared }
+        Lens { viewer: viewer.into(), hidden_runs: BTreeSet::new(), key, full, shared }
+    }
+
+    pub fn run_sight(&self, run: &str, person: &str) -> Sight {
+        if self.hidden_runs.contains(run) {
+            Sight::Hidden
+        } else {
+            self.sight(person)
+        }
     }
 
     pub fn sight(&self, person: &str) -> Sight {
@@ -229,7 +238,12 @@ impl Kernel {
     pub fn lens(&self, viewer: &Person) -> Lens {
         let now = crate::legal::documents::Versions::of(&self.cfg.legal);
         let (full, shared) = self.read(|s| (s.legal.testers_now(&now), s.legal.sharing_now(&now)));
-        Lens::new(&viewer.id, self.pseudonym_key(), full, shared)
+        let mut lens = Lens::new(&viewer.id, self.pseudonym_key(), full, shared);
+        // A requester's tester agreement is not the team's consent. This also
+        // covers whispers and descendants which inherited a team's context.
+        lens.hidden_runs = self
+            .read(|s| s.runs.values().filter(|r| s.lineage(&r.id).iter().any(|t| s.team.run_of(t).is_some() || s.team.whisper_of(t).is_some())).map(|r| r.id.clone()).collect());
+        lens
     }
 }
 
@@ -237,6 +251,14 @@ impl Kernel {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_testers_consent_does_not_expose_a_team_run() {
+        let mut l = Lens::new("developer", None, BTreeSet::from(["alice".into()]), BTreeSet::new());
+        l.hidden_runs.insert("team-run".into());
+        assert_eq!(l.run_sight("personal-run", "alice"), Sight::Full);
+        assert_eq!(l.run_sight("team-run", "alice"), Sight::Hidden);
+    }
 
     fn lens() -> Lens {
         Lens::new("dev", Some(vec![7; 32]), ["tess".to_string()].into(), ["ann".to_string()].into())

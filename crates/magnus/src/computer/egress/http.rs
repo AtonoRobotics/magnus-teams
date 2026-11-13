@@ -37,7 +37,7 @@ async fn read_head(from: &mut (impl AsyncBufRead + Unpin)) -> Result<Option<Head
     let read = async {
         loop {
             let before = raw.len();
-            if from.read_until(b'\n', &mut raw).await? == 0 {
+            if (&mut *from).take((MAX_HEAD_BYTES + 1 - raw.len()) as u64).read_until(b'\n', &mut raw).await? == 0 {
                 return Ok::<bool, anyhow::Error>(!raw.is_empty());
             }
             anyhow::ensure!(raw.len() <= MAX_HEAD_BYTES, "a request head is too long");
@@ -120,7 +120,7 @@ async fn request<S: AsyncRead + AsyncWrite + Unpin>(proxy: &Proxy, computer: &st
         Ok(why) => why,
         Err(reason) => return refuse(proxy, stream.get_mut(), row("refused", None, &reason), &reason).await,
     };
-    let (head, scrubber) = match surrogate::swapped(&proxy.kernel, computer, head, host).await {
+    let (head, scrubber) = match surrogate::swapped(&proxy.kernel, computer, head, host, tls, port).await {
         Ok(h) => h,
         Err((head, reason)) => {
             let row = Row { computer, phase: "refused", host, port, method: &head.method, path: &audited, address: None, detail: &reason };
@@ -203,6 +203,9 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
         }
         out.push_str(&format!("{name}: {value}\r\n"));
     }
+    if scrubber.active() {
+        out.push_str("Accept-Encoding: identity\r\n");
+    }
     out.push_str("\r\n");
     upstream.write_all(out.as_bytes()).await?;
     if length > 0 {
@@ -216,7 +219,8 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     tokio::time::timeout(HEAD_WAIT, async {
         loop {
             let before = response_head.len();
-            if from_upstream.read_until(b'\n', &mut response_head).await? == 0 || response_head[before..] == *b"\r\n" {
+            if (&mut from_upstream).take((MAX_HEAD_BYTES + 1 - response_head.len()) as u64).read_until(b'\n', &mut response_head).await? == 0 || response_head[before..] == *b"\r\n"
+            {
                 return Ok::<(), anyhow::Error>(());
             }
             anyhow::ensure!(response_head.len() <= MAX_HEAD_BYTES, "a response head is too long");
@@ -224,11 +228,13 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     })
     .await
     .context("the destination took too long to answer")??;
-    let text = String::from_utf8_lossy(&response_head).into_owned();
+    let text = String::from_utf8(response_head).context("a response head is not text")?;
+    let mut body = super::response::Body::new(&text, &head.method, scrubber.active())?;
     let status = text.lines().next().unwrap_or_default().to_string();
     let is_html = text.lines().any(|l| l.to_ascii_lowercase().starts_with("content-type:") && l.to_ascii_lowercase().contains("html"));
     // Putting a surrogate back changes the length; the closing connection ends it.
-    let keep = |l: &&str| !l.to_ascii_lowercase().starts_with("connection:") && !(scrubber.active() && l.to_ascii_lowercase().starts_with("content-length:"));
+    // The body is decoded and may change length: send close-delimited identity framing.
+    let keep = |l: &&str| !["connection:", "content-length:", "transfer-encoding:", "trailer:"].iter().any(|h| l.to_ascii_lowercase().starts_with(h));
     let without_connection: String = scrubber.text(&text.split_inclusive('\n').filter(keep).collect::<String>());
     let header_end = without_connection.len().saturating_sub(2);
     stream.get_mut().write_all(format!("{}Connection: close\r\n\r\n", &without_connection[..header_end]).as_bytes()).await?;
@@ -237,7 +243,7 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     let mut download = (head.method == "GET" && status.split_whitespace().nth(1) == Some("200")).then(Sha256::new);
     let mut buffer = vec![0u8; COPY_BUFFER_BYTES];
     loop {
-        let n = tokio::time::timeout(UPSTREAM_WAIT, from_upstream.read(&mut buffer)).await.context("the destination stopped answering")??;
+        let n = tokio::time::timeout(UPSTREAM_WAIT, body.read(&mut from_upstream, &mut buffer)).await.context("the destination stopped answering")??;
         if n == 0 {
             break;
         }

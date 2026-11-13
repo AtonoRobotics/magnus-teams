@@ -214,10 +214,14 @@ impl Kernel {
         finding_of(&reply.ok()?.ok()??)
     }
 
-    async fn ask_monitor(&self, doc: String) -> Option<Watch> {
+    async fn ask_monitor(&self, run: &Run, doc: String) -> Option<Watch> {
         let (adapter, model) = self.cfg.safety.monitor_model.as_deref()?.split_once('/')?;
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, MONITOR_SYSTEM, messages, vec![monitor_tool()], MONITOR_MAX_TOKENS, |_| {})).await;
+        let reply = tokio::time::timeout(
+            CHECK_TIMEOUT,
+            self.paid_complete(&run.id, &run.person, adapter, model, MONITOR_SYSTEM, messages, vec![monitor_tool()], MONITOR_MAX_TOKENS, |_| {}),
+        )
+        .await;
         Some(watch_of(reply.ok().and_then(|r| r.ok()).and_then(|out| tool_input(&out.blocks, "monitor"))))
     }
 
@@ -238,7 +242,7 @@ impl Kernel {
             .filter_map(|(id, _, _)| run.results.get(&id).map(|r| r.text.chars().take(MAX_MONITORED_RESULT_BYTES).collect()))
             .collect();
         let doc = json!({ "reply": reply.blocks, "last_read": read, "run_untrusted": run.untrusted, "run_private": run.private }).to_string();
-        let watch = self.ask_monitor(doc).await?;
+        let watch = self.ask_monitor(run, doc).await?;
         remember(&WATCHED, key, watch.clone());
         Some((reply.step, watch))
     }
@@ -292,7 +296,7 @@ impl Kernel {
     /// A reply that only talks has nothing to stop, so the person is told.
     pub(crate) async fn watch_answer(&self, run: &Run, answer: &str) {
         let doc = json!({ "reply": [{ "text": answer }], "run_untrusted": run.untrusted, "run_private": run.private }).to_string();
-        let (reason, pause) = match self.ask_monitor(doc).await {
+        let (reason, pause) = match self.ask_monitor(run, doc).await {
             None | Some(Watch::Allow) => return,
             Some(Watch::Block(reason)) => (reason, false),
             Some(Watch::Hold { reason, pause }) => (reason, pause),
@@ -333,10 +337,13 @@ impl Kernel {
             content.push(Block::Image { media_type: "image/png".into(), data_b64: i.to_string() });
         }
         let messages = vec![Message { role: Role::User, content, state: None }];
-        let out = tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, SCREEN_SYSTEM, messages, vec![screen_tool()], SCREEN_MAX_TOKENS, |_| {}))
-            .await
-            .ok()?
-            .ok()?;
+        let out = tokio::time::timeout(
+            CHECK_TIMEOUT,
+            self.paid_complete(run, "system:tool-screen", adapter, model, SCREEN_SYSTEM, messages, vec![screen_tool()], SCREEN_MAX_TOKENS, |_| {}),
+        )
+        .await
+        .ok()?
+        .ok()?;
         let input = tool_input(&out.blocks, "screen")?;
         let found = input["injection"].as_bool()?;
         // A screen outside any run is in the developer view's tool screens.

@@ -20,6 +20,7 @@
 pub mod access;
 pub mod admin;
 pub mod alerts;
+pub mod calls;
 pub mod enforce;
 pub mod month;
 pub mod requests;
@@ -58,12 +59,29 @@ pub enum Scope {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "change", rename_all = "snake_case")]
 pub enum Change {
+    CallReserved {
+        charge: calls::Charge,
+        baseline: Option<f64>,
+    },
+    CallSettled {
+        id: String,
+        usd: f64,
+    },
     /// A monthly limit in dollars was set, or lifted (None).
-    LimitSet { scope: Scope, usd: Option<f64> },
+    LimitSet {
+        scope: Scope,
+        usd: Option<f64>,
+    },
     /// Admins were told that a limit's spend this month reached `percent`.
     /// `limit` names it: `server`, `person:<id>`, `workspace:<ws>` or
     /// `channel:<ws>/<channel>`.
-    Alerted { limit: String, month: String, percent: u8, spent_usd: f64, limit_usd: f64 },
+    Alerted {
+        limit: String,
+        month: String,
+        percent: u8,
+        spent_usd: f64,
+        limit_usd: f64,
+    },
     /// A person at their limit asked for more this month.
     IncreaseAsked {
         id: String,
@@ -119,6 +137,8 @@ pub struct Decided {
 /// The state the `spend` events build.
 #[derive(Clone, Debug, Default)]
 pub struct Ledger {
+    pub calls: BTreeMap<String, calls::Charge>,
+    pub call_baselines: BTreeMap<String, f64>,
     pub server_usd: Option<f64>,
     pub default_usd: Option<f64>,
     pub people_usd: BTreeMap<String, f64>,
@@ -133,6 +153,20 @@ pub struct Ledger {
 impl Ledger {
     pub fn apply(&mut self, at: DateTime<Utc>, c: &Change) {
         match c {
+            Change::CallReserved { charge, baseline } => {
+                if let Some(usd) = baseline {
+                    self.call_baselines.entry(charge.run.clone()).or_insert(*usd);
+                }
+                self.calls.entry(charge.id.clone()).or_insert_with(|| charge.clone());
+            }
+            Change::CallSettled { id, usd } => {
+                if let Some(c) = self.calls.get_mut(id) {
+                    if !c.settled {
+                        c.usd = *usd;
+                        c.settled = true;
+                    }
+                }
+            }
             Change::LimitSet { scope, usd } => match scope {
                 Scope::Server => self.server_usd = *usd,
                 Scope::Default => self.default_usd = *usd,

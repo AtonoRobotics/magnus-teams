@@ -74,16 +74,33 @@ struct Tally {
     sent: u64,
 }
 
-/// Bytes both ways until either side stops.
-pub(super) async fn carry(mut socket: WebSocket, mut stream: UnixStream, deflate: bool, id: String) {
+const AUTH_CHECK_MILLIS: u64 = 500;
+const AUTH_WAIT_SECONDS: u64 = 5;
+
+/// A live display carries the issuing session, not just a once-valid ticket.
+pub(super) async fn authorized(k: &crate::kernel::Kernel, id: &str, ticket: &super::takeover::Ticket) -> bool {
+    let check = async {
+        let Ok(person) = crate::api::who(k, &ticket.headers).await else { return false };
+        person.id == ticket.person
+            && k.opened_computer(&person, id)
+                .is_ok_and(|c| c.status == super::Status::Running && c.controller.as_deref() == Some(&ticket.person) && c.control_version == ticket.version)
+    };
+    tokio::time::timeout(Duration::from_secs(AUTH_WAIT_SECONDS), check).await.unwrap_or(false)
+}
+
+/// Bytes both ways while the issuing session still controls this generation.
+pub(super) async fn carry(mut socket: WebSocket, mut stream: UnixStream, deflate: bool, id: String, k: std::sync::Arc<crate::kernel::Kernel>, ticket: super::takeover::Ticket) {
     let opened = Instant::now();
     let mut squeeze = deflate.then(Squeeze::new);
     let mut tally = Tally::default();
     let mut buf = vec![0u8; DISPLAY_BUFFER_BYTES];
+    let mut recheck = tokio::time::interval(Duration::from_millis(AUTH_CHECK_MILLIS));
     loop {
         tokio::select! {
+            _ = recheck.tick() => if !authorized(&k, &id, &ticket).await { break; },
             from_screen = stream.read(&mut buf) => match from_screen {
                 Ok(n) if n > 0 => {
+                    if !authorized(&k, &id, &ticket).await { break; }
                     if let (None, Some(asked)) = (tally.first_frame, tally.asked) {
                         tally.first_frame = Some(asked.elapsed());
                     }
@@ -102,6 +119,7 @@ pub(super) async fn carry(mut socket: WebSocket, mut stream: UnixStream, deflate
             },
             from_person = socket.recv() => match from_person {
                 Some(Ok(Message::Binary(b))) => {
+                    if !authorized(&k, &id, &ticket).await { break; }
                     if tally.asked.is_none() && b.len() == UPDATE_REQUEST_BYTES && b[0] == UPDATE_REQUEST {
                         tally.asked = Some(Instant::now());
                     }

@@ -1,6 +1,4 @@
-//! The kernel: wiring, the single writer, boot, and the sweeper that keeps
-//! runs moving. Every change goes through `emit`: append to the log first,
-//! then apply to the projection.
+//! Kernel wiring, boot and sweeps; append changes before applying them.
 
 use crate::adapters::Adapters;
 use crate::apps::{AppTool, Mcp};
@@ -18,9 +16,7 @@ use std::time::{Duration, Instant};
 
 pub const HARNESS_VERSION: &str = concat!("magnus-", env!("CARGO_PKG_VERSION"));
 
-/// The record a sign-in resolves: the config first, else the server's own
-/// directory, where a local person has no token, groups or roles: a member,
-/// nothing more. Split out so tests reach it without a kernel (Postgres).
+/// Resolve config identities before the local directory's member identities.
 pub(crate) fn resolve_person(cfg: &Config, accounts: &crate::accounts::Accounts, id: &str) -> Option<Person> {
     if let Some(p) = cfg.person(id) {
         return Some(p.clone());
@@ -40,6 +36,8 @@ pub struct Kernel {
     /// Held while a person's relationship notes are read and a new version
     /// written, so two changes at once never lose one.
     pub(crate) notes: tokio::sync::Mutex<()>,
+    pub(crate) team_files: tokio::sync::Mutex<()>,
+    pub(crate) paid_calls: tokio::sync::Mutex<()>,
     pub vault: Arc<Vault>,
     pub accounts: crate::accounts::Accounts,
     /// Computers paired with this appliance, and the certificates Cloudflare
@@ -166,6 +164,8 @@ impl Kernel {
             writer,
             decide: tokio::sync::Mutex::new(()),
             notes: tokio::sync::Mutex::new(()),
+            team_files: tokio::sync::Mutex::new(()),
+            paid_calls: tokio::sync::Mutex::new(()),
             drivers: Mutex::new(HashSet::new()),
             leases: Mutex::new(HashMap::new()),
             live_tools: tokio::sync::Mutex::new(HashMap::new()),
@@ -787,6 +787,7 @@ impl Kernel {
             // Scheduled polls of watched reads (#406).
             self.poll_due(now).await;
             self.expire_notes().await;
+            self.finish_removed_files().await;
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }

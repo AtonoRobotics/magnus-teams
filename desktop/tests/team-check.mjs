@@ -13,7 +13,7 @@ const calls = [], listeners = {};
 const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
-  UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
+  App: { appliance: "https://server", me: { id: "sam" } }, UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
   icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },
@@ -133,7 +133,7 @@ assert.equal(sandbox.mentionAt("mail me@x", 9), null, "an address read as a ment
 assert.deepEqual(plain(sandbox.mentionChoices(home, "").map(p => p.name)), ["Magnus", "Dana", "Leo"]);
 assert.deepEqual(plain(sandbox.mentionChoices(home, "d").map(p => p.name)), ["Dana"]);
 
-// Drafts survive, and storage that throws breaks nothing.
+// In-memory drafts work even when persistent storage is blocked.
 sandbox.localStorage = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => {} };
 assert.equal(sandbox.__x.TeamDrafts.get("w", "c1"), "");
 sandbox.__x.TeamDrafts.set("w", "c1", null, "half");

@@ -117,7 +117,7 @@ const MessageDrafts = (() => {
     const id = key(thread, project);
     return rows[id] ||= {id, thread, project, text:"", files:[], selection:[0,0], anchor:null};
   }
-  function clear() { rows = {}; originals.clear(); epoch++; emit(); }
+  function clear() { rows = {}; originals.clear(); epoch++; if (typeof TeamDrafts !== "undefined") TeamDrafts.clear(); emit(); }
   // Another person signing in on this computer starts with nothing.
   function open(appliance, who) { const next = `${appliance}/${who}`; if (next !== person) { person = next; clear(); } }
   function discard(id) { if (!rows[id]) return; for (const f of rows[id].files) originals.delete(f.uid); delete rows[id]; emit(); }

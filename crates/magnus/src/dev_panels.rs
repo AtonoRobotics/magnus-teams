@@ -30,7 +30,7 @@ macro_rules! dev {
 
 /// The ids of the runs `lens` shows at all, and of those it hides.
 pub(crate) fn runs_seen<'a>(lens: &Lens, s: &'a crate::state::State) -> (BTreeSet<&'a str>, BTreeSet<String>) {
-    let (seen, hidden): (Vec<&Run>, Vec<&Run>) = s.runs.values().partition(|r| lens.sight(&r.person) != Sight::Hidden);
+    let (seen, hidden): (Vec<&Run>, Vec<&Run>) = s.runs.values().partition(|r| lens.run_sight(&r.id, &r.person) != Sight::Hidden);
     (seen.iter().map(|r| r.id.as_str()).collect(), hidden.iter().map(|r| r.id.clone()).collect())
 }
 

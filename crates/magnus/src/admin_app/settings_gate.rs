@@ -67,6 +67,17 @@ fn matches(pattern: &str, path: &str) -> bool {
 
 /// The audit action of an admin change at `method` `path`, when it is one.
 pub fn action_of(method: &str, path: &str) -> Option<&'static str> {
+    // Match the same decoded, slash-trimmed wildcard as put_policy.
+    if method == "PUT" {
+        if let Some(layer) = path.strip_prefix("/v1/policies/") {
+            if let Ok(layer) = percent_encoding::percent_decode_str(layer).decode_utf8() {
+                let layer = layer.trim_matches('/');
+                if layer == "org" || layer.starts_with("group/") {
+                    return Some("policy_set");
+                }
+            }
+        }
+    }
     ADMIN_CHANGES.iter().find(|(m, p, _)| *m == method && matches(p, path)).map(|(_, _, a)| *a)
 }
 
@@ -143,6 +154,11 @@ mod tests {
     #[test]
     fn admin_changes_are_known_and_personal_ones_are_not() {
         for (m, p) in [
+            ("PUT", "/v1/policies/org"),
+            ("PUT", "/v1/policies/%6frg"),
+            ("PUT", "/v1/policies//org/"),
+            ("PUT", "/v1/policies/group/staff"),
+            ("PUT", "/v1/policies/group%2Fstaff"),
             ("PUT", "/v1/adapters/claude"),
             ("POST", "/v1/adapters/claude/sign-in"),
             ("POST", "/v1/adapters/claude/sign-in/complete"),
@@ -162,6 +178,9 @@ mod tests {
             assert!(action_of(m, p).is_some(), "{m} {p} changes an admin's settings with no step-up");
         }
         for (m, p) in [
+            ("PUT", "/v1/policies/user/alice"),
+            ("PUT", "/v1/policies/task/t1"),
+            ("GET", "/v1/policies/org"),
             ("GET", "/v1/model"),
             ("GET", "/v1/adapters"),
             ("DELETE", "/v1/connectors/github/connection"),

@@ -47,10 +47,12 @@ impl Kernel {
     pub(crate) async fn set_workspace_role(&self, actor: &str, ws: &str, person: &str, to: Option<Role>) -> Result<()> {
         let Some(role) = to else {
             let running: Vec<String> = self.read(|s| s.team.runs_by(ws, person).into_iter().map(|r| r.task.clone()).collect());
-            self.keep_held(actor, ws, person).await;
             self.emit(actor, Ev::Team(Change::Removed { workspace: ws.to_string(), person: person.to_string() })).await?;
             self.end_team_tasks(actor, &running).await;
-            self.remove_held(ws, person).await;
+            match self.keep_held(actor, ws, person).await {
+                Ok(()) => self.remove_held(ws, person).await,
+                Err(e) => tracing::warn!("membership revoked; preservation will retry for {ws}: {e:#}"),
+            }
             return Ok(());
         };
         self.emit(actor, Ev::Team(Change::Member { workspace: ws.to_string(), person: person.to_string(), role })).await?;

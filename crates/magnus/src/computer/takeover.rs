@@ -28,9 +28,11 @@ pub(super) const TICKET_PROTOCOL_PREFIX: &str = "magnus.ticket.";
 pub(super) const DISPLAY_PROTOCOL: &str = "magnus.display";
 const MAX_OPERATOR_MINUTES: i64 = 8 * 60;
 
-struct Ticket {
+pub(super) struct Ticket {
     computer: String,
-    person: String,
+    pub(super) person: String,
+    pub(super) headers: axum::http::HeaderMap,
+    pub(super) version: u64,
     issued: Instant,
 }
 
@@ -40,7 +42,7 @@ fn digest(ticket: &str) -> String {
     hex::encode(Sha256::digest(ticket.as_bytes()))
 }
 
-fn issue(computer: &str, person: &str) -> String {
+fn issue(computer: &str, person: &str, headers: axum::http::HeaderMap, version: u64) -> String {
     let mut bytes = [0u8; TICKET_BYTES];
     rand::thread_rng().fill_bytes(&mut bytes);
     let ticket = hex::encode(bytes);
@@ -49,16 +51,16 @@ fn issue(computer: &str, person: &str) -> String {
     if map.len() >= MAX_LIVE_TICKETS {
         map.retain(|_, t| t.issued.elapsed() < TICKET_LIFETIME);
     }
-    map.insert(digest(&ticket), Ticket { computer: computer.to_string(), person: person.to_string(), issued: Instant::now() });
+    map.insert(digest(&ticket), Ticket { computer: computer.to_string(), person: person.to_string(), headers, version, issued: Instant::now() });
     ticket
 }
 
 /// The person a ticket was issued to. A presented ticket is spent, whatever
 /// else is wrong with it.
-pub(super) fn redeem(raw: &str, computer: &str) -> Option<String> {
+pub(super) fn redeem(raw: &str, computer: &str) -> Option<Ticket> {
     let mut slot = TICKETS.lock().unwrap_or_else(|e| e.into_inner());
     let t = slot.get_or_insert_with(HashMap::new).remove(&digest(raw))?;
-    (t.computer == computer && t.issued.elapsed() < TICKET_LIFETIME).then_some(t.person)
+    (t.computer == computer && t.issued.elapsed() < TICKET_LIFETIME).then_some(t)
 }
 
 /// The runs that use a computer with this owner.
@@ -214,7 +216,7 @@ impl Kernel {
     }
 
     /// Taking control wakes a sleeping computer first.
-    pub async fn start_takeover(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+    pub async fn start_takeover(&self, who: &Person, id: &str, headers: axum::http::HeaderMap) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         if let Woken::Queued(n) = self.wake_for_use(id, &format!("person:{}", who.id)).await? {
             return Err(Refused::Conflict(format!("the computer is waiting for room on the server, number {n} in line")));
@@ -239,7 +241,9 @@ impl Kernel {
             self.record_computer(who, Change::TakeoverStarted { id: id.into(), by: who.id.clone(), at: Utc::now(), cause: Some(cause), runs }).await?;
         }
         super::idle::touch(id);
-        Ok(json!({ "ticket": issue(id, &who.id), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME.as_secs() }))
+        Ok(
+            json!({ "ticket": issue(id, &who.id, headers, self.opened_computer(who, id)?.control_version), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME.as_secs() }),
+        )
     }
 
     /// "I'm done": the agent picks up with a fresh screenshot.
@@ -371,25 +375,57 @@ impl Kernel {
 mod tests {
     use super::*;
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_live_display_loses_authority_on_handback_membership_or_session_revocation() {
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        s.k.emit("test", Ev::Team(crate::team::Change::Created { workspace: "w".into(), name: "W".into(), owner: "sam".into() })).await.unwrap();
+        s.k.emit("test", Ev::Computer(Change::Created { id: "screen".into(), owner: Owner::Workspace("w".into()) })).await.unwrap();
+        s.k.emit("test", Ev::Computer(Change::Started { id: "screen".into() })).await.unwrap();
+        let token = s.token("sam").await;
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(axum::http::header::AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+        let start = || Change::TakeoverStarted { id: "screen".into(), by: "sam".into(), at: Utc::now(), cause: Some("test".into()), runs: vec![] };
+        s.k.emit("test", Ev::Computer(start())).await.unwrap();
+        let ticket = || {
+            let v = s.k.read(|s| s.computers.get("screen").unwrap().control_version);
+            redeem(&issue("screen", "sam", headers.clone(), v), "screen").unwrap()
+        };
+        let old = ticket();
+        assert!(super::super::display::authorized(&s.k, "screen", &old).await);
+        s.k.emit("test", Ev::Computer(Change::TakeoverEnded { id: "screen".into(), by: "sam".into(), at: Utc::now() })).await.unwrap();
+        s.k.emit("test", Ev::Computer(start())).await.unwrap();
+        assert!(!super::super::display::authorized(&s.k, "screen", &old).await, "retaking revived an old stream");
+        let current = ticket();
+        let session = s.k.accounts.session(&token).await.unwrap();
+        s.k.accounts.end("sam", &session.id).await.unwrap();
+        assert!(!super::super::display::authorized(&s.k, "screen", &current).await, "sign-out left a live stream authorized");
+        // A role downgrade also invalidates its generation immediately.
+        let before = s.k.read(|s| s.computers.get("screen").unwrap().control_version);
+        s.k.emit("test", Ev::Team(crate::team::Change::Member { workspace: "w".into(), person: "sam".into(), role: crate::team::Role::Guest })).await.unwrap();
+        assert!(s.k.read(|s| s.computers.get("screen").unwrap().control_version > before));
+        assert!(s.k.read(|s| s.computers.get("screen").unwrap().controller.is_none()));
+        s.done().await;
+    }
+
     #[test]
     fn a_ticket_works_once_and_only_for_its_computer() {
-        let t = issue("a", "alice");
-        assert_eq!(redeem(&t, "a"), Some("alice".to_string()));
-        assert_eq!(redeem(&t, "a"), None, "a ticket worked twice");
-        let other = issue("a", "alice");
-        assert_eq!(redeem(&other, "b"), None, "a ticket opened another computer");
-        assert_eq!(redeem(&other, "a"), None, "a misused ticket was not spent");
+        let t = issue("a", "alice", axum::http::HeaderMap::new(), 0);
+        assert_eq!(redeem(&t, "a").map(|t| t.person), Some("alice".to_string()));
+        assert_eq!(redeem(&t, "a").map(|t| t.person), None, "a ticket worked twice");
+        let other = issue("a", "alice", axum::http::HeaderMap::new(), 0);
+        assert_eq!(redeem(&other, "b").map(|t| t.person), None, "a ticket opened another computer");
+        assert_eq!(redeem(&other, "a").map(|t| t.person), None, "a misused ticket was not spent");
     }
 
     #[test]
     fn an_old_ticket_is_refused() {
-        let t = issue("a", "alice");
+        let t = issue("a", "alice", axum::http::HeaderMap::new(), 0);
         {
             let mut slot = TICKETS.lock().unwrap();
             let entry = slot.as_mut().unwrap().get_mut(&digest(&t)).unwrap();
             entry.issued = Instant::now().checked_sub(TICKET_LIFETIME + Duration::from_secs(1)).unwrap();
         }
-        assert_eq!(redeem(&t, "a"), None);
+        assert_eq!(redeem(&t, "a").map(|t| t.person), None);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! The workspaces' HTTP API.
-use super::agent::{held_dir, volume_dir};
+use super::agent::held_dir;
 use super::chat::Chat;
 use super::conversation::Why;
 use super::{fit_name, Change, File, Message, Role};
@@ -38,6 +38,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/connectors", post(grant_connector))
         .route("/v1/workspaces/{ws}/files/{name}", get(read_file).put(write_file).delete(delete_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)))
         .route("/v1/workspaces/{ws}/held/{name}/share", post(share_held))
+        .merge(super::connectors::router())
         .merge(super::kb_routes::router())
         .merge(super::chat_routes::router())
         .merge(super::project_routes::router())
@@ -150,7 +151,12 @@ async fn remove_member(State(k): K, h: HeaderMap, Path((ws, person)): Path<(Stri
 }
 
 /// A role given or a member taken out, once the rules of who may allow it.
-async fn membership(k: &Kernel, p: &Person, mine: Role, ws: &str, person: &str, to: Option<Role>) -> Result<(), Box<Reply>> {
+async fn membership(k: &Kernel, p: &Person, _mine: Role, ws: &str, person: &str, to: Option<Role>) -> Result<(), Box<Reply>> {
+    let _membership = k.team_files.lock().await;
+    let Some(mine) = k.read(|s| s.team.role(ws, &p.id)) else { return Err(Box::new(err(StatusCode::NOT_FOUND, "no such workspace"))) };
+    if (person != p.id || to.is_some()) && mine < Role::Admin {
+        return Err(Box::new(err(StatusCode::FORBIDDEN, "that takes the Admin role here")));
+    }
     let why = k.read(|s| s.team.workspace(ws).and_then(|w| super::membership::refuse(w, &p.id, mine, person, to)));
     if let Some(why) = why {
         return Err(Box::new(err(StatusCode::FORBIDDEN, why)));
@@ -255,21 +261,29 @@ struct GrantConnector {
 }
 
 async fn grant_connector(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<GrantConnector>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
     if !k.connectors().iter().any(|c| c.name == b.app) {
         return err(StatusCode::NOT_FOUND, "no such app");
     }
-    ok_or_return!(send(&k, &p, Change::Connector { workspace: ws, app: b.app, roles: b.roles }).await);
+    ok_or_return!(send(&k, &p, Change::Connector { workspace: ws.clone(), app: b.app.clone(), roles: b.roles.clone() }).await);
+    if b.roles.is_empty() {
+        super::connectors::cancel_flows(&ws, &b.app).await;
+        if let Err(e) = k.disconnect(&b.app, &super::connectors::principal(&ws)).await {
+            return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+        }
+    }
     Json(json!({ "ok": true })).into_response()
 }
 
 async fn read_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
     let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees_file(&name, &p.id)));
     if !known || !fit_name(&name) {
         return err(StatusCode::NOT_FOUND, "no such file");
     }
-    match tokio::fs::read(volume_dir(&k, &ws).join(&name)).await {
+    match tokio::fs::read(super::files::path(&k, &ws, &name)).await {
         Ok(bytes) => bytes.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     }
@@ -277,6 +291,7 @@ async fn read_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, St
 
 /// An explicit share: the only way a member's file enters the volume.
 async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, q: Query<HashMap<String, String>>, body: Bytes) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     if !fit_name(&name) {
         return err(StatusCode::BAD_REQUEST, "that is not a file name");
@@ -284,26 +299,21 @@ async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
         return err(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
     }
-    let dir = volume_dir(&k, &ws);
-    if let Err(e) = async {
-        tokio::fs::create_dir_all(&dir).await?;
-        tokio::fs::write(dir.join(&name), &body).await
-    }
-    .await
-    {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
-    }
-    let project = q.get("project").filter(|id| k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.projects.get(*id).is_some_and(|d| d.may_read(&p.id))))).cloned();
+    let project = match q.get("project") {
+        Some(id) if k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.projects.get(id).is_some_and(|d| d.may_read(&p.id)))) => Some(id.clone()),
+        Some(_) => return err(StatusCode::NOT_FOUND, "no such project"),
+        None => k.read(|s| s.team.workspace(&ws).and_then(|w| w.chat.file_projects.get(&name).cloned())),
+    };
     let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
-    if project.is_some() {
-        ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project } }).await);
+    if let Err(e) = k.publish_team_file(&format!("person:{}", p.id), &ws, file, project, &body).await {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
     Json(json!({ "ok": true })).into_response()
 }
 
 /// Whoever put it there, or an owner or admin, may delete a file.
 async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     let by = k.read(|s| s.team.workspace(&ws).filter(|w| w.sees_file(&name, &p.id)).and_then(|w| w.files.get(&name).map(|f| f.by.clone())));
     let Some(by) = by else { return err(StatusCode::NOT_FOUND, "no such file") };
@@ -311,7 +321,7 @@ async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, 
         return err(StatusCode::FORBIDDEN, "only who added it, or an admin, may delete it");
     }
     if fit_name(&name) {
-        if let Err(e) = tokio::fs::remove_file(volume_dir(&k, &ws).join(&name)).await {
+        if let Err(e) = tokio::fs::remove_file(super::files::path(&k, &ws, &name)).await {
             tracing::warn!("{name}: {e}");
         }
     }
@@ -323,6 +333,7 @@ async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, 
 /// team gets a copy; theirs goes to their own library, so an admin deleting
 /// the team's copy, or the workspace, leaves it with them.
 async fn share_held(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
+    let _files = k.team_files.lock().await;
     let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
     let held = k.read(|s| s.team.workspace(&ws).and_then(|w| w.held.get(&p.id).and_then(|f| f.get(&name).cloned())));
     let Some(file) = held else { return err(StatusCode::NOT_FOUND, "you hold no such file") };
@@ -337,16 +348,11 @@ async fn share_held(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     if let Err(e) = k.keep_in_library(&format!("person:{}", p.id), &p.id, &name, &bytes).await {
         return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    let target = volume_dir(&k, &ws);
-    if let Err(e) = async {
-        tokio::fs::create_dir_all(&target).await?;
-        tokio::fs::rename(&from, target.join(&name)).await
+    let project = k.read(|s| s.team.workspace(&ws).and_then(|w| w.chat.file_projects.get(&name).cloned()));
+    if let Err(e) = k.publish_team_file(&format!("person:{}", p.id), &ws, file, project, &bytes).await {
+        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    .await
-    {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
-    }
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
     ok_or_return!(send(&k, &p, Change::Released { workspace: ws, person: p.id.clone(), name }).await);
+    let _ = tokio::fs::remove_file(from).await;
     Json(json!({ "ok": true })).into_response()
 }

@@ -30,6 +30,39 @@ fn ids(v: &Value, key: &str, field: &str) -> Vec<String> {
     v[key].as_array().into_iter().flatten().filter_map(|c| c[field].as_str().map(String::from)).collect()
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn uploads_never_publish_under_an_invalid_or_intermediate_scope() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, mo, _) = workspace(&s).await;
+    let project = s.post(&sam, &format!("/v1/workspaces/{ws}/projects"), json!({"name":"Private"})).await.1["id"].as_str().unwrap().to_string();
+    let http = reqwest::Client::new();
+    let base = format!("{}/v1/workspaces/{ws}/files/report.txt", s.base);
+    let put = |token: String, project: String, body: &'static str| http.put(format!("{base}?project={project}")).bearer_auth(token).body(body).send();
+    assert_eq!(put(sam.clone(), "does-not-exist".into(), "private").await.unwrap().status().as_u16(), 404);
+    assert_eq!(put(mo.clone(), project.clone(), "private").await.unwrap().status().as_u16(), 404);
+    assert!(!s.k.read(|s| s.team.workspace(&ws).unwrap().files.contains_key("report.txt")));
+    assert_eq!(http.put(&base).bearer_auth(&sam).body("public").send().await.unwrap().status().as_u16(), 200);
+    let write = put(sam.clone(), project.clone(), "new secret");
+    let read = async {
+        for _ in 0..30 {
+            let r = http.get(&base).bearer_auth(&mo).send().await.unwrap();
+            if r.status().is_success() {
+                assert_eq!(r.text().await.unwrap(), "public");
+            } else {
+                assert_eq!(r.status().as_u16(), 404);
+            }
+        }
+    };
+    let (written, ()) = tokio::join!(write, read);
+    assert_eq!(written.unwrap().status().as_u16(), 200);
+    assert_eq!(http.get(&base).bearer_auth(&mo).send().await.unwrap().status().as_u16(), 404);
+    // An unreferenced, fully written object (crash before commit) is not a file.
+    let dir = super::agent::volume_dir(&s.k, &ws).with_file_name("objects");
+    std::fs::write(dir.join("interrupted"), "must stay private").unwrap();
+    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}/files/interrupted")).await.0, 404);
+    s.done().await;
+}
+
 /// A project's channel, its messages, its notes and its files are open to
 /// its people only, on every route, guests included.
 #[tokio::test(flavor = "multi_thread")]
@@ -146,6 +179,21 @@ async fn a_team_run_never_uses_a_members_own_sign_in() {
     let why = s.k.team_refusal(&action("crm__update"), &run);
     assert!(why.as_deref().is_some_and(|w| w.contains("own sign-in")), "{why:?}");
     assert_eq!(s.k.team_refusal(&action("open__search"), &run), None);
+    let c = s.k.connector("crm").unwrap();
+    let token = |value| json!({"access_token":value,"client":{"token_endpoint":"https://crm.example/token","client_id":"client","resource":""}}).to_string();
+    let mine = crate::connectors::connection_name("crm", "mo");
+    s.k.vault.put(&mine, &token("personal-token")).unwrap();
+    let principal = s.k.connector_principal(&run.id, &run.person);
+    assert_eq!(principal, format!("workspace:{ws}"));
+    assert!(s.k.connector_secret(&c, &principal).await.unwrap().is_none(), "team used a member's token");
+    s.k.vault.put(&crate::connectors::connection_name("crm", &principal), &token("workspace-token")).unwrap();
+    assert_eq!(s.k.connector_secret(&c, &principal).await.unwrap().unwrap().expose(), "workspace-token");
+    assert_eq!(s.k.team_refusal(&action("crm__update"), &run), None);
+    assert!(s.k.team_scoped(&run, vec![spec("crm__update")]).iter().any(|s| s.name == "crm__update"));
+    // Disconnecting the workspace cannot disconnect its member.
+    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/apps/crm/disconnect"), json!({})).await.0, 204);
+    assert!(s.k.connector_secret(&c, &principal).await.unwrap().is_none());
+    assert_eq!(s.k.connector_secret(&c, "mo").await.unwrap().unwrap().expose(), "personal-token");
     s.done().await;
 }
 

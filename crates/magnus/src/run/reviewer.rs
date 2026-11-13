@@ -54,7 +54,7 @@ impl Kernel {
         let Some(allowance) = self.aux_max_tokens(&run.id, "reviewer", &adapter, &model, system, messages.clone(), tools.clone(), run.config.max_tokens).await else {
             return Ok(None);
         };
-        let out = match self.adapters.complete(&adapter, &model, system, messages, tools, allowance, |_| {}).await {
+        let out = match self.paid_complete(&run.id, &run.person, &adapter, &model, system, messages, tools, allowance, |_| {}).await {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!("reviewer on {}: {e:?}", run.id);

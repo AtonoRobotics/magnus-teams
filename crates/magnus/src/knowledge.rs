@@ -492,7 +492,7 @@ impl Kernel {
         let Some(allowance) = self.aux_max_tokens(&run.id, "knowledge extraction", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
             return Ok(None);
         };
-        let out = self.adapters.complete(&adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let out = self.paid_complete(&run.id, &run.person, &adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let reply: String = out
             .blocks
             .iter()
