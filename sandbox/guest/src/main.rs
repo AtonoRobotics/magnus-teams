@@ -10,13 +10,15 @@
 //! so the checking tool is the image's, never one the work put there.
 
 mod browser;
+mod files;
+
+use files::Files;
 
 use base64::Engine;
 use serde_json::{json, Value};
 use std::ffi::CString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::{FromRawFd, RawFd};
-use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -171,24 +173,9 @@ fn freeze(frozen: bool) -> Value {
     json!({ "ok": true })
 }
 
-/// Zeroes a file before unlinking it, since a freed block would otherwise
-/// stay readable in the drive image and in every later backup of it.
-fn erase(path: &std::path::Path) -> Value {
-    let run = || -> std::io::Result<()> {
-        let mut file = std::fs::File::options().write(true).custom_flags(libc::O_NOFOLLOW).open(path)?;
-        let mut left = file.metadata()?.len();
-        let zeros = vec![0u8; ERASE_BUFFER_BYTES];
-        while left > 0 {
-            let n = left.min(ERASE_BUFFER_BYTES as u64) as usize;
-            file.write_all(&zeros[..n])?;
-            left -= n as u64;
-        }
-        file.sync_all()?;
-        std::fs::remove_file(path)?;
-        unsafe { libc::sync() };
-        Ok(())
-    };
-    match run() {
+/// Zeroes and unlinks a file (`Files::erase`).
+fn erase(files: &Files, path: &std::path::Path) -> Value {
+    match files.erase(path) {
         Ok(()) => json!({ "ok": true, "path": path }),
         Err(e) => json!({ "error": format!("{}: {e}", path.display()) }),
     }
@@ -446,19 +433,10 @@ fn wait_for_readers(readers: &[std::thread::JoinHandle<()>], grace: Duration) {
     }
 }
 
-fn resolve(path: &str) -> std::path::PathBuf {
-    let p = std::path::Path::new(path);
-    if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new("/workspace").join(p)
-    }
-}
-
 /// A directory's entries, for the person's file explorer. Links are shown
 /// as themselves and never followed.
-fn list_dir(path: &std::path::Path) -> Value {
-    let dir = match std::fs::read_dir(path) {
+fn list_dir(files: &Files, path: &std::path::Path) -> Value {
+    let dir = match files.read_dir(path) {
         Ok(d) => d,
         Err(e) => return json!({ "error": format!("{}: {e}", path.display()) }),
     };
@@ -466,7 +444,8 @@ fn list_dir(path: &std::path::Path) -> Value {
         .flatten()
         .take(MAX_LISTED_ENTRIES)
         .filter_map(|e| {
-            let meta = e.path().symlink_metadata().ok()?;
+            // An entry's own metadata: a link is not followed.
+            let meta = e.metadata().ok()?;
             let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
             Some(json!({ "name": e.file_name().to_string_lossy(), "dir": meta.is_dir(), "size": meta.len(), "modified": modified }))
         })
@@ -475,51 +454,38 @@ fn list_dir(path: &std::path::Path) -> Value {
     json!({ "path": path, "entries": entries })
 }
 
-/// The whole file, or the part of it asked for.
-fn read_part(path: &std::path::Path, offset: Option<u64>, length: Option<u64>) -> std::io::Result<Vec<u8>> {
-    let Some(length) = length else { return std::fs::read(path) };
-    use std::io::Seek;
-    let mut file = std::fs::File::open(path)?;
-    file.seek(std::io::SeekFrom::Start(offset.unwrap_or(0)))?;
-    let mut out = Vec::new();
-    file.take(length).read_to_end(&mut out)?;
-    Ok(out)
-}
-
 fn handle(req: Value) -> Value {
     let b64 = base64::engine::general_purpose::STANDARD;
+    // Files under /workspace are opened beneath it, never through a link out (files.rs).
+    let files = Files::user();
+    let path = || files.resolve(req["path"].as_str().unwrap_or_default());
     match req["op"].as_str().unwrap_or_default() {
         "ping" => json!({ "ok": true }),
         "reset" => reset(&req),
         "freeze" => freeze(true),
         "thaw" => freeze(false),
-        "erase" => erase(&resolve(req["path"].as_str().unwrap_or_default())),
+        "erase" => erase(&files, &path()),
         "exec" => exec(&req),
         "write" => {
-            let p = resolve(req["path"].as_str().unwrap_or_default());
+            let p = path();
             let data = match b64.decode(req["data_b64"].as_str().unwrap_or_default()) {
                 Ok(d) => d,
                 Err(e) => return json!({ "error": format!("bad base64: {e}") }),
             };
-            if let Some(dir) = p.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let written =
-                if req["append"] == true { std::fs::File::options().append(true).create(true).open(&p).and_then(|mut f| f.write_all(&data)) } else { std::fs::write(&p, data) };
-            match written {
+            match files.write(&p, &data, req["append"] == true) {
                 Ok(()) => json!({ "ok": true, "path": p }),
                 Err(e) => json!({ "error": format!("{}: {e}", p.display()) }),
             }
         }
         "read" => {
-            let p = resolve(req["path"].as_str().unwrap_or_default());
-            match read_part(&p, req["offset"].as_u64(), req["length"].as_u64()) {
+            let p = path();
+            match files.read(&p, req["offset"].as_u64(), req["length"].as_u64()) {
                 Ok(d) => json!({ "data_b64": b64.encode(d), "path": p }),
                 Err(e) => json!({ "error": format!("{}: {e}", p.display()) }),
             }
         }
         "zero_free" => zero_free(),
-        "list" => list_dir(&resolve(req["path"].as_str().unwrap_or_default())),
+        "list" => list_dir(&files, &path()),
         "sync" => {
             unsafe { libc::sync() };
             json!({ "ok": true })
