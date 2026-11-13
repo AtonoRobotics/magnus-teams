@@ -36,7 +36,7 @@ SANDBOX_PIP = set(
 # what it needs with computer_install_app.
 DROPPED_APT = set(
     """poppler-utils qpdf ghostscript tesseract-ocr libreoffice-writer libreoffice-calc
-    libreoffice-impress fonts-noto-core wmctrl sqlite3 git jq iproute2 gawk file less zip bzip2""".split()
+    libreoffice-impress fonts-noto-core sqlite3 git jq iproute2 gawk file less zip bzip2""".split()
 )
 DROPPED_PIP = SANDBOX_PIP - {"python-xlib==0.33"}
 

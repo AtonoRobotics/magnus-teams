@@ -17,7 +17,7 @@
 FROM python:3.12-slim-bookworm AS common
 RUN apt-get update && apt-get install -y --no-install-recommends \
       coreutils findutils grep sed procps xz-utils unzip imagemagick fonts-dejavu fonts-liberation \
-      xvfb xdotool x11-utils x11-xserver-utils x11vnc \
+      xvfb xdotool x11-utils x11-xserver-utils x11vnc wmctrl \
       xfwm4 xfce4-panel xfdesktop4 xfce4-settings xfconf thunar xfce4-terminal dbus \
       fonts-inter fonts-jetbrains-mono papirus-icon-theme librsvg2-bin librsvg2-common libnss3-tools \
       ca-certificates curl chromium nodejs \
@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       gawk file less zip bzip2 \
       poppler-utils qpdf ghostscript tesseract-ocr \
       libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-core \
-      wmctrl sqlite3 git jq iproute2 \
+      sqlite3 git jq iproute2 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \
       python-docx openpyxl xlsxwriter python-pptx reportlab pypdf pdfplumber pymupdf \
