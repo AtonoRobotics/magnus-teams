@@ -13,7 +13,7 @@ const calls = [], listeners = {};
 const plain = x => JSON.parse(JSON.stringify(x));
 let reply = async () => ({});
 const sandbox = {
-  UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
+  UI: {}, route: () => {}, esc, voice: { entry: null }, ICONS: new Proxy({}, { get: () => "" }), App: { canReadAloud: true }, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
   icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`, Magnus: {},
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
   api: (m, p, b) => { calls.push([m, p, b]); return reply(m, p, b); },
@@ -87,16 +87,16 @@ assert.doesNotMatch(asked, /<b>feedback/, "a person's words were not escaped");
 assert.match(asked, /class="tm-reaction on"[^>]*>👍 2/, "my reaction is not shown as mine");
 assert.match(asked, /3 replies/);
 assert.match(asked, /tm-work/, "the agent's work does not show on the asking message");
-assert.doesNotMatch(asked, /data-edit>/, "someone else's message can be edited");
+assert.doesNotMatch(asked, /data-msg-act="edit"/, "someone else's message can be edited");
 const answer = sandbox.messageHtml({ id: "agent:t1", sender: "agent", requester: "dana", text: "Done. **Three** themes.", thread: "m1", at: "2026-11-09T10:31:00Z" }, ctx);
 assert.match(answer, /team agent<\/span> <span class="small faint">for Dana/, "the agent's answer does not say who asked");
 assert.match(answer, /<p>Done/, "the agent's answer is not rich content");
 const mine = sandbox.messageHtml({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", edited: true }, ctx);
-assert.match(mine, /data-edit>/, "my own message cannot be edited");
+assert.match(mine, /data-msg-act="edit"/, "my own message cannot be edited");
 assert.match(mine, /\(edited\)/);
 assert.match(sandbox.messageHtml({ id: "tmp", sender: "sam", text: "hi", thread: null, at: "", state: "sending" }, ctx), /Sending…/);
 assert.match(sandbox.messageHtml({ id: "tmp", sender: "sam", text: "hi", thread: null, at: "", state: "failed" }, ctx), /data-retry="tmp"/, "a failed send cannot be retried");
-assert.doesNotMatch(sandbox.messageHtml({ id: "m3", sender: "leo", text: "hi", thread: null, at: "" }, { ...ctx, guest: true }), /data-pin|data-make-task/, "a guest is offered pins and tasks");
+assert.doesNotMatch(sandbox.messageHtml({ id: "m3", sender: "leo", text: "hi", thread: null, at: "" }, { ...ctx, guest: true }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks");
 assert.match(sandbox.messageHtml({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }, ctx), /tm-file[^]*plan\.pdf[^]*data-team-download="plan.pdf"/, "a dropped file does not show");
 assert.match(sandbox.messageHtml({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { ...ctx, files: { "shot.png": "data:image/png;base64,AA" } }), /<img src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
 

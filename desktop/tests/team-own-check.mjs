@@ -13,7 +13,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};
 const calls = [], told = [], store = {};
 const body = { children: [], append(el) { this.children.push(el); } };
 const sandbox = {
-  UI: {}, route: () => {}, esc, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
+  UI: {}, route: () => {}, esc, voice: { entry: null }, ICONS: new Proxy({}, { get: () => "" }), App: { canReadAloud: true }, enc: encodeURIComponent, $: () => null, $$: () => [], paint: () => true, when: t => (t ? "now" : ""), firstLine: s => String(s || "").split("\n")[0],
   icon: k => `<svg data-icon="${k}"></svg>`, toast: () => {}, ask: async () => true, kb: n => `${n} B`,
   Magnus: { kind: "web", notifyPermission: () => "granted", notify: (t, b) => told.push([t, b]) },
   Compose: { markdown: s => `<p>${esc(s)}</p>`, maskedText: s => esc(s) },
@@ -54,9 +54,9 @@ assert.equal(sandbox.firstChannel({ ...home, channels: [home.channels[1], home.c
 const ctx = { me: "sam", ws: "w", channel: "c1", name: id => id, guest: false };
 const gone = sandbox.messageHtml({ id: "m1", sender: "dana", text: "", thread: null, at: "", deleted: true, replies: 2 }, ctx);
 assert.match(gone, /This message was deleted\.[^]*2 replies/);
-assert.doesNotMatch(gone, /data-react|data-edit/, "a deleted message offers actions");
-assert.match(sandbox.messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" }, ctx), /data-delete-msg/, "one's own message cannot be deleted");
-assert.doesNotMatch(sandbox.messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "" }, ctx), /data-delete-msg/, "someone else's message can be deleted");
+assert.doesNotMatch(gone, /data-react|data-msg-act/, "a deleted message offers actions");
+assert.match(sandbox.messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" }, ctx), /data-msg-act="delete"/, "one's own message cannot be deleted");
+assert.doesNotMatch(sandbox.messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "" }, ctx), /data-msg-act="delete"/, "someone else's message can be deleted");
 const view = { messages: [{ id: "a", text: "x" }, { id: "b", text: "y", replies: 1 }] };
 sandbox.applyLocal(view, { op: "delete", id: "a" });
 sandbox.applyLocal(view, { op: "delete", id: "b" });
@@ -127,4 +127,13 @@ assert.equal(told.length, 0, "the system was told with its notifications turned 
 sandbox.Magnus.notifyPermission = () => "default";
 assert.equal(Notices.offer(), true, "a browser not yet asked is not offered system notifications");
 assert.equal(Notices.systemOn(), false);
+// The team chat has the personal chat's message controls (owner, 2026-11-13).
+const acts = html => [...html.matchAll(/data-msg-act="([a-z-]+)"/g)].map(x => x[1]);
+const answer = { id: "agent:t1", sender: "agent", requester: "sam", task: "t1", text: "done", thread: null, at: "" };
+for (const a of ["copy", "listen", "retry", "branch", "share", "export", "save", "task", "pin", "feedback", "delete"]) assert.ok(acts(sandbox.messageHtml(answer, ctx)).includes(a), `the agent's answer to me offers no ${a}`);
+for (const a of ["edit", "copy", "branch", "share", "export", "save", "task", "pin", "delete"]) assert.ok(acts(sandbox.messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "" }, ctx)).includes(a), `my message offers no ${a}`);
+const theirs = acts(sandbox.messageHtml({ ...answer, requester: "dana" }, ctx));
+assert.ok(!theirs.includes("retry") && !theirs.includes("feedback"), "someone else's answer can be retried or judged by me");
+const private_ = acts(sandbox.messageHtml({ ...answer, private: true }, ctx));
+assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer only I may see can be shared or saved for the team");
 console.log("team own ok");

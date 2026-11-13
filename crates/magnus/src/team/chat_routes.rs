@@ -9,6 +9,7 @@ use crate::api::err;
 use crate::kernel::Kernel;
 use crate::state::State as Shared;
 use axum::extract::{Path, State};
+use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
@@ -32,6 +33,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}", put(edit).delete(super::own_view::unsend))
         .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}/react", post(react))
         .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}/pin", post(pin))
+        .route("/v1/workspaces/{ws}/channels/{channel}/messages/{id}/export", get(export))
         .route("/v1/workspaces/{ws}/channels/{channel}/agent", post(set_mode))
         .route("/v1/workspaces/{ws}/channels/{channel}/notify", post(set_notify))
         .route("/v1/workspaces/{ws}/channels/{channel}/read", post(read))
@@ -172,6 +174,46 @@ fn message_item(w: &Workspace, m: &Message) -> Value {
     json!({ "id": m.id, "sender": sender, "requester": requester, "text": m.text, "thread": m.thread, "at": m.at, "edited": w.chat.edited.contains(&m.id), "pinned": w.chat.pins.contains(&m.id), "reactions": reactions, "deleted": deleted })
 }
 
+/// What a person sees of a channel, in order: its messages with the agent's
+/// work cards on them, and the agent's answers, from after they cleared it.
+fn shown_items(k: &Kernel, ws: &str, channel: &str, viewer: &str) -> Vec<Value> {
+    let now = chrono::Utc::now();
+    let mut items = k.read(|s| {
+        let Some(w) = s.team.workspace(ws) else { return vec![] };
+        let (agent, cards) = agent_items(s, w, channel, viewer, now);
+        let mut items: Vec<Value> = w.channels.get(channel).map(|c| c.messages.iter().map(|m| message_item(w, m)).collect()).unwrap_or_default();
+        for item in &mut items {
+            if let Some(card) = item["id"].as_str().and_then(|id| cards.get(id)) {
+                item["work"] = card.clone();
+            }
+        }
+        items.extend(agent);
+        items
+    });
+    let cleared = k.read(|s| s.team.workspace(ws).and_then(|w| w.cleared(channel, viewer)));
+    items.retain(|i| cleared.is_none_or(|c| when(i).is_some_and(|at| at > c)));
+    items.sort_by_key(when);
+    items
+}
+
+/// One message as a Markdown file, as this person sees it: the team chat
+/// has the personal chat's message controls, Export among them (owner,
+/// 2026-11-13).
+async fn export(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
+    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+    if !has_channel(&k, &ws, &channel, &p.id) {
+        return err(StatusCode::NOT_FOUND, "no such channel");
+    }
+    let Some(item) =
+        shown_items(&k, &ws, &channel, &p.id).into_iter().find(|i| i["id"] == json!(id) && i["deleted"] != json!(true) && i["text"].as_str().is_some_and(|t| !t.is_empty()))
+    else {
+        return err(StatusCode::NOT_FOUND, "no such message");
+    };
+    let text = |f: &str| item[f].as_str().unwrap_or_default().to_string();
+    let body = format!("**{}** · {}\n\n{}\n", name_of(&k, &text("sender")), text("at"), text("text"));
+    ([(CONTENT_TYPE, "text/markdown; charset=utf-8"), (CONTENT_DISPOSITION, "attachment; filename=\"message.md\"")], body).into_response()
+}
+
 /// A channel as it reads now: messages with their reactions, edits, pins
 /// and reply counts; the agent's work and answers; who is typing.
 async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
@@ -180,23 +222,8 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
     presence::seen(&ws, &p.id);
-    let now = chrono::Utc::now();
-    let (mut items, working) = k.read(|s| {
-        let Some(w) = s.team.workspace(&ws) else { return (vec![], false) };
-        let (agent, cards) = agent_items(s, w, &channel, &p.id, now);
-        let mut items: Vec<Value> = w.channels.get(&channel).map(|c| c.messages.iter().map(|m| message_item(w, m)).collect()).unwrap_or_default();
-        for item in &mut items {
-            if let Some(card) = item["id"].as_str().and_then(|id| cards.get(id)) {
-                item["work"] = card.clone();
-            }
-        }
-        items.extend(agent);
-        let working = s.team.runs_in(&ws, &channel).iter().any(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|run| !run.status.terminal()));
-        (items, working)
-    });
-    let cleared = k.read(|s| s.team.workspace(&ws).and_then(|w| w.cleared(&channel, &p.id)));
-    items.retain(|i| cleared.is_none_or(|c| when(i).is_some_and(|at| at > c)));
-    items.sort_by_key(when);
+    let mut items = shown_items(&k, &ws, &channel, &p.id);
+    let working = k.read(|s| s.team.runs_in(&ws, &channel).iter().any(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|run| !run.status.terminal())));
     let mut replies: BTreeMap<String, (usize, Value)> = BTreeMap::new();
     for i in items.iter().filter(|i| i["thread"].is_string()) {
         let e = replies.entry(i["thread"].as_str().unwrap_or_default().to_string()).or_insert((0, Value::Null));

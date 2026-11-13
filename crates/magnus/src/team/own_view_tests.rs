@@ -189,3 +189,32 @@ async fn notices_follow_each_channels_setting() {
     assert!(s.k.read(|st| st.team.role(&ws, "mo")) == Some(Role::Member));
     s.done().await;
 }
+
+/// A message exports as Markdown to whoever sees it, and to no one else.
+#[tokio::test]
+async fn a_message_exports_to_who_sees_it() {
+    let s = server_with("", |_| Router::new()).await;
+    let (ws, sam, mo, _) = workspace(&s).await;
+    let c = general(&s, &ws);
+    let id = say(&s, &mo, &ws, &c, "the launch moves to Friday").await;
+    let export = |t: String, id: String| {
+        let url = format!("{}/v1/workspaces/{ws}/channels/{c}/messages/{id}/export", s.base);
+        async move {
+            let r = reqwest::Client::new().get(url).bearer_auth(t).send().await.unwrap();
+            (r.status().as_u16(), r.text().await.unwrap())
+        }
+    };
+    let (st, body) = export(sam.clone(), id.clone()).await;
+    assert_eq!(st, 200, "{body}");
+    assert!(body.contains("the launch moves to Friday") && body.contains("Mo"), "{body}");
+    let (_, dm) = s.post(&mo, &format!("/v1/workspaces/{ws}/direct"), json!({ "people": ["sam"] })).await;
+    let dm = dm["id"].as_str().unwrap().to_string();
+    let private = say(&s, &mo, &ws, &dm, "between us").await;
+    let ana = s.token("ana").await;
+    let url = format!("{}/v1/workspaces/{ws}/channels/{dm}/messages/{private}/export", s.base);
+    let st = reqwest::Client::new().get(url).bearer_auth(ana).send().await.unwrap().status().as_u16();
+    assert_eq!(st, 404, "someone outside a direct conversation exported from it");
+    assert_eq!(s.call(&mo, Method::DELETE, &format!("/v1/workspaces/{ws}/channels/{c}/messages/{id}"), None).await.0, 200);
+    assert_eq!(export(sam, id).await.0, 404, "a deleted message exported");
+    s.done().await;
+}
