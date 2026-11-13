@@ -137,19 +137,3 @@ async fn a_one_action_approval_covers_one_action() {
 }
 
 // ---- inv7_verify.rs
-
-/// Checking is internal (spec rev 140): a criterion no check can confirm is
-/// never put to the person; the task completes and the criterion is recorded
-/// as unconfirmed.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_criterion_without_a_check_is_never_put_to_the_person() {
-    let model = start_checked(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("unexpected turn")])).await;
-    let app = Appliance::start(Spec::default(), &model).await;
-    let alice = app.api("alice");
-
-    let id = alice.submit("Write me a poem.").await;
-    let t = alice.wait_settled(&id).await;
-    assert_eq!(t["status"], "completed", "{t}");
-    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "review"), "the person was asked to review criteria");
-    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the unconfirmed criterion is not recorded");
-}

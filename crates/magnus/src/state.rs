@@ -864,6 +864,7 @@ pub struct State {
     pub computers: crate::computer::Ledger,
     pub payments: crate::payments::Ledger,
     pub rules: crate::rules::Ledger,
+    pub evidence: crate::evidence::Ledger,
     pub sub_agents: crate::sub_agents::Ledger,
     pub outcomes: crate::outcomes::Ledger,
     pub local: crate::local::Ledger,
@@ -1908,6 +1909,7 @@ impl State {
             Ev::ToolPinned { tool, hash, description, input_schema, approved } => self.tools.pinned(tool, hash, description, input_schema, *approved),
             Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
             Ev::Tools(c) => self.tools.apply(e.at, c),
+            Ev::Evidence(c) => self.evidence.apply(e.at, c),
             Ev::Spend(c) => self.spend.apply(e.at, c),
             Ev::TaskCreated { task, run, person, config, attachments, experiment, chat, label, files, project, grant, .. } => {
                 // Playbook items the run starts with carry the taint of the
@@ -2136,16 +2138,9 @@ impl State {
                     r.contract_approved_by = approved_by.clone();
                 }
             }
-            Ev::WorkStarted { run } => {
-                if let Some(r) = self.runs.get_mut(run) {
-                    r.work_started = true;
-                }
-            }
-            Ev::ContractFrozen { run, version } => {
-                if let Some(r) = self.runs.get_mut(run) {
-                    r.contract_frozen = Some(*version);
-                }
-            }
+            // Retired with contracts (spec rev 147): read in old logs only.
+            Ev::WorkStarted { run } => self.runs.get_mut(run).into_iter().for_each(|r| r.work_started = true),
+            Ev::ContractFrozen { run, version } => self.runs.get_mut(run).into_iter().for_each(|r| r.contract_frozen = Some(*version)),
             Ev::Plan { run, version, plan } => {
                 if let Some(r) = self.runs.get_mut(run) {
                     r.plan = Some(plan.clone());

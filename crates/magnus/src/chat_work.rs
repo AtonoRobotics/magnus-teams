@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
 /// Whether a chat turn is offered this tool from the built-in set: every
-/// built-in action. A task's run records (its contract, plan and
+/// built-in action. A task's run records (its plan and
 /// completion) are not built-in actions, so they stay out: a turn ends with
 /// its answer.
 pub(crate) fn offered_in_chat(name: &str) -> bool {

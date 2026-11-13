@@ -7,11 +7,10 @@ mod loop_calls;
 pub mod lost;
 mod memory;
 pub(crate) mod reviewer;
-mod verify;
 
 pub use agent_loop::Flow;
 
-use crate::boundary::{self, Action, Issuer, Verdict};
+use crate::boundary;
 use crate::events::Ev;
 use crate::kernel::{new_id, Kernel};
 use crate::state::Run;
@@ -29,7 +28,10 @@ use std::time::{Duration, Instant};
 pub const INSTRUCTIONS: &str = concat!(include_str!("../../instructions/agent.md"), "\n", include_str!("../../instructions/character.md"));
 pub(crate) const MAX_RESULT_IN_CONTEXT: usize = 40_000;
 /// A contract change once work has started: the criteria stand (spec rev 140: checking is internal, never asked).
-pub(crate) const FROZEN: &str = "The contract was not changed: work has started, so its criteria are frozen. Finish against them, or call task_fail saying what is not done; the outcome returns to the conversation, which can try another way.";
+/// What a call of the retired task_contract, or an answer to a contract
+/// change asked before rev 147, tells the agent.
+pub(crate) const CONTRACT_RETIRED: &str =
+    "Task contracts are retired: nothing needs recording before you act. Do the work, check it the way the work allows, and report it with task_complete.";
 
 /// What a chat turn runs under: answer, start a task, propose a schedule,
 /// or ask.
@@ -111,7 +113,7 @@ fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool, watched: 
         s.push_str("\nYou cannot search the web; you can still fetch a page when given its address.\n");
     }
     if sandbox {
-        s.push_str("\nYour executable checks may run as sandbox commands such as your tests or a demo: each runs in a fresh VM from the sandbox image with a copy of /workspace. Its tools must be the image's: a check that names a program or module the image lacks, or changes PATH or PYTHONPATH, is refused when you record it.\n");
+        s.push_str("\nYou have a sandbox, a fresh VM from the sandbox image with /workspace: check your work there the way it allows, by running your tests or a demo, before you report it.\n");
     }
     if browser {
         s.push_str("\nYou can drive a web browser with the browser tools.\n");
@@ -296,21 +298,6 @@ impl Kernel {
         let (person, relationship) = self.person_context(run).await?;
         let personal = !person.is_empty();
         Ok((format!("{system}{harness}{person}"), msgs, relationship, personal))
-    }
-
-    /// A task from chat keeps the conversation it came from with its
-    /// contract, for the person to see beside it. The kernel writes that
-    /// field: whatever the model sent there is dropped, so a contract can
-    /// never show the person words they did not say.
-    fn with_conversation(&self, run: &Run, mut contract: Value) -> Value {
-        let chat = self.read(|s| s.tasks.get(&run.task).and_then(|t| t.chat.clone())).filter(|c| !c.turn);
-        if let Some(m) = contract.as_object_mut() {
-            m.remove("conversation");
-            if let Some(c) = chat {
-                m.insert("conversation".into(), json!(c.conversation));
-            }
-        }
-        contract
     }
 
     /// Whether the run is a chat turn.
@@ -571,7 +558,7 @@ impl Kernel {
         Ok(id)
     }
 
-    pub(crate) async fn record_call(self: &Arc<Self>, run: &Run, call_id: &str, step_id: &str, name: &str, input: &Value) -> Result<Flow> {
+    pub(crate) async fn record_call(self: &Arc<Self>, run: &Run, call_id: &str, _step_id: &str, name: &str, input: &Value) -> Result<Flow> {
         let rid = run.id.as_str();
         if name == "show" {
             return self.show(run, call_id, input).await;
@@ -585,47 +572,17 @@ impl Kernel {
             return Ok(Flow::Continue);
         }
         match name {
-            "task_contract" => match self.validate_contract_tools(input).await {
-                // Work has started: the criteria stay as they are. Checking is
-                // internal (spec rev 140), so no change goes to the person.
-                Ok(_) if run.contract_frozen.is_some() => self.result(rid, call_id, FROZEN, true).await?,
-                Ok(labelled) => {
-                    let version = run.contract_version + 1;
-                    let mut note = self_checked_note(&labelled);
-                    if run.config.module("verifier") {
-                        if let Some(r) = self.review_criteria(run, &labelled).await? {
-                            note.push_str(&format!(" The verifier's review of your criteria (change them with task_contract if it is right): {r}"));
-                        }
-                    }
-                    let labelled = self.with_conversation(run, labelled);
-                    self.emit("model", Ev::Contract { run: rid.into(), version, contract: labelled, approved_by: None }).await?;
-                    let frozen = if run.work_started {
-                        self.emit("kernel", Ev::ContractFrozen { run: rid.into(), version }).await?;
-                        " Work has started, so it is frozen: it cannot change."
-                    } else {
-                        ""
-                    };
-                    self.result(rid, call_id, format!("Contract recorded (version {version}).{frozen}{note}"), false).await?;
-                }
-                Err(why) => {
-                    self.result(
-                        rid,
-                        call_id,
-                        format!("The contract was not recorded: {why}. Fix it and call task_contract again; a retry with the same contract will not help."),
-                        true,
-                    )
-                    .await?
-                }
-            },
+            // Retired by spec rev 147: no contract is recorded, and none is needed.
+            "task_contract" => self.result(rid, call_id, CONTRACT_RETIRED, false).await?,
             "task_plan" => match validate_plan(input) {
                 Ok(()) => {
                     let version = run.plan_version + 1;
                     self.emit("model", Ev::Plan { run: rid.into(), version, plan: input.clone() }).await?;
-                    self.result(rid, call_id, format!("Plan recorded (version {version})."), false).await?;
+                    self.result(rid, call_id, format!("Progress recorded (version {version}); it is shown on the task's card."), false).await?;
                 }
                 Err(why) => self.result(rid, call_id, format!("The plan was not recorded: {why}. A retry with the same plan will not help."), true).await?,
             },
-            "task_complete" => return self.complete(run, call_id, step_id, input).await,
+            "task_complete" => return self.complete(run, call_id, input).await,
             "task_fail" => {
                 let reason = input["reason"].as_str().unwrap_or("no reason given").to_string();
                 self.result(rid, call_id, "Recorded.", false).await?;
@@ -746,105 +703,6 @@ impl Kernel {
         Ok(Flow::Continue)
     }
 
-    /// Validate a contract and label each criterion by where its verdict
-    /// comes from: "appliance-verified" when the image's tools or the
-    /// kernel's comparison against the frozen expectations decide it,
-    /// "self-checked" when the check executes a workspace file. The labels
-    /// are the kernel's, whatever the model sent. Each sandbox command is
-    /// resolved in a fresh VM booted from the image with an empty workspace
-    /// (K42); the image does not change during a run, so the answer still
-    /// holds when the contract freezes.
-    async fn validate_contract_tools(&self, c: &Value) -> std::result::Result<Value, String> {
-        self.validate_contract(c)?;
-        let mut c = c.clone();
-        let criteria = c["criteria"].as_array_mut().expect("validated");
-        let execs: Vec<usize> = (0..criteria.len()).filter(|&i| criteria[i]["check"]["tool"] == "sandbox_exec").collect();
-        let commands: Vec<String> = execs.iter().map(|&i| criteria[i]["check"]["input"]["command"].as_str().unwrap_or_default().to_string()).collect();
-        let found = if commands.is_empty() {
-            vec![]
-        } else {
-            self.sandboxes.resolve_check_tools(&commands).await.map_err(|e| format!("the tools its checks run could not be looked up in the sandbox image ({e})"))?
-        };
-        let problems: Vec<String> = execs
-            .iter()
-            .zip(&found)
-            .flat_map(|(&i, r)| r.problems.iter().map(move |p| (i, p)))
-            .map(|(i, p)| format!("criterion {}: {p}", criteria[i]["id"].as_str().unwrap_or_default()))
-            .collect();
-        if !problems.is_empty() {
-            return Err(format!("a check's tools must come from the sandbox image: {}", problems.join("; ")));
-        }
-        let mut why: Vec<Vec<String>> = vec![vec![]; criteria.len()];
-        for (&i, r) in execs.iter().zip(found) {
-            why[i] = r.self_checked;
-        }
-        for (cr, why) in criteria.iter_mut().zip(why) {
-            let Some(m) = cr.as_object_mut() else { continue };
-            m.remove("assurance");
-            m.remove("assurance_why");
-            if m.get("check").is_some_and(|v| !v.is_null()) {
-                m.insert("assurance".into(), json!(if why.is_empty() { "appliance-verified" } else { "self-checked" }));
-                if !why.is_empty() {
-                    m.insert("assurance_why".into(), json!(why));
-                }
-            }
-        }
-        Ok(c)
-    }
-
-    fn validate_contract(&self, c: &Value) -> std::result::Result<(), String> {
-        if c["goal"].as_str().map(str::trim).unwrap_or_default().is_empty() {
-            return Err("it has no goal".into());
-        }
-        let criteria = c["criteria"].as_array().ok_or("it has no criteria")?;
-        if criteria.is_empty() {
-            return Err("it has no criteria; every task needs done-criteria".into());
-        }
-        if criteria.len() > 20 {
-            return Err("at most 20 criteria; combine some".into());
-        }
-        let mut ids = std::collections::HashSet::new();
-        for cr in criteria {
-            let id = cr["id"].as_str().filter(|s| !s.is_empty()).ok_or("a criterion has no id")?;
-            if !ids.insert(id) {
-                return Err(format!("criterion id {id} is used twice"));
-            }
-            if cr["description"].as_str().unwrap_or_default().is_empty() {
-                return Err(format!("criterion {id} has no description"));
-            }
-            if let Some(check) = cr.get("check").filter(|v| !v.is_null()) {
-                let tool = check["tool"].as_str().ok_or(format!("criterion {id}: the check names no tool"))?;
-                let f = boundary::facts(self, tool).ok_or(format!("criterion {id}: {tool} is not a usable tool"))?;
-                if !crate::tools::checkable(&f.name, f.risk) {
-                    return Err(format!(
-                        "criterion {id}: checks must read, or run a command or read a file in the sandbox (sandbox_exec, sandbox_read_file), and {tool} is {}",
-                        f.risk.as_str()
-                    ));
-                }
-                if f.app == "memory" {
-                    return Err(format!("criterion {id}: a check must look at the world, not at your own notes"));
-                }
-                let expect = check["expect"].as_array().filter(|a| !a.is_empty()).ok_or(format!("criterion {id}: the check expects nothing"))?;
-                for e in expect {
-                    if e["pointer"].as_str().is_none() || (e.get("equals").is_none() && e.get("contains").is_none()) {
-                        return Err(format!("criterion {id}: each expectation needs a pointer and equals or contains"));
-                    }
-                    if e.get("equals").is_some_and(|v| v.is_null()) || e.get("contains").is_some_and(|v| v.as_str().is_none_or(|t| t.is_empty())) {
-                        return Err(format!("criterion {id}: an expectation must name a real value (not null, not an empty string)"));
-                    }
-                    // A pointer the result never has fails every time: the
-                    // person would be asked to approve a check that cannot pass.
-                    let p = e["pointer"].as_str().unwrap_or_default();
-                    if let Some(fields) = crate::tools::check_fields(&f.name).filter(|fs| !p.is_empty() && !fs.iter().any(|x| p.strip_prefix('/') == Some(*x))) {
-                        let shown: Vec<String> = fields.iter().map(|x| format!("/{x}")).collect();
-                        return Err(format!("criterion {id}: {tool}'s result has no {p}; a check of it can read {}", shown.join(", ")));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// A chat turn shows components below its answer (U8). Their shape is
     /// checked like a deliverable's; a reply of answer text and `show` calls
     /// only is the turn's last, so the text streams first and the components
@@ -888,11 +746,13 @@ impl Kernel {
         Ok(())
     }
 
-    /// The model reports completion; the world decides (A4, K25, K26, K37).
-    async fn complete(self: &Arc<Self>, run: &Run, call_id: &str, step_id: &str, input: &Value) -> Result<Flow> {
+    /// The agent reports the work done (spec rev 147). Nothing is put to a
+    /// contract: the result carries what the record proves. The server
+    /// attaches the receipts and read-backs from the boundary log; the
+    /// agent's sources are checked against the calls it made, and its
+    /// deliverable's shape, never its content.
+    async fn complete(self: &Arc<Self>, run: &Run, call_id: &str, input: &Value) -> Result<Flow> {
         let rid = run.id.as_str();
-        // The deliverable's shape is checked, never its content: a missing or
-        // empty one is refused like a plan without units.
         let view = input.get("deliverable").cloned().unwrap_or(Value::Null);
         let spoken = input["spoken"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
         let files: Vec<String> = run.outputs.iter().map(|(_, n, ..)| n.clone()).collect();
@@ -904,190 +764,33 @@ impl Kernel {
             self.result(rid, call_id, format!("The spoken script is longer than {} characters; shorten it.", crate::compose::MAX_SPOKEN), true).await?;
             return Ok(Flow::Continue);
         }
-        // A review's work is the observations it queued, already in the
-        // log; there is nothing to check it against, and no person to
-        // review its criteria, so it completes without a contract (#237).
-        // A poll's read likewise stands alone (#406). That holds whatever
-        // contract it wrote while it changed nothing in the world: a
-        // review that found nothing put a card in front of the person
-        // asking them to check its own judgement (2026-11-07). One that
-        // acted under a grant started work, and is checked as any task.
-        if (run.contract.is_none() || !run.work_started) && self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.review || t.poll)) {
-            let summary = input["summary"].as_str().unwrap_or_default().to_string();
-            self.result(rid, call_id, "Reviewed and completed.", false).await?;
-            self.emit("kernel", Ev::Completed { run: rid.into(), summary, view: Some(view), spoken }).await?;
-            self.on_stop(rid, true).await;
-            self.after_end(rid);
-            return Ok(Flow::Stop);
-        }
-        let Some(contract) = run.contract.clone() else {
-            self.result(rid, call_id, "There is no task contract, so completion cannot be checked. Record one with task_contract, then retry.", true).await?;
-            return Ok(Flow::Continue);
+        let sources = match crate::evidence::cited(run, &input["sources"]) {
+            Ok(s) => s,
+            Err(why) => {
+                self.result(rid, call_id, format!("The result was not accepted: {why}. A retry with the same sources will not help."), true).await?;
+                return Ok(Flow::Continue);
+            }
         };
-        // Reporting completion is work: the contract checked now is frozen.
-        if !run.work_started {
-            self.emit("kernel", Ev::WorkStarted { run: rid.into() }).await?;
-        }
-        if run.contract_frozen.is_none() {
-            self.emit("kernel", Ev::ContractFrozen { run: rid.into(), version: run.contract_version }).await?;
-        }
-        let mut failures = vec![];
-        let mut unchecked = vec![];
-        for (n, cr) in contract["criteria"].as_array().cloned().unwrap_or_default().iter().enumerate() {
-            let id = cr["id"].as_str().unwrap_or_default().to_string();
-            let Some(check) = cr.get("check").filter(|v| !v.is_null()) else {
-                unchecked.push(cr.clone());
-                continue;
-            };
-            let tool = check["tool"].as_str().unwrap_or_default().to_string();
-            let v = self
-                .execute(Action {
-                    run: rid.into(),
-                    call_id: format!("check:{call_id}:{id}"),
-                    step_id: format!("{step_id}.check.{n}"),
-                    tool: tool.clone(),
-                    input: check["input"].clone(),
-                    issuer: Issuer::Check,
-                })
-                .await?;
-            // A check that could not run says nothing about the work: the
-            // criterion stays unconfirmed, and it is never replaced (K37).
-            let check_call = format!("check:{call_id}:{id}");
-            let denied = self.read(|s| s.runs.get(rid).and_then(|r| r.results.get(&check_call)).is_some_and(|r| r.status == "denied"));
-            let Verdict::Done { text, is_error, data } = v else {
-                unchecked.push(with_reason(cr, "the check could not run"));
-                continue;
-            };
-            if denied {
-                unchecked.push(with_reason(cr, &text));
-                continue;
-            }
-            // A check sees the structured result and the text beside it: a
-            // fetched page's structured part holds only its content type, a
-            // file read has only its text. A connector's read is its JSON.
-            let observed = match data {
-                Some(Value::Object(mut m)) => {
-                    m.entry("text").or_insert_with(|| Value::String(text.clone()));
-                    Value::Object(m)
-                }
-                Some(other) => other,
-                None if crate::tools::check_fields(&tool).is_some() => json!({ "text": text }),
-                None => serde_json::from_str::<Value>(&text).ok().unwrap_or(Value::String(text.clone())),
-            };
-            // A command that ran and exited nonzero is reported as an error,
-            // but when the check states the exit code it expects, that code
-            // decides (`grep -q TODO` exiting 1 is the criterion holding).
-            let exit_decides =
-                observed.get("exit_code").is_some_and(Value::is_number) && check["expect"].as_array().is_some_and(|es| es.iter().any(|e| e["pointer"] == "/exit_code"));
-            let is_error = is_error && !exit_decides;
-            let mut ok = !is_error;
-            let mut seen = vec![];
-            for e in check["expect"].as_array().cloned().unwrap_or_default() {
-                let p = e["pointer"].as_str().unwrap_or_default();
-                let found = observed.pointer(p).cloned();
-                let got = found.clone().unwrap_or(Value::Null);
-                let pass = found.is_some()
-                    && if let Some(want) = e.get("equals") {
-                        &got == want
-                    } else {
-                        let needle = e["contains"].as_str().unwrap_or_default();
-                        match &got {
-                            Value::String(s) => s.contains(needle),
-                            other => other.to_string().contains(needle),
-                        }
-                    };
-                ok &= pass;
-                seen.push(json!({ "pointer": p, "observed": got, "expected": e }));
-            }
-            let evidence = json!({ "tool": tool, "input": check["input"], "error": is_error, "observations": seen });
-            self.emit("kernel", Ev::Verification { run: rid.into(), criterion: id.clone(), passed: ok, evidence: evidence.clone(), by: "kernel".into() }).await?;
-            if !ok {
-                // What the check saw is data the model must not read as
-                // content: say which expectation failed, not what was there.
-                let why: Vec<String> = seen
-                    .iter()
-                    .map(|o| {
-                        let what = if o["observed"].is_null() { "is missing" } else { "does not match" };
-                        format!("{} {what} (expected {})", o["pointer"].as_str().unwrap_or_default(), o["expected"])
-                    })
-                    .collect();
-                failures.push(format!("{id}: {}{}", if is_error { "the check's tool reported an error; " } else { "" }, why.join(", ")));
-            }
-        }
-        if !failures.is_empty() {
-            self.result(
-                rid,
-                call_id,
-                format!(
-                    "Not complete. These criteria do not hold in the world: {}. The task stays open: fix the work, then call task_complete again; a retry without changes will not help. The criteria are frozen and cannot change.",
-                    failures.join("; ")
-                ),
-                true,
-            )
-            .await?;
-            return Ok(Flow::Continue);
-        }
         let summary = input["summary"].as_str().unwrap_or_default().to_string();
-        // The verifier judges only criteria without a check: one whose check
-        // could not run stays unconfirmed (K37).
-        let (mut judgeable, could_not_run): (Vec<Value>, Vec<Value>) = unchecked.into_iter().partition(|cr| cr.get("check").is_none_or(|v| v.is_null()));
-        unchecked = could_not_run;
-        let goal = contract["goal"].as_str().unwrap_or_default();
-        if !judgeable.is_empty() && run.config.module("verifier") {
-            match self.verifier_on_completion(run, call_id, step_id, goal, judgeable, &summary).await? {
-                Ok(left) => judgeable = left,
-                Err(flow) => return Ok(flow),
-            }
+        // A read-back that found something other than what was done is
+        // said back once, before the result stands (spec rev 147).
+        let differs: Vec<String> = self.read(|s| s.evidence.read_backs(rid).iter().filter(|r| r.matches == Some(false)).map(|r| r.tool.clone()).collect());
+        let mut evs = vec![];
+        if !sources.is_empty() {
+            evs.push(("model", Ev::Evidence(crate::evidence::Change::Sources { run: rid.into(), sources })));
         }
-        // The reviewer judges what the verifier left, or everything without
-        // a check when the verifier is off: what it holds is recorded, what
-        // it flags stays for the person with its reason (#179).
-        if !judgeable.is_empty() && run.config.module("reviewer") {
-            judgeable = self.reviewer_on_completion(run, goal, judgeable, &summary).await?;
-        }
-        unchecked.extend(judgeable);
-        // Checking is internal (spec rev 140): the person sees the result,
-        // never criteria. What no check, verifier or reviewer could confirm
-        // stays in the log for the run inspector, and the task completes.
-        if !unchecked.is_empty() {
-            let ids: Vec<&str> = unchecked.iter().filter_map(|c| c["id"].as_str()).collect();
-            self.result(rid, call_id, format!("Completed. Not confirmed by any check: {}.", ids.join(", ")), false).await?;
-            self.emit("kernel", Ev::Completed { run: rid.into(), summary, view: Some(view), spoken }).await?;
-            self.on_stop(rid, true).await;
-            self.after_end(rid);
-            return Ok(Flow::Stop);
-        }
-        self.result(rid, call_id, "Verified and completed.", false).await?;
-        self.emit("kernel", Ev::Completed { run: rid.into(), summary, view: Some(view), spoken }).await?;
+        evs.push(("kernel", Ev::Completed { run: rid.into(), summary, view: Some(view), spoken }));
+        let said = if differs.is_empty() {
+            "Completed. The result shows the receipts and read-backs from the record.".to_string()
+        } else {
+            format!("Completed. The result shows, under not done, that the read-back after {} did not match.", differs.join(", "))
+        };
+        self.result(rid, call_id, said, false).await?;
+        self.emit_all(evs).await?;
         self.on_stop(rid, true).await;
         self.after_end(rid);
         Ok(Flow::Stop)
     }
-}
-
-/// Which criteria the person will see as self-checked, and why.
-fn self_checked_note(c: &Value) -> String {
-    let own: Vec<String> = c["criteria"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|cr| cr["assurance"] == "self-checked")
-        .map(|cr| {
-            format!("{} ({})", cr["id"].as_str().unwrap_or_default(), cr["assurance_why"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join("; "))
-        })
-        .collect();
-    if own.is_empty() {
-        String::new()
-    } else {
-        format!(" The person sees these criteria as self-checked, because their checks run workspace code: {}.", own.join(", "))
-    }
-}
-
-/// A criterion with why it could not be checked, for the review card.
-fn with_reason(cr: &Value, why: &str) -> Value {
-    let mut c = cr.clone();
-    c["unchecked_reason"] = json!(why);
-    c
 }
 
 /// Shape only, never content (K36).
@@ -1102,10 +805,8 @@ fn validate_plan(p: &Value) -> std::result::Result<(), String> {
         if !ids.insert(id) {
             return Err(format!("unit id {id} is used twice"));
         }
-        for f in ["goal", "done_when"] {
-            if u[f].as_str().map(str::trim).unwrap_or_default().is_empty() {
-                return Err(format!("unit {id} has no {f}"));
-            }
+        if u["goal"].as_str().map(str::trim).unwrap_or_default().is_empty() {
+            return Err(format!("unit {id} has no goal"));
         }
         if let Some(st) = u.get("status").filter(|v| !v.is_null()) {
             if !["pending", "active", "done", "dropped"].contains(&st.as_str().unwrap_or_default()) {

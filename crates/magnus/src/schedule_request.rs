@@ -144,11 +144,11 @@ mod tests {
         }
     }
 
-    /// A contract change after work started is refused, never put to the
-    /// person (spec rev 140: checking is internal), and the agent is told so.
+    /// No contract is recorded or put to the person (spec rev 147): a call
+    /// of the retired tool is told to get on with the work.
     #[test]
-    fn a_frozen_contract_is_not_put_to_the_person() {
-        assert!(crate::run::FROZEN.contains("frozen") && crate::run::FROZEN.contains("task_fail"));
-        assert!(!crate::run::INSTRUCTIONS.contains("request to the person"), "agent.md still sends a contract change to the person");
+    fn no_contract_is_put_to_the_person() {
+        assert!(crate::run::CONTRACT_RETIRED.contains("retired") && crate::run::CONTRACT_RETIRED.contains("task_complete"));
+        assert!(!crate::run::INSTRUCTIONS.contains("task_contract"), "agent.md still asks for a contract");
     }
 }

@@ -1645,8 +1645,8 @@ async function showThread(main, thread) {
       el.disabled = true;
       try {
         if (ta) {
-          if (!await ask("Cancel this task? What it already did stays done.", "Cancel task")) { el.disabled = false; return; }
-          await api("POST", `/v1/tasks/${enc(ta.dataset.task)}/cancel`, {}); toast("Cancelled.");
+          if (!await ask("Stop this task? What it already did stays done.", "Stop")) { el.disabled = false; return; }
+          await api("POST", `/v1/tasks/${enc(ta.dataset.task)}/cancel`, {}); toast("Stopped.");
         } else {
           const id = enc(sa.dataset.scheduleId), k = sa.dataset.schedAct;
           if (k === "cancel") {
@@ -1769,11 +1769,11 @@ function standing(t) {
 // A task in its conversation: one row that opens it beside the thread, its
 // status live; what it waits on from the person follows the request's rows.
 function taskCard(t) {
-  const why = t.status === "suspended" ? WAITING[t.waiting_on] || "" : t.status === "running" ? "working on it" : "";
+  const why = t.status === "suspended" ? WAITING[t.waiting_on] || "" : t.status === "running" ? t.status_line || "Working on it" : "";
   const [ic, pill] = standing(t);
   return `<li class="tcard" data-chat-task="${esc(t.task_id)}" data-status="${esc(t.status)}"><a class="rg-row${Panel.what === `task:${t.task_id}` ? " open" : ""}" href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}" title="${esc(t.text)}">
     <span class="st ${ic}">${icon(ic)}</span><span class="rg-main"><span class="ttl">${esc(t.title)}</span>${why ? `<span class="sub why">${esc(why)}</span>` : `<span class="sub">${esc(firstLine(t.text))}</span>`}</span>${pill}${icon("chev", "chev")}</a>
-    ${ENDED.includes(t.status) ? "" : `<div class="card-acts"><button class="link small" data-task-act="cancel" data-task="${esc(t.task_id)}">Cancel</button></div>`}</li>`;
+    ${ENDED.includes(t.status) ? "" : `<div class="card-acts"><button class="link small" data-task-act="cancel" data-task="${esc(t.task_id)}">Stop</button></div>`}</li>`;
 }
 // A schedule where it was confirmed: a row that opens it, with when it runs
 // next and how its last run went.
@@ -1982,7 +1982,7 @@ function entry(e, ui = {}) {
     case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details data-key="result:${esc(e.task_id)}"><summary>${chip(e.status)} <span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span></summary>
       <div class="pre">${esc(e.summary || "")}</div></details>
       ${e.view ? shownFrame(e.id, "The deliverable") : ""}
-      ${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}<a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">See the outcome</a></div>`;
+      ${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}<a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">See the outcome</a></div>`;
     case "connector_card": return appOfferCard(e);
     case "suggestion_card": {
       if (e.state !== "open") return `<div data-card="${esc(e.card)}">${e.schedule ? scheduleLine(e) : cardOutcome(e)}</div>`;
@@ -2372,14 +2372,14 @@ function needsView(composed) {
 
 function plan(t) {
   const units = t.plan?.units || [];
-  if (!units.length) return `<p class="empty">The agent has not written a plan.</p>`;
+  if (!units.length) return `<p class="empty">No plan: it is optional, and shows progress when kept.</p>`;
   const mark = { done: "ok", active: "run", dropped: "", pending: "" };
   // Once the task has ended nothing is in progress: a unit the agent left
   // active or pending was simply not marked done.
   const ended = ["completed", "failed", "cancelled"].includes(t.status);
   const status = u => (ended && (!u.status || u.status === "active" || u.status === "pending")) ? ["", "not marked done"] : [mark[u.status] || "", u.status || "pending"];
   return `<p class="small faint">Version ${esc(t.plan_version)}. Statuses are the agent's own account.</p>
-    <table class="t"><tbody>${units.map(u => { const [cls, label] = status(u); return `<tr><td class="mono small">${esc(u.id)}</td><td>${esc(u.goal)}<div class="small muted">Done when ${esc(u.done_when)}</div></td><td><span class="chip ${cls}" data-unit-status="${esc(label)}">${esc(label)}</span></td></tr>`; }).join("")}</tbody></table>`;
+    <table class="t"><tbody>${units.map(u => { const [cls, label] = status(u); return `<tr><td class="mono small">${esc(u.id)}</td><td>${esc(u.goal)}${u.done_when ? `<div class="small muted">Done when ${esc(u.done_when)}</div>` : ""}</td><td><span class="chip ${cls}" data-unit-status="${esc(label)}">${esc(label)}</span></td></tr>`; }).join("")}</tbody></table>`;
 }
 
 function trace(tl) {
@@ -2570,6 +2570,7 @@ async function taskView(id, composed) {
   const outcome = `${view.length ? `<iframe class="composed" sandbox="allow-same-origin" title="The deliverable" id="pview"></iframe>` : running ? "" : `<p class="empty">No result yet.</p>`}
     ${t.spoken && App.canReadAloud ? `<div class="row" style="margin:10px 0"><button type="button" class="icon-btn" data-act="${voice.entry===`task:${id}` ? "hush" : "speak"}" data-voice-entry="task:${esc(id)}" aria-label="${voice.entry===`task:${id}` ? "Stop reading" : "Read aloud"}" data-tooltip="${voice.entry===`task:${id}` ? "Stop reading" : "Read aloud"}"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[voice.entry===`task:${id}` ? "hush" : "listen"]}</svg></button></div>` : ""}
     ${files.length ? `<div class="frows">${files.map(f => fileRow(f, t.project)).join("")}</div>` : ""}
+    ${evidenceSection(t)}
     ${t.outcome_view && t.summary ? `<h3>Summary</h3><p data-summary>${esc(t.summary)}</p>` : ""}
     ${ENDED.includes(t.status) ? `<details data-work-feedback data-key="feedback:${esc(id)}"><summary>Feedback</summary>${verdictBar(t.task_id, t.verdict)}</details>` : ""}
     ${cost ? `<p class="foot-note num" data-cost>${cost}</p>` : ""}
@@ -2580,13 +2581,13 @@ async function taskView(id, composed) {
   const layers = { outcome, contract, trace: tl ? trace(tl) : "" };
   const [, pill] = standing({ ...t, waiting_item: items.find(i => i.can_respond)?.id });
   const head = `<h2 class="ptitle" data-task="${esc(t.task_id)}">${esc(t.title || t.text)}</h2>
-    <div class="row small dh-sub">${pill}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : ""}</div>`;
+    <div class="row small dh-sub">${pill}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : running && t.status_line ? `<span class="muted" data-status-line>${esc(t.status_line)}</span>` : ""}</div>`;
   const body = `${items.map(i => card(i, composed)).join("")}
     ${(t.app_offers || []).filter(o => o.state !== "connected").map(appOfferCard).join("")}
     ${running ? `<div class="live" id="plive" aria-live="polite">${esc(Panel.liveText) || `<span class="faint">Working…</span>`}</div>` : ""}
-    <div class="seg layers" role="tablist" aria-label="What to show">${[["outcome", "Result"], ["contract", "Plan"], ["trace", "Steps"]].map(([k, l]) => `<button role="tab" aria-selected="${Panel.layer === k}" class="${Panel.layer === k ? "on" : ""}" data-layer="${k}">${l}</button>`).join("")}</div>
+    <div class="seg layers" role="tablist" aria-label="What to show">${[["outcome", "Result"], ["contract", "Progress"], ["trace", "Steps"]].map(([k, l]) => `<button role="tab" aria-selected="${Panel.layer === k}" class="${Panel.layer === k ? "on" : ""}" data-layer="${k}">${l}</button>`).join("")}</div>
     <section class="layer">${layers[Panel.layer]}</section>
-    <div class="row pactions">${moveControl(t.task_id, t.project, App.projects)}${!ENDED.includes(t.status) ? `<button data-act="cancel" data-id="${esc(id)}">Cancel task</button>` : trashButton(t.task_id, "Delete task")}${t.status === "suspended" && !t.waiting_item ? `<button data-act="resume" data-id="${esc(id)}">Resume</button>` : ""}</div>`;
+    <div class="row pactions">${moveControl(t.task_id, t.project, App.projects)}${!ENDED.includes(t.status) ? `<button data-act="cancel" data-id="${esc(id)}">Stop</button>` : trashButton(t.task_id, "Delete task")}${t.status === "suspended" && !t.waiting_item ? `<button data-act="resume" data-id="${esc(id)}">Resume</button>` : ""}</div>`;
   Panel.task = t;
   return { head, body, after: el => Panel.layer === "outcome" && view.length && fill($("#pview", el), view, id, t) };
 }
@@ -2922,7 +2923,7 @@ function wirePanel() {
         case "speak": await readAloud(Panel.task.spoken,`task:${Panel.task.task_id}`); break;
         case "hush": await hush(); break;
         case "cancel":
-          if (!await ask("Cancel this task? What it already did stays done.", "Cancel task")) return;
+          if (!await ask("Stop this task? What it already did stays done.", "Stop")) return;
           await api("POST", `/v1/tasks/${enc(id)}/cancel`, {}); break;
         case "resume": await api("POST", `/v1/tasks/${enc(id)}/resume`, {}); break;
         case "stop-schedule":

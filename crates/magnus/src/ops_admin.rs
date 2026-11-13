@@ -46,7 +46,6 @@ impl Kernel {
             for r in s.runs.values() {
                 *n.entry("lost_reset").or_default() += r.cuts.len();
                 *n.entry("escalation").or_default() += r.escalated.is_some() as usize;
-                *n.entry("verifier").or_default() += r.verified.values().filter(|v| v.2 == "verifier").count();
             }
             n.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<std::collections::HashMap<String, usize>>()
         });

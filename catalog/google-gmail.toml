@@ -106,6 +106,14 @@ recipients = ["/message/to", "/message/cc", "/message/bcc"]
 content = ["/message/subject", "/message/body", "/message/attachments"]
 bound = ["/message/digest"]
 
+# What the server reads back after a send (spec rev 147, Read-back): the
+# sent message itself, which must carry the subject and reach every address
+# the gate read from the draft.
+[read_back.send_draft]
+read = "get_message"
+input = { message_id = "/result/message_id" }
+expect = { "/shown/content/subject" = "/subject", "/shown/recipients/to" = "/to" }
+
 # Whether the person has mailed an address before: sent mail searched for
 # it, a recipient-provenance source beside their own words (#210).
 [sent]

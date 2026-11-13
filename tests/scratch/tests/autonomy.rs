@@ -403,8 +403,8 @@ async fn until_outcome(m: &FakeModel) {
     }
 }
 
-/// 3. A task that fails wakes its agent, which retries within the grant the
-/// task had, and reports once the retry limit is reached. The outcome comes
+/// 3. A task that fails wakes its agent, which retries within the authority
+/// the person's organisation gave (spec rev 147: no grant to propose), and reports once the retry limit is reached. The outcome comes
 /// back as a turn in the conversation that started the task; the person
 /// asked once and approved nothing.
 #[tokio::test(flavor = "multi_thread")]
@@ -412,43 +412,29 @@ async fn a_failing_task_wakes_its_agent_which_retries_and_reports() {
     const ASK: &str = "Mark CRM record 42 done, it was finished yesterday.";
     const REASON: &str = "The CRM took the change and then reverted it: record 42 is locked by another user.";
     const REPORT: &str = "I tried three times to mark record 42 done, and each time the CRM reverted it because another user holds a lock on it. I need you to release that lock, or tell me who to ask.";
-    // Only alice's finance-free policy: CRM changes ask unless a grant covers them.
-    const STRICT: &str = r#"
-permit(principal, action == Action::"execute", resource)
-  when { resource.risk == "read" || (resource.risk == "reversible_write" && !(resource in App::"crm")) };
-permit(principal, action == Action::"request_approval", resource);
-"#;
-    let grant = Arc::new(Mutex::new(String::new()));
-    let g = grant.clone();
-    let m = FakeModel::start(script(move |c| {
-        let g = g.clone();
-        async move {
-            let retry = |title: &str| tool("create_task", json!({ "title": title, "goal": "Mark CRM record 42 done; check the lock first." }));
-            match run_of(&c) {
-                Run::Chat if said(&c).starts_with("grant:") => match c.turn() {
-                    0 => tool("propose_grant", serde_json::from_str(&said(&c)["grant:".len()..]).unwrap()),
-                    _ => say("The card awaits you."),
-                },
-                Run::Chat => match c.turn() {
-                    0 => tool("create_task", json!({ "title": "Close CRM record 42", "goal": "Mark CRM record 42 done.", "grant": g.lock().unwrap().clone() })),
-                    _ => say("On it. I'll tell you here how it went."),
-                },
-                Run::Task => match c.turn() {
-                    0 => contract_unchecked("record 42 marked done", "record 42 shows done"),
-                    1 => tool("crm__update_record", json!({ "id": "42", "fields": { "status": "done" } })),
-                    _ => fail(REASON),
-                },
-                Run::Outcome => {
-                    let text = said(&c);
-                    match (c.turn(), text.contains("start no new task")) {
-                        (0, false) => retry(if text.contains("retry 1 of 2") { "Close CRM record 42, second try" } else { "Close CRM record 42, third try" }),
-                        (0, true) => retry("Close CRM record 42, fourth try"),
-                        (_, false) => say("It failed: the record was locked. I'm trying again."),
-                        (_, true) => say(REPORT),
-                    }
+    // The organisation lets Magnus change CRM records without asking.
+    let permits = org_policy("");
+    let m = FakeModel::start(script(move |c| async move {
+        let retry = |title: &str| tool("create_task", json!({ "title": title, "goal": "Mark CRM record 42 done; check the lock first." }));
+        match run_of(&c) {
+            Run::Chat => match c.turn() {
+                0 => tool("create_task", json!({ "title": "Close CRM record 42", "goal": "Mark CRM record 42 done." })),
+                _ => say("On it. I'll tell you here how it went."),
+            },
+            Run::Task => match c.turn() {
+                0 => tool("crm__update_record", json!({ "id": "42", "fields": { "status": "done" } })),
+                _ => fail(REASON),
+            },
+            Run::Outcome => {
+                let text = said(&c);
+                match (c.turn(), text.contains("start no new task")) {
+                    (0, false) => retry(if text.contains("retry 1 of 2") { "Close CRM record 42, second try" } else { "Close CRM record 42, third try" }),
+                    (0, true) => retry("Close CRM record 42, fourth try"),
+                    (_, false) => say("It failed: the record was locked. I'm trying again."),
+                    (_, true) => say(REPORT),
                 }
-                _ => background(&c),
             }
+            _ => background(&c),
         }
     }))
     .await;
@@ -456,18 +442,8 @@ permit(principal, action == Action::"request_approval", resource);
     let spec = proactive_on().app("crm", &crm, "private", "principal", &[("get_record", "read"), ("update_record", "reversible_write")]);
     let app = Appliance::start(spec, &m).await;
     let alice = app.api("alice");
-    assert!(alice.put_policy("org", STRICT).await.is_success());
+    assert!(alice.put_policy("org", &permits).await.is_success());
     let b = before(&alice).await;
-
-    // Before: the person lets Magnus keep CRM records current on its own.
-    let fields = json!({ "title": "Keep CRM records current", "apps": ["crm"], "period": "week", "max_usd": 5.0, "why": "You asked me to handle these." });
-    let (setup, turn) = chat(&alice, &format!("grant:{fields}")).await;
-    alice.wait_settled(&turn).await;
-    let card = entries(&alice, &setup).await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "accept" })).await;
-    assert!(st.is_success(), "{v}");
-    let g = v["grant"].as_str().expect("no grant").to_string();
-    *grant.lock().unwrap() = g.clone();
 
     // The person asks once.
     let (thread, turn) = chat(&alice, ASK).await;
@@ -493,8 +469,7 @@ permit(principal, action == Action::"request_approval", resource);
     let r = last.last_results();
     assert!(r.len() == 1 && r[0].is_error && r[0].text.contains("retried 2 times"), "a retry past the limit was not refused: {r:?}");
 
-    // Every attempt ran within the grant: its change went ahead under it,
-    // with no approval, on no more than the grant's budget.
+    // Every attempt's change went ahead with no approval.
     let tasks = visible_tasks(&alice).await;
     assert_eq!(tasks.len(), 3, "{tasks:?}");
     // Each retry is listed under the person's own message, not the server's turn.
@@ -503,16 +478,10 @@ permit(principal, action == Action::"request_approval", resource);
     for id in &ids {
         let t = alice.task(id).await;
         assert_eq!((t["status"].as_str(), t["thread"].as_str()), (Some("failed"), Some(thread.as_str())), "{t}");
-        assert!(t["budget"]["max_usd"].as_f64().is_some_and(|b| b > 0.0 && b <= 5.0), "an attempt ran on more than the grant: {t}");
     }
     assert_eq!(crm.effects("update_record"), 3, "each attempt changes the record once");
-    let (_, gs) = alice.get("/v1/grants").await;
-    let gr = gs["grants"].as_array().into_iter().flatten().find(|x| x["id"] == g.as_str()).cloned().expect("the grant is gone");
-    let under: BTreeSet<String> =
-        gr["actions"].as_array().into_iter().flatten().filter(|a| a["tool"] == "crm__update_record").filter_map(|a| a["task"].as_str().map(String::from)).collect();
-    assert_eq!(under, ids.iter().cloned().collect::<BTreeSet<_>>(), "an attempt did not act under the grant: {gr}");
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    only(&alice, &b, &refs, &[], &[&setup, &thread]).await;
+    only(&alice, &b, &refs, &[], &[&thread]).await;
 }
 
 /// The person's address for an app's pushes.

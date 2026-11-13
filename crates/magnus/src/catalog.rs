@@ -105,6 +105,9 @@ pub struct Manifest {
     /// How the gate asks whether the person has mailed an address before.
     #[serde(default)]
     pub sent: Option<crate::config::SentSearch>,
+    /// How the world is read back after a tool's action (spec rev 147).
+    #[serde(default)]
+    pub read_back: BTreeMap<String, crate::read_back::ReadBack>,
     /// The reads that tell Magnus of something new in the app, polled on
     /// their interval once a person connects it (`watch_reads`).
     #[serde(default)]
@@ -193,6 +196,7 @@ pub fn connector(m: &Manifest) -> Connector {
         handoff: m.handoff.clone(),
         destinations: m.destinations.clone(),
         sent: m.sent.clone(),
+        read_back: m.read_back.clone(),
         watch: m.watch.clone(),
     }
 }
@@ -322,6 +326,9 @@ mod tests {
         }
         if let Some(s) = &m.sent {
             assert_eq!(s.fault(|t| m.tools.get(t).cloned()), None, "{}", m.id);
+        }
+        for (t, rb) in &m.read_back {
+            assert_eq!(rb.fault(t, |t| m.tools.get(t).cloned()), None, "{}", m.id);
         }
         assert_eq!(crate::watch_reads::fault(&m.id, &m.watch, |t| m.tools.get(t).cloned()), None);
         assert!(m.watch.iter().all(|w| !w.items.is_empty()), "{}: an app's answer is an object: its items are in it", m.id);

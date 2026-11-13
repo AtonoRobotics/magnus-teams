@@ -209,7 +209,6 @@ pub const BUILTINS: &[Builtin] = &[
     // A grant card, when the person asked for standing authority over a
     // kind of their work (#235): nothing is granted until they accept it.
     // Revoking one of theirs at their word only narrows what Magnus may do.
-    Builtin { name: "propose_grant", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
     Builtin { name: "revoke_grant", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
     // Control of the person's own tasks and schedules, as the app's buttons
     // (behavior spec, Tasks and schedules in conversation).
@@ -257,26 +256,6 @@ pub fn builtin_apps() -> Vec<&'static str> {
 
 pub(crate) fn obj(props: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": props, "required": required })
-}
-
-/// Whether a contract check may call this tool: anything that only reads, and
-/// of the sandbox tools only running a command and reading a file, which a
-/// check does in a VM of its own.
-pub fn checkable(name: &str, risk: Risk) -> bool {
-    risk == Risk::Read || (risk == Risk::Sandbox && matches!(name, "sandbox_exec" | "sandbox_read_file"))
-}
-
-/// The fields a built-in tool's result shows a check: its structured part
-/// and `text`, nothing else. A connector's read shows the fields of the JSON
-/// it returns, known only when it runs.
-pub fn check_fields(name: &str) -> Option<&'static [&'static str]> {
-    Some(match name {
-        "sandbox_exec" => &["exit_code", "stdout", "stderr", "timed_out", "truncated", "text"],
-        "web_fetch" => &["content_type", "text"],
-        "sandbox_read_file" | "web_search" => &["text"],
-        n if n.starts_with("browser_") => &["image_b64", "text"],
-        _ => return None,
-    })
 }
 
 /// One component of a composition, of the given kinds. Every field is
@@ -351,22 +330,6 @@ pub fn chat_specs() -> Vec<ToolSpec> {
                 &["title", "goal", "evidence", "permissions"],
             ),
         },
-        ToolSpec {
-            name: "propose_grant".into(),
-            description: d("propose_grant"),
-            input_schema: obj(
-                json!({
-                    "title": { "type": "string" },
-                    "apps": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-                    "allow": { "type": "array", "items": { "type": "string", "enum": crate::grants::LIFTABLE } },
-                    "period": { "type": "string", "enum": ["day", "week", "month"] },
-                    "max_usd": { "type": "number" },
-                    "why": { "type": "string" },
-                    "replaces": { "type": "string" }
-                }),
-                &["title", "apps", "period", "max_usd", "why"],
-            ),
-        },
         ToolSpec { name: "revoke_grant".into(), description: d("revoke_grant"), input_schema: obj(json!({ "grant": { "type": "string" } }), &["grant"]) },
         ToolSpec {
             name: "bundle_share".into(),
@@ -411,25 +374,6 @@ pub fn find_tools_spec() -> ToolSpec {
 pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool) -> Vec<ToolSpec> {
     let desc: Value = serde_json::from_str(include_str!("../instructions/tools.json")).expect("tools.json");
     let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
-    let criterion = json!({
-        "type": "object",
-        "properties": {
-            "id": { "type": "string" },
-            "description": { "type": "string" },
-            "check": {
-                "type": "object",
-                "properties": {
-                    "tool": { "type": "string" },
-                    "input": { "type": "object" },
-                    "expect": { "type": "array", "items": { "type": "object", "properties": {
-                        "pointer": { "type": "string" }, "equals": {}, "contains": { "type": "string" }
-                    }, "required": ["pointer"] } }
-                },
-                "required": ["tool", "input", "expect"]
-            }
-        },
-        "required": ["id", "description"]
-    });
     let mut v = vec![
         ToolSpec { name: "find_apps".into(), description: d("find_apps"), input_schema: obj(json!({ "query": { "type": "string" } }), &[]) },
         ToolSpec { name: "app_details".into(), description: d("app_details"), input_schema: obj(json!({ "name": { "type": "string" } }), &["name"]) },
@@ -439,27 +383,13 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
             input_schema: obj(json!({ "name": { "type": "string" }, "why": { "type": "string" } }), &["name", "why"]),
         },
         ToolSpec {
-            name: "task_contract".into(),
-            description: d("task_contract"),
-            input_schema: obj(
-                json!({
-                    "goal": { "type": "string" },
-                    "assumptions": { "type": "array", "items": { "type": "string" } },
-                    "criteria": { "type": "array", "items": criterion, "minItems": 1 },
-                    "irreversible_actions": { "type": "array", "items": { "type": "string" } },
-                    "title": { "type": "string" }
-                }),
-                &["title", "goal", "criteria"],
-            ),
-        },
-        ToolSpec {
             name: "task_plan".into(),
             description: d("task_plan"),
             input_schema: obj(
-                json!({ "units": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": {
+                json!({ "title": { "type": "string" }, "units": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": {
                     "id": { "type": "string" }, "goal": { "type": "string" }, "done_when": { "type": "string" },
                     "status": { "type": "string", "enum": ["pending", "active", "done", "dropped"] }
-                }, "required": ["id", "goal", "done_when"] } } }),
+                }, "required": ["id", "goal"] } } }),
                 &["units"],
             ),
         },
@@ -472,7 +402,8 @@ pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool)
                     // Every component field is declared: a model that keeps to
                     // the schema cannot otherwise fill one in.
                     "deliverable": { "type": "array", "minItems": 1, "description": d("task_complete.deliverable"), "items": component(crate::compose::KINDS) },
-                    "spoken": { "type": "string", "description": d("task_complete.spoken") }
+                    "spoken": { "type": "string", "description": d("task_complete.spoken") },
+                    "sources": { "type": "array", "description": d("task_complete.sources"), "items": obj(json!({ "claim": { "type": "string" }, "call": { "type": "string" } }), &["claim", "call"]) }
                 }),
                 &["deliverable", "summary"],
             ),

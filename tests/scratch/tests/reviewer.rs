@@ -40,7 +40,7 @@ async fn reviewer_replies(dana: &Api, run: &str) -> usize {
 }
 
 /// The reviewer judges sends: a scripted reviewer blocks mail to anyone but
-/// bob, and passes everything else (including completion reviews).
+/// bob, and passes everything else .
 fn reviewer_script(agent: Script) -> Script {
     script(move |c| {
         let agent = agent.clone();
@@ -96,7 +96,7 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     let (_, log) = dana.get(&format!("/v1/dev/runs/{run}/log")).await;
     let judged = log["events"].as_array().unwrap().iter().filter(|e| e["kind"] == "reviewer_reply" && e["body"]["purpose"] == "send").count();
     assert_eq!(judged, 2, "the blocked send and its rewrite are each judged by the reviewer: {log}");
-    assert_eq!(reviewer_replies(&dana, &run).await, 3, "the blocked send, the rewrite and the completion review are judged and recorded");
+    assert_eq!(reviewer_replies(&dana, &run).await, 2, "the blocked send and the rewrite are judged and recorded; completion is not reviewed (spec rev 147)");
     let notices: Vec<Value> = dana.inbox().await.into_iter().filter(|i| i["kind"] == "notice").collect();
     assert!(
         notices.iter().any(|n| n["summary"].as_str().is_some_and(|s| s.contains("did not send") && s.contains("mallory"))),
@@ -104,7 +104,7 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     );
     let (_, reg) = dana.get("/v1/dev/modules").await;
     let rev = reg["modules"].as_array().unwrap().iter().find(|m| m["name"] == "reviewer").unwrap().clone();
-    assert_eq!(rev["acted"], 3, "the module acted on the blocked send, the rewrite and the completion, not on the checks beside it: {reg}");
+    assert_eq!(rev["acted"], 2, "the module acted on the blocked send and the rewrite, not on the checks beside it: {reg}");
 }
 
 /// A flagged send waits for the person: their approval sends it, without
@@ -150,7 +150,7 @@ async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
     assert_eq!(done["status"], "completed", "{done}");
     assert_eq!(mail.calls_to("send").len(), 1, "the approved send did not go");
     assert!(dana.open_items(&t, "approval").await.is_empty(), "the reviewer flagged the approved send again");
-    assert_eq!(reviewer_replies(&dana, &run).await, 2, "the send and the completion review, not the retry");
+    assert_eq!(reviewer_replies(&dana, &run).await, 1, "the send, not the retry; completion is not reviewed (spec rev 147)");
 }
 
 /// A send the kernel asks about still asks: the reviewer does not run on
@@ -188,47 +188,6 @@ async fn a_send_the_kernel_asks_about_still_asks() {
     let t = dana.wait_settled(&t).await;
     assert_eq!(t["status"], "completed", "{t}");
     assert_eq!(mail.effects("send"), 1, "the approved send did not go");
-}
-
-/// Completion criteria no code check covers go to the reviewer before the
-/// person: what it holds is recorded, what it flags stays for the person.
-#[tokio::test(flavor = "multi_thread")]
-async fn unchecked_criteria_go_to_the_reviewer_before_the_person() {
-    let mail = mcp::mail().start().await;
-    let m = start_checked(script(|c| async move {
-        if c.offered_tools().contains(&"review".to_string()) {
-            let holds = c.text().contains("Count the sent mail");
-            return tool(
-                "review",
-                json!({ "criteria": [{ "id": "c1", "holds": holds, "evidence": if holds { "list_sent shows one message" } else { "no check shows the summary is right" } }] }),
-            );
-        }
-        match c.turn() {
-            0 => contract_unchecked("the mail was handled", "the mail was handled"),
-            1 => tool("mail__list_sent", json!({})),
-            _ => complete("handled"),
-        }
-    }))
-    .await;
-    let s = spec().app("mail", &mail, "public", "private", &[("list_sent", "read")]);
-    let app = Appliance::start(s, &m).await;
-    let dana = app.api("dana");
-
-    let (holds, holds_run) = trial(&dana, "rev", "holds", "Count the sent mail.", json!({ "reviewer": true })).await;
-    let done = dana.wait_settled(&holds).await;
-    assert_eq!(done["status"], "completed", "a held criterion still asked the person: {done}");
-    let (_, log) = dana.get(&format!("/v1/dev/runs/{holds_run}/log")).await;
-    let verdicts: Vec<bool> =
-        log["events"].as_array().unwrap().iter().filter(|e| e["kind"] == "verification" && e["body"]["by"] == "reviewer").map(|e| e["body"]["passed"].as_bool().unwrap()).collect();
-    assert_eq!(verdicts, vec![true], "the reviewer did not judge the criterion");
-
-    let (flags, _) = trial(&dana, "rev", "flags", "Summarize the mail.", json!({ "reviewer": true })).await;
-    let t = dana.wait_settled(&flags).await;
-    // Checking is internal (spec rev 140): a flagged criterion stays
-    // unconfirmed, and nothing is put to the person.
-    assert_eq!(t["status"], "completed", "{t}");
-    assert!(dana.inbox().await.iter().all(|i| i["kind"] != "review"), "a flagged criterion was put to the person");
-    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the criterion was not recorded as unconfirmed");
 }
 
 /// A once approval covers one flagged send: the bypass consumes it, so a
@@ -271,39 +230,4 @@ async fn a_repeated_send_after_a_once_approval_is_judged_again() {
     assert_ne!(second["id"], first["id"], "the same card came back");
     assert_eq!(mail.calls_to("send").len(), 1, "the repeat sent without a judgment");
     assert_eq!(reviewer_replies(&dana, &run).await, 2, "both sends were not judged");
-}
-
-/// The completion reviewer judges with the run's tool results in front
-/// of it, not the summary alone: an overstated report, with no send in
-/// the results, is flagged for the person (#384).
-#[tokio::test(flavor = "multi_thread")]
-async fn the_completion_reviewer_sees_the_runs_tool_results() {
-    let mail = mcp::mail().start().await;
-    let m = start_checked(script(|c| async move {
-        if c.offered_tools().contains(&"review".to_string()) {
-            // Hold only when the run's results show the claimed send.
-            let sent = c.text().contains("mail__send") && c.text().contains("\"status\": \"done\"");
-            return tool(
-                "review",
-                json!({ "criteria": [{ "id": "c1", "holds": sent, "evidence": if sent { "the results show the send" } else { "no send in the run's results" } }] }),
-            );
-        }
-        match c.turn() {
-            0 => contract_unchecked("email bob", "bob was emailed"),
-            1 => tool("mail__list_sent", json!({})),
-            _ => complete("emailed bob"),
-        }
-    }))
-    .await;
-    let s = spec().app("mail", &mail, "public", "private", &[("list_sent", "read")]);
-    let app = Appliance::start(s, &m).await;
-    let dana = app.api("dana");
-    let (t, _) = trial(&dana, "rev", "evidence", "Email bob hello.", json!({ "reviewer": true })).await;
-
-    let done = dana.wait_settled(&t).await;
-    assert_eq!(done["status"], "completed", "{done}");
-    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the overstated report was confirmed");
-    let reviews: Vec<_> = m.requests().into_iter().filter(|c| c.offered_tools().contains(&"review".to_string())).collect();
-    assert!(!reviews.is_empty(), "the reviewer was never asked");
-    assert!(reviews.iter().any(|c| c.text().contains("mail__list_sent")), "the reviewer never saw the run's tool results");
 }

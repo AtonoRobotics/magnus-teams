@@ -26,7 +26,8 @@ use crate::state::{Answer, CardState, Run, State as Projection};
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
-/// Tools whose results are cards, not something read: no evidence.
+/// Tools whose results are cards, not something read: no evidence
+/// (`propose_grant` was retired in rev 147; its old calls stay cards).
 const CARDS: &[&str] = &["suggest", "propose_grant", "create_schedule", "offer_app"];
 
 /// How many citable calls a refused evidence item lists, newest first.

@@ -8,7 +8,7 @@ use magnus_invariants::*;
 use serde_json::{json, Value};
 
 const WITHDRAWN: &str = "the approval it waited for is no longer asked";
-const FROZEN: &str = "its criteria are frozen";
+const FROZEN: &str = "Task contracts are retired";
 
 /// A run left waiting on an item an earlier release raised: each task asks
 /// a question, and the test swaps the question for the retired item, as the

@@ -1,0 +1,489 @@
+--- a/tests/invariants/src/appliance.rs
++++ b/tests/invariants/src/appliance.rs
+@@ -64,6 +64,10 @@
+     /// items that wake a review.
+     #[serde(skip_serializing_if = "Vec::is_empty")]
+     pub watch: Vec<Value>,
++    /// How the server reads the world back after a tool's action
++    /// (`Spec::read_back`, spec rev 147).
++    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
++    pub read_back: BTreeMap<String, Value>,
+ }
+ 
+ #[derive(Clone)]
+@@ -145,6 +149,7 @@
+             destinations: BTreeMap::new(),
+             sent: None,
+             watch: vec![],
++            read_back: BTreeMap::new(),
+         });
+         self
+     }
+@@ -194,6 +199,18 @@
+         self
+     }
+ 
++    /// After `tool` of `app` acts, the server reads the world back with
++    /// `read`, called with `input` (each field a JSON pointer into what the
++    /// action had, `/input/...` or `/result/...`, or a literal), and
++    /// compares `expect`: a pointer into what the action had, to one into
++    /// what the read returned (spec rev 147, Read-back).
++    pub fn read_back(mut self, app: &str, tool: &str, read: &str, input: &[(&str, &str)], expect: &[(&str, &str)]) -> Self {
++        let c = self.connectors.iter_mut().find(|c| c.name == app).expect("app");
++        let map = |m: &[(&str, &str)]| m.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>();
++        c.read_back.insert(tool.into(), json!({ "read": read, "input": map(input), "expect": map(expect) }));
++        self
++    }
++
+     pub fn not_idempotent(mut self, app: &str) -> Self {
+         let c = self.connectors.iter_mut().find(|c| c.name == app).expect("app");
+         c.idempotency = "none".into();
+--- a/tests/invariants/tests/inv6_policy.rs
++++ b/tests/invariants/tests/inv6_policy.rs
+@@ -1,6 +1,8 @@
+ //! Invariant 6: autonomy comes from policy: the owner's for the
+-//! organisation, each person's own grants over their own work within it.
+-//! The agent can propose policy and grants, never grant them.
++//! organisation, each person's own "Allow always" over their own work
++//! within it. The agent can propose policy, never grant it, and has no tool
++//! to propose or set a grant (spec rev 147: Allow always and connect-time
++//! consent replace `propose_grant`).
+ //!
+ //! Prevents: an agent enabling its own auto-approve (CVE-2025-53773), and
+ //! autonomy that grows without anyone deciding it.
+@@ -134,9 +136,8 @@
+ const CHAT: &str = "talking with the person you work for in a chat";
+ const PASS: &str = "You keep the person's long-term memory";
+ 
+-/// In chat, `grant` asks for a grant over sending mail (sends and what
+-/// cannot be undone lifted), and `run <id>` starts a task under grant
+-/// `id`; a task emails bob hello. The memory pass writes nothing.
++/// In chat the agent tries to grant itself standing authority: it calls the
++/// retired `propose_grant`. The memory pass writes nothing.
+ fn grants_model() -> model::Script {
+     script(|c| async move {
+         let sys = match &c.body["system"] {
+@@ -149,22 +150,17 @@
+         }
+         if !sys.contains(CHAT) {
+             return match c.turn() {
+-                0 => contract_unchecked("say hi", "said"),
+-                1 => send("hello"),
++                0 => send("hello"),
+                 _ => fail("done"),
+             };
+         }
+         if c.turn() > 0 {
+             return Reply::Text("Done.".into());
+         }
+-        let said = c.messages().first().and_then(|m| m["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).map(String::from)).unwrap_or_default();
+-        match said.strip_prefix("run ") {
+-            Some(g) => tool("create_task", json!({ "title": "Email bob", "text": "Email bob hello.", "grant": g })),
+-            None => tool(
+-                "propose_grant",
+-                json!({ "title": "Emailing bob", "apps": ["mail"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked me to email bob without asking." }),
+-            ),
+-        }
++        tool(
++            "propose_grant",
++            json!({ "title": "Emailing bob", "apps": ["mail"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked me to email bob without asking." }),
++        )
+     })
+ }
+ 
+@@ -177,58 +173,28 @@
+     t["entries"].as_array().cloned().unwrap_or_default()
+ }
+ 
+-/// The task a `run` message started, if one did.
+-async fn run_under(who: &Api, grant: &str) -> Option<String> {
+-    let entries = chat_entries(who, &format!("run {grant}")).await;
+-    entries.iter().find(|e| e["kind"] == "tasks").and_then(|e| e["tasks"][0]["task_id"].as_str().map(String::from))
+-}
+-
+ async fn grants_of(who: &Api) -> Vec<Value> {
+     who.get("/v1/grants").await.1["grants"].as_array().cloned().unwrap_or_default()
+ }
+ 
+-/// A person's grant over their own work (owner's ruling, 2026-11-02; #235):
+-/// the agent's proposal alone grants nothing (a send still asks), only that
+-/// person's accept sets one, no one else can accept it, and it never covers
+-/// what its person could not approve themselves.
++/// The agent cannot grant itself standing authority (spec rev 147): it is
++/// offered no tool to propose or set a grant, a call to the retired one is
++/// refused and puts no card in the thread, and afterwards a send still asks.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn the_agent_proposes_a_grant_and_only_its_person_grants_what_they_could_approve() {
++async fn the_agent_cannot_grant_itself_standing_authority() {
+     let model = FakeModel::start(grants_model()).await;
+     let (mail, app) = mail_app(&model).await;
+-    let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
++    let alice = app.api("alice");
+ 
+-    // Carol (no approver role) asks; the agent's card alone grants nothing.
+-    let card = chat_entries(&carol, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
+-    let card = card["card"].as_str().unwrap().to_string();
+-    assert!(grants_of(&carol).await.is_empty(), "a proposal took effect by itself");
+-    assert_eq!(run_under(&carol, &card).await, None, "a task started under a card nobody accepted");
+-    let id = carol.submit("Email bob hello.").await;
+-    carol.wait_item(&id, "approval").await;
+-
+-    // Only Carol accepts it.
+-    for who in [&alice, &bob] {
+-        let (st, _) = who.post(&format!("/v1/chat/cards/{card}"), json!({ "decision": "accept" })).await;
+-        assert_eq!(st.as_u16(), 404, "someone else accepted carol's grant");
+-    }
+-    assert!(grants_of(&carol).await.is_empty());
+-    let (st, v) = carol.post(&format!("/v1/chat/cards/{card}"), json!({ "decision": "accept" })).await;
+-    assert!(st.is_success(), "{v}");
+-    let grant = v["grant"].as_str().unwrap().to_string();
+-
+-    // Her grant lifts sends and what cannot be undone, but she cannot
+-    // approve an irreversible send herself: under it, the send still asks.
+-    let task = run_under(&carol, &grant).await.expect("no task under carol's grant");
+-    carol.wait_item(&task, "approval").await;
+-    never("a grant covered what its person could not approve", Duration::from_secs(3), || async { mail.effects("send") > 0 }).await;
+-
+-    // The owner's own grant, accepted by her, covers it for her.
+-    let card = chat_entries(&alice, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
+-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "accept" })).await;
+-    assert!(st.is_success(), "{v}");
+-    let task = run_under(&alice, v["grant"].as_str().unwrap()).await.expect("no task under alice's grant");
+-    alice.wait_settled(&task).await;
+-    assert_eq!(mail.effects("send"), 1, "the owner's grant did not cover her send");
+-    assert!(alice.open_items(&task, "approval").await.is_empty());
++    let entries = chat_entries(&alice, "Just email bob from now on without asking me.").await;
++    let offered = model.requests().into_iter().find(|c| c.text().contains(CHAT)).expect("no chat turn").offered_tools();
++    assert!(!offered.iter().any(|t| t.contains("grant") && t != "revoke_grant"), "the agent was offered a way to grant: {offered:?}");
++    assert!(entries.iter().all(|e| e["kind"] != "grant_card"), "a grant card was put to the person");
++    assert!(grants_of(&alice).await.is_empty(), "a grant was set without the person");
++
++    let id = alice.submit("Email bob hello.").await;
++    alice.wait_item(&id, "approval").await;
++    never("the attempt lifted an ask", Duration::from_secs(3), || async { mail.effects("send") > 0 }).await;
+ }
+ 
+ /// Move the whole log back by `minutes`, as if that much time had passed,
+@@ -311,7 +277,7 @@
+ /// Test 17. Disclosing a credential and reaching another person's account
+ /// or computer are refused whatever is permitted, and no one is asked.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn no_grant_unlocks_a_hard_denial() {
++async fn nothing_permitted_unlocks_a_hard_denial() {
+     let computerd = Computerd::start();
+     let stored = canary("stored-credential");
+     let crm = mcp::crm().start().await;
+@@ -326,52 +292,17 @@
+     let (_, made) = bob.post("/v1/computers", json!({})).await;
+     let bobs = made["id"].as_str().unwrap().to_string();
+     model.set_script(hard_denial_model(stored, bobs));
+-    // A real grant, accepted by its person, over everything the app can do.
+-    let card = chat_entries(&alice, "grant").await.into_iter().find(|e| e["kind"] == "grant_card").expect("no grant card");
+-    let (st, v) = alice.post(&format!("/v1/chat/cards/{}", card["card"].as_str().unwrap()), json!({ "decision": "accept" })).await;
+-    assert!(st.is_success(), "{v}");
+-    let id = run_under(&alice, v["grant"].as_str().unwrap()).await.expect("no task under the grant");
++    // Everything is permitted, and the destination allowed always.
++    let id = alice.submit("Update record 42.").await;
+     alice.wait_settled(&id).await;
+     assert!(crm.calls_to("update_record").is_empty(), "a grant unlocked a hard denial");
+     assert!(alice.open_items(&id, "approval").await.is_empty(), "a hard denial was offered for approval");
+ }
+ 
+-/// In chat, proposes a grant over the whole app, and starts a task under it.
+-/// The task tries each thing no grant can allow.
++/// The task tries each thing nothing permitted can allow.
+ fn hard_denial_model(stored: String, bobs: String) -> model::Script {
+-    script(move |c| {
+-        let (stored, bobs) = (stored.clone(), bobs.clone());
+-        async move {
+-            let sys = match &c.body["system"] {
+-                Value::String(s) => s.clone(),
+-                Value::Array(a) => a.iter().filter_map(|b| b["text"].as_str()).collect::<Vec<_>>().join("\n"),
+-                other => other.to_string(),
+-            };
+-            if sys.contains(PASS) {
+-                return Reply::Text(String::new());
+-            }
+-            if !sys.contains(CHAT) {
+-                let update = |fields: Value| tool("crm__update_record", json!({ "id": "42", "fields": fields }));
+-                return match c.turn() {
+-                    0 => contract_unchecked("update", "updated"),
+-                    1 => update(json!({ "note": stored })),
+-                    2 => update(json!({ "account": "bob" })),
+-                    3 => update(json!({ "computer": bobs })),
+-                    _ => fail("all refused"),
+-                };
+-            }
+-            if c.turn() > 0 {
+-                return Reply::Text("Done.".into());
+-            }
+-            let said = c.messages().first().and_then(|m| m["content"].as_array().and_then(|b| b.last()).and_then(|b| b["text"].as_str()).map(String::from)).unwrap_or_default();
+-            match said.strip_prefix("run ") {
+-                Some(g) => tool("create_task", json!({ "title": "Update record 42", "text": "Update record 42.", "grant": g })),
+-                None => {
+-                    tool("propose_grant", json!({ "title": "The CRM", "apps": ["crm"], "allow": ["send", "irreversible"], "period": "week", "max_usd": 5.0, "why": "You asked." }))
+-                }
+-            }
+-        }
+-    })
++    let update = |fields: Value| tool("crm__update_record", json!({ "id": "42", "fields": fields }));
++    steps(vec![update(json!({ "note": stored })), update(json!({ "account": "bob" })), update(json!({ "computer": bobs })), fail("all refused")])
+ }
+ 
+ // The UI catalog: what the agent renders can ask for work, and only that.
+--- a/tests/invariants/tests/inv7_verify.rs
++++ b/tests/invariants/tests/inv7_verify.rs
+@@ -1,121 +1,164 @@
+-//! Invariant 7: for every task, the agent writes its own done-criteria, and
+-//! results are checked against the world, not against the agent's report.
++//! Invariant 7: results are checked against the world, not against the
++//! agent's report. Evidence comes from the record (spec rev 147): no
++//! contract or criteria come before the work, and after each irreversible
++//! action the server reads the world back and attaches what it found.
+ //!
+-//! Prevents: agents declaring completion early and marking work done untested.
++//! Prevents: agents declaring completion of work the world does not show.
+ 
+ // Test code: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+ #![allow(clippy::unwrap_used, clippy::expect_used)]
+ 
+ use magnus_invariants::{mcp, *};
+-use serde_json::json;
++use serde_json::{json, Value};
++use std::time::Duration;
+ 
++/// A record store whose `set_status` is irreversible and read back with
++/// `get_record`; its `claim_status` says it set the status and does not.
+ fn crm_spec(crm: &FakeMcp) -> Spec {
+-    Spec::default().app("crm", crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")])
+-}
+-
+-fn close_42() -> Reply {
+-    tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } }))
+-}
+-
+-fn closed_42_contract() -> Reply {
+-    contract_checked("close record 42", "crm__get_record", json!({ "id": "42" }), "/status", json!("closed"))
+-}
+-
++    Spec::default()
++        .app("crm", crm, "internal", "private", &[("get_record", "read"), ("set_status", "irreversible"), ("claim_status", "irreversible")])
++        .read_back("crm", "set_status", "get_record", &[("id", "/input/id")], &[("/input/status", "/status")])
++        .read_back("crm", "claim_status", "get_record", &[("id", "/input/id")], &[("/input/status", "/status")])
++}
++
++fn crm() -> mcp::Builder {
++    let schema = json!({ "type": "object", "properties": { "id": { "type": "string" }, "status": { "type": "string" } } });
++    mcp::crm()
++        .tool("set_status", "Set a record's status.", schema.clone(), |w, a, _| {
++            let id = a["id"].as_str().unwrap_or_default().to_string();
++            let Some(rec) = w["records"].get_mut(&id) else { return mcp::err("no such record") };
++            rec["status"] = a["status"].clone();
++            mcp::ok(rec.clone())
++        })
++        // Says it is done; changes nothing.
++        .tool("claim_status", "Set a record's status.", schema, |_, a, _| mcp::ok(json!({ "id": a["id"], "status": a["status"] })))
++}
++
++async fn started(crm: &FakeMcp, model: &FakeModel) -> Appliance {
++    let app = Appliance::start(crm_spec(crm), model).await;
++    let policy = org_policy(&format!("{}\n{}", permit_execute("crm__set_status"), permit_execute("crm__claim_status")));
++    assert!(app.api("alice").put_policy("org", &policy).await.is_success());
++    app
++}
++
++fn receipts(t: &Value) -> Vec<Value> {
++    t["evidence"]["receipts"].as_array().cloned().unwrap_or_default()
++}
++
++/// The agent says it closed the record; the app said so too; the world
++/// does not show it. The read-back catches it: the agent is told, and the
++/// result shows the action as not done, whatever the report says.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn no_completion_and_no_action_without_a_contract() {
+-    let crm = mcp::crm().start().await;
+-    let model = FakeModel::start(steps(vec![close_42(), complete("done"), fail("giving up")])).await;
+-    let app = Appliance::start(crm_spec(&crm), &model).await;
++async fn a_false_report_of_completion_is_caught_by_reading_the_world_back() {
++    let crm = crm().start().await;
++    let model = FakeModel::start(steps(vec![tool("crm__claim_status", json!({ "id": "42", "status": "closed" })), complete("closed it"), fail("unexpected turn")])).await;
++    let app = started(&crm, &model).await;
+     let alice = app.api("alice");
+     let id = alice.submit("Close CRM record 42.").await;
+     let t = alice.wait_settled(&id).await;
+-    assert_eq!(crm.effects("update_record"), 0, "an action ran before the agent wrote its done-criteria");
+-    assert!(model.at_turn(1).unwrap().last_results()[0].is_error);
+-    assert!(model.at_turn(2).unwrap().last_results()[0].is_error, "completion was accepted without criteria");
+-    assert_eq!(t["status"], "failed", "{t}");
++
++    let told = &model.at_turn(1).expect("the run went on after the action").last_results()[0];
++    assert!(told.text.contains("does not match"), "the agent was not told the world differs: {}", told.text);
++    let r = receipts(&t);
++    assert_eq!(r.len(), 1, "{t}");
++    assert_eq!(r[0]["read_back"]["matches"], false, "the read-back did not catch it: {t}");
++    let not_done = t["evidence"]["not_done"].as_array().cloned().unwrap_or_default();
++    assert!(not_done.iter().any(|n| n["status"] == "read_back_differs"), "the result shows the claim as done: {t}");
++    assert_eq!(crm.world()["records"]["42"]["status"], "open");
+ }
+ 
++/// An action that did happen is read back and matches: the receipt comes
++/// from the record with what the server found, not from the agent's word.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn a_false_report_of_completion_is_caught_by_checking_the_world() {
+-    let crm = mcp::crm().start().await;
+-    let model = FakeModel::start(steps(vec![
+-        closed_42_contract(),
+-        complete("closed it"), // a lie: nothing was done
+-        close_42(),
+-        complete("closed it, really"),
+-    ]))
+-    .await;
+-    let app = Appliance::start(crm_spec(&crm), &model).await;
++async fn what_was_done_is_read_back_from_the_world() {
++    let crm = crm().start().await;
++    let model = FakeModel::start(steps(vec![tool("crm__set_status", json!({ "id": "42", "status": "closed" })), complete("closed it"), fail("unexpected turn")])).await;
++    let app = started(&crm, &model).await;
+     let alice = app.api("alice");
+     let id = alice.submit("Close CRM record 42.").await;
+     let t = alice.wait_settled(&id).await;
+ 
+-    let after_lie = model.at_turn(2).expect("the run continued after the false report");
+-    assert!(after_lie.last_results()[0].is_error, "the false report was accepted");
+     assert_eq!(t["status"], "completed", "{t}");
+-    let c1 = t["criteria"].as_array().unwrap().iter().find(|c| c["id"] == "c1").expect("criterion c1").clone();
+-    assert_eq!(c1["verified"], true, "{c1}");
+-    assert!(!c1["evidence"].is_null(), "the verification left no evidence: {c1}");
++    let r = receipts(&t);
++    assert_eq!(r.len(), 1, "{t}");
++    assert_eq!(r[0]["read_back"]["matches"], true, "{t}");
++    assert_eq!(r[0]["read_back"]["found"]["status"], "closed", "{t}");
++    assert!(t["evidence"]["not_done"].as_array().is_some_and(|n| n.is_empty()), "{t}");
+ }
+ 
++/// A read-back only reads: reading back never changes the world, and a
++/// read-back set up with a tool that writes is refused before the server
++/// starts.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn completion_reflects_the_world_at_the_time_of_checking() {
+-    let crm = mcp::crm().start().await;
+-    let c = crm.clone();
+-    let model = FakeModel::start(script(move |conv| {
+-        let crm = c.clone();
+-        async move {
+-            match conv.turn() {
+-                0 => closed_42_contract(),
+-                1 => close_42(),
+-                2 => {
+-                    // Someone reopens the record before the agent reports.
+-                    crm.set_world("records", json!({ "42": { "id": "42", "status": "open" } }));
+-                    complete("closed")
+-                }
+-                _ => fail("it was reopened"),
+-            }
+-        }
+-    }))
+-    .await;
+-    let app = Appliance::start(crm_spec(&crm), &model).await;
++async fn read_backs_may_only_read() {
++    let crm = crm().start().await;
++    let model = FakeModel::start(steps(vec![tool("crm__set_status", json!({ "id": "42", "status": "closed" })), complete("closed it"), fail("unexpected turn")])).await;
++    let app = started(&crm, &model).await;
+     let alice = app.api("alice");
+     let id = alice.submit("Close CRM record 42.").await;
+-    let t = alice.wait_settled(&id).await;
+-    assert_ne!(t["status"], "completed", "the report was trusted over the world: {t}");
++    alice.wait_settled(&id).await;
++    assert_eq!(crm.effects("set_status"), 1, "reading back changed the world");
++    assert_eq!(crm.calls_to("get_record").len(), 1, "the action was not read back, or read back more than once");
++    assert_eq!(crm.calls().len(), 2, "the read-back called something other than its read");
++    drop(app);
++
++    // A read-back that would write: the server refuses the configuration.
++    let writer = crm_spec(&crm).read_back("crm", "set_status", "claim_status", &[("id", "/input/id")], &[]);
++    let model = FakeModel::start(steps(vec![fail("unexpected turn")])).await;
++    let started = tokio::time::timeout(Duration::from_secs(60), tokio::spawn(async move { Appliance::start(writer, &model).await })).await.expect("the server neither started nor refused");
++    assert!(started.is_err(), "the server started with a read-back that writes");
++}
++
++/// A mailbox that keeps what it sends: `send` returns the message's id, and
++/// `get_message` reads it back from the sent folder.
++fn mailbox() -> mcp::Builder {
++    let send = json!({ "type": "object", "properties": { "to": { "type": "string" }, "subject": { "type": "string" }, "body": { "type": "string" } } });
++    mcp::FakeMcp::builder()
++        .world("sent", json!([]))
++        .honor_idempotency(true)
++        .tool("send", "Send an email.", send, |w, a, _| {
++            let sent = w["sent"].as_array_mut().unwrap();
++            let id = format!("m{}", sent.len() + 1);
++            sent.push(json!({ "id": id, "to": a["to"], "subject": a["subject"], "body": a["body"] }));
++            mcp::ok(json!({ "message_id": id }))
++        })
++        .tool("get_message", "Read a sent message by id.", json!({ "type": "object", "properties": { "message_id": { "type": "string" } } }), |w, a, _| {
++            let id = a["message_id"].as_str().unwrap_or_default();
++            match w["sent"].as_array().unwrap().iter().find(|m| m["id"] == id) {
++                Some(m) => mcp::ok(m.clone()),
++                None => mcp::err("no such message"),
++            }
++        })
+ }
+ 
+-/// Checking is internal (spec rev 140): a criterion no check can confirm is
+-/// never put to the person. The task completes with the result, and the
+-/// criterion is recorded as unconfirmed for the developer view.
++/// Acceptance (spec rev 147): a task that sends an email ends with a
++/// receipt and a read-back, and no contract was written. The agent sends
++/// and reports; the server's record says what went where, and the sent
++/// folder, read back, agrees.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn a_criterion_without_a_check_is_never_put_to_the_person() {
+-    let model = FakeModel::start(steps(vec![contract_unchecked("write a poem", "the poem is moving"), complete("wrote it"), fail("unexpected turn")])).await;
+-    let app = Appliance::start(Spec::default(), &model).await;
++async fn a_sent_email_ends_with_a_receipt_and_a_read_back_and_no_contract() {
++    let mail = mailbox().start().await;
++    let send = tool("mail__send", json!({ "to": "bob@corp.example", "subject": "Q3 numbers", "body": "Attached are the Q3 numbers." }));
++    let model = FakeModel::start(steps(vec![send, complete("Sent Bob the Q3 numbers."), fail("unexpected turn")])).await;
++    let spec = Spec::default()
++        .app("mail", &mail, "public", "private", &[("send", "irreversible"), ("get_message", "read")])
++        .read_back("mail", "send", "get_message", &[("message_id", "/result/message_id")], &[("/input/to", "/to"), ("/input/subject", "/subject")]);
++    let app = Appliance::start(spec, &model).await;
+     let alice = app.api("alice");
+-
+-    let id = alice.submit("Write me a poem.").await;
++    assert!(alice.put_policy("org", &org_policy(&permit_execute("mail__send"))).await.is_success());
++    let id = alice.submit("Email Bob the Q3 numbers.").await;
+     let t = alice.wait_settled(&id).await;
+-    assert_eq!(t["status"], "completed", "{t}");
+-    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "review"), "the person was asked to review criteria");
+-    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the unconfirmed criterion is not recorded");
+-}
+ 
+-#[tokio::test(flavor = "multi_thread")]
+-async fn checks_may_only_read() {
+-    let crm = mcp::crm().start().await;
+-    let model = FakeModel::start(steps(vec![
+-        // A "check" that would itself change the world.
+-        contract_checked("close record 42", "crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } }), "/status", json!("closed")),
+-        complete("done"),
+-        fail("giving up"),
+-    ]))
+-    .await;
+-    let app = Appliance::start(crm_spec(&crm), &model).await;
+-    let alice = app.api("alice");
+-    let id = alice.submit("Close CRM record 42.").await;
+-    let t = alice.wait_settled(&id).await;
+-    assert!(model.at_turn(1).unwrap().last_results()[0].is_error, "a contract with a writing check was accepted");
+-    assert_eq!(crm.effects("update_record"), 0, "a check changed the world");
+-    assert_ne!(t["status"], "completed");
++    assert_eq!(t["status"], "completed", "{t}");
++    assert_eq!(mail.effects("send"), 1);
++    let r = receipts(&t);
++    assert_eq!(r.len(), 1, "{t}");
++    assert_eq!(r[0]["tool"], "mail__send", "{t}");
++    assert_eq!(r[0]["to"], json!(["bob@corp.example"]), "{t}");
++    assert_eq!(r[0]["read_back"]["matches"], true, "{t}");
++    assert_eq!(r[0]["read_back"]["found"]["subject"], "Q3 numbers", "{t}");
++    assert!(t["evidence"]["not_done"].as_array().is_some_and(|n| n.is_empty()), "{t}");
++    assert!(model.requests().iter().all(|c| !c.offered_tools().iter().any(|n| n == "task_contract")), "a contract tool was offered");
++    let log = app.db.dump().await.replace(' ', "");
++    assert!(!log.contains("\"kind\":\"contract\"") && !log.contains("task_contract"), "a contract was written");
+ }

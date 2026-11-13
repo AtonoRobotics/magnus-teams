@@ -108,40 +108,6 @@ async fn only_the_person_whose_work_it_is_may_allow_always() {
     assert!(carol.respond(item["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": "once" })).await.is_success(), "carol could not Allow her own work");
 }
 
-/// Finding 5: checks cannot use memory or pass vacuously.
-#[tokio::test(flavor = "multi_thread")]
-async fn checks_cannot_be_vacuous() {
-    let crm = mcp::crm().start().await;
-    let model = FakeModel::start(steps(vec![
-        tool(
-            "task_contract",
-            json!({ "goal": "x", "criteria": [{ "id": "c1", "description": "noted",
-            "check": { "tool": "memory_search", "input": { "query": "done" }, "expect": [{ "pointer": "", "contains": "done" }] } }] }),
-        ),
-        tool(
-            "task_contract",
-            json!({ "goal": "x", "criteria": [{ "id": "c1", "description": "nothing",
-            "check": { "tool": "crm__get_record", "input": { "id": "42" }, "expect": [{ "pointer": "/nope", "equals": null }] } }] }),
-        ),
-        tool(
-            "task_contract",
-            json!({ "goal": "x", "criteria": [{ "id": "c1", "description": "missing field",
-            "check": { "tool": "crm__get_record", "input": { "id": "42" }, "expect": [{ "pointer": "/nope", "equals": "x" }] } }] }),
-        ),
-        complete("done"),
-        fail("could not complete"),
-    ]))
-    .await;
-    let app = Appliance::start(Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read")]), &model).await;
-    let alice = app.api("alice");
-    let id = alice.submit("Do it.").await;
-    let t = alice.wait_settled(&id).await;
-    assert!(model.at_turn(1).unwrap().last_results()[0].is_error, "a memory check was accepted");
-    assert!(model.at_turn(2).unwrap().last_results()[0].is_error, "an equals-null check was accepted");
-    assert!(model.at_turn(4).unwrap().last_results()[0].is_error, "a check on a missing pointer passed");
-    assert_ne!(t["status"], "completed");
-}
-
 /// Finding 8: with both taints, a read to a wider-audience app asks too.
 #[tokio::test(flavor = "multi_thread")]
 async fn tainted_reads_to_wider_apps_ask() {

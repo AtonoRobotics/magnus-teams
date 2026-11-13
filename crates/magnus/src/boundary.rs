@@ -21,11 +21,9 @@ use std::sync::Arc;
 pub enum Issuer {
     /// The model asked for it.
     Model,
-    /// A check the model wrote into its contract, run as written (K26).
-    Check,
-    /// The verifier module reading the world to judge the work (R1: quality,
-    /// not a control). Like a check, it may only read or run in a check VM.
-    Verifier,
+    /// The server reading the world back after an irreversible action
+    /// (spec rev 147, `read_back.rs`). It may only read.
+    ReadBack,
     /// The memory pass filing what the exchange taught about the person; it
     /// may only write memory.
     Memory,
@@ -35,15 +33,14 @@ impl Issuer {
     fn as_str(self) -> &'static str {
         match self {
             Issuer::Model => "model",
-            Issuer::Check => "kernel:contract_check",
-            Issuer::Verifier => "kernel:verifier",
+            Issuer::ReadBack => "kernel:read_back",
             Issuer::Memory => "kernel:memory_pass",
         }
     }
 
-    /// Reads only, in a check VM, and never waits for approval.
-    fn reads_only(self) -> bool {
-        matches!(self, Issuer::Check | Issuer::Verifier)
+    /// Reads only, and never waits for approval.
+    pub(crate) fn reads_only(self) -> bool {
+        matches!(self, Issuer::ReadBack)
     }
 }
 
@@ -104,7 +101,7 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 }
 
 /// The appliance's own chat tools (`create_task`, `create_schedule`, `suggest`,
-/// `propose_grant`, `revoke_grant`, the task and schedule controls), never
+/// `revoke_grant`, the task and schedule controls), never
 /// a connector's, whatever the connector is called.
 /// The rule on an approval card the send reviewer asked for: it flagged
 /// the send, and the person decides (#179).
@@ -339,7 +336,7 @@ impl Kernel {
                 label,
                 data: data.clone(),
                 sources,
-                check: a.issuer == Issuer::Check,
+                check: a.issuer == Issuer::ReadBack,
             },
         )
         .await?;
@@ -494,17 +491,8 @@ impl Kernel {
             None => None,
         };
 
-        // 8. Execute: intent first, then the call, then the result. The
-        // agent's first action that changes anything starts the work, and
-        // freezes the contract in force (invariant 7). Writing the person's
-        // memory changes nothing in the world, and needs no contract.
-        let own_memory = f.connector.is_none() && f.app == "memory";
-        if a.issuer == Issuer::Model && f.risk != Risk::Read && !is_chat_tool(&f) && !own_memory && !run.work_started {
-            self.emit("kernel", Ev::WorkStarted { run: a.run.clone() }).await?;
-            if run.contract.is_some() && run.contract_frozen.is_none() {
-                self.emit("kernel", Ev::ContractFrozen { run: a.run.clone(), version: run.contract_version }).await?;
-            }
-        }
+        // 8. Execute: intent first, then the call, then the result. After an
+        // irreversible action the server reads the world back (spec rev 147).
         if !resend {
             self.emit(
                 "kernel",
@@ -555,6 +543,10 @@ impl Kernel {
                 let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filter_login_codes) { crate::login_codes::strip(&t) } else { t };
                 let (text, data) = crate::attachment::lift(f.connector.as_ref().is_some_and(|c| c.filter_login_codes), filter(clean(&text)), data);
                 let data = data.map(|d| serde_json::from_str(&filter(clean(&d.to_string()))).unwrap_or(Value::Null));
+                let text = match crate::read_back::applies(a, &f, is_error) {
+                    true => format!("{text}\n\n{}", self.read_back(a, &f, shown.as_ref(), data.as_ref()).await?),
+                    false => text,
+                };
                 self.record_from(a, Some(key), if is_error { "failed" } else { "done" }, text, is_error, label, sources, data).await
             }
             Err(CallFailure::NotDone(m)) => self.record(a, Some(key), "failed", err_text(&format!("{} failed: {}.", a.tool, clean(&m)), true), true, f.label, None).await,
@@ -665,19 +657,12 @@ impl Kernel {
         if a.issuer == Issuer::Memory && f.name != "memory_write" {
             return Ok(Err(self.deny(a, "policy", "the memory pass may only write memory", false, None).await?));
         }
-        // The person's own memory is not the world: writing it changes nothing
-        // outside the server (M1), so it needs no contract.
+        // The person's own memory is not the world: writing it sends nothing (M1).
         let own_memory = f.connector.is_none() && f.app == "memory";
-        if f.risk.changes_state() && run.contract.is_none() && a.issuer == Issuer::Model && !chat_turn && !self.team_talks(run) && !own_memory {
-            let why = "record a task contract with task_contract before changing anything; then retry";
-            return Ok(Err(self.deny(a, "policy", why, true, None).await?));
+        if a.issuer.reads_only() && f.risk != Risk::Read {
+            return Ok(Err(self.deny(a, "policy", "a read-back may only read", false, None).await?));
         }
-        if a.issuer.reads_only() && !crate::tools::checkable(&f.name, f.risk) {
-            return Ok(Err(self.deny(a, "policy", "contract checks and the verifier may only read or run in the sandbox", false, None).await?));
-        }
-        // A check's input was written with the contract, so it is judged by
-        // the taint the run had then; reading its result taints nothing.
-        let (untrusted, private) = if a.issuer == Issuer::Check { run.contract_taint } else { (run.untrusted, run.private) };
+        let (untrusted, private) = (run.untrusted, run.private);
         let policies = self.read(|s| s.policies.clone());
         let facts = ToolFacts { name: &f.name, app: &f.app, risk: f.risk, audience: f.audience };
         let outcome = policy::decide(&policies, person, Some(&run.task), &facts, untrusted, private)?;
@@ -1116,7 +1101,6 @@ impl Kernel {
                 "create_task" => self.chat_task(a, key).await,
                 "create_schedule" => self.chat_schedule(a, key).await,
                 "suggest" => self.suggest(a, key).await,
-                "propose_grant" => Ok(self.propose_grant(a, key)),
                 "revoke_grant" => Ok(self.revoke_grant_tool(&a.run, &a.input).await),
                 "find_tools" => {
                     let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else { return Ok(("no such run".into(), true, None)) };

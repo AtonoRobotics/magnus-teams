@@ -895,13 +895,13 @@ pub(crate) fn status_str(s: Status) -> &'static str {
     }
 }
 
-/// The short title the model gave the task (when starting it, or in its
-/// contract), else the start of what the person wrote; from its words,
+/// The short title the model gave the task (when starting it, in its plan,
+/// or in a contract recorded before rev 147), else the start of what the person wrote; from its words,
 /// recalled for its person.
 pub(crate) fn title_of(task: &crate::state::Task, run: Option<&Run>, words: &crate::recall::Words) -> String {
     words
         .title(task.seq)
-        .or_else(|| run.and_then(|r| r.contract.as_ref()).and_then(|c| c["title"].as_str()).map(str::trim).filter(|t| !t.is_empty()).map(String::from))
+        .or_else(|| run.and_then(|r| r.plan.as_ref().or(r.contract.as_ref())).and_then(|c| c["title"].as_str()).map(str::trim).filter(|t| !t.is_empty()).map(String::from))
         .unwrap_or_else(|| words.text(task.seq).chars().take(80).collect())
 }
 
@@ -949,6 +949,7 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         "created_at": task.created_at,
         "status": status_str(run.status),
         "waiting_on": run.reason,
+        "status_line": crate::evidence::status_line(run),
         "summary": run.summary,
         "thread": task.chat.as_ref().map(|c| c.thread.clone()),
         "verdict": task.verdict,
@@ -964,39 +965,11 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         v["app_offers"] = json!(offered.into_iter().map(|(_, c)| c).collect::<Vec<_>>());
     }
     if full {
-        let criteria: Vec<Value> = run
-            .contract
-            .as_ref()
-            .and_then(|c| c["criteria"].as_array().cloned())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| {
-                let id = c["id"].as_str().unwrap_or_default().to_string();
-                let ver = run.verified.get(&id);
-                json!({
-                    "id": id,
-                    "description": c["description"],
-                    "check": c.get("check"),
-                    "assurance": c.get("assurance"),
-                    "assurance_why": c.get("assurance_why"),
-                    "verified": ver.map(|v| v.0),
-                    "evidence": ver.map(|v| v.1.clone()),
-                    "verified_by": ver.map(|v| v.2.clone()),
-                })
-            })
-            .collect();
+        // Evidence from the record (spec rev 147): receipts with their
+        // read-backs, what was not done, the sources the result cites.
+        v["evidence"] = k.evidence_of(run);
+        // A task from before rev 147 keeps the contract it recorded, as data.
         v["contract"] = run.contract.clone().unwrap_or(Value::Null);
-        v["contract_version"] = json!(run.contract_version);
-        v["contract_frozen"] = json!(run.contract_frozen.is_some());
-        v["contract_approved_by"] = json!(run.contract_approved_by);
-        // Where each criterion that holds got its verdict: the appliance's
-        // own tools, a check that ran workspace code, or a person.
-        let held = |label: &str| {
-            criteria.iter().filter(|c| c["verified"] == json!(true) && !c["verified_by"].as_str().unwrap_or_default().starts_with("person:") && c["assurance"] == label).count()
-        };
-        let by_person = criteria.iter().filter(|c| c["verified"] == json!(true) && c["verified_by"].as_str().unwrap_or_default().starts_with("person:")).count();
-        v["assurance"] = json!({ "appliance_verified": held("appliance-verified"), "self_checked": held("self-checked"), "by_person": by_person });
-        v["criteria"] = json!(criteria);
         v["model"] = json!({ "adapter": run.config.adapter, "name": run.config.model });
         v["usage"] = json!({ "model_calls": run.model_calls, "actions": run.actions, "cost_usd": run.usd });
         // What the run may spend: for a task from a proposal, the estimate the person approved (#254).

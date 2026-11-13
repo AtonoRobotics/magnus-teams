@@ -22,12 +22,12 @@ fn kind_of(c: &Conversation) -> &'static str {
     KINDS.iter().find(|k| first.contains(&format!("MARK-{k}"))).copied().unwrap_or("done")
 }
 
-/// A task's replies by turn: a contract checked against a page, then the end
+/// A task's replies by turn: a plan with its title, then the end
 /// its marker names. Checking is internal (spec rev 140), so what needs the
 /// person is a question: "confirm" asks one before the work.
 fn task_reply(kind: &str, turn: usize, page: &str) -> Reply {
-    let criterion = json!({ "id": "c1", "description": "The source still says ok", "check": { "tool": "web_fetch", "input": { "url": page }, "expect": [{ "pointer": "/text", "contains": "ok" }] } });
-    let contract = tool("task_contract", json!({ "title": "Typed task", "goal": "do it", "assumptions": [], "irreversible_actions": [], "criteria": [criterion] }));
+    // A plan names the task for its list (spec rev 147: no contract).
+    let contract = tool("task_plan", json!({ "title": "Typed task", "units": [{ "id": "u1", "goal": format!("check {page} still says ok") }] }));
     match (kind, turn) {
         ("question", _) => tool("ask_principal", json!({ "question": "Which quarter?" })),
         ("confirm", _) => tool("ask_principal", json!({ "question": "Is this the tone you want?" })),
@@ -175,7 +175,7 @@ async fn a_batch_of_requests_prioritises_actionable_tasks_without_page_scrolling
     assert_eq!(in_offsite.len(), 5);
     assert!(in_offsite.iter().all(|t| t["group"]["kind"] == "chat" && t["group"]["thread"] == offsite.as_str()));
     assert!(tasks.iter().filter(|t| t["text"].as_str().unwrap().contains("Draft the customer newsletter")).all(|t| t["group"].is_null()));
-    assert!(tasks.iter().any(|t| t["title"] == "Typed task"), "a typed task did not take its contract's title");
+    assert!(tasks.iter().any(|t| t["title"] == "Typed task"), "a typed task did not take its plan's title");
     // The schedules asked for are set up at once, so the Schedules view has them.
     assert!(!alice.get("/v1/schedules").await.1["schedules"].as_array().unwrap().is_empty(), "a schedule asked for in chat was not set up");
 

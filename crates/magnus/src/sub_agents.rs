@@ -130,11 +130,17 @@ fn child_budget(parent: &Budget, spent_usd: f64, share: Option<f64>) -> Budget {
     }
 }
 
+/// Tools retired in spec rev 147: a sub-agent's list that names one still starts.
+const RETIRED_TOOLS: &[&str] = &["task_contract", "propose_grant"];
+
 /// The tools a sub-agent is limited to: the ones the parent named, each one
 /// the parent holds and within its own limit; none named, the parent's own
 /// limit. `held` is every tool the parent may use; an empty `ceiling` is no
 /// limit of its own.
-fn narrowed(named: Vec<String>, held: &[String], ceiling: Vec<String>) -> std::result::Result<Vec<String>, String> {
+fn narrowed(mut named: Vec<String>, held: &[String], ceiling: Vec<String>) -> std::result::Result<Vec<String>, String> {
+    // A retired tool names nothing to hold (spec rev 147): it is dropped,
+    // not refused, so a call written before it was retired still starts.
+    named.retain(|t| !RETIRED_TOOLS.contains(&t.as_str()));
     if let Some(extra) = named.iter().find(|t| !held.contains(t) || (!ceiling.is_empty() && !ceiling.contains(t))) {
         return Err(format!("{extra} is not a tool you hold, so a sub-agent cannot be given it: it works within your authority, never more."));
     }
@@ -412,6 +418,7 @@ mod tests {
         assert_eq!(narrowed(vec![], &held, v(&["notes__list"])), Ok(v(&["notes__list"])), "a limited parent's child escaped its limit");
         assert!(narrowed(v(&["crm__update_record"]), &held, vec![]).is_err(), "a sub-agent was given a tool its parent lacks");
         assert!(narrowed(v(&["notes__save"]), &held, v(&["notes__list"])).is_err(), "a sub-agent was given a tool past its parent's limit");
+        assert_eq!(narrowed(v(&["task_contract", "notes__list"]), &held, vec![]), Ok(v(&["notes__list"])), "a retired tool stopped a sub-agent");
         // And at the boundary, every limit above binds it.
         let s = scheduled_run_with_sub_agents();
         assert!(s.sub_agents.refusal("r2", "notes__save").is_some());

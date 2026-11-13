@@ -74,7 +74,7 @@ impl Kernel {
                     }
                 }
                 Retired::Refused => {
-                    evs.extend(reply(&run, &call_id, crate::run::FROZEN, true, Label::PRINCIPAL));
+                    evs.extend(reply(&run, &call_id, crate::run::CONTRACT_RETIRED, true, Label::PRINCIPAL));
                     evs.extend(self.resume(&run));
                 }
                 Retired::Withdrawn => {

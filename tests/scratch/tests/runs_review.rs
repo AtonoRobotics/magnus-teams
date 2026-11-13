@@ -73,39 +73,6 @@ async fn the_memory_pass_never_files_an_untrusted_fact_as_a_clean_one() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_verifier_never_passes_a_criterion_whose_check_could_not_run() {
-    let mail = mcp::mail().start().await;
-    let m = FakeModel::start(script(|c| async move {
-        if c.offered_tools().is_empty() && c.text().contains("The agent's criteria") {
-            return Reply::Text("Fine.".into());
-        }
-        // The verifier says every criterion holds.
-        if c.offered_tools().contains(&"verdict".to_string()) {
-            return tool("verdict", json!({ "criteria": [{ "id": "c1", "holds": true, "evidence": "looks fine" }] }));
-        }
-        match c.turn() {
-            0 => contract_checked("check the sent mail", "mail__list_sent", json!({}), "/messages/0/to", json!("bob@corp.example")),
-            _ => complete("done"),
-        }
-    }))
-    .await;
-    let mut s = Spec::default().app("mail", &mail, "public", "private", &[("list_sent", "read")]);
-    s.verifier = true;
-    let app = Appliance::start(s, &m).await;
-    let alice = app.api("alice");
-    let t = alice.submit("Check that bob got mail.").await;
-    // The owner forbids the check's tool once the contract is recorded.
-    eventually("the contract", PATIENCE, || async { alice.task(&t).await["contract"].is_object().then_some(()) }).await;
-    let deny = "forbid(principal, action, resource == Tool::\"mail__list_sent\");";
-    assert!(alice.put_policy("org", &org_policy(deny)).await.is_success());
-    let done = alice.wait_settled(&t).await;
-    // Checking is internal (spec rev 140): the task completes, and the
-    // refused check leaves the criterion unconfirmed, never passed.
-    assert_eq!(done["status"], "completed", "{done}");
-    assert!(app.db.dump().await.contains("Not confirmed by any check: c1"), "the verifier passed a criterion whose check was refused");
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn a_failed_requested_task_is_reported_even_when_another_started() {
     let m = FakeModel::start(script(|c| async move {
         if c.body["system"].to_string().contains(CHAT) {
@@ -130,28 +97,4 @@ async fn a_failed_requested_task_is_reported_even_when_another_started() {
     })
     .await;
     assert!(n["details"]["evidence"].to_string().contains("create_task"), "{n}");
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn writing_memory_does_not_start_the_work() {
-    let m = FakeModel::start(script(|c| async move {
-        if c.body["system"].to_string().contains(PASS) {
-            return Reply::Text(String::new());
-        }
-        match c.turn() {
-            0 => tool("memory_write", json!({ "fact": "The person likes short reports." })),
-            1 => contract_unchecked("write a report", "a report"),
-            // A revision before any work is recorded freely.
-            2 => contract_unchecked("write a short report", "a short report"),
-            _ => complete("written"),
-        }
-    }))
-    .await;
-    let app = Appliance::start(Spec::default(), &m).await;
-    let alice = app.api("alice");
-    let t = alice.submit("Write a report.").await;
-    alice.wait_settled(&t).await;
-    let changes: Vec<Value> = alice.inbox().await.into_iter().filter(|i| i["kind"] == "contract_change").collect();
-    assert!(changes.is_empty(), "a memory write froze the contract: {changes:?}");
-    assert_eq!(alice.task(&t).await["contract"]["goal"], "write a short report");
 }

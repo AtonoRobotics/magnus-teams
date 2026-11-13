@@ -266,12 +266,11 @@ impl Kernel {
                 evs.extend(reply(&run, &call_id, msg, true, Label::PRINCIPAL));
                 evs.extend(self.resume(&run));
             }
-            // A contract change asked before rev 140, when checking became
-            // internal: whatever the answer, the frozen criteria stand and
-            // the run goes on against them.
+            // A contract change asked before contracts were retired (rev
+            // 147): whatever the answer, the run goes on without one.
             ("contract_change", _) => {
                 evs.push((&actor, resolve(None)));
-                evs.extend(reply(&run, &call_id, crate::run::FROZEN, true, Label::PRINCIPAL));
+                evs.extend(reply(&run, &call_id, crate::run::CONTRACT_RETIRED, true, Label::PRINCIPAL));
                 evs.extend(self.resume(&run));
             }
             ("question", "answer") => {

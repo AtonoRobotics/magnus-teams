@@ -13,6 +13,10 @@
 #               one up, needs computerd's KVM and guest images
 #   injection   prompt injection, tests/scratch/tests/injection.rs
 #   update      signed updates, tests/scratch/tests/update.rs
+#   evidence    evidence from the record (spec rev 147): a task that sends
+#               an email ends with a receipt and a read-back, with no
+#               contract written; and a false report caught by reading the
+#               world back, tests/invariants/tests/inv7_verify.rs
 #   invariants  the eight invariants in full, tests/invariants
 #   kill_switch_computer  each kill switch level pausing a program running
 #               in the computer until release (spec rev 141), needs KVM
@@ -24,7 +28,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-all="autonomy injection update invariants kill_switch_computer desktop_look"
+all="autonomy injection update evidence invariants kill_switch_computer desktop_look"
 suites=${*:-$all}
 for s in $suites; do
   case " $all " in *" $s "*) ;; *) echo "no such suite: $s (have: $all)" >&2; exit 2 ;; esac
@@ -52,6 +56,7 @@ for s in $suites; do
     # One test at a time: a machine runs only so many computers, and the
     # invariants that start one fail when tests in parallel take every slot.
     invariants) cmd="cargo test -p magnus-invariants -- --test-threads=1" ;;
+    evidence) cmd="cargo test -p magnus-invariants --test inv7_verify" ;;
     *) cmd="cargo test -p magnus-scratch --test $s" ;;
   esac
   $cmd || failed="$failed $s"

@@ -173,7 +173,9 @@ async fn a_scheduled_run_cannot_set_up_a_schedule_and_its_schedule_waits_for_it(
 #[tokio::test(flavor = "multi_thread")]
 async fn a_schedule_ends_after_its_runs_at_its_time_or_by_its_own_run() {
     let m = FakeModel::start(script(|c| async move {
-        let b = c.body.to_string();
+        // The run's own goal, in its messages: its system text lists recent
+        // results of the other schedules too.
+        let b = json!(c.messages()).to_string();
         match c.turn() {
             0 => simple_contract(),
             1 if b.contains("Ring the bell.") || b.contains("Ring the gong.") => tool("end_schedule", json!({ "reason": "the bell has rung" })),

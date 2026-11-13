@@ -186,6 +186,8 @@ pub enum Ev {
     Legal(crate::legal::Change),
     Push(crate::push::Change),
     Tools(crate::tool_gate::Change),
+    /// A read-back or a result's sources (spec rev 147).
+    Evidence(crate::evidence::Change),
     Spend(crate::spend::Change),
     AdminSetting(crate::admin_app::settings::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
@@ -942,18 +944,15 @@ pub enum Ev {
         version: u32,
         #[serde(default)]
         contract: Value,
-        /// Set when a person approved this version as a change to a frozen
-        /// contract.
+        /// A person's approval of a change to a frozen contract (retired, rev 147).
         #[serde(default)]
         approved_by: Option<String>,
     },
-    /// The agent's first action that changes anything: from here on the
-    /// contract in force is frozen.
+    /// Retired with contracts (spec rev 147): read in old logs only.
     WorkStarted {
         run: String,
     },
-    /// The contract at this version is frozen: a later change needs a
-    /// person's approval, and only frozen or approved criteria count.
+    /// Retired with contracts (spec rev 147): read in old logs only.
     ContractFrozen {
         run: String,
         version: u32,
@@ -1391,6 +1390,7 @@ impl Ev {
             | ReviewWoken { run, .. }
             | Output { run, .. } => Some(run),
             Item { run, .. } | ScheduleEnded { run, .. } | Tools(crate::tool_gate::Change::Screened { run, .. }) => run.as_deref(),
+            Evidence(c) => Some(c.run()),
             _ => None,
         }
     }

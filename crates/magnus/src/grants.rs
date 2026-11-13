@@ -7,7 +7,8 @@
 //!
 //! A grant comes only from the person: "Handle things like this" on a task
 //! proposal (`decide_card`, decision `handle`), or accepting a grant card
-//! Magnus put to them when they asked in conversation (`propose_grant`).
+//! put to them before spec rev 147 retired `propose_grant` (Allow always and
+//! connect-time consent replace it).
 //! Approving a proposal never creates one, and the model never sets one
 //! (invariant 6): it proposes, they accept.
 //!
@@ -21,7 +22,6 @@
 //! action is a `grant_used` event, listed under its grant.
 
 use crate::api::{err, internal, who};
-use crate::boundary::Action;
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
@@ -285,7 +285,7 @@ impl Kernel {
             return Ok(String::new());
         }
         let w = self.words(gs.iter().map(|g| (run.person.clone(), g.seq))).await?;
-        let mut s = "\n\n# Work this person lets you do on your own\n\nTheir grants, each a standing authority over a kind of their own work. When they ask for work that fits one, start it with create_task and give the grant's id as grant: in that task, what their organisation's policy would ask about in the grant's apps goes ahead without asking, except what still asks. The kernel refuses a task under a grant whose budget for the period is spent. Never use one for work it does not cover. They change or revoke them in Settings, or by telling you (propose_grant with replaces, revoke_grant).\n\n".to_string();
+        let mut s = "\n\n# Work this person lets you do on your own\n\nTheir grants, each a standing authority over a kind of their own work. When they ask for work that fits one, start it with create_task and give the grant's id as grant: in that task, what their organisation's policy would ask about in the grant's apps goes ahead without asking, except what still asks. The kernel refuses a task under a grant whose budget for the period is spent. Never use one for work it does not cover. They change them in Settings, and revoke one by telling you (revoke_grant).\n\n".to_string();
         for g in &gs {
             let title = if g.label.untrusted || g.label.private {
                 "(its title is not shown: it came from a run that read content from outside the conversation)".to_string()
@@ -302,34 +302,6 @@ impl Kernel {
             ));
         }
         Ok(s)
-    }
-
-    /// `propose_grant` from a chat turn, when the person asked for it: a
-    /// card with the grant's fields, which the person accepts (with any
-    /// changes of theirs) or declines. Nothing is granted until they accept.
-    pub(crate) fn propose_grant(&self, a: &Action, key: &str) -> (String, bool, Option<Value>) {
-        let no = |why: String| (format!("No card: {why}. A retry with the same values will not help."), true, None);
-        let Some(run) = self.read(|s| s.runs.get(&a.run).filter(|r| s.tasks.get(&r.task).is_some_and(|t| t.is_chat_turn())).cloned()) else {
-            return ("No card: propose_grant is for chat.".into(), true, None);
-        };
-        let Some(person) = self.person(&run.person) else { return no("no such person".into()) };
-        let f = match self.grant_fields(&person, &a.input) {
-            Ok(f) => f,
-            Err(why) => return no(why),
-        };
-        let Some(why) = a.input["why"].as_str().map(str::trim).filter(|w| !w.is_empty()) else { return no("why is needed: what the person asked for".into()) };
-        let replaces = a.input["replaces"].as_str().map(str::trim).filter(|r| !r.is_empty());
-        if let Some(r) = replaces {
-            if !self.read(|s| s.grants.get(r).is_some_and(|g| g.person == run.person && g.revoked.is_none())) {
-                return no(format!("replaces names {r}, which is no live grant of this person's"));
-            }
-        }
-        let card = crate::chat::derived("card", key);
-        let data = json!({
-            "card": card, "grant": true, "title": f.title, "apps": f.apps, "allow": f.allow, "still_asks": still_asks(&f.allow),
-            "period": f.period, "max_usd": f.max_usd, "why": why, "replaces": replaces, "text": why,
-        });
-        (format!("A card for this grant ({card}) is in the thread. Nothing changes until the person accepts it."), false, Some(data))
     }
 
     /// `revoke_grant` from a chat turn: the person's own grant, at their word.

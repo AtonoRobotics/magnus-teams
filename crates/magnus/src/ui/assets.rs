@@ -30,6 +30,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("subagents.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/subagents.js")),
     ("connect.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/connect.js")),
     ("asks.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/asks.js")),
+    ("evidence.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/evidence.js")),
     ("admin.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin.js")),
     ("admin-spend.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-spend.js")),
     ("admin-agents.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-agents.js")),

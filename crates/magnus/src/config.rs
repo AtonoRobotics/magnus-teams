@@ -811,6 +811,9 @@ pub struct Connector {
     /// (#210): a read tool called with a query naming the address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sent: Option<SentSearch>,
+    /// How the world is read back after a tool's action (spec rev 147), by tool.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub read_back: BTreeMap<String, crate::read_back::ReadBack>,
     /// Watched reads (#369): when any run's call of `tool` answers,
     /// the items at `items` (a JSON pointer into the answer, `""` for
     /// the answer itself) are diffed by their `id` field against what
@@ -1016,6 +1019,13 @@ impl Config {
                 let risk = |t: &str| c.tools.get(t).map(|class| class.risk.clone());
                 anyhow::ensure!(risk(t).is_some(), "connector {}: destinations for {t}, which is not one of its tools", c.name);
                 if let Some(why) = d.fault(t, risk) {
+                    anyhow::bail!("connector {}: {why}", c.name);
+                }
+            }
+            for (t, rb) in &c.read_back {
+                let risk = |t: &str| c.tools.get(t).map(|class| class.risk.clone());
+                anyhow::ensure!(risk(t).is_some(), "connector {}: read_back for {t}, which is not one of its tools", c.name);
+                if let Some(why) = rb.fault(t, risk) {
                     anyhow::bail!("connector {}: {why}", c.name);
                 }
             }

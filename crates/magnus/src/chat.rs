@@ -267,11 +267,11 @@ impl Kernel {
                 let title = crate::api::title_of(t, Some(r), w);
                 let from = t.chat.as_ref().and_then(|c| c.from_run.clone()).unwrap_or_else(|| t.task_id.clone());
                 let e = started.entry(from).or_insert((t.created_at, vec![]));
-                e.1.push(json!({ "task_id": t.task_id, "title": title, "text": w.text(t.seq), "status": status, "waiting_on": r.reason, "waiting_item": r.waiting_item }));
+                e.1.push(json!({ "task_id": t.task_id, "title": title, "text": w.text(t.seq), "status": status, "waiting_on": r.reason, "waiting_item": r.waiting_item, "status_line": crate::evidence::status_line(r) }));
                 if let Some(end) = r.ended_at {
                     let after = t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| answered.get(f)).map_or(end, |a| end.max(*a));
                     let files: Vec<Value> = r.outputs.iter().map(|(id, name, mt, size)| json!({ "id": id, "name": name, "media_type": mt, "size": size })).collect();
-                    out.push((after, i64::MAX, json!({ "id": format!("r:{}", t.task_id), "kind": "result", "task_id": t.task_id, "title": title, "text": w.text(t.seq), "status": status, "summary": r.summary, "view": r.outcome_view, "at": end, "files": files, "verdict": t.verdict })));
+                    out.push((after, i64::MAX, json!({ "id": format!("r:{}", t.task_id), "kind": "result", "task_id": t.task_id, "title": title, "text": w.text(t.seq), "status": status, "summary": r.summary, "view": r.outcome_view, "at": end, "files": files, "verdict": t.verdict, "evidence": self.evidence_of(r) })));
                 }
             }
         }
@@ -473,7 +473,7 @@ impl Kernel {
     /// within the server's per-task budget, and its runs start with the
     /// taint the turn had; an accepted suggestion without timing starts a
     /// task for them as `create_task` would. A task proposal recorded before
-    /// rev 140 is answered as a suggestion. A grant card (`propose_grant`) is
+    /// rev 140 is answered as a suggestion. A grant card (`propose_grant`, retired in rev 147) is
     /// accepted, with any changes of the person's in `body`, setting the
     /// grant, or declined with their reason (#235).
     pub async fn decide_card(self: &Arc<Self>, person: &str, card: &str, decision: &str, reason: Option<&str>, body: &Value) -> Result<std::result::Result<Value, CardRefusal>> {

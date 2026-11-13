@@ -112,7 +112,6 @@ async fn modules(AxState(k): K, h: HeaderMap) -> Response {
         for r in s.runs.values().filter(|r| lens.sight(&r.person) != Sight::Hidden) {
             *n.entry("lost_reset").or_default() += r.cuts.len();
             *n.entry("escalation").or_default() += r.escalated.is_some() as usize;
-            *n.entry("verifier").or_default() += r.verified.values().filter(|v| v.2 == "verifier").count();
             *n.entry("reviewer").or_default() += r.reviewed as usize;
         }
         n.into_iter().map(|(k, v)| (k.to_string(), v)).collect::<HashMap<String, usize>>()
@@ -142,11 +141,6 @@ fn modules_of(r: &Run) -> Value {
 
 pub const MODULES: &[Module] = &[
     Module {
-        name: "verifier",
-        compensates: "models that report work as done when the world says otherwise",
-        ablation_suite: "tests/scratch/tests/modules.rs: the_verifier_catches_work_its_own_report_overstates",
-    },
-    Module {
         name: "lost_reset",
         compensates: "models that repeat a failing step instead of changing approach",
         ablation_suite: "tests/scratch/tests/modules.rs: a_looping_run_is_reset_and_recovers_and_without_the_module_runs_to_its_budget",
@@ -163,7 +157,7 @@ pub const MODULES: &[Module] = &[
     },
     Module {
         name: "reviewer",
-        compensates: "models that send without checking where it goes, and report work no check covers",
+        compensates: "models that send without checking where it goes",
         ablation_suite: "tests/scratch/tests/modules.rs: the_reviewer_blocks_a_send_to_the_wrong_recipient",
     },
 ];

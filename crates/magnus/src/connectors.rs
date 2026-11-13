@@ -1123,6 +1123,7 @@ impl Kernel {
             handoff: None,
             destinations: Default::default(),
             sent: None,
+            read_back: Default::default(),
             watch: vec![],
         };
         self.emit(actor, Ev::ConnectorAdded { connector: c }).await.map_err(failed)?;
