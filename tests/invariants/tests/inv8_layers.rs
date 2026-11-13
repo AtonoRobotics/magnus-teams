@@ -37,7 +37,9 @@ async fn a_user_layer_cannot_widen_the_organization_layer() {
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     assert!(alice.put_policy("org", &org_policy("")).await.is_success());
-    assert!(bob.put_policy("user/bob", &permit_execute("mail__send")).await.is_success());
+    // A permit below the organisation's layer could only widen it, so it is
+    // refused when written (owner, 2026-11-11, policy_layers.rs).
+    assert!(!bob.put_policy("user/bob", &permit_execute("mail__send")).await.is_success(), "a user layer accepted a permit");
 
     let id = bob.submit("Email bob hello.").await;
     bob.wait_item(&id, "approval").await;
@@ -51,7 +53,7 @@ async fn an_organization_forbid_wins_over_any_lower_permit() {
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     let org = org_policy(r#"forbid(principal, action, resource == Tool::"crm__update_record");"#);
     assert!(alice.put_policy("org", &org).await.is_success());
-    assert!(bob.put_policy("user/bob", &permit_execute("crm__update_record")).await.is_success());
+    assert!(!bob.put_policy("user/bob", &permit_execute("crm__update_record")).await.is_success(), "a user layer accepted a permit under an organisation forbid");
     let id = bob.submit("Close CRM record 42.").await;
     bob.wait_settled(&id).await;
     assert_eq!(crm.effects("update_record"), 0);
@@ -112,8 +114,11 @@ async fn the_agent_never_exceeds_the_persons_own_access() {
     assert_eq!(finance.calls_to("get_report").len(), 1);
 }
 
+/// An ask is answered by its requester alone: nobody else, an approver role
+/// or the owner included, can answer it or make it take effect (spec rev 145,
+/// decisions/2026-11-12-asks-go-to-their-requester-alone.md).
 #[tokio::test(flavor = "multi_thread")]
-async fn only_holders_of_the_approver_role_can_approve() {
+async fn an_ask_is_answered_by_its_requester_alone() {
     let mail = mcp::mail().start().await;
     let model = FakeModel::start(steps(vec![
         contract_unchecked("say hi", "said"),
@@ -127,12 +132,14 @@ async fn only_holders_of_the_approver_role_can_approve() {
     let item = carol.wait_item(&id, "approval").await;
     let iid = item["id"].as_str().unwrap();
 
-    let st = carol.respond(iid, json!({ "decision": "approve", "scope": "once" })).await;
-    assert!(st == 403 || st == 404, "carol approved without the approver role: {st}");
-    never("an approval without the role took effect", Duration::from_secs(3), || async { mail.effects("send") > 0 }).await;
+    for other in [&bob, &app.api("alice")] {
+        let st = other.respond(iid, json!({ "decision": "approve", "scope": "once" })).await;
+        assert!(st == 403 || st == 404, "someone other than the requester answered her ask: {st}");
+    }
+    never("an answer from someone other than the requester took effect", Duration::from_secs(3), || async { mail.effects("send") > 0 }).await;
 
-    assert!(bob.respond(iid, json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    eventually("bob's approval took effect", PATIENCE, || async { (mail.effects("send") == 1).then_some(()) }).await;
+    assert!(carol.respond(iid, json!({ "decision": "approve", "scope": "once" })).await.is_success());
+    eventually("the requester's answer took effect", PATIENCE, || async { (mail.effects("send") == 1).then_some(()) }).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -419,7 +426,9 @@ async fn a_local_command_gets_the_network_only_as_a_reviewed_send() {
     ]));
     let task = alice.submit("Read that, then fetch.").await;
     let item = alice.wait_item(&task, "approval").await;
-    assert_eq!(item["ask"]["allow_scope"], "once", "data read locally after untrusted input was not asked about as case 3: {item}");
+    // Case 3's Allow covers the rest of the task (owner, 2026-11-13); what
+    // matters here is that it asked before anything went out.
+    assert_eq!(item["ask"]["allow_scope"], "task", "data read locally after untrusted input was not asked about as case 3: {item}");
     assert_eq!(web.hits().len(), before + 1, "data read locally left the machine without the person");
 }
 

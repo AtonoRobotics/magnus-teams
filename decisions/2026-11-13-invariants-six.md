@@ -1,6 +1,6 @@
 # Six invariant tests brought to the rules the owner already set (owner approved, 2026-11-13)
 
-**Choice.** `2026-11-13-invariants-six.patch` changes six invariant tests that asserted rules from before later decisions. Each still guards the same promise: nothing happens without the right person's say. The owner approved all six on 2026-11-13. It is a patch, not applied to the tree, so the owner applies it with `git apply decisions/2026-11-13-invariants-six.patch`.
+**Choice.** `2026-11-13-invariants-six.patch` changes six invariant tests that asserted rules from before later decisions. Each still guards the same promise: nothing happens without the right person's say. The owner approved all six on 2026-11-13. It was written as a patch for the owner to apply.
 
 | Test | Change | Follows |
 |---|---|---|
@@ -26,3 +26,5 @@ Of 123 tests, 116 pass. The 7 that fail are not touched by the patch:
 - inv3 `destroying_a_computer_loses_no_user_work` drops its guest connection after a cold boot. It was diagnosed on a full disk, so it is to be judged again.
 - inv3 `earlier_versions_of_a_deleted_file_leave_the_volume_when_it_goes_idle` returns a 500 at line 393. It passed on `f2bf39b`, so it is newly failing on main.
 - `desktop_screens` gets past its browser setup now, and fails at line 88.
+
+**Applied** to `tests/invariants/` on 2026-11-13 (branch `inv-no-contracts`, on the owner's "Approve the invariants rewrite."); the patch file is removed.

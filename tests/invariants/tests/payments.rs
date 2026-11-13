@@ -270,8 +270,12 @@ async fn a_saved_card_is_approved_at_every_fill_and_works_only_at_its_seller() {
         .await;
         seen.push(asked["id"].as_str().unwrap().to_string());
         assert_eq!(asked["details"]["tool"], "purchase_fill", "{asked}");
-        assert_eq!(asked["details"]["rule"], "kernel:saved_card", "the fill was not asked as a saved card: {asked}");
-        assert!(asked["details"]["why"].as_str().unwrap_or_default().contains("USD 35.05"), "the person was not told what it costs: {asked}");
+        // The ask's reasoning stays off the person's surface (spec rev 140);
+        // the card itself says it is the saved card, what and where.
+        let said = asked["summary"].as_str().unwrap_or_default();
+        assert!(said.contains("saved card"), "the fill was not asked as a saved card: {asked}");
+        assert!(said.contains("USD 35.05"), "the person was not told what it costs: {asked}");
+        assert_eq!(asked["ask"]["allow_scope"], "once", "a saved card's Allow covered more than this fill: {asked}");
         let id = asked["id"].as_str().unwrap();
         assert!(!alice.respond(id, json!({ "decision": "approve", "scope": "task" })).await.is_success(), "a saved card was approved for more than one use");
         assert!(alice.respond(id, json!({ "decision": "approve" })).await.is_success());

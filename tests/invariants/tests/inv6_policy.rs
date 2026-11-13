@@ -126,11 +126,16 @@ async fn people_set_policy_only_within_their_role() {
     let app = Appliance::start(Spec::default(), &model).await;
     let (bob, carol) = (app.api("bob"), app.api("carol"));
     let rule = permit_execute("mail__send");
-    for (who, layer) in [(&bob, "org"), (&bob, "user/alice"), (&bob, "group/staff"), (&carol, "user/carol"), (&carol, "org")] {
+    for (who, layer) in [(&bob, "org"), (&bob, "user/alice"), (&bob, "group/staff"), (&carol, "org")] {
         let st = who.put_policy(layer, &rule).await;
         assert!(st == 401 || st == 403, "{layer} accepted a policy from someone without the role: {st}");
     }
-    assert!(bob.put_policy("user/bob", r#"forbid(principal, action, resource == Tool::"mail__send");"#).await.is_success());
+    // A person's own layer is theirs with no role needed, and it can only
+    // tighten: a permit there is refused (owner, 2026-11-11, policy_layers.rs).
+    for (who, layer) in [(&bob, "user/bob"), (&carol, "user/carol")] {
+        assert!(!who.put_policy(layer, &rule).await.is_success(), "{layer} accepted a permit");
+        assert!(who.put_policy(layer, r#"forbid(principal, action, resource == Tool::"mail__send");"#).await.is_success(), "{layer} refused its own person's forbid");
+    }
 }
 
 const CHAT: &str = "talking with the person you work for in a chat";
