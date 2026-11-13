@@ -70,7 +70,9 @@ const name = id => ({ dana: "Dana", leo: "Leo", sam: "Sam" })[id] || id;
 const work = { task: "t1", requester: "dana", status: "working", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", reason: null };
 const card = sandbox.workCard(work, name, "w", "c1");
 assert.match(card, /for Dana/, "the work card does not name the requester");
-assert.match(card, /Reading a team file · step 2/);
+assert.match(card, /Reading a team file/);
+// A team reply is a chat turn: no step count, as no Magnus chat shows one (owner, 2026-11-13).
+assert.doesNotMatch(card, /step \d/, "the work card counts steps");
 assert.match(card, /data-open-thread="m1"/, "long work has no thread to open");
 assert.match(sandbox.workCard({ ...work, status: "waiting" }, name, "w", "c1"), /Waiting for Dana to answer an ask/);
 assert.match(sandbox.workCard({ ...work, status: "failed", reason: "<no access>" }, name, "w", "c1"), /Could not finish: &#60;no access&#62;/);
@@ -216,8 +218,9 @@ assert.match(spendCard, /#magnus-alpha<\/span><span class="small faint">\$4 of \
 Team.home = home;
 assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as nothing");
 assert.equal(sandbox.teamUsd(12), "$12");
-assert.match(sandbox.workCard({ ...work, doing: null, steps: 1 }, name, "w", "c1"), /Thinking it through · step 2/, "work past its first step still says it is starting");
+assert.match(sandbox.workCard({ ...work, doing: null, steps: 1 }, name, "w", "c1"), /Thinking it through/, "work with no action yet says it is starting");
 
+assert.doesNotMatch(sandbox.workCard({ ...work, doing: null, steps: 0 }, name, "w", "c1"), /step|Starting/, "a reply not begun yet counts steps");
 assert.doesNotMatch(sandbox.workCard(work, name, "w", "c1", true), /data-open-thread/, "a work card inside its own thread links to that thread");
 assert.match(sandbox.workCard({ ...work, doing: "task_complete" }, name, "w", "c1"), /Finishing up/);
 

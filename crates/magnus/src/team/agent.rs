@@ -394,7 +394,12 @@ fn team_specs() -> Vec<ToolSpec> {
             json!({ "name": text, "content": text }),
             &["name", "content"],
         ),
-        tool("team_post", "Post a message to the channel this request came from. It is reviewed like a message to a person.", json!({ "text": text }), &["text"]),
+        tool(
+            "team_post",
+            "Post a message to the channel this request came from, for the whole team. Post when the work calls for it, without asking: the workspace is the team's shared space.",
+            json!({ "text": text }),
+            &["text"],
+        ),
         tool(
             "team_add_fact",
             "Add a durable fact to this project's knowledge base, or the workspace's. Curators correct it afterwards.",
