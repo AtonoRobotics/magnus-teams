@@ -9,9 +9,12 @@
 // name it.
 
 /**
- * A channel's items as the server sends them (crates/magnus/src/team/items.rs).
- * @typedef {{ task: string, requester: string, status: "running"|"suspended"|"completed"|"failed"|"cancelled", steps: number, doing: ?string, title: string, long: boolean, thread: ?string, reason: ?string }} TeamWork
- * @typedef {{ id: string, kind: "message"|"answer"|"work"|"deleted", files?: string[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, task?: string, private?: boolean, deleted?: boolean }} TeamMessage
+ * A channel's items as the server sends them: the personal chat's entries
+ * (crates/magnus/src/chat_entry.rs, built in crates/magnus/src/team/items.rs).
+ * A request's work is a personal task row, with whom it is for and where it shows.
+ * @typedef {{ task_id: string, title: string, text: string, status: "running"|"suspended"|"completed"|"failed"|"cancelled", waiting_on: ?string, status_line: ?string, requester: string, steps: number, doing: ?string, long: boolean, thread: ?string, started: string }} TeamWork
+ * @typedef {{ id: string, name: string, media_type?: string, size?: number }} TeamFile
+ * @typedef {{ id: string, kind: "message"|"answer"|"tasks"|"deleted", files?: TeamFile[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, tasks?: TeamWork[], from_run?: string, task?: string, task_id?: string, private?: boolean, deleted?: boolean }} TeamMessage
  * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
  * Who is reading, to read a channel's items into the chat view's kinds.
  * @typedef {{ me: string, ws: string, channel: string, name: (id: string) => string, inThread?: boolean }} TeamReader
@@ -62,26 +65,28 @@ function teamWork(w, r) {
   const who = r.name(w.requester), status = w.status;
   const line = status === "running" ? (w.doing ? doingWords(w.doing) : "Thinking it through")
     : status === "suspended" ? `Waiting for ${who} to answer an ask`
-    : status === "completed" ? "Done" : status === "failed" ? `Could not finish${w.reason ? `: ${w.reason}` : ""}` : "Stopped";
+    : status === "completed" ? "Done" : status === "failed" ? `Could not finish${w.waiting_on ? `: ${w.waiting_on}` : ""}` : "Stopped";
   const needs = status === "suspended" && w.requester === r.me;
   const icon = needs ? "need" : { running: "working", suspended: "working", completed: "done" }[status] || "stopped";
-  const sub = status === "running" ? statusLineSlot({ task_id: w.task, status_line: line }, "sub why") : `<span class="sub why">${esc(line)}</span>`;
+  const sub = status === "running" ? statusLineSlot({ task_id: w.task_id, status_line: line }, "sub why") : `<span class="sub why">${esc(line)}</span>`;
   const thread = w.thread && !r.inThread ? teamHref(r.ws, { kind: "channel", id: r.channel, thread: w.thread }) : undefined;
-  return { id: w.task, status, icon, pill: needs ? `<span class="chip warn">Needs you</span>` : chip(status), title: workTitle(w.title), tip: thread ? "Open its thread" : workTitle(w.title), sub, by: who, href: thread };
+  return { id: w.task_id, status, icon, pill: needs ? `<span class="chip warn">Needs you</span>` : chip(status), title: workTitle(w.title), tip: thread ? "Open its thread" : workTitle(w.title), sub, by: who, href: thread };
 }
 
 /**
- * A channel's item as the chat view's entry. The server says which kind it
- * is (a person's message, the agent's answer, its work with no words yet, or
- * a deleted message) and which files it carries (crates/magnus/src/team/items.rs);
- * here only the words lose their 📎 lines and names are put to ids.
+ * A channel's item as the chat view's entry. The server sends the personal
+ * chat's entry (a person's message, the agent's answer, the tasks it began
+ * with no words yet, or a deleted message's place) with the files it carries;
+ * here only the words lose their 📎 lines and names are put to ids. Work the
+ * agent began itself is drawn as the chat view's work card.
  * @param {TeamMessage} m @param {TeamReader} r @returns {ChatEntry}
  */
 function teamEntry(m, r) {
   if (m.kind === "deleted") return { id: m.id, kind: "deleted", at: m.at, sender: m.sender, replies: m.replies, thread: m.thread };
   const text = String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n");
-  return { id: m.id, kind: m.kind, at: m.at, sender: m.sender, text, files: (m.files || []).map(name => ({ name })), edited: m.edited, pinned: m.pinned, reactions: m.reactions, replies: m.replies, last_reply: m.last_reply,
-    thread: m.thread, task_id: m.task, private: m.private, requester: m.requester, for: m.kind !== "message" && m.requester ? r.name(m.requester) : undefined, work: m.work ? teamWork(m.work, r) : undefined };
+  const work = m.work || (m.kind === "tasks" ? m.tasks?.[0] : undefined);
+  return { id: m.id, kind: m.kind === "tasks" ? "work" : m.kind, at: m.at, sender: m.sender, text, files: m.files || [], edited: m.edited, pinned: m.pinned, reactions: m.reactions, replies: m.replies, last_reply: m.last_reply,
+    thread: m.thread, task_id: m.task_id || m.task, private: m.private, requester: m.requester, for: m.kind !== "message" && m.requester ? r.name(m.requester) : undefined, work: work ? teamWork(work, r) : undefined };
 }
 
 /** Who a partial @mention could be: the team agent first, then people. */

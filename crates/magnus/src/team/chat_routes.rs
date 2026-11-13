@@ -125,7 +125,7 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
     if working {
         typing.push(AGENT_NAME.to_string());
     }
-    let names: BTreeMap<String, String> = items.iter().flat_map(|i| std::iter::once(&i.sender).chain(i.requester.as_ref())).map(|id| (id.clone(), name_of(&k, id))).collect();
+    let names: BTreeMap<String, String> = items.iter().flat_map(|i| i.sender.iter().chain(i.requester.as_ref())).map(|id| (id.clone(), name_of(&k, id))).collect();
     Json(json!({ "messages": items, "typing": typing, "names": names })).into_response()
 }
 

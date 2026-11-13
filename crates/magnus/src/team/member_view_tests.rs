@@ -245,9 +245,9 @@ fn work_sits_on_the_message_that_asked() {
     let now = x.at(10);
     let shown = timeline(&x.view("sam"), "c", now);
     let m1 = shown.iter().find(|i| i.id == "m1").unwrap();
-    assert_eq!(m1.work.as_ref().map(|w| (w.task.as_str(), w.title.as_str(), w.status)), Some(("t1", "@Magnus pull together the feedback", Status::Running)));
+    assert_eq!(m1.work.as_ref().map(|w| (w.task_id.as_str(), w.title.as_str(), w.status)), Some(("t1", "@Magnus pull together the feedback", Status::Running)));
     let alone = shown.iter().find(|i| i.id == "work:t2").expect("work the agent began itself is not shown");
-    assert_eq!((alone.sender.as_str(), alone.requester.as_deref()), ("agent", Some("mo")));
+    assert_eq!((alone.sender.as_deref(), alone.requester.as_deref()), (Some("agent"), Some("mo")));
 }
 
 /// As the personal chat's turn gives way to its answer, a short request's

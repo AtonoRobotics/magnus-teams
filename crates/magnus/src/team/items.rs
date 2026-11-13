@@ -1,93 +1,40 @@
 //! The team chat's items as they travel to the app: a person's message, the
-//! agent's live work, and its answer. Each says which kind of the chat
-//! view's items it is (`kind`: the personal chat's `message` and `answer`,
-//! with `work` and `deleted`) and the files it carries, so the app's one chat
-//! view (desktop/ui/chat-view.js) reads it as it reads a personal chat entry
-//! (decisions/2026-11-13-one-chat-view.md). Defined once here; the app's
-//! JSDoc (`TeamMessage`, `TeamWork` in desktop/ui/team-chat.js) follows them.
+//! agent's live work, and its answer. They are the personal chat's entries
+//! (`crate::chat_entry::ChatEntry`), one type for both chats
+//! (decisions/2026-11-13-one-chat-entry.md): a message or answer is the
+//! personal chat's `message` or `answer`, work no message carries is a
+//! `tasks` entry with its one row, and a request's work rides on its message
+//! as that row. A deleted message's place is `deleted`. The app's JSDoc
+//! (`TeamMessage` in desktop/ui/team-chat.js) follows them.
 use super::conversation::AGENT_ID;
 use super::member_view::{author, Answer, MemberView, Runs, Work};
 use super::{Message, Workspace};
+use crate::chat_entry::{ChatEntry, EntryFile, TaskRow};
 use crate::state::Status;
-use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 type At = chrono::DateTime<chrono::Utc>;
 
-/// A request's live card.
-#[derive(Serialize, Clone, Debug, PartialEq)]
-pub struct TeamWork {
-    pub task: String,
-    pub requester: String,
-    /// The task's status as the personal chat sends a task's: running,
-    /// suspended, completed, failed or cancelled.
-    pub status: crate::state::Status,
-    pub steps: usize,
-    pub doing: Option<String>,
-    pub title: String,
-    pub long: bool,
-    pub thread: Option<String>,
-    pub started: At,
-    pub reason: Option<String>,
-}
+/// A team channel's item: the one chat entry.
+pub type TeamItem = ChatEntry;
 
-/// One item of a channel: a message, a request's work with no message to
-/// sit on, or the agent's answer. What one kind lacks is left out.
-#[derive(Serialize, Clone, Debug, PartialEq)]
-pub struct TeamItem {
-    pub id: String,
-    /// The chat view's kind: `message` (a person's), `answer` (the agent's
-    /// words), `work` (the agent's work with no words yet) or `deleted`.
-    pub kind: &'static str,
-    /// The files it carries, by name: its `📎` lines.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<String>,
-    /// A person, or the agent.
-    pub sender: String,
-    /// Whom the agent wrote it for.
-    pub requester: Option<String>,
-    pub text: String,
-    pub thread: Option<String>,
-    pub at: At,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub edited: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pinned: Option<bool>,
-    /// Emoji, then who.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reactions: Option<BTreeMap<String, BTreeSet<String>>>,
-    /// Deleted for everyone: only its place is left.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deleted: Option<bool>,
-    /// The request an answer answers.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub task: Option<String>,
-    /// An answer only its requester may read.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub private: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub work: Option<TeamWork>,
-    /// How many replies hang from it, in the channel view.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub replies: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_reply: Option<At>,
-}
-
-impl TeamWork {
-    pub fn of(w: &Work) -> TeamWork {
-        TeamWork {
-            task: w.task.clone(),
-            requester: w.requester.clone(),
-            status: w.status,
-            steps: w.steps,
-            doing: w.doing.clone(),
-            title: w.title.clone(),
-            long: w.long,
-            thread: w.thread.clone(),
-            started: w.started,
-            reason: w.reason.clone(),
-        }
+/// A request's work as the personal chat lists a task a message started,
+/// with whom it is for, how far it is and where it shows.
+pub fn task_row(w: &Work) -> TaskRow {
+    TaskRow {
+        task_id: w.task.clone(),
+        title: w.title.clone(),
+        text: w.title.clone(),
+        status: w.status,
+        waiting_on: w.reason.clone(),
+        waiting_item: None,
+        status_line: None,
+        requester: Some(w.requester.clone()),
+        steps: Some(w.steps),
+        doing: w.doing.clone(),
+        long: Some(w.long),
+        thread: w.thread.clone(),
+        started: Some(w.started),
     }
 }
 
@@ -96,64 +43,48 @@ pub fn attached(text: &str) -> Vec<String> {
     text.lines().filter_map(|l| l.strip_prefix("📎 ")).map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect()
 }
 
-impl TeamItem {
-    fn bare(kind: &'static str, id: String, sender: String, requester: Option<String>, text: String, thread: Option<String>, at: At) -> TeamItem {
-        TeamItem {
-            id,
-            kind,
-            files: attached(&text),
-            sender,
-            requester,
-            text,
-            thread,
-            at,
-            edited: None,
-            pinned: None,
-            reactions: None,
-            deleted: None,
-            task: None,
-            private: None,
-            work: None,
-            replies: None,
-            last_reply: None,
-        }
-    }
+fn bare(kind: &'static str, id: String, sender: String, requester: Option<String>, text: String, thread: Option<String>, at: At) -> TeamItem {
+    let files: Vec<EntryFile> = attached(&text).iter().map(|n| EntryFile::named(n)).collect();
+    ChatEntry { id, kind, files: (!files.is_empty()).then_some(files), sender: Some(sender), requester, text, thread, at: Some(at), ..Default::default() }
+}
 
-    /// A message, with its edits, pin, reactions and whether it was deleted.
-    pub fn message(w: &Workspace, m: &Message) -> TeamItem {
-        let (sender, requester) = author(&m.sender);
-        let deleted = w.chat.unsent.contains(&m.id);
-        let kind = if deleted {
-            "deleted"
-        } else if sender == AGENT_ID {
-            "answer"
-        } else {
-            "message"
-        };
-        TeamItem {
-            edited: Some(w.chat.edited.contains(&m.id)),
-            pinned: Some(w.chat.pins.contains(&m.id)),
-            reactions: Some(w.chat.reactions.get(&m.id).cloned().unwrap_or_default()),
-            deleted: Some(deleted),
-            ..TeamItem::bare(kind, m.id.clone(), sender.to_string(), requester.map(String::from), m.text.clone(), m.thread.clone(), m.at)
-        }
+/// A message, with its edits, pin, reactions and whether it was deleted.
+pub fn message(w: &Workspace, m: &Message) -> TeamItem {
+    let (sender, requester) = author(&m.sender);
+    let deleted = w.chat.unsent.contains(&m.id);
+    let kind = if deleted {
+        "deleted"
+    } else if sender == AGENT_ID {
+        "answer"
+    } else {
+        "message"
+    };
+    ChatEntry {
+        edited: Some(w.chat.edited.contains(&m.id)),
+        pinned: Some(w.chat.pins.contains(&m.id)),
+        reactions: Some(w.chat.reactions.get(&m.id).cloned().unwrap_or_default()),
+        deleted: Some(deleted),
+        ..bare(kind, m.id.clone(), sender.to_string(), requester.map(String::from), m.text.clone(), m.thread.clone(), m.at)
     }
+}
 
-    /// A request's work that no message carries: one the agent began itself.
-    pub fn work(w: &Work) -> TeamItem {
-        TeamItem {
-            work: Some(TeamWork::of(w)),
-            ..TeamItem::bare("work", format!("work:{}", w.task), AGENT_ID.into(), Some(w.requester.clone()), String::new(), w.asked_in.clone(), w.started)
-        }
+/// A request's work that no message carries, one the agent began itself:
+/// the personal chat's `tasks` entry, with its one row.
+pub fn work(w: &Work) -> TeamItem {
+    ChatEntry {
+        from_run: Some(w.task.clone()),
+        tasks: Some(vec![task_row(w)]),
+        ..bare("tasks", format!("work:{}", w.task), AGENT_ID.into(), Some(w.requester.clone()), String::new(), w.asked_in.clone(), w.started)
     }
+}
 
-    /// The agent's answer, as the viewer may read it.
-    pub fn answer(a: &Answer) -> TeamItem {
-        TeamItem {
-            task: Some(a.task.clone()),
-            private: Some(a.private),
-            ..TeamItem::bare("answer", a.id.clone(), AGENT_ID.into(), Some(a.requester.clone()), a.text.clone(), a.thread.clone(), a.at)
-        }
+/// The agent's answer, as the viewer may read it.
+pub fn answer(a: &Answer) -> TeamItem {
+    ChatEntry {
+        task: Some(a.task.clone()),
+        task_id: Some(a.task.clone()),
+        private: Some(a.private),
+        ..bare("answer", a.id.clone(), AGENT_ID.into(), Some(a.requester.clone()), a.text.clone(), a.thread.clone(), a.at)
     }
 }
 
@@ -168,15 +99,12 @@ pub fn timeline<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamI
     // personal message started keeps its card.
     let mut work = v.work(channel, now);
     work.retain(|x| x.long || !matches!(x.status, Status::Completed | Status::Failed));
-    let mut items: Vec<TeamItem> = v
-        .places(channel)
-        .into_iter()
-        .map(|m| TeamItem { work: work.iter().find(|x| x.asked.as_deref() == Some(m.id.as_str())).map(TeamWork::of), ..TeamItem::message(w, m) })
-        .collect();
-    items.extend(work.iter().filter(|x| x.asked.is_none()).map(TeamItem::work));
-    items.extend(v.answers(channel, now).iter().map(TeamItem::answer));
+    let mut items: Vec<TeamItem> =
+        v.places(channel).into_iter().map(|m| ChatEntry { work: work.iter().find(|x| x.asked.as_deref() == Some(m.id.as_str())).map(task_row), ..message(w, m) }).collect();
+    items.extend(work.iter().filter(|x| x.asked.is_none()).map(self::work));
+    items.extend(v.answers(channel, now).iter().map(answer));
     items.sort_by_key(|i| i.at);
-    let mut replies: BTreeMap<String, (usize, At)> = BTreeMap::new();
+    let mut replies: BTreeMap<String, (usize, Option<At>)> = BTreeMap::new();
     for i in &items {
         if let Some(t) = &i.thread {
             let e = replies.entry(t.clone()).or_insert((0, i.at));
@@ -186,7 +114,7 @@ pub fn timeline<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamI
     }
     for i in &mut items {
         if let Some((n, last)) = replies.get(&i.id) {
-            (i.replies, i.last_reply) = (Some(*n), Some(*last));
+            (i.replies, i.last_reply) = (Some(*n), *last);
         }
     }
     items.retain(|i| i.deleted != Some(true) || i.replies.is_some());
@@ -197,8 +125,8 @@ pub fn timeline<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamI
 /// agent's answers, in order, nothing deleted.
 pub fn said<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamItem> {
     let w = v.workspace();
-    let mut items: Vec<TeamItem> = v.messages(channel).into_iter().map(|m| TeamItem::message(w, m)).collect();
-    items.extend(v.answers(channel, now).iter().map(TeamItem::answer));
+    let mut items: Vec<TeamItem> = v.messages(channel).into_iter().map(|m| message(w, m)).collect();
+    items.extend(v.answers(channel, now).iter().map(answer));
     items.sort_by_key(|i| i.at);
     items
 }
@@ -215,13 +143,42 @@ mod tests {
     /// so the app reads it as a personal chat entry.
     #[test]
     fn an_item_is_one_of_the_chat_views_kinds_with_its_files() {
-        let said = TeamItem::bare("message", "m1".into(), "sam".into(), None, "see this\n📎 plan.pdf\n📎  \n📎 shot.png".into(), None, at());
-        assert_eq!(said.files, ["plan.pdf", "shot.png"]);
+        let said = bare("message", "m1".into(), "sam".into(), None, "see this\n📎 plan.pdf\n📎  \n📎 shot.png".into(), None, at());
         let v = serde_json::to_value(&said).unwrap_or_default();
         assert_eq!(v["kind"], "message");
-        assert_eq!(v["files"], serde_json::json!(["plan.pdf", "shot.png"]));
-        let quiet = serde_json::to_value(TeamItem::bare("answer", "a1".into(), AGENT_ID.into(), None, "done".into(), None, at())).unwrap_or_default();
+        assert_eq!(v["files"], serde_json::json!([{ "id": "plan.pdf", "name": "plan.pdf" }, { "id": "shot.png", "name": "shot.png" }]), "a team file is not a chat entry's file");
+        let quiet = serde_json::to_value(bare("answer", "a1".into(), AGENT_ID.into(), None, "done".into(), None, at())).unwrap_or_default();
         assert_eq!(quiet["kind"], "answer");
         assert!(quiet.get("files").is_none(), "an item with no files says it has some");
+    }
+
+    /// Work the agent began itself is the personal chat's `tasks` entry, its
+    /// row a personal task row with every field the personal one has.
+    #[test]
+    fn work_with_no_message_is_the_personal_chats_tasks_entry() {
+        let w = Work {
+            task: "t1".into(),
+            requester: "mo".into(),
+            status: Status::Suspended,
+            steps: 3,
+            doing: Some("team_read_file".into()),
+            title: "Following up".into(),
+            long: false,
+            thread: None,
+            asked_in: None,
+            started: at(),
+            reason: Some("approval".into()),
+            asked: None,
+        };
+        let v = work(&w).value();
+        assert_eq!((&v["kind"], &v["from_run"]), (&serde_json::json!("tasks"), &serde_json::json!("t1")), "{v}");
+        let row = &v["tasks"][0];
+        for key in ["task_id", "title", "text", "status", "waiting_on", "waiting_item", "status_line"] {
+            assert!(row.get(key).is_some(), "a team task row has no {key}: {row}");
+        }
+        assert_eq!(
+            (&row["task_id"], &row["status"], &row["waiting_on"], &row["requester"]),
+            (&serde_json::json!("t1"), &serde_json::json!("suspended"), &serde_json::json!("approval"), &serde_json::json!("mo"))
+        );
     }
 }

@@ -6,6 +6,7 @@
 //! their results, and the schedule cards with what the person decided.
 
 use crate::boundary::Action;
+use crate::chat_entry::{ChatEntry, EntryFile, TaskRow};
 use crate::events::{ChatOrigin, Ev};
 use crate::kernel::{new_id, Kernel, NewRun};
 use crate::state::{Run, Status, Task};
@@ -187,7 +188,7 @@ impl Kernel {
             out.push((at, n as i64 - i64::MAX / 2, e));
         }
         // The tasks one message started, as one card in the order they began.
-        let mut started: std::collections::BTreeMap<String, (DateTime<Utc>, Vec<Value>)> = Default::default();
+        let mut started: std::collections::BTreeMap<String, (DateTime<Utc>, Vec<TaskRow>)> = Default::default();
         // A task's result follows the reply of the message that started it, even when the task finished first.
         let answered: std::collections::HashMap<String, DateTime<Utc>> =
             runs.iter().filter(|(t, _)| t.is_chat_turn()).filter_map(|(_, r)| r.ended_at.map(|e| (r.id.clone(), e))).collect();
@@ -196,16 +197,36 @@ impl Kernel {
             let status = crate::api::status_str(r.status);
             if let Some(o) = t.chat.as_ref().and_then(|c| c.opener.as_deref()).filter(|_| turn) {
                 // Magnus opened it: the appliance's instruction is not shown as anyone's message.
-                out.push((t.created_at, 0, json!({ "id": format!("m:{}", t.task_id), "kind": "opener", "app": o.app, "app_title": o.app_title, "text": crate::openers::title(o), "at": t.created_at, "task_id": t.task_id })));
+                let e = ChatEntry {
+                    id: format!("m:{}", t.task_id),
+                    kind: "opener",
+                    app: o.app.clone(),
+                    app_title: o.app_title.clone(),
+                    text: crate::openers::title(o),
+                    at: Some(t.created_at),
+                    task_id: Some(t.task_id.clone()),
+                    ..Default::default()
+                };
+                out.push((t.created_at, 0, e.value()));
             } else if turn && self.read(|s| s.outcomes.of(&t.task_id).is_none()) {
                 // An outcome turn's text is the server's: the result above it shows instead.
-                let files: Vec<Value> = self
-                    .read(|s| t.files.iter().filter_map(|id| s.files.get(id)).map(|f| json!({ "id": f.id, "name": f.name, "media_type": f.media_type, "size": f.size })).collect());
-                out.push((
-                    t.created_at,
-                    0,
-                    json!({ "id": format!("m:{}", t.task_id), "kind": "message", "text": w.text(t.seq), "at": t.created_at, "task_id": t.task_id, "files": files }),
-                ));
+                let files: Vec<EntryFile> = self.read(|s| {
+                    t.files
+                        .iter()
+                        .filter_map(|id| s.files.get(id))
+                        .map(|f| EntryFile { id: f.id.clone(), name: f.name.clone(), media_type: Some(f.media_type.clone()), size: Some(f.size) })
+                        .collect()
+                });
+                let e = ChatEntry {
+                    id: format!("m:{}", t.task_id),
+                    kind: "message",
+                    text: w.text(t.seq).to_string(),
+                    at: Some(t.created_at),
+                    task_id: Some(t.task_id.clone()),
+                    files: Some(files),
+                    ..Default::default()
+                };
+                out.push((t.created_at, 0, e.value()));
             }
             if turn {
                 let mut cards: Vec<_> = r.results.values().filter_map(|res| res.data.as_ref().filter(|d| d["card"].is_string()).map(|d| (res.seq, d.clone()))).collect();
@@ -252,11 +273,21 @@ impl Kernel {
                 }
                 out.extend(self.sub_agents_entry(t, r, w));
                 match r.status {
-                    Status::Completed => out.push((
-                        r.ended_at.unwrap_or(t.created_at),
-                        i64::MAX,
-                        json!({ "id": format!("a:{}", t.task_id), "kind": "answer", "text": self.read(|s| crate::ui::docs::current_text(s, &t.person, &r.summary)), "view": r.outcome_view, "spoken": r.spoken, "at": r.ended_at, "task_id": t.task_id, "model": { "adapter": r.config.adapter, "model": r.config.model }, "verdict": t.verdict }),
-                    )),
+                    Status::Completed => {
+                        let e = ChatEntry {
+                            id: format!("a:{}", t.task_id),
+                            kind: "answer",
+                            text: self.read(|s| crate::ui::docs::current_text(s, &t.person, &r.summary)).unwrap_or_default(),
+                            view: r.outcome_view.clone(),
+                            spoken: r.spoken.clone(),
+                            at: r.ended_at,
+                            task_id: Some(t.task_id.clone()),
+                            model: Some(json!({ "adapter": r.config.adapter, "model": r.config.model })),
+                            verdict: t.verdict.as_ref().map(|v| json!(v)),
+                            ..Default::default()
+                        };
+                        out.push((r.ended_at.unwrap_or(t.created_at), i64::MAX, e.value()))
+                    }
                     _ => out.push((
                         r.ended_at.unwrap_or(t.created_at),
                         i64::MAX,
@@ -267,7 +298,21 @@ impl Kernel {
                 let title = crate::api::title_of(t, Some(r), w);
                 let from = t.chat.as_ref().and_then(|c| c.from_run.clone()).unwrap_or_else(|| t.task_id.clone());
                 let e = started.entry(from).or_insert((t.created_at, vec![]));
-                e.1.push(json!({ "task_id": t.task_id, "title": title, "text": w.text(t.seq), "status": status, "waiting_on": r.reason, "waiting_item": r.waiting_item, "status_line": crate::evidence::status_line(r) }));
+                e.1.push(TaskRow {
+                    task_id: t.task_id.clone(),
+                    title: title.clone(),
+                    text: w.text(t.seq).to_string(),
+                    status: r.status,
+                    waiting_on: r.reason.clone(),
+                    waiting_item: r.waiting_item.clone(),
+                    status_line: crate::evidence::status_line(r),
+                    requester: None,
+                    steps: None,
+                    doing: None,
+                    long: None,
+                    thread: None,
+                    started: None,
+                });
                 if let Some(end) = r.ended_at {
                     let after = t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| answered.get(f)).map_or(end, |a| end.max(*a));
                     let files: Vec<Value> = r.outputs.iter().map(|(id, name, mt, size)| json!({ "id": id, "name": name, "media_type": mt, "size": size })).collect();
@@ -276,7 +321,8 @@ impl Kernel {
             }
         }
         for (from, (at, tasks)) in started {
-            out.push((at, 1, json!({ "id": format!("t:{from}"), "kind": "tasks", "from_run": from, "tasks": tasks, "at": at })));
+            let e = ChatEntry { id: format!("t:{from}"), kind: "tasks", at: Some(at), from_run: Some(from), tasks: Some(tasks), ..Default::default() };
+            out.push((at, 1, e.value()));
         }
         out.sort_by_key(|x| (x.0, x.1));
         let (hidden, trashed) = self.read(|s| {

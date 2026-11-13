@@ -26,8 +26,9 @@ sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, Notices, ChatView };`, sandbox);
 
-// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
-const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
+// An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
+// chat's entry, its files as file entries, work no message carries as a `tasks` entry.
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
 const { Team, Notices, ChatView } = sandbox.__x;
 
 const home = {
@@ -146,7 +147,7 @@ assert.ok(!private_.includes("share") && !private_.includes("save"), "an answer 
 const post = messageHtml(answer);
 assert.match(post, /^<div class="entry them" data-entry="agent:t1" data-kind="answer"><div class="msg magnus"[^]*<div class="msg-actions small"[^]*<\/div>$/, "a post's controls are not under it, as the personal chat's are");
 // A post with no words, a work card, can still be reacted to and replied to.
-const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t9", requester: "dana", status: "running", steps: 0, doing: null, title: "x", long: false, thread: null, reason: null } });
+const card = messageHtml({ id: "m9", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task_id: "t9", requester: "dana", status: "running", steps: 0, doing: null, title: "x", long: false, thread: null, waiting_on: null } });
 assert.ok(card.includes("data-reply") && card.includes('data-react="'), "a work card cannot be reacted to or replied to");
 // The reactions menu is a row, and says so, so Left and Right move along it.
 assert.match(post, /class="action-menu reactions"[^>]*aria-orientation="horizontal"/, "the reactions row does not say it is a row");

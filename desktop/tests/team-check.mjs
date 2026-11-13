@@ -25,8 +25,9 @@ sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts, ChatView };`, sandbox);
 
-// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
-const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
+// An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
+// chat's entry, its files as file entries, work no message carries as a `tasks` entry.
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
 const { Team, TeamChat } = sandbox.__x;
 
 // Places and links.
@@ -83,7 +84,7 @@ Team.home = home;
 
 // The agent's live work: the personal chat's task row, with the requester
 // named and its own thread to open.
-const work = { task: "t1", requester: "dana", status: "running", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", reason: null };
+const work = { task_id: "t1", requester: "dana", status: "running", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", waiting_on: null };
 const workItem = w => draw({ id: "w1", sender: "agent", requester: w.requester, text: "", thread: null, at: "", work: w });
 const card = workItem(work);
 assert.match(card, /class="reqgroup chatcard"[^]*class="tcard"/, "the work card is not the personal chat's task row");
@@ -93,7 +94,7 @@ assert.match(card, /Reading a team file/);
 assert.doesNotMatch(card, /step \d/, "the work card counts steps");
 assert.match(card, /href="#\/team\/w\/c\/c1\/t\/m1"/, "long work has no thread to open");
 assert.match(workItem({ ...work, status: "suspended" }), /Waiting for Dana to answer an ask/);
-assert.match(workItem({ ...work, status: "failed", reason: "<no access>" }), /Could not finish: &#60;no access&#62;/);
+assert.match(workItem({ ...work, status: "failed", waiting_on: "<no access>" }), /Could not finish: &#60;no access&#62;/);
 assert.doesNotMatch(workItem({ ...work, thread: null }), /\/t\/m1/);
 assert.match(workItem({ ...work, requester: "sam", status: "suspended" }), /Needs you/, "work waiting on me does not say it needs me");
 

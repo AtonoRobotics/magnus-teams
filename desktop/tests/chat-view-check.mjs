@@ -24,8 +24,9 @@ sandbox.globalThis = sandbox;
 const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "personal-chat.js", "teams.js", "team-chat.js", "team-conversation.js"].map(ui);
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { ChatView, Team };`, sandbox);
 
-// An item as the server sends it (crates/magnus/src/team/items.rs): its kind and files.
-const served = m => ({ ...m, kind: m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "work"), files: m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()) });
+// An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
+// chat's entry, its files as file entries, work no message carries as a `tasks` entry.
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
 const { ChatView, Team } = sandbox.__x;
 Team.home = { id: "w", role: "member", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1", name: "general", direct: null }], projects: [] };
 const state = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {}, pinsOnly: false, whispers: [], hidden: new Set(), unreadAtOpen: 0, typedAt: 0 };
@@ -64,7 +65,7 @@ for (const html of [answer, answerTeam]) assert.match(html, /class="icon menu-tr
 
 // Work: the personal chat's task row, in a team the requester named.
 const taskRow = ChatView.workRow({ id: "t1", status: "running", icon: "working", pill: "", title: "Plan", sub: "", href: "#/task/t1" });
-const teamRow = draw(team, sandbox.teamEntry(served({ id: "w1", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task: "t1", requester: "dana", status: "running", steps: 0, doing: null, title: "Plan", long: false, thread: null, reason: null } }), reader));
+const teamRow = draw(team, sandbox.teamEntry(served({ id: "w1", sender: "agent", requester: "dana", text: "", thread: null, at: "", work: { task_id: "t1", requester: "dana", status: "running", steps: 0, doing: null, title: "Plan", long: false, thread: null, waiting_on: null } }), reader));
 assert.match(taskRow, /^<li class="tcard" data-chat-task="t1" data-status="running"><a class="rg-row"/);
 assert.match(teamRow, /<div class="reqgroup chatcard" data-chat-work="t1"><ul class="rg-rows"><li class="tcard" data-chat-task="t1" data-status="running"><div class="rg-row"/, "team work is not the personal chat's task row");
 
@@ -80,9 +81,15 @@ assert.match(draw(team, sandbox.teamEntry(served({ id: "m6", sender: "sam", text
 Team.home.members.pop();
 
 // The server says what an item is and what it carries; the app does not guess.
-const told = sandbox.teamEntry({ id: "a2", kind: "answer", sender: "agent", text: "", files: ["plan.pdf"], thread: null, at: "" }, reader);
+const told = sandbox.teamEntry({ id: "a2", kind: "answer", sender: "agent", text: "", files: [{ id: "plan.pdf", name: "plan.pdf" }], thread: null, at: "" }, reader);
 assert.equal(told.kind, "answer", "the app guessed an item's kind");
-assert.deepEqual(JSON.parse(JSON.stringify(told.files)), [{ name: "plan.pdf" }], "the app did not take the server's files");
+assert.deepEqual(JSON.parse(JSON.stringify(told.files)), [{ id: "plan.pdf", name: "plan.pdf" }], "the app did not take the server's files");
+// Work the agent began itself comes as the personal chat's `tasks` entry,
+// its row a personal task row; the chat view draws it as the work card.
+const began = sandbox.teamEntry({ id: "work:t5", kind: "tasks", sender: "agent", requester: "dana", text: "", thread: null, at: "", from_run: "t5",
+  tasks: [{ task_id: "t5", title: "Following up", text: "Following up", status: "running", waiting_on: null, status_line: null, requester: "dana", steps: 1, doing: null, long: false, thread: null }] }, reader);
+assert.equal(began.kind, "work", "a tasks entry from the team is not drawn as the work card");
+assert.equal(began.work?.id, "t5", "a tasks entry's row is not the work row");
 
 // The one view and the one composer: no team copy of either is left.
 for (const f of ["team-chat.js", "team-conversation.js"]) {
