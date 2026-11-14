@@ -224,15 +224,7 @@ pub const BUILTINS: &[Builtin] = &[
 ];
 
 pub fn builtin(name: &str) -> Option<&'static Builtin> {
-    BUILTINS
-        .iter()
-        .chain(crate::local::BUILTINS)
-        .chain(crate::desktop::BUILTINS)
-        .chain(crate::team::BUILTINS)
-        .chain(crate::tools_ui::BUILTINS)
-        .chain(crate::generated::BUILTINS)
-        .chain(crate::payments::BUILTINS)
-        .find(|b| b.name == name)
+    crate::families::builtins().find(|b| b.name == name)
 }
 
 /// Tools whose calls are their person's alone: no other person's run, the
@@ -248,15 +240,7 @@ pub const REDACTED_CALL: &str = "redacted: this call is the person's alone";
 
 /// The appliance's own apps; no added app may take one of their names.
 pub fn builtin_apps() -> Vec<&'static str> {
-    let mut a: Vec<&str> = BUILTINS
-        .iter()
-        .chain(crate::local::BUILTINS)
-        .chain(crate::desktop::BUILTINS)
-        .chain(crate::team::BUILTINS)
-        .chain(crate::generated::BUILTINS)
-        .chain(crate::payments::BUILTINS)
-        .map(|b| b.app)
-        .collect();
+    let mut a: Vec<&str> = crate::families::builtins().map(|b| b.app).collect();
     a.sort();
     a.dedup();
     a
@@ -683,6 +667,20 @@ mod descriptions_tests {
     fn the_tool_descriptions_parse() {
         let d: serde_json::Value = serde_json::from_str(include_str!("../instructions/tools.json")).unwrap();
         assert!(d.is_object() && super::tool_descriptions() == d);
+    }
+}
+
+#[cfg(test)]
+mod builtin_app_tests {
+    /// No added app may take a built-in's app name, the images tools' too:
+    /// a connector named "images" would share their app's switches.
+    #[test]
+    fn every_builtin_app_is_reserved() {
+        let apps = super::builtin_apps();
+        assert!(apps.contains(&"images"), "images is not reserved: {apps:?}");
+        for b in crate::tools_ui::BUILTINS {
+            assert!(super::builtin(b.name).is_some_and(|f| apps.contains(&f.app)), "{} is not reserved", b.app);
+        }
     }
 }
 

@@ -53,6 +53,7 @@ pub(crate) mod upkeep;
 mod whisper;
 
 pub(crate) use agent::signs_in_per_person;
+pub(crate) use agent::team_specs as specs;
 pub use agent::BUILTINS;
 pub use routes::router;
 pub use routines::schedule;

@@ -43,11 +43,6 @@ const BOTH: Label = Label { untrusted: true, private: true };
 /// Marks a job the person asked for themselves.
 pub(crate) const BY_PERSON: &str = "by_person";
 
-/// A tool the kernel carries out away from the run's own computer.
-pub(crate) fn is_far_tool(tool: &str) -> bool {
-    ["local_", "team_", "image_", "connector_", "purchase_", "desktop_"].iter().any(|prefix| tool.starts_with(prefix))
-}
-
 pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "local_read_file", app: "local", risk: Risk::Read, label: BOTH, audience: Audience::Private },
     Builtin { name: "local_write_file", app: "local", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
@@ -273,27 +268,7 @@ impl Kernel {
         self.cfg.local.ceiling.min(workspaces)
     }
 
-    /// The tools that reach past this server: the person's computer, the team.
-    pub(crate) async fn far_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        if a.tool.starts_with("team_") {
-            return self.team_tool(a).await;
-        }
-        if a.tool.starts_with("image_") {
-            return self.image_tool(a).await;
-        }
-        if a.tool.starts_with("connector_") {
-            return self.connector_tool(a).await;
-        }
-        if a.tool.starts_with("purchase_") {
-            return self.purchase_tool(a).await;
-        }
-        if a.tool.starts_with(crate::desktop::APP_PREFIX) {
-            return self.desktop_tool(a).await;
-        }
-        self.local_tool(a).await
-    }
-
-    async fn local_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
+    pub(crate) async fn local_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
         let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).context("no such run")?;
         let mine = self.read(|s| s.local.of(&person));
         let computer = match chosen(&mine, &a.input) {
@@ -320,54 +295,53 @@ impl Kernel {
         })
     }
 
-    /// The tools offered beside the built-in list, for this person.
-    pub(crate) fn far_specs(&self, person: &str) -> Vec<ToolSpec> {
-        let payments = self.cfg.payments.iter().flat_map(|_| crate::payments::specs());
-        self.local_specs(person).into_iter().chain(self.desktop_specs(person)).chain(crate::tools_ui::specs()).chain(crate::generated::specs()).chain(payments).collect()
-    }
-
     pub(crate) fn local_specs(&self, person: &str) -> Vec<ToolSpec> {
         if self.read(|s| s.local.of(person)).is_empty() {
             return vec![];
         }
-        let tool = |name: &str, description: &str, props: Value, needs: &[&str]| ToolSpec { name: name.into(), description: description.into(), input_schema: obj(props, needs) };
-        let path = json!({ "type": "string", "description": "an absolute path inside a granted folder" });
-        let text = json!({ "type": "string" });
-        let on = json!({ "type": "string", "description": "which computer, when there is more than one" });
-        vec![
-            tool("local_read_file", "Read a file on the person's own computer, inside a folder they granted.", json!({ "path": path, "computer": on }), &["path"]),
-            tool(
-                "local_write_file",
-                "Create a new file on the person's own computer. It never overwrites.",
-                json!({ "path": path, "content": text, "computer": on }),
-                &["path", "content"],
-            ),
-            tool(
-                "local_edit_file",
-                "Replace a file on the person's own computer. The person is asked unless a rule allows it.",
-                json!({ "path": path, "content": text, "computer": on }),
-                &["path", "content"],
-            ),
-            tool(
-                "local_delete",
-                "Delete a file or empty folder on the person's own computer. The person is asked unless a rule allows it.",
-                json!({ "path": path, "computer": on }),
-                &["path"],
-            ),
-            tool(
-                "local_exec",
-                "Run a command on the person's own computer. It sees the granted folders and has no network unless you set network, which installs need. The person is asked unless a rule allows it.",
-                json!({ "command": text, "cwd": path, "computer": on, "network": { "type": "boolean" } }),
-                &["command"],
-            ),
-            tool(
-                "local_capture",
-                "See the screen or the camera, or record the microphone to a granted folder. The computer asks its owner for access the first time.",
-                json!({ "kind": { "type": "string", "enum": ["screen", "camera", "microphone"] }, "seconds": { "type": "integer" }, "computer": on }),
-                &["kind"],
-            ),
-        ]
+        specs()
     }
+}
+
+/// The tools of the person's own computer, offered once one is connected.
+pub(crate) fn specs() -> Vec<ToolSpec> {
+    let tool = |name: &str, description: &str, props: Value, needs: &[&str]| ToolSpec { name: name.into(), description: description.into(), input_schema: obj(props, needs) };
+    let path = json!({ "type": "string", "description": "an absolute path inside a granted folder" });
+    let text = json!({ "type": "string" });
+    let on = json!({ "type": "string", "description": "which computer, when there is more than one" });
+    vec![
+        tool("local_read_file", "Read a file on the person's own computer, inside a folder they granted.", json!({ "path": path, "computer": on }), &["path"]),
+        tool(
+            "local_write_file",
+            "Create a new file on the person's own computer. It never overwrites.",
+            json!({ "path": path, "content": text, "computer": on }),
+            &["path", "content"],
+        ),
+        tool(
+            "local_edit_file",
+            "Replace a file on the person's own computer. The person is asked unless a rule allows it.",
+            json!({ "path": path, "content": text, "computer": on }),
+            &["path", "content"],
+        ),
+        tool(
+            "local_delete",
+            "Delete a file or empty folder on the person's own computer. The person is asked unless a rule allows it.",
+            json!({ "path": path, "computer": on }),
+            &["path"],
+        ),
+        tool(
+            "local_exec",
+            "Run a command on the person's own computer. It sees the granted folders and has no network unless you set network, which installs need. The person is asked unless a rule allows it.",
+            json!({ "command": text, "cwd": path, "computer": on, "network": { "type": "boolean" } }),
+            &["command"],
+        ),
+        tool(
+            "local_capture",
+            "See the screen or the camera, or record the microphone to a granted folder. The computer asks its owner for access the first time.",
+            json!({ "kind": { "type": "string", "enum": ["screen", "camera", "microphone"] }, "seconds": { "type": "integer" }, "computer": on }),
+            &["kind"],
+        ),
+    ]
 }
 
 pub fn router() -> Router<Arc<Kernel>> {
