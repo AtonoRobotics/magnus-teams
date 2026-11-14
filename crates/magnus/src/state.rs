@@ -496,6 +496,9 @@ pub struct Schedule {
     pub ended: Option<String>,
     /// The conversation it was set up in, if any: where its runs post (`schedule_thread::of`).
     pub thread: Option<String>,
+    /// The zone its daily time is read in: its person's, kept current as
+    /// they change it, else the server's (`cadence::Zone::of_preferences`).
+    pub zone: crate::cadence::Zone,
 }
 
 /// A person's standing authority over a category of their own work
@@ -615,83 +618,6 @@ pub enum Answer {
     Later,
     /// Declined, with their reason.
     Declined(Option<String>),
-}
-
-impl Schedule {
-    /// Whether it may start no more runs: past its end, or out of runs.
-    pub fn finished(&self, now: DateTime<Utc>) -> Option<String> {
-        if self.ended.is_some() {
-            return None;
-        }
-        if let Some(m) = self.max_runs.filter(|m| self.started >= *m) {
-            return Some(format!("it ran {m} time{}, as set", if m == 1 { "" } else { "s" }));
-        }
-        self.until.filter(|u| *u <= now).map(|u| format!("it reached its end, {}", u.to_rfc3339()))
-    }
-
-    /// The next time this schedule is due after its last run (or creation),
-    /// unless it is paused, ended (by its own run or a limit) or out of runs.
-    pub fn next_due(&self) -> Option<DateTime<Utc>> {
-        if self.ended.is_some() || self.paused.is_some() || self.max_runs.is_some_and(|m| self.started >= m) {
-            return None;
-        }
-        let next = self.next_time()?;
-        self.until.is_none_or(|u| next < u).then_some(next)
-    }
-
-    fn next_time(&self) -> Option<DateTime<Utc>> {
-        let after = self.last_fired.unwrap_or(self.created);
-        if let Some(m) = self.every_minutes {
-            return Some(after + chrono::Duration::minutes(m.max(1) as i64));
-        }
-        let (h, m) = self.daily_at.as_deref()?.split_once(':')?;
-        let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
-        next_daily(after, self.last_fired.is_some(), h, m, &chrono::Local)
-    }
-}
-
-/// The next time a daily schedule at `h:m` (wall-clock time in `tz`) is due
-/// after `after`, which is its last firing when `fired`, else its creation.
-/// When clocks go back, the time comes twice: the schedule is due at the first
-/// still ahead, once a day (made in between, at the second; never at both).
-/// When clocks go forward past it, it is due as the clocks resume, an hour on.
-/// The two times of a repeated hour are taken in time order, whatever order
-/// the time zone gives them in.
-fn next_daily<Tz: chrono::TimeZone>(after: DateTime<Utc>, fired: bool, h: u32, m: u32, tz: &Tz) -> Option<DateTime<Utc>> {
-    use chrono::LocalResult;
-    let local = after.with_timezone(tz);
-    let mut day = local.date_naive();
-    for _ in 0..3 {
-        let at = day.and_hms_opt(h, m, 0)?;
-        let t = match tz.from_local_datetime(&at) {
-            LocalResult::Single(t) => t,
-            // In time order: chrono's `Local` gives the later first.
-            LocalResult::Ambiguous(x, y) => {
-                let (first, second) = if x <= y { (x, y) } else { (y, x) };
-                if first > local {
-                    first
-                } else if !fired {
-                    second
-                } else {
-                    day = day.succ_opt()?;
-                    continue;
-                }
-            }
-            LocalResult::None => {
-                // An hour on is never in a gap; take its earlier time if repeated.
-                match tz.from_local_datetime(&(at + chrono::Duration::hours(1))) {
-                    LocalResult::Single(t) => t,
-                    LocalResult::Ambiguous(x, y) => x.min(y),
-                    LocalResult::None => return None,
-                }
-            }
-        };
-        if t > local {
-            return Some(t.with_timezone(&Utc));
-        }
-        day = day.succ_opt()?;
-    }
-    None
 }
 
 /// An item in the trash: out of every view until it is restored or removed.
@@ -1339,6 +1265,9 @@ impl State {
                         p.insert(k.clone(), v.clone());
                     }
                 }
+                // Daily times follow the person's zone (owner, 2026-11-14).
+                let zone = crate::cadence::Zone::of_preferences(self.preferences.get(person));
+                self.schedules.values_mut().filter(|x| x.person == *person).for_each(|x| x.zone = zone);
             }
             Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
                 self.thread_extras.fold(&e.ev, e.at)
@@ -1368,6 +1297,7 @@ impl State {
                     id.clone(),
                     Schedule {
                         id: id.clone(),
+                        zone: crate::cadence::Zone::of_preferences(self.preferences.get(person)),
                         person: person.clone(),
                         every_minutes: *every_minutes,
                         daily_at: daily_at.clone(),
@@ -2192,63 +2122,6 @@ mod tests {
     use super::State;
     use crate::log::Event;
     use serde_json::json;
-
-    /// A daily time in Los Angeles across both of its clock changes (owner's
-    /// CI, 2026-11-01: schedules made in the repeated hour did not fire).
-    #[test]
-    fn a_daily_schedule_is_due_once_a_day_across_clock_changes() {
-        use chrono::{TimeZone, Utc};
-        let la = chrono_tz::America::Los_Angeles;
-        let utc = |s: &str| chrono::DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
-        // Clocks go back at 02:00 PDT on 2026-11-01; 01:00-02:00 comes twice.
-        // Made in the first 01:14 (PDT), due at the first 01:16.
-        assert_eq!(super::next_daily(utc("2026-11-01T08:14:00Z"), false, 1, 16, &la), Some(utc("2026-11-01T08:16:00Z")));
-        // Made in the second 01:14 (PST), due at the second 01:16, not tomorrow.
-        assert_eq!(super::next_daily(utc("2026-11-01T09:14:00Z"), false, 1, 16, &la), Some(utc("2026-11-01T09:16:00Z")));
-        // Having fired at the first 01:16, not again at the second: tomorrow.
-        assert_eq!(super::next_daily(utc("2026-11-01T08:16:00Z"), true, 1, 16, &la), Some(utc("2026-11-02T09:16:00Z")));
-        // Fired the day before: the first 01:16.
-        assert_eq!(super::next_daily(utc("2026-10-31T08:16:00Z"), true, 1, 16, &la), Some(utc("2026-11-01T08:16:00Z")));
-        // Clocks go forward at 02:00 PST on 2027-03-14; 02:30 does not happen.
-        // Due as they resume, at 03:30 PDT, and on the next day at 02:30 again.
-        assert_eq!(super::next_daily(utc("2027-03-14T09:00:00Z"), false, 2, 30, &la), Some(utc("2027-03-14T10:30:00Z")));
-        assert_eq!(super::next_daily(utc("2027-03-14T10:30:00Z"), true, 2, 30, &la), Some(utc("2027-03-15T09:30:00Z")));
-        // Whatever order the time zone gives the two in (chrono's `Local`
-        // gives the later first; on the owner's build box, the first 01:31
-        // came out an hour late).
-        let rev = Reversed(la);
-        assert_eq!(super::next_daily(utc("2026-11-01T08:29:00Z"), false, 1, 31, &rev), Some(utc("2026-11-01T08:31:00Z")));
-        assert_eq!(super::next_daily(utc("2026-11-01T09:29:00Z"), false, 1, 31, &rev), Some(utc("2026-11-01T09:31:00Z")));
-        assert_eq!(super::next_daily(utc("2026-11-01T08:31:00Z"), true, 1, 31, &rev), Some(utc("2026-11-02T09:31:00Z")));
-        // An ordinary day.
-        assert_eq!(super::next_daily(la.with_ymd_and_hms(2026, 6, 1, 9, 0, 0).unwrap().with_timezone(&Utc), false, 8, 0, &la), Some(utc("2026-06-02T15:00:00Z")));
-    }
-
-    /// A time zone that gives a repeated time's two instants latest first,
-    /// as chrono's `Local` does.
-    #[derive(Clone, Copy)]
-    struct Reversed(chrono_tz::Tz);
-    impl chrono::TimeZone for Reversed {
-        type Offset = <chrono_tz::Tz as chrono::TimeZone>::Offset;
-        fn from_offset(o: &Self::Offset) -> Self {
-            Reversed(chrono_tz::Tz::from_offset(o))
-        }
-        fn offset_from_local_date(&self, d: &chrono::NaiveDate) -> chrono::LocalResult<Self::Offset> {
-            self.0.offset_from_local_date(d)
-        }
-        fn offset_from_local_datetime(&self, d: &chrono::NaiveDateTime) -> chrono::LocalResult<Self::Offset> {
-            match self.0.offset_from_local_datetime(d) {
-                chrono::LocalResult::Ambiguous(a, b) => chrono::LocalResult::Ambiguous(b, a),
-                r => r,
-            }
-        }
-        fn offset_from_utc_date(&self, d: &chrono::NaiveDate) -> Self::Offset {
-            self.0.offset_from_utc_date(d)
-        }
-        fn offset_from_utc_datetime(&self, d: &chrono::NaiveDateTime) -> Self::Offset {
-            self.0.offset_from_utc_datetime(d)
-        }
-    }
 
     fn ev(seq: i64, actor: &str, ev: serde_json::Value) -> Event {
         Event { seq, at: chrono::Utc::now(), actor: actor.into(), ev: serde_json::from_value(ev).unwrap() }

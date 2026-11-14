@@ -23,6 +23,7 @@ pub mod boundary;
 pub mod brokered;
 pub mod browser;
 pub mod bundle;
+pub mod cadence;
 pub mod catalog;
 pub mod catalog_withdrawal;
 pub mod chat;
@@ -99,8 +100,14 @@ pub mod rules;
 pub mod run;
 pub mod safety;
 pub mod sandbox;
+pub mod schedule_due;
 mod schedule_request;
+pub mod schedule_sweep;
+#[cfg(test)]
+mod schedule_sweep_tests;
 pub mod schedule_thread;
+#[cfg(test)]
+mod schedule_zone_tests;
 pub(crate) mod secret_scope;
 pub mod settings;
 pub mod sign_in_name;
@@ -118,9 +125,11 @@ pub mod team;
 pub mod tls;
 pub(crate) mod token_endpoint;
 pub mod tool_gate;
+pub(crate) mod tool_registry;
+#[cfg(test)]
+mod tool_specs_pin;
 pub mod tools;
 mod tools_core;
-mod tools_identity;
 pub mod tools_ui;
 pub mod totp;
 pub mod transport;
