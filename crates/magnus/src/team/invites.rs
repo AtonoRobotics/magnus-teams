@@ -5,8 +5,9 @@
 //! admin's, and joins the workspace when they choose their password. By
 //! link, anyone holding it joins: signed in through the app, or with a new
 //! account made on the `/join` page (`join_page`).
+use super::caller::{at, Member};
 use super::chat::{Chat, Invite};
-use super::routes::{member, new_id, send, Reply, K};
+use super::routes::{new_id, send, Reply, K};
 use super::{Change, Role};
 use crate::api::{err, who};
 use crate::config::Person;
@@ -120,8 +121,7 @@ struct NewInvite {
 
 /// By email: someone the server already knows joins at once; anyone else
 /// gets an account invitation by email. Without an email, a link.
-async fn invite(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> Reply {
-    let (p, mine) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn invite(State(k): K, Member { person: p, role: mine, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> Reply {
     let role = b.role.unwrap_or(Role::Member);
     if role > mine {
         return err(StatusCode::FORBIDDEN, "you cannot give a role above your own");

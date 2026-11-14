@@ -1,14 +1,15 @@
 //! The team agent's own work: on a schedule, under the workspace's standing
 //! authority, reporting to a channel. It runs in the background and asks
 //! no one, so anything it cannot do without asking does not happen.
-use super::routes::{member, new_id, send, Reply, K};
-use super::{Change, Role, TeamRun};
+use super::caller::{at, Member};
+use super::routes::{new_id, send, Reply, K};
+use super::{Change, TeamRun};
 use crate::api::err;
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{delete, post};
 use axum::{Json, Router};
@@ -50,8 +51,7 @@ struct NewRoutine {
     every_hours: i64,
 }
 
-async fn add(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> Reply {
     if !(MIN_ROUTINE_HOURS..=MAX_ROUTINE_HOURS).contains(&b.every_hours) {
         return err(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
     }
@@ -70,8 +70,7 @@ async fn add(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Ne
     Json(json!({ "id": id })).into_response()
 }
 
-async fn remove(State(k): K, h: HeaderMap, Path((ws, id)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>) -> Reply {
     ok_or_return!(send(&k, &p, Change::RoutineRemoved { workspace: ws, id }).await);
     Json(json!({ "ok": true })).into_response()
 }

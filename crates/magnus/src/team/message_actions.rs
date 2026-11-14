@@ -12,16 +12,17 @@
 //! quoted in the composer, unsent, so the team's words reach the person's
 //! own agent only when they send them (decisions/2026-11-13-team-message-actions-on-the-server.md).
 use super::agent::volume_dir;
+use super::caller::{at, Member};
 use super::chat::Chat;
 use super::chat_routes::{direct_between, name_of};
 use super::member_view::{MemberView, ANSWER_PREFIX};
-use super::routes::{member, new_id, post_and_ask, send, Reply, K};
-use super::{Change, File, Message, Role, Workspace};
+use super::routes::{new_id, post_and_ask, send, Reply, K};
+use super::{Change, File, Message, Workspace};
 use crate::api::err;
 use crate::kernel::Kernel;
 use crate::message_file;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -92,8 +93,7 @@ struct ShareTo {
 
 /// Send the message, quoted, to another member in a direct conversation.
 /// One from a project's channel goes only to the project's people.
-async fn share(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<ShareTo>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn share(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<ShareTo>) -> Reply {
     ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.share, PRIVATE));
     let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
     let w = &m.workspace;
@@ -114,8 +114,7 @@ async fn share(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String,
 
 /// Save the message as a Markdown file in the workspace's files, which the
 /// whole team (or the channel's project) sees.
-async fn save(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn save(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
     ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.save, PRIVATE));
     let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
     let Some(name) = free_name(&m.workspace, &message_file::file_name(&m.text)) else { return err(StatusCode::CONFLICT, "too many files have that name") };
@@ -139,8 +138,7 @@ async fn save(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, 
 
 /// Ask the agent the same request again, where it was asked: who asked
 /// posts their words again, and the agent takes them on.
-async fn retry(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn retry(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
     let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
     let Some(task) = m.task.as_deref().filter(|_| id.starts_with(ANSWER_PREFIX)) else { return err(StatusCode::BAD_REQUEST, "only the agent's answer is asked again") };
     ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.retry, "only who asked asks again"));

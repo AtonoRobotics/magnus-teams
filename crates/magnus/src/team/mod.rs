@@ -13,6 +13,7 @@ macro_rules! ok_or_return {
 #[cfg(test)]
 mod admission_tests;
 mod agent;
+mod caller;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;

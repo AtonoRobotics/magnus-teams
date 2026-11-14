@@ -1,8 +1,9 @@
 //! The rest of an admin's job: ceilings, who approves, the audit, and ending
 //! things properly when someone or something goes.
 use super::agent::{held_dir, volume_dir};
-use super::routes::{member, send, Reply, K};
-use super::{Change, Role};
+use super::caller::{at, Member};
+use super::routes::{send, Reply, K};
+use super::Change;
 use crate::api::err;
 use crate::computer::{Owner, ONE_AT_A_TIME};
 use crate::events::Ev;
@@ -10,7 +11,7 @@ use crate::kernel::Kernel;
 use crate::log::Holding;
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -95,16 +96,14 @@ struct Ceiling {
     mode: crate::local::Mode,
 }
 
-async fn set_ceiling(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Ceiling>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn set_ceiling(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<Ceiling>) -> Reply {
     ok_or_return!(send(&k, &p, Change::LocalCeiling { workspace: ws, mode: b.mode }).await);
     Json(json!({ "ok": true })).into_response()
 }
 
 /// A thread's working notes, while its tasks last, for those who see the
 /// thread only (spec rev 142: visible to the members of that thread).
-async fn notes(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn notes(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> Reply {
     if !super::routes::has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
@@ -121,8 +120,7 @@ async fn notes(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Str
 
 /// Who asked, what acted and where, for every request here, and who changed
 /// what in the workspace.
-async fn audit(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn audit(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> Reply {
     let runs: Vec<Value> = k.read(|s| {
         s.team
             .runs_of(&ws)

@@ -2,17 +2,18 @@
 //! (gone for everyone, its text out of the log and the backups), and putting
 //! a conversation away or deleting it from their own list, which leaves
 //! everyone else's as it was.
+use super::caller::{at, Member};
 use super::chat::Chat;
 use super::member_view::MemberView;
-use super::routes::{has_channel, member, send, Reply, K};
-use super::{Change, Message, Role, Workspace};
+use super::routes::{has_channel, send, Reply, K};
+use super::{Change, Message, Workspace};
 use crate::api::err;
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -79,8 +80,7 @@ impl Kernel {
 /// owners and admins moderate its channels: "The teams admin can moderate
 /// and delete it only from teams" (the owner, 2026-11-11). A direct
 /// conversation is its people's alone.
-pub(super) async fn unsend(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+pub(super) async fn unsend(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
     // The agent's answer is drawn from its request's result, not kept as a
     // message: it is found by its request (owner, 2026-11-13: deleting one
     // said "no such message").
@@ -107,8 +107,7 @@ struct Archive {
 }
 
 /// Put a conversation away, or bring it back. Only the caller's list changes.
-async fn archive(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Archive>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn archive(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Archive>) -> Reply {
     if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
@@ -121,8 +120,7 @@ async fn archive(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, S
 /// other people in it keep theirs; it comes back, from then on only, when
 /// someone writes in it again. A channel is the workspace's, so it is put
 /// away instead.
-async fn clear(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn clear(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> Reply {
     if !has_channel(&k, &ws, &channel, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
