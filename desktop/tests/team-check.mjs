@@ -84,12 +84,12 @@ Team.home = home;
 
 // The agent's live work: the personal chat's task row, with the requester
 // named and its own thread to open.
-const work = { task_id: "t1", requester: "dana", status: "running", steps: 1, doing: "team_read_file", title: "Pull together the alpha feedback", long: true, thread: "m1", waiting_on: null };
+const work = { task_id: "t1", requester: "dana", status: "running", steps: 1, doing: "team_read_file", status_line: "Reading a team file", title: "Pull together the alpha feedback", long: true, thread: "m1", waiting_on: null };
 const workItem = w => draw({ id: "w1", sender: "agent", requester: w.requester, text: "", thread: null, at: "", work: w });
 const card = workItem(work);
 assert.match(card, /class="reqgroup chatcard"[^]*class="tcard"/, "the work card is not the personal chat's task row");
 assert.match(card, /for Dana/, "the work card does not name the requester");
-assert.match(card, /Reading a team file/);
+assert.match(card, /Reading a team file/, "the work card does not say what the server says it is doing");
 // A team reply is a chat turn: no step count, as no Magnus chat shows one (owner, 2026-11-13).
 assert.doesNotMatch(card, /step \d/, "the work card counts steps");
 assert.match(card, /href="#\/team\/w\/c\/c1\/t\/m1"/, "long work has no thread to open");
@@ -227,11 +227,14 @@ assert.match(spendCard, /#magnus-alpha<\/span><span class="small faint">\$4 of \
 Team.home = home;
 assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as nothing");
 assert.equal(sandbox.teamUsd(12), "$12");
-assert.match(workItem({ ...work, doing: null, steps: 1 }), /Thinking it through/, "work with no action yet says it is starting");
+assert.match(workItem({ ...work, doing: null, status_line: null, steps: 1 }), /Thinking it through/, "work with no action yet says it is starting");
 
-assert.doesNotMatch(workItem({ ...work, doing: null, steps: 0 }), /step|Starting/, "a reply not begun yet counts steps");
+assert.doesNotMatch(workItem({ ...work, doing: null, status_line: null, steps: 0 }), /step|Starting/, "a reply not begun yet counts steps");
 assert.doesNotMatch(draw({ id: "w1", sender: "agent", requester: "dana", text: "", thread: "m1", at: "", work }, { thread: "m1" }), /\/t\/m1/, "a work card inside its own thread links to that thread");
-assert.match(workItem({ ...work, doing: "task_complete" }), /Finishing up/);
+// The words are the server's; the app keeps no copy of them.
+assert.match(workItem({ ...work, doing: "task_complete", status_line: "Finishing up" }), /Finishing up/);
+assert.match(workItem({ ...work, status_line: null }), /Working/, "work the server gave no words for says more than it was told");
+assert.equal(typeof sandbox.doingWords, "undefined", "the app keeps its own copy of the server's words");
 
 // The channel's header shows who is in it, with the agent always there.
 const faces = sandbox.channelFaces(home, home.channels[0], home.projects[0]);

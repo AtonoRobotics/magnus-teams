@@ -45,7 +45,7 @@ fn record_placement(kind: &RunKind, tool: &str) -> Option<String> {
 }
 
 /// The run records every run has: the rich-answer tools.
-const UI_RECORDS: [&str; 3] = ["ui_catalog", crate::ui::docs::EDIT_TOOL, crate::ui::docs::SCREENSHOT_TOOL];
+const UI_RECORDS: &[&str] = crate::tools_ui::RECORDS;
 
 /// A tool of the chat family (`boundary::is_chat_tool`): the person's
 /// controls. Sharing is the one bundle write that belongs to conversation,
