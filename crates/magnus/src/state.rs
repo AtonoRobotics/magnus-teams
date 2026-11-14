@@ -271,8 +271,7 @@ pub struct Verdict {
     pub at: DateTime<Utc>,
 }
 
-/// A disagreement Magnus recorded: what it advised, what the person
-/// decided, and later how it turned out.
+/// A disagreement Magnus recorded: what it advised, what the person decided, and later how it turned out.
 #[derive(Clone, Debug, Serialize)]
 pub struct Disagreement {
     pub id: String,
@@ -305,8 +304,7 @@ pub struct LibFile {
     pub media_type: String,
     pub size: usize,
     pub at: DateTime<Utc>,
-    /// An upload (it can be given to a task or message), not a file a run
-    /// delivered.
+    /// An upload (it can be given to a task or message), not a file a run delivered.
     pub uploaded: bool,
     /// The event that holds its content (the upload, or the run's output):
     /// its bytes are recalled from there for its person when a request
@@ -1381,6 +1379,7 @@ impl State {
             Ev::SubAgent(c) => self.sub_agents.apply(c),
             Ev::LocalComputer(c) => self.local.apply(c),
             Ev::LocalFile(c) => self.local.files.apply(c),
+            Ev::Desktop(c) => self.local.desktop.apply(c),
             Ev::Team(c) => self.team.apply_at(c, e.seq),
             Ev::AccountLink(c) => self.account_links.apply(c),
             Ev::Legal(c) => self.legal.apply(c),

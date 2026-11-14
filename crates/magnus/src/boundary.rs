@@ -93,7 +93,7 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
         return Some(Facts { name: tool.into(), app: b.app.into(), risk: b.risk, label: b.label, audience: b.audience, connector: None, remote: tool.into(), reaches_self });
     }
     let (app, remote) = tool.split_once("__")?;
-    let c = k.connector(app)?;
+    let Some(c) = k.connector(app) else { return crate::desktop::facts(app, remote) };
     let class = c.tools.get(remote)?;
     // Never the sandbox, which is the appliance's own: an older log may class
     // an app's tool so. A password manager's tools are the kernel's alone.
@@ -140,7 +140,7 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
     if f.connector.is_none() && f.app == "memory" {
         return false;
     }
-    f.connector.is_some() || f.app == "web" || f.app == "browser" || f.app == "computer" || f.app == "local" || f.app == "connector" || f.app == "team"
+    f.connector.is_some() || matches!(f.app.as_str(), "web" | "browser" | "computer" | "local" | "connector" | "team") || f.app.starts_with(crate::desktop::APP_PREFIX)
 }
 
 pub fn has_rights(person: &Person, f: &Facts) -> bool {

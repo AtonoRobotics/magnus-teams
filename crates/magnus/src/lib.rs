@@ -40,6 +40,8 @@ pub mod connectors;
 pub mod consent;
 pub mod control;
 pub mod controls;
+pub mod desktop;
+pub mod desktop_routes;
 pub mod dev;
 pub mod dev_panels;
 pub mod devices;

@@ -227,6 +227,7 @@ pub fn builtin(name: &str) -> Option<&'static Builtin> {
     BUILTINS
         .iter()
         .chain(crate::local::BUILTINS)
+        .chain(crate::desktop::BUILTINS)
         .chain(crate::team::BUILTINS)
         .chain(crate::tools_ui::BUILTINS)
         .chain(crate::generated::BUILTINS)
@@ -247,8 +248,15 @@ pub const REDACTED_CALL: &str = "redacted: this call is the person's alone";
 
 /// The appliance's own apps; no added app may take one of their names.
 pub fn builtin_apps() -> Vec<&'static str> {
-    let mut a: Vec<&str> =
-        BUILTINS.iter().chain(crate::local::BUILTINS).chain(crate::team::BUILTINS).chain(crate::generated::BUILTINS).chain(crate::payments::BUILTINS).map(|b| b.app).collect();
+    let mut a: Vec<&str> = BUILTINS
+        .iter()
+        .chain(crate::local::BUILTINS)
+        .chain(crate::desktop::BUILTINS)
+        .chain(crate::team::BUILTINS)
+        .chain(crate::generated::BUILTINS)
+        .chain(crate::payments::BUILTINS)
+        .map(|b| b.app)
+        .collect();
     a.sort();
     a.dedup();
     a

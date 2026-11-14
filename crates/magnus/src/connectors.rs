@@ -1037,7 +1037,7 @@ impl Kernel {
     pub async fn add_connector(&self, actor: &str, b: &Value) -> Result<Value, Refusal> {
         let s = |f: &str| b[f].as_str().map(str::trim).unwrap_or_default().to_string();
         let (mut name, url, audience, label) = (s("name"), s("url"), s("audience"), s("label"));
-        let taken = |n: &str| self.all_connectors().iter().any(|(c, _)| c.name == n) || crate::tools::builtin_apps().contains(&n);
+        let taken = |n: &str| self.all_connectors().iter().any(|(c, _)| c.name == n) || crate::tools::builtin_apps().contains(&n) || n.starts_with(crate::desktop::APP_PREFIX);
         // Never a key or token in the address, checked before the app is asked.
         match url::Url::parse(&url) {
             Ok(u) if u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none() => {}

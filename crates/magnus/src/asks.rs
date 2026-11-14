@@ -59,7 +59,7 @@ impl Reason {
         if r == NEW_DESTINATION {
             return Some(Reason::NewDestination);
         }
-        if r == LOCAL_ASK_FIRST || r.starts_with(crate::rule_effects::PERSON_RULE) {
+        if r == LOCAL_ASK_FIRST || r == crate::desktop::ASK_RULE || r.starts_with(crate::rule_effects::PERSON_RULE) {
             return Some(Reason::AskFirst);
         }
         None
