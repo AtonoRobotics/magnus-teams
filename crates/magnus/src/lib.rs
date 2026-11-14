@@ -102,6 +102,9 @@ pub mod safety;
 pub mod sandbox;
 pub mod schedule_due;
 mod schedule_request;
+pub mod schedule_sweep;
+#[cfg(test)]
+mod schedule_sweep_tests;
 pub mod schedule_thread;
 #[cfg(test)]
 mod schedule_zone_tests;
