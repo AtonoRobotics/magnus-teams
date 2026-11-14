@@ -74,6 +74,7 @@ pub mod oidc;
 pub mod openers;
 pub mod ops_admin;
 pub mod outcomes;
+pub mod password_check;
 pub mod passwords;
 pub mod payments;
 pub mod person_admin;

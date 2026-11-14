@@ -444,140 +444,52 @@ pub(crate) fn on_this_machine(peer: SocketAddr, h: &HeaderMap) -> bool {
 /// person uses one); the owner's password set on the appliance is their
 /// backup when the provider is down or refuses, on the appliance's own
 /// machine only, since it asks for no second factor; nobody else's counts.
-/// Without one, only the appliance's own passwords.
+/// Without one, only the appliance's own passwords. The check and its
+/// lockout are `password_check`'s; this only answers.
 async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
+    use crate::password_check::{Attempt, Checked, Via};
     if let Err(r) = over_tls(&k, t, peer) {
         return r;
     }
     let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
     let password = b["password"].as_str().unwrap_or_default();
     let code = b["code"].as_str().map(str::trim).filter(|c| !c.is_empty());
+    let machine_code = b["machine_code"].as_str().map(str::trim).filter(|c| !c.is_empty());
     let app = b["client"].as_str() == Some("app");
     if let Some(r) = app.then(|| crate::update::unversioned_app(&h)).flatten() {
         return r;
     }
     let device = device_of(&k, peer, &h);
-    // Wrong passwords are counted where they come from: on the appliance's
-    // own machine apart from the network, so the network cannot lock the
-    // person out of the appliance itself.
-    let counter = if on_this_machine(peer, &h) { crate::accounts::Accounts::local_counter(&person) } else { crate::accounts::Accounts::network_counter(&person) };
-    let locked = |until: chrono::DateTime<chrono::Utc>| {
-        (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": format!("Too many wrong passwords. Try again after {}.", until.format("%H:%M UTC")), "retry_at": until })))
-            .into_response()
-    };
-    // A person only the appliance itself keeps signs in against the local
-    // store below, not the provider: Keycloak never heard of them (#429).
-    // A person the config knows keeps the provider path, even with a local
-    // namesake, as `resolve_person` resolves the config first.
-    let mut provider = k.identity();
-    if provider.is_some() && k.cfg.person(&person).is_none() && k.accounts.is_local_fresh(&person).await {
-        provider = None;
+    let via = crate::password_check::via(peer, &h);
+    let provider = crate::password_check::provider_for(&k, &person).await;
+    let label = provider.as_ref().map(|i| i.label()).unwrap_or_default();
+    // The first time, the provider's own page signs them in: it can walk
+    // them through what a new account needs.
+    if provider.is_some() && machine_code.is_none() && !k.read(|s| s.signed_in_before.contains(&person)) {
+        let page = crate::identity::Polled::UseBrowser(format!("The first time, sign in on the {label} page that just opened in your browser."));
+        return provider_answered(&k, t, label, page, device).await;
     }
-    if let Some(id) = provider {
-        // The owner's backup: their password set on the appliance and a
-        // one-time code printed on its machine (`magnus sign-in-code`),
-        // which no relay or tunnel can carry. Counted apart, so wrong
-        // passwords sent to the provider cannot lock the owner out of it.
-        if let Some(machine) = b["machine_code"].as_str().map(str::trim).filter(|c| !c.is_empty()) {
-            let counter = crate::accounts::Accounts::backup_counter(&person);
-            if !(k.may_use_password(&person) && k.accounts.has_password(&person).await && on_this_machine(peer, &h)) {
-                return err(StatusCode::UNAUTHORIZED, "The name, password or code is wrong.");
+    let wrong = if provider.is_some() && machine_code.is_some() { "The name, password or code is wrong." } else { "The name or password is wrong." };
+    let attempt = Attempt { person: &person, password, code, machine_code, via, app };
+    match crate::password_check::check(&k, &attempt).await {
+        Ok(Checked::Yes(Some(polled)) | Checked::Elsewhere(polled)) => provider_answered(&k, t, label, polled, device).await,
+        Ok(Checked::Yes(None)) => issue(&k, t, &person, app, device.as_deref()).await,
+        Ok(Checked::NeedsCode) => code_needed(),
+        Ok(Checked::MustChoose) => (StatusCode::UNAUTHORIZED, Json(json!({ "must_choose": true, "error": "Choose your own password first." }))).into_response(),
+        Ok(Checked::Wrong(m)) => err(StatusCode::UNAUTHORIZED, m.unwrap_or_else(|| wrong.into())),
+        Ok(Checked::Locked(until)) => crate::password_check::locked(until, None),
+        Ok(Checked::Unavailable(label)) => {
+            // The owner's backup, offered only where it works.
+            let backup = k.may_use_password(&person) && k.accounts.has_password(&person).await && via == Via::ThisMachine;
+            if backup {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(json!({ "machine_code_needed": true, "error": format!("{label} is not answering. On the appliance, run `magnus sign-in-code` and enter the code it prints, with your password.") })),
+                )
+                    .into_response();
             }
-            if let Some(until) = k.accounts.locked(&counter) {
-                return locked(until);
-            }
-            match k.accounts.take_machine_code(machine).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    k.accounts.failed(&counter);
-                    return err(StatusCode::UNAUTHORIZED, "The name, password or code is wrong.");
-                }
-                Err(e) => return internal(e),
-            }
-            return match k.accounts.sign_in_counted(&person, password, &counter).await {
-                Ok(Ok(_)) => issue(&k, t, &person, app, device.as_deref()).await,
-                // Unreachable: the password-only check never asks for the
-                // authenticator code (the machine code is already the second
-                // factor here), and a temporary password never takes the
-                // backup. Answered as wrong, like everything else.
-                Ok(Err(crate::accounts::SignInError::Rejected | crate::accounts::SignInError::NeedsCode | crate::accounts::SignInError::MustChoose)) => {
-                    err(StatusCode::UNAUTHORIZED, "The name, password or code is wrong.")
-                }
-                Ok(Err(crate::accounts::SignInError::Locked(until))) => locked(until),
-                Err(e) => internal(e),
-            };
+            err(StatusCode::BAD_GATEWAY, format!("{label} is not answering. Try again in a few minutes."))
         }
-        if let Some(until) = k.accounts.locked(&counter) {
-            return locked(until);
-        }
-        // The first time, the provider's own page signs them in: it can walk
-        // them through what a new account needs.
-        if !k.read(|s| s.signed_in_before.contains(&person)) {
-            return provider_answered(
-                &k,
-                t,
-                id.label(),
-                crate::identity::Polled::UseBrowser(format!("The first time, sign in on the {} page that just opened in your browser.", id.label())),
-                device.clone(),
-            )
-            .await;
-        }
-        // Counted before the provider answers, so requests sent at once
-        // cannot all pass the lockout first; a right answer clears it.
-        let ours = k.cfg.person(&person).is_some();
-        if ours {
-            k.accounts.failed(&counter);
-        }
-        let answer = match id.password(&person, password, code, app).await {
-            Ok(polled @ crate::identity::Polled::Done { .. }) => {
-                k.accounts.succeeded(&counter);
-                return provider_answered(&k, t, id.label(), polled, device.clone()).await;
-            }
-            Ok(polled) => Some(polled),
-            Err(e) => {
-                tracing::warn!("identity: {} could not check a password: {e:#}", id.label());
-                None
-            }
-        };
-        return match answer {
-            Some(polled) => {
-                // Only a refusal says the password was wrong: one that needs
-                // the code or the browser was right, and stays uncounted.
-                if ours && !matches!(polled, crate::identity::Polled::Refused(_)) {
-                    k.accounts.forgive(&counter);
-                }
-                provider_answered(&k, t, id.label(), polled, device.clone()).await
-            }
-            None => {
-                // Down: the attempt said nothing about the password.
-                if ours {
-                    k.accounts.forgive(&counter);
-                }
-                let backup = k.may_use_password(&person) && k.accounts.has_password(&person).await && on_this_machine(peer, &h);
-                if backup {
-                    return (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        Json(json!({ "machine_code_needed": true, "error": format!("{} is not answering. On the appliance, run `magnus sign-in-code` and enter the code it prints, with your password.", id.label()) })),
-                    )
-                        .into_response();
-                }
-                err(StatusCode::BAD_GATEWAY, format!("{} is not answering. Try again in a few minutes.", id.label()))
-            }
-        };
-    }
-    if k.cfg.person(&person).is_none() && !k.accounts.is_local_fresh(&person).await {
-        // Same answer and the same work as a wrong password.
-        let _ = k.accounts.sign_in(&person, password).await;
-        return err(StatusCode::UNAUTHORIZED, "The name or password is wrong.");
-    }
-    match k.accounts.sign_in_counted_with_code(&person, password, code, &counter).await {
-        Ok(Ok(_)) => issue(&k, t, &person, app, device.as_deref()).await,
-        Ok(Err(crate::accounts::SignInError::NeedsCode)) => code_needed(),
-        Ok(Err(crate::accounts::SignInError::MustChoose)) => {
-            (StatusCode::UNAUTHORIZED, Json(json!({ "must_choose": true, "error": "Choose your own password first." }))).into_response()
-        }
-        Ok(Err(crate::accounts::SignInError::Rejected)) => err(StatusCode::UNAUTHORIZED, "The name or password is wrong."),
-        Ok(Err(crate::accounts::SignInError::Locked(until))) => locked(until),
         Err(e) => internal(e),
     }
 }
@@ -596,13 +508,9 @@ async fn choose_password(State(k): K, Extension(t): Extension<Transport>, Connec
     if password.chars().count() < k.cfg.sign_in.min_password_length {
         return err(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
-    let counter = if on_this_machine(peer, &h) { crate::accounts::Accounts::local_counter(&person) } else { crate::accounts::Accounts::network_counter(&person) };
-    match k.accounts.choose_password(&person, temp, password, &counter).await {
+    match k.accounts.choose_password(&person, temp, password, crate::password_check::via(peer, &h)).await {
         Ok(Ok(_)) => Json(json!({ "person": person })).into_response(),
-        Ok(Err(crate::accounts::SignInError::Locked(until))) => {
-            (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": format!("Too many wrong passwords. Try again after {}.", until.format("%H:%M UTC")), "retry_at": until })))
-                .into_response()
-        }
+        Ok(Err(crate::accounts::SignInError::Locked(until))) => crate::password_check::locked(until, None),
         Ok(Err(_)) => err(StatusCode::UNAUTHORIZED, "The name or password is wrong."),
         Err(e) => internal(e),
     }

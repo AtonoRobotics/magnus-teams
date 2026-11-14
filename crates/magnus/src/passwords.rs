@@ -2,7 +2,7 @@
 //! and asking for a recovery email when it is forgotten. The recovery page
 //! the email links to is `/reset` (api.rs).
 
-use crate::api::{credential, err, internal, on_this_machine, over_tls, who, Transport};
+use crate::api::{credential, err, internal, over_tls, who, Transport};
 use crate::config::Config;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -26,7 +26,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 /// keeps (#429). The owner's backup password under a provider is set on the
 /// server's own machine (`magnus password`), never over the network.
 async fn kept_here(k: &Kernel, person: &str) -> bool {
-    k.identity().is_none() || (k.cfg.person(person).is_none() && k.accounts.is_local_fresh(person).await && k.accounts.has_password(person).await)
+    crate::password_check::provider_for(k, person).await.is_none() && (k.identity().is_none() || k.accounts.has_password(person).await)
 }
 
 /// What Settings needs to draw the form: whether the password is changed
@@ -64,9 +64,8 @@ async fn change(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pee
     if new == current {
         return err(StatusCode::BAD_REQUEST, "The new password is the same as the current one.");
     }
-    let counter = if on_this_machine(peer, &h) { crate::accounts::Accounts::local_counter(&p.id) } else { crate::accounts::Accounts::network_counter(&p.id) };
     let keep = credential(&h).unwrap_or_default();
-    match k.accounts.change_password(&p.id, current, new, &counter, keep).await {
+    match k.accounts.change_password(&p.id, current, new, crate::password_check::via(peer, &h), keep).await {
         Ok(Ok(ended)) => {
             let actor = format!("person:{}", p.id);
             let mut evs = vec![(actor.as_str(), Ev::PasswordChanged { person: p.id.clone(), how: "settings".into() })];
@@ -77,10 +76,7 @@ async fn change(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pee
             Json(json!({ "ok": true, "signed_out": ended.len() })).into_response()
         }
         // Not 401: that would read as the session ending.
-        Ok(Err(crate::accounts::SignInError::Locked(until))) => {
-            (StatusCode::TOO_MANY_REQUESTS, Json(json!({ "error": format!("Too many wrong passwords. Try again after {}.", until.format("%H:%M UTC")), "retry_at": until })))
-                .into_response()
-        }
+        Ok(Err(crate::accounts::SignInError::Locked(until))) => crate::password_check::locked(until, None),
         Ok(Err(_)) => err(StatusCode::FORBIDDEN, "The current password is wrong."),
         Err(e) => internal(e),
     }

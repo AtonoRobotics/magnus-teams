@@ -3,10 +3,11 @@
 //! (spec rev 141, Administration). See the module documentation in `mod.rs`.
 
 use super::Admin;
-use crate::accounts::{Accounts, Role, SignInError};
-use crate::api::{credential, err, internal, on_this_machine, over_tls, who, Transport};
+use crate::accounts::Role;
+use crate::api::{credential, err, internal, over_tls, who, Transport};
 use crate::config::Person;
 use crate::kernel::Kernel;
+use crate::password_check::{self, Attempt, Checked};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::Next;
@@ -99,15 +100,6 @@ pub(crate) async fn guard(State(k): State<Arc<Kernel>>, mut req: Request, next: 
     next.run(req).await
 }
 
-/// What checking a step-up's password found.
-enum Confirmed {
-    Yes,
-    NeedsCode,
-    Wrong,
-    Locked(DateTime<Utc>),
-    Unavailable(String),
-}
-
 /// `POST /v1/admin/step-up {password, code?}`: confirm the admin's password,
 /// and their code when they use one, as sign-in checks them (a wrong one
 /// counts toward the same lockout), and let this session make changes for
@@ -126,57 +118,26 @@ pub(crate) async fn step_up(
     let Some(cred) = credential(&h) else { return err(StatusCode::UNAUTHORIZED, "sign in") };
     let password = b["password"].as_str().unwrap_or_default();
     let code = b["code"].as_str().map(str::trim).filter(|c| !c.is_empty());
-    let counter = if on_this_machine(peer, &h) { Accounts::local_counter(&a.person.id) } else { Accounts::network_counter(&a.person.id) };
     let refuse = |e: &str, m: &str| (StatusCode::FORBIDDEN, Json(json!({ "error": e, "message": m }))).into_response();
-    match confirm(&k, &a.person.id, password, code, &counter).await {
-        Ok(Confirmed::Yes) => {
+    // Checked where sign-in checks it, the identity provider for a person it
+    // keeps, else the server's own store, and counted on the same counter.
+    let attempt = Attempt { person: &a.person.id, password, code, machine_code: None, via: password_check::via(peer, &h), app: true };
+    match password_check::check(&k, &attempt).await {
+        Ok(Checked::Yes(_)) => {
             let now = Utc::now();
             mark(cred, now);
             Json(json!({ "stepped_up_until": now + window() })).into_response()
         }
-        Ok(Confirmed::NeedsCode) => refuse("code_needed", "Enter the code from your authenticator app."),
-        Ok(Confirmed::Wrong) => refuse("wrong", "The password or code is wrong."),
-        Ok(Confirmed::Locked(until)) => (
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({ "error": "locked", "message": format!("Too many wrong passwords. Try again after {}.", until.format("%H:%M UTC")), "retry_at": until })),
-        )
-            .into_response(),
-        Ok(Confirmed::Unavailable(m)) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": "unavailable", "message": m }))).into_response(),
+        Ok(Checked::NeedsCode) => refuse("code_needed", "Enter the code from your authenticator app."),
+        Ok(Checked::Wrong(_) | Checked::MustChoose) => refuse("wrong", "The password or code is wrong."),
+        Ok(Checked::Locked(until)) => password_check::locked(until, Some("locked")),
+        Ok(Checked::Elsewhere(_)) => unavailable(k.identity().map(|i| i.label()).unwrap_or_default()),
+        Ok(Checked::Unavailable(label)) => unavailable(label),
         Err(e) => internal(e),
     }
 }
 
-/// Check `person`'s password and code where sign-in checks them: the
-/// identity provider for a person it keeps, else the server's own store.
-async fn confirm(k: &Kernel, person: &str, password: &str, code: Option<&str>, counter: &str) -> anyhow::Result<Confirmed> {
-    let local_only = k.cfg.person(person).is_none() && k.accounts.is_local_fresh(person).await;
-    if let Some(id) = k.identity().filter(|_| !local_only) {
-        if let Some(until) = k.accounts.locked(counter) {
-            return Ok(Confirmed::Locked(until));
-        }
-        // Counted before the provider answers, as sign-in does, so requests
-        // sent at once cannot all pass the lockout first.
-        k.accounts.failed(counter);
-        return Ok(match id.password(person, password, code, true).await {
-            Ok(crate::identity::Polled::Done { person: who, .. }) if who == person => {
-                k.accounts.succeeded(counter);
-                Confirmed::Yes
-            }
-            Ok(crate::identity::Polled::Refused(_) | crate::identity::Polled::Done { .. }) => Confirmed::Wrong,
-            Ok(crate::identity::Polled::NeedsCode) => {
-                k.accounts.forgive(counter);
-                Confirmed::NeedsCode
-            }
-            Ok(_) | Err(_) => {
-                k.accounts.forgive(counter);
-                Confirmed::Unavailable(format!("{} could not confirm your password. Try again in a few minutes.", id.label()))
-            }
-        });
-    }
-    Ok(match k.accounts.sign_in_counted_with_code(person, password, code, counter).await? {
-        Ok(()) => Confirmed::Yes,
-        Err(SignInError::NeedsCode) => Confirmed::NeedsCode,
-        Err(SignInError::Locked(until)) => Confirmed::Locked(until),
-        Err(SignInError::Rejected | SignInError::MustChoose) => Confirmed::Wrong,
-    })
+fn unavailable(label: String) -> Response {
+    let m = format!("{label} could not confirm your password. Try again in a few minutes.");
+    (StatusCode::BAD_GATEWAY, Json(json!({ "error": "unavailable", "message": m }))).into_response()
 }
