@@ -460,14 +460,14 @@ impl Kernel {
         self.all_connectors().into_iter().filter(|(_, on)| *on).map(|(c, _)| c).collect()
     }
 
-    /// Every app, on or off (admin console spec, Security › Connectors and
-    /// credentials).
+    /// Every app, on or off (admin console spec, Security › Connectors and credentials).
     pub fn all_connectors(&self) -> Vec<(Connector, bool)> {
         let mut all = self.cfg.connectors.clone();
         let (added, settings) = self.read(|s| (s.connectors.values().cloned().collect::<Vec<Connector>>(), s.connector_settings.clone()));
         all.extend(added.into_iter().filter(|c| self.cfg.connectors.iter().all(|f| f.name != c.name)));
         for m in crate::catalog::manifests() {
-            if all.iter().all(|c| c.name != m.id) {
+            // A withdrawn one is offered to no one and reached by no run (`catalog_withdrawal`).
+            if all.iter().all(|c| c.name != m.id) && !self.read(|st| st.catalog.covers(m)) {
                 all.push(crate::catalog::connector(m));
             }
         }
@@ -875,7 +875,7 @@ impl Kernel {
     /// first revoked at the app, then deleted here, whatever the app said,
     /// and recorded. None: they were not signed in. Some: whether the app
     /// itself ended the sign-in, and why not.
-    pub async fn disconnect(&self, app: &str, person: &str) -> Result<Option<(bool, String)>> {
+    pub async fn disconnect(&self, app: &str, person: &str, actor: &str) -> Result<Option<(bool, String)>> {
         let name = connection_name(app, person);
         let Some(s) = self.vault.get(&name)? else { return Ok(None) };
         // Its push subscription is ended first, while the sign-in still works.
@@ -885,7 +885,7 @@ impl Kernel {
         self.live_tools.lock().await.remove(&name);
         self.brokered.stop(Some(app), Some(person)).await;
         tracing::info!("{person} disconnected {app}: revoked {done}: {detail}");
-        self.emit(&format!("person:{person}"), Ev::AppDisconnected { app: app.to_string(), person: person.to_string(), at_provider: done, detail: detail.clone() }).await?;
+        self.emit(actor, Ev::AppDisconnected { app: app.to_string(), person: person.to_string(), at_provider: done, detail: detail.clone() }).await?;
         Ok(Some((done, detail)))
     }
 }
@@ -1556,7 +1556,7 @@ async fn disconnect(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Re
     if !k.all_connectors().iter().any(|(c, _)| c.name == name) {
         return err(StatusCode::NOT_FOUND, "no such app");
     }
-    match k.disconnect(&name, &p.id).await {
+    match k.disconnect(&name, &p.id, &format!("person:{}", p.id)).await {
         // Where the app could not end the sign-in itself, the person is
         // told where they remove Magnus there (connectors spec, Lifecycle).
         Ok(Some((at_provider, detail))) => {

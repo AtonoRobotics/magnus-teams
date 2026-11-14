@@ -249,8 +249,7 @@ pub struct Task {
     pub schedule: Option<String>,
     /// A proactive review run's task: the loop's own wake, not work (#237).
     pub review: bool,
-    /// A scheduled watch poll's task: a quiet read, hidden from the
-    /// person's lists (#406).
+    /// A scheduled watch poll's task: a quiet read, hidden from the person's lists (#406).
     pub poll: bool,
     /// The event that created it: where its words are recalled from.
     pub seq: i64,
@@ -997,10 +996,10 @@ pub struct State {
     /// One-a-day wake marks (a coming-up schedule, a due commitment).
     pub wake_marks: HashMap<String, String>,
     pub model: Option<(String, String)>,
-    /// App tool definitions as screened, those held back, and who connected
-    /// which app through its connect screen (spec rev 140).
+    /// App tool definitions as screened, those held back, and who connected which app through its connect screen (spec rev 140).
     pub tools: crate::tool_gate::Ledger,
     pub spend: crate::spend::Ledger,
+    pub catalog: crate::catalog_withdrawal::Ledger,
     pub admin_settings: crate::admin_app::settings::Settings,
     pub secrets: HashSet<String>,
     pub memory: Vec<MemoryEntry>,
@@ -1911,6 +1910,7 @@ impl State {
             Ev::Tools(c) => self.tools.apply(e.at, c),
             Ev::Evidence(c) => self.evidence.apply(e.at, c),
             Ev::Spend(c) => self.spend.apply(e.at, c),
+            Ev::Catalog(c) => self.catalog.apply(c),
             Ev::TaskCreated { task, run, person, config, attachments, experiment, chat, label, files, project, grant, .. } => {
                 // Playbook items the run starts with carry the taint of the
                 // runs that wrote them (I2, M1), and a task from chat that of

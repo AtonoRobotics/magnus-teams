@@ -31,3 +31,11 @@ held: written, checked by the catalog's tests (`HELD`), and not shipped.
 Classes: `read`, `reversible_write`, `irreversible`, `financial`, and
 `prohibited` (listed by the server, never offered to Magnus and refused
 if called: the policy's hard deny).
+
+A connector is withdrawn between releases through `withdrawn.json`: raise
+its `serial` with every change and name each withdrawn connector's `id`,
+optionally the manifest `versions` withdrawn (a semver requirement) and the
+`reason` people are told. The release workflow signs and publishes it
+(`release/publish-withdrawals.sh`); the server turns the connector off,
+revokes every connection to it and tells each person who had one
+(decisions/2026-11-13-catalog-withdrawal.md).
