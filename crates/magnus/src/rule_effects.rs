@@ -71,7 +71,7 @@ impl Kernel {
             Ok(ask) => ask,
             Err(v) => return Ok(Err(v)),
         };
-        if self.person(&run.person).is_some_and(|p| crate::admin_app::roles::is_guest(&p)) {
+        if self.person(&run.person).is_some_and(|p| crate::people::rights(&p).held_to_guest_limits()) {
             let why = format!("{} is refused: a guest reads and chats only", a.tool);
             return Ok(Err(self.deny(a, "policy", &why, false, Some(crate::admin_app::roles::GUEST_RULE.into())).await?));
         }

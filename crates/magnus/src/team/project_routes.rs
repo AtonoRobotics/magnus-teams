@@ -1,16 +1,17 @@
 //! Making things by typing their name, the task board, project files, the
 //! right panel. Invites are in `invites`. Nothing here is a step-by-step form.
+use super::caller::{at, Member};
 use super::chat::{Chat, Origin, Status, Task};
 use super::chat_routes::name_of;
 use super::knowledge::Project;
-use super::routes::{member, new_id, send, Reply, K};
-use super::{Change, Role, Workspace};
+use super::routes::{new_id, send, Reply, K};
+use super::{Change, Workspace};
 use crate::api::err;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::{bail, Result};
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{post, put};
 use axum::{Json, Router};
@@ -74,8 +75,7 @@ struct Start {
     name: String,
 }
 
-async fn start(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Start>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn start(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<Start>) -> Reply {
     match k.start_space(&format!("person:{}", p.id), &ws, &p.id, b.kind, &b.name).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => err(StatusCode::BAD_REQUEST, format!("{e:#}")),
@@ -116,8 +116,7 @@ fn task_fits(w: &Workspace, person: &str, t: &Task) -> Result<(), &'static str> 
     Ok(())
 }
 
-async fn add_task(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewTask>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn add_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<NewTask>) -> Reply {
     let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     let task = Task { id: new_id(), project: b.project, title: b.title, status: b.status, assignee: b.assignee, from: b.from, by: p.id.clone(), at: Some(chrono::Utc::now()) };
     if let Err(why) = task_fits(&w, &p.id, &task) {
@@ -141,8 +140,7 @@ struct TaskChange {
     project: Option<String>,
 }
 
-async fn change_task(State(k): K, h: HeaderMap, Path((ws, id)): Path<(String, String)>, Json(b): Json<TaskChange>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn change_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>, Json(b): Json<TaskChange>) -> Reply {
     let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     let Some(mut task) = w.chat.tasks.get(&id).filter(|t| w.in_project(t.project.as_deref(), &p.id)).cloned() else { return err(StatusCode::NOT_FOUND, "no such task") };
     task.title = b.title.unwrap_or(task.title);
@@ -160,8 +158,7 @@ async fn change_task(State(k): K, h: HeaderMap, Path((ws, id)): Path<(String, St
     Json(json!({ "ok": true })).into_response()
 }
 
-async fn remove_task(State(k): K, h: HeaderMap, Path((ws, id)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn remove_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>) -> Reply {
     let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.tasks.get(&id).is_some_and(|t| w.in_project(t.project.as_deref(), &p.id))));
     if !known {
         return err(StatusCode::NOT_FOUND, "no such task");
@@ -175,8 +172,7 @@ struct FileProject {
     project: Option<String>,
 }
 
-async fn file_project(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, Json(b): Json<FileProject>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn file_project(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>, Json(b): Json<FileProject>) -> Reply {
     let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     if !w.sees_file(&name, &p.id) {
         return err(StatusCode::NOT_FOUND, "no such file");
@@ -190,8 +186,7 @@ async fn file_project(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String,
 
 /// The right panel: a project's files, tasks, members, channels and the
 /// agent's current work there, or the whole workspace's with no project.
-async fn panel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
     let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
     let project = q.get("project").filter(|s| !s.is_empty()).cloned();
     let def = match &project {
@@ -252,6 +247,7 @@ async fn panel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Quer
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::team::Role;
 
     #[test]
     fn a_channel_is_named_from_what_was_typed() {

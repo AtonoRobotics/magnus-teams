@@ -15,13 +15,14 @@
 //! an injected instruction) into all of them. The person sees, corrects and
 //! removes them in the app (`/v1/relationship`).
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::state::Run;
 use crate::tools::Label;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -266,11 +267,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 /// The person's own notes: no one else's, whoever asks.
-async fn notes(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn notes(State(k): State<Arc<Kernel>>, Caller(p): Caller) -> Response {
     match k.relationship(&p.id).await {
         Ok((notes, version)) => Json(json!({ "notes": notes, "version": version })).into_response(),
         Err(e) => internal(e),
@@ -278,11 +275,7 @@ async fn notes(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
 }
 
 /// The person adds, corrects or removes one of their notes.
-async fn change(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn change(State(k): State<Arc<Kernel>>, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let edit = match Edit::from(&b) {
         Ok(e) => e,
         Err(why) => return err(StatusCode::BAD_REQUEST, why),

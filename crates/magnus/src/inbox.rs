@@ -19,9 +19,9 @@ pub enum Answer {
 }
 
 /// May `p` set policy for `layer`? (E7: separate from approving.) A
-/// person's own layer is theirs alone; see `policy_layers::may_write`.
+/// person's own layer is theirs alone; see `people::Rights::may_write_policy_layer`.
 pub fn may_set_policy(p: &Person, layer: &str) -> bool {
-    crate::policy_layers::may_write(p, layer)
+    crate::people::rights(p).may_write_policy_layer(layer)
 }
 
 pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
@@ -31,7 +31,8 @@ pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
         // approver role, whose work it is not.
         "approval" => i.person == p.id,
         "policy_proposal" => may_set_policy(p, i.details["layer"].as_str().unwrap_or_default()),
-        crate::consent::APP_TOOLS | "deletion_request" => p.is_owner(),
+        crate::consent::APP_TOOLS => crate::people::rights(p).decides_app_tools(),
+        "deletion_request" => crate::people::rights(p).decides_deletion_requests(),
         // A message shared with someone is theirs alone, the owner's too.
         "shared" => i.person == p.id,
         // Only someone with the role who may read the entry makes it a company fact.

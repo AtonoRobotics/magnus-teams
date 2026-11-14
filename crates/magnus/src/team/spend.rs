@@ -5,14 +5,15 @@
 //! held for them, so two starts cannot both claim the same remainder. The
 //! agent loop rechecks the limits before each model call, so a limit holds
 //! even mid-task, when it is lowered or overrun.
+use super::caller::{at, Member};
 use super::chat::Chat;
-use super::routes::{has_channel, member, send, Reply, K};
-use super::{Change, Role, Workspace};
+use super::routes::{has_channel, send, Reply, K};
+use super::{Change, Workspace};
 use crate::api::err;
 use crate::kernel::{Kernel, NewRun};
 use crate::state::State;
 use axum::extract::{Path, State as Ax};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -193,8 +194,7 @@ struct Limit {
 }
 
 /// Only an owner sets a limit, for the workspace or one of its channels.
-async fn set_limit(Ax(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Limit>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Owner).await);
+async fn set_limit(Ax(k): K, Member { person: p, .. }: Member<at::Owner>, Path(ws): Path<String>, Json(b): Json<Limit>) -> Reply {
     if b.usd.is_some_and(|u| !u.is_finite() || !(0.0..=MAX_LIMIT_USD).contains(&u)) {
         return err(StatusCode::BAD_REQUEST, "a limit is an amount of dollars from 0 up");
     }

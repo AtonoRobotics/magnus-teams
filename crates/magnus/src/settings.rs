@@ -2,12 +2,14 @@
 //! about people: signed-in devices, roles, notifications and privacy
 //! choices, and requests to delete their data.
 
-use crate::api::{credential, err, internal, owner, who};
+use crate::api::{credential, err, internal, who};
+use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
+use crate::extract::{Caller, Owner};
 use crate::kernel::Kernel;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::routing::{delete, get, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -57,11 +59,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 /// The devices signed in as the person, newest first.
-async fn sessions(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn sessions(State(k): K, Caller(p): Caller, h: HeaderMap) -> ApiResult {
     let token = credential(&h).unwrap_or_default();
     let list: Vec<Value> = k
         .accounts
@@ -70,30 +68,23 @@ async fn sessions(State(k): K, h: HeaderMap) -> Response {
         .into_iter()
         .map(|(s, current)| json!({ "id": s.id, "client": s.client, "created": s.created, "expires": s.expires, "current": current }))
         .collect();
-    Json(json!({ "sessions": list })).into_response()
+    Ok(Json(json!({ "sessions": list })).into_response())
 }
 
 /// Sign one of the person's devices out.
-async fn end_session(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.accounts.end(&p.id, &id).await {
+async fn end_session(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(match k.accounts.end(&p.id, &id).await {
         Ok(Some(s)) => match k.emit(&format!("person:{}", p.id), Ev::SignedOut { person: p.id.clone(), session: s.id }).await {
             Ok(_) => StatusCode::NO_CONTENT.into_response(),
             Err(e) => internal(e),
         },
         Ok(None) => err(StatusCode::NOT_FOUND, "no such session"),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Everyone on the appliance with their rights and where the rights come from.
-async fn people(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
+async fn people(State(k): K, _: Owner) -> ApiResult {
     let list: Vec<Value> = k
         .cfg
         .people
@@ -113,137 +104,111 @@ async fn people(State(k): K, h: HeaderMap) -> Response {
             Some(json!({ "id": p.id, "name": p.name, "groups": p.groups, "roles": p.roles, "roles_from": from, "account_bound": bound }))
         })
         .collect();
-    Json(json!({ "people": list })).into_response()
+    Ok(Json(json!({ "people": list })).into_response())
 }
 
 /// The owner sets a person's roles. Roles the identity provider names win,
 /// so those cannot be set here; and someone must stay owner.
-async fn set_roles(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let me = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn set_roles(State(k): K, Owner(me): Owner, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let Some(roles) = b["roles"].as_array().map(|a| a.iter().filter_map(|r| r.as_str()).map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect::<Vec<_>>()) else {
-        return err(StatusCode::BAD_REQUEST, "roles must be a list of role names");
+        return refuse(StatusCode::BAD_REQUEST, "roles must be a list of role names");
     };
     if k.cfg.person(&id).is_none() {
-        return err(StatusCode::NOT_FOUND, "no such person");
+        return refuse(StatusCode::NOT_FOUND, "no such person");
     }
     if k.read(|s| s.provider_rights.get(&id).is_some_and(|(_, r)| r.is_some())) {
-        return err(StatusCode::CONFLICT, "the identity provider names this person's roles; change them there");
+        return refuse(StatusCode::CONFLICT, "the identity provider names this person's roles; change them there");
     }
     // Checked and recorded under the decision lock: two owners taking the
     // role from each other at once must leave one.
     let _decide = k.decide.lock().await;
     let still_owned = k.people().owners().iter().any(|p| p.id != id) || roles.iter().any(|r| r == "owner");
     if !still_owned {
-        return err(StatusCode::CONFLICT, "someone must keep the owner role");
+        return refuse(StatusCode::CONFLICT, "someone must keep the owner role");
     }
-    match k.emit(&format!("person:{}", me.id), Ev::RolesSet { person: id, roles }).await {
+    Ok(match k.emit(&format!("person:{}", me.id), Ev::RolesSet { person: id, roles }).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Whether people's data is private from the admin: always, now (the
 /// owner, 2026-11-11, replacing ruling 14, which let the owner choose). The
 /// switch's past events still replay (`Ev::DataAccessSet`), and nothing
 /// reads them.
-async fn get_data_access(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = who(&k, &h).await {
-        return r;
-    }
-    Json(json!({ "private": true, "fixed": true })).into_response()
+async fn get_data_access(_: Caller) -> ApiResult {
+    Ok(Json(json!({ "private": true, "fixed": true })).into_response())
 }
 
-async fn put_data_access(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
-    match b["private"].as_bool() {
+async fn put_data_access(_: Owner, Json(b): Json<Value>) -> ApiResult {
+    Ok(match b["private"].as_bool() {
         Some(true) => StatusCode::NO_CONTENT.into_response(),
         Some(false) => err(StatusCode::CONFLICT, crate::person_admin::NOT_THE_ADMINS),
         None => err(StatusCode::BAD_REQUEST, "private is true or false"),
-    }
+    })
 }
 
 /// The owner lets a person's account at the identity provider change: the
 /// person is no longer bound to the account that first signed in as them,
 /// and the next account to sign in as them becomes theirs (for an account
 /// made again, or a person moved to a new one).
-async fn clear_account(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let me = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn clear_account(State(k): K, Owner(me): Owner, Path(id): Path<String>) -> ApiResult {
     if k.cfg.person(&id).is_none() {
-        return err(StatusCode::NOT_FOUND, "no such person");
+        return refuse(StatusCode::NOT_FOUND, "no such person");
     }
     let _decide = k.decide.lock().await;
     if !k.read(|s| s.subjects.contains_key(&id)) {
-        return StatusCode::NO_CONTENT.into_response();
+        return Ok(StatusCode::NO_CONTENT.into_response());
     }
     // Whoever signs in as them next gets everything of theirs: they are told.
     let said = format!("{} let a new sign-in become your account", me.name);
     let told = k.notice_to(None, None, id.clone(), said, json!({ "reason": "account_unbound", "by": me.id }));
     let actor = format!("person:{}", me.id);
-    match k.emit_all(vec![(actor.as_str(), Ev::SubjectBound { person: id, subject: None }), ("kernel", told)]).await {
+    Ok(match k.emit_all(vec![(actor.as_str(), Ev::SubjectBound { person: id, subject: None }), ("kernel", told)]).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// A person's own tasks, conversations, files or memory. Anyone else's is
 /// refused, the owner's read included (`read_person_data`).
-async fn person_data(State(k): K, h: HeaderMap, Path((id, what)): Path<(String, String)>) -> Response {
-    let me = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some(target) = k.person(&id) else { return err(StatusCode::NOT_FOUND, "no such person") };
-    match k.read_person_data(&format!("person:{}", me.id), &me.name, &target, &what, None).await {
+async fn person_data(State(k): K, Owner(me): Owner, Path((id, what)): Path<(String, String)>) -> ApiResult {
+    let Some(target) = k.person(&id) else { return refuse(StatusCode::NOT_FOUND, "no such person") };
+    Ok(match k.read_person_data(&format!("person:{}", me.id), &me.name, &target, &what, None).await {
         Ok(v) => Json(v).into_response(),
         Err((st, m)) => err(st, m),
-    }
+    })
 }
 
-async fn get_preferences(State(k): K, h: HeaderMap) -> Response {
-    match who(&k, &h).await {
+async fn get_preferences(State(k): K, h: HeaderMap) -> ApiResult {
+    Ok(match who(&k, &h).await {
         Ok(p) => Json(preferences(&k, &p.id)).into_response(),
         Err(r) => r,
-    }
+    })
 }
 
 /// Change some of the person's own settings; each must be a known one,
 /// a yes or no or, for the proactive loop's, what the loop can use.
-async fn put_preferences(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn put_preferences(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
     let known = preferences(&k, &p.id);
-    let Some(set) = b.as_object().filter(|o| !o.is_empty()) else { return err(StatusCode::BAD_REQUEST, "give the settings to change") };
+    let Some(set) = b.as_object().filter(|o| !o.is_empty()) else { return refuse(StatusCode::BAD_REQUEST, "give the settings to change") };
     for (key, v) in set {
         if known.get(key).is_none() {
-            return err(StatusCode::BAD_REQUEST, format!("no setting {key}"));
+            return refuse(StatusCode::BAD_REQUEST, format!("no setting {key}"));
         }
         if !v.is_boolean() && !proactive_ok(key, v) {
-            return err(StatusCode::BAD_REQUEST, format!("{key} holds the wrong shape"));
+            return refuse(StatusCode::BAD_REQUEST, format!("{key} holds the wrong shape"));
         }
     }
-    match k.emit(&format!("person:{}", p.id), Ev::PreferencesSet { person: p.id.clone(), prefs: b }).await {
+    Ok(match k.emit(&format!("person:{}", p.id), Ev::PreferencesSet { person: p.id.clone(), prefs: b }).await {
         Ok(_) => Json(preferences(&k, &p.id)).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// A person asks the owner to delete their data. The request is an inbox
 /// item for the owner, with the date it must be acted on by.
-async fn request_deletion(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn request_deletion(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
     let what = b["what"].as_str().map(str::trim).filter(|w| !w.is_empty()).unwrap_or("all of my data");
     let due = chrono::Utc::now() + chrono::Duration::days(DELETION_DAYS);
     let id = crate::kernel::new_id("item");
@@ -256,21 +221,18 @@ async fn request_deletion(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Re
         summary: format!("{} asks for their data to be deleted: {what}", p.name),
         details: json!({ "requested_by": p.id, "what": what, "due": due }),
     };
-    match k.emit(&format!("person:{}", p.id), ev).await {
+    Ok(match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => (StatusCode::CREATED, Json(json!({ "id": id, "due": due }))).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// The person's own deletion requests and what became of them; the owner
 /// sees everyone's.
-async fn deletion_requests(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn deletion_requests(State(k): K, Caller(p): Caller) -> ApiResult {
     let list: Vec<Value> = k.read(|s| {
-        let mut v: Vec<&crate::state::Item> = s.items.values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || p.is_owner())).collect();
+        let mut v: Vec<&crate::state::Item> =
+            s.items.values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || crate::people::rights(&p).decides_deletion_requests())).collect();
         v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         v.into_iter()
             .map(|i| {
@@ -279,7 +241,7 @@ async fn deletion_requests(State(k): K, h: HeaderMap) -> Response {
             })
             .collect()
     });
-    Json(json!({ "requests": list })).into_response()
+    Ok(Json(json!({ "requests": list })).into_response())
 }
 
 #[cfg(test)]

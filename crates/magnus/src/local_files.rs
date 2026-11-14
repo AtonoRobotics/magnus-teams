@@ -1,12 +1,13 @@
 //! The files Magnus wrote on a person's own computer. Each is listed in the
 //! app beside that computer, where the person can download or delete it, one
 //! at a time or many at once; a run is told of one the person deleted.
-use crate::api::{err, who};
+use crate::api::err;
 use crate::config::Person;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::local::{mine, online, run_on, Computer, BY_PERSON};
 use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -139,22 +140,14 @@ async fn on_machine(c: &Computer, op: &str, path: &str) -> Result<String, (Statu
     }
 }
 
-async fn list(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn list(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     if mine(&k, &p.id, &id).is_none() {
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
     Json(json!({ "files": k.read(|s| s.local.files.of(&id)) })).into_response()
 }
 
-async fn raw(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn raw(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     let c = match made(&k, &p, &id, &q.path) {
         Ok(c) => c,
         Err((status, why)) => return err(status, why),
@@ -165,11 +158,7 @@ async fn raw(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<
     }
 }
 
-async fn remove(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn remove(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     let c = match made(&k, &p, &id, &q.path) {
         Ok(c) => c,
         Err((status, why)) => return err(status, why),

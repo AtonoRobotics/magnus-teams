@@ -1,19 +1,21 @@
 //! The workspace as a team chat over HTTP: the left rail, a channel as it
 //! reads now, editing, reactions, pins, per-channel settings, direct
 //! conversations, read markers, typing and the activity view.
+use super::caller::{at, Member};
 use super::chat::{AgentMode, Chat, Direct, Notify};
 use super::conversation::{AGENT_ID, AGENT_NAME};
 use super::items;
+use super::may::{allow, Act};
 use super::member_view::MemberView;
-use super::routes::{has_channel, member, new_id, send, Reply, K};
-use super::{presence, Change, Role, Workspace};
-use crate::api::err;
+use super::routes::{has_channel, new_id, send, Reply, K};
+use super::{presence, Change, Workspace};
+use crate::api_error::{refuse, ApiResult};
 use crate::config::Person;
 use crate::kernel::Kernel;
 use crate::message_file;
 use axum::extract::{Path, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
@@ -54,10 +56,9 @@ fn workspace(k: &Kernel, ws: &str) -> Option<Workspace> {
 }
 
 /// Everything the left rail needs, for this person.
-async fn home(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn home(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path(ws): Path<String>) -> ApiResult {
     presence::seen(&ws, &p.id);
-    let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
     let online = presence::online(&ws);
     let me = name_of(&k, &p.id);
     let members: Vec<Value> = w.members.iter().map(|(id, r)| json!({ "id": id, "name": name_of(&k, id), "role": r, "online": online.contains(id) })).collect();
@@ -83,13 +84,13 @@ async fn home(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
         })
         .collect();
     let spent = k.read(|s| super::spend::spent_this_month(s, &ws, chrono::Utc::now()));
-    Json(json!({
+    Ok(Json(json!({
         "id": w.id, "name": w.name, "role": role, "me": p.id, "me_name": me,
         "agent": { "id": AGENT_ID, "name": AGENT_NAME },
         "members": members, "channels": channels, "projects": projects,
         "computer": k.team_computer(&ws), "spend": super::spend::summary(&w, &spent),
     }))
-    .into_response()
+    .into_response())
 }
 
 /// An item's time, for ordering: its text form does not sort.
@@ -100,22 +101,20 @@ pub(super) fn when(item: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>
 /// One message as a Markdown file, as this person sees it: the team chat
 /// has the personal chat's message controls, Export among them (owner,
 /// 2026-11-13).
-async fn export(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn export(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>) -> ApiResult {
     let now = chrono::Utc::now();
     let found = k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| (m.author().to_string(), m.at(), m.text().to_string()))));
-    let Some((by, at, text)) = found.filter(|(_, _, t)| !t.is_empty()) else { return err(StatusCode::NOT_FOUND, "no such message") };
+    let Some((by, at, text)) = found.filter(|(_, _, t)| !t.is_empty()) else { return refuse(StatusCode::NOT_FOUND, "no such message") };
     let body = message_file::markdown(&name_of(&k, &by), &message_file::at_text(at), &text);
     let name = message_file::file_name(&text);
-    ([(CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], body).into_response()
+    Ok(([(CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], body).into_response())
 }
 
 /// A channel as it reads now: messages with their reactions, edits, pins
 /// and reply counts; the agent's work and answers; who is typing.
-async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn view(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     presence::seen(&ws, &p.id);
     let now = chrono::Utc::now();
@@ -126,7 +125,7 @@ async fn view(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
         typing.push(AGENT_NAME.to_string());
     }
     let names: BTreeMap<String, String> = items.iter().flat_map(|i| i.sender.iter().chain(i.requester.as_ref())).map(|id| (id.clone(), name_of(&k, id))).collect();
-    Json(json!({ "messages": items, "typing": typing, "names": names })).into_response()
+    Ok(Json(json!({ "messages": items, "typing": typing, "names": names })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -135,15 +134,14 @@ struct Edit {
 }
 
 /// Only who wrote a message edits it.
-async fn edit(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<Edit>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn edit(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<Edit>) -> ApiResult {
     // One deleted for everyone stays deleted: an edit would put words back.
-    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.edit, "only who wrote a message edits it"));
+    super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.edit, "only who wrote a message edits it")?;
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
-        return err(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
+        return refuse(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Edited { channel, id, text: b.text, at: chrono::Utc::now() } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Edited { channel, id, text: b.text, at: chrono::Utc::now() } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -152,16 +150,15 @@ struct React {
     on: bool,
 }
 
-async fn react(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<React>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn react(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<React>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     if b.emoji.trim().is_empty() || b.emoji.chars().count() > MAX_EMOJI_CHARS {
-        return err(StatusCode::BAD_REQUEST, "a reaction is one emoji");
+        return refuse(StatusCode::BAD_REQUEST, "a reaction is one emoji");
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Reacted { channel, id, emoji: b.emoji, person: p.id.clone(), on: b.on } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Reacted { channel, id, emoji: b.emoji, person: p.id.clone(), on: b.on } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -169,14 +166,13 @@ struct Pin {
     pinned: bool,
 }
 
-async fn pin(State(k): K, h: HeaderMap, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<Pin>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn pin(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<Pin>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.pin, "a guest pins nothing"));
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Pinned { channel, id, pinned: b.pinned } }).await);
-    Json(json!({ "ok": true })).into_response()
+    super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.pin, "a guest pins nothing")?;
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Pinned { channel, id, pinned: b.pinned } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -185,13 +181,12 @@ struct Mode {
 }
 
 /// Any member sets how the team agent takes part in a channel.
-async fn set_mode(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Mode>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn set_mode(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Mode>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::AgentMode { channel, mode: b.mode } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::AgentMode { channel, mode: b.mode } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -199,20 +194,18 @@ struct Level {
     level: Notify,
 }
 
-async fn set_notify(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Level>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn set_notify(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Level>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Notify { channel, person: p.id.clone(), level: b.level } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Notify { channel, person: p.id.clone(), level: b.level } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// Marks the channel read up to its newest message, once per change.
-async fn read(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn read(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let (newest, mark) = k.read(|s| {
         let w = s.team.workspace(&ws);
@@ -220,17 +213,16 @@ async fn read(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
         (newest, w.and_then(|w| w.chat.read.get(&p.id)?.get(&channel).copied()))
     });
     if let Some(at) = newest.filter(|n| mark.is_none_or(|m| *n > m)) {
-        ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Read { channel, person: p.id.clone(), at } }).await);
+        send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Read { channel, person: p.id.clone(), at } }).await?;
     }
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
-async fn typing(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn typing(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if has_channel(&k, &ws, &channel, &p.id) {
         presence::typing(&ws, &channel, &p.id);
     }
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -243,21 +235,18 @@ struct NewDirect {
 }
 
 /// The direct conversation between these people, made the first time.
-async fn direct(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<NewDirect>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+async fn direct(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path(ws): Path<String>, Json(b): Json<NewDirect>) -> ApiResult {
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
     let mut people: Vec<String> = b.people.into_iter().filter(|x| x != &p.id).collect();
     people.push(p.id.clone());
     people.sort();
     people.dedup();
     if !people.iter().all(|x| w.members.contains_key(x)) {
-        return err(StatusCode::BAD_REQUEST, "a direct message is between members");
+        return refuse(StatusCode::BAD_REQUEST, "a direct message is between members");
     }
-    if b.agent && role == Role::Guest {
-        return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
-    }
-    let id = ok_or_return!(direct_between(&k, &p, &w, people, b.agent).await);
-    Json(json!({ "id": id })).into_response()
+    allow(role, &p.id, Act::Post { with_agent: b.agent })?;
+    let id = direct_between(&k, &p, &w, people, b.agent).await?;
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 /// The direct conversation between these people (the caller among them),
@@ -275,8 +264,7 @@ pub(super) async fn direct_between(k: &Kernel, p: &Person, w: &Workspace, people
 
 /// Mentions of this person, replies in threads they took part in, and their
 /// requests waiting on an answer from them.
-async fn activity(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn activity(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>) -> ApiResult {
     let me = name_of(&k, &p.id);
     let out = k.read(|s| {
         let Some(v) = MemberView::of(s, &ws, &p.id) else { return json!({}) };
@@ -305,5 +293,5 @@ async fn activity(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
         }
         json!({ "mentions": mentions, "replies": replies, "asks": asks })
     });
-    Json(out).into_response()
+    Ok(Json(out).into_response())
 }

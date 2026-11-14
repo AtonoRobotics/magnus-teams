@@ -193,7 +193,7 @@ pub fn control_allowed(policies: &BTreeMap<String, String>, person: &Person, aut
     let ctx = Context::from_pairs([
         ("is_owner".to_string(), RestrictedExpression::new_bool(authority == Authority::Owner)),
         // An owner who also holds the admin role reads as both, as always.
-        ("is_admin".to_string(), RestrictedExpression::new_bool(authority == Authority::Admin || person.has_role("admin"))),
+        ("is_admin".to_string(), RestrictedExpression::new_bool(crate::people::rights(person).reads_as_admin(authority))),
     ])
     .map_err(|e| failed(e.to_string()))?;
     let req = Request::new(

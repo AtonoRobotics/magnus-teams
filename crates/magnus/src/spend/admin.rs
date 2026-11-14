@@ -144,7 +144,12 @@ impl Kernel {
         roles.extend(access.roles.keys().cloned());
         roles.sort();
         roles.dedup();
-        let people: Vec<Value> = self.people().ids().iter().map(|p| json!({ "id": p, "name": self.name_of(p), "owner": self.person(p).is_some_and(|x| x.is_owner()) })).collect();
+        let people: Vec<Value> = self
+            .people()
+            .ids()
+            .iter()
+            .map(|p| json!({ "id": p, "name": self.name_of(p), "owner": self.person(p).is_some_and(|x| crate::people::rights(&x).is_server_owner()) }))
+            .collect();
         json!({ "default": { "adapter": adapter, "model": model }, "access": access, "roles": roles, "people": people })
     }
 
@@ -154,7 +159,7 @@ impl Kernel {
         match (&role, &person) {
             (Some(_), Some(_)) | (None, None) => return Err((StatusCode::BAD_REQUEST, "name a role or a person".into())),
             (Some(r), None) if r.trim().is_empty() || r == "owner" => return Err((StatusCode::BAD_REQUEST, "the owner may use every model".into())),
-            (None, Some(p)) if self.person(p).is_none_or(|x| x.is_owner()) => {
+            (None, Some(p)) if self.person(p).is_none_or(|x| crate::people::rights(&x).uses_every_model()) => {
                 return Err((StatusCode::BAD_REQUEST, "no such person, or the owner, who may use every model".into()))
             }
             _ => {}

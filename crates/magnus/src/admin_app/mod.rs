@@ -7,8 +7,8 @@
 //! # Who is an admin
 //! A signed-in person is an admin here when any of these holds
 //! (`people::Authority::administers`):
-//! - the config gives them the `owner` role (`Person::is_owner`);
-//! - the config gives them the `admin` role (`Person::has_role("admin")`);
+//! - the config gives them the `owner` role (`people::Rights::is_server_owner`);
+//! - the config gives them the `admin` role (`people::Authority::of`);
 //! - the server's own directory records them as an admin
 //!   (`accounts::Role::Admin`, what the console's People screen sets).
 //!
@@ -73,6 +73,7 @@ pub mod workspaces;
 mod workspaces_tests;
 
 use crate::config::Person;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use axum::extract::State;
 use axum::http::HeaderMap;
@@ -141,12 +142,8 @@ fn admin_routes() -> Router<Arc<Kernel>> {
 
 /// Whether the signed-in person is an admin, so the app shows the Admin
 /// entry, and until when their step-up holds. Any signed-in person may ask.
-async fn standing(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    let p = match crate::api::who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn standing(State(k): State<Arc<Kernel>>, Caller(p): Caller, h: HeaderMap) -> Response {
     let admin = k.authority(&p).await.administers();
     let until = crate::api::credential(&h).and_then(guard::stepped_up_until);
-    Json(json!({ "admin": admin, "owner": p.is_owner(), "team_admin": k.is_team_admin(&p), "step_up_seconds": ADMIN_STEP_UP_SECONDS, "stepped_up_until": if admin { until } else { None } })).into_response()
+    Json(json!({ "admin": admin, "owner": crate::people::rights(&p).is_server_owner(), "team_admin": k.is_team_admin(&p), "step_up_seconds": ADMIN_STEP_UP_SECONDS, "stepped_up_until": if admin { until } else { None } })).into_response()
 }

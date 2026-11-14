@@ -5,10 +5,8 @@
 //! own directory, so every check that reads either agrees.
 
 use crate::accounts::Role as Directory;
-use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
-use crate::people::Authority;
 use axum::http::StatusCode;
 
 /// The four roles, most trusted first.
@@ -18,14 +16,6 @@ pub const ROLES: [&str; 4] = ["owner", "admin", "member", "guest"];
 pub const GUEST_RULE: &str = "kernel:guest_reads_and_chats_only";
 
 pub type Refusal = (StatusCode, &'static str, String);
-
-/// Whether `p` is a guest: the guest role and no role above it. Read from
-/// their roles alone, without the server's directory, because the boundary
-/// asks it on every action without a wait; `set_server_role` keeps the two in
-/// step, and where they differ this errs toward a guest's limits.
-pub fn is_guest(p: &Person) -> bool {
-    Authority::of(p, Directory::Member) == Authority::Guest
-}
 
 /// `roles` with its one role of the four replaced by `role`, the rest kept.
 pub fn with_role(roles: &[String], role: &str) -> Vec<String> {
@@ -64,7 +54,7 @@ impl Kernel {
             return Err((StatusCode::CONFLICT, "provider", "The identity provider names this person's roles: change them there.".into()));
         }
         let _decide = self.decide.lock().await;
-        if p.is_owner() && role != "owner" && self.last_owner(id).await {
+        if crate::people::rights(&p).is_server_owner() && role != "owner" && self.last_owner(id).await {
             return Err((StatusCode::CONFLICT, "last_owner", "This is the last owner: make someone else an owner first.".into()));
         }
         let admin = matches!(role, "owner" | "admin");
@@ -87,6 +77,7 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Person;
 
     fn person(roles: &[&str]) -> Person {
         serde_json::from_value(serde_json::json!({ "id": "p", "roles": roles })).unwrap()
@@ -95,7 +86,7 @@ mod tests {
     #[test]
     fn a_person_holds_one_of_the_four_and_keeps_the_rest() {
         assert_eq!(with_role(&["developer".into(), "admin".into()], "guest"), vec!["developer".to_string(), "guest".to_string()]);
-        assert!(is_guest(&person(&["guest"])));
-        assert!(!is_guest(&person(&["guest", "admin"])), "an admin was held to a guest's limits");
+        assert!(crate::people::rights(&person(&["guest"])).held_to_guest_limits());
+        assert!(!crate::people::rights(&person(&["guest", "admin"])).held_to_guest_limits(), "an admin was held to a guest's limits");
     }
 }
