@@ -101,10 +101,10 @@ pub struct Manifest {
     pub handoff: Option<String>,
     /// Where a tool's action goes, read from what it acts on.
     #[serde(default)]
-    pub destinations: BTreeMap<String, crate::config::Destination>,
+    pub destinations: BTreeMap<String, crate::gate_reads::Destination>,
     /// How the gate asks whether the person has mailed an address before.
     #[serde(default)]
-    pub sent: Option<crate::config::SentSearch>,
+    pub sent: Option<crate::gate_reads::SentSearch>,
     /// How the world is read back after a tool's action (spec rev 147).
     #[serde(default)]
     pub read_back: BTreeMap<String, crate::read_back::ReadBack>,
