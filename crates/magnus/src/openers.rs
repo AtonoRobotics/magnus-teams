@@ -31,7 +31,7 @@ pub fn title(o: &Opener) -> String {
 impl Kernel {
     /// After a sign-in: the person's cold start, when they have nothing here yet.
     pub fn open_after_sign_in(self: &Arc<Self>, person: &str) {
-        if !self.read(|s| s.tasks.values().any(|t| t.person == person) || s.branches.values().any(|b| b.person == person)) {
+        if !self.read(|s| s.tasks.values().any(|t| t.person == person) || s.thread_extras.branches().values().any(|b| b.person == person)) {
             self.open(person, None);
         }
     }

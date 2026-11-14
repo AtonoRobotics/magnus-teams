@@ -44,7 +44,7 @@ impl Erased {
     fn of(s: &State, person: &str) -> Erased {
         let tasks: HashSet<String> = s.tasks.values().filter(|t| t.person == person).map(|t| t.task_id.clone()).collect();
         let mut threads: HashSet<String> = s.tasks.values().filter(|t| t.person == person).filter_map(|t| t.chat.as_ref().map(|c| c.thread.clone())).collect();
-        threads.extend(s.branches.iter().filter(|(_, b)| b.person == person).map(|(t, _)| t.clone()));
+        threads.extend(s.thread_extras.branches().iter().filter(|(_, b)| b.person == person).map(|(t, _)| t.clone()));
         threads.extend(tasks.iter().cloned());
         Erased {
             person: person.to_string(),
@@ -100,6 +100,7 @@ impl State {
             server_ops,
             vault,
             org,
+            thread_extras,
             tools,
             spend,
             catalog,
@@ -122,10 +123,6 @@ impl State {
             subjects,
             roles_set,
             preferences,
-            hidden,
-            reactions,
-            disagreements,
-            branches,
             schedules,
             grants,
             commitments,
@@ -163,8 +160,28 @@ impl State {
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 19] =
-            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, server_ops, vault, org, tools, spend, catalog];
+        let parts: [&mut dyn Forget; 20] = [
+            computers,
+            payments,
+            rules,
+            evidence,
+            sub_agents,
+            outcomes,
+            local,
+            team,
+            account_links,
+            legal,
+            push,
+            halts,
+            watch,
+            server_ops,
+            vault,
+            org,
+            thread_extras,
+            tools,
+            spend,
+            catalog,
+        ];
         for part in parts {
             part.forget(&who);
         }
@@ -192,12 +209,7 @@ impl State {
         // What they moved, hid and removed of their own conversations.
         moved.retain(|id, _| !who.tasks.contains(id) && !who.files.contains(id) && !who.threads.contains(id));
         removed_threads.retain(|t| !who.threads.contains(t));
-        hidden.remove(p);
-        hidden.retain(|t, _| !who.threads.contains(t));
         preferences.remove(p);
-        // Their reactions and disagreements, whose words went with theirs.
-        reactions.remove(p);
-        disagreements.retain(|_, d| d.person != p);
         // Their answers to cards, a decline's reason among them.
         cards.retain(|_, c| c.person.as_deref() != Some(p));
         // What their drafts were written from.
@@ -208,9 +220,7 @@ impl State {
         interrupts.remove(p);
         review_runs.retain(|_, x| x != p);
         wake_marks.retain(|k, _| k.split_once(':').is_some_and(|(x, _)| x != p));
-        // Their branched threads (the entries as shown then) and what their
-        // tasks had attached go too.
-        branches.retain(|_, b| b.person != p);
+        // What their tasks had attached goes too.
         attachments.retain(|t, _| !who.tasks.contains(t));
         subjects.remove(p);
         last_sign_in.remove(p);

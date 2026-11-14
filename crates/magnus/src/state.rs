@@ -13,10 +13,12 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod org;
 pub mod server_ops;
+pub mod thread_extras;
 pub mod vault;
 pub mod watch;
 pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
+pub use thread_extras::{Branch, Disagreement};
 pub use vault::Revoked;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -277,18 +279,6 @@ pub struct Verdict {
     pub verdict: String,
     pub note: Option<String>,
     pub at: DateTime<Utc>,
-}
-
-/// A disagreement Magnus recorded: what it advised, what the person decided, and later how it turned out.
-#[derive(Clone, Debug, Serialize)]
-pub struct Disagreement {
-    pub id: String,
-    pub person: String,
-    pub position: String,
-    pub decision: String,
-    pub at: DateTime<Utc>,
-    pub outcome: Option<String>,
-    pub outcome_at: Option<DateTime<Utc>>,
 }
 
 /// The verdicts a person can give, best first.
@@ -595,18 +585,6 @@ impl Commitment {
     }
 }
 
-/// A thread branched from another at one of its entries.
-#[derive(Clone, Debug)]
-pub struct Branch {
-    pub person: String,
-    pub from: String,
-    pub upto: String,
-    /// The entries up to `upto`, as they were shown then.
-    pub entries: Vec<Value>,
-    pub title: String,
-    pub at: DateTime<Utc>,
-}
-
 /// What a scoped drafting step wrote from: the threads (none for a new
 /// draft) and their participants' addresses (#178).
 #[derive(Clone, Debug, PartialEq)]
@@ -903,16 +881,8 @@ pub struct State {
     pub data_private: bool,
     /// Each person's own settings, by person.
     pub preferences: HashMap<String, Value>,
-    /// Entries people deleted from their threads, by thread.
-    pub hidden: HashMap<String, std::collections::HashSet<String>>,
-    /// Each person's reactions to Magnus's messages, by (thread, entry):
-    /// every reaction given, oldest first, and when (None: taken back), so
-    /// a run sees them as they stood when it started.
-    pub reactions: HashMap<String, BTreeMap<(String, String), Vec<(Option<String>, DateTime<Utc>)>>>,
-    /// The disagreements Magnus recorded, by id.
-    pub disagreements: BTreeMap<String, Disagreement>,
-    /// Threads branched from another, by thread.
-    pub branches: HashMap<String, Branch>,
+    /// Hidden entries, reactions, disagreements and branches.
+    pub thread_extras: thread_extras::ThreadExtras,
     pub schedules: BTreeMap<String, Schedule>,
     /// Each person's grants (#235), revoked ones among them, by id.
     pub grants: BTreeMap<String, Grant>,
@@ -1102,7 +1072,7 @@ impl State {
                 })
                 .collect();
             turns.sort_by_key(|(t, _)| t.created_at);
-            let branch = self.branches.remove(item);
+            let branch = self.thread_extras.take_branch(item);
             // A conversation's title is its first message, recalled when
             // listed; one Magnus opened is called what the app calls it, not
             // by the appliance's instruction (review of #274).
@@ -1220,7 +1190,7 @@ impl State {
                     self.tasks.insert(t.task_id.clone(), t);
                 }
                 if let Some(b) = branch {
-                    self.branches.insert(id, b);
+                    self.thread_extras.put_branch(id, b);
                 }
             }
             Held::Entry { .. } => {}
@@ -1370,27 +1340,8 @@ impl State {
                     }
                 }
             }
-            Ev::ChatHidden { thread, entries, .. } => {
-                self.hidden.entry(thread.clone()).or_default().extend(entries.iter().cloned());
-            }
-            Ev::Reacted { person, thread, entry, reaction } => {
-                let mine = self.reactions.entry(person.clone()).or_default();
-                mine.entry((thread.clone(), entry.clone())).or_default().push((reaction.clone(), e.at));
-            }
-            Ev::DisagreementRecorded { id, person, position, decision, .. } => {
-                let d = Disagreement { id: id.clone(), person: person.clone(), position: position.clone(), decision: decision.clone(), at: e.at, outcome: None, outcome_at: None };
-                self.disagreements.insert(id.clone(), d);
-            }
-            Ev::DisagreementOutcome { id, outcome, .. } => {
-                // The first outcome stands.
-                if let Some(d) = self.disagreements.get_mut(id).filter(|d| d.outcome.is_none()) {
-                    d.outcome = Some(outcome.clone());
-                    d.outcome_at = Some(e.at);
-                }
-            }
-            Ev::ThreadBranched { person, thread, from, upto, entries, title } => {
-                self.branches
-                    .insert(thread.clone(), Branch { person: person.clone(), from: from.clone(), upto: upto.clone(), entries: entries.clone(), title: title.clone(), at: e.at });
+            Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
+                self.thread_extras.fold(&e.ev, e.at)
             }
             Ev::SignedIn { person, .. } => {
                 self.signed_in_before.insert(person.clone());
@@ -1552,7 +1503,7 @@ impl State {
                 }
                 match self.trash.remove(item).map(|t| t.held) {
                     Some(Held::Entry { thread }) => {
-                        self.hidden.entry(thread).or_default().insert(item.clone());
+                        self.thread_extras.hide(thread, item.clone());
                     }
                     Some(Held::Thread { id, .. }) => {
                         self.removed_threads.insert(id);
@@ -2410,9 +2361,9 @@ mod tests {
             s.apply(&ev(seq + 10, &format!("person:{p}"), json!({ "kind": "thread_branched", "person": p, "thread": format!("b-{p}"), "from": format!("t-{p}"), "upto": "e1", "entries": [{ "id": "e1", "text": format!("{p} earns 91,000") }], "title": "Pay" })));
         }
         s.apply(&ev(30, "admin:root", json!({ "kind": "person_erased", "person": "bob" })));
-        assert!(!s.branches.contains_key("b-bob"), "bob's branch kept his words");
+        assert!(!s.thread_extras.branches().contains_key("b-bob"), "bob's branch kept his words");
         assert!(!s.attachments.contains_key("t-bob"), "bob's task kept what it had attached");
-        assert!(s.branches.contains_key("b-alice") && s.attachments.contains_key("t-alice"), "alice's went with bob's");
+        assert!(s.thread_extras.branches().contains_key("b-alice") && s.attachments.contains_key("t-alice"), "alice's went with bob's");
     }
 
     /// A scoped draft records its threads and who is entitled to them, and

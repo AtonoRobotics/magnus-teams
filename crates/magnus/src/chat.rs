@@ -53,7 +53,9 @@ impl Kernel {
         project: Option<String>,
     ) -> Result<Option<(String, String)>> {
         let (thread, project) = match thread {
-            Some(t) if self.thread_gone(&t) || (self.thread(person, &t).is_empty() && !self.read(|s| s.branches.get(&t).is_some_and(|b| b.person == person))) => return Ok(None),
+            Some(t) if self.thread_gone(&t) || (self.thread(person, &t).is_empty() && !self.read(|s| s.thread_extras.branches().get(&t).is_some_and(|b| b.person == person))) => {
+                return Ok(None)
+            }
             Some(t) => {
                 let p = self.read(|s| s.project_of(&t));
                 (t, p)
@@ -110,7 +112,7 @@ impl Kernel {
         });
         // A branch is a thread from the moment it is made, before its first turn.
         self.read(|s| {
-            for (id, b) in s.branches.iter().filter(|(_, b)| b.person == person) {
+            for (id, b) in s.thread_extras.branches().iter().filter(|(_, b)| b.person == person) {
                 let e = by.entry(id.clone()).or_insert((b.at, b.at, b.title.clone()));
                 (e.0, e.2) = (b.at, b.title.clone());
             }
@@ -175,7 +177,7 @@ impl Kernel {
 
     fn entries_with(&self, person: &str, thread: &str, w: &crate::recall::Words) -> Option<Vec<Value>> {
         let runs = self.thread(person, thread);
-        let branch = self.read(|s| s.branches.get(thread).filter(|b| b.person == person).cloned());
+        let branch = self.read(|s| s.thread_extras.branches().get(thread).filter(|b| b.person == person).cloned());
         if runs.is_empty() && branch.is_none() {
             return None;
         }
@@ -326,7 +328,10 @@ impl Kernel {
         }
         out.sort_by_key(|x| (x.0, x.1));
         let (hidden, trashed) = self.read(|s| {
-            (s.hidden.get(thread).cloned().unwrap_or_default(), s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>())
+            (
+                s.thread_extras.hidden(thread).cloned().unwrap_or_default(),
+                s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>(),
+            )
         });
         // What a hidden answer started is hidden with it, whenever it shows
         // up (a task's result after the hiding), so its words and taint
@@ -676,7 +681,7 @@ pub(crate) struct RecentRun {
 /// taint into every later run of theirs. It stops once their text fills
 /// `budget`.
 pub(crate) fn recent_runs(s: &crate::state::State, person: &str, except: Option<&str>, before: DateTime<Utc>, budget: usize) -> Vec<RecentRun> {
-    let shown = |thread: &str, id: String| !s.hidden.get(thread).is_some_and(|h| h.contains(&id)) && !s.trash.contains_key(&id);
+    let shown = |thread: &str, id: String| !s.thread_extras.hidden(thread).is_some_and(|h| h.contains(&id)) && !s.trash.contains_key(&id);
     let mut eligible: Vec<(DateTime<Utc>, &Task, &Run)> = s
         .tasks
         .values()

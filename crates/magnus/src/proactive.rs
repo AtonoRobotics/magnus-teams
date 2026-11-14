@@ -459,7 +459,8 @@ impl crate::kernel::Kernel {
                 .collect::<Vec<_>>();
             let approvals = s.items.values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()).map(|i| i.summary.clone()).collect::<Vec<_>>();
             let disagreements = s
-                .disagreements
+                .thread_extras
+                .disagreements()
                 .values()
                 .filter(|d| d.person == person && d.outcome.is_none())
                 .map(|d| format!("{} -> {}", d.position.chars().take(120).collect::<String>(), d.decision))

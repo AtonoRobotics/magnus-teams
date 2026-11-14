@@ -257,7 +257,7 @@ impl crate::state::State {
             }
             _ if item.starts_with("thread_") => {
                 let turns: Vec<&crate::state::Task> = self.tasks.values().filter(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).collect();
-                if turns.is_empty() && !self.branches.get(item).is_some_and(|b| b.person == person) {
+                if turns.is_empty() && !self.thread_extras.branches().get(item).is_some_and(|b| b.person == person) {
                     return Err(NotFound);
                 }
                 return if turns.iter().all(|t| ended(&t.run_id)) { Ok(()) } else { Err(Running) };

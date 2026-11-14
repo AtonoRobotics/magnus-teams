@@ -162,13 +162,10 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.server_ops.canonical_fields());
     v.extend(s.vault.canonical_fields());
     v.extend(s.org.canonical_fields());
+    v.extend(s.thread_extras.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
         ("playbook_version", d(&s.playbook_version)),
-        ("hidden", d(&s.hidden)),
-        ("reactions", d(&s.reactions)),
-        ("disagreements", d(&s.disagreements)),
-        ("branches", d(&s.branches)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
         ("connectors", d(&s.connectors)),
         ("connector_settings", d(&s.connector_settings)),
