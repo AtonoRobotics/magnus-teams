@@ -716,6 +716,10 @@ pub(crate) fn recent_runs(s: &crate::state::State, person: &str, except: Option<
 }
 
 #[cfg(test)]
+#[path = "chat_thread_golden_tests.rs"]
+mod golden;
+
+#[cfg(test)]
 mod tests {
     use crate::log::Event;
     use crate::state::State;
