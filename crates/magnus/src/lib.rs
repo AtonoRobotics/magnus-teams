@@ -118,6 +118,7 @@ mod tools_core;
 mod tools_identity;
 pub mod tools_ui;
 pub mod totp;
+pub mod transport;
 pub mod trash;
 pub mod typed_secrets;
 pub mod ui;

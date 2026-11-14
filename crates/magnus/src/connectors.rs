@@ -21,6 +21,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub(crate) mod relay;
+mod sign_in_target;
+use sign_in_target::{sign_in_target, SignInTarget};
 
 pub const OAUTH: &str = "oauth";
 
@@ -660,20 +662,7 @@ impl Kernel {
         if loopback(redirect_uri).is_err() && redirect_uri != SLACK_OAUTH_CALLBACK {
             loopback(redirect_uri)?;
         }
-        // A brokered connector's sign-in is the provider's own, for its
-        // API: at the authorization server its manifest names, with no
-        // resource indicator (RFC 8707 names an MCP server a token is for;
-        // the provider's API takes the plain OAuth 2.0 request).
-        let brokered = c.transport == crate::brokered::BROKERED;
-        let (asm, scopes, issuer) = match &c.issuer {
-            Some(issuer) if brokered => (server_metadata(issuer).await?, vec![], issuer.clone()),
-            None if brokered => bail!("{} names no authorization server to sign in at", c.name),
-            _ => {
-                let meta = asks_sign_in(&c.url).await?.unwrap_or(None);
-                discover(&c.url, meta).await?
-            }
-        };
-        let resource = if brokered { String::new() } else { c.url.clone() };
+        let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(c).await?;
         let s = |k: &str| asm[k].as_str().map(String::from);
         let (Some(authorize), Some(token)) = (s("authorization_endpoint"), s("token_endpoint")) else {
             bail!("the app's authorization server names no authorization or token endpoint")
@@ -1145,7 +1134,7 @@ impl Kernel {
             owner: None,
             filter_login_codes: false,
             name: name.clone(),
-            transport: "mcp_http".into(),
+            transport: crate::transport::MCP_HTTP.into(),
             url,
             credential: oauth.then(|| credential_name(&name)),
             audience,

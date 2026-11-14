@@ -31,9 +31,6 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{unix, TcpStream, UnixListener, UnixStream};
-
-/// A connector's `transport` when it is brokered.
-pub const BROKERED: &str = "brokered";
 /// As long as the sandbox waits for its guest: an instance boots in about a
 /// second, so this only ends one that never will.
 const BOOT_WAIT: Duration = Duration::from_secs(30);
@@ -493,17 +490,6 @@ async fn dial(to: &str, resolve: &std::collections::BTreeMap<String, String>) ->
     let port: u16 = port.parse().map_err(|_| anyhow!("{to} names no port"))?;
     let addrs = crate::web::public_addrs(host, port).await?;
     Ok(TcpStream::connect(&addrs[..]).await?)
-}
-
-impl crate::kernel::Kernel {
-    /// An app's tools as it lists them now: a remote one with the
-    /// credential, a brokered one from its image.
-    pub(crate) async fn app_tools(&self, c: &Connector, bearer: Option<&str>) -> Result<Vec<AppTool>> {
-        if c.transport == BROKERED {
-            return self.brokered.list_tools(c).await;
-        }
-        self.mcp.list_tools(&c.url, bearer).await
-    }
 }
 
 #[cfg(test)]

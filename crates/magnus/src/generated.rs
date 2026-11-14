@@ -157,7 +157,7 @@ fn connector_of(person: &str, d: &Definition) -> Result<Connector> {
         filter_login_codes: false,
         credential: d.token.then(|| crate::connectors::credential_name(&name)),
         name,
-        transport: "mcp_http".into(),
+        transport: crate::transport::MCP_HTTP.into(),
         url: d.encoded()?,
         audience: AUDIENCE.into(),
         label: LABEL.into(),

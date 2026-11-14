@@ -852,7 +852,9 @@ impl Kernel {
     }
 
     /// Call a read tool of a connector through the person's own sign-in, as
-    /// the gate reads a draft: over whatever transport it uses.
+    /// the gate reads a draft: over its transport, as `call` sends, fenced
+    /// as any call is but with no run of its own to be still running, and
+    /// with no idempotency key, since a read changes nothing to repeat.
     pub(crate) async fn connector_call(
         &self,
         c: &Connector,
@@ -863,12 +865,8 @@ impl Kernel {
         args: &Value,
     ) -> std::result::Result<crate::apps::CallOutput, crate::apps::CallError> {
         let stops = self.brokered.generation(&c.name, person);
-        if c.transport == crate::brokered::BROKERED {
-            let fence = || self.may_send(c, person, stops, app);
-            self.brokered.call(c, person, bearer, read, args, &fence).await
-        } else {
-            self.mcp.call(&c.url, bearer, read, args, None).await
-        }
+        let fence = || self.may_send(c, person, stops, app);
+        self.transport(c).call(person, bearer, read, args, &fence, None).await
     }
 
     async fn call(self: &Arc<Self>, a: &Action, f: &Facts, bearer: Option<&str>, key: &str, stops: u64) -> std::result::Result<(String, bool, Option<Value>), CallFailure> {
@@ -889,16 +887,13 @@ impl Kernel {
             if let Err(m) = self.still_running(&a.run, &f.app) {
                 return Err(CallFailure::Stopped(m));
             }
-            let out = if c.transport == crate::brokered::BROKERED {
-                // Checked again once the call has its microVM, and before it
-                // sends: nothing was stopped since its token was taken, the
-                // kill switch is off, the person is still signed in and the
-                // run is still running.
-                let fence = || self.may_send(c, &person, stops, &f.app).and_then(|()| self.still_running(&a.run, &f.app));
-                self.brokered.call(c, &person, bearer, &f.remote, &a.input, &fence).await
-            } else {
-                self.mcp.call(&c.url, bearer, &f.remote, &a.input, k).await
-            };
+            // Checked again, by a brokered call once it has its microVM and
+            // before it sends: nothing was stopped since its token was taken,
+            // the kill switch is off, the person is still signed in and the
+            // run is still running.
+            let fence = || self.may_send(c, &person, stops, &f.app).and_then(|()| self.still_running(&a.run, &f.app));
+            let t = self.transport(c);
+            let out = t.call(&person, bearer, &f.remote, &a.input, &fence, k).await;
             return match out {
                 Ok(o) => {
                     // A watched read answered: diff for new items that
@@ -909,7 +904,7 @@ impl Kernel {
                         let data = o.structured.clone().or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null);
                         self.note_watched(&person, &f.app, &f.remote, &c.watch, &data).await;
                     }
-                    Ok(self.with_app_view(a, &c.url, bearer, &f.remote, o).await)
+                    Ok(self.with_app_view(a, &t, bearer, &f.remote, o).await)
                 }
                 Err(crate::apps::CallError::NotSent(m)) if self.still_running(&a.run, &f.app).is_err() => Err(CallFailure::Stopped(m)),
                 Err(crate::apps::CallError::NotSent(m)) => Err(CallFailure::NotDone(m)),
@@ -1061,6 +1056,10 @@ pub fn media_type_for(name: &str) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+#[path = "boundary_transport_tests.rs"]
+mod transport_tests;
 
 #[cfg(test)]
 mod tests {

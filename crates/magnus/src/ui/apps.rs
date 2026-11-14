@@ -77,12 +77,13 @@ async fn requested(State(k): State<Arc<Kernel>>, h: HeaderMap, UrlPath(id): UrlP
 impl Kernel {
     /// A connector tool's answer, with its view kept when the tool has one.
     /// A view that cannot be fetched costs the view and not the answer.
-    pub(crate) async fn with_app_view(&self, a: &Action, url: &str, bearer: Option<&str>, tool: &str, o: CallOutput) -> (String, bool, Option<Value>) {
+    /// Only a transport with views has one to keep.
+    pub(crate) async fn with_app_view(&self, a: &Action, t: &crate::transport::Transport<'_>, bearer: Option<&str>, tool: &str, o: CallOutput) -> (String, bool, Option<Value>) {
         let CallOutput { mut text, is_error, structured } = o;
-        let uri = if is_error { None } else { self.mcp.view_of(url, tool) };
+        let uri = if is_error { None } else { t.view_of(tool) };
         if let Some(uri) = uri {
             let id = format!("{}.{}", a.run, new_id("view"));
-            match self.mcp.read_view(url, bearer, &uri).await {
+            match t.read_view(bearer, &uri).await {
                 Ok(html) if html.len() <= MAX_VIEW_BYTES => {
                     let kept = json!({ "html": html, "tool": tool, "input": a.input, "text": text, "structured": structured });
                     match self.keep_view(&id, &kept).await {
