@@ -38,7 +38,7 @@ async function showComputers(main) {
   const hash = location.hash;
   const draw = async () => {
     let computers = [], unavailable = "";
-    try { computers = (await api("GET", "/v1/computers")).computers; } catch (e) { unavailable = e.message; }
+    try { computers = (await Server.computers.list()).computers; } catch (e) { unavailable = e.message; }
     const here = await thisComputerSection();
     if (!stillAt(hash)) return;
     paint(main, `<h1>Computers</h1>
@@ -66,7 +66,7 @@ const LOCAL_MODES = { ask: "Asks each time", allow: "Allowed", never: "Never" };
 const LOCAL_ASKS = { ask: "Ask me every time", allow: "Allow it", never: "Never" };
 
 async function thisComputerSection() {
-  const [known, running] = await Promise.all([api("GET", "/v1/local/computers").catch(() => []), Magnus.localState()]);
+  const [known, running] = await Promise.all([Server.local.list().catch(() => []), Magnus.localState()]);
   // A team's or the admin's ceiling can make the mode stricter; the page says the one that holds.
   const modeWords = (c, held) => held && held !== c.mode ? `${LOCAL_MODES[held] || held}: your team or admin allows no more than this` : LOCAL_MODES[c.mode] || c.mode;
   const rows = known.map(({ computer: c, online, in_use, in_force }) => `<tr data-local="${esc(c.id)}"><td>${esc(c.name)}<div class="small faint">${esc(c.folders.join(", "))}</div></td>
@@ -117,7 +117,7 @@ async function madeAction(b, id) {
   }
   if (!confirm(`Delete ${paths.length === 1 ? paths[0] : `${paths.length} files`} from this computer? This cannot be undone.`)) return false;
   let failed = 0;
-  for (const p of paths) { try { await api("DELETE", `${base}${q(p)}`); } catch (e) { failed++; if (paths.length === 1) throw e; } }
+  for (const p of paths) { try { await Server.local.removeFile(id, p); } catch (e) { failed++; if (paths.length === 1) throw e; } }
   toast(failed ? `${failed} could not be deleted.` : "Deleted.");
   return true;
 }
@@ -138,8 +138,8 @@ async function thisComputerAction(b, main) {
     }
     case "local-pause": await Magnus.localPause(!!b.dataset.to); return true;
     case "local-stop": await Magnus.localStop(); return true;
-    case "local-resume": await api("POST", `/v1/local/computers/${enc(id)}/resume`, {}); toast("The agent will go on."); return true;
-    case "local-remove": await Magnus.localStop(); await api("DELETE", `/v1/local/computers/${enc(id)}`); return true;
+    case "local-resume": await Server.local.resume(id); toast("The agent will go on."); return true;
+    case "local-remove": await Magnus.localStop(); await Server.local.remove(id); return true;
     case "local-files-save": case "local-files-delete": case "local-file-save": case "local-file-delete": return madeAction(b, id);
   }
   return false;
@@ -152,18 +152,18 @@ async function thisComputerAction(b, main) {
 // it is. There is no delete: a reset takes its place, so the agent is never
 // without its computer (spec rev 142).
 const COMPUTER_ACTS = {
-  start: async (base, id) => { await api("POST", `${base}/start`, {}); return id; },
-  hibernate: async (base, id) => { await api("POST", `${base}/hibernate`, {}); return id; },
+  start: async id => { await Server.computers.start(id); return id; },
+  hibernate: async id => { await Server.computers.hibernate(id); return id; },
   // The kill switch: one step and no question, so it is as fast as it can be.
-  pause: async (base, id) => {
-    const r = await api("POST", `${base}/kill`, { mode: "pause" });
+  pause: async id => {
+    const r = await Server.computers.pause(id);
     toast(`Paused. ${accessWord(r.revoked)} taken back. Resume when you are ready.`);
     return id;
   },
-  reset: async (base, id) => {
+  reset: async id => {
     const choice = await chooseReset();
     if (!choice) return null;
-    const r = await api("POST", `${base}/reset`, { keep_files: choice === "keep" });
+    const r = await Server.computers.reset(id, choice === "keep");
     toast(choice === "keep" ? "Reset. It is rebuilt when it is next used, with its apps installed again." : "Reset, and your files erased. It is rebuilt when it is next used, with its apps installed again.");
     return r.id;
   },
@@ -191,11 +191,11 @@ function chooseReset() {
 
 async function showComputer(main, id, tab) {
   const hash = location.hash, base = `/v1/computers/${enc(id)}`, TABS = [["screen", "Screen"], ["files", "Files"], ["apps", "Apps"], ["activity", "Activity"]];
-  const c = await api("GET", base);
+  const c = await Server.computers.get(id);
   if (!stillAt(hash)) return;
   // Opening it is a use, and any use wakes it: there is no Start button
   // (spec rev 131, Lifecycle). The kill switch's pause stays until Resume.
-  if (c.status !== "paused") api("POST", `${base}/wake`, {}).catch(() => { /* The screen says how it stands. */ });
+  if (c.status !== "paused") Server.computers.wake(id).catch(() => { /* The screen says how it stands. */ });
   // The buttons the state allows, redrawn as the screen's look finds it
   // changed: opened asleep, the page offers what a running computer does once
   // it is. Who holds control is said once, on the screen's own strip.
@@ -214,7 +214,7 @@ async function showComputer(main, id, tab) {
     const b = e.target.closest("[data-act]");
     if (!b || !COMPUTER_ACTS[b.dataset.act]) return;
     let next = id;
-    try { next = await COMPUTER_ACTS[b.dataset.act](base, id); } catch (err) { return toast(err.message); }
+    try { next = await COMPUTER_ACTS[b.dataset.act](id); } catch (err) { return toast(err.message); }
     if (next === null) return;
     if (next !== id) { location.hash = next ? `#/computer/${enc(next)}` : "#/computer"; return; }
     main._html = null;
@@ -223,11 +223,11 @@ async function showComputer(main, id, tab) {
   if (tab === "files") return computerFiles(body, id, base, hash);
   if (tab === "apps") { body.innerHTML = computerApps(c); return; }
   if (tab === "activity") {
-    const { activity } = await api("GET", `${base}/activity`);
+    const { activity } = await Server.computers.activity(id);
     body.innerHTML = activity.length ? `<table class="t"><tbody>${[...activity].reverse().map(a => `<tr><td>${esc(a.what)}</td><td class="small faint">${esc(a.who)}</td><td class="small faint n">${esc(when(a.at))}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">Nothing has happened on this computer yet.</p>`;
     return;
   }
-  computerScreen(body, c, base, hash, { onState: restate });
+  computerScreen(body, c, hash, { onState: restate });
 }
 
 /**
@@ -254,11 +254,10 @@ function computerApps(c) {
  * paused, with Take control or I'm done, and Full screen.
  * @param {HTMLElement} body
  * @param {object} c the computer, as the server shows it
- * @param {string} base
  * @param {string|(() => boolean)} alive the page's hash, or whether the view is still shown
  * @param {{ ask?: boolean, onState?: (c: object) => void }} [opts] ask: show the agent's takeover request here too; onState: told the computer as each look finds it
  */
-function computerScreen(body, c, base, alive, opts = {}) {
+function computerScreen(body, c, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
   body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div><div class="screen-hold" data-hold role="status" hidden><span data-hold-words></span><button data-done-here>I'm done</button></div><p class="screen-caption" data-caption></p></div><p class="small bad" id="display-error" hidden></p></div>`;
   const preview = $("#preview", body);
@@ -268,17 +267,17 @@ function computerScreen(body, c, base, alive, opts = {}) {
     view.holding = true;
     view.note = view.c.status === "running" ? "" : "Waking it so you can take control";
     let grant;
-    try { grant = await api("POST", `${base}/takeover`, {}); } catch (e) { view.holding = false; view.note = ""; strip(); return toast(e.message); }
+    try { grant = await Server.computers.takeover(view.c.id); } catch (e) { view.holding = false; view.note = ""; strip(); return toast(e.message); }
     view.note = "";
-    takeOver(body, view.c.id, base, grant, view, strip);
+    takeOver(body, view.c.id, grant, view, strip);
   };
   // A sleeping screen wakes when clicked; an awake one is taken (the mockup).
   const wakeNow = async () => {
     view.c = { ...view.c, waking: view.c.waking || { phase: "starting" } };
     strip();
-    try { await api("POST", `${base}/wake`, {}); } catch (e) { toast(e.message); }
+    try { await Server.computers.wake(view.c.id); } catch (e) { toast(e.message); }
   };
-  const handBack = async () => { if (!(await readyToHandBack(base))) return; try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
+  const handBack = async () => { if (!(await readyToHandBack(view.c.id))) return; try { const r = await Server.computers.handback(view.c.id); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
   const done = () => view.done ? view.done() : handBack();
   // The strip, the veil, the "you are in control" bar and the caption, all
   // from the computer as last seen; only what changed is redrawn.
@@ -316,7 +315,7 @@ function computerScreen(body, c, base, alive, opts = {}) {
     view.looking = true;
     while (view.alive()) {
       try {
-        const [now, shot] = await Promise.all([api("GET", base).catch(() => null), view.live ? null : api("GET", `${base}/screen`)]);
+        const [now, shot] = await Promise.all([Server.computers.get(view.c.id).catch(() => null), view.live ? null : Server.computers.screen(view.c.id)]);
         if (now?.status) view.c = now;
         if (shot?.status) { view.c = { ...view.c, status: shot.status, waking: shot.waking }; view.shot = shot; }
         if (shot?.image_b64 && !view.live) preview.src = `data:image/png;base64,${shot.image_b64}`;
@@ -344,7 +343,7 @@ function fullScreen(frame) {
 // last preview stays until the stream draws its first frame, and comes back
 // if the stream fails, so the screen never disappears (2026-11-09: it went
 // blank on takeover).
-function takeOver(body, id, base, grant, view, strip) {
+function takeOver(body, id, grant, view, strip) {
   const preview = $("#preview", body), canvas = $("#display", body), ctx = canvas.getContext("2d");
   view.holding = true;
   view.c = { ...view.c, status: "running", controller: App.me?.id || view.c.controller, waking: null };
@@ -373,13 +372,13 @@ function takeOver(body, id, base, grant, view, strip) {
   const leave = async (asked = false) => {
     if (ended) return false;
     ended = true;
-    const go = asked ? await readyToHandBack(base) : await closesNothing(base);
+    const go = asked ? await readyToHandBack(id) : await closesNothing(id);
     if (!go && asked) { ended = false; return false; }
     window.removeEventListener("hashchange", gone);
     view.leave = null;
     link.close();
     if (!go) return false;
-    try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on with a fresh look at the screen.`); } catch (e) { toast(e.message); }
+    try { const r = await Server.computers.handback(id); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on with a fresh look at the screen.`); } catch (e) { toast(e.message); }
     return true;
   };
   view.leave = leave;
@@ -413,7 +412,7 @@ function computerFiles(body, id, base, hash) {
   const size = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
   const draw = async () => {
     let entries;
-    try { ({ entries } = await api("GET", `${base}/listing${q(at)}`)); } catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+    try { ({ entries } = await Server.computers.listing(id, at)); } catch (e) { body.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
     if (!stillAt(hash)) return;
     body.innerHTML = `<div class="row files-bar"><span>${crumbs()}</span><button data-bulk-save disabled>Download selected</button><button data-bulk disabled>Delete selected</button><button class="link" data-save-all>Download everything</button></div>
       ${entries.length ? `<table class="t files"><tbody>${entries.map(f => `<tr data-file="${esc(f.name)}" data-dir="${f.dir ? 1 : ""}">
@@ -425,7 +424,7 @@ function computerFiles(body, id, base, hash) {
   const open = async path => {
     const pane = $("#file-open", body);
     let file;
-    try { file = await api("GET", `${base}/files${q(path)}`); } catch (e) { return toast(e.message); }
+    try { file = await Server.computers.file(id, path); } catch (e) { return toast(e.message); }
     const bytes = bytesOf(file.data_b64);
     let text = null;
     if (bytes.length <= EDITABLE_BYTES) { try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { /* Not text. */ } }
@@ -433,7 +432,7 @@ function computerFiles(body, id, base, hash) {
     pane.innerHTML = `<h3>${esc(path)}</h3><textarea id="file-text" rows="16" spellcheck="false"></textarea><div class="row"><button class="primary" data-write>Save</button></div>`;
     $("#file-text", pane).value = text;
     $("[data-write]", pane).onclick = async () => {
-      try { await api("PUT", `${base}/files`, { path, data_b64: b64Of(new TextEncoder().encode($("#file-text", pane).value)) }); toast("Saved."); await draw(); } catch (e) { toast(e.message); }
+      try { await Server.computers.writeFile(id, path, b64Of(new TextEncoder().encode($("#file-text", pane).value))); toast("Saved."); await draw(); } catch (e) { toast(e.message); }
     };
   };
   body.onclick = async e => {
@@ -454,7 +453,7 @@ function computerFiles(body, id, base, hash) {
       const rows = $$("[data-pick]:checked", body).map(p => p.closest("tr"));
       if (!confirm(`Delete ${rows.length} item${rows.length === 1 ? "" : "s"}? They are also removed from backups.`)) return;
       let failed = 0;
-      for (const r of rows) { try { await api("DELETE", `${base}/files${q(pathOf(r))}`); } catch { failed++; } }
+      for (const r of rows) { try { await Server.computers.removeFile(id, pathOf(r)); } catch { failed++; } }
       toast(failed ? `${failed} could not be deleted.` : "Deleted.");
       draw();
     }
@@ -482,12 +481,12 @@ document.addEventListener("click", async e => {
   if (!button) return;
   const form = button.closest("[data-secure]"), item = App.inbox.find(i => i.id === form.dataset.secure), d = item?.details;
   if (!d) return;
-  const base = `/v1/identities/${enc(d.identity)}/secure-form`, username = $("[data-username]", form)?.value.trim(), password = $("[data-password]", form).value, save = $("[data-remember]", form).checked;
+  const username = $("[data-username]", form)?.value.trim(), password = $("[data-password]", form).value, save = $("[data-remember]", form).checked;
   if (!password) return toast("Enter the password.");
   button.disabled = true;
   try {
-    if (d.username_field && username) await api("POST", base, { target: d.username_field, value: username, submit: false, save: false });
-    await api("POST", base, { target: d.password_field, value: password, submit: true, save, username: save && username ? username : undefined });
+    if (d.username_field && username) await Server.computers.secureForm(d.identity, { target: d.username_field, value: username, submit: false, save: false });
+    await Server.computers.secureForm(d.identity, { target: d.password_field, value: password, submit: true, save, username: save && username ? username : undefined });
     $("[data-password]", form).value = "";
     toast("Signed in. The agent carries on.");
     await refresh();
@@ -503,7 +502,7 @@ function followDesktopLook() {
   for (const c of App.computers || []) {
     if (c.owner?.person !== App.me?.id || (c.role && c.role.kind !== "computer") || c.theme === mode) continue;
     c.theme = mode;
-    api("PUT", `/v1/computers/${enc(c.id)}/theme`, { theme: mode }).catch(() => { c.theme = undefined; });
+    Server.computers.setTheme(c.id, mode).catch(() => { c.theme = undefined; });
   }
 }
 window.addEventListener("magnus-theme", followDesktopLook);
@@ -542,18 +541,18 @@ function chooseHandBack(programs) {
   });
 }
 
-/** Whether handing back would close nothing (false when the computer cannot say). @param {string} base */
-async function closesNothing(base) {
-  try { return !((await api("GET", `${base}/handback/closes`)).programs || []).length; } catch { return false; }
+/** Whether handing back would close nothing (false when the computer cannot say). @param {string} id */
+async function closesNothing(id) {
+  try { return !((await Server.computers.handbackCloses(id)).programs || []).length; } catch { return false; }
 }
 
 /**
  * Whether "I'm done" goes on: at once when it closes nothing, otherwise
  * only once the person has seen what it closes and agreed.
- * @param {string} base the computer's API path
+ * @param {string} id the computer
  */
-async function readyToHandBack(base) {
+async function readyToHandBack(id) {
   let programs = null;
-  try { programs = (await api("GET", `${base}/handback/closes`)).programs || []; } catch { /* The sheet says it could not tell. */ }
+  try { programs = (await Server.computers.handbackCloses(id)).programs || []; } catch { /* The sheet says it could not tell. */ }
   return (programs && !programs.length) || chooseHandBack(programs);
 }

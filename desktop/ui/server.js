@@ -75,6 +75,9 @@ const Server = (() => {
   const message = (/** @type {Id} */ w, /** @type {Id} */ c, /** @type {Id} */ m) => `${channel(w, c)}/messages/${enc(m)}`;
   const knowledge = (/** @type {Id} */ w, /** @type {Id} */ k) => `${ws(w)}/knowledge/${enc(k)}`;
   const person = (/** @type {Id} */ p) => `/v1/admin/people/${enc(p)}`;
+  const pc = (/** @type {Id} */ id) => `/v1/computers/${enc(id)}`;
+  /** A file's path on a computer, always given, the root as "". */
+  const atPath = (/** @type {string} */ p) => `?path=${enc(p)}`;
 
   /** The path that presses or releases a kill switch: the server's, or a level's.
    * @param {string} level @param {?string} target @param {"press"|"release"} act */
@@ -117,9 +120,38 @@ const Server = (() => {
       ask: (usd, reason) => post("/v1/spend/requests", { usd, reason }),
     },
 
+    /** The agent's computers on the server. */
     computers: {
-      get: (/** @type {Id} */ id) => get(`/v1/computers/${enc(id)}`),
-      screen: (/** @type {Id} */ id) => get(`/v1/computers/${enc(id)}/screen`),
+      list: () => get("/v1/computers"),
+      get: (/** @type {Id} */ id) => get(pc(id)),
+      screen: (/** @type {Id} */ id) => get(`${pc(id)}/screen`),
+      activity: (/** @type {Id} */ id) => get(`${pc(id)}/activity`),
+      start: (/** @type {Id} */ id) => post(`${pc(id)}/start`),
+      hibernate: (/** @type {Id} */ id) => post(`${pc(id)}/hibernate`),
+      wake: (/** @type {Id} */ id) => post(`${pc(id)}/wake`),
+      /** The kill switch: pause it and take back every access. */
+      pause: (/** @type {Id} */ id) => post(`${pc(id)}/kill`, { mode: "pause" }),
+      reset: (/** @type {Id} */ id, /** @type {boolean} */ keepFiles) => post(`${pc(id)}/reset`, { keep_files: keepFiles }),
+      takeover: (/** @type {Id} */ id) => post(`${pc(id)}/takeover`),
+      handback: (/** @type {Id} */ id) => post(`${pc(id)}/handback`),
+      /** What handing back would close. */
+      handbackCloses: (/** @type {Id} */ id) => get(`${pc(id)}/handback/closes`),
+      setTheme: (/** @type {Id} */ id, /** @type {string} */ theme) => put(`${pc(id)}/theme`, { theme }),
+      listing: (/** @type {Id} */ id, /** @type {string} */ path) => get(`${pc(id)}/listing${atPath(path)}`),
+      file: (/** @type {Id} */ id, /** @type {string} */ path) => get(`${pc(id)}/files${atPath(path)}`),
+      writeFile: (/** @type {Id} */ id, /** @type {string} */ path, /** @type {string} */ dataB64) => put(`${pc(id)}/files`, { path, data_b64: dataB64 }),
+      removeFile: (/** @type {Id} */ id, /** @type {string} */ path) => del(`${pc(id)}/files${atPath(path)}`),
+      /** Type into a sign-in form on the computer, outside the agent's sight.
+       * @param {Id} identity @param {{target: string, value: string, submit: boolean, save: boolean, username?: string}} body */
+      secureForm: (identity, body) => post(`/v1/identities/${enc(identity)}/secure-form`, body),
+    },
+
+    /** Computers of the person's own that the desktop app connects. */
+    local: {
+      list: () => get("/v1/local/computers"),
+      resume: (/** @type {Id} */ id) => post(`/v1/local/computers/${enc(id)}/resume`),
+      remove: (/** @type {Id} */ id) => del(`/v1/local/computers/${enc(id)}`),
+      removeFile: (/** @type {Id} */ id, /** @type {string} */ path) => del(`/v1/local/computers/${enc(id)}/files${atPath(path)}`),
     },
 
     workspaces: {

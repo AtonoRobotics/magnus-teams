@@ -162,13 +162,13 @@ function computerChip(computers) {
 // redraw of the panel never cuts a takeover off.
 PANEL_TITLES.computer = "Computer";
 PANELS.computer = async id => {
-  const c = await api("GET", `/v1/computers/${enc(id)}`);
-  if (c.status !== "paused") api("POST", `/v1/computers/${enc(id)}/wake`, {}).catch(() => { /* The screen says how it stands. */ });
+  const c = await Server.computers.get(id);
+  if (c.status !== "paused") Server.computers.wake(id).catch(() => { /* The screen says how it stands. */ });
   const body = `<p class="small muted">${esc(c.name || "Computer")}</p><div data-pinned="${esc(id)}" class="pinned-screen"></div><div class="row"><a class="small" href="#/computer/${enc(id)}/screen">Open the computer</a></div>`;
   const after = el => {
     const host = $(`[data-pinned="${CSS.escape(id)}"]`, el);
     if (!host) return;
-    Screen.pinned = computerScreen(host, c, `/v1/computers/${enc(id)}`, () => Panel.what === `computer:${id}` && host.isConnected, { ask: true });
+    Screen.pinned = computerScreen(host, c, () => Panel.what === `computer:${id}` && host.isConnected, { ask: true });
   };
   return { body, after };
 };

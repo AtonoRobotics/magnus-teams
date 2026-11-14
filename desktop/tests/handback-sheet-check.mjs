@@ -30,7 +30,7 @@ let answer = false;
 sandbox.chooseHandBack = async programs => { asked.push(programs); return answer; };
 const handbacks = () => calls.filter(c => c === "POST /v1/computers/c/handback").length;
 
-sandbox.computerScreen(page.body, { id: "c", status: "running" }, "/v1/computers/c", "#/computer/c/screen");
+sandbox.computerScreen(page.body, { id: "c", status: "running" }, "#/computer/c/screen");
 await settle();
 await page.els["[data-take]"].onclick();
 await settle();

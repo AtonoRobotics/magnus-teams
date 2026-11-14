@@ -70,9 +70,11 @@ export function load({ reply, hash = "#/computer/c/screen", me = "alice" }) {
     Rfb: class { constructor(o) { stream.rfb = o; } feed() {} },
     ImageData: class { constructor() {} },
   };
+  // The page's requests go through server.js to the transport the check answers.
+  sandbox.Magnus.api = sandbox.api;
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  for (const file of ["computers.js", "screen.js"]) vm.runInContext(readFileSync(join(here, "../ui", file), "utf8"), sandbox, { filename: file });
+  for (const file of ["server.js", "computers.js", "screen.js"]) vm.runInContext(readFileSync(join(here, "../ui", file), "utf8"), sandbox, { filename: file });
   return { page, calls, stream, sandbox };
 }
 
