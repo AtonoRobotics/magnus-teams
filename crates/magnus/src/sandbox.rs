@@ -8,13 +8,14 @@
 use crate::config::Sandbox as Cfg;
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
+use magnus_computerd_proto::guest::{GuestRequest, MAX_GUEST_REPLY_BYTES};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 const GUEST_PORT: u32 = 52;
@@ -145,7 +146,7 @@ impl Sandboxes {
         // Wait for the guest agent.
         let start = std::time::Instant::now();
         loop {
-            if let Ok(v) = request(&vm.vsock, &json!({ "op": "ping" }), PING_TIMEOUT).await {
+            if let Ok(v) = request(&vm.vsock, &GuestRequest::Ping, PING_TIMEOUT).await {
                 if v["ok"] == true {
                     return Ok(vm);
                 }
@@ -180,7 +181,7 @@ impl Sandboxes {
             for (name, data) in files {
                 let safe: String = name.chars().map(|c| if c == '/' || c == '\\' { '_' } else { c }).collect();
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-                request(&vm.vsock, &json!({ "op": "write", "path": format!("/workspace/inputs/{safe}"), "data_b64": b64 }), FILE_REQUEST_TIMEOUT).await?;
+                request(&vm.vsock, &GuestRequest::write(format!("/workspace/inputs/{safe}"), b64), FILE_REQUEST_TIMEOUT).await?;
             }
         }
         vms.insert(run.to_string(), vm.clone());
@@ -189,18 +190,18 @@ impl Sandboxes {
 
     pub async fn exec(&self, run: &str, command: &str, timeout_s: u64) -> Result<Value> {
         let vm = self.vm(run).await?;
-        request(&vm.vsock, &json!({ "op": "exec", "command": command, "timeout_s": timeout_s }), exec_reply_timeout(timeout_s)).await
+        request(&vm.vsock, &GuestRequest::exec(command, timeout_s), exec_reply_timeout(timeout_s)).await
     }
 
     pub async fn write(&self, run: &str, path: &str, data: &[u8]) -> Result<Value> {
         let vm = self.vm(run).await?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-        request(&vm.vsock, &json!({ "op": "write", "path": path, "data_b64": b64 }), FILE_REQUEST_TIMEOUT).await
+        request(&vm.vsock, &GuestRequest::write(path, b64), FILE_REQUEST_TIMEOUT).await
     }
 
     pub async fn read(&self, run: &str, path: &str) -> Result<Vec<u8>> {
         let vm = self.vm(run).await?;
-        let v = request(&vm.vsock, &json!({ "op": "read", "path": path }), FILE_REQUEST_TIMEOUT).await?;
+        let v = request(&vm.vsock, &GuestRequest::read(path), FILE_REQUEST_TIMEOUT).await?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
         }
@@ -212,12 +213,12 @@ impl Sandboxes {
     /// VM is stopped first so its disk is consistent; its next use boots it
     /// again on the same disk.
     pub async fn exec_check(&self, run: &str, command: &str, timeout_s: u64) -> Result<Value> {
-        self.in_check_vm(run, json!({ "op": "exec", "command": command, "timeout_s": timeout_s }), exec_reply_timeout(timeout_s)).await
+        self.in_check_vm(run, GuestRequest::exec(command, timeout_s), exec_reply_timeout(timeout_s)).await
     }
 
     /// Read a file as a contract check sees it, in a check VM.
     pub async fn read_check(&self, run: &str, path: &str) -> Result<Vec<u8>> {
-        let v = self.in_check_vm(run, json!({ "op": "read", "path": path }), FILE_REQUEST_TIMEOUT).await?;
+        let v = self.in_check_vm(run, GuestRequest::read(path), FILE_REQUEST_TIMEOUT).await?;
         if let Some(e) = v["error"].as_str() {
             return Err(anyhow!("{e}"));
         }
@@ -237,7 +238,7 @@ impl Sandboxes {
             let arg = base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(commands)?);
             let v = request(
                 &vm.vsock,
-                &json!({ "op": "exec", "command": format!("python3 -I /usr/local/lib/magnus/check_tools.py {arg}"), "timeout_s": CHECK_TOOLS_TIMEOUT_SECONDS }),
+                &GuestRequest::exec(format!("python3 -I /usr/local/lib/magnus/check_tools.py {arg}"), CHECK_TOOLS_TIMEOUT_SECONDS),
                 exec_reply_timeout(CHECK_TOOLS_TIMEOUT_SECONDS),
             )
             .await?;
@@ -255,7 +256,7 @@ impl Sandboxes {
         result
     }
 
-    async fn in_check_vm(&self, run: &str, req: Value, timeout: Duration) -> Result<Value> {
+    async fn in_check_vm(&self, run: &str, req: GuestRequest, timeout: Duration) -> Result<Value> {
         self.stop(run).await;
         let dir = self.scratch_dir();
         std::fs::create_dir_all(&dir)?;
@@ -287,7 +288,7 @@ impl Sandboxes {
     /// Stop the run's VM and keep its disk (suspend).
     pub async fn stop(&self, run: &str) {
         if let Some(vm) = self.vms.lock().await.remove(run) {
-            let _ = request(&vm.vsock, &json!({ "op": "sync" }), SYNC_TIMEOUT).await;
+            let _ = request(&vm.vsock, &GuestRequest::Sync, SYNC_TIMEOUT).await;
             drop(vm);
         }
     }
@@ -299,19 +300,26 @@ impl Sandboxes {
     }
 }
 
-async fn request(vsock: &Path, req: &Value, timeout: Duration) -> Result<Value> {
+/// One request to a VM's guest agent, through Firecracker's vsock socket.
+/// The guest runs the model's commands and the attachments' contents, so it
+/// is not trusted to end its line: what it sends is read up to
+/// `MAX_GUEST_REPLY_BYTES`, and a longer answer is refused.
+async fn request(vsock: &Path, req: &GuestRequest, timeout: Duration) -> Result<Value> {
     tokio::time::timeout(timeout, async {
         let s = UnixStream::connect(vsock).await?;
         let (r, mut w) = s.into_split();
         w.write_all(format!("CONNECT {GUEST_PORT}\n").as_bytes()).await?;
-        let mut r = BufReader::new(r);
+        let mut r = BufReader::new(r.take(MAX_GUEST_REPLY_BYTES));
         let mut ack = String::new();
         r.read_line(&mut ack).await?;
         anyhow::ensure!(ack.starts_with("OK"), "guest agent not listening");
-        w.write_all(format!("{req}\n").as_bytes()).await?;
+        let mut line = serde_json::to_vec(req)?;
+        line.push(b'\n');
+        w.write_all(&line).await?;
         let mut line = String::new();
         r.read_line(&mut line).await?;
         anyhow::ensure!(!line.is_empty(), "guest agent closed the connection");
+        anyhow::ensure!(line.ends_with('\n'), "the guest's answer was cut short or longer than {MAX_GUEST_REPLY_BYTES} bytes");
         Ok(serde_json::from_str(&line)?)
     })
     .await
@@ -326,5 +334,62 @@ mod exec_timeout_tests {
     fn a_huge_command_timeout_does_not_wrap_to_a_short_wait() {
         assert_eq!(exec_reply_timeout(u64::MAX), Duration::from_secs(u64::MAX));
         assert_eq!(exec_reply_timeout(30), Duration::from_secs(30 + EXEC_REPLY_GRACE_SECONDS));
+    }
+}
+
+#[cfg(test)]
+mod request_tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::UnixListener;
+
+    const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Firecracker's side of the vsock socket, with a guest behind it that
+    /// answers with `answer`, then, if `endless`, keeps the line going.
+    async fn fake_vm(answer: &'static [u8], endless: bool) -> (tempfile::TempDir, PathBuf, tokio::task::JoinHandle<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vsock.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let served = tokio::spawn(async move {
+            let (s, _) = listener.accept().await.unwrap();
+            let (r, mut w) = s.into_split();
+            let mut r = BufReader::new(r);
+            let mut connect = String::new();
+            r.read_line(&mut connect).await.unwrap();
+            assert_eq!(connect, format!("CONNECT {GUEST_PORT}\n"));
+            w.write_all(b"OK 1073741824\n").await.unwrap();
+            let mut req = String::new();
+            r.read_line(&mut req).await.unwrap();
+            let _ = w.write_all(answer).await;
+            if endless {
+                // Twice the cap, then the line stays open: never ended.
+                let chunk = vec![b'a'; 1 << 16];
+                let mut sent = 0u64;
+                while sent < 2 * MAX_GUEST_REPLY_BYTES && w.write_all(&chunk).await.is_ok() {
+                    sent += chunk.len() as u64;
+                }
+                tokio::time::sleep(TEST_TIMEOUT).await;
+            }
+            req
+        });
+        (dir, path, served)
+    }
+
+    #[tokio::test]
+    async fn a_request_goes_as_the_typed_line_and_its_answer_is_read() {
+        let (_dir, path, served) = fake_vm(b"{\"ok\":true}\n", false).await;
+        let v = request(&path, &GuestRequest::read("/workspace/a"), TEST_TIMEOUT).await.unwrap();
+        assert_eq!(v, json!({ "ok": true }));
+        assert_eq!(served.await.unwrap(), "{\"op\":\"read\",\"path\":\"/workspace/a\"}\n");
+    }
+
+    /// A guest that never ends its line once grew the server's memory until
+    /// the request's timeout.
+    #[tokio::test]
+    async fn an_answer_longer_than_the_cap_is_refused() {
+        let (_dir, path, _served) = fake_vm(b"{\"data_b64\":\"", true).await;
+        let e = request(&path, &GuestRequest::read("/workspace/a"), TEST_TIMEOUT).await.unwrap_err();
+        assert!(e.to_string().contains("cut short or longer than"), "{e:#}");
     }
 }
