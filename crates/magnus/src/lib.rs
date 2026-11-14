@@ -29,7 +29,6 @@ pub mod chat;
 pub mod chat_actions;
 pub mod chat_entry;
 pub mod chat_thread;
-pub mod chat_work;
 pub mod cli;
 pub mod commit;
 pub mod commitments;
