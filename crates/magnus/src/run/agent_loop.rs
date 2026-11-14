@@ -66,7 +66,7 @@ impl Kernel {
             self.suspend(run_id, &reason, None).await?;
             return Ok(None);
         }
-        if self.read(|s| s.updating.is_some()) {
+        if self.read(|s| s.server_ops.updating().is_some()) {
             self.suspend(run_id, "update", None).await?;
             return Ok(None);
         }
@@ -140,7 +140,7 @@ impl Kernel {
             return Ok(Flow::Stop);
         }
         // An update is switching releases: wait for the new one.
-        if self.read(|s| s.updating.is_some()) {
+        if self.read(|s| s.server_ops.updating().is_some()) {
             self.suspend(run_id, "update", None).await?;
             return Ok(Flow::Stop);
         }

@@ -608,7 +608,7 @@ impl Kernel {
             return Ok(Err(self.deny(a, "policy", "a read-back may only read", false, None).await?));
         }
         let (untrusted, private) = (run.untrusted, run.private);
-        let policies = self.read(|s| s.policies.clone());
+        let policies = self.read(|s| s.org.policies().clone());
         let facts = ToolFacts::from(f);
         let outcome = policy::decide(&policies, person, Some(&run.task), &facts, untrusted, private)?;
         // A policy's ask is no longer an ask of its own (spec rev 140): Auto
@@ -734,7 +734,7 @@ impl Kernel {
         if self.brokered.generation(&c.name, person) != stops {
             return Err(format!("{app}'s microVM for {person} was stopped while this call waited. Nothing was sent"));
         }
-        if self.read(|s| s.kill_switch) {
+        if self.read(|s| s.vault.kill_switch()) {
             return Err("the kill switch is engaged. Nothing was sent".into());
         }
         if !self.connected(c, person) {

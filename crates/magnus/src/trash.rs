@@ -139,7 +139,7 @@ pub fn schedule(k: Arc<Kernel>) {
             if let Err(e) = k.purge_trash().await {
                 tracing::error!("emptying the trash: {e:#}");
             }
-            if k.read(|s| s.scrub_pending.is_some()) {
+            if k.read(|s| s.server_ops.scrub_pending().is_some()) {
                 if let Err(e) = k.scrub_backups().await {
                     tracing::error!("taking removed content out of the backups: {e:#}");
                 }
@@ -257,7 +257,7 @@ impl crate::state::State {
             }
             _ if item.starts_with("thread_") => {
                 let turns: Vec<&crate::state::Task> = self.tasks.values().filter(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).collect();
-                if turns.is_empty() && !self.branches.get(item).is_some_and(|b| b.person == person) {
+                if turns.is_empty() && !self.thread_extras.branches().get(item).is_some_and(|b| b.person == person) {
                     return Err(NotFound);
                 }
                 return if turns.iter().all(|t| ended(&t.run_id)) { Ok(()) } else { Err(Running) };

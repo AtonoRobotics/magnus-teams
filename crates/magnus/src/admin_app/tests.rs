@@ -109,7 +109,7 @@ impl Server {
     }
 
     pub(crate) fn audited(&self, action: &str) -> Vec<Value> {
-        self.k.read(|s| s.audit.iter().map(|(_, _, v)| v.clone()).filter(|v| v["action"] == action).collect())
+        self.k.read(|s| s.org.audit().iter().map(|(_, _, v)| v.clone()).filter(|v| v["action"] == action).collect())
     }
 }
 
@@ -216,8 +216,8 @@ async fn pressing_is_free_and_releasing_steps_up() {
     assert_eq!(s.get(&mo, "/v1/stops").await.1["stops"], json!([]));
     let (st, v) = s.post(&lee, "/v1/admin/kill-switch/press", json!({})).await;
     assert_eq!(st, 200, "pressing asked for more: {v}");
-    assert!(s.k.read(|st| st.kill_switch), "the switch is not on");
-    assert_eq!(s.k.read(|st| st.kill_switch_by.clone().map(|b| b.0)), Some("admin:lee".into()), "the switch names the wrong actor");
+    assert!(s.k.read(|st| st.vault.kill_switch()), "the switch is not on");
+    assert_eq!(s.k.read(|st| st.vault.kill_switch_by().cloned().map(|b| b.0)), Some("admin:lee".into()), "the switch names the wrong actor");
     assert_eq!(s.audited("kill_switch_engaged").len(), 1, "pressing was not audited");
 
     let stops = s.get(&mo, "/v1/stops").await.1;
@@ -227,11 +227,11 @@ async fn pressing_is_free_and_releasing_steps_up() {
 
     let (st, v) = s.post(&lee, "/v1/admin/kill-switch/release", json!({})).await;
     assert_eq!((st, v["error"].as_str()), (403, Some(STEP_UP_ERROR)), "releasing skipped the step-up: {v}");
-    assert!(s.k.read(|st| st.kill_switch), "a refused release released");
+    assert!(s.k.read(|st| st.vault.kill_switch()), "a refused release released");
     assert_eq!(s.post(&lee, "/v1/admin/step-up", json!({ "password": PASSWORD })).await.0, 200);
     let (st, v) = s.post(&lee, "/v1/admin/kill-switch/release", json!({})).await;
     assert_eq!(st, 200, "a stepped-up release was refused: {v}");
-    assert!(!s.k.read(|st| st.kill_switch), "the switch stayed on");
+    assert!(!s.k.read(|st| st.vault.kill_switch()), "the switch stayed on");
     assert_eq!(s.audited("kill_switch_released").len(), 1);
     assert_eq!(s.get(&mo, "/v1/stops").await.1["stops"], json!([]));
     s.done().await;

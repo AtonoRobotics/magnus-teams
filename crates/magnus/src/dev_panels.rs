@@ -209,7 +209,7 @@ pub(crate) async fn policy(AxState(k): K, h: HeaderMap) -> Response {
     let (mut v, hidden) = k.read(|s| {
         let (seen, hidden) = runs_seen(&lens, s);
         let mut layers: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-        for p in &s.policy_history {
+        for p in s.org.policy_history().iter() {
             layers.entry(p.layer.clone()).or_default().push(json!({ "seq": p.seq, "at": p.at, "by": named(&lens, &p.by), "cedar": p.cedar }));
         }
         layers.entry("org".into()).or_default();
@@ -217,8 +217,8 @@ pub(crate) async fn policy(AxState(k): K, h: HeaderMap) -> Response {
             .into_iter()
             .filter_map(|(layer, versions)| {
                 let owners: Vec<String> = people.iter().filter(|p| crate::inbox::may_set_policy(p, &layer)).map(|p| named(&lens, &p.id)).collect();
-                let current = s.policies.get(&layer).cloned().or_else(|| (layer == "org").then(|| crate::policy::DEFAULT_ORG.to_string()));
-                let v = json!({ "layer": layer, "versions": versions, "current": current, "default": layer == "org" && !s.policies.contains_key("org"), "owners": owners });
+                let current = s.org.policies().get(&layer).cloned().or_else(|| (layer == "org").then(|| crate::policy::DEFAULT_ORG.to_string()));
+                let v = json!({ "layer": layer, "versions": versions, "current": current, "default": layer == "org" && !s.org.policies().contains_key("org"), "owners": owners });
                 match layer_sight(&lens, &layer) {
                     Sight::Full => Some(v),
                     Sight::Anonymous => {

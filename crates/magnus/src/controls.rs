@@ -70,7 +70,7 @@ async fn control_check(client: &Kernel, who: &Person, op: &str, kind: &str, id: 
         return Err(Refused::NotFound(what));
     }
     let authority = client.authority(who).await;
-    let policies = client.read(|s| s.policies.clone());
+    let policies = client.read(|s| s.org.policies().clone());
     let t = crate::policy::ControlFacts { op, kind, id, owner };
     match crate::policy::control_allowed(&policies, who, authority, &t) {
         Ok(_) => Ok(()),

@@ -40,7 +40,7 @@ pub const REACTIONS: &[(&str, &str)] = &[("great", "that was great"), ("annoying
 /// one, for them to see. Only Magnus's messages take one
 /// (`chat_thread::Kind::is_magnus`).
 pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Entry>) -> Vec<Entry> {
-    let Some(mine) = s.reactions.get(person) else { return entries };
+    let Some(mine) = s.thread_extras.reactions().get(person) else { return entries };
     for e in entries.iter_mut().filter(|e| e.has_id()) {
         if let Some(r) = mine.get(&(thread.to_string(), e.id.clone())).and_then(|h| h.last()).and_then(|(r, _)| r.clone()) {
             e.reaction = Some(r);
@@ -58,7 +58,7 @@ pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Entry
 /// the conversation is named without its words: they would bring its taint
 /// into every later run of theirs.
 pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Utc>) -> Vec<(DateTime<Utc>, String)> {
-    let Some(mine) = s.reactions.get(person) else { return vec![] };
+    let Some(mine) = s.thread_extras.reactions().get(person) else { return vec![] };
     // A card's proposing run: cards live in run results, with no state
     // link of their own, so index them once when a card carries one.
     let mut card_runs: HashMap<&str, &Run> = HashMap::new();
@@ -76,7 +76,7 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
         .filter_map(|((thread, entry), history)| {
             let (reaction, at) = history.iter().rev().find(|(_, at)| *at < before)?;
             let reaction = reaction.as_ref()?;
-            let hidden = |id: &str| s.trash.contains_key(id) || s.hidden.get(thread).is_some_and(|h| h.contains(id));
+            let hidden = |id: &str| s.trash.contains_key(id) || s.thread_extras.hidden(thread).is_some_and(|h| h.contains(id));
             if s.trash.contains_key(thread) || s.removed_threads.contains(thread) || hidden(entry) {
                 return None;
             }
@@ -125,7 +125,8 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
 /// newest first, each with its id for recording the outcome.
 pub(crate) fn open_before(s: &Projection, person: &str, before: DateTime<Utc>) -> Vec<(DateTime<Utc>, String)> {
     let mut out: Vec<(DateTime<Utc>, String)> = s
-        .disagreements
+        .thread_extras
+        .disagreements()
         .values()
         .filter(|d| d.person == person && d.at < before && d.outcome_at.is_none_or(|o| o >= before))
         .map(|d| (d.at, format!("{}: you advised: {} They decided: {}", d.id, d.position, d.decision)))
@@ -197,7 +198,7 @@ impl Kernel {
                     return no("this run has read content from outside the conversation: its outcome is worked, failed or unclear, so that content writes no free text into the person's log".into());
                 }
                 let (found, open) = self.read(|s| {
-                    let mine = || s.disagreements.values().filter(|d| d.person == r.person);
+                    let mine = || s.thread_extras.disagreements().values().filter(|d| d.person == r.person);
                     (
                         mine().find(|d| d.id == id).map(|d| (d.outcome.is_none(), d.position.clone(), d.decision.clone())),
                         mine().filter(|d| d.outcome.is_none()).map(|d| d.id.clone()).collect::<Vec<_>>(),
@@ -268,7 +269,7 @@ async fn disagreements(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
-    let mut mine: Vec<Value> = k.read(|s| s.disagreements.values().filter(|d| d.person == p.id).map(|d| json!(d)).collect());
+    let mut mine: Vec<Value> = k.read(|s| s.thread_extras.disagreements().values().filter(|d| d.person == p.id).map(|d| json!(d)).collect());
     mine.sort_by(|a, b| b["at"].as_str().cmp(&a["at"].as_str()));
     Json(json!({ "disagreements": mine })).into_response()
 }
@@ -327,7 +328,7 @@ mod tests {
         assert!(marked(&s, "carol", "th", vec![crate::chat_thread::Entry::copied(json!({ "id": "a:t1" }))])[0].reaction.is_none(), "taken back");
         ev(&mut s, 8, json!({ "kind": "reacted", "person": "carol", "thread": "th", "entry": "a:t1", "reaction": "great" }));
         ev(&mut s, 9, json!({ "kind": "person_erased", "person": "carol" }));
-        assert!(!s.reactions.contains_key("carol") && s.disagreements.is_empty(), "erased with her");
+        assert!(!s.thread_extras.reactions().contains_key("carol") && s.thread_extras.disagreements().is_empty(), "erased with her");
         let sec = section(&[(at(2), "that was great, on your message \"x\"".into())], &[(at(3), "d1: you advised: Wait. They decided: Ship now.".into())]);
         assert!(sec.contains("# How this person reacted") && sec.contains("# Disagreements with this person still open") && sec.contains("d1: you advised"), "{sec}");
         assert_eq!(section(&[], &[]), "");

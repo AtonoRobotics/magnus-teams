@@ -253,8 +253,7 @@ impl crate::kernel::Kernel {
                 .collect();
             for (app, w) in watches {
                 let minutes = w.poll_minutes.unwrap_or(0).max(1) as i64;
-                let due =
-                    self.read(|s| s.watch_last_polled.get(&(person.clone(), app.clone(), w.tool.clone())).is_none_or(|t| now.signed_duration_since(*t).num_minutes() >= minutes));
+                let due = self.read(|s| s.watch.last_polled(&person, &app, &w.tool).is_none_or(|t| now.signed_duration_since(t).num_minutes() >= minutes));
                 if due {
                     self.start_poll(&person, &app, &w).await;
                 }
@@ -375,7 +374,7 @@ impl crate::kernel::Kernel {
             {
                 tracing::warn!("watch answer mark lost for {person} {app}, polling on the old schedule: {e:#}");
             }
-            let window = self.read(|s| s.watched_seen.get(&(person.to_string(), app.to_string(), remote.to_string())).cloned());
+            let window = self.read(|s| s.watch.window(person, app, remote).cloned());
             let Some(window) = window else {
                 let _ =
                     self.emit(&format!("person:{person}"), crate::events::Ev::WatchedSeen { person: person.into(), app: app.into(), tool: remote.into(), ids, full: true }).await;
@@ -460,7 +459,8 @@ impl crate::kernel::Kernel {
                 .collect::<Vec<_>>();
             let approvals = s.items.values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()).map(|i| i.summary.clone()).collect::<Vec<_>>();
             let disagreements = s
-                .disagreements
+                .thread_extras
+                .disagreements()
                 .values()
                 .filter(|d| d.person == person && d.outcome.is_none())
                 .map(|d| format!("{} -> {}", d.position.chars().take(120).collect::<String>(), d.decision))
