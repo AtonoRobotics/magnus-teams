@@ -41,7 +41,7 @@ assert.match(spend, /if \(setup && owner && typeof modelsSection === "function"\
 assert.match(overview, /registerOverviewCard\("kill", async el => \{\s*const ks = await Server\.admin\.killSwitch\(\);/);
 
 // Any request (server.js): a change refused for a step-up asks for the password, then is sent again.
-assert.match(app, /const api = \(m,p,b\) => Server\.call\(m,p,b\);/, "the app's requests do not go through server.js");
+assert.ok(!/\bapi\(/.test(app), "app.js sends a request around server.js");
 const serverSrc = read("server.js");
 async function run(stepUpAnswer) {
   const calls = [];

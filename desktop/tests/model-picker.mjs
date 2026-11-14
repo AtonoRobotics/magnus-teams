@@ -23,7 +23,7 @@ const reopen=async()=>{await page.reload();await page.locator('#msg').waitFor();
 // again (step-up) unless one was confirmed in the last 5 minutes. Answer the
 // sheet as the admin would, when it opens.
 const setDefault=async m=>{
-  const changed=page.evaluate(([adapter,model])=>api('PUT','/v1/model',{adapter,model}).then(()=>true),JSON.parse(m));
+  const changed=page.evaluate(([adapter,model])=>Server.models.choose(adapter,model).then(()=>true),JSON.parse(m));
   const sheet=page.getByRole('dialog',{name:'Confirm your password'});
   const asked=await Promise.race([changed,sheet.waitFor().then(()=>false,()=>true)]);
   if(!asked){await sheet.getByLabel('Password').fill(process.env.MAGNUS_PASSWORD);await sheet.getByRole('button',{name:'Confirm'}).click();}

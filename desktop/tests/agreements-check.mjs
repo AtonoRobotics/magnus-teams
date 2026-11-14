@@ -25,7 +25,7 @@ for (const f of ["agreements.js", "admin-testers.js"]) {
 }
 assert.ok(fast.includes("node desktop/tests/agreements-check.mjs"), "the fast tier runs this check");
 const app = read("app.js");
-assert.match(app, /App\.me = await api\("GET", "\/v1\/me"\);\s*\/\/[^\n]*\n\s*if \(!\(await agreementsGate\(\)\)\)/, "boot does not ask for the agreements before the app opens");
+assert.match(app, /App\.me = await Server\.me\(\);\s*\/\/[^\n]*\n\s*if \(!\(await agreementsGate\(\)\)\)/, "boot does not ask for the agreements before the app opens");
 assert.ok(app.includes(`["agreements", "Agreements", (el) => agreementsSection(el)]`), "Settings has no Agreements section");
 assert.ok(read("admin-people.js").includes("adminTesters("), "Admin › People does not show the testers");
 

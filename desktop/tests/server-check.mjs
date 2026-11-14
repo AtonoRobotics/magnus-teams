@@ -4,7 +4,7 @@
 // limit's offer, the update screen on 426, "Outcome not confirmed" for a
 // change whose reply was lost, and a read for a view no longer on screen.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadServer, refused } from "./server-harness.mjs";
@@ -23,7 +23,12 @@ assert.match(read(".github/workflows/fast.yml"), /node desktop\/tests\/server-ch
 // The transport carries requests; the policy is server.js's alone.
 const bridge = read("desktop/ui/bridge.js"), app = read("desktop/ui/app.js");
 assert.ok(!bridge.includes("426") && !bridge.includes("step_up"), "bridge.js holds error policy of its own");
-assert.ok(!/step_up|Outcome not confirmed|spend_limit/.test(app.match(/const api = [^\n]*/)[0]), "app.js's api() holds error policy of its own");
+// Every script asks through Server: none spells out a request of its own.
+for (const f of readdirSync(join(root, "desktop/ui")).filter(f => f.endsWith(".js") && f !== "bridge.js" && f !== "server.js")) {
+  const src = read(`desktop/ui/${f}`);
+  assert.ok(!/(^|[^.\w])(api|adminApi)\(/m.test(src) && !/Magnus\.api\(/.test(src), `${f} sends a request around server.js`);
+}
+assert.ok(!/step_up|Outcome not confirmed|offerMoreSpend\(/.test(app), "app.js holds error policy of its own");
 assert.ok(!read("desktop/ui/admin.js").includes("adminApi"), "admin.js keeps a second step-up of its own");
 
 // Every named call: [name, args, method, path, body].
@@ -31,13 +36,70 @@ const W = "w 1", C = "c/1", M = "m?1";
 const w = "/v1/workspaces/w%201", c = `${w}/channels/c%2F1`, m = `${c}/messages/m%3F1`;
 const table = [
   ["stops.list", [], "GET", "/v1/stops", undefined],
+  ["me", [], "GET", "/v1/me", undefined],
+  ["version", [], "GET", "/v1/version", undefined],
+  ["search", ["a b&c"], "GET", "/v1/search?q=a%20b%26c", undefined],
+  ["speak", ["Hello."], "POST", "/v1/speak", { text: "Hello." }],
+  ["homeOpened", [], "POST", "/v1/home/opened", {}],
+  ["tasks.get", ["t 1"], "GET", "/v1/tasks/t%201", undefined],
+  ["tasks.timeline", ["t1"], "GET", "/v1/tasks/t1/timeline", undefined],
+  ["tasks.action", ["t1", 2, { fence: "f", values: {} }], "POST", "/v1/tasks/t1/actions/2", { fence: "f", values: {} }],
+  ["tasks.action", ["t1", 0], "POST", "/v1/tasks/t1/actions/0", undefined],
+  ["tasks.verdict", ["t1", "right", "ok"], "POST", "/v1/tasks/t1/verdict", { verdict: "right", note: "ok" }],
+  ["inbox.opened", [["i1", "i2"]], "POST", "/v1/inbox/opened", { ids: ["i1", "i2"] }],
+  ["inbox.answer", ["i 1", { answer: "yes" }], "POST", "/v1/inbox/i%201", { answer: "yes" }],
+  ["ui.app", ["a 1"], "GET", "/v1/ui/apps/a%201", undefined],
+  ["ui.appRequest", ["a1", { tool: "t", arguments: {} }], "POST", "/v1/ui/apps/a1/request", { tool: "t", arguments: {} }],
+  ["ui.catalog", [], "GET", "/v1/ui/catalog", undefined],
+  ["ui.setCatalog", [{ version: "v", elements: ["stat"] }], "PUT", "/v1/ui/catalog", { version: "v", elements: ["stat"] }],
+  ["files.list", [], "GET", "/v1/files", undefined],
+  ["files.list", [{ q: "", project: null }], "GET", "/v1/files", undefined],
+  ["files.list", [{ q: "a b", project: "p1" }], "GET", "/v1/files?q=a%20b&project=p1", undefined],
+  ["files.info", ["f 1"], "GET", "/v1/files/f%201/info", undefined],
+  ["files.upload", [{ name: "a.md", media_type: "text/markdown", data_b64: "" }], "POST", "/v1/files", { name: "a.md", media_type: "text/markdown", data_b64: "" }],
+  ["files.move", ["f1", null], "POST", "/v1/moves", { item: "f1", project: null }],
+  ["trash.list", [], "GET", "/v1/trash", undefined],
+  ["trash.add", ["f1"], "POST", "/v1/trash", { item: "f1" }],
+  ["trash.restore", ["f 1"], "POST", "/v1/trash/f%201/restore", {}],
+  ["trash.remove", ["f1"], "DELETE", "/v1/trash/f1", undefined],
+  ["trash.empty", [], "POST", "/v1/trash/empty", {}],
+  ["projects.get", ["p 1"], "GET", "/v1/projects/p%201", undefined],
+  ["projects.create", [{ name: "P", instructions: "" }], "POST", "/v1/projects", { name: "P", instructions: "" }],
+  ["projects.update", ["p1", { instructions: "x" }], "PUT", "/v1/projects/p1", { instructions: "x" }],
+  ["models.list", [], "GET", "/v1/models", undefined],
+  ["models.choose", ["anthropic", "m"], "PUT", "/v1/model", { adapter: "anthropic", model: "m" }],
+  ["models.signIn", ["open ai"], "POST", "/v1/adapters/open%20ai/sign-in", {}],
+  ["models.completeSignIn", ["a", { flow: "f", input: "x" }], "POST", "/v1/adapters/a/sign-in/complete", { flow: "f", input: "x" }],
+  ["models.conformance", ["a"], "POST", "/v1/adapters/a/conformance", {}],
+  ["sessions.list", [], "GET", "/v1/sessions", undefined],
+  ["sessions.end", ["s 1"], "DELETE", "/v1/sessions/s%201", undefined],
+  ["preferences.get", [], "GET", "/v1/preferences", undefined],
+  ["preferences.set", [{ notify: true }], "PUT", "/v1/preferences", { notify: true }],
+  ["memory.deletionRequests", [], "GET", "/v1/deletion-requests", undefined],
+  ["memory.askToDelete", ["my address"], "POST", "/v1/deletion-requests", { what: "my address" }],
+  ["memory.relationship", [], "GET", "/v1/relationship", undefined],
+  ["memory.note", [{ action: "remove", note: "n1" }], "POST", "/v1/relationship", { action: "remove", note: "n1" }],
+  ["memory.disagreements", [], "GET", "/v1/disagreements", undefined],
+  ["memory.commitments", [], "GET", "/v1/commitments", undefined],
+  ["memory.updateCommitment", ["c 1", { status: "done" }], "PUT", "/v1/commitments/c%201", { status: "done" }],
+  ["memory.removeCommitment", ["c1"], "DELETE", "/v1/commitments/c1", undefined],
+  ["memory.grants", [], "GET", "/v1/grants", undefined],
+  ["memory.setGrant", ["g 1", { until: "x" }], "PUT", "/v1/grants/g%201", { until: "x" }],
+  ["memory.removeGrant", ["g1"], "DELETE", "/v1/grants/g1", undefined],
+  ["connectors.get", ["my crm"], "GET", "/v1/connectors/my%20crm", undefined],
+  ["connectors.push", ["crm"], "GET", "/v1/connectors/crm/push", undefined],
+  ["connectors.setToken", ["crm", "tok"], "PUT", "/v1/connectors/crm/token", { token: "tok" }],
+  ["connectors.removeGenerated", ["crm"], "DELETE", "/v1/connectors/crm/generated", undefined],
+  ["connectors.disconnect", ["crm"], "DELETE", "/v1/connectors/crm/connection", undefined],
+  ["connectors.signIn", ["crm", "http://127.0.0.1:9/cb"], "POST", "/v1/connectors/crm/sign-in", { redirect_uri: "http://127.0.0.1:9/cb" }],
+  ["connectors.completeSignIn", ["crm", { state: "s", code: "c", iss: "i" }], "POST", "/v1/connectors/crm/sign-in/complete", { state: "s", code: "c", iss: "i" }],
   ["tasks.cancel", ["t 1"], "POST", "/v1/tasks/t%201/cancel", {}],
   ["tasks.resume", ["t1"], "POST", "/v1/tasks/t1/resume", {}],
   ["schedules.remove", ["s/1"], "DELETE", "/v1/schedules/s%2F1", undefined],
   ["schedules.resume", ["s1"], "POST", "/v1/schedules/s1/resume", {}],
   ["schedules.pause", ["s1"], "POST", "/v1/schedules/s1/pause", {}],
   ["chat.send", [{ text: "hi", thread: "th" }], "POST", "/v1/chat", { text: "hi", thread: "th" }],
-  ["chat.fileInfo", ["f 1"], "GET", "/v1/files/f%201/info", undefined],
+  ["chat.threads", [], "GET", "/v1/chat", undefined],
   ["chat.entry", ["th 1", "e/1", "resend", { text: "again" }], "POST", "/v1/chat/th%201/entries/e%2F1/resend", { text: "again" }],
   ["chat.entry", ["th", "e", "save"], "POST", "/v1/chat/th/entries/e/save", {}],
   ["chat.answerCard", ["k 1", { decision: "yes" }], "POST", "/v1/chat/cards/k%201", { decision: "yes" }],
@@ -137,6 +199,21 @@ const table = [
   ["messages.save", [W, C, M], "POST", `${m}/save`, {}],
   ["messages.pin", [W, C, M, false], "POST", `${m}/pin`, { pinned: false }],
   ["messages.remove", [W, C, M], "DELETE", m, undefined],
+  ["dev.runs", [new URLSearchParams({ status: "failed", ids: "a,b" })], "GET", "/v1/dev/runs?status=failed&ids=a%2Cb", undefined],
+  ["dev.runs", [new URLSearchParams()], "GET", "/v1/dev/runs?", undefined],
+  ["dev.run", ["r 1"], "GET", "/v1/dev/runs/r%201", undefined],
+  ["dev.runLog", ["r1", 40, 200], "GET", "/v1/dev/runs/r1/log?after=40&limit=200", undefined],
+  ["dev.experiments", [], "GET", "/v1/dev/experiments", undefined],
+  ["dev.experiment", ["x 1", new URLSearchParams()], "GET", "/v1/dev/experiments/x%201", undefined],
+  ["dev.experiment", ["x1", new URLSearchParams({ k: "3", base: "m" })], "GET", "/v1/dev/experiments/x1?k=3&base=m", undefined],
+  ["dev.metrics", [], "GET", "/v1/dev/metrics", undefined],
+  ["dev.policy", [], "GET", "/v1/dev/policy", undefined],
+  ["dev.toolScreens", [], "GET", "/v1/dev/tool-screens", undefined],
+  ["dev.playbook", [], "GET", "/v1/dev/playbook", undefined],
+  ["dev.computers", [], "GET", "/v1/dev/computers", undefined],
+  ["dev.pauseComputer", ["pc 1"], "POST", "/v1/dev/computers/pc%201/pause", {}],
+  ["dev.startComputer", ["pc"], "POST", "/v1/dev/computers/pc/start", {}],
+  ["dev.egress", ["pc", 7], "GET", "/v1/dev/computers/pc/egress?after=7", undefined],
   ["admin.standing", [], "GET", "/v1/admin/standing", undefined],
   ["admin.stepUp", ["pw", null], "POST", "/v1/admin/step-up", { password: "pw", code: null }],
   ["admin.overview", [], "GET", "/v1/admin/overview", undefined],

@@ -89,9 +89,102 @@ const Server = (() => {
     /** Which kill switches affect the signed-in person. */
     stops: { list: (/** @type {CallOptions} */ opts) => get("/v1/stops", opts) },
 
+    /** Who is signed in. */
+    me: () => get("/v1/me"),
+    /** What this server runs. */
+    version: () => get("/v1/version"),
+    /** Search everything of the person's. */
+    search: (/** @type {string} */ q) => get(`/v1/search?q=${enc(q)}`),
+    /** Read aloud: one sentence's audio. */
+    speak: (/** @type {string} */ text) => post("/v1/speak", { text }),
+    /** The person opened Home: the updates since they last did. */
+    homeOpened: () => post("/v1/home/opened"),
+
     tasks: {
+      get: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}`),
+      timeline: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}/timeline`),
       cancel: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/cancel`),
       resume: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/resume`),
+      /** One of a result's actions, started as a new request. @param {Id} id @param {number|string} index @param {any} [body] */
+      action: (id, index, body) => call("POST", `/v1/tasks/${enc(id)}/actions/${enc(index)}`, body),
+      verdict: (/** @type {Id} */ id, /** @type {string} */ verdict, /** @type {string} */ note) => post(`/v1/tasks/${enc(id)}/verdict`, { verdict, note }),
+    },
+
+    inbox: {
+      /** Say which items the person has now seen. */
+      opened: (/** @type {Id[]} */ ids) => post("/v1/inbox/opened", { ids }),
+      answer: (/** @type {Id} */ id, /** @type {any} */ body) => post(`/v1/inbox/${enc(id)}`, body),
+    },
+
+    /** Apps the agent made, drawn in the conversation, and the elements they may use. */
+    ui: {
+      app: (/** @type {Id} */ id) => get(`/v1/ui/apps/${enc(id)}`),
+      /** A tool call an app asks for. @param {Id} id @param {{tool: string, arguments: any}} body */
+      appRequest: (id, body) => post(`/v1/ui/apps/${enc(id)}/request`, body),
+      catalog: () => get("/v1/ui/catalog"),
+      /** @param {{version: string, elements: string[]}} body */
+      setCatalog: body => put("/v1/ui/catalog", body),
+    },
+
+    files: {
+      /** @param {{q?: string, project?: Id}} [filter] */
+      list: (filter = {}) => get(`/v1/files${query(filter)}`),
+      info: (/** @type {Id} */ id) => get(`/v1/files/${enc(id)}/info`),
+      /** @param {{name: string, media_type: string, data_b64: string, thread?: Id, project?: Id}} body */
+      upload: body => post("/v1/files", body),
+      /** Move a file or a conversation into a project, or out of one. @param {Id} item @param {?Id} project */
+      move: (item, project) => post("/v1/moves", { item, project }),
+    },
+
+    trash: {
+      list: () => get("/v1/trash"),
+      add: (/** @type {Id} */ item) => post("/v1/trash", { item }),
+      restore: (/** @type {Id} */ item) => post(`/v1/trash/${enc(item)}/restore`),
+      remove: (/** @type {Id} */ item) => del(`/v1/trash/${enc(item)}`),
+      empty: () => post("/v1/trash/empty"),
+    },
+
+    projects: {
+      get: (/** @type {Id} */ id) => get(`/v1/projects/${enc(id)}`),
+      /** @param {{name: string, instructions: string}} body */
+      create: body => post("/v1/projects", body),
+      update: (/** @type {Id} */ id, /** @type {any} */ body) => put(`/v1/projects/${enc(id)}`, body),
+    },
+
+    /** The models the person's agent runs on, and their providers' sign-ins. */
+    models: {
+      list: () => get("/v1/models"),
+      choose: (/** @type {string} */ adapter, /** @type {string} */ model) => put("/v1/model", { adapter, model }),
+      signIn: (/** @type {Id} */ adapter) => post(`/v1/adapters/${enc(adapter)}/sign-in`),
+      /** @param {Id} adapter @param {{flow: string, input: any}} body */
+      completeSignIn: (adapter, body) => post(`/v1/adapters/${enc(adapter)}/sign-in/complete`, body),
+      conformance: (/** @type {Id} */ adapter) => post(`/v1/adapters/${enc(adapter)}/conformance`),
+    },
+
+    sessions: {
+      list: () => get("/v1/sessions"),
+      end: (/** @type {Id} */ id) => del(`/v1/sessions/${enc(id)}`),
+    },
+
+    preferences: {
+      get: () => get("/v1/preferences"),
+      set: (/** @type {Record<string, any>} */ changes) => put("/v1/preferences", changes),
+    },
+
+    /** What the agent keeps about the person, and what they asked it to forget. */
+    memory: {
+      deletionRequests: () => get("/v1/deletion-requests"),
+      askToDelete: (/** @type {string} */ what) => post("/v1/deletion-requests", { what }),
+      relationship: () => get("/v1/relationship"),
+      /** @param {{action: "add"|"change"|"remove", note?: Id, text?: string}} body */
+      note: body => post("/v1/relationship", body),
+      disagreements: () => get("/v1/disagreements"),
+      commitments: () => get("/v1/commitments"),
+      updateCommitment: (/** @type {Id} */ id, /** @type {any} */ body) => put(`/v1/commitments/${enc(id)}`, body),
+      removeCommitment: (/** @type {Id} */ id) => del(`/v1/commitments/${enc(id)}`),
+      grants: () => get("/v1/grants"),
+      setGrant: (/** @type {Id} */ id, /** @type {any} */ body) => put(`/v1/grants/${enc(id)}`, body),
+      removeGrant: (/** @type {Id} */ id) => del(`/v1/grants/${enc(id)}`),
     },
 
     schedules: {
@@ -103,8 +196,8 @@ const Server = (() => {
 
     /** The person's own chat with Magnus. */
     chat: {
+      threads: () => get("/v1/chat"),
       send: (/** @type {{text: string, model?: string, files?: Id[], thread?: Id, project?: Id}} */ body) => post("/v1/chat", body),
-      fileInfo: (/** @type {Id} */ file) => get(`/v1/files/${enc(file)}/info`),
       /** One of an entry's actions: resend, branch, share, save, spoken, reaction, task, delete.
        * @param {Id} thread @param {Id} entry @param {string} act @param {any} [body] */
       entry: (thread, entry, act, body = {}) => post(`/v1/chat/${enc(thread)}/entries/${enc(entry)}/${act}`, body),
@@ -125,7 +218,17 @@ const Server = (() => {
       save: (id, body) => id ? put(`/v1/rules/${enc(id)}`, body) : post("/v1/rules", body),
     },
 
+    /** The person's own connections to apps. */
     connectors: {
+      get: (/** @type {string} */ name) => get(`/v1/connectors/${enc(name)}`),
+      /** Whether the app can push to this server, and how. */
+      push: (/** @type {string} */ name) => get(`/v1/connectors/${enc(name)}/push`),
+      setToken: (/** @type {string} */ name, /** @type {string} */ token) => put(`/v1/connectors/${enc(name)}/token`, { token }),
+      removeGenerated: (/** @type {string} */ name) => del(`/v1/connectors/${enc(name)}/generated`),
+      disconnect: (/** @type {string} */ name) => del(`/v1/connectors/${enc(name)}/connection`),
+      signIn: (/** @type {string} */ name, /** @type {string} */ redirect) => post(`/v1/connectors/${enc(name)}/sign-in`, { redirect_uri: redirect }),
+      /** @param {string} name @param {{state: string, code: string, iss?: string}} body */
+      completeSignIn: (name, body) => post(`/v1/connectors/${enc(name)}/sign-in/complete`, body),
       terms: (/** @type {string} */ name) => get(`/v1/connectors/${enc(name)}/terms`),
       consent: (/** @type {string} */ name, /** @type {string} */ terms) => post(`/v1/connectors/${enc(name)}/consent`, { terms }),
     },
@@ -271,6 +374,27 @@ const Server = (() => {
       save: (/** @type {Id} */ w, /** @type {Id} */ c, /** @type {Id} */ m) => post(`${message(w, c, m)}/save`),
       pin: (/** @type {Id} */ w, /** @type {Id} */ c, /** @type {Id} */ m, /** @type {boolean} */ pinned) => post(`${message(w, c, m)}/pin`, { pinned }),
       remove: (/** @type {Id} */ w, /** @type {Id} */ c, /** @type {Id} */ m) => del(message(w, c, m)),
+    },
+
+    /** The developer view (dev.js). */
+    dev: {
+      /** @param {URLSearchParams} filter status, failure, experiment, ids */
+      runs: filter => get(`/v1/dev/runs?${filter}`),
+      run: (/** @type {Id} */ id) => get(`/v1/dev/runs/${enc(id)}`),
+      /** A page of a run's log, after the event numbered `after`. @param {Id} id @param {number} after @param {number} rows */
+      runLog: (id, after, rows) => get(`/v1/dev/runs/${enc(id)}/log?after=${enc(after)}&limit=${enc(rows)}`),
+      experiments: () => get("/v1/dev/experiments"),
+      /** @param {Id} id @param {URLSearchParams} [want] k, base */
+      experiment: (id, want) => get(`/v1/dev/experiments/${enc(id)}${want?.size ? `?${want}` : ""}`),
+      metrics: () => get("/v1/dev/metrics"),
+      policy: () => get("/v1/dev/policy"),
+      toolScreens: () => get("/v1/dev/tool-screens"),
+      playbook: () => get("/v1/dev/playbook"),
+      computers: () => get("/v1/dev/computers"),
+      pauseComputer: (/** @type {Id} */ id) => post(`/v1/dev/computers/${enc(id)}/pause`),
+      startComputer: (/** @type {Id} */ id) => post(`/v1/dev/computers/${enc(id)}/start`),
+      /** @param {Id} id @param {number} after the last row seen */
+      egress: (id, after) => get(`/v1/dev/computers/${enc(id)}/egress?after=${enc(after)}`),
     },
 
     admin: {

@@ -2,8 +2,8 @@
 
 **Choice.** `desktop/ui/server.js` (`Server`) is the page's one client of its server. Each request is a named call grouped by what it acts on: `Server.schedules.remove(id)`, `Server.tasks.cancel(id)`, `Server.admin.standing()`, `Server.workspaces.addTask(ws, body)`. It builds every path, encodes every id and holds the one error policy. It sends through the host's transport, `Magnus.api` in `bridge.js`: the app's Rust side, or the browser's fetch. Checks put an answer table in that place (`desktop/tests/server-harness.mjs`).
 
-- About 208 call sites each spelled out a method, a path, the encoding and a body. The same route was built in several places, and personal-chat.js sent a schedule's id unencoded where app.js encoded it.
-- The error policy was in three places: the app bridge (426), app.js `api()` (402, step-up, "Outcome not confirmed", a view that changed) and admin.js `adminApi` (step-up again). It is now in `Server.call` alone. `api()` in app.js stays as a one-line alias for the calls not yet named, and goes when the last of them moves.
+- About 280 call sites in 30 scripts each spelled out a method, a path, the encoding and a body. The same route was built in several places, and personal-chat.js sent a schedule's id unencoded where app.js encoded it.
+- The error policy was in three places: the app bridge (426), app.js `api()` (402, step-up, "Outcome not confirmed", a view that changed) and admin.js `adminApi` (step-up again). It is now in `Server.call` alone. `api()` and `adminApi()` are gone: every script asks through a named call. `Resources.read` in app.js keeps its path-keyed cache and reads with `Server.call("GET", path)`.
 - `desktop/tests/server-check.mjs` sends every named call through a fake transport and checks its method, path and body. It fails when a named call is missing from its table. It also checks the error policy. The fast tier runs it.
 
 **Behaviour kept, and what changed.**

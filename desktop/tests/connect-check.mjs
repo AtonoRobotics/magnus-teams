@@ -62,7 +62,7 @@ assert.equal((card.match(/data-decision=/g) || []).length, 2, "the card asks mor
 const app = ui("app.js");
 assert.match(app, /case "app_tools":\s*body = appToolsCard\(i\);/, "the inbox does not draw the per-app card");
 assert.match(app, /"app_tools"/, "the per-app card is not a decision");
-assert.match(app, /if \(!again && !await consentToConnect\(name\)\) return;[\s\S]*\/sign-in`/, "connecting signs in without the connect screen");
+assert.match(app, /if \(!again && !await consentToConnect\(name\)\) return;[\s\S]*Server\.connectors\.signIn\(/, "connecting signs in without the connect screen");
 for (const gone of ["tool_review", "tool_change", "Review the tool descriptions", "What the app says it does", "/tools/"]) {
   assert.ok(!app.includes(gone), `app.js still has the per-tool review: ${gone}`);
 }

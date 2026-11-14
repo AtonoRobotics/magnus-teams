@@ -12,7 +12,7 @@
 function personalComposer() {
   return {
     upload: (file, record) => upload([file], record.thread ? { thread: record.thread } : record.project ? { project: record.project } : {}).then(r => r[0]),
-    verify: f => Server.chat.fileInfo(f.id),
+    verify: f => Server.files.info(f.id),
     refresh: () => refresh(),
     send: async ({ text, files, form, record }) => {
       const body = { text, model: chosenModel(form), files: files.map(f => f.id) };

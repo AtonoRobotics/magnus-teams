@@ -2,6 +2,8 @@
 // Every number links to the runs behind it, and every run to its log (V4).
 "use strict";
 
+/** How many of a run's log events one look reads. */
+const DEV_LOG_PAGE_ROWS = 200;
 const SRC_COLORS = ["#2f5bd3", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#4d7c0f", "#0369a1", "#a16207", "#6b7280", "#c2410c"];
 const FAILURE = {
   grader_disagrees: "grader disagrees", verification: "contract check failed", boundary: "denied at the boundary", provider: "model provider",
@@ -42,7 +44,7 @@ route(/^#\/dev\/runs(?:\?(.*))?$/, async (main, q) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(filter)) if (v) qs.set(k, v);
     if (d?.runs) qs.set("ids", d.runs.join(","));
-    const { runs } = await api("GET", `/v1/dev/runs?${qs}`);
+    const { runs } = await Server.dev.runs(qs);
     paint(main, `<h1>Runs</h1>
       ${d ? `<div class="banner">Showing the ${d.runs.length} runs behind <strong>${esc(d.title)}</strong>. <a href="#/dev/runs">All runs</a></div>` : ""}
       <div class="row" style="margin:12px 0">
@@ -80,7 +82,7 @@ function decisionChips(ds) {
 route(/^#\/dev\/run\/([^/]+)$/, async (main, id) => {
   if (devOnly(main)) return;
   const draw = async () => {
-    const r = await api("GET", `/v1/dev/runs/${enc(id)}`);
+    const r = await Server.dev.run(id);
     const s = r.run;
     const byStep = {};
     for (const a of r.actions) { const st = String(a.step_id || "").match(/^s(\d+)\./)?.[1]; (byStep[st ?? "-"] ||= []).push(a); }
@@ -119,7 +121,7 @@ route(/^#\/dev\/run\/([^/]+)\/log$/, async (main, id) => {
   let rows = [], total = 0;
   const more = async () => {
     const after = rows.length ? rows[rows.length - 1].seq : 0;
-    const r = await api("GET", `/v1/dev/runs/${enc(id)}/log?after=${after}&limit=200`);
+    const r = await Server.dev.runLog(id, after, DEV_LOG_PAGE_ROWS);
     rows = rows.concat(r.events); total = r.total;
     paint(main, `<p class="small"><a href="#/dev/run/${enc(id)}">Run</a></p><h1>Log</h1><p class="muted">${rows.length} of ${total} events, in order. Large attachments are shortened here; the log keeps them.</p>
       <table class="t"><thead><tr><th class="n">Seq</th><th>Time</th><th>Kind</th><th>Actor</th><th>Body</th></tr></thead><tbody>
@@ -135,7 +137,7 @@ route(/^#\/dev\/run\/([^/]+)\/log$/, async (main, id) => {
 route(/^#\/dev\/experiments$/, async main => {
   if (devOnly(main)) return;
   const draw = async () => {
-    const { experiments } = await api("GET", "/v1/dev/experiments");
+    const { experiments } = await Server.dev.experiments();
     paint(main, `<h1>Experiments</h1><p class="muted">Configurations compared across repeated trials, task by task. Trials come from the evaluation runner.</p>
       ${experiments.length ? `<table class="t"><thead><tr><th>Experiment</th><th class="n">Cases</th><th class="n">Trials</th><th class="n">Settled</th><th>Configurations</th><th class="n">Started</th></tr></thead><tbody>
       ${experiments.map(x => `<tr class="click" data-href="#/dev/experiment/${enc(x.id)}"><td class="mono">${esc(x.id)}</td><td class="n">${x.cases}</td><td class="n">${x.trials}</td><td class="n">${x.settled}</td><td class="small mono">${x.configs.map(esc).join("<br>")}</td><td class="n small faint">${esc(when(x.started))}</td></tr>`).join("")}</tbody></table>` : `<p class="empty">No experiments yet. Run <span class="mono">python3 eval/plain/run.py</span>.</p>`}`);
@@ -223,9 +225,9 @@ route(/^#\/dev\/experiment\/([^/?]+)(?:\?(.*))?$/, async (main, id, query) => {
     const want = new URLSearchParams();
     if (k) want.set("k", k);
     if (base) want.set("base", base);
-    const x = await api("GET", `/v1/dev/experiments/${enc(id)}${want.size ? `?${want}` : ""}`);
+    const x = await Server.dev.experiment(id, want);
     if (x.requests?.length) {
-      const { experiments } = x.compare ? await api("GET", "/v1/dev/experiments") : { experiments: [] };
+      const { experiments } = x.compare ? await Server.dev.experiments() : { experiments: [] };
       paint(main, `<p class="small"><a href="#/dev/experiments">Experiments</a></p><h1 class="mono">${esc(x.id)}</h1>
         <p class="muted">${x.cases.length} requests, each sent as a chat message to every model. Give each answer a verdict: right, partly or wrong.</p>${comparison(x, experiments)}${requestSet(x)}`);
       return;
@@ -259,7 +261,7 @@ route(/^#\/dev\/experiment\/([^/?]+)(?:\?(.*))?$/, async (main, id, query) => {
 route(/^#\/dev\/system$/, async main => {
   if (devOnly(main)) return;
   const draw = async () => {
-    const m = await api("GET", "/v1/dev/metrics");
+    const m = await Server.dev.metrics();
     const value = p => p.unavailable ? `<div class="small muted">${esc(p.unavailable)}</div>` : `<div class="v">${p.runs?.length ? drillLink(p.title, p.runs, n4(p.value)) : n4(p.value)}</div><div class="u">${esc(p.unit)}</div>`;
     paint(main, `<h1>System</h1><p class="muted">Live, from the log. ${m.runs} runs. Click a number to see the runs behind it.</p>
       <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(270px,1fr))">${m.panels.map(p => `<div class="card panel" data-panel="${esc(p.id)}"><div class="small muted" style="font-weight:600">${esc(p.title)}</div>${value(p)}
@@ -285,8 +287,8 @@ route(/^#\/dev\/policy$/, async main => {
   if (devOnly(main)) return;
   const picked = {};
   const draw = async () => {
-    const p = await api("GET", "/v1/dev/policy");
-    const ts = await api("GET", "/v1/dev/tool-screens").catch(() => ({ screens: [], held: [] }));
+    const p = await Server.dev.policy();
+    const ts = await Server.dev.toolScreens().catch(() => ({ screens: [], held: [] }));
     paint(main, `<h1>Policy</h1><p class="muted">Each layer's versions, who owns it, and what the agent has proposed. Only the owner of a layer can accept a proposal for it.</p>
       <h2>Proposals</h2>${p.proposals.length ? p.proposals.map(x => `<div class="card"><div class="spread"><span><span class="mono">${esc(x.layer)}</span> · ${x.status === "waiting" ? `<span class="chip warn">waiting for ${esc(x.waiting_for.join(", ") || "nobody holds this role")}</span>` : `<span class="chip">${esc(x.decision?.decision)} by ${esc(x.decision?.by)}</span>`}</span>
         <span class="small faint">${x.run ? `<a href="#/dev/run/${enc(x.run)}">from run</a> · ` : ""}${esc(when(x.created_at))}</span></div>
@@ -313,7 +315,7 @@ route(/^#\/dev\/policy$/, async main => {
 route(/^#\/dev\/playbook$/, async main => {
   if (devOnly(main)) return;
   const draw = async () => {
-    const p = await api("GET", "/v1/dev/playbook");
+    const p = await Server.dev.playbook();
     const items = p.items.slice().sort((a, b) => (b.added_at || "").localeCompare(a.added_at || ""));
     paint(main, `<h1>Playbook</h1><p class="muted">What the agent wrote down for itself, per person. Version ${p.version}. An item learned while reading untrusted content carries that label into every run that gets it.</p>
       ${items.length ? `<table class="t"><thead><tr><th>Item</th><th>Label</th><th class="n">Completed with it</th><th class="n">Completed before it</th></tr></thead><tbody>
@@ -353,10 +355,10 @@ function onComputerControls(main, redraw) {
       b.disabled = true;
       try {
         if (b.dataset.act === "dev-pause") {
-          const r = await api("POST", `/v1/dev/computers/${enc(b.dataset.id)}/pause`, {});
+          const r = await Server.dev.pauseComputer(b.dataset.id);
           toast(`Paused. ${r.revoked} access${r.revoked === 1 ? "" : "es"} taken back.`);
         } else {
-          await api("POST", `/v1/dev/computers/${enc(b.dataset.id)}/start`, {});
+          await Server.dev.startComputer(b.dataset.id);
           toast("Started.");
         }
       } catch (err) { toast(err.message || String(err)); }
@@ -372,7 +374,7 @@ route(/^#\/dev\/computers$/, async main => {
   if (devOnly(main)) return;
   const draw = async () => {
     /** @type {{ computers: DevComputer[] }} */
-    const { computers } = await api("GET", "/v1/dev/computers");
+    const { computers } = await Server.dev.computers();
     paint(main, `<h1>Computers</h1><p class="muted">Every agent computer on this server. Open one to watch what it reaches through the egress proxy as it happens. The screen and files open only in a session the user grants.</p>
       ${computers.length ? `<table class="t"><thead><tr><th>Computer</th><th>Belongs to</th><th>Status</th><th>Allowed destinations</th><th></th></tr></thead><tbody>
       ${computers.map(c => `<tr class="click" data-href="#/dev/computer/${enc(c.id)}"><td class="mono small">${esc(c.id)}</td><td>${ownerName(c.owner)}</td><td>${esc(c.status)}${c.controller ? ` <span class="chip warn">${esc(c.controller)} has control</span>` : ""}</td>
@@ -392,7 +394,7 @@ route(/^#\/dev\/computer\/([^/]+)$/, async (main, id) => {
   const draw = async () => {
     const after = rows.length ? rows[rows.length - 1].id : 0;
     /** @type {{ status: string, egress: EgressRow[] }} */
-    const r = await api("GET", `/v1/dev/computers/${enc(id)}/egress?after=${after}`);
+    const r = await Server.dev.egress(id, after);
     rows = rows.concat(r.egress).slice(-EGRESS_KEPT_ROWS);
     status = r.status;
     const count = v => rows.filter(x => x.verdict === v).length;

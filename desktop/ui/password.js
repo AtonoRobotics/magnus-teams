@@ -1,6 +1,6 @@
 // A person's own password: changing it in Settings → Account, and the
 // "Forgot password?" step of signing in. Uses app.js's helpers ($, esc,
-// paint, api, toast) and the bridge's forgotPassword.
+// paint, toast), Server (server.js) and the bridge's forgotPassword.
 "use strict";
 
 /**
