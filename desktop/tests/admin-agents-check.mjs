@@ -59,6 +59,7 @@ function harness() {
   };
   ctx.Magnus = { api: ctx.api };
   vm.createContext(ctx);
+  vm.runInContext(read("server.js"), ctx);
   vm.runInContext(admin, ctx);
   vm.runInContext(agents, ctx);
   vm.runInContext("stepUp = async () => true", ctx);

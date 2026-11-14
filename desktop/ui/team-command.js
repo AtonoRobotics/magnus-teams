@@ -136,7 +136,7 @@ const TeamCommand = {
     if (!q.trim()) return;
     this.timer = setTimeout(async () => {
       try {
-        const found = await api("GET", `/v1/workspaces/${enc(Team.ws)}/search?q=${enc(q)}`);
+        const found = await Server.workspaces.search(Team.ws, q);
         if (this.dialog && $("input", this.dialog).value === q) { this.found = found; this.draw(); }
       } catch { /* the typed commands still work */ }
     }, TEAM_SEARCH_DEBOUNCE_MS);
@@ -149,35 +149,35 @@ const TeamCommand = {
       if (r.kind === "go") location.hash = teamHref(ws, r.place);
       if (r.kind === "hash") location.hash = r.hash;
       if (r.kind === "start") {
-        const made = await api("POST", `${base}/start`, { kind: r.what, name: r.name });
+        const made = await Server.workspaces.start(ws, { kind: r.what, name: r.name });
         await loadHome(ws);
         if (made.project) { Team.justMade = made.project; location.hash = teamHref(ws, { kind: "project", id: made.project }); }
         else location.hash = teamHref(ws, { kind: "channel", id: made.channel });
       }
       if (r.kind === "dm") {
-        const c = await api("POST", `${base}/direct`, r.agent ? { agent: true } : { people: [r.person] });
+        const c = await Server.workspaces.direct(ws, r.agent ? { agent: true } : { people: [r.person] });
         await loadHome(ws);
         location.hash = teamHref(ws, { kind: "channel", id: c.id });
       }
       if (r.kind === "ask") {
         const here = place.kind === "channel" && Team.home.channels.find(c => c.id === place.id);
         if (here) { await TeamChat.send(here.direct?.agent ? r.text : `@${Team.home.agent.name} ${r.text}`, place.thread || null, false, []); return; }
-        const c = await api("POST", `${base}/direct`, { agent: true });
-        await api("POST", `${base}/channels/${enc(c.id)}/messages`, { text: r.text });
+        const c = await Server.workspaces.direct(ws, { agent: true });
+        await Server.channels.post(ws, c.id, { text: r.text });
         await loadHome(ws);
         location.hash = teamHref(ws, { kind: "channel", id: c.id });
       }
-      if (r.kind === "task") { await api("POST", `${base}/tasks`, { title: r.title, project: r.project || undefined }); toast("Added to the board."); TeamPanel.refresh(); }
-      if (r.kind === "invite") { const x = await api("POST", `${base}/invites`, { email: r.email }); toast(inviteOutcome(r.email, x), 8000); }
+      if (r.kind === "task") { await Server.workspaces.addTask(ws, { title: r.title, project: r.project || undefined }); toast("Added to the board."); TeamPanel.refresh(); }
+      if (r.kind === "invite") { const x = await Server.workspaces.invite(ws, r.email); toast(inviteOutcome(r.email, x), 8000); }
       if (r.kind === "set" && place.kind === "channel") {
-        await api("POST", `${base}/channels/${enc(place.id)}/${r.what}`, r.body);
+        await Server.channels.act(ws, place.id, r.what, r.body);
         await loadHome(ws);
         TeamChat.draw();
         toast("Done.");
       }
       if (r.kind === "download") await Magnus.download(`${base}/files/${enc(r.name)}`, r.name);
       if (r.kind === "limit") {
-        await api("POST", `${base}/limit`, { usd: r.usd, channel: r.channel || undefined });
+        await Server.workspaces.setLimit(ws, { usd: r.usd, channel: r.channel || undefined });
         await loadHome(ws);
         await refreshCenter($("#main"), ws);
         toast(r.usd == null ? "Limit lifted." : `Limited to ${teamUsd(r.usd)} a month.`);
@@ -187,7 +187,7 @@ const TeamCommand = {
 
   /** The full search, in the centre. */
   async results(center, ws, q) {
-    const found = q.trim() ? await api("GET", `/v1/workspaces/${enc(ws)}/search?q=${enc(q)}`) : {};
+    const found = q.trim() ? await Server.workspaces.search(ws, q) : {};
     const items = foundItems(found, Team.home);
     paint(center, `<header class="team-head"><h1>Search</h1></header><form class="team-search-form" data-search><input value="${esc(q)}" aria-label="Search messages, files, tasks and knowledge" placeholder="Search messages, files, tasks and knowledge"><button class="primary">Search</button></form>
       <div class="team-scroll">${items.length ? `<ul class="team-activity-list">${items.map((it, i) => `<li><button class="link" data-found="${i}"><strong>${esc(it.label)}</strong></button> <span class="small faint">${esc(it.hint || "")}</span></li>`).join("")}</ul>` : `<p class="empty">${q ? "Nothing found." : "Type what to look for."}</p>`}</div>`);

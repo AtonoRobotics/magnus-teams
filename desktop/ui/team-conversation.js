@@ -21,7 +21,6 @@ function teamReader(s, thread) {
  * @param {any} s @param {?string} thread @returns {ComposerConversation}
  */
 function teamComposer(s, thread) {
-  const base = () => `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`;
   return {
     upload: async file => {
       const c = Team.home.channels.find(x => x.id === s.channel);
@@ -31,11 +30,11 @@ function teamComposer(s, thread) {
     },
     send: async ({ text, files, form }) => {
       if ($("[data-whisper]", form)?.checked) {
-        await api("POST", `${base()}/messages`, { text, thread: thread || undefined, whisper: true, model: chosenModel(form) });
+        await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined, whisper: true, model: chosenModel(form) });
         return async () => { toast("Your Magnus is on it. Only you will see its answer."); await TeamChat.refresh(); };
       }
       const full = [text, ...files.map(f => `📎 ${f.name}`)].join("\n");
-      const r = await api("POST", `${base()}/messages`, { text: full, thread: thread || undefined, model: Team.home.role === "guest" ? undefined : chosenModel(form) });
+      const r = await Server.channels.post(s.ws, s.channel, { text: full, thread: thread || undefined, model: Team.home.role === "guest" ? undefined : chosenModel(form) });
       return async () => {
         if (r.agent) toast(`${Team.home.agent.name} is on it.`);
         if (r.limited) toast(r.limited, 8000);
@@ -44,7 +43,7 @@ function teamComposer(s, thread) {
     },
     refresh: () => TeamChat.refresh(),
     mentions: partial => mentionChoices(Team.home, partial),
-    typed: () => { if (Date.now() - s.typedAt > TEAM_TYPING_PING_MS) { s.typedAt = Date.now(); api("POST", `${base()}/typing`, {}).catch(() => {}); } },
+    typed: () => { if (Date.now() - s.typedAt > TEAM_TYPING_PING_MS) { s.typedAt = Date.now(); Server.channels.typing(s.ws, s.channel).catch(() => {}); } },
     keep: text => TeamDrafts.set(s.ws, s.channel, thread, text),
   };
 }
@@ -77,7 +76,7 @@ function teamExtras(e, r, count) {
  * @param {any} s TeamChat's state @param {?string} thread @returns {ChatConversation}
  */
 function teamConversation(s, thread) {
-  const r = teamReader(s, thread), base = () => `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`;
+  const r = teamReader(s, thread);
   const channel = () => Team.home.channels.find(x => x.id === s.channel);
   const replies = () => s.view.messages.filter(m => m.thread === thread);
   return {
@@ -143,12 +142,12 @@ function teamActions(s, r, e, view, b, el) {
       const typed = $(`#edit-${CSS.escape(id)}`, view.section).value.trim();
       if (!typed) return toast("Write the message first.");
       b.disabled = true;
-      await api("PUT", at, { text: [typed, ...(e.files || []).map(f => `📎 ${f.name}`)].join("\n") });
+      await Server.messages.edit(s.ws, s.channel, id, [typed, ...(e.files || []).map(f => `📎 ${f.name}`)].join("\n"));
       ui.editing = null; delete drafts[`edit-${id}`]; await TeamChat.refresh();
     },
     retry: async () => {
       b.disabled = true;
-      const x = await api("POST", `${at}/retry`, {});
+      const x = await Server.messages.retry(s.ws, s.channel, id);
       if (x.agent) toast(`${home.agent.name} is on it.`);
       if (x.limited) toast(x.limited, 8000);
       await TeamChat.refresh();
@@ -160,21 +159,21 @@ function teamActions(s, r, e, view, b, el) {
       const to = $("[data-share-to]", el)?.value;
       if (!to) return;
       b.disabled = true;
-      await api("POST", `${at}/share`, { person: to });
+      await Server.messages.share(s.ws, s.channel, id, to);
       ui.sharing = null; toast(`Shared with ${home.members.find(x => x.id === to)?.name || to}.`); return view.draw();
     },
     export: async () => toast(`Saved ${await Magnus.download(`${at}/export`, `${teamFileStem(who, e.at)}.md`)}`),
-    save: async () => { await api("POST", `${at}/save`, {}); toast("Saved to Files."); },
+    save: async () => { await Server.messages.save(s.ws, s.channel, id); toast("Saved to Files."); },
     task: async () => {
       const c = home.channels.find(x => x.id === s.channel);
-      await api("POST", `/v1/workspaces/${enc(s.ws)}/tasks`, { title: firstLine(text).slice(0, 200), project: c?.project || undefined, from: { channel: s.channel, message: id } });
+      await Server.workspaces.addTask(s.ws, { title: firstLine(text).slice(0, 200), project: c?.project || undefined, from: { channel: s.channel, message: id } });
       toast("Added to the board."); TeamPanel.refresh();
     },
-    pin: async () => { await api("POST", `${at}/pin`, { pinned: !e.pinned }); await TeamChat.refresh(); },
+    pin: async () => { await Server.messages.pin(s.ws, s.channel, id, !e.pinned); await TeamChat.refresh(); },
     feedback: () => ({ task: e.task_id, verdict: null, focus: () => $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, view.section) }),
     delete: async () => {
       if (!await ask("Delete this message for everyone? It cannot be brought back.", "Delete")) return;
-      await api("DELETE", at); await TeamChat.refresh();
+      await Server.messages.remove(s.ws, s.channel, id); await TeamChat.refresh();
     },
   };
 }
@@ -185,8 +184,8 @@ async function teamClick(s, ev, view) {
   const run = async f => { try { await f(); } catch (err) { toast(err.message); } };
   if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; return run(() => TeamChat.send(`@${home.agent.name} catch me up on what I missed here`, null)); }
   if (t.closest("[data-team-download]")) { const n = t.closest("[data-team-download]").dataset.teamDownload; return run(() => Magnus.download(`${base}/files/${enc(n)}`, n)); }
-  if (t.closest("[data-share-answer]")) return run(async () => { await api("POST", `${base}/answers/${enc(t.closest("[data-share-answer]").dataset.shareAnswer)}/share`, {}); await TeamChat.refresh(); });
-  if (t.closest("[data-share]")) return run(async () => { await api("POST", `${base}/whispers/${enc(t.closest("[data-share]").dataset.share)}/share`, {}); await TeamChat.refresh(); });
+  if (t.closest("[data-share-answer]")) return run(async () => { await Server.workspaces.shareAnswer(s.ws, t.closest("[data-share-answer]").dataset.shareAnswer); await TeamChat.refresh(); });
+  if (t.closest("[data-share]")) return run(async () => { await Server.workspaces.shareWhisper(s.ws, t.closest("[data-share]").dataset.share); await TeamChat.refresh(); });
   if (t.closest("[data-not-now]")) { s.hidden.add(t.closest("[data-not-now]").dataset.notNow); return view.draw(); }
   if (t.closest("[data-open-thread]")) { ev.preventDefault(); location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: t.closest("[data-open-thread]").dataset.openThread }); return; }
   const msg = t.closest("[data-entry]")?.dataset.entry, e = view.entries.find(x => x.id === msg);
@@ -195,6 +194,6 @@ async function teamClick(s, ev, view) {
   const r = t.closest("[data-react]");
   if (r) {
     const emoji = r.dataset.react, on = !(e.reactions?.[emoji] || []).includes(home.me);
-    return run(async () => { await api("POST", `${base}/channels/${enc(s.channel)}/messages/${enc(msg)}/react`, { emoji, on }); await TeamChat.refresh(); });
+    return run(async () => { await Server.channels.react(s.ws, s.channel, msg, emoji, on); await TeamChat.refresh(); });
   }
 }

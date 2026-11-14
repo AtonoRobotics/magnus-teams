@@ -119,7 +119,7 @@ const TeamPanel = {
   s: null,
 
   async load(ws, project) {
-    return api("GET", `/v1/workspaces/${enc(ws)}/panel${project ? `?project=${enc(project)}` : ""}`);
+    return Server.workspaces.panel(ws, project);
   },
 
   /** The right panel beside a channel: its project's, or the workspace's. */
@@ -135,7 +135,7 @@ const TeamPanel = {
   /** One look at the team computer's screen, each time the panel refreshes. */
   async look(el, id) {
     if (!id) return;
-    const c = await api("GET", `/v1/computers/${enc(id)}`).catch(() => null);
+    const c = await Server.computers.get(id).catch(() => null);
     if (c && typeof screenCaption === "function") {
       TeamScreenCaptions[id] = screenCaption(c, null);
       const cap = $(`[data-team-screen-caption="${id}"]`, el);
@@ -143,7 +143,7 @@ const TeamPanel = {
       if (c.status !== "running") return;
     }
     try {
-      const { image_b64 } = await api("GET", `/v1/computers/${enc(id)}/screen`);
+      const { image_b64 } = await Server.computers.screen(id);
       TeamScreens[id] = `data:image/png;base64,${image_b64}`;
       const img = $(`[data-team-screen="${id}"]`, el);
       if (img) img.src = TeamScreens[id];
@@ -205,8 +205,8 @@ const TeamPanel = {
   },
 
   async knowledge() {
-    const s = this.s, base = `/v1/workspaces/${enc(s.ws)}/knowledge`;
-    const entries = s.entries = await api("GET", `${base}?project=${enc(s.id)}`).catch(() => []);
+    const s = this.s;
+    const entries = s.entries = await Server.workspaces.knowledge(s.ws, s.id).catch(() => []);
     const el = $("#tp-knowledge", s.center);
     if (!el) return;
     const curator = s.data.project && (s.data.project.owner === Team.home.me || (s.data.project.curators || []).includes(Team.home.me));
@@ -224,7 +224,7 @@ const TeamPanel = {
     t.status = status;
     if (s.data.progress) s.data.progress.done += (status === "done") - (was === "done");
     this.draw();
-    try { await api("PUT", `/v1/workspaces/${enc(s.ws)}/tasks/${enc(id)}`, { status }); } catch (err) { toast(err.message); await this.refresh(); }
+    try { await Server.workspaces.updateTask(s.ws, id, { status }); } catch (err) { toast(err.message); await this.refresh(); }
   },
 
   async change(e) {
@@ -250,44 +250,44 @@ const TeamPanel = {
       s.data.tasks.push(tmp); if (s.data.progress) s.data.progress.total++;
       this.draw();
       $(`[data-new-task="${status}"] input`, s.center)?.focus();
-      try { const r = await api("POST", `/v1/workspaces/${enc(s.ws)}/tasks`, { title, project: s.id, status }); tmp.id = r.id; } catch (err) { toast(err.message); await this.refresh(); }
+      try { const r = await Server.workspaces.addTask(s.ws, { title, project: s.id, status }); tmp.id = r.id; } catch (err) { toast(err.message); await this.refresh(); }
     }
     if (f.matches("[data-new-entry]")) {
       e.preventDefault();
       const statement = $("textarea", f).value.trim();
       if (!statement) return;
-      try { await api("POST", `/v1/workspaces/${enc(s.ws)}/knowledge`, { statement, kind: $("select", f)?.value || undefined, project: s.id }); this.knowledge(); } catch (err) { toast(err.message); }
+      try { await Server.workspaces.addKnowledge(s.ws, { statement, kind: $("select", f)?.value || undefined, project: s.id }); this.knowledge(); } catch (err) { toast(err.message); }
     }
     if (f.matches("[data-entry-fix]")) {
       e.preventDefault();
       const statement = $("input", f).value.trim(), id = f.closest("[data-entry]").dataset.entry;
       if (!statement) return;
-      try { await api("POST", `/v1/workspaces/${enc(s.ws)}/knowledge/${enc(id)}/correct`, { statement }); toast("Corrected."); } catch (err) { toast(err.message); }
+      try { await Server.workspaces.correctKnowledge(s.ws, id, statement); toast("Corrected."); } catch (err) { toast(err.message); }
       this.knowledge();
     }
     if (f.matches("[data-project-add]")) {
       e.preventDefault();
       const members = [...s.data.project.members, $("select", f).value];
-      try { await api("PUT", `/v1/workspaces/${enc(s.ws)}/projects/${enc(s.id)}`, { members }); await loadHome(s.ws); await this.refresh(); } catch (err) { toast(err.message); }
+      try { await Server.workspaces.setProjectMembers(s.ws, s.id, members); await loadHome(s.ws); await this.refresh(); } catch (err) { toast(err.message); }
     }
   },
 
   async click(e) {
     const s = this.s, t = e.target;
     const file = t.closest("[data-team-file]")?.dataset.teamFile, at = file && `/v1/workspaces/${enc(s.ws)}/files/${enc(file)}`;
-    const entry = t.closest("[data-entry]")?.dataset.entry, kat = entry && `/v1/workspaces/${enc(s.ws)}/knowledge/${enc(entry)}`;
+    const entry = t.closest("[data-entry]")?.dataset.entry;
     if (t.closest("[data-dismiss-made]")) { Team.justMade = null; this.draw(); return; }
     try {
       if (t.closest("[data-task-remove]")) {
         const id = t.closest("[data-task]").dataset.task;
         s.data.tasks = s.data.tasks.filter(x => x.id !== id); this.draw();
-        await api("DELETE", `/v1/workspaces/${enc(s.ws)}/tasks/${enc(id)}`);
+        await Server.workspaces.removeTask(s.ws, id);
       }
       if (t.closest("[data-file-save]")) await Magnus.download(at, file);
-      if (t.closest("[data-file-delete]") && await ask(`Delete ${file}?`, "Delete")) { await api("DELETE", at); await this.refresh(); }
+      if (t.closest("[data-file-delete]") && await ask(`Delete ${file}?`, "Delete")) { await Server.workspaces.removeFile(s.ws, file); await this.refresh(); }
       if (t.closest("[data-entry-flag]")) {
         const why = prompt("What is wrong with it?");
-        if (why) { await api("POST", `${kat}/flag`, { why }); toast("Flagged."); this.knowledge(); }
+        if (why) { await Server.workspaces.flagKnowledge(s.ws, entry, why); toast("Flagged."); this.knowledge(); }
       }
       if (t.closest("[data-entry-correct]")) {
         const li = t.closest("[data-entry]"), was = s.entries?.find(x => x.id === entry)?.statement || "";
@@ -295,10 +295,10 @@ const TeamPanel = {
         $("[data-entry-fix] input", li)?.focus();
       }
       if (t.closest("[data-kb-export]")) await Magnus.download(`/v1/workspaces/${enc(s.ws)}/knowledge/export`, "knowledge.json");
-      if (t.closest("[data-entry-retire]") && await ask("Retire this entry?", "Retire")) { await api("POST", `${kat}/retire`, {}); this.knowledge(); }
+      if (t.closest("[data-entry-retire]") && await ask("Retire this entry?", "Retire")) { await Server.workspaces.retireKnowledge(s.ws, entry); this.knowledge(); }
       if (t.closest("[data-project-drop]")) {
         const members = s.data.project.members.filter(m => m !== t.closest("[data-project-drop]").dataset.projectDrop);
-        await api("PUT", `/v1/workspaces/${enc(s.ws)}/projects/${enc(s.id)}`, { members }); await this.refresh();
+        await Server.workspaces.setProjectMembers(s.ws, s.id, members); await this.refresh();
       }
     } catch (err) { toast(err.message); await this.refresh(); }
   },

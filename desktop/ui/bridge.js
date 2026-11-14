@@ -44,9 +44,9 @@ const appBridge = tauri && {
   async signOut() { return this.invoke("sign_out"); },
   // Ask for a recovery email; the answer is the same whoever holds the address.
   async forgotPassword(email) { return this.invoke("forgot_password", { email }); },
+  // A transport only: every status comes back as it is; server.js holds the error policy.
   async api(method, path, body) {
     const r = await this.invoke("api", { method, path, body: body === undefined ? null : body });
-    if (r.status === 426) window.dispatchEvent(new CustomEvent("magnus-update-required", { detail: r.body }));
     if (r.status >= 400) throw errorOf(r.status, r.body);
     return r.body;
   },

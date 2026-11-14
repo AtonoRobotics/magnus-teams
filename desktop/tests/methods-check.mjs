@@ -18,7 +18,7 @@ for (const m of sent) assert.ok(rust.includes(`"${m}" => Ok(reqwest::Method::${m
 /** Each method a script names as the first argument of a request. */
 const used = new Map();
 for (const file of readdirSync(ui).filter(f => f.endsWith(".js"))) {
-  for (const m of readFileSync(join(ui, file), "utf8").matchAll(/\b(?:api|adminApi|call|request)\(\s*["'`]([A-Za-z]+)["'`]/g)) {
+  for (const m of readFileSync(join(ui, file), "utf8").matchAll(/\b(?:api|call)\(\s*["'`]([A-Za-z]+)["'`]/g)) {
     used.set(m[1], [...(used.get(m[1]) || []), file]);
   }
 }

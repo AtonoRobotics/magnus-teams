@@ -13,7 +13,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
-const page = read("index.html"), app = read("app.js"), admin = read("admin.js");
+const page = read("index.html"), app = read("app.js"), admin = read("admin.js"), server = read("server.js");
 const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8");
 
 // Wiring.
@@ -25,7 +25,8 @@ assert.match(app, /\n  shell\(\);\n  adminStart\(\);\n/, "signing in asks whethe
 assert.match(app, /\n  adminStop\(\);\n/, "signing out forgets it");
 assert.ok(!/The kill switch is on\./.test(app), "the conversation no longer has a banner of its own that names no one");
 assert.match(fast, /node desktop\/tests\/admin-check\.mjs/, "the fast tier runs this check");
-assert.match(admin, /api\("POST", "\/v1\/admin\/step-up", \{ password: f\.password, code: f\.code \|\| null \}\)/, "the sheet confirms the password with the server");
+assert.match(admin, /Server\.admin\.stepUp\(f\.password, f\.code \|\| null\)/, "the sheet confirms the password with the server");
+assert.match(server, /stepUp: \([^)]*\) => post\("\/v1\/admin\/step-up", \{ password, code \}\)/, "the step-up goes to its route");
 assert.match(admin, /error === "code_needed"\) \{ \$\("\[data-step-up-code\]", d\)\.hidden = false;/, "the sheet asks for the code when the server needs it");
 
 // Behaviour, with the page's helpers stubbed.
@@ -66,6 +67,7 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
   };
   ctx.Magnus = { api: ctx.api };
   vm.createContext(ctx);
+  vm.runInContext(server, ctx);
   vm.runInContext(admin, ctx);
   vm.runInContext("stepUp = async () => { globalThis.stepUps++; return globalThis.stepUpAnswer; }", ctx);
   return ctx;
@@ -124,26 +126,28 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
   assert.match(main.html, /for the server's owner and admins/, "a member typing the address gets no Admin view");
 }
 
-// adminApi: a change refused for a step-up asks and is sent again.
+// An admin change refused for a step-up asks and is sent again (server.js).
 {
   const a = harness({ fail: { "PUT /v1/admin/x": [{ status: 403, error: "step_up" }] } });
-  const r = await vm.runInContext('adminApi("PUT", "/v1/admin/x", { y: 1 })', a);
+  const r = await vm.runInContext('Server.call("PUT", "/v1/admin/x", { y: 1 })', a);
   assert.deepEqual(r, { ok: true });
   assert.equal(a.stepUps, 1, "the step-up sheet did not open");
   assert.equal(a.calls.filter(c => c[1] === "/v1/admin/x").length, 2, "the change was not sent again");
   const cancelled = harness({ fail: { "PUT /v1/admin/x": [{ status: 403, error: "step_up" }] } });
   cancelled.stepUpAnswer = false;
-  await assert.rejects(vm.runInContext('adminApi("PUT", "/v1/admin/x", {})', cancelled), e => e.cancelled === true);
+  await assert.rejects(vm.runInContext('Server.call("PUT", "/v1/admin/x", {})', cancelled), e => e.cancelled === true);
   assert.equal(cancelled.calls.filter(c => c[1] === "/v1/admin/x").length, 1, "a cancelled step-up sent the change anyway");
   const other = harness({ fail: { "PUT /v1/admin/x": [{ status: 403, error: "this needs an owner or admin" }] } });
-  await assert.rejects(vm.runInContext('adminApi("PUT", "/v1/admin/x", {})', other), /owner or admin/);
+  await assert.rejects(vm.runInContext('Server.call("PUT", "/v1/admin/x", {})', other), /owner or admin/);
   assert.equal(other.stepUps, 0, "a plain refusal asked for the password");
 }
 
 // The kill switch: pressing asks nothing; releasing steps up.
 {
-  assert.equal(vm.runInContext('killPath("server", null, "press")', harness()), "/v1/admin/kill-switch/press");
-  assert.equal(vm.runInContext('killPath("person", "ada", "release")', harness()), "/v1/admin/kill-switch/person/ada/release");
+  const paths = harness();
+  await vm.runInContext('Server.admin.press("server", null)', paths);
+  await vm.runInContext('Server.admin.release("person", "ada")', paths);
+  assert.deepEqual(paths.calls.map(c => c[1]), ["/v1/admin/kill-switch/press", "/v1/admin/kill-switch/person/ada/release"]);
   const a = harness({ fail: { "POST /v1/admin/kill-switch/release": [{ status: 403, error: "step_up" }] } });
   const click = sel => ({ target: { closest: s => (s === sel ? { dataset: { killPress: "server", killRelease: "server", killTarget: "" } } : null) } });
   await vm.runInContext("onKillClick", a)(click("[data-kill-press]"));

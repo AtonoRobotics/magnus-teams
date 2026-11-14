@@ -45,8 +45,8 @@ function teamPeopleHtml(home, candidates) {
 
 /** Members, their roles and invites, for whoever may change them. */
 async function teamPeople(center, side, ws) {
-  const home = Team.home, base = `/v1/workspaces/${enc(ws)}`, admin = isTeamAdmin(home);
-  const candidates = admin ? await api("GET", `${base}/people`).catch(() => []) : [];
+  const home = Team.home, admin = isTeamAdmin(home);
+  const candidates = admin ? await Server.workspaces.people(ws).catch(() => []) : [];
   paint(center, teamPeopleHtml(home, candidates));
   paint(side, "");
   bindInvite(center, ws);
@@ -54,24 +54,24 @@ async function teamPeople(center, side, ws) {
   const who = e => e.target.closest("[data-member]");
   center.onchange = async e => {
     if (!e.target.matches("[data-role]")) return;
-    try { await api("POST", `${base}/members`, { person: who(e).dataset.member, role: e.target.value }); toast("Changed."); } catch (err) { toast(err.message); }
+    try { await Server.workspaces.setMember(ws, who(e).dataset.member, e.target.value); toast("Changed."); } catch (err) { toast(err.message); }
     await again();
   };
   center.onsubmit = async e => {
     if (!e.target.closest("[data-add-people]")) return;
     e.preventDefault();
     const person = $("[data-add-person]", center).value, role = $("[data-add-role]", center).value;
-    try { await api("POST", `${base}/members`, { person, role }); toast("Added. The workspace is in their app now."); await again(); } catch (err) { toast(err.message); }
+    try { await Server.workspaces.setMember(ws, person, role); toast("Added. The workspace is in their app now."); await again(); } catch (err) { toast(err.message); }
   };
   center.onclick = async e => {
     if (e.target.closest("[data-remove]")) {
       const m = who(e);
       if (!(await ask(`Take ${m.dataset.name} out of ${home.name}? They lose it at once and their running work here stops. What they wrote stays.`, "Remove"))) return;
-      try { await api("DELETE", `${base}/members/${enc(m.dataset.member)}`); await again(); } catch (err) { toast(err.message); }
+      try { await Server.workspaces.removeMember(ws, m.dataset.member); await again(); } catch (err) { toast(err.message); }
     }
     if (e.target.closest("[data-leave]")) {
       if (!(await ask(`Leave ${home.name}? You lose its channels and files at once. What you wrote stays.`, "Leave"))) return;
-      try { await api("DELETE", `${base}/members/${enc(home.me)}`); leftWorkspaceQuietly(ws); toast(`You left ${home.name}.`); } catch (err) { toast(err.message); }
+      try { await Server.workspaces.removeMember(ws, home.me); leftWorkspaceQuietly(ws); toast(`You left ${home.name}.`); } catch (err) { toast(err.message); }
     }
     if (e.target.closest("[data-delete-workspace]")) await deleteWorkspace(home);
   };
@@ -88,7 +88,7 @@ function leftWorkspaceQuietly(ws) {
 async function deleteWorkspace(home) {
   if (!(await askTyped(`Delete ${home.name} for everyone? Its channels, messages, files, projects and computer go, and this cannot be undone.`, home.name, "Delete workspace"))) return;
   try {
-    await api("DELETE", `/v1/workspaces/${enc(home.id)}`);
+    await Server.workspaces.remove(home.id);
     leftWorkspaceQuietly(home.id);
     toast(`${home.name} was deleted.`);
   } catch (err) { if (!err.cancelled) toast(err.body?.message || err.message); }

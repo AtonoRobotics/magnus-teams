@@ -5,24 +5,8 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const api = async (m,p,b) => {
-  const owner=App.me?.id, appliance=App.appliance, session=App.sessionGeneration, view=App.seq;
-  let result;
-  try { result=await Magnus.api(m,p,b); }
-  catch(error) {
-    // A lost mutation reply does not establish whether its effect happened.
-    // Keep authoritative error metadata (including send rejection handling).
-    // A spent limit of the person's own: offer to ask for more where it appears (admin-spend.js).
-    if(error.status===402 && error.body?.spend_limit && typeof offerMoreSpend==="function")offerMoreSpend(error.body);
-    // An admin change the server holds for the password again (admin.js): ask once, then send it again.
-    if(error.status===403 && error.body?.error==="step_up" && typeof stepUp==="function")return stepUp().then(ok=>{if(!ok)throw Object.assign(new Error("The change was not made."),{cancelled:true});return Magnus.api(m,p,b);});
-    if(!["GET","HEAD","OPTIONS"].includes(m) && (!error.status || error.status>=500))
-      throw Object.assign(new Error(`Outcome not confirmed. ${error.message || "Check the current state before trying again."}`),{status:error.status,body:error.body});
-    throw error;
-  }
-  if(m==="GET" && (owner!==App.me?.id || appliance!==App.appliance || session!==App.sessionGeneration || view!==App.seq)) throw Object.assign(new Error("This view changed."),{cancelled:true});
-  return result;
-};
+// A request not yet a named call of server.js, under its one error policy.
+const api = (m,p,b) => Server.call(m,p,b);
 const enc = encodeURIComponent;
 
 // Read aloud in the appliance's own voice, a sentence at a time, so the first
@@ -2646,15 +2630,15 @@ function wirePanel() {
         case "hush": await hush(); break;
         case "cancel":
           if (!await ask("Stop this task? What it already did stays done.", "Stop")) return;
-          await api("POST", `/v1/tasks/${enc(id)}/cancel`, {}); break;
-        case "resume": await api("POST", `/v1/tasks/${enc(id)}/resume`, {}); break;
+          await Server.tasks.cancel(id); break;
+        case "resume": await Server.tasks.resume(id); break;
         case "stop-schedule":
           if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
-          await api("DELETE", `/v1/schedules/${enc(id)}`); toast("The schedule is stopped."); break;
+          await Server.schedules.remove(id); toast("The schedule is stopped."); break;
         case "delete-schedule":
           if (!await ask("Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks.", "Delete schedule")) return;
-          await api("DELETE", `/v1/schedules/${enc(id)}`); toast("The schedule is deleted."); break;
-        case "resume-schedule": await api("POST", `/v1/schedules/${enc(id)}/resume`, {}); toast("Schedule resumed."); break;
+          await Server.schedules.remove(id); toast("The schedule is deleted."); break;
+        case "resume-schedule": await Server.schedules.resume(id); toast("Schedule resumed."); break;
         case "connect": connectApp(a.dataset.app).catch(err => toast(err.message)); return;
         case "connect-page": await Magnus.openExternal(a.dataset.url); return;
         case "disconnect":

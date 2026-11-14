@@ -94,7 +94,7 @@ function peopleRemoveSheet(p, people) {
 
 registerAdminSection("people", async el => {
   /** @type {{people: AdminPerson[]}} */
-  const v = await adminApi("GET", "/v1/admin/people");
+  const v = await Server.admin.people();
   const owner = !!AdminState.standing?.owner;
   const people = v.people || [];
   paint(el, peopleHtml(people, owner));
@@ -110,7 +110,7 @@ registerAdminSection("people", async el => {
     e.preventDefault();
     const form = /** @type {HTMLFormElement} */ (e.target), f = Object.fromEntries(new FormData(form));
     try {
-      const r = await adminApi("POST", "/v1/admin/people", { name: f.name, email: f.email, role: f.role, send: f.send === "on" });
+      const r = await Server.admin.addPerson({ name: f.name, email: f.email, role: f.role, send: f.send === "on" });
       await again();
       paint($("[data-people-note]", el), peopleInvited(r));
     } catch (err) { failed(err); }
@@ -119,7 +119,7 @@ registerAdminSection("people", async el => {
     const s = /** @type {HTMLSelectElement} */ (e.target);
     if (!s.matches("[data-people-role]")) return;
     const id = s.closest("[data-person]")?.getAttribute("data-person");
-    try { await adminApi("PATCH", `/v1/admin/people/${enc(id)}`, { role: s.value }); toast("Role changed."); }
+    try { await Server.admin.setRole(id, s.value); toast("Role changed."); }
     catch (err) { failed(err); }
     await again();
   };
@@ -131,18 +131,17 @@ registerAdminSection("people", async el => {
     const id = b.closest("[data-person]")?.getAttribute("data-person");
     const p = people.find(x => x.id === id);
     if (!p) return;
-    const base = `/v1/admin/people/${enc(id)}`;
     try {
       switch (b.dataset.peopleAct) {
-        case "resend": paint(note, peopleInvited(await adminApi("POST", `${base}/invite`, { send: true }))); return;
-        case "cancel": await adminApi("POST", `${base}/cancel-invite`, {}); toast("Invitation withdrawn."); break;
-        case "sign-out": { const r = await adminApi("POST", `${base}/sign-out`, {}); toast(`Signed out of ${r.ended ?? 0} device${r.ended === 1 ? "" : "s"}.`); break; }
-        case "disable": if (!confirm(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`)) return; await adminApi("POST", `${base}/disable`, {}); toast(`${p.name} is turned off.`); break;
-        case "enable": await adminApi("POST", `${base}/enable`, {}); toast(`${p.name} is turned on.`); break;
+        case "resend": paint(note, peopleInvited(await Server.admin.resendInvite(id))); return;
+        case "cancel": await Server.admin.cancelInvite(id); toast("Invitation withdrawn."); break;
+        case "sign-out": { const r = await Server.admin.signOut(id); toast(`Signed out of ${r.ended ?? 0} device${r.ended === 1 ? "" : "s"}.`); break; }
+        case "disable": if (!confirm(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`)) return; await Server.admin.disable(id); toast(`${p.name} is turned off.`); break;
+        case "enable": await Server.admin.enable(id); toast(`${p.name} is turned on.`); break;
         case "remove": {
           const body = await peopleRemoveSheet(p, people);
           if (!body) return;
-          await adminApi("DELETE", base, body);
+          await Server.admin.removePerson(id, body);
           toast(`${p.name} is removed.`);
           break;
         }

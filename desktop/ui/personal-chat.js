@@ -12,12 +12,12 @@
 function personalComposer() {
   return {
     upload: (file, record) => upload([file], record.thread ? { thread: record.thread } : record.project ? { project: record.project } : {}).then(r => r[0]),
-    verify: f => api("GET", `/v1/files/${enc(f.id)}/info`),
+    verify: f => Server.chat.fileInfo(f.id),
     refresh: () => refresh(),
     send: async ({ text, files, form, record }) => {
       const body = { text, model: chosenModel(form), files: files.map(f => f.id) };
       if (record.thread) body.thread = record.thread; else if (record.project) body.project = record.project;
-      const response = await api("POST", "/v1/chat", body);
+      const response = await Server.chat.send(body);
       return async () => {
         // A secret typed into chat was hidden by the server: say so, and where a sign-in belongs.
         if (response?.hidden?.length) toast(`Magnus hid the ${[...new Set(response.hidden)].join(" and ")} in your message: it is not kept, and Magnus never sees it. When Magnus needs a sign-in, it asks for it through a secure form.`, 8000);
@@ -39,6 +39,7 @@ function personalComposer() {
  */
 function personalChat(thread) {
   const path = (id, act) => `/v1/chat/${enc(thread)}/entries/${enc(id)}/${act}`;
+  const entry = (id, act, body) => Server.chat.entry(thread, id, act, body);
   // An answer being written shows as it streams; `ui.live` holds its text so far.
   const listening = {};
   /** @param {ChatEntry[]} entries @param {ChatViewState} [view] */
@@ -106,30 +107,30 @@ function personalChat(thread) {
         editSend: async () => {
           const text = $(`#edit-${CSS.escape(id)}`, main).value.trim();
           if (!text) return toast("Write the message first.");
-          b.disabled = true; await api("POST", path(id, "resend"), { text }); ui.editing = null; delete drafts[`edit-${id}`]; return draw();
+          b.disabled = true; await entry(id, "resend", { text }); ui.editing = null; delete drafts[`edit-${id}`]; return draw();
         },
-        retry: async () => { b.disabled = true; await api("POST", path(id, "resend"), {}); return draw(); },
-        branch: async () => { const r = await api("POST", path(id, "branch"), {}); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; },
-        share: async () => { ui.people = (await api("GET", "/v1/directory")).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw(); },
+        retry: async () => { b.disabled = true; await entry(id, "resend"); return draw(); },
+        branch: async () => { const r = await entry(id, "branch"); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; },
+        share: async () => { ui.people = (await Server.directory()).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw(); },
         shareCancel: () => { ui.sharing = null; return draw(); },
         shareSend: async () => {
           const to = $("[data-share-to]", el).value;
-          b.disabled = true; await api("POST", path(id, "share"), { person: to }); ui.sharing = null;
+          b.disabled = true; await entry(id, "share", { person: to }); ui.sharing = null;
           toast(`Shared with ${ui.people.find(p => p.id === to)?.name || to}.`); return draw();
         },
         export: async () => toast(`Saved ${await Magnus.download(path(id, "export"), safeName(e))}`),
-        save: async () => { await api("POST", path(id, "save"), {}); toast("Saved to Files."); },
-        listen: () => readAloud(api("POST", path(id, "spoken"), {}).then(r => r.script), id),
+        save: async () => { await entry(id, "save"); toast("Saved to Files."); },
+        listen: () => readAloud(entry(id, "spoken").then(r => r.script), id),
         hush: () => hush(),
         feedback: () => ({
           task: e.task_id, verdict: e.verdict, reaction: e.reaction,
-          react: async a => { await api("POST", path(id, "reaction"), { reaction: e.reaction === a ? null : a }); await draw(); },
+          react: async a => { await entry(id, "reaction", { reaction: e.reaction === a ? null : a }); await draw(); },
           focus: () => $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, main),
         }),
-        task: async () => { const r = await api("POST", path(id, "task"), {}); toast("Started a task."); await refresh(); return r; },
+        task: async () => { const r = await entry(id, "task"); toast("Started a task."); await refresh(); return r; },
         delete: async () => {
           if (!await ask("Delete this message? It leaves this chat and what Magnus reads next, and waits in the trash until it is gone for good.", "Delete")) return;
-          await api("POST", path(id, "delete"), {}); await draw();
+          await entry(id, "delete"); await draw();
           const heading = $("#conv-head h1"); if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
         },
       };
@@ -149,14 +150,14 @@ async function personalCardClick(e, view) {
     try {
       if (ta) {
         if (!await ask("Stop this task? What it already did stays done.", "Stop")) { el.disabled = false; return; }
-        await api("POST", `/v1/tasks/${enc(ta.dataset.task)}/cancel`, {}); toast("Stopped.");
+        await Server.tasks.cancel(ta.dataset.task); toast("Stopped.");
       } else {
-        const id = enc(sa.dataset.scheduleId), k = sa.dataset.schedAct;
+        const id = sa.dataset.scheduleId, k = sa.dataset.schedAct;
         if (k === "cancel") {
           const ended = App.schedules.find(x => x.id === sa.dataset.scheduleId)?.ended;
           if (!await ask(ended ? "Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks." : "Cancel this schedule? No more of its runs start, and a run still going stops.", ended ? "Delete schedule" : "Cancel schedule")) { el.disabled = false; return; }
-          await api("DELETE", `/v1/schedules/${id}`); toast(ended ? "The schedule is deleted." : "The schedule is cancelled.");
-        } else { await api("POST", `/v1/schedules/${id}/${k}`, {}); toast(k === "pause" ? "Paused." : "Resumed."); }
+          await Server.schedules.remove(id); toast(ended ? "The schedule is deleted." : "The schedule is cancelled.");
+        } else { await (k === "pause" ? Server.schedules.pause(id) : Server.schedules.resume(id)); toast(k === "pause" ? "Paused." : "Resumed."); }
       }
       await refresh();
     } catch (err) { toast(err.message); el.disabled = false; }
@@ -181,7 +182,7 @@ async function personalCardClick(e, view) {
   }
   b.disabled = true;
   try {
-    const r = await api("POST", `/v1/chat/cards/${enc(card)}`, body);
+    const r = await Server.chat.answerCard(card, body);
     toast(no ? "Declined." : decision === "later" ? "Not now." : r.grant ? "Granted." : r.task ? "Started." : "Scheduled.");
     ui.declining = null; delete drafts[`why-${card}`];
     for (const k of Object.keys(drafts)) if (k.startsWith(`g-${card}-`)) delete drafts[k];

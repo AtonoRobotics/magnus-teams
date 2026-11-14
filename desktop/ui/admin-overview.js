@@ -60,13 +60,13 @@ function adminOverviewHtml(o) {
 // again once it is released (once Settings' Kill switch). Pressing and
 // releasing are in the top bar.
 registerOverviewCard("kill", async el => {
-  const ks = await adminApi("GET", "/v1/admin/kill-switch");
+  const ks = await Server.admin.killSwitch();
   paint(el, typeof killSwitch === "function" ? killSwitch(ks) : `<h3>Kill switch</h3><p class="small muted">${ks.engaged ? "On." : "Off."}</p>`);
 });
 
 registerAdminSection("overview", async el => {
   /** @type {AdminOverview} */
-  const o = await adminApi("GET", "/v1/admin/overview");
+  const o = await Server.admin.overview();
   paint(el, adminOverviewHtml(o));
   for (const [name, render] of AdminOverviewCards) {
     const box = $(`[data-overview-card="${name}"]`, el);

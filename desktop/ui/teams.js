@@ -54,7 +54,7 @@ function teamHref(ws, place) {
  * a Team Admin, so nobody else is offered a form it would refuse. */
 async function mayStartWorkspace() {
   const known = typeof AdminState !== "undefined" ? AdminState.standing : null;
-  const standing = known || await api("GET", "/v1/admin/standing").catch(() => null);
+  const standing = known || await Server.admin.standing().catch(() => null);
   return !!standing?.team_admin;
 }
 
@@ -68,20 +68,20 @@ function teamsPageHtml(list, mayStart) {
 }
 
 async function showTeams(main) {
-  const [list, mayStart] = await Promise.all([api("GET", "/v1/workspaces"), mayStartWorkspace()]);
+  const [list, mayStart] = await Promise.all([Server.workspaces.list(), mayStartWorkspace()]);
   paint(main, teamsPageHtml(list, mayStart));
   main.onsubmit = async e => {
     if (e.target.id !== "new-team") return;
     e.preventDefault();
     const name = $("#team-name", main).value.trim();
     if (!name) return;
-    try { const w = await api("POST", "/v1/workspaces", { name }); location.hash = `#/team/${enc(w.id)}`; } catch (err) { toast(err.message); }
+    try { const w = await Server.workspaces.create(name); location.hash = `#/team/${enc(w.id)}`; } catch (err) { toast(err.message); }
   };
 }
 
 async function joinTeam(main, code) {
   paint(main, `<p class="empty">Joining…</p>`);
-  try { const r = await api("POST", `/v1/invites/${enc(code)}/join`, {}); location.hash = `#/team/${enc(r.workspace)}`; }
+  try { const r = await Server.workspaces.join(code); location.hash = `#/team/${enc(r.workspace)}`; }
   catch (err) { paint(main, `<div class="banner bad">${esc(err.message)}</div><p><a href="#/teams">Teams</a></p>`); }
 }
 
@@ -151,7 +151,7 @@ function firstChannel(home) {
 }
 
 async function loadHome(ws) {
-  const home = await api("GET", `/v1/workspaces/${enc(ws)}/home`);
+  const home = await Server.workspaces.home(ws);
   Team.homes[ws] = home;
   if (Team.ws === ws) Team.home = home;
   return home;
@@ -217,7 +217,7 @@ function bindRail(main, ws) {
     e.preventDefault();
     try {
       const body = dm ? { people: [dm.dataset.dm] } : { agent: true };
-      const r = await api("POST", `/v1/workspaces/${enc(ws)}/direct`, body);
+      const r = await Server.workspaces.direct(ws, body);
       await loadHome(ws);
       location.hash = teamHref(ws, { kind: "channel", id: r.id });
     } catch (err) { toast(err.message); }
@@ -226,7 +226,7 @@ function bindRail(main, ws) {
 
 /** Mentions, replies and asks, newest first. */
 async function teamActivity(center, side, ws) {
-  const a = await api("GET", `/v1/workspaces/${enc(ws)}/activity`), home = Team.home;
+  const a = await Server.workspaces.activity(ws), home = Team.home;
   const name = id => home.members.find(m => m.id === id)?.name || id;
   const row = i => `<li><a href="${teamHref(ws, { kind: "channel", id: i.channel, thread: i.thread || undefined })}"><strong>${esc(name(i.sender))}</strong> in #${esc(i.channel_name || "direct")} <span class="small faint">${esc(when(i.at))}</span><div class="small">${Compose.maskedText(firstLine(i.text))}</div></a></li>`;
   const section = (title, list, empty) => `<h2>${title}</h2>${list.length ? `<ul class="team-activity-list">${list.map(row).join("")}</ul>` : `<p class="small faint">${empty}</p>`}`;
@@ -258,7 +258,7 @@ function bindInvite(root, ws) {
     const email = $("[data-invite-email]", form).value.trim();
     if (!email) return;
     try {
-      const r = await api("POST", `/v1/workspaces/${enc(ws)}/invites`, { email });
+      const r = await Server.workspaces.invite(ws, email);
       $("[data-invite-result]", form).textContent = inviteOutcome(email, r);
       $("[data-invite-email]", form).value = "";
       loadHome(ws).catch(() => {});
@@ -269,7 +269,7 @@ function bindInvite(root, ws) {
     if (!b) return;
     const ws = root.dataset.inviteWs || "";
     try {
-      const r = await api("POST", `/v1/workspaces/${enc(ws)}/invites`, {});
+      const r = await Server.workspaces.invite(ws);
       const link = serverLink(r);
       try { await navigator.clipboard.writeText(link); toast("Link copied. It works for a week."); } catch { /* no clipboard here */ }
       $("[data-invite-result]", b.closest("form")).textContent = `Anyone with this link can join for a week, with or without an account here: ${link}`;

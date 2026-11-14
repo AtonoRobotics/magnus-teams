@@ -46,7 +46,7 @@ function limitForm(what, value, label) {
 /** Admin → Spend. @param {HTMLElement} el @param {string} [month] */
 async function adminSpend(el, month) {
   /** @type {SpendOverview} */
-  const o = await adminApi("GET", `/v1/admin/spend${month ? `?month=${encodeURIComponent(month)}` : ""}`);
+  const o = await Server.admin.spend(month);
   const pending = o.requests.filter(r => !r.decided), decided = o.requests.filter(r => r.decided);
   paint(el, `<div class="stack admin-spend">
     <div class="row"><h2>Spend</h2><label>Month <input type="month" data-spend-month value="${esc(o.month)}"></label></div>
@@ -79,7 +79,7 @@ async function adminSpend(el, month) {
     e.preventDefault();
     try {
       const body = { ...JSON.parse(f.dataset.limit || "{}"), usd: amountOf(/** @type {HTMLInputElement} */ ($("[name=usd]", f)).value) };
-      await adminApi("POST", "/v1/admin/spend/limits", body);
+      await Server.admin.setSpendLimit(body);
       toast(body.usd === null ? "Limit lifted." : `Limit set to ${dollars(body.usd)} a month.`);
       await again();
     } catch (err) { if (!err.cancelled) toast(err.message); }
@@ -88,7 +88,7 @@ async function adminSpend(el, month) {
     const card = b.closest("[data-request]"), approve = b.dataset.decide === "approve";
     try {
       const amount = amountOf($("[name=usd]", card).value);
-      await adminApi("POST", `/v1/admin/spend/requests/${encodeURIComponent(card.dataset.request)}`, { approve, usd: approve ? amount : null, note: $("[name=note]", card).value });
+      await Server.admin.answerSpendRequest(card.dataset.request, { approve, usd: approve ? amount : null, note: $("[name=note]", card).value });
       toast(approve ? "Approved. They are told." : "Declined. They are told.");
       await again();
     } catch (err) { if (!err.cancelled) toast(err.message); }
@@ -98,7 +98,7 @@ async function adminSpend(el, month) {
 /** Admin → Models. @param {HTMLElement} el */
 async function adminModels(el) {
   /** @type {[ModelsOverview, {providers: Provider[]}]} */
-  const [o, p] = await Promise.all([adminApi("GET", "/v1/admin/models"), adminApi("GET", "/v1/admin/providers")]);
+  const [o, p] = await Promise.all([Server.admin.models(), Server.admin.providers()]);
   const all = p.providers.flatMap(x => (x.models || []).map(m => `${x.id}/${m}`));
   const def = `${o.default.adapter}/${o.default.model}`;
   /** @param {string} key @param {?string[]} rule */
@@ -126,17 +126,17 @@ async function adminModels(el) {
   };
   for (const card of el.querySelectorAll("[data-provider]")) {
     const id = /** @type {HTMLElement} */ (card).dataset.provider || "", x = p.providers.find(y => y.id === id);
-    $("[data-provider-toggle]", card).onclick = () => act(() => adminApi("PATCH", `/v1/admin/providers/${encodeURIComponent(id)}`, { enabled: !x?.enabled }), x?.enabled ? "Disabled." : "Enabled.");
+    $("[data-provider-toggle]", card).onclick = () => act(() => Server.admin.updateProvider(id, { enabled: !x?.enabled }), x?.enabled ? "Disabled." : "Enabled.");
     $("[data-provider-test]", card).onclick = async () => {
-      try { const t = await adminApi("POST", `/v1/admin/providers/${encodeURIComponent(id)}/test`, {}); toast(t.ok ? `${id} answered in ${t.ms} ms.` : `${id}: ${t.error}`); }
+      try { const t = await Server.admin.testProvider(id); toast(t.ok ? `${id} answered in ${t.ms} ms.` : `${id}: ${t.error}`); }
       catch (err) { if (!err.cancelled) toast(err.message); }
     };
     for (const b of card.querySelectorAll("[data-default]")) /** @type {HTMLElement} */ (b).onclick = () =>
-      act(() => adminApi("PATCH", `/v1/admin/providers/${encodeURIComponent(id)}`, { default_model: b.dataset.default }), "New work runs on it now.");
+      act(() => Server.admin.updateProvider(id, { default_model: b.dataset.default }), "New work runs on it now.");
   }
   for (const f of el.querySelectorAll("form[data-rule]")) {
     const [kind, ...rest] = (/** @type {HTMLElement} */ (f).dataset.rule || "").split(":"), who = rest.join(":");
-    const send = (/** @type {?string[]} */ models) => adminApi("POST", "/v1/admin/models/access", { [kind]: who, models });
+    const send = (/** @type {?string[]} */ models) => Server.admin.setModelAccess({ [kind]: who, models });
     /** @type {HTMLFormElement} */ (f).onsubmit = e => {
       e.preventDefault();
       const models = [...f.querySelectorAll("[name=m]:checked")].map(i => /** @type {HTMLInputElement} */ (i).value);
@@ -177,7 +177,7 @@ function offerMoreSpend(body) {
     try {
       const amount = amountOf(String(f.usd));
       if (!amount) throw new Error("Ask for an amount above $0.");
-      await api("POST", "/v1/spend/requests", { usd: amount, reason: String(f.reason || "") });
+      await Server.spend.ask(amount, String(f.reason || ""));
       d.close();
       toast("Asked. You will hear in your inbox when an admin decides.");
     } catch (err) { error.textContent = err.message; error.hidden = false; }
@@ -215,7 +215,7 @@ registerAdminSection("spend", el => adminSpend(el));
 // their own, and requests waiting, from Overview's answer (`spend`).
 if (typeof registerOverviewCard === "function") registerOverviewCard("spend", async el => {
   /** @type {{month: string, total_usd: number, server_usd: ?number, server_left_usd: ?number, at_limit: string[], requests_waiting: number}|null} */
-  const s = (await adminApi("GET", "/v1/admin/overview")).spend;
+  const s = (await Server.admin.overview()).spend;
   if (!s) { paint(el, `<h3>Spend this month</h3><p class="small muted">Spend is not available.</p>`); return; }
   const of = s.server_usd === null || s.server_usd === undefined ? "no server limit" : `of ${dollars(s.server_usd)}`;
   paint(el, `<h3>Spend this month</h3>
