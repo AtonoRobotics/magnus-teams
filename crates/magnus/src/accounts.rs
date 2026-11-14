@@ -18,8 +18,6 @@
 
 use crate::config::SignIn;
 use anyhow::{Context, Result};
-use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
-use argon2::Argon2;
 use chrono::{DateTime, Duration, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -31,6 +29,7 @@ use tokio_postgres::Client;
 mod check;
 mod directory;
 mod password;
+mod phc;
 pub use check::{Attempt, Checked, Keeper, Via};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -756,9 +755,8 @@ impl Accounts {
     /// disabled until explicitly turned back on.
     pub async fn set_password(&self, person: &str, password: &str) -> Result<()> {
         let person = key(person);
-        anyhow::ensure!(password.chars().count() >= self.cfg.min_password_length, "a password needs at least {} characters", self.cfg.min_password_length);
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(password.as_bytes(), &salt).map_err(|e| anyhow::anyhow!("hash: {e}"))?.to_string();
+        phc::long_enough(password, self.cfg.min_password_length)?;
+        let phc = phc::hash(password)?;
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let tx = c.transaction().await?;
@@ -783,9 +781,8 @@ impl Accounts {
     /// they choose their own. Anyone else keeps their password.
     pub async fn set_temporary_password(&self, person: &str, password: &str) -> Result<()> {
         let person = key(person);
-        anyhow::ensure!(password.chars().count() >= self.cfg.min_password_length, "a password needs at least {} characters", self.cfg.min_password_length);
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(password.as_bytes(), &salt).map_err(|e| anyhow::anyhow!("hash: {e}"))?.to_string();
+        phc::long_enough(password, self.cfg.min_password_length)?;
+        let phc = phc::hash(password)?;
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let n = c.execute("INSERT INTO public.account_passwords (person, phc, temporary) VALUES ($1, $2, true) ON CONFLICT (person) DO UPDATE SET phc = EXCLUDED.phc, temporary = true WHERE (SELECT status FROM public.account_statuses WHERE person = $1) IS NULL OR (SELECT status FROM public.account_statuses WHERE person = $1) = 'invited'", &[&person, &phc]).await?;
@@ -815,9 +812,8 @@ impl Accounts {
             self.failed(&counter);
             return Ok(Err(SignInError::Rejected));
         }
-        anyhow::ensure!(password.chars().count() >= self.cfg.min_password_length, "a password needs at least {} characters", self.cfg.min_password_length);
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(password.as_bytes(), &salt).map_err(|e| anyhow::anyhow!("hash: {e}"))?.to_string();
+        phc::long_enough(password, self.cfg.min_password_length)?;
+        let phc = phc::hash(password)?;
         let tx = c.transaction().await?;
         tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('magnus-accounts'))").await?;
         // Still temporary: a racing choose won, and this temp is spent.
@@ -941,7 +937,7 @@ impl Accounts {
     pub async fn accept_at(&self, token: &str, password: &str, at: DateTime<Utc>) -> Result<Option<String>> {
         // The password is judged before the token is touched, so a short one
         // does not burn the invitation.
-        anyhow::ensure!(password.chars().count() >= self.cfg.min_password_length, "a password needs at least {} characters", self.cfg.min_password_length);
+        phc::long_enough(password, self.cfg.min_password_length)?;
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let tx = c.transaction().await?;
@@ -965,8 +961,7 @@ impl Accounts {
             tx.commit().await?;
             return Ok(None);
         };
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(password.as_bytes(), &salt).map_err(|e| anyhow::anyhow!("hash: {e}"))?.to_string();
+        let phc = phc::hash(password)?;
         // Permanent: accepting after a temporary password was set must
         // not leave the account choosing forever (#527).
         tx.execute(
@@ -1047,7 +1042,7 @@ impl Accounts {
     pub async fn confirm_reset_at(&self, token: &str, password: &str, at: DateTime<Utc>) -> Result<Option<(String, Vec<String>)>> {
         // The password is judged before the token is touched, so a short
         // one does not burn the recovery.
-        anyhow::ensure!(password.chars().count() >= self.cfg.min_password_length, "a password needs at least {} characters", self.cfg.min_password_length);
+        phc::long_enough(password, self.cfg.min_password_length)?;
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let tx = c.transaction().await?;
@@ -1074,8 +1069,7 @@ impl Accounts {
             tx.commit().await?;
             return Ok(None);
         };
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(password.as_bytes(), &salt).map_err(|e| anyhow::anyhow!("hash: {e}"))?.to_string();
+        let phc = phc::hash(password)?;
         tx.execute(
             "INSERT INTO public.account_passwords (person, phc, temporary) VALUES ($1, $2, false) ON CONFLICT (person) DO UPDATE SET phc = EXCLUDED.phc, temporary = false",
             &[&person, &phc],
@@ -1738,8 +1732,7 @@ mod tests {
         let d = dir.path().join("accounts");
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(d.join("people.json"), r#"{"ada":{"name":"Ada","email":"ada@example.com"},"Bea":{"name":"Bea"}}"#).unwrap();
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(b"a-long-password", &salt).unwrap().to_string();
+        let phc = phc::hash("a-long-password").unwrap();
         std::fs::write(d.join("passwords.json"), serde_json::to_string(&BTreeMap::from([("ada".to_string(), phc)])).unwrap()).unwrap();
         std::fs::write(d.join("status.json"), r#"{"ada":"active"}"#).unwrap();
         std::fs::write(d.join("roles.json"), r#"{"ada":"admin"}"#).unwrap();
