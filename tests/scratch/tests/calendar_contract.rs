@@ -11,7 +11,8 @@
 //!   (`catalog/registrations.toml`) for the consent screen's scopes;
 //! - `MAGNUS_GOOGLE_CLIENT_SECRET`: that client's secret.
 //!
-//! Without them it says so. It invites no one but the account itself and
+//! Without them it skips that part and says `SKIPPED`; on CI or with
+//! `MAGNUS_REQUIRE_CONTRACTS` it fails instead (`magnus_scratch::contract`). It invites no one but the account itself and
 //! tells no one; the one event it adds it deletes.
 
 use magnus::apps::{CallError, CallOutput};
@@ -42,6 +43,13 @@ async fn access_token(refresh: &str, secret: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn calendar_s_tools_do_what_they_say_against_calendar() {
+    // Checked first: where contracts are required, a missing credential
+    // fails before a microVM is booted.
+    let account = magnus_scratch::contract::credentials(
+        "Calendar's contract test with an account",
+        "the owner's Google test account",
+        ["MAGNUS_GOOGLE_TEST_REFRESH_TOKEN", "MAGNUS_GOOGLE_CLIENT_SECRET"],
+    );
     let mf: toml::Table = std::fs::read_to_string(root().join("catalog/google-calendar.toml")).unwrap().parse().unwrap();
     let images = tempfile::tempdir().unwrap();
     let out = std::process::Command::new(root().join("brokered/build.sh")).arg("magnus-calendar").arg(images.path()).output().unwrap();
@@ -79,8 +87,7 @@ async fn calendar_s_tools_do_what_they_say_against_calendar() {
     let r = b.call(&c, "contract", Some("ya29.not-a-token"), "list_calendars", &json!({}), &|| Ok(())).await.unwrap();
     assert!(r.is_error && r.text.contains("Google Calendar rejected the sign-in"), "{}", r.text);
 
-    let (Ok(refresh), Ok(secret)) = (std::env::var("MAGNUS_GOOGLE_TEST_REFRESH_TOKEN"), std::env::var("MAGNUS_GOOGLE_CLIENT_SECRET")) else {
-        eprintln!("the rest of Calendar's contract test needs the owner's Google test account (MAGNUS_GOOGLE_TEST_REFRESH_TOKEN, MAGNUS_GOOGLE_CLIENT_SECRET); not given, so it was not run");
+    let Some([refresh, secret]) = account else {
         b.stop(None, None).await;
         return;
     };

@@ -19,6 +19,7 @@ pub mod catalog;
 mod checks;
 #[cfg(test)]
 mod ci_scripts;
+pub mod contract;
 mod dev_view;
 pub use checks::*;
 pub use dev_view::*;

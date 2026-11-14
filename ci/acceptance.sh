@@ -25,13 +25,21 @@
 #               (spec rev 145), needs KVM and the guest image built from
 #               this checkout (sandbox/image.sh); MAGNUS_DESKTOP_SHOTS=DIR
 #               keeps the screenshots
+#   contracts   the brokered connectors' contract tests against Gmail,
+#               Calendar, Slack and Chat themselves (tests/scratch/tests/
+#               *_contract.rs), with MAGNUS_REQUIRE_CONTRACTS set so a
+#               missing test-account credential fails instead of skipping;
+#               needs KVM. Named only, not in the default list, until the
+#               owner's test accounts are given to Strix Beta
+#               (decisions/2026-11-13-ci-and-test-hygiene.md)
 set -eu
 cd "$(dirname "$0")/.."
 
 all="autonomy injection update evidence invariants kill_switch_computer desktop_look"
+named="$all contracts"
 suites=${*:-$all}
 for s in $suites; do
-  case " $all " in *" $s "*) ;; *) echo "no such suite: $s (have: $all)" >&2; exit 2 ;; esac
+  case " $named " in *" $s "*) ;; *) echo "no such suite: $s (have: $named)" >&2; exit 2 ;; esac
 done
 
 # The suites start the server and its model adapter as programs, which
@@ -57,6 +65,9 @@ for s in $suites; do
     # invariants that start one fail when tests in parallel take every slot.
     invariants) cmd="cargo test -p magnus-invariants -- --test-threads=1" ;;
     evidence) cmd="cargo test -p magnus-invariants --test inv7_verify" ;;
+    contracts)
+      export MAGNUS_REQUIRE_CONTRACTS=1
+      cmd="cargo test -p magnus-scratch --test gmail_contract --test calendar_contract --test slack_contract --test google_chat_contract" ;;
     *) cmd="cargo test -p magnus-scratch --test $s" ;;
   esac
   $cmd || failed="$failed $s"
