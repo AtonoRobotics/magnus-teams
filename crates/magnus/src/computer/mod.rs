@@ -15,6 +15,7 @@ mod export;
 mod halt;
 mod identity;
 mod idle;
+mod leftovers;
 mod lifecycle;
 mod made;
 mod one;
@@ -248,6 +249,25 @@ pub enum Change {
     TakeoverEnded {
         id: String,
         by: String,
+        at: DateTime<Utc>,
+    },
+    /// At handback the guest stopped what the takeover left running and
+    /// undid the autostart entries it made, named here; written with the
+    /// `TakeoverEnded` it allowed (computer/leftovers.rs).
+    TakeoverCleared {
+        id: String,
+        by: String,
+        stopped: Vec<String>,
+        stopped_count: u64,
+        removed: Vec<String>,
+        at: DateTime<Utc>,
+    },
+    /// The guest could not confirm that: the person keeps the screen and
+    /// the agent stays paused.
+    TakeoverUnclean {
+        id: String,
+        by: String,
+        why: String,
         at: DateTime<Utc>,
     },
     /// The computer's user let an operator look, until `until`.
@@ -506,9 +526,13 @@ impl Ledger {
 
     pub fn apply(&mut self, change: &Change) {
         match change {
-            Change::TakeoverStarted { .. } | Change::TakeoverEnded { .. } | Change::OperatorGranted { .. } | Change::OperatorEnded { .. } | Change::OperatorLooked { .. } => {
-                takeover::apply(self, change)
-            }
+            Change::TakeoverStarted { .. }
+            | Change::TakeoverEnded { .. }
+            | Change::TakeoverCleared { .. }
+            | Change::TakeoverUnclean { .. }
+            | Change::OperatorGranted { .. }
+            | Change::OperatorEnded { .. }
+            | Change::OperatorLooked { .. } => takeover::apply(self, change),
             Change::Created { id, owner } => self.add(id, owner, Role::Computer),
             Change::BrowserCreated { id, owner, role } => self.add(id, owner, role.clone()),
             Change::BrowserStopped { id } => {

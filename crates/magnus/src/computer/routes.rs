@@ -346,8 +346,9 @@ async fn display(State(k): K, h: HeaderMap, Path(id): Path<String>, ws: WebSocke
         return crate::api::err(StatusCode::FORBIDDEN, "that ticket is not yours");
     }
     let deflate = super::display::wants_deflate(offered);
+    let cut = super::display::cut_signal(&id);
     match k.display_stream(&id, &person).await {
-        Ok(stream) => ws.protocols(super::display::PROTOCOLS).on_upgrade(move |socket| super::display::carry(socket, stream, deflate, id)),
+        Ok(stream) => ws.protocols(super::display::PROTOCOLS).on_upgrade(move |socket| super::display::carry(socket, stream, deflate, id, cut)),
         Err(e) => answered(Err(e)),
     }
 }

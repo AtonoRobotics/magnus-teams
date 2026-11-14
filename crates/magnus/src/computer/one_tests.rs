@@ -43,7 +43,7 @@ const REAL_OPS: &[&str] = &[
 /// Creates, wakes, destroys and erases at once; its guests answer every
 /// desktop action with a screenshot. As the real one, a computer whose
 /// overlay was thrown away (a destroy, an erase) wakes on a fresh one.
-fn fake_computerd(socket: &Path, full: Full, old: Full) -> Asked {
+fn fake_computerd(socket: &Path, full: Full, old: Full, unclean: Full) -> Asked {
     let asked: Asked = Arc::default();
     let listener = UnixListener::bind(socket).unwrap();
     let log = asked.clone();
@@ -54,6 +54,7 @@ fn fake_computerd(socket: &Path, full: Full, old: Full) -> Asked {
             let fresh = fresh.clone();
             let full = full.clone();
             let old = old.clone();
+            let unclean = unclean.clone();
             tokio::spawn(async move {
                 let (r, mut w) = s.into_split();
                 let mut lines = BufReader::new(r).lines();
@@ -79,6 +80,11 @@ fn fake_computerd(socket: &Path, full: Full, old: Full) -> Asked {
                         "write" => json!({}),
                         "create" | "connect" | "ping" | "hibernate" | "pause" | "resume" => json!({ "ok": true }),
                         "exec" => json!({ "exit_code": 0 }),
+                        "takeover_begin" => json!({ "ok": true }),
+                        "takeover_end" if unclean.load(std::sync::atomic::Ordering::SeqCst) => {
+                            json!({ "error": "1 processes started during the takeover would not stop: spy (pid 9)" })
+                        }
+                        "takeover_end" => json!({ "ok": true, "stopped": ["spy (pid 9)"], "stopped_count": 1, "removed": [] }),
                         "read" => json!({ "data_b64": "SHOT" }),
                         other => json!({ "ok": false, "error": format!("unexpected {other}") }),
                     };
@@ -99,6 +105,8 @@ struct Server {
     asked: Asked,
     full: Full,
     old: Full,
+    /// While set, the guest cannot confirm a takeover left nothing running.
+    unclean: Full,
     db: String,
     _dir: tempfile::TempDir,
 }
@@ -124,7 +132,8 @@ async fn server() -> Server {
     let socket = dir.path().join("computerd.sock");
     let full = Full::default();
     let old = Full::default();
-    let asked = fake_computerd(&socket, full.clone(), old.clone());
+    let unclean = Full::default();
+    let asked = fake_computerd(&socket, full.clone(), old.clone(), unclean.clone());
     let p = dir.path().join("magnus.toml");
     let state = dir.path().join("state");
     std::fs::write(
@@ -136,7 +145,7 @@ async fn server() -> Server {
     )
     .unwrap();
     let k = Kernel::boot(crate::config::Config::load(&p).unwrap()).await.unwrap();
-    Server { k, asked, full, old, db: name, _dir: dir }
+    Server { k, asked, full, old, unclean, db: name, _dir: dir }
 }
 
 impl Server {
@@ -477,5 +486,38 @@ async fn an_admin_pauses_a_persons_computer_and_does_nothing_else_to_it() {
     assert!(s.k.vault.get(&crate::computer::egress::surrogate::vault_name(&id, "gh")).unwrap().is_none(), "a credential reached mo's computer");
     assert!(s.k.computer_json(&mo, &id).is_ok(), "mo cannot see their own computer");
     assert!(s.k.add_computer_destination(&mo, &id, "example.org").await.is_ok(), "mo cannot change their own computer");
+    s.done().await;
+}
+
+/// A handback ends the takeover only once the guest has stopped what the
+/// person started (decisions/2026-11-13-takeover-leaves-nothing-running.md).
+/// When it cannot confirm that, the person keeps the screen, the agent's
+/// desktop tools stay refused, and the log says why; a retry that comes
+/// back clean hands back and names what was stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_handback_the_computer_cannot_confirm_clean_keeps_the_agent_paused() {
+    let s = server().await;
+    s.k.reconcile_computers().await;
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    let mo = s.k.person("mo").unwrap();
+    s.k.start_takeover(&mo, &id).await.unwrap();
+    assert_eq!(s.asked("takeover_begin").len(), 1, "the takeover began without a boundary");
+    s.unclean.store(true, std::sync::atomic::Ordering::SeqCst);
+    let e = s.k.hand_back(&mo, &id).await.unwrap_err();
+    assert!(e.to_string().contains("the agent stays paused") && e.to_string().contains("spy (pid 9)"), "{e}");
+    let held = &s.computers_of(&person("mo"))[0];
+    assert_eq!(held.controller.as_deref(), Some("mo"), "an unclean handback gave the computer back to the agent");
+    assert!(held.activity.iter().any(|a| a.what.contains("could not confirm the takeover left nothing running")), "{:?}", held.activity);
+    let tool = s.k.use_computer(&person("mo"), "run:r1", "computer_screenshot", &json!({})).await.unwrap().unwrap();
+    assert!(tool.1 && tool.0.contains("A person has control"), "the agent used the computer after an unclean handback: {tool:?}");
+    // Taking control again keeps the first boundary; the retry is clean.
+    s.k.start_takeover(&mo, &id).await.unwrap();
+    assert_eq!(s.asked("takeover_begin").len(), 1, "a second take moved the boundary past what the first session started");
+    s.unclean.store(false, std::sync::atomic::Ordering::SeqCst);
+    let done = s.k.hand_back(&mo, &id).await.unwrap();
+    assert_eq!(done["left_running"]["stopped"], json!(["spy (pid 9)"]));
+    let back = &s.computers_of(&person("mo"))[0];
+    assert!(back.controller.is_none());
+    assert!(back.activity.iter().any(|a| a.what == "stopped what the takeover left running: spy (pid 9)"), "{:?}", back.activity);
     s.done().await;
 }

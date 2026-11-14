@@ -278,7 +278,7 @@ function computerScreen(body, c, base, alive, opts = {}) {
     strip();
     try { await api("POST", `${base}/wake`, {}); } catch (e) { toast(e.message); }
   };
-  const handBack = async () => { try { await api("POST", `${base}/handback`, {}); toast(`Handed back. ${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
+  const handBack = async () => { try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
   const done = () => view.done ? view.done() : handBack();
   // The strip, the veil, the "you are in control" bar and the caption, all
   // from the computer as last seen; only what changed is redrawn.
@@ -372,7 +372,7 @@ function takeOver(body, id, base, grant, view, strip) {
     window.removeEventListener("hashchange", gone);
     view.leave = null;
     link.close();
-    try { await api("POST", `${base}/handback`, {}); toast(`Handed back. ${agentName(view.c)} carries on with a fresh look at the screen.`); } catch (e) { toast(e.message); }
+    try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on with a fresh look at the screen.`); } catch (e) { toast(e.message); }
   };
   view.leave = leave;
   link = Magnus.displayOpen(id, grant.ticket, grant.protocol_prefix, b => rfb.feed(b), reason => { if (!ended) failed(reason || "The connection to the screen ended."); });
@@ -499,3 +499,13 @@ function followDesktopLook() {
   }
 }
 window.addEventListener("magnus-theme", followDesktopLook);
+
+/**
+ * What a handback closed: what the person started during the takeover is
+ * stopped then, so nothing of theirs runs while the agent works.
+ * @param {{left_running?: {stopped_count?: number}}} r
+ */
+const closedNote = r => {
+  const n = r?.left_running?.stopped_count || 0;
+  return n ? `${n} ${n === 1 ? "program" : "programs"} you started ${n === 1 ? "was" : "were"} closed. ` : "";
+};
