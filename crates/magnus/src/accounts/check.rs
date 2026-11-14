@@ -19,12 +19,12 @@
 //! - The provider signing in someone other than the person asked about is a
 //!   wrong password, never a yes.
 
-use super::{key, Accounts, Failures, SignInError, PERMANENT_YEARS};
+use super::{key, Accounts, SignInError};
 use crate::identity::{Identity, Polled};
 use anyhow::{Context, Result};
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 /// Where a password was typed: on the server's own machine, or from
@@ -225,62 +225,25 @@ impl Accounts {
     /// wrong ones: the appliance's own and the identity provider's alike.
     /// Reads the cached rules; async auth entries refresh them first.
     pub(super) fn locked(&self, person: &str) -> Option<DateTime<Utc>> {
-        let person = key(person);
-        if !self.policy.lock().unwrap().1.lockout_enabled {
-            return None;
-        }
-        let now = Utc::now();
-        let horizon = Duration::minutes(self.policy.lock().unwrap().1.lockout_max_wait_minutes.max(1));
-        let mut f = self.failures.lock().unwrap();
-        let r = f.get(person.as_str()).copied()?;
-        if r.until.is_some_and(|u| now < u) {
-            return r.until;
-        }
-        // A lapsed lock, or failures gone quiet past the longest wait,
-        // forgives the counter.
-        if r.until.is_some() || now - r.first > horizon {
-            f.remove(person.as_str());
-        }
-        None
+        let p = self.policy.lock().unwrap().1;
+        self.failures.lock().unwrap().locked(&key(person), Utc::now(), &p)
     }
 
-    /// Count a wrong password. Only for people of this appliance, so
-    /// guessing names cannot grow the table. Past the threshold each
-    /// failure holds the counter until now plus the first wait, capped
-    /// at the first failure plus the longest wait — or out the century,
-    /// when a lockout is permanent.
+    /// Count a wrong password (`Lockout::failed`). Only for people of this
+    /// appliance, so guessing names cannot grow the table.
     pub(super) fn failed(&self, person: &str) {
-        let person = key(person);
         let p = self.policy.lock().unwrap().1;
-        if !p.lockout_enabled {
-            return;
-        }
-        let now = Utc::now();
-        let mut f = self.failures.lock().unwrap();
-        let e = f.entry(person).or_insert(Failures { n: 0, first: now, until: None });
-        e.n += 1;
-        if e.n >= p.lockout_failures.max(1) as u32 {
-            e.until = Some(if p.lockout_permanent {
-                e.first + Duration::days(365 * PERMANENT_YEARS)
-            } else {
-                (e.until.filter(|u| *u > now).unwrap_or(now) + Duration::minutes(p.lockout_wait_minutes.max(1))).min(e.first + Duration::minutes(p.lockout_max_wait_minutes.max(1)))
-            });
-        }
+        self.failures.lock().unwrap().failed(&key(person), Utc::now(), &p);
     }
 
     pub(super) fn succeeded(&self, person: &str) {
-        let person = key(person);
-        self.failures.lock().unwrap().remove(person.as_str());
+        self.failures.lock().unwrap().succeeded(&key(person));
     }
 
     /// Take back one counted attempt: one counted before its answer came,
     /// whose answer said nothing about the password (the provider was down).
     pub(super) fn forgive(&self, person: &str) {
-        let person = key(person);
-        let mut f = self.failures.lock().unwrap();
-        if let Some(e) = f.get_mut(person.as_str()) {
-            e.n = e.n.saturating_sub(1);
-        }
+        self.failures.lock().unwrap().forgive(&key(person));
     }
 
     /// Clear every counter of a person: their own and each scope's. A
@@ -290,7 +253,7 @@ impl Accounts {
         let person = key(person);
         let mut f = self.failures.lock().unwrap();
         for c in [person.clone(), Self::network_counter(&person), Self::local_counter(&person), Self::console_counter(&person), Self::backup_counter(&person)] {
-            f.remove(&key(&c));
+            f.clear(&key(&c));
         }
     }
 
@@ -464,6 +427,7 @@ mod tests {
     use super::super::tests::{cfg, db};
     use super::*;
     use crate::identity::{Begun, Rights};
+    use chrono::Duration;
 
     const RIGHT: &str = "ada-right-password";
     const WRONG: &str = "not-the-password";
@@ -564,7 +528,7 @@ mod tests {
     }
 
     fn count(a: &Accounts, counter: &str) -> u32 {
-        a.failures.lock().unwrap().get(counter).map_or(0, |f| f.n)
+        a.failures.lock().unwrap().count(counter)
     }
 
     fn keeper(provider: Option<Answer>, known: bool, backup_allowed: bool) -> Keeper {
@@ -626,7 +590,7 @@ mod tests {
             row("backup for someone else", Some(down), ours, ("ada", RIGHT, Fresh, ThisMachine), Is::Wrong, &[("backup:ada", 0)]),
         ];
         for r in rows {
-            a.failures.lock().unwrap().clear();
+            a.failures.lock().unwrap().clear_all();
             let k = keeper(r.provider, r.known, r.backup_allowed);
             let got = attempt(&a, &k, r.person, r.password, r.machine, r.via).await;
             assert_eq!(is(&got), r.expect, "{}", r.what);
@@ -652,7 +616,7 @@ mod tests {
         a.set_policy(p).await.unwrap();
         let cases: [(&str, Option<Answer>, Option<Answer>); 2] = [("provider", Some(refused), Some(up_ada)), ("store", None, None)];
         for (what, wrong, right) in cases {
-            a.failures.lock().unwrap().clear();
+            a.failures.lock().unwrap().clear_all();
             let (wrong, right) = (keeper(wrong, true, false), keeper(right, true, false));
             for n in 1..3 {
                 assert_eq!(is(&attempt(&a, &wrong, "ada", WRONG, Machine::None, Via::Network).await), Is::Wrong, "{what}: wrong {n}");
@@ -663,7 +627,7 @@ mod tests {
             assert!(later > first, "{what}: a locked attempt did not extend the lock: {first} to {later}");
             assert!(later - Utc::now() <= Duration::minutes(6), "{what}: the lock passed the longest wait: {later}");
             assert_eq!(is(&attempt(&a, &right, "ada", RIGHT, Machine::None, Via::ThisMachine).await), Is::Yes, "{what}: the network's lock held this machine");
-            a.failures.lock().unwrap().get_mut("net:ada").unwrap().until = Some(Utc::now() - Duration::seconds(1));
+            a.failures.lock().unwrap().set_until("net:ada", Utc::now() - Duration::seconds(1));
             assert_eq!(is(&attempt(&a, &right, "ada", RIGHT, Machine::None, Via::Network).await), Is::Yes, "{what}: a lapsed lock still refused");
             assert_eq!(count(&a, "net:ada"), 0, "{what}: the right password did not clear the counter");
         }

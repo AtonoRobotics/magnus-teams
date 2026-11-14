@@ -28,6 +28,7 @@ use std::time::Instant;
 use tokio_postgres::Client;
 mod check;
 mod directory;
+mod lockout;
 mod password;
 mod phc;
 pub use check::{Attempt, Checked, Keeper, Via};
@@ -179,10 +180,6 @@ pub struct ResetRequest {
     pub token: String,
     pub send: bool,
 }
-
-/// How long a permanent lockout is recorded for: nobody's lock outlives
-/// the century, and an admin's enable clears it anyway.
-const PERMANENT_YEARS: i64 = 100;
 
 /// How long the directory cache serves before a call refreshes it.
 const LOCAL_TTL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -370,22 +367,13 @@ pub struct Accounts {
     client: tokio::sync::Mutex<Option<Client>>,
     /// Failed attempts per counter. In memory, as before: a restart
     /// forgives guesses in flight.
-    failures: Mutex<BTreeMap<String, Failures>>,
+    failures: Mutex<lockout::Lockout>,
     /// The directory (id to record) and when it was read. See the module docs.
     local: Mutex<(Instant, BTreeMap<String, LocalPerson>)>,
     /// The sign-in rules and when they were read. Async auth entries
     /// refresh them from the store first, so a changed rule bites at
     /// once; per-request session checks serve the cache within its TTL.
     policy: Mutex<(Instant, Policy)>,
-}
-
-/// Wrong passwords on one counter: how many, since when, and until when
-/// the counter stays locked, if it does.
-#[derive(Clone, Copy, Debug)]
-struct Failures {
-    n: u32,
-    first: DateTime<Utc>,
-    until: Option<DateTime<Utc>>,
 }
 
 fn token_hash(token: &str) -> String {
@@ -437,7 +425,7 @@ impl Accounts {
             cfg,
             url: db_url.into(),
             client: tokio::sync::Mutex::new(Some(client)),
-            failures: Mutex::new(BTreeMap::new()),
+            failures: Mutex::new(lockout::Lockout::default()),
             local: Mutex::new((Instant::now(), local)),
             policy: Mutex::new((Instant::now(), policy)),
         })
