@@ -13,6 +13,7 @@ use crate::api::{err, internal, who};
 use crate::config::Connector;
 use crate::connectors::{suggested_risk, title, Refusal};
 use crate::events::Ev;
+use crate::extract::Developer;
 use crate::kernel::{new_id, Kernel};
 use crate::state::Item;
 use crate::tool_gate::Change;
@@ -263,11 +264,7 @@ async fn accept(AxState(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): 
 
 /// Every tool definition screened lately, newest first, with what the
 /// screen found (developer view).
-async fn screens(AxState(k): K, h: HeaderMap) -> Response {
-    let p = match crate::api::developer(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn screens(AxState(k): K, Developer(p): Developer) -> Response {
     // A screen made in someone's run is shown as that person allows; one
     // made on connecting concerns the app's own descriptions.
     let lens = k.lens(&p);

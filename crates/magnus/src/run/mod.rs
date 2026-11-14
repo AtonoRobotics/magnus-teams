@@ -21,7 +21,7 @@ use anyhow::Result;
 use magnus_adapter_proto::{Block, Message, Role, ToolSpec};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Both prompts end with Magnus's character (`instructions/character.md`;
 /// DECISIONS.md, "Identity and characters"): every run speaks in it, on

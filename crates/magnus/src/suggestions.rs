@@ -184,7 +184,7 @@ pub(crate) fn timing(input: &Value, min_every: u32) -> Result<Option<((Option<u3
     if !["every_minutes", "daily_at", "until", "max_runs"].iter().any(|k| given(&input[*k])) {
         return Ok(None);
     }
-    let rule = crate::api::rule_for(input, min_every).map_err(|m| format!("{m}. A retry with the same values will not help."))?;
+    let rule = crate::cadence::rule_of(input, min_every).map_err(|m| format!("{m}. A retry with the same values will not help."))?;
     let end = crate::api::end_for(input).map_err(|m| format!("{m}. A retry with the same values will not help."))?;
     Ok(Some((rule, end)))
 }

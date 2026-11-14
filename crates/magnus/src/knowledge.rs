@@ -15,14 +15,15 @@
 //! does for a typed value (a number, yes or no, one of named options) that a
 //! model with no tools read from the entry's sources.
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
 use crate::config::Person;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
 use crate::state::{KnowledgeEntry, Run};
 use anyhow::{Context, Result};
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -631,11 +632,7 @@ struct Q {
 }
 
 /// What the person may read: matches for `q`, or the latest entries.
-async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap, Query(q): Query<Q>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn list(State(k): State<Arc<Kernel>>, Caller(p): Caller, Query(q): Query<Q>) -> Response {
     match k.knowledge_for(&p, &q.q).await {
         Ok(entries) => Json(json!({ "entries": entries })).into_response(),
         Err(e) => internal(e),
@@ -645,11 +642,7 @@ async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap, Query(q): Query<Q>) ->
 /// A person writes an entry. From someone with the role it is a company
 /// fact; from anyone else it is untrusted until endorsed. It is readable by
 /// the author, by the groups named, or by everyone.
-async fn add(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn add(State(k): State<Arc<Kernel>>, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let (title, text) = (b["title"].as_str().map(str::trim).unwrap_or_default(), b["text"].as_str().map(str::trim).unwrap_or_default());
     if title.is_empty() || text.is_empty() {
         return err(StatusCode::BAD_REQUEST, "an entry needs a title and its text");
@@ -695,11 +688,7 @@ async fn add(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Value>) -
 
 /// Ask the people with the role to make an entry a company fact. Anyone who
 /// may read it may ask.
-async fn request_endorsement(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn request_endorsement(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>) -> Response {
     let Some(e) = k.read(|s| s.knowledge.get(&id).cloned()).filter(|e| can_read(&p, &e.readers)) else {
         return err(StatusCode::NOT_FOUND, "no such entry");
     };
@@ -715,11 +704,7 @@ async fn request_endorsement(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id
 /// A reader shares an entry with groups or everyone (#299): widening only,
 /// recorded as theirs. Anyone who may read it may share it, after seeing
 /// its text.
-async fn share(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn share(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
     let Some(e) = k.read(|s| s.knowledge.get(&id).cloned()).filter(|e| can_read(&p, &e.readers)) else {
         return err(StatusCode::NOT_FOUND, "no such entry");
     };

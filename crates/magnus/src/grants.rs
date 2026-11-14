@@ -21,15 +21,16 @@
 //! organisation's policy forbids never reaches the question. Each covered
 //! action is a `grant_used` event, listed under its grant.
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::state::{Grant, State as Projection};
 use crate::tools::Label;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
@@ -315,30 +316,18 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 /// The person's own grants: no one else's, whoever asks, the owner too.
-async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn list(State(k): State<Arc<Kernel>>, Caller(p): Caller) -> Response {
     match k.grants_json(&p.id).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => internal(e),
     }
 }
 
-async fn edit(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn edit(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
     answered(k.edit_grant(&p, &id, &b).await)
 }
 
-async fn revoke(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn revoke(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.revoke_grant(&p, &id).await)
 }
 

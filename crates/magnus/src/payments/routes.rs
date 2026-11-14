@@ -1,9 +1,10 @@
 //! Connecting Link and keeping a saved card, from the person's own settings.
 use super::{link, Card};
-use crate::api::{err, who};
+use crate::api::err;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
@@ -46,22 +47,14 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/payments/card", put(save_card).delete(remove_card))
 }
 
-async fn state(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn state(State(k): K, Caller(p): Caller) -> Response {
     let Some(settings) = k.cfg.payments.as_ref() else { return Json(json!({ "available": false })).into_response() };
     let card = k.vault.get(&super::card_name(&p.id)).ok().flatten().and_then(|raw| serde_json::from_str::<Card>(raw.expose()).ok());
     let last4 = card.map(|c| c.number.chars().skip(c.number.chars().count().saturating_sub(4)).collect::<String>());
     Json(json!({ "available": true, "link_offered": settings.link.is_some(), "link_connected": link::connected(&k, &p.id), "card_last4": last4 })).into_response()
 }
 
-async fn connect(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn connect(State(k): K, Caller(p): Caller) -> Response {
     let Some(s) = k.cfg.payments.as_ref().and_then(|c| c.link.as_ref()) else { return err(StatusCode::CONFLICT, "Link is not set up on this server") };
     let (state, verifier) = (random(), random());
     let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
@@ -100,11 +93,7 @@ async fn callback(State(k): K, Query(back): Query<Returned>) -> Response {
     }
 }
 
-async fn disconnect(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn disconnect(State(k): K, Caller(p): Caller) -> Response {
     let Some(s) = k.cfg.payments.as_ref().and_then(|c| c.link.as_ref()) else { return err(StatusCode::CONFLICT, "Link is not set up on this server") };
     match link::revoke(&k, s, &p.id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -129,11 +118,7 @@ fn card_from(b: &Value) -> Result<Card, &'static str> {
     Ok(Card { number, cvc, exp_month: exp_month as u32, exp_year: exp_year as u32, name: text("name"), postal_code: text("postal_code") })
 }
 
-async fn save_card(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn save_card(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     if k.cfg.payments.is_none() {
         return err(StatusCode::CONFLICT, "payments are not set up on this server");
     }
@@ -148,11 +133,7 @@ async fn save_card(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response 
     }
 }
 
-async fn remove_card(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn remove_card(State(k): K, Caller(p): Caller) -> Response {
     match k.vault.remove(&super::card_name(&p.id)) {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),

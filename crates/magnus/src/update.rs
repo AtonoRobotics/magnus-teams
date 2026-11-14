@@ -28,8 +28,10 @@
 //! everyone else's production, and production's build only while the
 //! app's channel has none. An app only ever moves forward.
 
+use crate::api_error::{refuse, ApiResult};
 use crate::config::Config;
 use crate::events::Ev;
+use crate::extract::Owner;
 use crate::kernel::Kernel;
 use crate::state::Status;
 use anyhow::{bail, Context, Result};
@@ -487,7 +489,7 @@ pub fn previous_version() -> Option<String> {
     install_dir().ok().and_then(|d| std::fs::read_to_string(sibling(&d, ".prev").join("VERSION")).ok()).map(|v| v.trim().to_string())
 }
 
-use crate::api::{err, internal, owner, Transport};
+use crate::api::{err, internal, Transport};
 use axum::{
     extract::{Path as UrlPath, Request, State as AxState},
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -546,14 +548,11 @@ pub fn unversioned_app(h: &HeaderMap) -> Option<Response> {
     )
 }
 
-async fn status(AxState(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
+async fn status(AxState(k): K, _: Owner) -> ApiResult {
     let latest = k.latest_release().map(|m| json!({ "version": m["version"], "notes": m["notes"] }));
     let prev = install_dir().ok().and_then(|d| std::fs::read_to_string(sibling(&d, ".prev").join("VERSION")).ok()).map(|v| v.trim().to_string());
     let (updating, last, skipped) = k.read(|s| (s.updating.clone(), s.last_update.clone(), s.skipped_releases.clone()));
-    Json(json!({
+    Ok(Json(json!({
         "version": version(),
         "min_app": MIN_APP,
         "automatic": k.cfg.updates.automatic,
@@ -563,18 +562,14 @@ async fn status(AxState(k): K, h: HeaderMap) -> Response {
         "skipped": skipped,
         "previous": prev,
     }))
-    .into_response()
+    .into_response())
 }
 
 /// Install the latest release now. The switch happens after the answer.
-async fn check_now(AxState(k): K, h: HeaderMap) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn check_now(AxState(k): K, Owner(p): Owner) -> ApiResult {
     let current = version();
     let to = k.latest_release().and_then(|m| m["version"].as_str().map(String::from));
-    match to {
+    Ok(match to {
         Some(to) if newer(&to, &current) && !k.read(|s| s.skipped_releases.contains(&to)) => {
             let actor = format!("person:{}", p.id);
             tokio::spawn(async move {
@@ -585,16 +580,12 @@ async fn check_now(AxState(k): K, h: HeaderMap) -> Response {
             (StatusCode::ACCEPTED, Json(json!({ "status": "installing", "version": current, "latest": to }))).into_response()
         }
         to => Json(json!({ "status": "up_to_date", "version": current, "latest": to })).into_response(),
-    }
+    })
 }
 
-async fn roll_back(AxState(k): K, h: HeaderMap) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn roll_back(AxState(k): K, Owner(p): Owner) -> ApiResult {
     let Some(to) = install_dir().ok().and_then(|d| std::fs::read_to_string(sibling(&d, ".prev").join("VERSION")).ok()) else {
-        return err(StatusCode::CONFLICT, "no earlier release is kept on this server");
+        return refuse(StatusCode::CONFLICT, "no earlier release is kept on this server");
     };
     let actor = format!("person:{}", p.id);
     tokio::spawn(async move {
@@ -602,43 +593,43 @@ async fn roll_back(AxState(k): K, h: HeaderMap) -> Response {
             tracing::error!("roll back: {e:#}");
         }
     });
-    (StatusCode::ACCEPTED, Json(json!({ "status": "rolling_back", "version": version(), "to": to.trim() }))).into_response()
+    Ok((StatusCode::ACCEPTED, Json(json!({ "status": "rolling_back", "version": version(), "to": to.trim() }))).into_response())
 }
 
 /// The apps ask with their session if they have one; without, an app too old
 /// to sign in can still update. The appliance decides the channel.
-async fn desktop_latest(AxState(k): K, Extension(t): Extension<Transport>, h: HeaderMap) -> Response {
+async fn desktop_latest(AxState(k): K, Extension(t): Extension<Transport>, h: HeaderMap) -> ApiResult {
     let Some(channel) = assigned_channel(&k, &h).await else {
-        return StatusCode::NO_CONTENT.into_response();
+        return Ok(StatusCode::NO_CONTENT.into_response());
     };
     let Some(host) = h.get("host").and_then(|v| v.to_str().ok()) else {
-        return err(StatusCode::BAD_REQUEST, "no host");
+        return refuse(StatusCode::BAD_REQUEST, "no host");
     };
     let scheme = if t == Transport::Tls { "https" } else { "http" };
-    match desktop_manifest(&k.cfg, &format!("{scheme}://{host}"), channel) {
+    Ok(match desktop_manifest(&k.cfg, &format!("{scheme}://{host}"), channel) {
         Some(m) => Json(m).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
-    }
+    })
 }
 
 /// Production's packages, at the address apps before channels were given.
-async fn production_file(k: K, h: HeaderMap, UrlPath(name): UrlPath<String>) -> Response {
+async fn production_file(k: K, h: HeaderMap, UrlPath(name): UrlPath<String>) -> ApiResult {
     desktop_file(k, h, UrlPath(("production".into(), name))).await
 }
 
 /// A channel's package. Production's are anyone's; development's and test's
 /// only the apps given that channel (the updater asks for the package with
 /// the session it asked for the manifest with).
-async fn desktop_file(AxState(k): K, h: HeaderMap, UrlPath((channel, name)): UrlPath<(String, String)>) -> Response {
+async fn desktop_file(AxState(k): K, h: HeaderMap, UrlPath((channel, name)): UrlPath<(String, String)>) -> ApiResult {
     if !CHANNELS.contains(&channel.as_str()) || name.contains('/') || name.contains("..") || name == "latest.json" {
-        return err(StatusCode::NOT_FOUND, "no such file");
+        return refuse(StatusCode::NOT_FOUND, "no such file");
     }
     if channel != "production" && assigned_channel(&k, &h).await != Some(channel.as_str()) {
-        return err(StatusCode::NOT_FOUND, "no such file");
+        return refuse(StatusCode::NOT_FOUND, "no such file");
     }
-    match tokio::fs::read(channel_dir(&k.cfg, &channel).join(&name)).await {
+    Ok(match tokio::fs::read(channel_dir(&k.cfg, &channel).join(&name)).await {
         Ok(b) => ([("content-type", "application/octet-stream")], b).into_response(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => err(StatusCode::NOT_FOUND, "no such file"),
         Err(e) => internal(e.into()),
-    }
+    })
 }

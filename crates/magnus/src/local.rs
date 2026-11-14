@@ -2,14 +2,15 @@
 //! over a long poll, so with no connection there is nothing to run on. The
 //! server refuses what it can tell is out of bounds; the machine refuses the
 //! rest, because only the machine can see its symlinks.
-use crate::api::{err, who};
+use crate::api::err;
 use crate::boundary::{Action, Facts};
 use crate::config::Person;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::tools::{obj, Audience, Builtin, Label, Risk};
 use anyhow::{Context, Result};
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -379,11 +380,7 @@ pub(crate) fn mine(k: &Kernel, person: &str, id: &str) -> Option<Computer> {
     k.read(|s| s.local.of(person)).into_iter().find(|c| c.id == id)
 }
 
-async fn list(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn list(State(k): K, Caller(p): Caller) -> Response {
     // What holds on each, after the admin's and the teams' ceilings, so the
     // person sees when theirs is made stricter (spec, Work on the user's desktop: Modes).
     let ceiling = k.local_ceiling(&p.id);
@@ -395,11 +392,7 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
     Json(view).into_response()
 }
 
-async fn connect(State(k): K, h: HeaderMap, Json(b): Json<Connect>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn connect(State(k): K, Caller(p): Caller, Json(b): Json<Connect>) -> Response {
     if b.name.trim().is_empty() || b.name.chars().count() > MAX_NAME_CHARS {
         return err(StatusCode::BAD_REQUEST, "a computer needs a short name");
     }
@@ -415,11 +408,7 @@ async fn connect(State(k): K, h: HeaderMap, Json(b): Json<Connect>) -> Response 
     }
 }
 
-async fn disconnect(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn disconnect(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     let Some(mut c) = mine(&k, &p.id, &id) else { return err(StatusCode::NOT_FOUND, "no such computer") };
     c.removed = true;
     match k.emit(&format!("person:{}", p.id), crate::events::Ev::LocalComputer(c)).await {
@@ -434,11 +423,7 @@ struct Poll {
     active: bool,
 }
 
-async fn next(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<Poll>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn next(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<Poll>) -> Response {
     if mine(&k, &p.id, &id).is_none() {
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
@@ -473,11 +458,7 @@ struct Done {
     busy: bool,
 }
 
-async fn result(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Done>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn result(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Done>) -> Response {
     if mine(&k, &p.id, &id).is_none() {
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
@@ -500,11 +481,7 @@ async fn result(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json
 }
 
 /// "Go ahead": the agent carries on though the person is at the machine.
-async fn resume(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn resume(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     if mine(&k, &p.id, &id).is_none() {
         return err(StatusCode::NOT_FOUND, "no such computer");
     }
