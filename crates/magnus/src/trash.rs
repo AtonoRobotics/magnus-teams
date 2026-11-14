@@ -139,7 +139,7 @@ pub fn schedule(k: Arc<Kernel>) {
             if let Err(e) = k.purge_trash().await {
                 tracing::error!("emptying the trash: {e:#}");
             }
-            if k.read(|s| s.scrub_pending.is_some()) {
+            if k.read(|s| s.server_ops.scrub_pending().is_some()) {
                 if let Err(e) = k.scrub_backups().await {
                     tracing::error!("taking removed content out of the backups: {e:#}");
                 }

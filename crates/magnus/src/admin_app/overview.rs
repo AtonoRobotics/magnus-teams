@@ -37,7 +37,8 @@ pub fn alerts(o: &Value, k: &Kernel, disk: Option<f64>, capacity: &Value) -> Vec
     if o["kill_switch"] == true {
         out.push(alert("The kill switch is on: every agent is stopped.".into(), "overview"));
     }
-    let (backup, copy, scrub, update) = k.read(|s| (s.last_backup.clone(), s.last_copy.clone(), s.scrub_pending.clone(), s.last_update.clone()));
+    let (backup, copy, scrub, update) =
+        k.read(|s| (s.server_ops.last_backup().cloned(), s.server_ops.last_copy().cloned(), s.server_ops.scrub_pending().cloned(), s.server_ops.last_update().cloned()));
     if let Some((file, false, detail, _)) = backup {
         out.push(alert(format!("The latest backup ({file}) did not restore: {detail}"), "operations"));
     }

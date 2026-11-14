@@ -787,7 +787,7 @@ async fn install_update(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> R
     let current = crate::update::version();
     let to = k.latest_release().and_then(|m| m["version"].as_str().map(String::from));
     match to {
-        Some(to) if crate::update::newer(&to, &current) && !k.read(|s| s.skipped_releases.contains(&to)) => {
+        Some(to) if crate::update::newer(&to, &current) && !k.read(|s| s.server_ops.skipped(&to)) => {
             tokio::spawn(async move {
                 if let Err(e) = k.update(&actor).await {
                     tracing::error!("update: {e:#}");

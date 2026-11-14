@@ -172,7 +172,8 @@ impl Kernel {
     pub fn admin_updates(&self) -> Value {
         let latest = self.latest_release().map(|m| json!({ "version": m["version"], "notes": m["notes"] }));
         let prev = crate::update::previous_version();
-        let (updating, last, skipped, channel) = self.read(|s| (s.updating.clone(), s.last_update.clone(), s.skipped_releases.clone(), s.desktop_channel.clone()));
+        let (updating, last, skipped, channel) =
+            self.read(|s| (s.server_ops.updating().cloned(), s.server_ops.last_update().cloned(), s.server_ops.skipped_releases().clone(), s.desktop_channel.clone()));
         let channels: Vec<Value> = crate::update::CHANNELS
             .iter()
             .map(|c| {

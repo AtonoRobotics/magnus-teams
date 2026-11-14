@@ -246,7 +246,7 @@ impl Kernel {
                 self.emit("kernel", Ev::UpdateFinished { from, to }).await?;
             }
             std::fs::remove_file(pending_path(&self.cfg))?;
-        } else if let Some((_, to, _)) = self.read(|s| s.updating.clone()) {
+        } else if let Some((_, to, _)) = self.read(|s| s.server_ops.updating().cloned()) {
             // Stopped between suspending the tasks and the switch.
             self.emit("kernel", Ev::UpdateFailed { to, reason: "the server stopped before the switch".into() }).await?;
         }
@@ -279,7 +279,7 @@ impl Kernel {
             return Ok(json!({ "status": "up_to_date", "version": current }));
         };
         let to = m["version"].as_str().unwrap_or_default().to_string();
-        if !newer(&to, &current) || self.read(|s| s.skipped_releases.contains(&to)) {
+        if !newer(&to, &current) || self.read(|s| s.server_ops.skipped(&to)) {
             return Ok(json!({ "status": "up_to_date", "version": current, "latest": to }));
         }
         let new = match self.prepare(&m, &to).await {
@@ -558,7 +558,7 @@ async fn status(AxState(k): K, h: HeaderMap) -> Response {
     }
     let latest = k.latest_release().map(|m| json!({ "version": m["version"], "notes": m["notes"] }));
     let prev = install_dir().ok().and_then(|d| std::fs::read_to_string(sibling(&d, ".prev").join("VERSION")).ok()).map(|v| v.trim().to_string());
-    let (updating, last, skipped) = k.read(|s| (s.updating.clone(), s.last_update.clone(), s.skipped_releases.clone()));
+    let (updating, last, skipped) = k.read(|s| (s.server_ops.updating().cloned(), s.server_ops.last_update().cloned(), s.server_ops.skipped_releases().clone()));
     Json(json!({
         "version": version(),
         "min_app": MIN_APP,
@@ -581,7 +581,7 @@ async fn check_now(AxState(k): K, h: HeaderMap) -> Response {
     let current = version();
     let to = k.latest_release().and_then(|m| m["version"].as_str().map(String::from));
     match to {
-        Some(to) if newer(&to, &current) && !k.read(|s| s.skipped_releases.contains(&to)) => {
+        Some(to) if newer(&to, &current) && !k.read(|s| s.server_ops.skipped(&to)) => {
             let actor = format!("person:{}", p.id);
             tokio::spawn(async move {
                 if let Err(e) = k.update(&actor).await {

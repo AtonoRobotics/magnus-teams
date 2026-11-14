@@ -97,6 +97,7 @@ impl State {
             push,
             halts,
             watch,
+            server_ops,
             tools,
             spend,
             catalog,
@@ -155,12 +156,6 @@ impl State {
             policies: _,
             policy_history: _,
             policy_drafts: _,
-            last_backup: _,
-            last_copy: _,
-            scrub_pending: _,
-            updating: _,
-            last_update: _,
-            skipped_releases: _,
             connectors: _,
             registrations: _,
             connector_settings: _,
@@ -182,8 +177,8 @@ impl State {
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 16] =
-            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, tools, spend, catalog];
+        let parts: [&mut dyn Forget; 17] =
+            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, server_ops, tools, spend, catalog];
         for part in parts {
             part.forget(&who);
         }

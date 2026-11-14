@@ -259,7 +259,7 @@ impl Kernel {
             if let Err(e) = self.scrub_backups().await {
                 tracing::error!("erasing {person}: their content is still in backups: {e:#}");
                 out["erasure"] = json!("incomplete");
-                out["backups_pending"] = json!(self.read(|s| s.scrub_pending.as_ref().map(|p| p.files.clone())).unwrap_or_default());
+                out["backups_pending"] = json!(self.read(|s| s.server_ops.scrub_pending().map(|p| p.files.clone())).unwrap_or_default());
                 out["detail"] = json!(format!("their content is still in backups, which are rewritten without it at the next try (hourly, and at start): {e:#}"));
             }
         }

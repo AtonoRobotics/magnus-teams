@@ -159,13 +159,8 @@ fn replayed() -> State {
 fn fields(s: &State) -> Vec<(&'static str, String)> {
     let d = |v: &dyn std::fmt::Debug| format!("{v:?}");
     let mut v = s.watch.canonical_fields();
+    v.extend(s.server_ops.canonical_fields());
     v.extend([
-        ("updating", d(&s.updating)),
-        ("last_update", d(&s.last_update)),
-        ("skipped_releases", d(&s.skipped_releases)),
-        ("last_backup", d(&s.last_backup)),
-        ("last_copy", d(&s.last_copy)),
-        ("scrub_pending", d(&s.scrub_pending)),
         ("erasures", d(&s.erasures)),
         ("secrets", d(&s.secrets)),
         ("revoked", d(&s.revoked)),
