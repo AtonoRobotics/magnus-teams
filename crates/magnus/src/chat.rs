@@ -6,7 +6,7 @@
 //! their results, and the schedule cards with what the person decided.
 
 use crate::boundary::Action;
-use crate::chat_entry::{ChatEntry, EntryFile, May, TaskRow};
+use crate::chat_thread::{Entry, Kind};
 use crate::events::{ChatOrigin, Ev};
 use crate::kernel::{new_id, Kernel, NewRun};
 use crate::state::{Run, Status, Task};
@@ -14,7 +14,6 @@ use crate::tools::Label;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
-use std::collections::HashSet;
 use std::sync::Arc;
 
 /// An id fixed by the action's idempotency key, so a call resent after a
@@ -139,228 +138,13 @@ impl Kernel {
         let entries = self.entries_with(person, thread, &Default::default()).unwrap_or_default();
         entries
             .iter()
-            .filter(|e| e["task_id"] == turn && e["state"] == "open" && e["kind"] == "suggestion_card")
-            .map(|e| json!({ "card": e["card"], "kind": e["kind"], "title": e["title"].as_str().filter(|t| !t.is_empty()).or(e["text"].as_str()) }))
+            .filter(|e| e.kind == Kind::SuggestionCard && e.task_id.as_deref() == Some(turn))
+            .filter_map(|e| e.card_data().filter(|d| d.get("state").is_some_and(|s| s == "open")))
+            .map(|d| {
+                let s = |k: &str| d.get(k).and_then(Value::as_str);
+                json!({ "card": d.get("card"), "kind": Kind::SuggestionCard, "title": s("title").filter(|t| !t.is_empty()).or(s("text")) })
+            })
             .collect()
-    }
-
-    /// A conversation in the trash or removed from it. The tasks it started
-    /// stay, and name it still.
-    fn thread_gone(&self, thread: &str) -> bool {
-        self.read(|s| s.trash.contains_key(thread) || s.removed_threads.contains(thread))
-    }
-
-    /// A thread's turns and tasks, in the order they were created.
-    fn thread(&self, person: &str, thread: &str) -> Vec<(Task, Run)> {
-        let mut v: Vec<(Task, Run)> = self.read(|s| {
-            s.tasks
-                .values()
-                .filter(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.thread == thread))
-                .filter_map(|t| s.runs.get(&t.run_id).map(|r| (t.clone(), r.clone())))
-                .collect()
-        });
-        v.sort_by_key(|(t, _)| t.created_at);
-        v
-    }
-
-    /// The thread as the person sees it, from the log.
-    /// Each entry has an `id`, which the message actions name; entries the
-    /// person deleted (in the trash or removed from it) or replaced are left out.
-    /// What the person said in it is recalled for them.
-    pub async fn thread_entries(&self, person: &str, thread: &str) -> anyhow::Result<Option<Vec<Value>>> {
-        if self.thread_gone(thread) {
-            return Ok(None);
-        }
-        let w = self.person_words(person).await?;
-        Ok(self.entries_with(person, thread, &w))
-    }
-
-    fn entries_with(&self, person: &str, thread: &str, w: &crate::recall::Words) -> Option<Vec<Value>> {
-        let runs = self.thread(person, thread);
-        let branch = self.read(|s| s.thread_extras.branches().get(thread).filter(|b| b.person == person).cloned());
-        if runs.is_empty() && branch.is_none() {
-            return None;
-        }
-        let mut out: Vec<(DateTime<Utc>, i64, Value)> = vec![];
-        // A branch starts with the conversation it was made from, as it was then.
-        for (n, e) in branch.iter().flat_map(|b| b.entries.iter()).enumerate() {
-            let mut e = e.clone();
-            e["copied"] = json!(true);
-            let at = e["at"].as_str().and_then(|a| a.parse::<DateTime<Utc>>().ok()).unwrap_or(branch.as_ref().unwrap().at);
-            out.push((at, n as i64 - i64::MAX / 2, e));
-        }
-        // The tasks one message started, as one card in the order they began.
-        let mut started: std::collections::BTreeMap<String, (DateTime<Utc>, Vec<TaskRow>)> = Default::default();
-        // A task's result follows the reply of the message that started it, even when the task finished first.
-        let answered: std::collections::HashMap<String, DateTime<Utc>> =
-            runs.iter().filter(|(t, _)| t.is_chat_turn()).filter_map(|(_, r)| r.ended_at.map(|e| (r.id.clone(), e))).collect();
-        for (t, r) in &runs {
-            let turn = t.is_chat_turn();
-            let status = crate::api::status_str(r.status);
-            if let Some(o) = t.chat.as_ref().and_then(|c| c.opener.as_deref()).filter(|_| turn) {
-                // Magnus opened it: the appliance's instruction is not shown as anyone's message.
-                let e = ChatEntry {
-                    id: format!("m:{}", t.task_id),
-                    kind: "opener",
-                    app: o.app.clone(),
-                    app_title: o.app_title.clone(),
-                    text: crate::openers::title(o),
-                    at: Some(t.created_at),
-                    task_id: Some(t.task_id.clone()),
-                    ..Default::default()
-                };
-                out.push((t.created_at, 0, e.value()));
-            } else if turn && self.read(|s| s.outcomes.of(&t.task_id).is_none()) {
-                // An outcome turn's text is the server's: the result above it shows instead.
-                let files: Vec<EntryFile> = self.read(|s| {
-                    t.files
-                        .iter()
-                        .filter_map(|id| s.files.get(id))
-                        .map(|f| EntryFile { id: f.id.clone(), name: f.name.clone(), media_type: Some(f.media_type.clone()), size: Some(f.size) })
-                        .collect()
-                });
-                let e = ChatEntry {
-                    id: format!("m:{}", t.task_id),
-                    kind: "message",
-                    text: w.text(t.seq).to_string(),
-                    at: Some(t.created_at),
-                    task_id: Some(t.task_id.clone()),
-                    files: Some(files),
-                    ..Default::default()
-                };
-                out.push((t.created_at, 0, e.value()));
-            }
-            if turn {
-                let mut cards: Vec<_> = r.results.values().filter_map(|res| res.data.as_ref().filter(|d| d["card"].is_string()).map(|d| (res.seq, d.clone()))).collect();
-                cards.sort_by_key(|(seq, _)| *seq);
-                for (seq, d) in cards {
-                    let card = d["card"].as_str().unwrap_or_default().to_string();
-                    // An app's card: the app as the person stands with it now.
-                    if d["connector"].is_string() {
-                        let mut e = self.offered_card(person, &d);
-                        e["id"] = json!(format!("c:{card}"));
-                        e["task_id"] = json!(t.task_id);
-                        out.push((t.created_at, seq, e));
-                        continue;
-                    }
-                    // Its answer: the schedule or task it made, or the reason it was declined.
-                    let (state, made) = crate::suggestions::state_of(self.read(|s| s.cards.get(&card).cloned()).as_ref());
-                    let mut e = d.clone();
-                    e["id"] = json!(format!("c:{card}"));
-                    e["task_id"] = json!(t.task_id);
-                    e["kind"] = json!(card_kind(&d, state));
-                    if d["proposal"] == true {
-                        // A task proposal recorded before rev 140 reads as a suggestion.
-                        e["plan"] = d["text"].clone();
-                        e["permissions"] = d["needs"]["permissions"].clone();
-                    }
-                    e["state"] = json!(state);
-                    e["schedule"] = made["schedule"].clone();
-                    e["started"] = made["started"].clone();
-                    e["reason"] = made["reason"].clone();
-                    // The grant it set, when accepted (#235).
-                    e["granted"] = made["granted"].clone();
-                    if d["proposal"] == true || d["grant"] == true {
-                        if let Some(g) = self.read(|s| s.grants.values().find(|g| g.card.as_deref() == Some(card.as_str())).map(|g| g.id.clone())) {
-                            e["granted"] = json!(g);
-                        }
-                        // What a grant form offers: the person's apps.
-                        if state == "open" && d["grant"] == true {
-                            e["your_apps"] = self.grant_apps(person);
-                        }
-                    }
-                    e["acts_for"] = json!(t.person);
-                    e["taint"] = json!({ "untrusted": r.untrusted, "private": r.private });
-                    out.push((t.created_at, seq, e));
-                }
-                out.extend(self.sub_agents_entry(t, r, w));
-                match r.status {
-                    Status::Completed => {
-                        let e = ChatEntry {
-                            id: format!("a:{}", t.task_id),
-                            kind: "answer",
-                            text: self.read(|s| crate::ui::docs::current_text(s, &t.person, &r.summary)).unwrap_or_default(),
-                            view: r.outcome_view.clone(),
-                            spoken: r.spoken.clone(),
-                            at: r.ended_at,
-                            task_id: Some(t.task_id.clone()),
-                            model: Some(json!({ "adapter": r.config.adapter, "model": r.config.model })),
-                            verdict: t.verdict.as_ref().map(|v| json!(v)),
-                            ..Default::default()
-                        };
-                        out.push((r.ended_at.unwrap_or(t.created_at), i64::MAX, e.value()))
-                    }
-                    _ => out.push((
-                        r.ended_at.unwrap_or(t.created_at),
-                        i64::MAX,
-                        json!({ "id": format!("a:{}", t.task_id), "kind": "turn", "status": status, "waiting_on": r.reason, "waiting_item": r.waiting_item, "text": r.summary, "task_id": t.task_id, "at": r.ended_at }),
-                    )),
-                }
-            } else {
-                let title = crate::api::title_of(t, Some(r), w);
-                let from = t.chat.as_ref().and_then(|c| c.from_run.clone()).unwrap_or_else(|| t.task_id.clone());
-                let e = started.entry(from).or_insert((t.created_at, vec![]));
-                e.1.push(TaskRow {
-                    task_id: t.task_id.clone(),
-                    title: title.clone(),
-                    text: w.text(t.seq).to_string(),
-                    status: r.status,
-                    waiting_on: r.reason.clone(),
-                    waiting_item: r.waiting_item.clone(),
-                    status_line: crate::evidence::status_line(r),
-                    requester: None,
-                    steps: None,
-                    doing: None,
-                    long: None,
-                    thread: None,
-                    started: None,
-                });
-                if let Some(end) = r.ended_at {
-                    let after = t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| answered.get(f)).map_or(end, |a| end.max(*a));
-                    let files: Vec<Value> = r.outputs.iter().map(|(id, name, mt, size)| json!({ "id": id, "name": name, "media_type": mt, "size": size })).collect();
-                    out.push((after, i64::MAX, json!({ "id": format!("r:{}", t.task_id), "kind": "result", "task_id": t.task_id, "title": title, "text": w.text(t.seq), "status": status, "summary": r.summary, "view": r.outcome_view, "at": end, "files": files, "verdict": t.verdict, "evidence": self.evidence_of(r) })));
-                }
-            }
-        }
-        for (from, (at, tasks)) in started {
-            let e = ChatEntry { id: format!("t:{from}"), kind: "tasks", at: Some(at), from_run: Some(from), tasks: Some(tasks), ..Default::default() };
-            out.push((at, 1, e.value()));
-        }
-        out.sort_by_key(|x| (x.0, x.1));
-        let (hidden, trashed) = self.read(|s| {
-            (
-                s.thread_extras.hidden(thread).cloned().unwrap_or_default(),
-                s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>(),
-            )
-        });
-        // What a hidden answer started is hidden with it, whenever it shows
-        // up (a task's result after the hiding), so its words and taint
-        // never come back into the thread.
-        let hidden_turns: HashSet<String> = hidden.iter().filter_map(|id| id.strip_prefix("a:").map(String::from)).collect();
-        let from_hidden = |v: &Value| self.origin_turn(v).is_some_and(|t| hidden_turns.contains(&t));
-        let with_may = |mut v: Value| {
-            if let Some(kind) = v["kind"].as_str().filter(|k| *k != "sub_agents" && v["id"].is_string()).map(String::from) {
-                v["may"] = json!(May::personal(&kind));
-            }
-            v
-        };
-        Some(
-            out.into_iter().map(|(.., v)| v).filter(|v| !v["id"].as_str().is_some_and(|id| hidden.contains(id) || trashed.contains(id)) && !from_hidden(v)).map(with_may).collect(),
-        )
-    }
-
-    /// The chat turn (its task id) that started what an entry shows: a
-    /// task's result, a "started tasks" card or its sub-agents. None for the turn's own
-    /// entries, and for anything not started from a turn.
-    pub(crate) fn origin_turn(&self, e: &Value) -> Option<String> {
-        self.read(|s| {
-            let from_run = match e["kind"].as_str()? {
-                "result" => s.tasks.get(e["task_id"].as_str()?)?.chat.as_ref()?.from_run.clone()?,
-                "tasks" | "sub_agents" => e["from_run"].as_str()?.to_string(),
-                _ => return None,
-            };
-            s.runs.get(&from_run).map(|r| r.task.clone())
-        })
     }
 
     /// The taint of what the thread shows, up to and including entry `upto`
@@ -369,15 +153,9 @@ impl Kernel {
     pub fn thread_label(&self, person: &str, thread: &str, upto: Option<&str>) -> Label {
         // Which entries, not what they say: no words are recalled.
         let entries = if self.thread_gone(thread) { vec![] } else { self.entries_with(person, thread, &Default::default()).unwrap_or_default() };
-        let end = upto.and_then(|u| entries.iter().position(|e| e["id"] == u)).map_or(entries.len(), |i| i + 1);
-        let mut tasks: Vec<String> = vec![];
-        for e in &entries[..end] {
-            match e["kind"].as_str() {
-                Some("message" | "opener") | None => {}
-                Some("tasks") => tasks.extend(e["tasks"].as_array().into_iter().flatten().filter_map(|t| t["task_id"].as_str().map(String::from))),
-                _ => tasks.extend(e["task_id"].as_str().map(String::from)),
-            }
-        }
+        let end = upto.and_then(|u| entries.iter().position(|e| e.id == u)).map_or(entries.len(), |i| i + 1);
+        // The person's own messages, and Magnus's openings, carry none.
+        let tasks: Vec<String> = entries[..end].iter().filter(|e| !matches!(e.kind, Kind::Message | Kind::Opener)).flat_map(Entry::task_ids).collect();
         self.read(|s| {
             tasks
                 .iter()
@@ -404,64 +182,7 @@ impl Kernel {
 
     /// The thread as the model reads it in the next turn: who said what.
     pub(crate) async fn conversation(&self, person: &str, thread: &str) -> Result<Vec<Value>> {
-        Ok(Self::transcript_of(self.thread_entries(person, thread).await?.unwrap_or_default()))
-    }
-
-    /// Entries as the model reads them: who said what.
-    pub(crate) fn transcript_of(entries: Vec<Value>) -> Vec<Value> {
-        entries
-            .into_iter()
-            .filter_map(|e| {
-                let text = |k: &str| e[k].as_str().unwrap_or_default().to_string();
-                let (role, said) = match e["kind"].as_str()? {
-                    "message" => ("person", text("text")),
-                    // Its instruction was the appliance's: only that Magnus opened it.
-                    "opener" => ("you", format!("(You opened this conversation yourself: {}.)", text("text"))),
-                    // What the answer showed below its text is part of what it said.
-                    "answer" if e["view"].is_array() => ("you", format!("{}\n[Shown below the answer: {}]", text("text"), e["view"])),
-                    "answer" => ("you", text("text")),
-                    "tasks" => (
-                        "you",
-                        format!(
-                            "Started tasks: {}",
-                            e["tasks"]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .map(|t| format!("{} ({})", t["title"].as_str().unwrap_or_default(), t["text"].as_str().unwrap_or_default()))
-                                .collect::<Vec<_>>()
-                                .join("; ")
-                        ),
-                    ),
-                    "result" => ("task result", format!("{} ({}): {}", text("title"), text("status"), text("summary"))),
-                    "schedule_card" => ("you", format!("Set up the schedule {} at their request: {}", text("schedule"), text("text"))),
-                    "suggestion_card" => {
-                        let changed = e["changed"].as_str().map(|c| format!(" (again: {c})")).unwrap_or_default();
-                        ("you", format!("Suggested {} ({}, card {}): {}{changed}", text("title"), answered(&e), text("card"), text("plan")))
-                    }
-                    "grant_card" => {
-                        let list = |k: &str| e[k].as_array().into_iter().flatten().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ");
-                        let id = e["granted"].as_str().map(|g| format!(", grant {g}")).unwrap_or_default();
-                        (
-                            "you",
-                            format!(
-                                "Proposed a grant {} ({}, card {}{id}): apps {}; still asks before {}; up to ${} a {}",
-                                text("title"),
-                                answered(&e),
-                                text("card"),
-                                list("apps"),
-                                list("still_asks"),
-                                e["max_usd"],
-                                text("period")
-                            ),
-                        )
-                    }
-                    "connector_card" => ("you", format!("Offered the app {} ({}): {}", text("title"), text("state"), text("why"))),
-                    _ => return None,
-                };
-                Some(json!({ "role": role, "text": said }))
-            })
-            .collect()
+        Ok(Self::transcript_of(&self.thread_entries(person, thread).await?.unwrap_or_default()))
     }
 
     /// `create_task` from a chat turn: the task starts at once for the
@@ -646,15 +367,6 @@ pub(crate) fn card_kind(d: &Value, state: &str) -> &'static str {
         "schedule_card"
     } else {
         "suggestion_card"
-    }
-}
-
-/// A card's answer as the model reads it in the conversation.
-fn answered(e: &Value) -> String {
-    match (e["state"].as_str().unwrap_or_default(), e["reason"].as_str()) {
-        ("declined", Some(r)) => format!("declined: \"{r}\""),
-        ("later", _) => "not now".into(),
-        (s, _) => s.into(),
     }
 }
 

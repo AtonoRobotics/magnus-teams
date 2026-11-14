@@ -1011,7 +1011,7 @@ async fn search(State(k): K, h: HeaderMap, Query(q): Query<std::collections::Has
             Err(e) => return internal(e),
         }
         .iter()
-        .filter_map(|e| e["text"].as_str().or(e["summary"].as_str()).map(String::from))
+        .filter_map(|e| e.said_text().map(String::from))
         .collect();
         let title = t["title"].as_str().unwrap_or_default().to_lowercase();
         if !all(&format!("{title} {}", said.join(" ").to_lowercase())) {

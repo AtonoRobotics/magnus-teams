@@ -7,6 +7,7 @@
 //! Nothing here makes a public link.
 
 use crate::api::{err, internal, who};
+use crate::chat_thread::{Entry, Kind};
 use crate::events::{ChatOrigin, Ev};
 use crate::kernel::{new_id, Kernel, NewRun};
 use crate::tools::Label;
@@ -34,34 +35,10 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 /// The person's thread as shown, and where `entry` is in it.
-async fn find(k: &Kernel, person: &str, thread: &str, entry: &str) -> Result<(Vec<Value>, usize), Response> {
+async fn find(k: &Kernel, person: &str, thread: &str, entry: &str) -> Result<(Vec<Entry>, usize), Response> {
     let entries = k.thread_entries(person, thread).await.map_err(crate::api::internal)?.ok_or_else(|| err(StatusCode::NOT_FOUND, "no such thread"))?;
-    let at = entries.iter().position(|e| e["id"] == entry).ok_or_else(|| err(StatusCode::NOT_FOUND, "no such message"))?;
+    let at = entries.iter().position(|e| e.has_id() && e.id == entry).ok_or_else(|| err(StatusCode::NOT_FOUND, "no such message"))?;
     Ok((entries, at))
-}
-
-/// What an entry says, as text for a person to read.
-fn text_of(e: &Value) -> String {
-    let s = |k: &str| e[k].as_str().unwrap_or_default().to_string();
-    match e["kind"].as_str().unwrap_or_default() {
-        "result" => format!("{} ({})\n\n{}", s("title"), s("status"), s("summary")),
-        "tasks" => e["tasks"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|t| format!("- {}: {}", t["title"].as_str().unwrap_or_default(), t["text"].as_str().unwrap_or_default()))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => s("text"),
-    }
-}
-
-fn speaker(e: &Value) -> &'static str {
-    match e["kind"].as_str() {
-        Some("message") => "You",
-        Some("result") => "Task result",
-        _ => "Magnus",
-    }
 }
 
 async fn hide(k: &Kernel, person: &str, thread: &str, entries: Vec<String>) -> anyhow::Result<()> {
@@ -113,24 +90,24 @@ async fn resend(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
     }
     let (entries, at) = found!(k, p, thread, entry);
     let e = &entries[at];
-    let (message, text) = match e["kind"].as_str() {
-        Some("message") => {
-            let text = b["text"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from).unwrap_or_else(|| text_of(e));
+    let (message, text) = match e.kind {
+        Kind::Message => {
+            let text = b["text"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from).unwrap_or_else(|| e.text());
             (at, text)
         }
-        Some("answer") | Some("turn") => {
-            let mine = format!("m:{}", e["task_id"].as_str().unwrap_or_default());
-            match entries[..at].iter().rposition(|m| m["id"] == mine.as_str()) {
-                Some(i) if entries[i]["kind"] == "opener" => {
+        Kind::Answer | Kind::Turn => {
+            let mine = format!("m:{}", e.task_id.as_deref().unwrap_or_default());
+            match entries[..at].iter().rposition(|m| m.has_id() && m.id == mine) {
+                Some(i) if entries[i].kind == Kind::Opener => {
                     return err(StatusCode::BAD_REQUEST, "Magnus opened this conversation itself, so there is no message of yours to send again")
                 }
-                Some(i) => (i, text_of(&entries[i])),
+                Some(i) => (i, entries[i].text()),
                 None => return err(StatusCode::CONFLICT, "the message this answers is deleted; write it again"),
             }
         }
         _ => return err(StatusCode::BAD_REQUEST, "only your messages can be edited and Magnus's answers retried"),
     };
-    let task = entries[message]["task_id"].as_str().unwrap_or_default().to_string();
+    let task = entries[message].task_id.clone().unwrap_or_default();
     let (files, model) = k.read(|s| {
         let t = s.tasks.get(&task);
         let files = t.map(|t| t.files.clone()).unwrap_or_default();
@@ -141,18 +118,16 @@ async fn resend(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
     // started. An earlier turn's task result that happens to end later
     // stays: it answers a message still shown.
     let later = &entries[message..];
-    let turns: std::collections::HashSet<String> = later
-        .iter()
-        .filter(|e| matches!(e["kind"].as_str(), Some("message" | "answer" | "turn" | "schedule_card")))
-        .filter_map(|e| e["task_id"].as_str().map(String::from))
-        .collect();
+    let turns: std::collections::HashSet<String> =
+        later.iter().filter(|e| matches!(e.kind, Kind::Message | Kind::Answer | Kind::Turn | Kind::ScheduleCard)).filter_map(|e| e.task_id.clone()).collect();
     let gone: Vec<String> = later
         .iter()
         .filter(|e| match k.origin_turn(e) {
             Some(t) => turns.contains(&t),
             None => true,
         })
-        .filter_map(|e| e["id"].as_str().map(String::from))
+        .filter(|e| e.has_id())
+        .map(|e| e.id.clone())
         .collect();
     if let Err(e) = hide(&k, &p.id, &thread, gone).await {
         return internal(e);
@@ -187,8 +162,9 @@ async fn resend(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
 async fn branch(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, String)>) -> Response {
     let p = person!(k, h);
     let (entries, at) = found!(k, p, thread, entry);
-    let kept: Vec<Value> = entries[..=at].to_vec();
-    let first = kept.iter().find(|e| e["kind"] == "message").map(text_of).unwrap_or_else(|| "Branched conversation".into());
+    let first = entries[..=at].iter().find(|e| e.kind == Kind::Message).map(Entry::text).unwrap_or_else(|| "Branched conversation".into());
+    // The copy is stored as it shows now, and replays as stored.
+    let kept: Vec<Value> = entries[..=at].iter().map(Entry::value).collect();
     let title = first.chars().take(80).collect::<String>();
     let id = new_id("thread");
     let ev = Ev::ThreadBranched { person: p.id.clone(), thread: id.clone(), from: thread.clone(), upto: entry, entries: kept, title };
@@ -223,13 +199,7 @@ async fn share(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, S
     // Every run whose words reach this entry: the turns before it (their
     // answers are in its conversation) and the tasks they started, as for
     // its taint.
-    let tasks: Vec<String> = entries[..=at]
-        .iter()
-        .flat_map(|x| match x["kind"].as_str() {
-            Some("tasks") => x["tasks"].as_array().into_iter().flatten().filter_map(|t| t["task_id"].as_str().map(String::from)).collect::<Vec<_>>(),
-            _ => x["task_id"].as_str().map(String::from).into_iter().collect(),
-        })
-        .collect();
+    let tasks: Vec<String> = entries[..=at].iter().flat_map(Entry::task_ids).collect();
     let (tools, sources, private_knowledge): (Vec<String>, Vec<String>, bool) = k.read(|s| {
         let runs: Vec<&crate::state::Run> = tasks.iter().filter_map(|t| s.tasks.get(t)).filter_map(|t| s.runs.get(&t.run_id)).collect();
         let tools = runs.iter().flat_map(|r| r.intents.values().map(|i| i.tool.clone())).collect();
@@ -260,7 +230,7 @@ async fn share(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, S
         run: None,
         person: to.id.clone(),
         summary: format!("{} shared a message with you", p.name),
-        details: json!({ "from": p.id, "from_name": p.name, "speaker": speaker(e), "text": text_of(e), "at": e["at"], "taint": label }),
+        details: json!({ "from": p.id, "from_name": p.name, "speaker": e.speaker(), "text": e.text(), "at": e.at, "taint": label }),
     };
     match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => (StatusCode::CREATED, Json(json!({ "item": item }))).into_response(),
@@ -268,20 +238,12 @@ async fn share(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, S
     }
 }
 
-fn markdown(e: &Value) -> String {
-    crate::message_file::markdown(speaker(e), e["at"].as_str().unwrap_or_default(), &text_of(e))
-}
-
-fn file_name(e: &Value) -> String {
-    crate::message_file::file_name(&text_of(e))
-}
-
 /// The entry as a Markdown file to save on this computer.
 async fn export(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, String)>) -> Response {
     let p = person!(k, h);
     let (entries, at) = found!(k, p, thread, entry);
     let e = &entries[at];
-    ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", file_name(e)))], markdown(e))
+    ([(header::CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", e.file_name()))], e.markdown())
         .into_response()
 }
 
@@ -295,9 +257,9 @@ async fn save(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, St
     let ev = Ev::FileUploaded {
         id: id.clone(),
         person: p.id.clone(),
-        name: file_name(e),
+        name: e.file_name(),
         media_type: "text/markdown".into(),
-        data_b64: base64::engine::general_purpose::STANDARD.encode(markdown(e)),
+        data_b64: base64::engine::general_purpose::STANDARD.encode(e.markdown()),
         thread: Some(thread),
     };
     match k.emit(&format!("person:{}", p.id), ev).await {
@@ -315,16 +277,16 @@ async fn task(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, St
     }
     let (entries, at) = found!(k, p, thread, entry);
     let e = &entries[at];
-    let text = text_of(e);
+    let text = e.text();
     if text.trim().is_empty() {
         return err(StatusCode::BAD_REQUEST, "this message has no text to work from");
     }
     let label = k.thread_label(&p.id, &thread, Some(&entry));
-    let from_run = k.read(|s| e["task_id"].as_str().and_then(|t| s.tasks.get(t)).map(|t| t.run_id.clone()));
+    let from_run = k.read(|s| e.task_id.as_ref().and_then(|t| s.tasks.get(t)).map(|t| t.run_id.clone()));
     // The files the message came with go with the task made from it.
-    let files = k.read(|s| e["task_id"].as_str().and_then(|t| s.tasks.get(t)).filter(|_| e["kind"] == "message").map(|t| t.files.clone()).unwrap_or_default());
+    let files = k.read(|s| e.task_id.as_ref().and_then(|t| s.tasks.get(t)).filter(|_| e.kind == Kind::Message).map(|t| t.files.clone()).unwrap_or_default());
     let o = NewRun {
-        chat: Some(ChatOrigin { thread: thread.clone(), turn: false, from_run, conversation: Kernel::transcript_of(entries[..=at].to_vec()), opener: None }),
+        chat: Some(ChatOrigin { thread: thread.clone(), turn: false, from_run, conversation: Kernel::transcript_of(&entries[..=at]), opener: None }),
         files,
         label: (label != Label::PRINCIPAL).then_some(label),
         project: k.read(|s| s.project_of(&thread)),
@@ -346,17 +308,17 @@ async fn spoken(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
     let p = person!(k, h);
     let (entries, at) = found!(k, p, thread, entry);
     let e = &entries[at];
-    if e["kind"] != "answer" {
+    if e.kind != Kind::Answer {
         return err(StatusCode::BAD_REQUEST, "only Magnus's answers are read aloud");
     }
-    if let Some(script) = e["spoken"].as_str() {
+    if let Some(script) = e.spoken() {
         return Json(json!({ "script": script })).into_response();
     }
     // One script per answer: a branch's copy reads its run's, and two
     // requests at once write it once.
     static WRITING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _one = WRITING.lock().await;
-    let Some(run) = k.read(|s| s.tasks.get(e["task_id"].as_str().unwrap_or_default()).and_then(|t| s.runs.get(&t.run_id).cloned())) else {
+    let Some(run) = k.read(|s| s.tasks.get(e.task_id.as_deref().unwrap_or_default()).and_then(|t| s.runs.get(&t.run_id).cloned())) else {
         return err(StatusCode::NOT_FOUND, "no such answer");
     };
     if let Some(script) = &run.spoken {
@@ -369,17 +331,17 @@ async fn spoken(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
 }
 
 impl Kernel {
-    async fn write_spoken(&self, run: &crate::state::Run, e: &Value) -> anyhow::Result<String> {
+    async fn write_spoken(&self, run: &crate::state::Run, e: &Entry) -> anyhow::Result<String> {
         use magnus_adapter_proto::{Block, Message, Role};
-        let shown = if e["view"].is_array() { format!("\n\nShown below the answer: {}", e["view"]) } else { String::new() };
-        let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{}{shown}", text_of(e)) }], state: None };
+        let shown = e.view().filter(|v| v.is_array()).map(|v| format!("\n\nShown below the answer: {v}")).unwrap_or_default();
+        let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{}{shown}", e.text()) }], state: None };
         let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
         let system = format!("{LISTENING}\n{}", crate::run::CHARACTER);
         // No script past the run's allowance for an extra call (its calls,
         // its dollars, the month's or the team's limits): the answer itself
         // is heard as it is.
         let Some(allowance) = self.aux_max_tokens(&run.id, "spoken script", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
-            return Ok(text_of(e));
+            return Ok(e.text());
         };
         let out = self.adapters.complete(&adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let script = out.blocks.iter().filter_map(|b| if let Block::Text { text } = b { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n").trim().to_string();

@@ -18,6 +18,7 @@
 //! an admin sees them.
 
 use crate::api::{err, internal, who};
+use crate::chat_thread::Entry;
 use crate::events::Ev;
 use crate::kernel::{new_id, Kernel};
 use crate::state::Run;
@@ -35,19 +36,14 @@ use std::sync::Arc;
 /// The reactions a person can give, and how their runs read them.
 pub const REACTIONS: &[(&str, &str)] = &[("great", "that was great"), ("annoying", "that was annoying")];
 
-/// The thread entries that are Magnus's messages: its answers (or what it
-/// said when it could not answer), its tasks' results, the tasks a turn
-/// started, the cards it proposed (#267), and its own openings (#359).
-/// The person's own messages are not its to be judged on.
-const MAGNUS: &[&str] = &["answer", "turn", "result", "tasks", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"];
-
-/// The thread's entries with the person's reaction on each of Magnus's
-/// messages that has one, for them to see.
-pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Value>) -> Vec<Value> {
+/// The thread's entries with the person's reaction on each entry that has
+/// one, for them to see. Only Magnus's messages take one
+/// (`chat_thread::Kind::is_magnus`).
+pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Entry>) -> Vec<Entry> {
     let Some(mine) = s.thread_extras.reactions().get(person) else { return entries };
-    for e in &mut entries {
-        if let Some(r) = e["id"].as_str().and_then(|id| mine.get(&(thread.to_string(), id.to_string()))).and_then(|h| h.last()).and_then(|(r, _)| r.clone()) {
-            e["reaction"] = json!(r);
+    for e in entries.iter_mut().filter(|e| e.has_id()) {
+        if let Some(r) = mine.get(&(thread.to_string(), e.id.clone())).and_then(|h| h.last()).and_then(|(r, _)| r.clone()) {
+            e.reaction = Some(r);
         }
     }
     entries
@@ -257,8 +253,8 @@ async fn react(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((thread, entry))
         Ok(None) => return err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => return internal(e),
     };
-    let Some(e) = entries.iter().find(|e| e["id"] == entry.as_str()) else { return err(StatusCode::NOT_FOUND, "no such message") };
-    if !MAGNUS.contains(&e["kind"].as_str().unwrap_or_default()) {
+    let Some(e) = entries.iter().find(|e| e.has_id() && e.id == entry) else { return err(StatusCode::NOT_FOUND, "no such message") };
+    if !e.is_magnus() {
         return err(StatusCode::BAD_REQUEST, "only Magnus's messages take a reaction");
     }
     match k.emit(&format!("person:{}", p.id), Ev::Reacted { person: p.id.clone(), thread, entry, reaction: reaction.clone() }).await {
@@ -329,7 +325,7 @@ mod tests {
         ev(&mut s, 6, json!({ "kind": "chat_hidden", "person": "carol", "thread": "th", "entries": ["a:t1"] }));
         assert!(reactions_before(&s, "carol", at(7)).is_empty(), "its message was deleted");
         ev(&mut s, 7, json!({ "kind": "reacted", "person": "carol", "thread": "th", "entry": "a:t1" }));
-        assert!(marked(&s, "carol", "th", vec![json!({ "id": "a:t1" })])[0]["reaction"].is_null(), "taken back");
+        assert!(marked(&s, "carol", "th", vec![crate::chat_thread::Entry::copied(json!({ "id": "a:t1" }))])[0].reaction.is_none(), "taken back");
         ev(&mut s, 8, json!({ "kind": "reacted", "person": "carol", "thread": "th", "entry": "a:t1", "reaction": "great" }));
         ev(&mut s, 9, json!({ "kind": "person_erased", "person": "carol" }));
         assert!(!s.thread_extras.reactions().contains_key("carol") && s.thread_extras.disagreements().is_empty(), "erased with her");
