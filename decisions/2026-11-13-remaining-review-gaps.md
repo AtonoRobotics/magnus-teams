@@ -40,7 +40,14 @@ model (invariant 2), not the scrubber, which is a second line.
 under `docs/proposals/` are dated proposals and stay as written; the
 decisions supersede them.
 
-## Being built now (own decision files when they land)
+## Built (merged at 582f8c3; each has its own decision file)
+
+All five below landed on 2026-11-13: `2026-11-13-outlook-read-back.md`,
+`2026-11-13-catalog-withdrawal.md`, `2026-11-13-takeover-leaves-nothing-running.md`,
+`2026-11-13-ci-and-test-hygiene.md`, `2026-11-13-guest-connection-after-boot.md`.
+The dropped guest connection was the vsock CONNECT line sent in three writes.
+
+## Was being built
 
 - GAP5, Outlook read-back: send through a draft so the message has an id,
   and read it back from Sent Items.
