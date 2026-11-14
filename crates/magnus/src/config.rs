@@ -741,7 +741,7 @@ pub struct Connector {
     #[serde(default)]
     pub owner: Option<String>, // The one person a generated connector belongs to.
     pub name: String,
-    #[serde(default = "mcp_http")]
+    #[serde(default = "crate::transport::default_name")]
     pub transport: String,
     pub url: String,
     #[serde(default)]
@@ -951,10 +951,6 @@ pub struct Embeddings {
 fn embed_timeout() -> u64 {
     30
 }
-
-fn mcp_http() -> String {
-    "mcp_http".into()
-}
 /// Apps are assumed not to deduplicate unless the owner says they honor an
 /// `Idempotency-Key` header, so a crash never causes a blind resend.
 fn header() -> String {
@@ -1037,7 +1033,8 @@ impl Config {
             }
             anyhow::ensure!(crate::tools::Label::parse(&c.label).is_some(), "connector {}: unknown label {}", c.name, c.label);
             anyhow::ensure!(crate::tools::Audience::parse(&c.audience).is_some(), "connector {}: unknown audience {}", c.name, c.audience);
-            if c.transport == crate::brokered::BROKERED {
+            let kind = crate::transport::Kind::parse(&c.transport).ok_or_else(|| anyhow::anyhow!("connector {}: unknown transport {}", c.name, c.transport))?;
+            if kind == crate::transport::Kind::Brokered {
                 for r in &cfg.brokered.roots {
                     std::fs::read(r).map_err(|e| anyhow::anyhow!("[brokered] roots: {}: {e}", r.display()))?;
                 }

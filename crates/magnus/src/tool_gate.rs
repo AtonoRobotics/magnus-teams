@@ -206,7 +206,7 @@ impl Kernel {
         // A brokered server's definitions come from the image its manifest
         // names by digest, checked before every boot: they cannot change
         // after the manifest was signed, and ship with the release.
-        if c.transport == crate::brokered::BROKERED {
+        if self.transport(c).kind().definitions_fixed() {
             return self.emit("kernel", Ev::Tools(screened(RELEASE, String::new(), None))).await.map(|_| ());
         }
         // First seen, or seen before any screen: the definition the person

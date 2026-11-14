@@ -1,6 +1,6 @@
 //! A relayed sign-in: started here, claimed and handed back by the relay.
 
-use super::super::{asks_sign_in, challenge, discover, fresh_tokens, granted, random, server_metadata, Client, PENDING_FOR};
+use super::super::{challenge, fresh_tokens, granted, random, sign_in_target, Client, SignInTarget, PENDING_FOR};
 use super::{now, open, timely, Message, Settings, Signed, B64};
 use crate::api::{err, owner};
 use crate::config::Connector;
@@ -64,16 +64,7 @@ impl Kernel {
     /// sent from here.
     pub(crate) async fn relay_sign_in(&self, c: &Connector, person: &str, s: &Settings) -> Result<(String, String)> {
         let Some(provider) = c.registration.clone() else { bail!("{} has no provider registration to sign in through the relay", c.name) };
-        let brokered = c.transport == crate::brokered::BROKERED;
-        let (asm, scopes, issuer) = match &c.issuer {
-            Some(issuer) if brokered => (server_metadata(issuer).await?, vec![], issuer.clone()),
-            None if brokered => bail!("{} names no authorization server to sign in at", c.name),
-            _ => {
-                let meta = asks_sign_in(&c.url).await?.unwrap_or(None);
-                discover(&c.url, meta).await?
-            }
-        };
-        let resource = if brokered { String::new() } else { c.url.clone() };
+        let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(c).await?;
         let field = |k: &str| asm[k].as_str().map(String::from);
         let (Some(authorize), Some(token)) = (field("authorization_endpoint"), field("token_endpoint")) else {
             bail!("the app's authorization server names no authorization or token endpoint")
