@@ -16,7 +16,8 @@
 //! Chat answers only once the project has a Chat app configured and the
 //! consent screen has Chat's scopes (DECISIONS.md).
 //!
-//! Without them it says so. Its one message, in a space no one else is in,
+//! Without them it skips that part and says `SKIPPED`; on CI or with
+//! `MAGNUS_REQUIRE_CONTRACTS` it fails instead (`magnus_scratch::contract`). Its one message, in a space no one else is in,
 //! it deletes.
 
 use magnus::apps::{CallError, CallOutput};
@@ -47,6 +48,13 @@ async fn access_token(refresh: &str, secret: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chat_s_tools_do_what_they_say_against_chat() {
+    // Checked first: where contracts are required, a missing credential
+    // fails before a microVM is booted.
+    let account = magnus_scratch::contract::credentials(
+        "Chat's contract test with an account",
+        "the owner's Google test account",
+        ["MAGNUS_GOOGLE_TEST_REFRESH_TOKEN", "MAGNUS_GOOGLE_CLIENT_SECRET", "MAGNUS_GOOGLE_TEST_CHAT_SPACE"],
+    );
     let mf: toml::Table = std::fs::read_to_string(root().join("catalog/google-chat.toml")).unwrap().parse().unwrap();
     let images = tempfile::tempdir().unwrap();
     let out = std::process::Command::new(root().join("brokered/build.sh")).arg("magnus-chat").arg(images.path()).output().unwrap();
@@ -84,10 +92,7 @@ async fn chat_s_tools_do_what_they_say_against_chat() {
     let r = b.call(&c, "contract", Some("ya29.not-a-token"), "search_conversations", &json!({}), &|| Ok(())).await.unwrap();
     assert!(r.is_error && r.text.contains("Google Chat rejected the sign-in"), "{}", r.text);
 
-    let (Ok(refresh), Ok(secret), Ok(space)) =
-        (std::env::var("MAGNUS_GOOGLE_TEST_REFRESH_TOKEN"), std::env::var("MAGNUS_GOOGLE_CLIENT_SECRET"), std::env::var("MAGNUS_GOOGLE_TEST_CHAT_SPACE"))
-    else {
-        eprintln!("the rest of Chat's contract test needs the owner's Google test account (MAGNUS_GOOGLE_TEST_REFRESH_TOKEN, MAGNUS_GOOGLE_CLIENT_SECRET, MAGNUS_GOOGLE_TEST_CHAT_SPACE); not given, so it was not run");
+    let Some([refresh, secret, space]) = account else {
         b.stop(None, None).await;
         return;
     };

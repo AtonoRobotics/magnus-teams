@@ -10,7 +10,8 @@
 //! - `MAGNUS_SLACK_TEST_CHANNEL`: a channel id the account can post in,
 //!   which the test posts one message to.
 //!
-//! Without them it says so.
+//! Without them it skips that part and says `SKIPPED`; on CI or with
+//! `MAGNUS_REQUIRE_CONTRACTS` it fails instead (`magnus_scratch::contract`).
 
 use magnus::apps::{CallError, CallOutput};
 use magnus::brokered::Brokered;
@@ -43,6 +44,13 @@ async fn access_token(refresh: &str, secret: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn slacks_tools_do_what_they_say_against_slack() {
+    // Checked first: where contracts are required, a missing credential
+    // fails before a microVM is booted.
+    let account = magnus_scratch::contract::credentials(
+        "Slack's contract test with an account",
+        "the owner's Slack test account",
+        ["MAGNUS_SLACK_TEST_REFRESH_TOKEN", "MAGNUS_SLACK_CLIENT_SECRET", "MAGNUS_SLACK_TEST_CHANNEL"],
+    );
     let mf = manifest();
     let images = tempfile::tempdir().unwrap();
     let out = std::process::Command::new(root().join("brokered/build.sh")).arg("magnus-slack").arg(images.path()).output().unwrap();
@@ -77,10 +85,7 @@ async fn slacks_tools_do_what_they_say_against_slack() {
     let r = b.call(&c, "contract", Some("xoxp-not-a-token"), "lookup_user", &json!({ "user": "USLACKBOT" }), &|| Ok(())).await.unwrap();
     assert!(r.is_error && r.text.contains("Sign in again"), "{}", r.text);
 
-    let (Ok(refresh), Ok(secret), Ok(channel)) =
-        (std::env::var("MAGNUS_SLACK_TEST_REFRESH_TOKEN"), std::env::var("MAGNUS_SLACK_CLIENT_SECRET"), std::env::var("MAGNUS_SLACK_TEST_CHANNEL"))
-    else {
-        eprintln!("the rest of Slack's contract test needs the owner's Slack test account (MAGNUS_SLACK_TEST_REFRESH_TOKEN, MAGNUS_SLACK_CLIENT_SECRET, MAGNUS_SLACK_TEST_CHANNEL); not given, so it was not run");
+    let Some([refresh, secret, channel]) = account else {
         b.stop(None, None).await;
         return;
     };

@@ -1,6 +1,10 @@
-# The fast tier: runs on every push, on a throwaway hosted runner, and must stay
-# under five minutes once the build cache is warm. Heavy suites run as acceptance
-# against a release candidate, not here (see AGENTS.md, "How work lands").
+# The fast tier: runs on every push, on a throwaway hosted runner. Its target
+# is five minutes once the build cache is warm; on 2026-11-13 warm runs took
+# 4 to 5 minutes, about 3.5 of them `cargo test --workspace --lib --bins`
+# and 35 seconds clippy. The timeout is twice that, so a hung test fails the
+# run in ten minutes instead of thirty (decisions/2026-11-13-ci-and-test-hygiene.md).
+# Heavy suites run as acceptance against a release candidate, not here (see
+# AGENTS.md, "How work lands").
 name: fast
 on:
   push:
@@ -15,7 +19,7 @@ env:
 jobs:
   fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16

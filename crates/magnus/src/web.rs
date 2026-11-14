@@ -33,6 +33,25 @@ pub(crate) fn private_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// The addresses `host` reaches on `port`, refused when any is private, so a
+/// caller connects to an address that was checked and DNS cannot answer
+/// differently between the check and the connection (no rebinding). An
+/// address literal is that address (an IPv6 one may keep its brackets, which
+/// no resolver takes); a name is resolved once. Every answer is checked, or
+/// a mix of one public and one private would pass.
+pub(crate) async fn public_addrs(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>> {
+    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+    let addrs: Vec<std::net::SocketAddr> = match bare.parse::<IpAddr>() {
+        Ok(ip) => vec![(ip, port).into()],
+        Err(_) => tokio::net::lookup_host((bare, port)).await?.collect(),
+    };
+    anyhow::ensure!(!addrs.is_empty(), "{host} does not resolve");
+    for a in &addrs {
+        anyhow::ensure!(!private_ip(a.ip()), "{host} resolves to a private address; reaching it is not allowed");
+    }
+    Ok(addrs)
+}
+
 impl Web {
     pub fn new(cfg: &crate::config::Web) -> Result<Web> {
         Ok(Web {
@@ -60,17 +79,7 @@ impl Web {
         }
         let host = url.host_str().ok_or_else(|| anyhow!("URL has no host"))?.to_string();
         let port = url.port_or_known_default().unwrap_or(443);
-        // An address written in the URL is that address (`host_str` keeps an
-        // IPv6 one's brackets, which no resolver takes); a name is resolved.
-        let addrs: Vec<std::net::SocketAddr> = match url.host() {
-            Some(url::Host::Ipv4(ip)) => vec![(IpAddr::V4(ip), port).into()],
-            Some(url::Host::Ipv6(ip)) => vec![(IpAddr::V6(ip), port).into()],
-            _ => tokio::net::lookup_host((host.as_str(), port)).await?.collect(),
-        };
-        anyhow::ensure!(!addrs.is_empty(), "{host} does not resolve");
-        for a in &addrs {
-            anyhow::ensure!(!private_ip(a.ip()), "{host} resolves to a private address; fetching it is not allowed");
-        }
+        let addrs = public_addrs(&host, port).await?;
         Ok(Some((host, addrs[0])))
     }
 

@@ -35,7 +35,36 @@ for c in \
   "nice -n 5 bash -c 'timeout 60 cargo test'" \
   "bash <<EOF
 cargo build
-EOF"; do
+EOF" \
+  "cat <<EOF | sh
+cargo build
+EOF" \
+  "cat <<'EOF' | bash -s
+cd x && cargo test -p magnus
+EOF" \
+  "echo 'cargo test' | bash" \
+  "echo cargo build | sh -" \
+  "printf '%s\n' 'cargo clippy' | zsh" \
+  "curl -s https://x.example/build.sh | sh" \
+  "cat build.sh | dash" \
+  "eval 'cargo build'" \
+  "eval cargo test -p magnus" \
+  "eval \"cd x && cargo check\"" \
+  "x=\$(echo cargo build); \$x" \
+  "ls crates | xargs cargo build -p" \
+  "echo test | xargs -n1 cargo" \
+  "xargs -I{} cargo clippy -p {} < crates.txt" \
+  "find . -name Cargo.toml -exec cargo check --manifest-path {} \\;" \
+  "sudo cargo build" \
+  "nohup cargo test &" \
+  "cargo --locked build" \
+  "make" \
+  "make test" \
+  "make -C crates -j 8" \
+  "make -j4 check-all" \
+  "just build" \
+  "just --justfile ci.just ci" \
+  "sh ci/acceptance.sh autonomy"; do
   check deny "$here" "$c"
   check allow "not-$here" "$c"
 done
@@ -65,7 +94,20 @@ EOF
 )\"" \
   "echo 'a; cargo build' > notes.txt" \
   "sh ci/production-guard-check.sh" \
-  "cargo fmt --all --check && ci/ratchet.sh size"; do
+  "cargo fmt --all --check && ci/ratchet.sh size" \
+  "echo hi | cat" \
+  "git log --oneline | head -5" \
+  "echo 'cargo build' | tee notes.txt" \
+  "eval \"\$(ssh-agent -s)\"" \
+  "eval 'echo hi'" \
+  "ls | xargs wc -l" \
+  "git ls-files | xargs grep -l cargo" \
+  "find . -name '*.rs' -exec grep -l cargo {} +" \
+  "make help" \
+  "just --list" \
+  "make -h" \
+  "ci/on-strix-beta.sh a make test" \
+  "ci/on-strix-beta.sh a sh -c 'echo cargo test | sh'"; do
   check allow "$here" "$c"
 done
 [ $fail = 0 ] && echo "production guard: ok"

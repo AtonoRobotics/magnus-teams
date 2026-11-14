@@ -13,7 +13,8 @@
 //! - `MAGNUS_GMAIL_TEST_ADDRESS`: the test account's address, which the
 //!   test writes to and sends to itself.
 //!
-//! Without them it says so. It leaves the account as it found it, but for
+//! Without them it skips that part and says `SKIPPED`; on CI or with
+//! `MAGNUS_REQUIRE_CONTRACTS` it fails instead (`magnus_scratch::contract`). It leaves the account as it found it, but for
 //! one sent message in the trash and its label.
 
 use magnus::apps::{CallError, CallOutput};
@@ -48,6 +49,13 @@ async fn access_token(refresh: &str, secret: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn gmail_s_tools_do_what_they_say_against_gmail() {
+    // Checked first: where contracts are required, a missing credential
+    // fails before a microVM is booted.
+    let account = magnus_scratch::contract::credentials(
+        "Gmail's contract test with an account",
+        "the owner's Google test account",
+        ["MAGNUS_GMAIL_TEST_REFRESH_TOKEN", "MAGNUS_GOOGLE_CLIENT_SECRET", "MAGNUS_GMAIL_TEST_ADDRESS"],
+    );
     let mf = manifest();
     let images = tempfile::tempdir().unwrap();
     let out = std::process::Command::new(root().join("brokered/build.sh")).arg("magnus-gmail").arg(images.path()).output().unwrap();
@@ -86,10 +94,7 @@ async fn gmail_s_tools_do_what_they_say_against_gmail() {
     let r = b.call(&c, "contract", Some("ya29.not-a-token"), "list_labels", &json!({}), &|| Ok(())).await.unwrap();
     assert!(r.is_error && r.text.contains("Gmail rejected the sign-in"), "{}", r.text);
 
-    let (Ok(refresh), Ok(secret), Ok(me)) =
-        (std::env::var("MAGNUS_GMAIL_TEST_REFRESH_TOKEN"), std::env::var("MAGNUS_GOOGLE_CLIENT_SECRET"), std::env::var("MAGNUS_GMAIL_TEST_ADDRESS"))
-    else {
-        eprintln!("the rest of Gmail's contract test needs the owner's Google test account (MAGNUS_GMAIL_TEST_REFRESH_TOKEN, MAGNUS_GOOGLE_CLIENT_SECRET, MAGNUS_GMAIL_TEST_ADDRESS); not given, so it was not run");
+    let Some([refresh, secret, me]) = account else {
         b.stop(None, None).await;
         return;
     };

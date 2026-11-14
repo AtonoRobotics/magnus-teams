@@ -464,10 +464,12 @@ async fn tunnel(mut s: UnixStream, hosts: Vec<String>, app: String, resolve: Arc
         return;
     }
     let to = if target.contains(':') { target.to_ascii_lowercase() } else { format!("{}:443", target.to_ascii_lowercase()) };
-    let to = resolve.get(&to).cloned().unwrap_or(to);
-    let mut up = match tokio::time::timeout(CONNECT_WAIT, TcpStream::connect(&to)).await {
+    let mut up = match tokio::time::timeout(CONNECT_WAIT, dial(&to, &resolve)).await {
         Ok(Ok(u)) => u,
-        _ => {
+        failed => {
+            if let Ok(Err(e)) = failed {
+                tracing::warn!("{app}: the egress proxy could not reach {to}: {e:#}");
+            }
             let _ = s.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
             return;
         }
@@ -475,6 +477,22 @@ async fn tunnel(mut s: UnixStream, hosts: Vec<String>, app: String, resolve: Arc
     if s.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_ok() {
         let _ = tokio::io::copy_bidirectional(&mut s, &mut up).await;
     }
+}
+
+/// Connects to a manifest host (`host:port`): at the address configured for
+/// it (`resolve`, an operator's pinned or internal address, or a test's
+/// stand-in), or else at an address DNS gives once, refused when it is
+/// private, loopback, link-local or unique-local (`web::public_addrs`), so a
+/// provider's name pointed inside the server's network reaches nothing
+/// there, and the connection goes to the address that was checked.
+async fn dial(to: &str, resolve: &std::collections::BTreeMap<String, String>) -> Result<TcpStream> {
+    if let Some(addr) = resolve.get(to) {
+        return Ok(TcpStream::connect(addr.as_str()).await?);
+    }
+    let (host, port) = to.rsplit_once(':').ok_or_else(|| anyhow!("{to} names no port"))?;
+    let port: u16 = port.parse().map_err(|_| anyhow!("{to} names no port"))?;
+    let addrs = crate::web::public_addrs(host, port).await?;
+    Ok(TcpStream::connect(&addrs[..]).await?)
 }
 
 impl crate::kernel::Kernel {
@@ -543,6 +561,43 @@ mod tests {
         for t in ["gmail.googleapis.com:80", "googleapis.com:443", "evil.gmail.googleapis.com:443", "gmail.googleapis.com.evil:443", "127.0.0.1:8081", "127.0.0.1:443", ""] {
             assert!(!admits(&hosts, t), "{t}");
         }
+    }
+
+    /// What the egress proxy answers a microVM's CONNECT to `target`.
+    async fn proxy_answer(target: &str, hosts: &[&str], resolve: &[(&str, String)]) -> String {
+        let (mut vm, host_side) = UnixStream::pair().unwrap();
+        let hosts = hosts.iter().map(|h| h.to_string()).collect();
+        let resolve = Arc::new(resolve.iter().map(|(k, v)| (k.to_string(), v.clone())).collect());
+        let t = tokio::spawn(tunnel(host_side, hosts, "mail".into(), resolve));
+        vm.write_all(format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n").as_bytes()).await.unwrap();
+        let mut line = String::new();
+        BufReader::new(&mut vm).read_line(&mut line).await.unwrap();
+        drop(vm);
+        t.await.unwrap();
+        line
+    }
+
+    /// A manifest host whose name DNS points inside the server's network
+    /// (here `localhost`, or an address literal) is refused at the proxy,
+    /// even with a listener there; one the config pins to an internal
+    /// address (a stand-in, an operator's own server) is reached.
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_proxy_refuses_a_private_address_unless_configured() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((s, _)) = l.accept().await {
+                drop(s);
+            }
+        });
+        for target in [format!("localhost:{port}"), format!("127.0.0.1:{port}"), format!("[::1]:{port}"), format!("[::ffff:127.0.0.1]:{port}")] {
+            let got = proxy_answer(&target, &[&target], &[]).await;
+            assert!(got.starts_with("HTTP/1.1 502"), "{target}: {got}");
+        }
+        let target = format!("api.example:{port}");
+        let got = proxy_answer(&target, &[&target], &[(&target, format!("127.0.0.1:{port}"))]).await;
+        assert!(got.starts_with("HTTP/1.1 200"), "{got}");
+        assert!(dial("api.example", &Default::default()).await.is_err(), "a target with no port");
     }
 
     #[test]
