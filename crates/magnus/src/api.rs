@@ -22,20 +22,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 type K = State<Arc<Kernel>>;
 
-pub(crate) fn err(code: StatusCode, msg: impl Into<String>) -> Response {
-    (code, Json(json!({ "error": msg.into() }))).into_response()
-}
-
-pub(crate) fn internal(e: anyhow::Error) -> Response {
-    if let Some(r) = crate::halts::refused(&e) {
-        return r;
-    }
-    if let Some(r) = crate::spend::routes::refused(&e) {
-        return r;
-    }
-    tracing::error!("api: {e:#}");
-    err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
-}
+pub(crate) use crate::api_error::{err, internal};
 
 /// New work is refused while the kill switch is on, before anything about
 /// it is recorded (owner's ruling 11).
@@ -73,11 +60,7 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
 }
 
 pub(crate) async fn developer(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    let p = who(k, h).await?;
-    if !rights(&p).sees_developer_view() {
-        return Err(err(StatusCode::FORBIDDEN, "this needs the developer role"));
-    }
-    Ok(p)
+    crate::extract::developer(k, h).await.map_err(IntoResponse::into_response)
 }
 
 /// A browser sends the session cookie on its own, so a change made with the
@@ -96,11 +79,7 @@ async fn cookie_guard(req: Request, next: Next) -> Response {
 }
 
 pub(crate) async fn owner(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    let p = who(k, h).await?;
-    if !rights(&p).is_server_owner() {
-        return Err(err(StatusCode::FORBIDDEN, "this needs the owner role"));
-    }
-    Ok(p)
+    crate::extract::owner(k, h).await.map_err(IntoResponse::into_response)
 }
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
