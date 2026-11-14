@@ -41,7 +41,7 @@ async fn each_look_draws_the_workspace_as_the_references_do() {
         }
         if c.body.to_string().contains(SUPPLIERS) {
             return match c.turn() {
-                0 => contract_unchecked("find suppliers", "three suppliers that match"),
+                0 => plan("find suppliers"),
                 _ => tool("mail__send", json!({ "to": "sales@tubes.example", "subject": "Quote", "body": "Please quote 40 tubes." })),
             };
         }
@@ -49,7 +49,7 @@ async fn each_look_draws_the_workspace_as_the_references_do() {
             return Reply::Text(String::new());
         }
         match c.turn() {
-            0 => contract_unchecked("plan the trip", "a 3-day plan under $1,000"),
+            0 => plan("plan the trip"),
             _ => tool(
                 "task_complete",
                 json!({

@@ -25,7 +25,7 @@ async fn signed_in(kc: &Keycloak, app: &Appliance) -> Api {
 async fn a_person_turned_off_has_no_apps_until_they_are_back() {
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("list the events", "the events are listed"),
+            0 => plan("list the events"),
             1 => tool("calendar__list_events", json!({})),
             _ => complete("done"),
         }

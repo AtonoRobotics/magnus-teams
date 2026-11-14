@@ -138,7 +138,7 @@ async fn the_owner_adds_an_app_each_person_signs_in_with_their_own_account_and_t
     let cal = FakeOAuthApp::start(30).await;
     let m = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("add the standup", "the standup is on the calendar"),
+            0 => plan("add the standup"),
             1 => tool("calendar__create_event", json!({ "title": "Standup" })),
             2 => tool("calendar__list_events", json!({})),
             _ => complete("added"),

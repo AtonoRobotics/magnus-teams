@@ -333,7 +333,7 @@ async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
                     _ => say("It is set up."),
                 },
                 Run::Task => match c.turn() {
-                    0 => contract_checked("summarise the inbox", "mail__list_inbox", json!({}), "/messages/0/subject", json!("Q3 numbers")),
+                    0 => plan("summarise the inbox"),
                     1 => tool("mail__list_inbox", json!({})),
                     _ => complete(SUMMARY),
                 },

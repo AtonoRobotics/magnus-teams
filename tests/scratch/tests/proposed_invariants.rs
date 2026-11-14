@@ -13,12 +13,7 @@ use std::{collections::BTreeMap, time::Duration};
 #[tokio::test(flavor = "multi_thread")]
 async fn action_is_not_executed_when_its_intent_cannot_be_recorded() {
     let mail = mcp::mail().start().await;
-    let model = start_checked(steps(vec![
-        contract_unchecked("send a note", "note sent"),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })),
-        fail("stopping"),
-    ]))
-    .await;
+    let model = start_checked(steps(vec![plan("send a note"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" })), fail("stopping")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     // The log refuses exactly this action's intent; everything before it,
     // the model's reply and the boundary's decision, is recorded.
@@ -64,7 +59,7 @@ async fn repeated_crashes_never_repeat_an_effect() {
     let chat = mcp::chat().start().await;
     let model = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_checked("post four updates", "chat__list_posts", json!({}), "/count", json!(4)),
+            0 => plan("post four updates"),
             n @ 1..=4 => tool("chat__post", json!({ "channel": "team", "text": format!("update {n}") })),
             _ => complete("posted"),
         }
@@ -115,8 +110,7 @@ fn send(body: &str) -> Reply {
 /// been used stops it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_action_approval_covers_one_action() {
-    let model =
-        start_checked(steps(vec![contract_unchecked("say hi twice", "said"), send(magnus_scratch::OUTSIDE_THE_ASK), send(magnus_scratch::OUTSIDE_THE_ASK), fail("done")])).await;
+    let model = start_checked(steps(vec![plan("say hi twice"), send(magnus_scratch::OUTSIDE_THE_ASK), send(magnus_scratch::OUTSIDE_THE_ASK), fail("done")])).await;
     let mail = mcp::mail().start().await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let alice = app.api("alice");

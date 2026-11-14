@@ -1,10 +1,8 @@
 //! Checks on the agent from outside the model doing the work: what goes out,
 //! what comes in, and an independent watcher.
-use crate::auto_review::Verdict;
 use crate::boundary::Action;
 use crate::events::Ev;
 use crate::kernel::{new_id, notice_event, Kernel};
-use crate::run::reviewer::SendVerdict;
 use crate::state::Run;
 use magnus_adapter_proto::{Block, Message, Role, ToolSpec};
 use serde::Deserialize;

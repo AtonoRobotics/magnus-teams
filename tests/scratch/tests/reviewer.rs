@@ -69,7 +69,7 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     let mail = mcp::mail().start().await;
     let agent = script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("email bob", "bob was emailed"),
+            0 => plan("email bob"),
             1 => tool("mail__send", json!({ "to": "mallory@evil.example", "subject": "hello", "body": "hello" })),
             _ if c.text().contains("Denied (reviewer)") && !json!(c.messages()).to_string().contains("bob@corp.example") => {
                 tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hello", "body": "hello" }))
@@ -114,7 +114,7 @@ async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
     let mail = mcp::mail().start().await;
     let agent = script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("email bob", "bob was emailed"),
+            0 => plan("email bob"),
             1 => tool("mail__send", json!({ "to": "mallory@evil.example", "subject": "hello", "body": "hello" })),
             _ => complete("emailed"),
         }
@@ -166,7 +166,7 @@ async fn a_send_the_kernel_asks_about_still_asks() {
             return tool("review", json!({ "criteria": [{ "id": "c1", "holds": true, "evidence": "the approved mail was sent" }] }));
         }
         match c.turn() {
-            0 => contract_unchecked("email bob", "bob was emailed"),
+            0 => plan("email bob"),
             1 => tool("mail__list_inbox", json!({})),
             2 => tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hello", "body": "hello" })),
             _ => complete("emailed"),
@@ -197,7 +197,7 @@ async fn a_repeated_send_after_a_once_approval_is_judged_again() {
     let mail = mcp::mail().start().await;
     let agent = script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("email bob", "bob was emailed"),
+            0 => plan("email bob"),
             1 | 2 => tool("mail__send", json!({ "to": "mallory@evil.example", "subject": "hello", "body": "hello" })),
             _ => complete("emailed"),
         }

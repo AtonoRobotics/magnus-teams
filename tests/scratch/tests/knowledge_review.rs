@@ -35,7 +35,7 @@ fn model() -> Script {
         }
         let step = |n: usize| c.turn() == n;
         if step(0) {
-            return contract_unchecked("file it", "filed");
+            return plan("file it");
         }
         // A task from chat carries the conversation: look in the whole request.
         if c.text().contains("File the record note in the knowledge base") {

@@ -21,7 +21,7 @@ async fn an_approval_for_an_apps_action_carries_the_apps_card_as_the_person_stan
     let cal = FakeOAuthApp::start(30).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("list the events", "the events are listed"),
+            0 => plan("list the events"),
             1 => tool("calendar__list_events", json!({})),
             _ => complete("listed"),
         }

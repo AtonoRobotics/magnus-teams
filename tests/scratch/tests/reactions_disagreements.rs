@@ -53,7 +53,7 @@ fn model() -> model::Script {
         }
         if !sys.contains(CHAT) {
             return match c.turn() {
-                0 => contract_unchecked("summarise the week", "a summary"),
+                0 => plan("summarise the week"),
                 _ => tool("task_fail", json!({ "reason": "done" })),
             };
         }
@@ -310,7 +310,7 @@ fn tainted_outcome_model(page: &str) -> model::Script {
                 };
             }
             match c.turn() {
-                0 => contract_unchecked("file vendor notes", "filed"),
+                0 => plan("file vendor notes"),
                 1 => tool("web_fetch", json!({ "url": page })),
                 2 => tool("disagreement", json!({ "action": "outcome", "id": open_id(&sys), "outcome": "The vendor replied twice (dis-out-free)." })),
                 3 => tool("disagreement", json!({ "action": "outcome", "id": open_id(&sys), "outcome": "worked" })),

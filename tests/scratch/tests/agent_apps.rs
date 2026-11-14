@@ -181,7 +181,7 @@ async fn a_task_that_needs_an_app_shows_its_card_with_why() {
         let n = n.lock().unwrap().clone();
         async move {
             match c.turn() {
-                0 => contract_unchecked("find a time", "a time is found"),
+                0 => plan("find a time"),
                 1 => tool("offer_app", json!({ "name": n, "why": "To read your team's calendars" })),
                 _ => complete("I need your calendar to go on."),
             }

@@ -68,7 +68,7 @@ async fn a_schedule_out_of_runs_ends_with_its_latest_run() {
             return Reply::Text("On it.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("say hi", "hi was said"),
+            0 => plan("say hi"),
             _ => complete("hi"),
         }
     }))

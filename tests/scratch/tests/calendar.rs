@@ -54,7 +54,7 @@ async fn calendar_adds_an_event_only_once_the_person_approves_it_reaching_only_g
     let api = StandIn::start(HOST, calendar).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("invite Bob to a planning meeting on Thursday at ten", "Bob is invited"),
+            0 => plan("invite Bob to a planning meeting on Thursday at ten"),
             1 => tool(
                 "calendar__create_event",
                 json!({ "summary": "Planning", "start_time": "2026-11-05T10:00:00Z", "end_time": "2026-11-05T10:30:00Z", "attendees": ["bob@example.com"] }),
@@ -92,7 +92,7 @@ async fn calendar_lists_every_calendar_across_pages() {
     let api = StandIn::start(HOST, calendar).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("which calendars do I have", "they are listed"),
+            0 => plan("which calendars do I have"),
             1 => tool("calendar__list_calendars", json!({})),
             _ => complete("yours and the team's"),
         }
@@ -121,7 +121,7 @@ async fn calendar_finds_a_time_when_everyone_is_free() {
     let api = StandIn::start(HOST, calendar).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("find an hour Bob and I are both free on Thursday", "a time is found"),
+            0 => plan("find an hour Bob and I are both free on Thursday"),
             1 => tool("calendar__suggest_time", json!({ "start_time": "2026-11-05T10:00:00Z", "end_time": "2026-11-05T15:00:00Z", "duration_minutes": 60, "attendees": ["bob@example.com", "team@example.com"], "max_suggestions": 3 })),
             _ => complete("Thursday at eleven, noon or two"),
         }
@@ -156,7 +156,7 @@ async fn calendar_s_refusals_reach_the_boundary_as_what_they_mean() {
     let api = StandIn::start(HOST, calendar).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("invite Bob to the plan review", "Bob is invited"),
+            0 => plan("invite Bob to the plan review"),
             1 => tool("calendar__list_events", json!({ "start_time": "2026-11-05T00:00:00Z" })),
             2 => tool(
                 "calendar__create_event",

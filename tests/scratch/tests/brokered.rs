@@ -68,7 +68,7 @@ async fn each_person_has_their_own_microvm_called_with_their_current_token_reach
         async move {
             let fetch = tool("testapp__fetch", json!({ "host": host, "path": "/inbox" }));
             match c.turn() {
-                0 => contract_unchecked("read the inbox", "the inbox is read"),
+                0 => plan("read the inbox"),
                 1 => fetch,
                 2 => fetch,
                 3 if c.text().contains("and try the rest") => tool("testapp__leak", json!({})),
@@ -160,7 +160,7 @@ async fn a_connector_sends_its_token_only_over_tls_it_has_checked() {
         let (h1, h2) = (h1.clone(), h2.clone());
         async move {
             match c.turn() {
-                0 => contract_unchecked("read the inbox", "the inbox is read"),
+                0 => plan("read the inbox"),
                 1 => tool("testapp__fetch", json!({ "host": h1, "path": "/inbox" })),
                 2 => tool("testapp__fetch", json!({ "host": h2, "path": "/inbox" })),
                 _ => complete("done"),
@@ -199,7 +199,7 @@ async fn disconnecting_erasing_and_the_kill_switch_stop_the_persons_microvm() {
         let host = host.clone();
         async move {
             match c.turn() {
-                0 => contract_unchecked("read the inbox", "the inbox is read"),
+                0 => plan("read the inbox"),
                 1 => tool("testapp__fetch", json!({ "host": host, "path": "/inbox" })),
                 _ => complete("done"),
             }
@@ -262,7 +262,7 @@ async fn a_write_whose_answer_breaks_its_schema(tool: &'static str, write: &'sta
         async move {
             let call = |app: &str, path: &str| self::tool(&format!("{app}__{tool}"), json!({ "host": host, "path": path }));
             match c.turn() {
-                0 => contract_unchecked("send the report", "the report is sent"),
+                0 => plan("send the report"),
                 1 => call("testread", "/json/read"),
                 2 => call("testapp", write),
                 // A model told the send failed sends it again.

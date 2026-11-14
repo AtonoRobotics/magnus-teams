@@ -33,7 +33,7 @@ async fn filing_an_apps_private_content_in_the_knowledge_base_is_decided_by_poli
         async move {
             let from_calendar = c.body.to_string().contains(FROM_CALENDAR);
             match (c.turn(), from_calendar) {
-                (0, _) => contract_unchecked("file it", "it is filed"),
+                (0, _) => plan("file it"),
                 (1, true) => tool("calendar__list_events", json!({})),
                 (1, false) => tool("web_fetch", json!({ "url": page })),
                 (2, true) => tool(

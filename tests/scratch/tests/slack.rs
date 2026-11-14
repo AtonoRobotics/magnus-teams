@@ -69,7 +69,7 @@ async fn slack_posts_as_alice_only_once_she_approves_reaching_only_slack() {
     let slack = StandIn::start(HOST, answer).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("tell general I am here", "general has it"),
+            0 => plan("tell general I am here"),
             1 => tool("slack__post_message", json!({ "channel": "C0123", "text": "I am here" })),
             _ => complete("told general"),
         }

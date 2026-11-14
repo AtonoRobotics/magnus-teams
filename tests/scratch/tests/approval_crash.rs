@@ -33,12 +33,9 @@ async fn respond_through_crash(app: &mut Appliance, item: &str, body: Value) {
 /// A task that sends one email, which waits on Alice's approval.
 async fn waiting_on_approval() -> (FakeMcp, FakeModel, Appliance, String, Value) {
     let mail = mcp::mail().start().await;
-    let model = FakeModel::start(steps(vec![
-        contract_checked("send the report", "mail__list_sent", json!({}), "/count", json!(1)),
-        tool("mail__send", json!({ "to": "bob@corp.example", "subject": "report", "body": "attached" })),
-        complete("sent"),
-    ]))
-    .await;
+    let model =
+        FakeModel::start(steps(vec![plan("send the report"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "report", "body": "attached" })), complete("sent")]))
+            .await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible"), ("list_sent", "read")]), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Email bob the report.").await;

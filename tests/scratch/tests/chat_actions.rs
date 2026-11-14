@@ -27,7 +27,7 @@ fn model(page: String) -> Script {
         async move {
             if !is_chat(&c) {
                 return match c.turn() {
-                    0 => contract_unchecked("do the work", "the work is done"),
+                    0 => plan("do the work"),
                     _ => complete("done"),
                 };
             }

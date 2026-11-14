@@ -25,7 +25,7 @@ async fn releasing_the_kill_switch_tells_each_person_whose_run_it_stopped() {
         let (t, g) = (t.clone(), g.clone());
         async move {
             match c.turn() {
-                0 => contract_unchecked("write a note", "a note"),
+                0 => plan("write a note"),
                 // Held open until the kill switch is engaged.
                 1 if !t.swap(true, Ordering::SeqCst) => {
                     g.notified().await;
@@ -70,7 +70,7 @@ async fn a_suggested_schedule_never_gets_more_than_a_run_is_given() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("watch the inbox", "the inbox was read"),
+            0 => plan("watch the inbox"),
             1 | 2 => tool("mail__list_inbox", json!({})),
             3 => {
                 let read = c.messages().into_iter().flat_map(|m| m["content"].as_array().cloned().unwrap_or_default()).find(|b| b["type"] == "tool_use" && b["name"] == "mail__list_inbox");
@@ -103,7 +103,7 @@ async fn a_schedules_own_notice_has_no_continue() {
             return complete("Nothing.");
         }
         match c.turn() {
-            0 => contract_unchecked("check once", "checked"),
+            0 => plan("check once"),
             1 => tool("end_schedule", json!({ "reason": "done once" })),
             _ => complete("Checked."),
         }

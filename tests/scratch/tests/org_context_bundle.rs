@@ -42,7 +42,7 @@ async fn magnus_writes_the_bundle_through_the_kernel_which_checks_every_write_an
         let t = c.turn();
         if body.contains(ALICE) {
             let steps: Vec<Reply> = vec![
-                contract_unchecked("map the CRM", "the bundle maps it"),
+                plan("map the CRM"),
                 tool("bundle_write", customer("draft")),
                 tool("bundle_write", customer("stable")),
                 tool("bundle_write", acme(json!({ "vat": "GB1" }))),
@@ -59,7 +59,7 @@ async fn magnus_writes_the_bundle_through_the_kernel_which_checks_every_write_an
         }
         if body.contains(BOB) {
             let steps: Vec<Reply> = vec![
-                contract_unchecked("look up Acme", "found or not"),
+                plan("look up Acme"),
                 tool("bundle_read", json!({ "path": "/entities/customer/acme.md" })),
                 tool("bundle_read", json!({ "path": "/users/alice/notes.md" })),
                 tool("bundle_read", json!({ "path": "/index.md" })),
@@ -137,15 +137,10 @@ async fn an_org_document_from_private_content_is_its_writers_alone_whatever_it_c
         let body = c.body.to_string();
         let t = c.turn();
         let steps: Vec<Reply> = if body.contains(BOB_PAY) {
-            vec![
-                contract_unchecked("look up pay", "found or not"),
-                tool("bundle_read", json!({ "path": "/people/finance.md" })),
-                tool("bundle_search", json!({ "query": "carol" })),
-                complete("Looked."),
-            ]
+            vec![plan("look up pay"), tool("bundle_read", json!({ "path": "/people/finance.md" })), tool("bundle_search", json!({ "query": "carol" })), complete("Looked.")]
         } else if body.contains(PAY) {
             vec![
-                contract_unchecked("note pay", "it is noted"),
+                plan("note pay"),
                 tool("bundle_write", json!({ "path": "/people/finance.md", "frontmatter": finance(), "body": "Carol earns 91,000 a year." })),
                 complete("Noted."),
             ]
@@ -211,10 +206,10 @@ async fn an_org_document_written_with_its_persons_memory_in_context_is_theirs_al
     let m = FakeModel::start(script(move |c| async move {
         let body = c.body.to_string();
         let steps: Vec<Reply> = if body.contains(BOB_VENDORS) {
-            vec![contract_unchecked("look up vendors", "found or not"), tool("bundle_read", json!({ "path": "/people/vendors.md" })), complete("Looked.")]
+            vec![plan("look up vendors"), tool("bundle_read", json!({ "path": "/people/vendors.md" })), complete("Looked.")]
         } else if body.contains(VENDORS) {
             vec![
-                contract_unchecked("note vendors", "it is noted"),
+                plan("note vendors"),
                 tool("bundle_write", json!({ "path": "/people/vendors.md", "frontmatter": vendors(), "body": "Alice is wary of Acme since her complaint." })),
                 complete("Noted."),
             ]
@@ -255,16 +250,16 @@ async fn a_version_put_back_keeps_the_taint_and_the_reader_it_was_written_with()
         let body = c.body.to_string();
         let t = c.turn();
         let steps: Vec<Reply> = if body.contains(BOB_PAY) {
-            vec![contract_unchecked("look up pay", "found or not"), tool("bundle_read", json!({ "path": "/people/finance.md" })), complete("Looked.")]
+            vec![plan("look up pay"), tool("bundle_read", json!({ "path": "/people/finance.md" })), complete("Looked.")]
         } else if body.contains(PAY) {
             vec![
-                contract_unchecked("note pay", "it is noted"),
+                plan("note pay"),
                 tool("bundle_write", json!({ "path": "/people/finance.md", "frontmatter": finance(), "body": "Carol earns 91,000 a year." })),
                 complete("Noted."),
             ]
         } else if body.contains(BOB_REWRITES) {
             vec![
-                contract_unchecked("rewrite finance", "it is rewritten"),
+                plan("rewrite finance"),
                 tool("bundle_write", json!({ "path": "/people/finance.md", "frontmatter": finance(), "body": "Finance pays the team." })),
                 complete("Rewritten."),
             ]
@@ -402,7 +397,7 @@ async fn a_hidden_documents_link_leaves_with_its_text_whatever_its_form() {
         if !c.body.to_string().contains(READS) {
             return Reply::Text(String::new());
         }
-        let steps = [contract_unchecked("read the sales page", "it is read"), tool("bundle_read", json!({ "path": "/people/sales.md" })), complete("Read.")];
+        let steps = [plan("read the sales page"), tool("bundle_read", json!({ "path": "/people/sales.md" })), complete("Read.")];
         steps.get(c.turn()).cloned().unwrap_or_else(|| Reply::Text(String::new()))
     }))
     .await;
@@ -452,7 +447,7 @@ async fn an_entity_moved_by_merging_types_keeps_its_taint_and_its_reader() {
             return Reply::Text(String::new());
         }
         let acme = json!({ "path": "/entities/customer/acme.md", "frontmatter": { "type": "Customer", "title": "Acme", "resource": "/sources/hubspot.md", "sources": [{ "resource": "/sources/hubspot.md" }], "generated": gen(), "identity": { "domain": "acme.example" }, "relations": [], "scope": "org" }, "body": "Acme is renegotiating." });
-        let steps = [contract_unchecked("note acme", "it is noted"), tool("bundle_write", acme), complete("Noted.")];
+        let steps = [plan("note acme"), tool("bundle_write", acme), complete("Noted.")];
         steps.get(c.turn()).cloned().unwrap_or_else(|| Reply::Text(String::new()))
     }))
     .await;
@@ -497,7 +492,7 @@ async fn a_type_an_admin_made_stable_is_changed_by_no_run_of_magnus() {
         }
         let mut wider = customer("stable");
         wider["frontmatter"]["identity_keys"] = json!(["hubspot_id", "domain", "vat"]);
-        let steps = [contract_unchecked("tidy the type", "it is tidied"), tool("bundle_write", wider), tool("bundle_write", customer("draft")), complete("Tidied.")];
+        let steps = [plan("tidy the type"), tool("bundle_write", wider), tool("bundle_write", customer("draft")), complete("Tidied.")];
         steps.get(c.turn()).cloned().unwrap_or_else(|| Reply::Text(String::new()))
     }))
     .await;
@@ -540,14 +535,14 @@ async fn a_conventions_verifications_are_the_kernels_record_and_no_write_of_magn
         let body = c.body.to_string();
         let steps = if body.contains(NOTES) {
             vec![
-                contract_unchecked("note the convention", "it is noted"),
+                plan("note the convention"),
                 tool("bundle_write", convention(None, "Discounts over 10% need the head of sales.")),
                 tool("bundle_write", convention(Some(review()), "Discounts over 10% need the head of sales.")),
                 complete("Noted."),
             ]
         } else if body.contains(REWRITES) {
             vec![
-                contract_unchecked("update the convention", "it is updated"),
+                plan("update the convention"),
                 tool("bundle_write", convention(Some(json!([])), "Discounts over 15% need the head of sales.")),
                 tool("bundle_write", convention(None, "Discounts over 15% need the head of sales.")),
                 complete("Updated."),
@@ -622,15 +617,10 @@ async fn the_writer_shares_a_writer_only_document_in_conversation() {
             };
         }
         let steps: Vec<Reply> = if body.contains(BOB_PAY) {
-            vec![
-                contract_unchecked("look up pay", "found or not"),
-                tool("bundle_read", json!({ "path": "/people/finance.md" })),
-                tool("bundle_search", json!({ "query": "carol" })),
-                complete("Looked."),
-            ]
+            vec![plan("look up pay"), tool("bundle_read", json!({ "path": "/people/finance.md" })), tool("bundle_search", json!({ "query": "carol" })), complete("Looked.")]
         } else if body.contains(PAY) {
             vec![
-                contract_unchecked("note pay", "it is noted"),
+                plan("note pay"),
                 tool("bundle_write", json!({ "path": "/people/finance.md", "frontmatter": finance(), "body": "Carol earns 91,000 a year." })),
                 complete("Noted."),
             ]

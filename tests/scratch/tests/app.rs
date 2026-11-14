@@ -565,7 +565,7 @@ async fn a_plan_a_review_and_the_outcome_carries_its_view() {
     let model = FakeModel::start(script(|c| async move {
         let last = c.last_results();
         match c.turn() {
-            0 => contract_unchecked("note the figure", "the figure is remembered"),
+            0 => plan("note the figure"),
             1 => tool(
                 "task_plan",
                 json!({ "units": [
@@ -621,7 +621,7 @@ async fn the_inspector_matches_chat_and_task_runs_to_their_own_instructions() {
             return Reply::Text("Hello.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("x", "x"),
+            0 => plan("x"),
             _ => fail("nothing to do"),
         }
     });
@@ -643,7 +643,7 @@ async fn the_inspector_matches_chat_and_task_runs_to_their_own_instructions() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_developer_view_needs_the_role_and_drills_down_to_the_log() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("x", "x"), tool("memory_search", json!({ "query": "anything" })), fail("nothing to do")])).await;
+    let model = FakeModel::start(steps(vec![plan("x"), tool("memory_search", json!({ "query": "anything" })), fail("nothing to do")])).await;
     let app = Appliance::start(spec(), &model).await;
     let alice = app.api("alice");
     let dana = app.api("dana");
@@ -695,7 +695,7 @@ async fn experiments_report_pass_at_k_from_repeated_trials() {
     let model = FakeModel::start(script(|c| async move {
         let good = c.messages()[0].to_string().contains("GOOD");
         match c.turn() {
-            0 => contract_checked("x", "mail__list_sent", json!({}), "/count", json!(0)),
+            0 => plan("x"),
             _ if good => complete("done"),
             _ => fail("cannot"),
         }
@@ -748,7 +748,7 @@ async fn playbook_items_reach_later_tasks_and_carry_their_taint() {
         async move {
             let first = c.messages()[0].to_string().contains("Learn");
             match (first, c.turn()) {
-                (_, 0) => contract_unchecked("x", "x"),
+                (_, 0) => plan("x"),
                 (true, 1) => tool("web_fetch", json!({ "url": howto })),
                 (true, 2) => tool("playbook_update", json!({ "op": "add", "text": "Invoices go to finance@example.com.", "addresses": "where invoices go" })),
                 (true, _) => fail("done"),
@@ -795,12 +795,7 @@ async fn a_model_change_is_a_version_change() {
 /// else can, and a forgotten memory is gone after a restart too.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_person_forgets_a_memory() {
-    let model = FakeModel::start(steps(vec![
-        contract_unchecked("remember", "remembered"),
-        tool("memory_write", json!({ "fact": "alice prefers PDF reports", "topic": "reports" })),
-        fail("done"),
-    ]))
-    .await;
+    let model = FakeModel::start(steps(vec![plan("remember"), tool("memory_write", json!({ "fact": "alice prefers PDF reports", "topic": "reports" })), fail("done")])).await;
     let mut app = Appliance::start(Spec::default(), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     let id = alice.submit("Remember that I like PDF reports.").await;

@@ -20,7 +20,7 @@ async fn the_workspace_keeps_typing_sends_once_nests_warns_and_forgets_the_last_
             return Reply::Text("Noted.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("check the calendar", "the calendar was checked"),
+            0 => plan("check the calendar"),
             _ => complete("checked"),
         }
     }))

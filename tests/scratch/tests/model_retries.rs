@@ -119,7 +119,7 @@ impl FakeChat {
             calls: Arc<AtomicUsize>,
             bodies: Arc<Mutex<Vec<Value>>>,
         }
-        let first = match contract_unchecked("summarise the plan", "summarised") {
+        let first = match plan("summarise the plan") {
             Reply::Tools(v) => v.into_iter().next().unwrap(),
             _ => unreachable!(),
         };

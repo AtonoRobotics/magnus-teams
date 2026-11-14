@@ -154,7 +154,7 @@ async fn add_billable(app: &mut Appliance, chat: &BillableChat) {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_verifier_with_no_dollars_left_judges_nothing() {
     let chat = BillableChat::start(Arc::new(|_, turn| match turn {
-        0 => plain(vec![pair(contract_unchecked("do the work", "the work is done"))]),
+        0 => plain(vec![pair(plan("do the work"))]),
         _ => spending(vec![pair(complete("done"))]),
     }))
     .await;
@@ -176,7 +176,7 @@ async fn a_memory_pass_with_no_dollars_left_files_nothing() {
     // A checked criterion: the code check passes, the verifier stays out of
     // it either way, and only the memory pass differs.
     let chat = BillableChat::start(Arc::new(|_, turn| match turn {
-        0 => plain(vec![pair(contract_checked("do the work", "knowledge_search", json!({ "query": "zzz-nothing" }), "/entries", json!([])))]),
+        0 => plain(vec![pair(plan("do the work"))]),
         _ => spending(vec![pair(complete("done"))]),
     }))
     .await;
@@ -200,7 +200,7 @@ async fn an_extraction_with_no_dollars_left_reads_nothing() {
     let web = FakeWeb::start(&[("/a", "<p>Quarterly figure: 41.7.</p>")]).await;
     let url = web.url("/a");
     let chat = BillableChat::start(Arc::new(move |_, turn| match turn {
-        0 => plain(vec![pair(contract_unchecked("file the figures", "the figures are filed"))]),
+        0 => plain(vec![pair(plan("file the figures"))]),
         1 => plain(vec![("web_fetch".into(), json!({ "url": url.clone() }))]),
         2 => plain(vec![(
             "knowledge_add".into(),

@@ -59,7 +59,7 @@ async fn the_kill_switch_revokes_sign_ins_seals_the_vault_and_releasing_resumes_
         async move {
             let send = tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
             match c.turn() {
-                0 => contract_unchecked("send a note", "note sent"),
+                0 => plan("send a note"),
                 // Hold the model call open until the kill switch is engaged.
                 1 => {
                     if !t.swap(true, Ordering::SeqCst) {
@@ -192,7 +192,7 @@ async fn releasing_the_switch_and_its_notices_are_one_write() {
         let (t, g) = (t.clone(), g.clone());
         async move {
             match c.turn() {
-                0 => contract_unchecked("write a note", "note written"),
+                0 => plan("write a note"),
                 // Hold the model call open until the kill switch is engaged.
                 _ => {
                     if !t.swap(true, Ordering::SeqCst) {
@@ -311,7 +311,7 @@ async fn the_kill_switch_closes_every_runs_pages() {
         async move {
             let page = if c.body.to_string().contains("Watch page a.") { "a" } else { "b" };
             match c.turn() {
-                0 => contract_unchecked("watch the page", "the page was watched"),
+                0 => plan("watch the page"),
                 1 => tool("browser_navigate", json!({ "url": format!("{s}/page/{page}") })),
                 2 if c.last_results().iter().any(|r| r.is_error) => fail(&format!("the page did not open: {}", c.last_results()[0].text)),
                 2 if page == "b" => tool("ask_principal", json!({ "question": "Keep watching?" })),

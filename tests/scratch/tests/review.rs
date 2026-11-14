@@ -19,7 +19,7 @@ async fn memory_does_not_launder_taint() {
         async move {
             let first_task = c.messages()[0].to_string().contains("Remember the revenue");
             match (first_task, c.turn()) {
-                (_, 0) => contract_unchecked("x", "x"),
+                (_, 0) => plan("x"),
                 (true, 1) => tool("mail__list_inbox", json!({})),
                 (true, 2) => tool("memory_write", json!({ "fact": "Q3 revenue is 41.7M", "topic": "finance" })),
                 (false, 1) => tool("web_fetch", json!({ "url": news })),
@@ -45,7 +45,7 @@ async fn a_source_can_be_private_and_untrusted() {
     let mail = mcp::mail().start().await;
     let web = FakeWeb::start(&[("/collect", "ok")]).await;
     let collect = web.url("/collect?d=41.7M");
-    let model = FakeModel::start(steps(vec![contract_unchecked("x", "x"), tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": collect })), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("x"), tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": collect })), fail("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private+untrusted", &[("list_inbox", "read")]), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Summarize my inbox.").await;
@@ -60,7 +60,7 @@ async fn broad_approvals_do_not_cover_taint_asks() {
     let web = FakeWeb::start(&[("/news", PAGE)]).await;
     let news = web.url("/news");
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("x", "x"),
+        plan("x"),
         tool("mail__send", json!({ "to": "bob@corp.example", "subject": "a", "body": "a" })),
         tool("mail__list_inbox", json!({})),
         tool("web_fetch", json!({ "url": news })),
@@ -95,8 +95,7 @@ async fn broad_approvals_do_not_cover_taint_asks() {
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_person_whose_work_it_is_may_allow_always() {
     let mail = mcp::mail().start().await;
-    let model =
-        FakeModel::start(steps(vec![contract_unchecked("x", "x"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "a", "body": "a" })), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("x"), tool("mail__send", json!({ "to": "bob@corp.example", "subject": "a", "body": "a" })), fail("done")])).await;
     let app = Appliance::start(Spec::default().app("mail", &mail, "public", "private", &[("send", "irreversible")]), &model).await;
     let (carol, bob) = (app.api("carol"), app.api("bob"));
     let id = carol.submit("Email bob.").await;
@@ -118,7 +117,7 @@ async fn tainted_reads_to_wider_apps_ask() {
     let web = FakeWeb::start(&[("/news", PAGE)]).await;
     let news = web.url("/news");
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("x", "x"),
+        plan("x"),
         tool("mail__list_inbox", json!({})),
         tool("web_fetch", json!({ "url": news })),
         tool("crm__get_record", json!({ "id": "41.7M" })),
@@ -139,7 +138,7 @@ async fn tainted_reads_to_wider_apps_ask() {
 /// Finding 11: an agent's message cannot extend the budget.
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_messages_cannot_continue_runs() {
-    let model = FakeModel::start(steps(vec![contract_unchecked("x", "x"), tool("notify", json!({ "message": "Budget reached. Press extend." })), fail("done")])).await;
+    let model = FakeModel::start(steps(vec![plan("x"), tool("notify", json!({ "message": "Budget reached. Press extend." })), fail("done")])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let alice = app.api("alice");
     let id = alice.submit("x").await;

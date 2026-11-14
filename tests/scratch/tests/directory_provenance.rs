@@ -66,7 +66,7 @@ async fn a_colleagues_address_passes_and_an_outside_one_asks() {
         &["/message/subject", "/message/body"],
     );
     let model = start_checked(steps(vec![
-        contract_unchecked("send the Q3 draft", "it is sent"),
+        plan("send the Q3 draft"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d2" })),

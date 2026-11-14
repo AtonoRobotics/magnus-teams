@@ -8,7 +8,7 @@
 //!   checks, blocking or flagging what should not go.
 
 use magnus_invariants::appliance::Person;
-use magnus_invariants::model::{Reply, Script};
+use magnus_invariants::model::Script;
 use magnus_invariants::*;
 use magnus_scratch::*;
 use serde_json::{json, Value};
@@ -39,7 +39,7 @@ async fn trial(dana: &Api, exp: &str, case: &str, text: &str, modules: Value) ->
 fn looper() -> Script {
     script(|c| async move {
         if c.turn() == 0 {
-            return contract_unchecked("check the sent mail", "the sent mail was checked");
+            return plan("check the sent mail");
         }
         if c.text().contains(NOTE) {
             return complete("checked");
@@ -90,7 +90,7 @@ async fn a_run_lost_again_escalates_to_the_stronger_model() {
     // Only the stronger model gets out of the loop.
     let m = start_checked(script(|c| async move {
         if c.turn() == 0 {
-            return contract_unchecked("check the sent mail", "the sent mail was checked");
+            return plan("check the sent mail");
         }
         if c.body["model"] == "claude-strong" {
             return complete("checked");
@@ -152,7 +152,7 @@ async fn the_reviewer_blocks_a_send_to_the_wrong_recipient() {
         }
         // The agent mails mallory, of all people.
         match c.turn() {
-            0 => contract_unchecked("email mallory", "mallory was emailed"),
+            0 => plan("email mallory"),
             1 => tool("mail__send", json!({ "to": "mallory@evil.example", "subject": "hello", "body": "hello" })),
             _ if c.text().contains("Denied (reviewer)") => complete("blocked; nothing sent"),
             _ => complete("sent"),

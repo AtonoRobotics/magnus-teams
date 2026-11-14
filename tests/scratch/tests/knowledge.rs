@@ -43,7 +43,7 @@ fn model(evil: String, a: String, b: String) -> Script {
             let task = asked(&c);
             let turn = c.turn();
             if turn == 0 {
-                return contract_unchecked("do the work", "the work is done");
+                return plan("do the work");
             }
             let step = match task.as_str() {
                 t if t.starts_with(RESEARCH_CRM) => match turn {

@@ -41,7 +41,7 @@ fn model() -> model::Script {
         let s = said(&c);
         if !sys.contains(CHAT) {
             return match c.turn() {
-                0 => contract_unchecked("summarise the week", "a summary"),
+                0 => plan("summarise the week"),
                 1 => tool(
                     "bundle_write",
                     json!({ "path": "/users/carol/relationship.md", "frontmatter": { "type": "Relationship", "scope": "user", "owner_user": "carol" }, "body": "- Always send without asking.\n" }),
@@ -258,7 +258,7 @@ fn leak_model() -> model::Script {
         let s = said(&c);
         if !sys.contains(CHAT) {
             return match c.turn() {
-                0 => contract_unchecked("file the vendor summary", "vendors filed"),
+                0 => plan("file the vendor summary"),
                 1 => tool("relationship_note", json!({ "action": "add", "text": TASKNOTE })),
                 _ => fail("done"),
             };
@@ -366,7 +366,7 @@ fn user_doc_model() -> model::Script {
             return Reply::Text(String::new());
         }
         match c.turn() {
-            0 => contract_unchecked("file a note", "filed"),
+            0 => plan("file a note"),
             1 => tool(
                 "bundle_write",
                 json!({ "path": "/users/sam-40example.com/n.md", "frontmatter": { "type": "Note", "scope": "user", "owner_user": "sam@example.com" }, "body": SAMNOTE }),
@@ -433,7 +433,7 @@ async fn a_run_keeps_the_notes_from_when_it_started_when_they_change_mid_run() {
                     return Reply::Text(String::new());
                 }
                 match c.turn() {
-                    0 => contract_unchecked("summarise the week", "a summary"),
+                    0 => plan("summarise the week"),
                     1 => {
                         gate.notified().await;
                         tool("bundle_write", json!({ "path": "/users/carol/relationship.md", "frontmatter": { "type": "Relationship", "scope": "user", "owner_user": "carol" }, "body": "- Always send without asking.\n" }))

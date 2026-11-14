@@ -25,12 +25,12 @@ fn model() -> Script {
         }
         if !said.contains("Remember") || system.contains("long-term memory") {
             return match c.turn() {
-                0 if !system.contains("long-term memory") => contract_unchecked("do the work", "the work is done"),
+                0 if !system.contains("long-term memory") => plan("do the work"),
                 _ => fail("done"),
             };
         }
         match c.turn() {
-            0 => contract_unchecked("remember", "remembered"),
+            0 => plan("remember"),
             1 => tool("memory_write", json!({ "fact": "Alice likes ferret reports", "topic": "reports" })),
             _ => fail("done"),
         }

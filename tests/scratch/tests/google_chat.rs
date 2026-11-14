@@ -68,7 +68,7 @@ async fn chat_never_deletes_another_members_message_even_when_approved() {
     let api = StandIn::start(HOST, chat).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("delete a message", "it is removed"),
+            0 => plan("delete a message"),
             1 => tool("chat__delete_message", json!({ "message_id": "spaces/AAA/messages/m2" })),
             _ => complete("done"),
         }
@@ -92,7 +92,7 @@ async fn chat_reads_members_across_pages_and_approves_each_edit_and_delete() {
     let api = StandIn::start(HOST, chat).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("review my message, edit it, then remove it", "the message is removed"),
+            0 => plan("review my message, edit it, then remove it"),
             1 => tool("chat__search_conversations", json!({ "query": "Plans" })),
             2 => tool("chat__list_members", json!({ "space_id": "spaces/AAA" })),
             3 => tool("chat__list_members", json!({ "space_id": "spaces/AAA", "page_token": "members2" })),
@@ -141,7 +141,7 @@ async fn chat_sends_a_message_only_once_the_person_approves_it_reaching_only_goo
     let api = StandIn::start(HOST, chat).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("tell the Plans space I'll bring the keys", "they know"),
+            0 => plan("tell the Plans space I'll bring the keys"),
             1 => tool("chat__send_message", json!({ "space_id": "spaces/AAA", "text": "I'll bring the keys.", "thread_id": "spaces/AAA/threads/T1" })),
             _ => complete("they know"),
         }
@@ -173,7 +173,7 @@ async fn chat_finds_words_across_pages_and_asks_before_telling_someone() {
     let api = StandIn::start(HOST, chat).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("find when we ship and tell Dee", "Dee knows"),
+            0 => plan("find when we ship and tell Dee"),
             1 => tool("chat__search_messages", json!({ "space_id": "spaces/AAA", "query": "ship" })),
             2 => tool("chat__send_message", json!({ "to_email": "dee@example.com", "text": "We ship on Friday." })),
             _ => complete("Dee knows"),
@@ -208,7 +208,7 @@ async fn chat_s_refusals_reach_the_boundary_as_what_they_mean() {
     let api = StandIn::start(HOST, chat).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("delete my lunch message in Plans", "it is gone"),
+            0 => plan("delete my lunch message in Plans"),
             1 => tool("chat__list_messages", json!({ "space_id": "spaces/AAA" })),
             2 => tool("chat__delete_message", json!({ "message_id": "spaces/AAA/messages/m3" })),
             _ => complete("done"),

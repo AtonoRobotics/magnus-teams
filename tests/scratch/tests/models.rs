@@ -83,7 +83,7 @@ async fn a_token_refreshed_while_listing_models_goes_to_the_vault_not_the_caller
 async fn a_rate_limit_is_retried_rather_than_pausing_the_task() {
     // The first request is refused with a 429; asked again, the model works.
     let calls = Arc::new(AtomicUsize::new(0));
-    let then = steps(vec![contract_unchecked("say hello", "said"), fail("nothing to do")]);
+    let then = steps(vec![plan("say hello"), fail("nothing to do")]);
     let model = FakeModel::start(script(move |c| {
         let (calls, then) = (calls.clone(), then.clone());
         async move {

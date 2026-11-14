@@ -138,7 +138,7 @@ async fn a_signed_release_installs_while_a_task_runs_and_goes_back_one_step() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("read the inbox", "the inbox was read"),
+            0 => plan("read the inbox"),
             1 => tool("mail__list_inbox", json!({})),
             // The reply in flight when the update comes: it returns once the
             // appliance is switching releases, or after PATIENCE, so an

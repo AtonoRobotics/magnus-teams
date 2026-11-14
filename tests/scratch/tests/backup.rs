@@ -12,7 +12,7 @@ async fn a_backup_restores_the_log_and_the_vault_after_both_are_lost() {
     let mail = mcp::mail().start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("read the inbox", "the inbox was read"),
+            0 => plan("read the inbox"),
             1 => tool("mail__list_inbox", json!({})),
             _ => complete("read"),
         }

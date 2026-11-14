@@ -32,7 +32,7 @@ async fn held_model(first: Option<Reply>) -> Held {
             let hold = c.text().contains("HOLD");
             let at = if first.is_some() { 2 } else { 1 };
             match c.turn() {
-                0 => contract_unchecked("do the thing", "the thing is done"),
+                0 => plan("do the thing"),
                 1 if first.is_some() && hold => first.unwrap_or_else(|| complete("Done.")),
                 n if n == at && hold => {
                     if !t.swap(true, Ordering::SeqCst) {
@@ -225,7 +225,7 @@ async fn a_call_to_a_switched_off_connector_is_refused_and_stops_its_run() {
         let (t, g) = (t.clone(), g.clone());
         async move {
             match c.turn() {
-                0 => contract_unchecked("send a note", "note sent"),
+                0 => plan("send a note"),
                 1 => {
                     if !t.swap(true, Ordering::SeqCst) {
                         g.notified().await;

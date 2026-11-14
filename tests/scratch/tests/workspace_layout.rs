@@ -13,7 +13,7 @@ async fn responsive_workspace_preserves_access_and_preferences() {
         }
         match c.turn() {
             0 => tool("ask_principal", json!({"question":"Which section first?"})),
-            1 => contract_unchecked("Navigation review", "Useful result"),
+            1 => plan("Navigation review"),
             _ => tool("task_complete", json!({"summary":"Navigation review completed","deliverable":[{"type":"text","text":"Actual reviewed navigation result"}]})),
         }
     }))

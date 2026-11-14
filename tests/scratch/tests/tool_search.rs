@@ -29,7 +29,7 @@ async fn run_with(app_tools: usize) -> (Vec<Value>, FakeMcp) {
         async move {
             s.lock().unwrap().push(c.body.clone());
             match c.turn() {
-                0 => contract_unchecked("list the events", "the events are listed"),
+                0 => plan("list the events"),
                 1 => tool("find_tools", json!({ "query": "calendar events" })),
                 2 => tool("ops__list_events", json!({})),
                 _ => complete("listed"),

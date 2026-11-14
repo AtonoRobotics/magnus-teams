@@ -29,7 +29,7 @@ async fn a_task_from_chat_shows_its_deliverable_in_the_conversation() {
             return Reply::Text(String::new());
         }
         match c.turn() {
-            0 => contract_unchecked("plan the trip", "a 3-day plan under $1,000"),
+            0 => plan("plan the trip"),
             _ => tool(
                 "task_complete",
                 json!({

@@ -21,7 +21,7 @@ async fn a_link_from_the_web_needs_no_ask_and_a_made_up_address_asks_once_per_si
         let (news_url, story, leak, again) = (news_url.clone(), story.clone(), leak.clone(), again.clone());
         async move {
             match c.turn() {
-                0 => contract_unchecked("read my inbox and the news", "read"),
+                0 => plan("read my inbox and the news"),
                 1 => tool("mail__list_inbox", json!({})),
                 2 => tool("web_fetch", json!({ "url": news_url })),
                 3 => tool("web_fetch", json!({ "url": story })),

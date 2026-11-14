@@ -64,7 +64,7 @@ fn attacker_model(marker: String) -> magnus_invariants::model::Script {
                 .collect();
             let turn = c.turn();
             if turn == 0 {
-                return contract_unchecked("summarize", "the summary was written");
+                return plan("summarize");
             }
             if turn <= reads.len() {
                 let (t, i) = &reads[turn - 1];

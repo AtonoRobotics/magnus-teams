@@ -39,7 +39,7 @@ fn worker() -> magnus_invariants::model::Script {
             tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }))
         };
         match c.turn() {
-            0 => contract_unchecked("do it", "done"),
+            0 => plan("do it"),
             1 => act,
             _ => fail("done"),
         }

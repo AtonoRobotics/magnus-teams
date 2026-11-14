@@ -57,7 +57,7 @@ async fn asked(api: &Api) -> Vec<Value> {
 fn quiet() -> magnus_invariants::model::Script {
     script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("check the calendar", "the calendar was checked"),
+            0 => plan("check the calendar"),
             _ => complete("checked"),
         }
     })
@@ -153,7 +153,7 @@ async fn a_changed_description_is_screened_and_only_a_failed_screen_holds_the_to
             return tool("screen", json!({ "injection": bad, "finding": if bad { "it tells the agent to send the calendar away" } else { "" } }));
         }
         match c.turn() {
-            0 => contract_unchecked("check the calendar", "the calendar was checked"),
+            0 => plan("check the calendar"),
             _ => complete("checked"),
         }
     }))

@@ -109,7 +109,7 @@ async fn gmail_sends_a_draft_only_once_the_person_approves_it_reaching_only_gmai
     let gmail = StandInGmail::with_drafts(1).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the draft I wrote him", "Bob has it"),
+            0 => plan("send Bob the draft I wrote him"),
             1 => tool("gmail__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent Bob your draft"),
         }
@@ -146,7 +146,7 @@ async fn an_approved_send_whose_task_is_cancelled_while_the_gate_reads_the_draft
     let gmail = StandInGmail::with_drafts(1).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the draft I wrote him", "Bob has it"),
+            0 => plan("send Bob the draft I wrote him"),
             1 => tool("gmail__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent Bob your draft"),
         }
@@ -187,7 +187,7 @@ async fn having_read_mail_gmail_labels_and_drafts_without_asking_and_asks_only_b
     let gmail = StandInGmail::start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the plan he asked for", "Bob has the plan"),
+            0 => plan("send Bob the plan he asked for"),
             1 => tool("gmail__search_threads", json!({ "query": "from:bob plan" })),
             2 => tool("gmail__label_thread", json!({ "thread_id": "t1", "label_ids": ["Label_plans"] })),
             3 => tool("gmail__create_draft", json!({ "to": ["bob@example.com"], "subject": "The plan", "body": "Friday at ten." })),
@@ -231,7 +231,7 @@ async fn having_read_mail_gmail_searches_again_without_asking_and_a_web_lookup_s
     let gmail = StandInGmail::start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("find what Bob said about the plan", "the answer names Bob's plan"),
+            0 => plan("find what Bob said about the plan"),
             1 => tool("gmail__search_threads", json!({ "query": "from:bob plan" })),
             2 => tool("gmail__search_threads", json!({ "query": "from:bob friday" })),
             3 => tool("web_fetch", json!({ "url": "https://example.com/plan" })),
@@ -261,7 +261,7 @@ async fn a_draft_changed_after_its_card_asks_again_showing_the_change() {
     let gmail = StandInGmail::with_drafts(1).await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the draft I wrote him", "Bob has it"),
+            0 => plan("send Bob the draft I wrote him"),
             1 => tool("gmail__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent Bob your draft"),
         }
@@ -305,7 +305,7 @@ async fn a_change_to_a_part_the_card_does_not_show_asks_again() {
     }
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bo the draft I wrote", "Bo has it"),
+            0 => plan("send Bo the draft I wrote"),
             1 => tool("gmail__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent Bo your draft"),
         }
@@ -356,7 +356,7 @@ async fn gmail_s_refusals_reach_the_boundary_as_what_they_mean() {
     let gmail = StandInGmail::start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the plan", "Bob has the plan"),
+            0 => plan("send Bob the plan"),
             1 => tool("gmail__search_threads", json!({ "query": "from:bob" })),
             2 => tool("gmail__create_draft", json!({ "to": ["bob@example.com"], "subject": "The plan", "body": "Friday." })),
             3 => tool("gmail__send_draft", json!({ "draft_id": "d1" })),
@@ -406,7 +406,7 @@ async fn gmail_s_tools_from_its_hosted_server_are_offered_from_its_image() {
     let hosted = mcp::FakeMcp::builder().tool("create_draft", "Create a draft.", schema, |_, _, _| mcp::ok(json!({ "id": "h1" }))).start().await;
     let m = FakeModel::start(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("draft Bob a note", "the draft is there"),
+            0 => plan("draft Bob a note"),
             1 if c.text().contains("Draft Bob a note.") => tool("gmail__create_draft", json!({ "to": ["bob@example.com"], "subject": "Hello", "body": "Friday at ten." })),
             _ => complete("done"),
         }

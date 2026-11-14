@@ -37,7 +37,7 @@ fn model() -> Script {
         // Tasks: the booking waits until the test lets it go.
         if c.text().contains("Book the meeting room") {
             return match c.turn() {
-                0 => contract_unchecked("book", "booked"),
+                0 => plan("book"),
                 _ => {
                     while !RELEASE.load(Ordering::SeqCst) {
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -47,7 +47,7 @@ fn model() -> Script {
             };
         }
         match c.turn() {
-            0 => contract_unchecked("do it", "done"),
+            0 => plan("do it"),
             _ => complete("done"),
         }
     })

@@ -26,7 +26,7 @@ async fn a_team_request_is_never_its_requesters_own_even_at_its_first_call() {
     let (_, made) = alice.post(&format!("/v1/workspaces/{ws}/channels"), json!({ "name": "general" })).await;
     let channel = made["id"].as_str().unwrap().to_string();
     for n in 0..REQUESTS_COUNT {
-        model.set_script(steps(vec![contract_unchecked("answer", "answered"), complete("done")]));
+        model.set_script(steps(vec![plan("answer"), complete("done")]));
         let (code, made) = alice.post(&format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": format!("TEAM-REQUEST-{n}"), "agent": true })).await;
         assert_eq!(code, 200, "{made}");
         alice.wait_settled(made["task_id"].as_str().unwrap()).await;

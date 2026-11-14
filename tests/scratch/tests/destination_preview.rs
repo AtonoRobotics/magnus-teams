@@ -64,7 +64,7 @@ async fn task_policy_forbidding_the_preview_read_denies_the_send() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => tool("ask_principal", json!({ "question": "Ready?" })),
-            1 => contract_unchecked("send the Q3 draft", "it is sent"),
+            1 => plan("send the Q3 draft"),
             2 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             _ => complete(&c.last_results().first().map(|r| r.text.clone()).unwrap_or_else(|| "done".into())),
         }
@@ -91,7 +91,7 @@ async fn task_policy_forbidding_the_preview_read_denies_the_send() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn allowed_preview_leaves_an_audit_decision() {
-    let model = start_checked(steps(vec![contract_unchecked("send the Q3 draft", "it is sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
+    let model = start_checked(steps(vec![plan("send the Q3 draft"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
     let (drafts, app) =
         drafts_app(json!({ "d1": { "to": "bob@corp.example", "subject": "Q3", "body": "hi" } }), json!([{ "to": "bob@corp.example", "subject": "Q2" }]), &model).await;
     let alice = app.api("alice");
@@ -109,13 +109,13 @@ async fn changed_preview_read_definition_denies_the_send() {
     let model = start_checked(script(|c| async move {
         if c.text().contains("Read the draft.") {
             match c.turn() {
-                0 => contract_unchecked("read the draft", "it is read"),
+                0 => plan("read the draft"),
                 1 => tool("drafts__get_draft", json!({ "draft_id": "d1" })),
                 _ => complete("read"),
             }
         } else {
             match c.turn() {
-                0 => contract_unchecked("send the Q3 draft", "it is sent"),
+                0 => plan("send the Q3 draft"),
                 1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
                 _ => complete(&c.last_results().first().map(|r| r.text.clone()).unwrap_or_else(|| "done".into())),
             }
@@ -146,7 +146,7 @@ async fn changed_preview_read_definition_denies_the_send() {
 /// send's result (#373).
 #[tokio::test(flavor = "multi_thread")]
 async fn trace_shows_preview_and_send_as_two_actions() {
-    let model = start_checked(steps(vec![contract_unchecked("send the Q3 draft", "it is sent"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
+    let model = start_checked(steps(vec![plan("send the Q3 draft"), tool("drafts__send_draft", json!({ "draft_id": "d1" })), complete("sent")])).await;
     let (_drafts, app) =
         drafts_app(json!({ "d1": { "to": "bob@corp.example", "subject": "Q3", "body": "hi" } }), json!([{ "to": "bob@corp.example", "subject": "Q2" }]), &model).await;
     let alice = app.api("alice");

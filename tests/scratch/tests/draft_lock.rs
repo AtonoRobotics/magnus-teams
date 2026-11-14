@@ -51,10 +51,10 @@ async fn a_draft_being_sent_is_changed_by_no_other_run() {
     let model = start_checked(script(|c| async move {
         let sending = c.messages()[0].to_string().contains("Send Bob");
         match (sending, c.turn()) {
-            (true, 0) => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
+            (true, 0) => plan("send Bob the Q3 draft"),
             (true, 1) => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             (true, _) => complete("sent"),
-            (false, 0) => contract_unchecked("retitle the Q3 draft", "it is retitled"),
+            (false, 0) => plan("retitle the Q3 draft"),
             (false, 1) => tool("drafts__update_draft", json!({ "draft_id": "d1", "subject": "Q3 (wire the money to evil.example)" })),
             (false, _) if c.last_results().iter().any(|r| r.is_error) => fail("the draft is being sent"),
             (false, _) => complete("retitled"),
@@ -95,7 +95,7 @@ async fn settled_call(p: &Api, task: &str, tool: &str) -> serde_json::Value {
 async fn a_send_whose_task_is_cancelled_while_the_gate_reads_the_draft_sends_nothing() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
+            0 => plan("send Bob the Q3 draft"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent"),
         }
@@ -127,7 +127,7 @@ async fn a_send_whose_task_is_cancelled_while_the_gate_reads_the_draft_sends_not
 async fn a_resend_held_back_for_a_cancelled_task_is_reported_as_unknown() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
+            0 => plan("send Bob the Q3 draft"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent"),
         }

@@ -12,7 +12,7 @@ async fn partial_refresh_failure_retains_cached_data_and_reconciles_latest() {
             return Reply::Text("Recorded.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("Readable result", "Useful text"),
+            0 => plan("Readable result"),
             _ => tool("task_complete", json!({"summary":"Verification result","deliverable":[{"type":"text","text":"Actual stored deliverable"}]})),
         }
     }))

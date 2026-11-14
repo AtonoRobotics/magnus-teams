@@ -49,7 +49,7 @@ async fn drafts_app(drafts: serde_json::Value, sent: serde_json::Value, model: &
 #[tokio::test(flavor = "multi_thread")]
 async fn a_recipient_mailed_before_passes_and_a_new_one_asks() {
     let model = start_checked(steps(vec![
-        contract_unchecked("send the Q3 draft", "it is sent"),
+        plan("send the Q3 draft"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d2" })),
@@ -99,7 +99,7 @@ async fn task_policy_forbidding_the_sent_search_makes_the_send_ask() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
             0 => tool("ask_principal", json!({ "question": "Ready?" })),
-            1 => contract_unchecked("send the Q3 draft", "it is sent"),
+            1 => plan("send the Q3 draft"),
             2 => tool("drafts__get_draft", json!({ "draft_id": "d1" })),
             3 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             _ => fail("stopping"),
@@ -130,7 +130,7 @@ async fn task_policy_forbidding_the_sent_search_makes_the_send_ask() {
 #[tokio::test(flavor = "multi_thread")]
 async fn allowed_sent_search_leaves_an_audit_decision() {
     let model = start_checked(steps(vec![
-        contract_unchecked("send the Q3 draft", "it is sent"),
+        plan("send the Q3 draft"),
         tool("drafts__get_draft", json!({ "draft_id": "d1" })),
         tool("drafts__send_draft", json!({ "draft_id": "d1" })),
         complete("sent"),

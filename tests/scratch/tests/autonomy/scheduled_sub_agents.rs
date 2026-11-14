@@ -56,7 +56,7 @@ async fn a_scheduled_run_uses_sub_agents() {
     let m = FakeModel::start(script(move |c| {
         let at = at.clone();
         async move {
-            let checked = |goal: &str| contract_checked(goal, "notes__list", json!({}), "/notes/0/title", json!("Release notes"));
+            let checked = |goal: &str| plan(goal);
             let sub = |goal: &str, tools: &[&str]| tool("start_sub_agent", json!({ "goal": goal, "tools": tools }));
             let o = opening(&c);
             match run_of(&c) {
@@ -184,7 +184,7 @@ async fn a_failing_scheduled_run_wakes_the_agent_where_it_was_set_up() {
                     _ => say("It is set up."),
                 },
                 Run::Task => match c.turn() {
-                    0 => contract_checked("summarise the inbox", "mail__list_inbox", json!({}), "/messages/0/subject", json!("Q3 numbers")),
+                    0 => plan("summarise the inbox"),
                     _ => fail(REASON),
                 },
                 Run::Outcome => say(REPORT),

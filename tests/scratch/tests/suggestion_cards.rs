@@ -72,7 +72,7 @@ fn model(chat: impl Fn(&str, usize, &Conversation) -> Reply + Send + Sync + 'sta
             }
             if !sys.contains(CHAT) {
                 return match c.turn() {
-                    0 => contract_unchecked("do the suggested work", "it is done"),
+                    0 => plan("do the suggested work"),
                     _ => fail("done"),
                 };
             }

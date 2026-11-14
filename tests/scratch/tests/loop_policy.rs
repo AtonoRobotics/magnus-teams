@@ -5,7 +5,6 @@
 //! attention, so their resource is the person; acts touch apps, so
 //! their resource is the tool, alongside the execute gate.
 
-use magnus_invariants::model::Script;
 use magnus_invariants::*;
 use magnus_scratch::reconfigure;
 use serde_json::{json, Value};

@@ -57,7 +57,7 @@ fn model() -> model::Script {
         }
         if !sys.contains(CHAT) {
             return match c.turn() {
-                0 => contract_unchecked("do the work", "it is done"),
+                0 => plan("do the work"),
                 _ => fail("done"),
             };
         }

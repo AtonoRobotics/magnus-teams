@@ -41,7 +41,7 @@ fn obedient() -> Script {
             return Reply::Text("Nothing today.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("read the inbox", "the inbox was read"),
+            0 => plan("read the inbox"),
             1 => tool("mail__list_inbox", json!({})),
             2 => tool("memory_write", json!({ "fact": EVIL })),
             _ => complete("read"),
@@ -83,7 +83,7 @@ async fn a_failed_requested_task_is_reported_even_when_another_started() {
             };
         }
         match c.turn() {
-            0 => contract_unchecked("book", "booked"),
+            0 => plan("book"),
             _ => complete("booked"),
         }
     }))

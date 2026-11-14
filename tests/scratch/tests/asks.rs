@@ -16,7 +16,7 @@ async fn world(sends: usize) -> (FakeMcp, FakeModel, Appliance) {
         let to = if c.messages()[0].to_string().contains("carol") { "carol@corp.example" } else { "bob@corp.example" };
         let turn = c.turn();
         if turn == 0 {
-            return contract_unchecked("send the note", "the note was handled");
+            return plan("send the note");
         }
         if c.text().contains("did not allow") {
             return complete("the person did not want the note sent, so it was not");

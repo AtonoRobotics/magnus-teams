@@ -29,7 +29,7 @@ fn model() -> Script {
         }
         match c.turn() {
             0 => tool("ask_principal", json!({ "question": "Which tone?" })),
-            1 => contract_unchecked("write it", "it is written"),
+            1 => plan("write it"),
             _ => complete("written"),
         }
     })

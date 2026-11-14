@@ -81,7 +81,7 @@ async fn in_chat_a_suggestion_is_accepted_with_one_action_and_the_proposal_tools
         }
         if !sys.contains(CHAT) {
             return match c.turn() {
-                0 => contract_unchecked("do the suggested work", "it is done"),
+                0 => plan("do the suggested work"),
                 _ => fail("done"),
             };
         }
@@ -136,13 +136,13 @@ async fn a_task_suggests_work_to_the_inbox_and_one_accept_starts_it() {
             }
             let ev = || json!([{ "task": f.lock().unwrap().clone(), "shows": "Record 42 is closed; the invoice is not." }]);
             match (said(&c).as_str(), c.turn()) {
-                (FIRST, 0) => contract_unchecked("close it", "closed"),
+                (FIRST, 0) => plan("close it"),
                 (FIRST, _) => fail("done"),
-                (SECOND, 0) => contract_unchecked("look over invoices", "looked"),
+                (SECOND, 0) => plan("look over invoices"),
                 (SECOND, 1) => tool("suggest", suggestion(ev(), json!({}))),
                 (SECOND, 2) => tool("suggest", suggestion(ev(), json!({ "title": "Weekly invoice check", "goal": "Check the invoices (sched-sug-5).", "every_minutes": 10080 }))),
                 (SECOND, _) => fail("done"),
-                (GOAL, 0) => contract_unchecked("draft it", "drafted"),
+                (GOAL, 0) => plan("draft it"),
                 _ => fail("done"),
             }
         }

@@ -68,7 +68,7 @@ async fn every_minute(app: &mut Appliance) {
 async fn a_cancel_names_an_in_flight_send_possibly_done() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
+            0 => plan("send Bob the Q3 draft"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             _ => complete("sent"),
         }
@@ -94,7 +94,7 @@ async fn a_cancel_names_an_in_flight_send_possibly_done() {
 async fn a_schedule_cancel_reports_what_each_stopped_run_had_done() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("send Bob the Q3 draft", "Bob has it"),
+            0 => plan("send Bob the Q3 draft"),
             1 => tool("drafts__send_draft", json!({ "draft_id": "d1" })),
             2 => tool("ask_principal", json!({ "question": "Send it again next quarter?" })),
             _ => complete("sent"),

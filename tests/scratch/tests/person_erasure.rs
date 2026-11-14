@@ -134,7 +134,7 @@ async fn erased_while_a_backup_is_stuck(app: &mut Appliance, kc: &Keycloak) -> (
 fn writer() -> magnus_invariants::model::Script {
     script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("write it", "it is written"),
+            0 => plan("write it"),
             _ => complete("written"),
         }
     })

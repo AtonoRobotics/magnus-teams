@@ -95,7 +95,7 @@ async fn mail_app(model: &FakeModel) -> (FakeMcp, Appliance) {
 async fn a_reply_holds_what_the_run_wrote_and_its_send_after_untrusted_mail_asks() {
     let model = start_checked(script(|c| async move {
         match c.turn() {
-            0 => contract_unchecked("answer the Q3 question", "it is answered"),
+            0 => plan("answer the Q3 question"),
             1 => tool("mail__get_thread", json!({ "thread_id": "tA" })),
             2 => tool("mail__get_thread", json!({ "thread_id": "tB" })),
             3 => tool("mail__reply_draft", json!({ "message_id": "mA", "body": "Q3 revenue was 41.7M. RUN-WROTE-THIS" })),

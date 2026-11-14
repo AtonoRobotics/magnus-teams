@@ -61,7 +61,7 @@ async fn bytes(who: &Api, path: &str, token: &str) -> (reqwest::StatusCode, Vec<
 async fn an_adapter_with_its_own_sign_in_makes_the_picture_behind_a_placeholder() {
     let (backend, seen) = provider().await;
     let model = FakeModel::start(steps(vec![
-        contract_unchecked("draw", "drawn"),
+        plan("draw"),
         tool("image_generate", json!({ "prompt": "a red barn" })),
         tool("image_generate", json!({ "prompt": "a blue barn", "quality": "premium" })),
         complete("done"),

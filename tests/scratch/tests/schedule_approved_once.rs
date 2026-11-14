@@ -30,7 +30,7 @@ async fn a_confirmed_schedule_runs_without_asking_again_within_its_persons_autho
             return Reply::Text(String::new());
         }
         match c.turn() {
-            0 => contract_unchecked("email the team the plan", "the team was sent the plan"),
+            0 => plan("email the team the plan"),
             1 => tool("mail__send", json!({ "to": "team@corp.example", "subject": "The plan", "body": "Here is the plan." })),
             _ => complete("sent"),
         }

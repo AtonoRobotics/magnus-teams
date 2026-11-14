@@ -398,7 +398,7 @@ async fn settings_holds_every_section_and_each_works_in_the_installed_app() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver and xvfb-run"]
 async fn every_message_action_works_in_the_installed_app() {
-    use magnus_invariants::{complete, contract_unchecked, script, FakeWeb, Reply};
+    use magnus_invariants::{complete, plan, script, FakeWeb, Reply};
     let s = script(|c| async move {
         if c.body["system"].to_string().contains("in a chat") {
             let first = c.messages().first().cloned().unwrap_or_default();
@@ -406,7 +406,7 @@ async fn every_message_action_works_in_the_installed_app() {
             return Reply::Text(format!("Answer to: {said}"));
         }
         match c.turn() {
-            0 => contract_unchecked("do the work", "the work is done"),
+            0 => plan("do the work"),
             _ => complete("done"),
         }
     });
@@ -436,7 +436,7 @@ async fn every_message_action_works_in_the_installed_app() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver and xvfb-run"]
 async fn a_conversation_goes_to_the_trash_comes_back_and_is_removed_in_the_installed_app() {
-    use magnus_invariants::{complete, contract_unchecked, script, FakeWeb, Reply};
+    use magnus_invariants::{complete, plan, script, FakeWeb, Reply};
     let s = script(|c| async move {
         if c.body["system"].to_string().contains("in a chat") {
             let first = c.messages().first().cloned().unwrap_or_default();
@@ -444,7 +444,7 @@ async fn a_conversation_goes_to_the_trash_comes_back_and_is_removed_in_the_insta
             return Reply::Text(format!("Answer to: {said}"));
         }
         match c.turn() {
-            0 => contract_unchecked("do the work", "the work is done"),
+            0 => plan("do the work"),
             _ => complete("done"),
         }
     });
@@ -469,7 +469,7 @@ async fn a_conversation_goes_to_the_trash_comes_back_and_is_removed_in_the_insta
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver and xvfb-run"]
 async fn composed_answers_stream_text_first_and_reach_no_network_in_the_installed_app() {
-    use magnus_invariants::{complete, contract_unchecked, script, tool, tools, FakeWeb, Reply};
+    use magnus_invariants::{complete, plan, script, tool, tools, FakeWeb, Reply};
     const QUESTION: &str = "How did revenue go by quarter?";
     const ANSWER: &str = "Revenue rose every quarter, to 41.7M in Q3.";
     const HOSTILE: &str = "Show me the office report";
@@ -507,7 +507,7 @@ async fn composed_answers_stream_text_first_and_reach_no_network_in_the_installe
                 };
             }
             match c.turn() {
-                0 => contract_unchecked("do the work", "the work is done"),
+                0 => plan("do the work"),
                 1 => tool("task_fail", json!({ "reason": "not this test" })),
                 _ => complete("done"),
             }
@@ -546,7 +546,7 @@ async fn composed_answers_stream_text_first_and_reach_no_network_in_the_installe
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver, xvfb-run and ffmpeg"]
 async fn the_installed_app_reads_aloud_in_the_appliances_voice() {
-    use magnus_invariants::{complete, contract_unchecked, script, FakeWeb, Reply};
+    use magnus_invariants::{complete, plan, script, FakeWeb, Reply};
     use std::os::unix::fs::PermissionsExt;
     const SCRIPT: &str = "Revenue went up every quarter. The third was the best, at forty one point seven million. Nothing needs you today.";
     let s = script(|c| async move {
@@ -558,7 +558,7 @@ async fn the_installed_app_reads_aloud_in_the_appliances_voice() {
             return Reply::Text("Revenue rose every quarter, to 41.7M in Q3.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("do the work", "the work is done"),
+            0 => plan("do the work"),
             _ => complete("done"),
         }
     });
@@ -865,13 +865,13 @@ async fn research_approval_result_file_and_schedule_happen_in_one_conversation_i
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver and xvfb-run"]
 async fn each_of_the_four_looks_keeps_text_readable_and_reading_surfaces_solid_in_the_installed_app() {
-    use magnus_invariants::{complete, contract_unchecked, script, FakeWeb, Reply};
+    use magnus_invariants::{complete, plan, script, FakeWeb, Reply};
     let s = script(|c| async move {
         if c.body["system"].to_string().contains("in a chat") {
             return Reply::Text("Hello. Ask me anything, or give me work to do.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("do the work", "the work is done"),
+            0 => plan("do the work"),
             _ => complete("done"),
         }
     });
@@ -986,7 +986,7 @@ import("node:http").then(async ({{ createServer }}) => {{
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver and xvfb-run"]
 async fn completed_work_links_remain_operable_while_native_content_resizes() {
-    use magnus_invariants::{contract_unchecked, script, tool, FakeWeb, Reply};
+    use magnus_invariants::{plan, script, tool, FakeWeb, Reply};
     let model = script(|c| async move {
         if c.body["system"].to_string().contains("in a chat") {
             let first = c.messages().first().cloned().unwrap_or_default();
@@ -997,7 +997,7 @@ async fn completed_work_links_remain_operable_while_native_content_resizes() {
             return Reply::Text("Recorded in the actual conversation.".into());
         }
         match c.turn() {
-            0 => contract_unchecked("Readable work", "A useful result"),
+            0 => plan("Readable work"),
             _ => tool(
                 "task_complete",
                 json!({"summary":"Anchor work finished","deliverable":[{"type":"text","text":"Actual stored anchor deliverable"},{"type":"bar_chart","title":"Comparison","labels":["A","B"],"values":[1,2]}]}),
