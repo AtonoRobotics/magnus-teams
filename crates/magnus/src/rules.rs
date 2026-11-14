@@ -248,11 +248,9 @@ impl Kernel {
 
     /// Denied whatever a policy, grant, rule or approval says, and never
     /// asked: disclosing a credential, or reaching another person's account
-    /// or computer. Only what the model asked for is judged here.
+    /// or computer. Only what the model asked for is judged here; what a
+    /// run may use at all is `run::admission`, before it.
     pub(crate) fn hard_denial(&self, a: &Action, run: &Run) -> Option<String> {
-        if let Some(why) = self.team_refusal(a, run) {
-            return Some(why);
-        }
         if a.issuer != Issuer::Model {
             return None;
         }

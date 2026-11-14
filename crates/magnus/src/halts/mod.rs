@@ -228,8 +228,3 @@ pub fn due_schedules(s: &State, now: DateTime<Utc>) -> Vec<Schedule> {
     }
     s.schedules.values().filter(|x| x.next_due().is_some_and(|t| t <= now) && holds_new(s, &x.person, false).is_none()).cloned().collect()
 }
-
-/// The tools a run is offered, without those of a connector switched off.
-pub fn offered(s: &State, specs: Vec<magnus_adapter_proto::ToolSpec>) -> Vec<magnus_adapter_proto::ToolSpec> {
-    specs.into_iter().filter(|t| connector_of(&t.name).is_none_or(|c| !s.halts.on.contains_key(&Scope::Connector(c.into())))).collect()
-}

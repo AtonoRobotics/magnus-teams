@@ -5,11 +5,12 @@ use super::knowledge::{Entry, Retired, Weight};
 use super::{fit_name, Change, File, Message, Note, Role, TeamRun};
 use crate::boundary::Action;
 use crate::kernel::{Kernel, NewRun};
-use crate::state::Run;
+use crate::state::{Run, State};
 use crate::tools::{self, obj, Audience, Builtin, Label, Risk};
 use anyhow::{Context, Result};
 use magnus_adapter_proto::ToolSpec;
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -69,71 +70,50 @@ pub(super) fn held_dir(k: &Kernel, workspace: &str, person: &str) -> PathBuf {
     k.cfg.appliance.state_dir.join("team").join(workspace).join("held").join(hex::encode(person.as_bytes()))
 }
 
+/// Why this run may not use `tool`, judged as a team run's tool, if so: the
+/// one rule both for what a run is offered and what its call may do
+/// (`run::admission`). Outside a team run, the workspace's own tools are
+/// refused, and a base is read only by someone in a workspace.
+pub(crate) fn refusal(s: &State, run: &Run, tool: &str, shared_apps: &BTreeSet<String>, computers: bool) -> Option<String> {
+    let Some(t) = s.team.run_of(&run.task) else {
+        if team_only(tool) {
+            return Some(format!("{tool} works only on a request made in a team thread"));
+        }
+        return (tool == OPEN_TO_PERSONAL && s.team.of(&run.person).is_empty()).then(|| format!("{tool} reads a workspace's knowledge, and {} is in no workspace", run.person));
+    };
+    let Some(role) = s.team.role(&t.workspace, &t.requester) else {
+        return Some(format!("{} is no longer a member of this workspace", t.requester));
+    };
+    if role == Role::Guest {
+        return Some("a guest can read and chat, and cannot have the agent act".to_string());
+    }
+    if let Some((app, _)) = tool.split_once("__") {
+        return match s.team.workspace(&t.workspace).and_then(|w| w.connectors.get(app)) {
+            None => Some(format!("{app} is not granted to this workspace, and a member's own apps do not serve a team thread")),
+            Some(roles) if !roles.contains(&role) => Some(format!("{app} is not open to the {role:?} role in this workspace, so the team agent cannot use it for {}", t.requester)),
+            Some(_) if !shared_apps.contains(app) => {
+                Some(format!("{app} acts through each person's own sign-in, and a team thread never uses a member's own sign-in; the workspace has no sign-in of its own for it"))
+            }
+            Some(_) => None,
+        };
+    }
+    if tool.starts_with("computer_") {
+        // Everything put there is open to every member who can start an agent.
+        if run.private {
+            return Some("this run read data only its requester may see, and that never reaches the team's computer".to_string());
+        }
+        // The workspace always has its computer (spec rev 142); a use
+        // makes it if it is not there yet.
+        if !computers {
+            return Some("this server has no computers, so the team agent has none".to_string());
+        }
+    }
+    (!in_team_run(tool)).then(|| format!("{tool} is personal to a member and does not serve a team thread"))
+}
+
 impl Kernel {
     pub(crate) fn team_of(&self, task: &str) -> Option<TeamRun> {
         self.read(|s| s.team.run_of(task).cloned())
-    }
-
-    /// Why a team run may not make this call, if so. Outside a team run,
-    /// the team's own tools are refused and nothing else is touched.
-    pub(crate) fn team_refusal(&self, a: &Action, run: &Run) -> Option<String> {
-        let Some(t) = self.team_of(&run.task) else {
-            return team_only(&a.tool).then(|| format!("{} works only on a request made in a team thread", a.tool));
-        };
-        let Some(role) = self.read(|s| s.team.role(&t.workspace, &t.requester)) else {
-            return Some(format!("{} is no longer a member of this workspace", t.requester));
-        };
-        if role == Role::Guest {
-            return Some("a guest can read and chat, and cannot have the agent act".to_string());
-        }
-        if let Some((app, _)) = a.tool.split_once("__") {
-            let granted = self.read(|s| s.team.workspace(&t.workspace).and_then(|w| w.connectors.get(app).cloned()));
-            return match granted {
-                None => Some(format!("{app} is not granted to this workspace, and a member's own apps do not serve a team thread")),
-                Some(roles) if !roles.contains(&role) => {
-                    Some(format!("{app} is not open to the {role:?} role in this workspace, so the team agent cannot use it for {}", t.requester))
-                }
-                Some(_) if self.connector(app).is_none_or(|c| signs_in_per_person(&c)) => Some(format!(
-                    "{app} acts through each person's own sign-in, and a team thread never uses a member's own sign-in; the workspace has no sign-in of its own for it"
-                )),
-                Some(_) => None,
-            };
-        }
-        if a.tool.starts_with("computer_") {
-            // Everything put there is open to every member who can start an agent.
-            if run.private {
-                return Some("this run read data only its requester may see, and that never reaches the team's computer".to_string());
-            }
-            // The workspace always has its computer (spec rev 142); a use
-            // makes it if it is not there yet.
-            if self.cfg.computer.is_none() {
-                return Some("this server has no computers, so the team agent has none".to_string());
-            }
-        }
-        (!in_team_run(&a.tool)).then(|| format!("{} is personal to a member and does not serve a team thread", a.tool))
-    }
-
-    /// The tools a run is offered, cut down when it is a team run.
-    pub(crate) fn team_scoped(&self, run: &Run, specs: Vec<ToolSpec>) -> Vec<ToolSpec> {
-        let Some(t) = self.team_of(&run.task) else {
-            let mut kept: Vec<ToolSpec> = specs.into_iter().filter(|s| !s.name.starts_with("team_")).collect();
-            if self.read(|s| !s.team.of(&run.person).is_empty()) {
-                kept.extend(team_specs().into_iter().filter(|s| s.name == OPEN_TO_PERSONAL));
-            }
-            return kept;
-        };
-        let role = self.read(|s| s.team.role(&t.workspace, &t.requester));
-        let granted = self.read(|s| s.team.workspace(&t.workspace).map(|w| w.connectors.clone())).unwrap_or_default();
-        let personal: std::collections::BTreeSet<String> = self.connectors().into_iter().filter(signs_in_per_person).map(|c| c.name).collect();
-        let allowed = |name: &str| match name.split_once("__") {
-            Some((app, _)) => !personal.contains(app) && role.is_some_and(|r| granted.get(app).is_some_and(|roles| roles.contains(&r))),
-            // Offered only where the boundary would let it through.
-            None if name.starts_with("computer_") => !run.private && self.cfg.computer.is_some() && in_team_run(name),
-            None => in_team_run(name),
-        };
-        let mut kept: Vec<ToolSpec> = specs.into_iter().filter(|s| allowed(&s.name)).collect();
-        kept.extend(team_specs());
-        kept
     }
 
     /// What a run is told about its apps: a team run hears about its

@@ -11,6 +11,7 @@ use crate::events::Ev;
 use crate::halts;
 use crate::kernel::Kernel;
 use crate::policy::{self, Outcome, ToolFacts};
+use crate::run::admission::{Refusal, HARD_DENIAL};
 use crate::state::{Intent, Run, Status};
 use crate::tools::{self, Audience, Label, Risk};
 use crate::vault::redact;
@@ -119,11 +120,7 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 pub const REVIEWER_FLAG: &str = "reviewer:flag";
 
 pub(crate) fn is_chat_tool(f: &Facts) -> bool {
-    // Sharing is the one bundle write that belongs to conversation, as the
-    // controls do (#299): the person's say after seeing the text. A
-    // suggestion is not chat-only: from a task or a review it goes to the
-    // inbox instead (spec rev 140; #393).
-    f.connector.is_none() && (f.app == "chat" || f.name == "bundle_share") && f.name != "suggest"
+    f.connector.is_none() && crate::chat_work::is_chat_only(&f.name)
 }
 
 /// A send the reviewer judges: the model's own action, changing the world
@@ -633,25 +630,24 @@ impl Kernel {
         f: &Facts,
         shown: Option<&Shown>,
     ) -> Result<std::result::Result<Option<(String, Option<String>)>, Verdict>> {
-        if let Some((reason, why)) = self.halt_of(&a.run, Some(&a.tool)) {
-            self.decision(a, "deny", "policy", &why, None).await?;
-            self.suspend(&a.run, &reason, None).await?;
-            return Ok(Err(Verdict::Suspended));
+        // The one rule of what this run may use, as offered (`run::admission`).
+        match self.admits(run, &a.tool) {
+            Ok(()) => {}
+            Err(Refusal::Halted { reason, said }) => {
+                self.decision(a, "deny", "policy", &said, None).await?;
+                self.suspend(&a.run, &reason, None).await?;
+                return Ok(Err(Verdict::Suspended));
+            }
+            Err(Refusal::Denied { why, rule }) => return Ok(Err(self.deny(a, "policy", &why, false, rule.map(Into::into)).await?)),
         }
         if f.risk == Risk::Prohibited {
             return Ok(Err(self.deny(a, "policy", &format!("{} is prohibited on this appliance", a.tool), false, None).await?));
         }
-        if let Some(why) = self.read(|s| s.sub_agents.refusal(&a.run, &a.tool)).or_else(|| self.hard_denial(a, run)) {
-            return Ok(Err(self.deny(a, "policy", &why, false, Some("hard_denial".into())).await?));
+        if let Some(why) = self.hard_denial(a, run) {
+            return Ok(Err(self.deny(a, "policy", &why, false, Some(HARD_DENIAL.into())).await?));
         }
         if !has_rights(person, f) {
             let why = format!("{} does not have access to {} (identity-provider groups)", person.id, f.app);
-            return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
-        }
-        // In chat Magnus does the work itself, each call checked below like
-        // any run's (spec, Chat and tasks); only the chat tools stay in chat.
-        let chat_turn = self.run_kind(&run.id).is_chat_turn();
-        if let Some(why) = crate::chat_work::misplaced(chat_turn, f) {
             return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
         }
         if a.issuer == Issuer::Memory && f.name != "memory_write" {
