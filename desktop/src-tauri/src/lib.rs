@@ -11,6 +11,7 @@ mod files;
 mod frames;
 mod local;
 mod look;
+mod methods;
 mod pin;
 mod programs;
 mod speech;
@@ -327,13 +328,7 @@ fn allowed(path: &str) -> Res<()> {
 async fn api(app: State<'_, App>, method: String, path: String, body: Option<Value>) -> Res<Value> {
     allowed(&path)?;
     let (url, c, token) = app.session()?;
-    let m = match method.as_str() {
-        "GET" => reqwest::Method::GET,
-        "POST" => reqwest::Method::POST,
-        "PUT" => reqwest::Method::PUT,
-        "DELETE" => reqwest::Method::DELETE,
-        other => return Err(format!("{other} is not a method this app uses")),
-    };
+    let m = methods::method(&method)?;
     let mut req = c.request(m, format!("{url}{path}")).bearer_auth(&token);
     if let Some(b) = body.filter(|b| !b.is_null()) {
         req = req.json(&b);
