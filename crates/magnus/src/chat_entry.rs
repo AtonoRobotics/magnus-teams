@@ -5,7 +5,8 @@
 //! team chat (`team::items`) both build this one type, so both chats send
 //! the same shape (decisions/2026-11-13-one-chat-entry.md). What a kind lacks
 //! is left out. The kinds the personal chat alone has (cards, results,
-//! sub-agents) are still built as JSON where they are made.
+//! sub-agents, a turn's progress) are typed in `chat_thread::entry`.
+use crate::chat_thread::Kind;
 use crate::state::Status;
 use serde::Serialize;
 use serde_json::Value;
@@ -82,9 +83,17 @@ impl May {
     /// In a person's own chat they may do everything to every entry but
     /// pin: edit their messages, retry Magnus's turns, and judge what
     /// Magnus said or did.
-    pub fn personal(kind: &str) -> May {
-        let said = matches!(kind, "answer" | "turn" | "result" | "tasks" | "grant_card" | "suggestion_card" | "schedule_card" | "connector_card" | "opener");
-        May { edit: kind == "message", retry: matches!(kind, "answer" | "turn"), feedback: said, share: true, save: true, task: true, pin: false, delete: true }
+    pub fn personal(kind: Kind) -> May {
+        May {
+            edit: kind == Kind::Message,
+            retry: matches!(kind, Kind::Answer | Kind::Turn),
+            feedback: kind.is_magnus(),
+            share: true,
+            save: true,
+            task: true,
+            pin: false,
+            delete: true,
+        }
     }
 }
 
@@ -165,7 +174,7 @@ pub struct ChatEntry {
 }
 
 impl ChatEntry {
-    /// The entry as JSON, for the places that still add to it.
+    /// The entry as JSON: how it travels.
     pub fn value(&self) -> Value {
         serde_json::to_value(self).unwrap_or(Value::Null)
     }
@@ -179,11 +188,11 @@ mod tests {
     /// turns, judges what Magnus said or did, and pins nothing.
     #[test]
     fn a_person_may_do_everything_in_their_own_chat_but_pin() {
-        let mine = May::personal("message");
+        let mine = May::personal(Kind::Message);
         assert!(mine.edit && !mine.retry && !mine.feedback && mine.delete && mine.share && !mine.pin);
-        let answer = May::personal("answer");
+        let answer = May::personal(Kind::Answer);
         assert!(!answer.edit && answer.retry && answer.feedback && answer.save && answer.task);
-        let result = May::personal("result");
+        let result = May::personal(Kind::Result);
         assert!(!result.retry && result.feedback);
     }
 }

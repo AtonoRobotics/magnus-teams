@@ -6,13 +6,9 @@
 //! The sub-agents a turn starts work inside its conversation: they are shown
 //! there, what each is doing, its status and its result, and are not listed
 //! as the person's tasks.
-use crate::kernel::Kernel;
-use crate::recall::Words;
 use crate::run::kind::RunKind;
 use crate::state::{Run, State, Task};
 use crate::tools;
-use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
 
 /// Why a run of this kind may not use `tool` for where it is, if so: the
 /// one rule for what it is offered and what its call may do
@@ -81,40 +77,11 @@ impl State {
     }
 }
 
-/// The sub-agents a chat turn started, nested ones too, as one entry of its
-/// conversation placed when the first began: each one's goal, status, what
-/// it waits on and its result.
-pub(crate) fn sub_agents_entry(s: &State, turn: &Task, r: &Run, w: &Words) -> Option<(DateTime<Utc>, i64, Value)> {
-    let mut first: Option<DateTime<Utc>> = None;
-    let agents: Vec<Value> = s
-        .sub_agents
-        .below(&r.id)
-        .into_iter()
-        .filter_map(|(depth, c)| {
-            let cr = s.runs.get(&c.child)?;
-            let ct = s.tasks.get(&cr.task)?;
-            first = Some(first.map_or(ct.created_at, |f| f.min(ct.created_at)));
-            Some(json!({
-                "run": c.child, "parent": c.parent, "depth": depth, "task_id": ct.task_id, "goal": w.text(ct.seq),
-                "status": crate::api::status_str(cr.status), "waiting_on": cr.reason, "waiting_item": cr.waiting_item,
-                "summary": cr.summary, "tools": c.tools, "at": ct.created_at, "ended_at": cr.ended_at,
-            }))
-        })
-        .collect();
-    let at = first?;
-    Some((at, 1, json!({ "id": format!("s:{}", turn.task_id), "kind": "sub_agents", "task_id": turn.task_id, "from_run": r.id, "agents": agents, "at": at })))
-}
-
-impl Kernel {
-    pub(crate) fn sub_agents_entry(&self, turn: &Task, r: &Run, w: &Words) -> Option<(DateTime<Utc>, i64, Value)> {
-        self.read(|s| sub_agents_entry(s, turn, r, w))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::log::Event;
+    use serde_json::{json, Value};
 
     const CHAT: RunKind = RunKind::ChatTurn;
     const TASK: RunKind = RunKind::Task;
@@ -211,12 +178,5 @@ mod tests {
         s.apply(&ev(9, "kernel", json!({ "kind": "sub_agent", "child": "r3", "parent": "rj", "tools": [] })));
         assert!(s.in_chat(&s.tasks["c1"]) && s.in_chat(&s.tasks["c2"]), "a chat turn's sub-agent was listed as a task");
         assert!(!s.in_chat(&s.tasks["c3"]) && !s.in_chat(&s.tasks["job"]), "a task's sub-agent left its task");
-        let (_, _, e) = sub_agents_entry(&s, &s.tasks["turn"], &s.runs["rt"], &Words::default()).expect("no entry for the turn's sub-agents");
-        assert_eq!(e["kind"], "sub_agents");
-        let agents = e["agents"].as_array().unwrap();
-        assert_eq!(agents.iter().map(|a| (a["run"].as_str().unwrap(), a["depth"].as_u64().unwrap())).collect::<Vec<_>>(), [("r1", 1), ("r2", 2)]);
-        assert_eq!((agents[0]["status"].as_str(), agents[1]["status"].as_str()), (Some("running"), Some("completed")));
-        assert_eq!(agents[1]["summary"], "Found three flights.");
-        assert!(sub_agents_entry(&s, &s.tasks["job"], &s.runs["rj"], &Words::default()).is_some_and(|(_, _, e)| e["agents"].as_array().unwrap().len() == 1));
     }
 }

@@ -9,7 +9,7 @@
 use crate::events::Ev;
 use serde_json::{json, Value};
 
-const GOLDEN: &str = include_str!("chat_thread_golden.json");
+const GOLDEN: &str = include_str!("golden.json");
 
 fn ev(v: Value) -> Ev {
     serde_json::from_value(v).unwrap()
