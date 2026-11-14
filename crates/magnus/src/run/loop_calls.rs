@@ -4,7 +4,8 @@
 //! reviewer, the memory pass, knowledge extraction, read aloud and scoped
 //! drafting are optional extras (#319): they are charged to the run's
 //! dollars and skip themselves once the cap is reached, but they never use
-//! up the steps the agent needs to finish. Before, a scheduled run with a
+//! up the steps the agent needs to finish. The run's allowance
+//! (`spend::allowance`) holds both rules. Before, a scheduled run with a
 //! three-call budget was stopped after two of its own calls because the
 //! verifier's criteria review took the third.
 
@@ -15,16 +16,12 @@ impl Run {
     pub fn loop_calls(&self) -> u32 {
         self.model_calls.saturating_sub(self.aux_calls)
     }
-
-    /// Whether the agent loop has used every call its budget allows.
-    pub fn loop_calls_spent(&self) -> bool {
-        self.loop_calls() >= self.config.budget.max_model_calls
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::log::Event;
+    use crate::spend::allowance::{allowance, Spender};
     use crate::state::State;
     use serde_json::json;
 
@@ -50,8 +47,10 @@ mod tests {
         s.apply(&ev(4, "kernel", json!({ "kind": "model_call", "run": "r1", "step": 1, "attempt": 0, "context": ctx() })));
         let r = &s.runs["r1"];
         assert_eq!((r.model_calls, r.loop_calls(), r.usd), (3, 2, 0.01));
-        assert!(!r.loop_calls_spent(), "the verifier's call stopped the agent before its last step");
+        let now = chrono::Utc::now();
+        assert!(allowance(&s, "r1", Spender::Step, now).is_ok(), "the verifier's call stopped the agent before its last step");
+        assert!(allowance(&s, "r1", Spender::Extra, now).is_err(), "an extra call went past the run's total cap");
         s.apply(&ev(5, "kernel", json!({ "kind": "model_call", "run": "r1", "step": 2, "attempt": 0, "context": ctx() })));
-        assert!(s.runs["r1"].loop_calls_spent(), "the agent's own third call reaches the cap");
+        assert!(allowance(&s, "r1", Spender::Step, now).is_err(), "the agent's own third call reaches the cap");
     }
 }

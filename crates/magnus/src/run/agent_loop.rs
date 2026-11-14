@@ -2,15 +2,16 @@
 //! `execute()`, write every step to the log. The loop holds no state: each
 //! step starts from the log, so a new loop resumes any run.
 //!
-//! Code here only limits: it stops at the model-call and dollar budget (and
-//! on a cancel, suspension or the kill switch) before each request, retries an
-//! unavailable provider a bounded number of times, and suspends with a notice.
+//! Code here only limits: it stops where the run's allowance says
+//! (`spend::allowance`), or on a cancel, suspension or the kill switch,
+//! before each request, retries an unavailable provider a bounded number of
+//! times, and suspends with a notice.
 //! What to do next is always the model's decision.
 
 use crate::boundary::{clamp_output_for_budget, estimated_input_tokens, Action, Issuer, Verdict};
 use crate::events::{ContextRef, Ev};
-use crate::grants::Spent;
 use crate::kernel::Kernel;
+use crate::spend::allowance::{Left, Spender};
 use crate::state::Status;
 use anyhow::Result;
 use magnus_adapter_proto::ErrorClass;
@@ -52,62 +53,30 @@ pub enum Flow {
 }
 
 impl Kernel {
-    /// Whether the run may make another paid model request, read from the
-    /// run as it is now. When not, the run is stopped the way the loop and
-    /// the boundary's budget stage stop it, and nothing is asked.
-    async fn may_ask_model(self: &Arc<Self>, run_id: &str) -> Result<bool> {
-        let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(false) };
+    /// What the run has left for another paid model request, read from the
+    /// run as it is now. When it may not ask, the run is stopped the way
+    /// its allowance says (`spend::allowance`), and nothing is asked.
+    async fn may_ask_model(self: &Arc<Self>, run_id: &str) -> Result<Option<Left>> {
+        let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(None) };
         // Cancelled, suspended or ended: whoever stopped it has said why.
         if run.status != Status::Running {
-            return Ok(false);
+            return Ok(None);
         }
         if let Some((reason, _)) = self.halt_of(run_id, None) {
             self.suspend(run_id, &reason, None).await?;
-            return Ok(false);
+            return Ok(None);
         }
         if self.read(|s| s.updating.is_some()) {
             self.suspend(run_id, "update", None).await?;
-            return Ok(false);
+            return Ok(None);
         }
-        let budget = &run.config.budget;
-        if run.loop_calls_spent() {
-            self.suspend_with_notice(
-                run_id,
-                "budget",
-                format!("Stopped after {} model calls, the task's limit.", run.loop_calls()),
-                json!({ "model_calls": run.loop_calls(), "limit": budget.max_model_calls, "usd": run.spent_usd() }),
-            )
-            .await?;
-            return Ok(false);
+        match self.allowance(run_id, Spender::Step) {
+            Ok(left) => Ok(Some(left)),
+            Err(stop) => {
+                self.suspend_with_notice(run_id, stop.reason, stop.notice, stop.details).await?;
+                Ok(None)
+            }
         }
-        // Dollars are spent by model calls, failed ones too: one past the
-        // limit stops the run before the next is paid for.
-        if run.spent_usd() >= budget.max_usd {
-            let why = crate::boundary::budget_used(&run);
-            self.suspend_with_notice(run_id, "budget", format!("Stopped: {why}."), json!({ "actions": run.actions, "usd": run.spent_usd() })).await?;
-            return Ok(false);
-        }
-        // A task under a grant also stops once the grant's budget for its
-        // period is spent, by all its tasks together (#280), until its
-        // person resumes it, which is theirs to decide.
-        if let Some(Spent { grant: g, spent, max, period }) = self.grant_spent(&run.id) {
-            let why = format!("Stopped: the grant {g} has spent its ${max:.2} for this {period} (${spent:.2}).");
-            self.suspend_with_notice(run_id, "grant_budget", why, json!({ "grant": g, "usd": spent, "limit": max })).await?;
-            return Ok(false);
-        }
-        // The month's spend limits, the person's and the server's, hold
-        // partway through a run too, whoever extended its budget (`spend`).
-        if let Err(stop) = self.read(|s| crate::spend::enforce::left_now(s, &run.person, chrono::Utc::now())) {
-            self.suspend_with_notice(run_id, "spend_limit", format!("Stopped: {stop}"), crate::spend::enforce::details(&stop)).await?;
-            return Ok(false);
-        }
-        // So do a team's, its workspace's and its channel's, when they are
-        // lowered or overrun; a sub-agent through the run at its top.
-        if let Some((why, details)) = self.read(|s| crate::team::spend::stop_partway(s, run_id, chrono::Utc::now())) {
-            self.suspend_with_notice(run_id, "spend_limit", format!("Stopped: {why}"), details).await?;
-            return Ok(false);
-        }
-        Ok(true)
     }
 
     /// The output tokens this call may write: the full allowance when its
@@ -116,9 +85,10 @@ impl Kernel {
     /// quote the adapter cannot give falls back to the full allowance: a
     /// down adapter charges nothing, and the call fails through the retry
     /// path below.
-    async fn clamped_max_tokens(self: &Arc<Self>, run_id: &str, adapter: &str, model: &str, input_tokens: u64, max_tokens: u32) -> Result<Option<u32>> {
+    #[allow(clippy::too_many_arguments)]
+    async fn clamped_max_tokens(self: &Arc<Self>, run_id: &str, left: &Left, adapter: &str, model: &str, input_tokens: u64, max_tokens: u32) -> Result<Option<u32>> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(None) };
-        let left = run.config.budget.max_usd - run.spent_usd();
+        let left = left.usd;
         let (input_usd, output_usd) = match self.adapters.quote(adapter, model, input_tokens, max_tokens).await {
             Ok(q) => q,
             // Fail closed: a call nobody can price would pass the task's
@@ -199,7 +169,7 @@ impl Kernel {
         }
 
         // Ask the model for the next step.
-        if !self.may_ask_model(run_id).await? {
+        if self.may_ask_model(run_id).await?.is_none() {
             return Ok(Flow::Stop);
         }
         // The tools first: asking an app for them is how Magnus learns it
@@ -229,14 +199,14 @@ impl Kernel {
             // Each attempt, a retry too, reads the run as it is now: a failed
             // call may have been charged, and a person may have cancelled or
             // the owner stopped everything while it waited.
-            if !self.may_ask_model(run_id).await? {
+            let Some(left) = self.may_ask_model(run_id).await? else {
                 return Ok(Flow::Stop);
-            }
+            };
             // The call's worst case against what is left: the prompt plus
             // the full output, at the model's prices. What is left bounds
             // the output; when the prompt alone does not fit, the run stops
             // for budget here, before anything is asked (#273).
-            let max_tokens = match self.clamped_max_tokens(run_id, adapter, model, input_tokens, run.config.max_tokens).await? {
+            let max_tokens = match self.clamped_max_tokens(run_id, &left, adapter, model, input_tokens, run.config.max_tokens).await? {
                 Some(n) => n,
                 None => return Ok(Flow::Stop),
             };

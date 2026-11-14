@@ -20,6 +20,7 @@
 pub mod access;
 pub mod admin;
 pub mod alerts;
+pub mod allowance;
 pub mod enforce;
 pub mod month;
 pub mod requests;

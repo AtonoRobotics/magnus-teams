@@ -58,8 +58,9 @@ impl Kernel {
 
     async fn memory_pass(self: &Arc<Self>, run_id: &str) -> Result<()> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(()) };
-        // Its grant's budget for the period, once spent, bounds it too (#286).
-        if self.run_kind(&run.id).in_team() || !run.config.module("memory_pass") || run.model_calls >= run.config.budget.max_model_calls || self.grant_spent(run_id).is_some() {
+        // What it may spend is the run's allowance for an extra call, asked
+        // below; a grant's, the month's and the team's limits bound it too.
+        if self.run_kind(&run.id).in_team() || !run.config.module("memory_pass") {
             return Ok(());
         }
         let Some(text) = self.exchange(&run).await? else { return Ok(()) };
