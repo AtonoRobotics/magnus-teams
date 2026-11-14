@@ -5,6 +5,7 @@ use super::*;
 use crate::relay::{SNAPSHOT_MEMORY, SNAPSHOT_STATE};
 use crate::seal::{self, KEY_BYTES};
 use base64::Engine;
+use magnus_computerd_proto::guest::GuestRequest;
 use std::io::{BufReader, BufWriter, Read};
 use std::os::unix::fs::MetadataExt;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -69,15 +70,13 @@ impl Computers {
     fn reset_guest(&self, id: &ComputerId, uid: u32) -> Result<()> {
         let mut entropy = [0u8; RESET_ENTROPY_BYTES];
         File::open("/dev/urandom").context("open the system's randomness")?.read_exact(&mut entropy)?;
-        let unix_seconds = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-        let req = json!({
-            "op": "reset",
-            "unix_seconds": unix_seconds,
-            "machine_id": random_hex(MACHINE_ID_BYTES)?,
-            "hostname": format!("computer-{}", random_hex(HOST_SUFFIX_BYTES)?),
-            "mac": random_mac()?,
-            "entropy_b64": base64::engine::general_purpose::STANDARD.encode(entropy),
-        });
+        let req = GuestRequest::Reset {
+            unix_seconds: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
+            machine_id: random_hex(MACHINE_ID_BYTES)?,
+            hostname: format!("computer-{}", random_hex(HOST_SUFFIX_BYTES)?),
+            mac: random_mac()?,
+            entropy_b64: base64::engine::general_purpose::STANDARD.encode(entropy),
+        };
         let reply = self.ask_guest(id, uid, &req)?;
         ensure!(reply["ok"] == true, "the guest was not reset: {}", reply["error"].as_str().unwrap_or("no reason given"));
         Ok(())
