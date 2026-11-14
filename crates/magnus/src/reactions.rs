@@ -17,14 +17,15 @@
 //! went. Both are the person's alone: no other person's run, the owner or
 //! an admin sees them.
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
 use crate::chat_thread::Entry;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
 use crate::state::Run;
 use crate::state::State as Projection;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -238,11 +239,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 
 /// The person reacts to one of Magnus's messages in their thread
 /// (`reaction`: `great` or `annoying`), or takes their reaction back (null).
-async fn react(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((thread, entry)): Path<(String, String)>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn react(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path((thread, entry)): Path<(String, String)>, Json(b): Json<Value>) -> Response {
     let reaction = match &b["reaction"] {
         Value::Null => None,
         Value::String(r) if REACTIONS.iter().any(|(k, _)| k == r) => Some(r.clone()),
@@ -264,11 +261,7 @@ async fn react(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((thread, entry))
 }
 
 /// The person's own disagreement log, newest first: no one else's, whoever asks.
-async fn disagreements(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn disagreements(State(k): State<Arc<Kernel>>, Caller(p): Caller) -> Response {
     let mut mine: Vec<Value> = k.read(|s| s.thread_extras.disagreements().values().filter(|d| d.person == p.id).map(|d| json!(d)).collect());
     mine.sort_by(|a, b| b["at"].as_str().cmp(&a["at"].as_str()));
     Json(json!({ "disagreements": mine })).into_response()

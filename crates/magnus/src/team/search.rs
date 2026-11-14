@@ -1,11 +1,10 @@
 //! One search over a workspace: messages, files, tasks and knowledge, each
 //! limited to what the person searching may see.
+use super::caller::{at, Member};
 use super::member_view::{MemberView, Runs};
-use super::routes::{member, Reply, K};
-use super::Role;
+use super::routes::{Reply, K};
 use crate::kernel::Kernel;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -63,8 +62,7 @@ pub fn find<R: Runs>(v: &MemberView<R>, query: &str) -> Value {
     json!({ "messages": messages, "files": files, "tasks": tasks, "knowledge": knowledge })
 }
 
-async fn search(State(k): K, h: HeaderMap, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn search(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
     let query = q.get("q").cloned().unwrap_or_default();
     let out = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| find(&v, &query)));
     Json(out.unwrap_or_else(|| json!({}))).into_response()
@@ -75,6 +73,7 @@ mod tests {
     use super::super::chat::{Direct, Task};
     use super::super::knowledge::{Entry, Project};
     use super::super::member_view::Outcome;
+    use super::super::Role;
     use super::super::{Channel, File, Ledger, Message, Workspace};
     use super::*;
     use std::collections::BTreeMap;

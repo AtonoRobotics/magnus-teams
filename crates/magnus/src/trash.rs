@@ -5,13 +5,15 @@
 //! what it made (files a task delivered, memories it wrote, tasks a
 //! conversation started) stays, as the owner decided.
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
+use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::state::NotTrashable;
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
@@ -33,9 +35,9 @@ pub fn router() -> Router<Arc<Kernel>> {
 
 impl Kernel {
     /// Move a person's item to the trash.
-    pub async fn trash(&self, person: &str, owner: bool, item: &str) -> Result<Result<(), NotTrashable>> {
+    pub async fn trash(&self, person: &str, moderator: bool, item: &str) -> Result<Result<(), NotTrashable>> {
         let _one = changing().lock().await;
-        if let Err(why) = self.read(|s| s.may_trash(person, owner, item)) {
+        if let Err(why) = self.read(|s| s.may_trash(person, moderator, item)) {
             return Ok(Err(why));
         }
         self.emit(&format!("person:{person}"), Ev::Trashed { item: item.into(), person: person.into() }).await?;
@@ -148,30 +150,20 @@ pub fn schedule(k: Arc<Kernel>) {
     });
 }
 
-macro_rules! person {
-    ($k:expr, $h:expr) => {
-        match who(&$k, &$h).await {
-            Ok(p) => p,
-            Err(r) => return r,
-        }
-    };
-}
-
 /// What is in the person's trash, newest first, and when each goes.
-async fn list(State(k): K, h: HeaderMap) -> Response {
-    let p = person!(k, h);
+async fn list(State(k): K, Caller(p): Caller) -> ApiResult {
     let keep = chrono::Duration::days(k.trash_keep_days() as i64);
     // A trashed memory's title is its fact, and a task's, a message's or a
     // conversation's is what the person asked: recalled for the person.
     let seqs: Vec<i64> = k.read(|s| s.trash.values().filter(|t| t.person == p.id).filter_map(|t| t.memory().map(|m| m.seq)).collect());
     let facts = match k.recall.content(&p.id, &seqs).await {
         Ok(c) => c,
-        Err(e) => return crate::api::internal(e),
+        Err(e) => return Ok(crate::api::internal(e)),
     };
     let asked: Vec<(String, i64)> = k.read(|s| s.trash.values().filter(|t| t.person == p.id).filter_map(|t| t.title_from.map(|f| (p.id.clone(), f.seq()))).collect());
     let words = match k.words(asked).await {
         Ok(w) => w,
-        Err(e) => return crate::api::internal(e),
+        Err(e) => return Ok(crate::api::internal(e)),
     };
     let mut items: Vec<Value> = k.read(|s| {
         s.trash
@@ -188,14 +180,13 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
             .collect()
     });
     items.sort_by(|a, b| b["trashed_at"].as_str().cmp(&a["trashed_at"].as_str()));
-    Json(json!({ "items": items, "keep_days": k.trash_keep_days() })).into_response()
+    Ok(Json(json!({ "items": items, "keep_days": k.trash_keep_days() })).into_response())
 }
 
 /// Move an item to the trash: `{"item": id}`.
-async fn put(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = person!(k, h);
-    let Some(item) = b["item"].as_str() else { return err(StatusCode::BAD_REQUEST, "name the item") };
-    trashed(k.trash(&p.id, p.is_owner(), item).await)
+async fn put(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
+    let Some(item) = b["item"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "name the item") };
+    Ok(trashed(k.trash(&p.id, crate::people::rights(&p).moderates_shared_knowledge(), item).await))
 }
 
 pub(crate) fn trashed(r: Result<Result<(), NotTrashable>>) -> Response {
@@ -207,43 +198,38 @@ pub(crate) fn trashed(r: Result<Result<(), NotTrashable>>) -> Response {
     }
 }
 
-async fn restore(State(k): K, h: HeaderMap, Path(item): Path<String>) -> Response {
-    let p = person!(k, h);
-    match k.restore(&p.id, &item).await {
+async fn restore(State(k): K, Caller(p): Caller, Path(item): Path<String>) -> ApiResult {
+    Ok(match k.restore(&p.id, &item).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => err(StatusCode::NOT_FOUND, "not in your trash"),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Remove one item from the trash now.
-async fn remove_now(State(k): K, h: HeaderMap, Path(item): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn remove_now(State(k): K, Caller(p): Caller, Path(item): Path<String>) -> ApiResult {
     if !k.read(|s| s.trash.get(&item).is_some_and(|t| t.person == p.id)) {
-        return err(StatusCode::NOT_FOUND, "not in your trash");
+        return refuse(StatusCode::NOT_FOUND, "not in your trash");
     }
-    match k.remove(&format!("person:{}", p.id), &item).await {
+    Ok(match k.remove(&format!("person:{}", p.id), &item).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Remove everything in the person's trash now, when space is needed sooner.
-async fn empty(State(k): K, h: HeaderMap) -> Response {
-    let p = person!(k, h);
+async fn empty(State(k): K, Caller(p): Caller) -> ApiResult {
     let items: Vec<String> = k.read(|s| s.trash.iter().filter(|(_, t)| t.person == p.id).map(|(id, _)| id.clone()).collect());
     for item in &items {
-        if let Err(e) = k.remove_content(&format!("person:{}", p.id), item).await {
-            return internal(e);
-        }
+        k.remove_content(&format!("person:{}", p.id), item).await?;
     }
     k.scrub_after_removal().await;
-    Json(json!({ "removed": items.len() })).into_response()
+    Ok(Json(json!({ "removed": items.len() })).into_response())
 }
 
 impl crate::state::State {
-    /// Whether `person` (`owner` or not) may put `item` in the trash now.
-    pub fn may_trash(&self, person: &str, owner: bool, item: &str) -> Result<(), NotTrashable> {
+    /// Whether `person` (a moderator of shared knowledge or not) may put `item` in the trash now.
+    pub fn may_trash(&self, person: &str, moderator: bool, item: &str) -> Result<(), NotTrashable> {
         use NotTrashable::*;
         let ended = |run: &str| self.runs.get(run).is_none_or(|r| r.ended_at.is_some());
         let mine = match item.split_once(':') {
@@ -274,7 +260,7 @@ impl crate::state::State {
                 // The owner moderates what is shared with groups; an entry
                 // only some people read is theirs, never the owner's to delete.
                 _ => self.knowledge.get(item).is_some_and(|k| {
-                    (owner && k.readers.iter().all(|c| c.iter().any(|r| r.starts_with("group:") || *r == format!("person:{person}"))))
+                    (moderator && k.readers.iter().all(|c| c.iter().any(|r| r.starts_with("group:") || *r == format!("person:{person}"))))
                         || k.author == format!("person:{person}")
                         || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)
                 }),

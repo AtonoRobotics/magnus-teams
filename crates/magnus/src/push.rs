@@ -13,14 +13,15 @@
 //! The address carries an HMAC of the person and the app under a key held
 //! in the vault, so it needs no table and is never stored.
 
-use crate::api::{err, who};
+use crate::api::err;
 use crate::config::Watch;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::push_subs::provider::Sub;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -269,11 +270,7 @@ async fn receive(State(k): K, Path((app, person, given)): Path<(String, String, 
 /// is the whole address on the server's public address, and null when it
 /// has none (a provider cannot reach a network address); `automatic` says
 /// Magnus subscribes for the person by itself.
-async fn address(State(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn address(State(k): K, Caller(p): Caller, Path(name): Path<String>) -> Response {
     let Some(c) = k.connector(&name).filter(|c| crate::boundary::may_use(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
     if c.watch.is_empty() {
         return err(StatusCode::NOT_FOUND, "Magnus does not watch anything in this app");

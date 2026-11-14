@@ -4,11 +4,13 @@
 //! answers and policy arrive only here, a channel the agent cannot reach (its
 //! sandbox has no network and no tool calls this API).
 
+use crate::api_error::{refuse, ApiResult};
 use crate::config::{Adapter, Person};
-use crate::events::Ev;
+use crate::extract::{Caller, Owner};
 use crate::inbox::{self, Answer};
 use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
 use crate::state::{Run, Status};
+use crate::{events::Ev, people::rights};
 use axum::{
     extract::{ConnectInfo, Form, Path, Query, Request, State},
     http::{HeaderMap, Method, StatusCode},
@@ -18,25 +20,11 @@ use axum::{
     Extension, Json, Router,
 };
 use serde_json::{json, Value};
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 type K = State<Arc<Kernel>>;
 
-pub(crate) fn err(code: StatusCode, msg: impl Into<String>) -> Response {
-    (code, Json(json!({ "error": msg.into() }))).into_response()
-}
-
-pub(crate) fn internal(e: anyhow::Error) -> Response {
-    if let Some(r) = crate::halts::refused(&e) {
-        return r;
-    }
-    if let Some(r) = crate::spend::routes::refused(&e) {
-        return r;
-    }
-    tracing::error!("api: {e:#}");
-    err(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
-}
+pub(crate) use crate::api_error::{err, internal};
 
 /// New work is refused while the kill switch is on, before anything about
 /// it is recorded (owner's ruling 11).
@@ -74,11 +62,7 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
 }
 
 pub(crate) async fn developer(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    let p = who(k, h).await?;
-    if !p.is_developer() {
-        return Err(err(StatusCode::FORBIDDEN, "this needs the developer role"));
-    }
-    Ok(p)
+    crate::extract::developer(k, h).await.map_err(IntoResponse::into_response)
 }
 
 /// A browser sends the session cookie on its own, so a change made with the
@@ -97,11 +81,7 @@ async fn cookie_guard(req: Request, next: Next) -> Response {
 }
 
 pub(crate) async fn owner(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    let p = who(k, h).await?;
-    if !p.is_owner() {
-        return Err(err(StatusCode::FORBIDDEN, "this needs the owner role"));
-    }
-    Ok(p)
+    crate::extract::owner(k, h).await.map_err(IntoResponse::into_response)
 }
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
@@ -185,7 +165,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
 /// a paired device. The header is only believed from loopback with
 /// `Cf-Connecting-Ip`: that is cloudflared. A client on the LAN can set
 /// the same header and is not held to it.
-async fn require_device_cert(State(k): State<Arc<Kernel>>, req: Request, next: Next) -> Response {
+async fn require_device_cert(State(k): State<Arc<Kernel>>, req: Request, next: Next) -> ApiResult {
     let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
     let tunnelish = req.headers().contains_key("cf-connecting-ip");
     let method = req.method().clone();
@@ -198,23 +178,23 @@ async fn require_device_cert(State(k): State<Arc<Kernel>>, req: Request, next: N
         None => Ok(()),
     };
     if let Err(msg) = decision {
-        return err(StatusCode::UNAUTHORIZED, msg);
+        return refuse(StatusCode::UNAUTHORIZED, msg);
     }
-    next.run(req).await
+    Ok(next.run(req).await)
 }
 
 /// The config's long-lived tokens (the owner's scripts, the evaluation
 /// runner) work only on the plain listener, from this machine: nowhere a
 /// stolen copy could be used from the network (owner's ruling 13).
-async fn config_tokens_on_this_machine(State(k): State<Arc<Kernel>>, req: Request, next: Next) -> Response {
+async fn config_tokens_on_this_machine(State(k): State<Arc<Kernel>>, req: Request, next: Next) -> ApiResult {
     if credential(req.headers()).is_some_and(|t| k.cfg.person_by_token(t).is_some()) {
         let plain = req.extensions().get::<Transport>() == Some(&Transport::Plain);
         let local = req.extensions().get::<axum::extract::ConnectInfo<SocketAddr>>().is_some_and(|c| c.0.ip().is_loopback());
         if !(plain && local) {
-            return err(StatusCode::UNAUTHORIZED, "This key works only on the server itself, over its local address. Sign in to use Magnus from elsewhere.");
+            return refuse(StatusCode::UNAUTHORIZED, "This key works only on the server itself, over its local address. Sign in to use Magnus from elsewhere.");
         }
     }
-    next.run(req).await
+    Ok(next.run(req).await)
 }
 
 /// Sign-in hands out a session, so over plain HTTP only from this machine:
@@ -267,7 +247,7 @@ pub(crate) async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool
 
 /// How people sign in here: through the identity provider when one is
 /// configured, with a password always open as the way in when it is down.
-async fn sign_in_method(State(k): K) -> Response {
+async fn sign_in_method(State(k): K) -> ApiResult {
     let mut body = match k.oidc.get() {
         Some(o) => json!({ "method": "oidc", "label": o.label(), "password": true }),
         None => json!({ "method": "password", "password": true }),
@@ -277,7 +257,7 @@ async fn sign_in_method(State(k): K) -> Response {
         body["public_url"] = json!(format!("https://{host}"));
         body["device_certificates"] = json!(true);
     }
-    Json(body).into_response()
+    Ok(Json(body).into_response())
 }
 
 /// The paired device a tunnel request presented, if its certificate is live.
@@ -315,30 +295,24 @@ fn cloudflare_of(k: &Kernel) -> Result<crate::devices::Cloudflare, Response> {
 /// made; the private key stays there. Refused through the tunnel, so the
 /// answer never crosses Cloudflare: pair on the appliance's own network,
 /// then the public name accepts the certificate.
-async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
+async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
     if k.cfg.client_certs.is_none() {
-        return err(StatusCode::NOT_FOUND, "this server does not issue device certificates");
+        return refuse(StatusCode::NOT_FOUND, "this server does not issue device certificates");
     }
     if crate::devices::is_tunnel(peer, &h) {
-        return err(
+        return refuse(
             StatusCode::FORBIDDEN,
             "Pair this computer from the server's own network. The public address accepts a computer that is already paired and does not hand out a certificate.",
         );
     }
     if let Some(r) = refused_by_kill_switch(&k) {
-        return r;
+        return Ok(r);
     }
-    let person = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let cf = match cloudflare_of(&k) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
+    let person = who(&k, &h).await?;
+    let cf = cloudflare_of(&k)?;
     let issued = match k.devices.issue(&cf, &person.id, b["name"].as_str().unwrap_or(""), b["csr"].as_str().unwrap_or("")).await {
         Ok(i) => i,
-        Err(e) => return device_error(e),
+        Err(e) => return Ok(device_error(e)),
     };
     if let Some(token) = credential(&h) {
         if let Err(e) = k.accounts.bind_session_device(token, &issued.device).await {
@@ -351,45 +325,34 @@ async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, 
         tracing::error!("pair: the certificate was issued but not recorded: {e:#}");
     }
     let host = k.cfg.client_certs.as_ref().map(|c| c.hostname.trim().trim_start_matches("https://").trim_end_matches('/').to_string()).unwrap_or_default();
-    Json(json!({
+    Ok(Json(json!({
         "device": issued.device,
         "fingerprint": issued.fingerprint,
         "certificate": issued.certificate,
         "public_url": format!("https://{host}"),
     }))
-    .into_response()
+    .into_response())
 }
 
-async fn list_devices(State(k): K, h: HeaderMap) -> Response {
-    let person = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let mine = if person.is_owner() { None } else { Some(person.id.as_str()) };
+async fn list_devices(State(k): K, Caller(person): Caller) -> ApiResult {
+    let mine = if rights(&person).manages_every_device() { None } else { Some(person.id.as_str()) };
     let devices: Vec<Value> = k
         .devices
         .list(mine)
         .into_iter()
         .map(|d| json!({ "id": d.id, "person": d.person, "name": d.name, "created": d.created, "revoked": d.revoked, "fingerprint": d.fingerprint }))
         .collect();
-    Json(json!({ "devices": devices })).into_response()
+    Ok(Json(json!({ "devices": devices })).into_response())
 }
 
-async fn revoke_device(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let person = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some(device) = k.devices.get(&id) else { return err(StatusCode::NOT_FOUND, "no such device") };
-    if device.person != person.id && !person.is_owner() {
-        return err(StatusCode::NOT_FOUND, "no such device");
+async fn revoke_device(State(k): K, Caller(person): Caller, Path(id): Path<String>) -> ApiResult {
+    let Some(device) = k.devices.get(&id) else { return refuse(StatusCode::NOT_FOUND, "no such device") };
+    if device.person != person.id && !rights(&person).manages_every_device() {
+        return refuse(StatusCode::NOT_FOUND, "no such device");
     }
-    let cf = match cloudflare_of(&k) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
+    let cf = cloudflare_of(&k)?;
     if let Err(e) = k.devices.revoke(&cf, &id).await {
-        return device_error(e);
+        return Ok(device_error(e));
     }
     match k.accounts.end_device(&id).await {
         Ok(ended) => {
@@ -405,7 +368,7 @@ async fn revoke_device(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Res
     if let Err(e) = k.emit(&format!("person:{}", device.person), ev).await {
         tracing::error!("revoke: the certificate was revoked but not recorded: {e:#}");
     }
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 const SIGN_IN_BEGIN_WINDOW: std::time::Duration = std::time::Duration::from_secs(10 * 60);
@@ -446,18 +409,16 @@ pub(crate) fn on_this_machine(peer: SocketAddr, h: &HeaderMap) -> bool {
 /// machine only, since it asks for no second factor; nobody else's counts.
 /// Without one, only the appliance's own passwords. The check and its
 /// lockout are `password_check`'s; this only answers.
-async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
+async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
     use crate::password_check::{Attempt, Checked, Via};
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+    over_tls(&k, t, peer)?;
     let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
     let password = b["password"].as_str().unwrap_or_default();
     let code = b["code"].as_str().map(str::trim).filter(|c| !c.is_empty());
     let machine_code = b["machine_code"].as_str().map(str::trim).filter(|c| !c.is_empty());
     let app = b["client"].as_str() == Some("app");
     if let Some(r) = app.then(|| crate::update::unversioned_app(&h)).flatten() {
-        return r;
+        return Ok(r);
     }
     let device = device_of(&k, peer, &h);
     let via = crate::password_check::via(peer, &h);
@@ -467,11 +428,11 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
     // them through what a new account needs.
     if provider.is_some() && machine_code.is_none() && !k.read(|s| s.signed_in_before.contains(&person)) {
         let page = crate::identity::Polled::UseBrowser(format!("The first time, sign in on the {label} page that just opened in your browser."));
-        return provider_answered(&k, t, label, page, device).await;
+        return Ok(provider_answered(&k, t, label, page, device).await);
     }
     let wrong = if provider.is_some() && machine_code.is_some() { "The name, password or code is wrong." } else { "The name or password is wrong." };
     let attempt = Attempt { person: &person, password, code, machine_code, via, app };
-    match crate::password_check::check(&k, &attempt).await {
+    Ok(match crate::password_check::check(&k, &attempt).await {
         Ok(Checked::Yes(Some(polled)) | Checked::Elsewhere(polled)) => provider_answered(&k, t, label, polled, device).await,
         Ok(Checked::Yes(None)) => issue(&k, t, &person, app, device.as_deref()).await,
         Ok(Checked::NeedsCode) => code_needed(),
@@ -482,38 +443,36 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
             // The owner's backup, offered only where it works.
             let backup = k.may_use_password(&person) && k.accounts.has_password(&person).await && via == Via::ThisMachine;
             if backup {
-                return (
+                return Ok((
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(json!({ "machine_code_needed": true, "error": format!("{label} is not answering. On the appliance, run `magnus sign-in-code` and enter the code it prints, with your password.") })),
                 )
-                    .into_response();
+                    .into_response());
             }
             err(StatusCode::BAD_GATEWAY, format!("{label} is not answering. Try again in a few minutes."))
         }
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Choose the permanent password with a temporary one: the console's
 /// one-time password, or any temp the owner set. A wrong temp answers
 /// as a wrong password; choosing activates, as accepting an invite
 /// does. No session opens here — they sign in after, with the new one.
-async fn choose_password(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+async fn choose_password(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+    over_tls(&k, t, peer)?;
     let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
     let temp = b["password"].as_str().unwrap_or_default();
     let password = b["new_password"].as_str().unwrap_or_default();
     if password.chars().count() < k.cfg.sign_in.min_password_length {
-        return err(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
+        return refuse(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
-    match k.accounts.choose_password(&person, temp, password, crate::password_check::via(peer, &h)).await {
+    Ok(match k.accounts.choose_password(&person, temp, password, crate::password_check::via(peer, &h)).await {
         Ok(Ok(_)) => Json(json!({ "person": person })).into_response(),
         Ok(Err(crate::accounts::SignInError::Locked(until))) => crate::password_check::locked(until, None),
         Ok(Err(_)) => err(StatusCode::UNAUTHORIZED, "The name or password is wrong."),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Ask for the 6-digit code from the person's authenticator app: the same
@@ -524,18 +483,16 @@ fn code_needed() -> Response {
 
 /// Start a sign-in through the identity provider: the person approves the
 /// code on the provider's page, then polls `/v1/sign-in/device/{flow}`.
-async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+    over_tls(&k, t, peer)?;
     if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
-        return r;
+        return Ok(r);
     }
-    let Some(o) = k.oidc.get() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
+    let Some(o) = k.oidc.get() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
     if !may_begin(&k, peer) {
-        return too_many_begins();
+        return Ok(too_many_begins());
     }
-    match o.start(b["client"].as_str() == Some("app")).await {
+    Ok(match o.start(b["client"].as_str() == Some("app")).await {
         Ok(s) => Json(json!({
             "flow": s.flow,
             "user_code": s.user_code,
@@ -547,18 +504,16 @@ async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectIn
         }))
         .into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
-async fn device_poll(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Path(flow): Path<String>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
-    let Some(o) = k.oidc.get() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
-    match o.poll(&flow).await {
+async fn device_poll(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Path(flow): Path<String>) -> ApiResult {
+    over_tls(&k, t, peer)?;
+    let Some(o) = k.oidc.get() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
+    Ok(match o.poll(&flow).await {
         Ok(polled) => provider_answered(&k, t, o.label(), polled, device_of(&k, peer, &h)).await,
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
 /// What the identity provider answered about a sign-in: wait, a session for
@@ -615,61 +570,55 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
 /// Begin a sign-in in the person's own browser (the app's way): it comes
 /// back to `redirect_uri`, a loopback address on their computer, and the app
 /// finishes it at `/v1/sign-in/browser/finish`.
-async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+    over_tls(&k, t, peer)?;
     if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
-        return r;
+        return Ok(r);
     }
-    let Some(id) = k.identity() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
-    let Some(redirect_uri) = b["redirect_uri"].as_str() else { return err(StatusCode::BAD_REQUEST, "name the redirect address") };
+    let Some(id) = k.identity() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
+    let Some(redirect_uri) = b["redirect_uri"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "name the redirect address") };
     if !may_begin(&k, peer) {
-        return too_many_begins();
+        return Ok(too_many_begins());
     }
     if let Err(e) = crate::connectors::loopback(redirect_uri) {
-        return err(StatusCode::BAD_REQUEST, format!("{e:#}"));
+        return refuse(StatusCode::BAD_REQUEST, format!("{e:#}"));
     }
     let hint = b["login_hint"].as_str().map(str::trim).filter(|h| !h.is_empty());
-    match id.begin(redirect_uri, hint, b["client"].as_str() == Some("app")).await {
+    Ok(match id.begin(redirect_uri, hint, b["client"].as_str() == Some("app")).await {
         Ok(s) => Json(json!({ "state": s.state, "authorize_url": s.authorize_url, "expires_in": s.expires_in, "label": id.label() })).into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
 /// Finish a browser sign-in with what came back to the loopback address.
-async fn browser_finish(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
-    let Some(id) = k.identity() else { return err(StatusCode::NOT_FOUND, "this server signs in with a password") };
-    let (Some(state), Some(code)) = (b["state"].as_str(), b["code"].as_str()) else { return err(StatusCode::BAD_REQUEST, "send the state and code that came back") };
-    match id.finish(state, code, b["iss"].as_str()).await {
+async fn browser_finish(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+    over_tls(&k, t, peer)?;
+    let Some(id) = k.identity() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
+    let (Some(state), Some(code)) = (b["state"].as_str(), b["code"].as_str()) else { return refuse(StatusCode::BAD_REQUEST, "send the state and code that came back") };
+    Ok(match id.finish(state, code, b["iss"].as_str()).await {
         Ok(polled) => provider_answered(&k, t, id.label(), polled, device_of(&k, peer, &h)).await,
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
 /// Accept an invitation: the token with the new password activates the
 /// person, who then signs in normally. A bad, used or expired token, or
 /// one for someone no longer here, answers alike.
-async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(b): Json<Value>) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(b): Json<Value>) -> ApiResult {
+    over_tls(&k, t, peer)?;
     let token = b["token"].as_str().unwrap_or_default();
     let password = b["password"].as_str().unwrap_or_default();
     if password.chars().count() < k.cfg.sign_in.min_password_length {
-        return err(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
+        return refuse(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
-    match k.accept_invitation(token, password).await.map(|a| a.map(|a| a.person)) {
+    Ok(match k.accept_invitation(token, password).await.map(|a| a.map(|a| a.person)) {
         Ok(Some(person)) if k.people().exists(&person) => {
             k.computer_soon(crate::computer::Owner::Person(person.clone()));
             Json(json!({ "person": person })).into_response()
         }
         Ok(_) => err(StatusCode::UNAUTHORIZED, "The invitation is wrong or expired."),
         Err(e) => internal(e),
-    }
+    })
 }
 
 fn h_escape(s: &str) -> String {
@@ -694,21 +643,19 @@ async fn reset_page(
     Extension(t): Extension<Transport>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Query(q): Query<std::collections::HashMap<String, String>>,
-) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+) -> ApiResult {
+    over_tls(&k, t, peer)?;
     let token = q.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
     if token.is_empty() || !k.accounts.reset_live(&token).await {
-        return reset_shell("Link expired", "<h1>This recovery link is spent or expired.</h1><p>Ask for a new email and follow its link within the hour.</p>");
+        return Ok(reset_shell("Link expired", "<h1>This recovery link is spent or expired.</h1><p>Ask for a new email and follow its link within the hour.</p>"));
     }
-    reset_shell(
+    Ok(reset_shell(
         "Choose a new password",
         &format!(
             "<h1>Choose a new password</h1><p>It signs every device out, and any authenticator codes stop working until new ones are enrolled.</p><form method=post action=/reset><input type=hidden name=token value=\"{}\"><label>New password<input type=password name=password autocomplete=new-password required></label><label>Repeat it<input type=password name=confirm autocomplete=new-password required></label><button>Set password</button></form>",
             h_escape(&token)
         ),
-    )
+    ))
 }
 
 /// Set the password from the recovery page.
@@ -717,25 +664,21 @@ async fn reset_confirm(
     Extension(t): Extension<Transport>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Form(f): Form<std::collections::HashMap<String, String>>,
-) -> Response {
-    if let Err(r) = over_tls(&k, t, peer) {
-        return r;
-    }
+) -> ApiResult {
+    over_tls(&k, t, peer)?;
     let token = f.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
     let password = f.get("password").cloned().unwrap_or_default();
     if f.get("confirm").map(|s| s.as_str()) != Some(password.as_str()) {
-        return reset_shell("Choose a new password", &format!("<h1>Choose a new password</h1><p class=error>The two passwords do not match.</p><form method=post action=/reset><input type=hidden name=token value=\"{}\"><label>New password<input type=password name=password autocomplete=new-password required></label><label>Repeat it<input type=password name=confirm autocomplete=new-password required></label><button>Set password</button></form>", h_escape(&token)));
+        return Ok(reset_shell("Choose a new password", &format!("<h1>Choose a new password</h1><p class=error>The two passwords do not match.</p><form method=post action=/reset><input type=hidden name=token value=\"{}\"><label>New password<input type=password name=password autocomplete=new-password required></label><label>Repeat it<input type=password name=confirm autocomplete=new-password required></label><button>Set password</button></form>", h_escape(&token))));
     }
     if password.chars().count() < k.cfg.sign_in.min_password_length {
-        return reset_shell("Choose a new password", &format!("<h1>Choose a new password</h1><p class=error>A password needs at least {} characters.</p><form method=post action=/reset><input type=hidden name=token value=\"{}\"><label>New password<input type=password name=password autocomplete=new-password required></label><label>Repeat it<input type=password name=confirm autocomplete=new-password required></label><button>Set password</button></form>", k.cfg.sign_in.min_password_length, h_escape(&token)));
+        return Ok(reset_shell("Choose a new password", &format!("<h1>Choose a new password</h1><p class=error>A password needs at least {} characters.</p><form method=post action=/reset><input type=hidden name=token value=\"{}\"><label>New password<input type=password name=password autocomplete=new-password required></label><label>Repeat it<input type=password name=confirm autocomplete=new-password required></label><button>Set password</button></form>", k.cfg.sign_in.min_password_length, h_escape(&token))));
     }
-    match k.accounts.confirm_reset(&token, &password).await {
+    Ok(match k.accounts.confirm_reset(&token, &password).await {
         Ok(Some((person, ended))) => {
             let mut evs = vec![(person.as_str(), Ev::PasswordChanged { person: person.clone(), how: "reset".into() })];
             evs.extend(ended.into_iter().map(|session| (person.as_str(), Ev::SignedOut { person: person.clone(), session })));
-            if let Err(e) = k.emit_all(evs).await {
-                return internal(e);
-            }
+            k.emit_all(evs).await?;
             reset_shell(
                 "Password set",
                 &format!("<h1>The new password is set.</h1><p>Sign in as <b>{}</b> or with your email address. Every device is signed out. If codes were enrolled, they no longer work: enroll new ones after signing in.</p>", h_escape(&person)),
@@ -743,41 +686,36 @@ async fn reset_confirm(
         }
         Ok(None) => reset_shell("Link expired", "<h1>This recovery link is spent or expired.</h1><p>Ask for a new email and follow its link within the hour.</p>"),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn sign_out(State(k): K, h: HeaderMap) -> Response {
-    let Some(token) = credential(&h) else { return err(StatusCode::UNAUTHORIZED, "not signed in") };
+async fn sign_out(State(k): K, h: HeaderMap) -> ApiResult {
+    let Some(token) = credential(&h) else { return refuse(StatusCode::UNAUTHORIZED, "not signed in") };
     match k.accounts.sign_out(token).await {
         Ok(Some(s)) => {
-            if let Err(e) = k.emit(&format!("person:{}", s.person), Ev::SignedOut { person: s.person.clone(), session: s.id }).await {
-                return internal(e);
-            }
+            k.emit(&format!("person:{}", s.person), Ev::SignedOut { person: s.person.clone(), session: s.id }).await?;
         }
         Ok(None) => {}
-        Err(e) => return internal(e),
+        Err(e) => return Ok(internal(e)),
     }
     let mut r = Json(json!({ "ok": true })).into_response();
     if let Ok(v) = format!("{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0").parse() {
         r.headers_mut().insert("set-cookie", v);
     }
-    r
+    Ok(r)
 }
 
-async fn me(State(k): K, h: HeaderMap) -> Response {
-    match who(&k, &h).await {
+async fn me(State(k): K, h: HeaderMap) -> ApiResult {
+    Ok(match who(&k, &h).await {
         Ok(p) => Json(json!({ "id": p.id, "name": p.name, "groups": p.groups, "roles": p.roles, "voice": k.cfg.speech.is_some(), "read_aloud": k.cfg.read_aloud.is_some() }))
             .into_response(),
         Err(r) => r,
-    }
+    })
 }
 
 /// What the appliance is running now, and every change to it, so apps can
 /// tell people when the agent they work with has changed (U5).
-async fn versions(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = who(&k, &h).await {
-        return r;
-    }
+async fn versions(State(k): K, _: Caller) -> ApiResult {
     let v = k.read(|s| {
         let changes: Vec<Value> = s.org.version_changes().iter().map(|(seq, at, what, value)| json!({ "seq": seq, "at": at, "what": what, "value": value })).collect();
         json!({
@@ -790,7 +728,7 @@ async fn versions(State(k): K, h: HeaderMap) -> Response {
             "changes": changes,
         })
     });
-    Json(v).into_response()
+    Ok(Json(v).into_response())
 }
 
 pub(crate) fn status_str(s: Status) -> &'static str {
@@ -900,41 +838,28 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
     v
 }
 
-async fn submit(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn submit(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
     let text = b["text"].as_str().unwrap_or_default().trim().to_string();
     if text.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "the task has no text");
+        return refuse(StatusCode::BAD_REQUEST, "the task has no text");
     }
-    let mut files = match crate::library::given_files(&k, &p, &b) {
-        Ok(f) => f,
-        Err(r) => return r,
-    };
-    let project = match crate::library::chosen_project(&k, &p, &b) {
-        Ok(x) => x,
-        Err(r) => return r,
-    };
-    let model = match chosen_model(&k, &b).await {
-        Ok(m) => m,
-        Err(r) => return r,
-    };
+    let mut files = crate::library::given_files(&k, &p, &b)?;
+    let project = crate::library::chosen_project(&k, &p, &b)?;
+    let model = chosen_model(&k, &b).await?;
     // Files sent with the task are uploads like any other: they go to the
     // person's library, linked to this task.
     for a in b["attachments"].as_array().into_iter().flatten() {
         match crate::library::add_file(&k, &p, a, None).await {
             Ok(Ok(id)) => files.push(id),
-            Ok(Err(r)) => return r,
-            Err(e) => return internal(e),
+            Ok(Err(r)) => return Ok(r),
+            Err(e) => return Ok(internal(e)),
         }
     }
     let o = crate::kernel::NewRun { model, files, project, ..Default::default() };
-    match k.create_run(&format!("person:{}", p.id), &p.id, text, crate::attachment::from_request(&b), o).await {
+    Ok(match k.create_run(&format!("person:{}", p.id), &p.id, text, crate::attachment::from_request(&b), o).await {
         Ok((task, run)) => (StatusCode::CREATED, Json(json!({ "task_id": task, "run_id": run }))).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// The model a request chose (`"model": {"adapter", "model"}`), if any,
@@ -959,15 +884,8 @@ fn visible_task(p: &Person, t: &crate::state::Task) -> bool {
     t.person == p.id
 }
 
-async fn list_tasks(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let words = match k.person_words(&p.id).await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+async fn list_tasks(State(k): K, Caller(p): Caller) -> ApiResult {
+    let words = k.person_words(&p.id).await?;
     let tasks: Vec<Value> = k.read(|s| {
         s.tasks
             .values()
@@ -977,7 +895,7 @@ async fn list_tasks(State(k): K, h: HeaderMap) -> Response {
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .collect()
     });
-    Json(json!({ "tasks": tasks })).into_response()
+    Ok(Json(json!({ "tasks": tasks })).into_response())
 }
 
 /// A search's words, lowercased; a match has every one.
@@ -989,26 +907,19 @@ pub(crate) fn terms(q: &str) -> Vec<String> {
 /// said in them), tasks (title, request, summary) and files (as the library
 /// matches them). A conversation comes with the first thing said in it that
 /// matches.
-async fn search(State(k): K, h: HeaderMap, Query(q): Query<std::collections::HashMap<String, String>>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn search(State(k): K, Caller(p): Caller, Query(q): Query<std::collections::HashMap<String, String>>) -> ApiResult {
     let terms = terms(q.get("q").map(String::as_str).unwrap_or_default());
     if terms.is_empty() {
-        return Json(json!({ "conversations": [], "tasks": [], "files": [] })).into_response();
+        return Ok(Json(json!({ "conversations": [], "tasks": [], "files": [] })).into_response());
     }
     let all = |hay: &str| terms.iter().all(|t| hay.contains(t.as_str()));
     let mut conversations = vec![];
-    let threads = match k.threads(&p.id).await {
-        Ok(t) => t,
-        Err(e) => return internal(e),
-    };
+    let threads = k.threads(&p.id).await?;
     for t in threads {
         let id = t["thread"].as_str().unwrap_or_default();
         let said: Vec<String> = match k.thread_entries(&p.id, id).await {
             Ok(e) => e.unwrap_or_default(),
-            Err(e) => return internal(e),
+            Err(e) => return Ok(internal(e)),
         }
         .iter()
         .filter_map(|e| e.said_text().map(String::from))
@@ -1020,14 +931,8 @@ async fn search(State(k): K, h: HeaderMap, Query(q): Query<std::collections::Has
         let snippet = said.iter().find(|s| terms.iter().any(|w| s.to_lowercase().contains(w.as_str()))).map(|s| s.chars().take(160).collect::<String>());
         conversations.push(json!({ "thread": id, "title": t["title"], "updated_at": t["updated_at"], "project": t["project"], "snippet": snippet }));
     }
-    let texts = match k.file_texts(&p.id, &terms).await {
-        Ok(t) => t,
-        Err(e) => return internal(e),
-    };
-    let words = match k.person_words(&p.id).await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+    let texts = k.file_texts(&p.id, &terms).await?;
+    let words = k.person_words(&p.id).await?;
     let (tasks, files) = k.read(|s| {
         let tasks: Vec<Value> = s
             .tasks
@@ -1040,77 +945,57 @@ async fn search(State(k): K, h: HeaderMap, Query(q): Query<std::collections::Has
             .collect();
         (tasks, crate::library::files_matching(s, &p, &terms, &texts, None, &words))
     });
-    Json(json!({ "conversations": conversations, "tasks": tasks, "files": files })).into_response()
+    Ok(Json(json!({ "conversations": conversations, "tasks": tasks, "files": files })).into_response())
 }
 
 /// The person writes in chat: a new thread, or one of theirs.
-async fn chat_post(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn chat_post(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
     let text = b["text"].as_str().unwrap_or_default().trim().to_string();
     if text.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "the message has no text");
+        return refuse(StatusCode::BAD_REQUEST, "the message has no text");
     }
-    let model = match chosen_model(&k, &b).await {
-        Ok(m) => m,
-        Err(r) => return r,
-    };
-    let files = match crate::library::given_files(&k, &p, &b) {
-        Ok(f) => f,
-        Err(r) => return r,
-    };
-    let project = match crate::library::chosen_project(&k, &p, &b) {
-        Ok(x) => x,
-        Err(r) => return r,
-    };
-    match k.chat_say(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, None, files, project).await {
+    let model = chosen_model(&k, &b).await?;
+    let files = crate::library::given_files(&k, &p, &b)?;
+    let project = crate::library::chosen_project(&k, &p, &b)?;
+    Ok(match k.chat_say(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, None, files, project).await {
         Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task, "hidden": crate::typed_secrets::mask(&text).hidden }))).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn chat_threads(State(k): K, h: HeaderMap) -> Response {
-    match who(&k, &h).await {
+async fn chat_threads(State(k): K, h: HeaderMap) -> ApiResult {
+    Ok(match who(&k, &h).await {
         Ok(p) => match k.threads(&p.id).await {
             Ok(t) => Json(json!({ "threads": t })).into_response(),
             Err(e) => internal(e),
         },
         Err(r) => r,
-    }
+    })
 }
 
 /// A thread is its starter's alone.
-async fn chat_thread(State(k): K, h: HeaderMap, Path(thread): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.thread_entries(&p.id, &thread).await {
+async fn chat_thread(State(k): K, Caller(p): Caller, Path(thread): Path<String>) -> ApiResult {
+    Ok(match k.thread_entries(&p.id, &thread).await {
         // Their reactions shown on Magnus's messages: to them alone, not in
         // the thread as anyone else may read it.
         Ok(Some(entries)) => Json(json!({ "thread": thread, "entries": k.read(|s| crate::reactions::marked(s, &p.id, &thread, entries)) })).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Confirm or decline a schedule card; only the person it was proposed to.
-async fn chat_card(State(k): K, h: HeaderMap, Path(card): Path<String>, Json(b): Json<Value>) -> Response {
+async fn chat_card(State(k): K, h: HeaderMap, Path(card): Path<String>, Json(b): Json<Value>) -> ApiResult {
     use crate::chat::CardRefusal;
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.decide_card(&p.id, &card, b["decision"].as_str().unwrap_or_default(), b["reason"].as_str(), &b).await {
+    let p = who(&k, &h).await?;
+    Ok(match k.decide_card(&p.id, &card, b["decision"].as_str().unwrap_or_default(), b["reason"].as_str(), &b).await {
         Ok(Ok(v)) => Json(v).into_response(),
         Ok(Err(CardRefusal::NotFound)) => err(StatusCode::NOT_FOUND, "no such card"),
         Ok(Err(CardRefusal::Decided)) => err(StatusCode::CONFLICT, "this card has been decided"),
         Ok(Err(CardRefusal::Invalid(m))) => err(StatusCode::BAD_REQUEST, &m),
         Err(e) => internal(e),
-    }
+    })
 }
 
 fn find(k: &Kernel, p: &Person, id: &str) -> Option<(crate::state::Task, Run)> {
@@ -1123,33 +1008,22 @@ fn find(k: &Kernel, p: &Person, id: &str) -> Option<(crate::state::Task, Run)> {
     })
 }
 
-async fn task(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match find(&k, &p, &id) {
+async fn task(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(match find(&k, &p, &id) {
         Some((t, r)) => {
-            let words = match k.person_words(&t.person).await {
-                Ok(w) => w,
-                Err(e) => return internal(e),
-            };
+            let words = k.person_words(&t.person).await?;
             // `find` gives only the person's own.
             Json(task_json(&k, &t, &r, true, &words)).into_response()
         }
         None => err(StatusCode::NOT_FOUND, "no such task"),
-    }
+    })
 }
 
 /// The task view's evidence: each step's tool calls, boundary decisions and
 /// results, as derived from the log (K45).
-async fn timeline(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some((_, run)) = find(&k, &p, &id) else { return err(StatusCode::NOT_FOUND, "no such task") };
-    Json(timeline_of(&run, false)).into_response()
+async fn timeline(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
+    Ok(Json(timeline_of(&run, false)).into_response())
 }
 
 /// A run's steps, each with its tool calls, the boundary's decisions (their
@@ -1185,35 +1059,25 @@ pub(crate) fn timeline_of(run: &Run, redact_private: bool) -> Value {
     json!({ "steps": steps, "notices": notices, "verifications": run.verified.iter().map(|(c, v)| json!({ "criterion": c, "passed": v.0, "evidence": v.1, "by": v.2 })).collect::<Vec<_>>() })
 }
 
-async fn resume(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some((_, run)) = find(&k, &p, &id) else { return err(StatusCode::NOT_FOUND, "no such task") };
+async fn resume(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     if run.status != Status::Suspended {
-        return err(StatusCode::CONFLICT, "the task is not paused");
+        return refuse(StatusCode::CONFLICT, "the task is not paused");
     }
     if let Some((_, why)) = k.halt_of(&run.id, None) {
-        return err(StatusCode::CONFLICT, why.replace("kill switch engaged", "the kill switch is engaged"));
+        return refuse(StatusCode::CONFLICT, why.replace("kill switch engaged", "the kill switch is engaged"));
     }
-    if let Err(e) = k.emit(&format!("person:{}", p.id), Ev::Resumed { run: run.id.clone() }).await {
-        return internal(e);
-    }
+    k.emit(&format!("person:{}", p.id), Ev::Resumed { run: run.id.clone() }).await?;
     k.wake(&run.id);
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
-async fn cancel(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    controlled(k.cancel_task(&p, &id, None).await.map(|v| {
+async fn cancel(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(controlled(k.cancel_task(&p, &id, None).await.map(|v| {
         let mut v = v;
         v["ok"] = json!(true);
         v
-    }))
+    })))
 }
 
 /// A control's answer as the app gets it.
@@ -1231,48 +1095,38 @@ fn controlled(r: Result<Value, crate::controls::Refused>) -> Response {
 
 /// The person's verdict on an outcome that has ended: right, partly or
 /// wrong, with an optional note. A later verdict replaces it.
-async fn verdict(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn verdict(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
     // An experiment's trials run as the eval people, who have no sign-in of
     // their own: the owner judges them, though they see no one else's tasks.
+    let judge = rights(&p).judges_experiments();
     let trial = || k.read(|s| s.tasks.get(&id).and_then(|t| s.runs.get(&t.run_id).filter(|r| r.experiment.is_some()).map(|r| (t.clone(), r.clone()))));
-    let Some((task, run)) = find(&k, &p, &id).or_else(|| p.is_owner().then(trial).flatten()) else { return err(StatusCode::NOT_FOUND, "no such task") };
-    if task.person != p.id && !(p.is_owner() && run.experiment.is_some()) {
-        return err(StatusCode::FORBIDDEN, "only the person it is for gives a verdict");
+    let Some((task, run)) = find(&k, &p, &id).or_else(|| judge.then(trial).flatten()) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
+    if task.person != p.id && !(judge && run.experiment.is_some()) {
+        return refuse(StatusCode::FORBIDDEN, "only the person it is for gives a verdict");
     }
     let Some(v) = b["verdict"].as_str().filter(|v| crate::state::VERDICTS.contains(v)) else {
-        return err(StatusCode::BAD_REQUEST, "verdict is right, partly or wrong");
+        return refuse(StatusCode::BAD_REQUEST, "verdict is right, partly or wrong");
     };
     let note = b["note"].as_str().map(str::trim).filter(|n| !n.is_empty()).map(String::from);
     if note.as_ref().is_some_and(|n| n.chars().count() > crate::compose::MAX_TEXT) {
-        return err(StatusCode::BAD_REQUEST, format!("the note is longer than {} characters", crate::compose::MAX_TEXT));
+        return refuse(StatusCode::BAD_REQUEST, format!("the note is longer than {} characters", crate::compose::MAX_TEXT));
     }
     if !run.status.terminal() {
-        return err(StatusCode::CONFLICT, "the task has not ended");
+        return refuse(StatusCode::CONFLICT, "the task has not ended");
     }
     let ev = Ev::Verdict { task: task.task_id.clone(), person: p.id.clone(), verdict: v.into(), note };
-    match k.emit(&format!("person:{}", p.id), ev).await {
+    Ok(match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Opening the app's home: what changed since the last open — ended
 /// tasks, decided cards and new arrivals — with the queued
 /// observations, newest first; the open itself is recorded so the next
 /// one starts here (#367). A first open looks back a day.
-async fn home_opened(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let words = match k.person_words(&p.id).await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
+    let words = k.person_words(&p.id).await?;
     let now = chrono::Utc::now();
     let (since, mut ended, mut arrived, mut decided, mut observations) = k.read(|s| {
         let since = s.home_last_open.get(&p.id).cloned().unwrap_or(now - chrono::Duration::hours(24));
@@ -1311,22 +1165,18 @@ async fn home_opened(State(k): K, h: HeaderMap) -> Response {
         "decided": decided.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
         "observations": observations.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
     }));
-    match k.emit(&format!("person:{}", p.id), Ev::HomeOpened { person: p.id.clone() }).await {
+    Ok(match k.emit(&format!("person:{}", p.id), Ev::HomeOpened { person: p.id.clone() }).await {
         // The feed was built before the open landed: if the open did
         // not land, the next open shows it all again.
         Ok(_) => feed.into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// The app presented inbox items to its person: record each visible
 /// one opened, first presentation standing (#367). Unknown ids, and
 /// another person's, are ignored, so a stale app never fails the open.
-async fn inbox_opened(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn inbox_opened(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
     let (marked, fresh): (Vec<String>, Vec<String>) = k.read(|s| {
         let mut marked = vec![];
         let mut fresh = vec![];
@@ -1343,18 +1193,12 @@ async fn inbox_opened(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respon
     if !fresh.is_empty() {
         let actor = format!("person:{}", p.id);
         let evs: Vec<(&str, Ev)> = fresh.iter().map(|id| (actor.as_str(), Ev::ItemOpened { id: id.clone() })).collect();
-        if let Err(e) = k.emit_all(evs).await {
-            return internal(e);
-        }
+        k.emit_all(evs).await?;
     }
-    Json(json!({ "opened": marked })).into_response()
+    Ok(Json(json!({ "opened": marked })).into_response())
 }
 
-async fn inbox_list(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn inbox_list(State(k): K, Caller(p): Caller) -> ApiResult {
     let mut items: Vec<Value> = k.read(|s| s.items.values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
     // An approval for an app's action carries the app's card, as the person
     // whose task it is stands with it (connectors spec: the same card in the
@@ -1366,29 +1210,21 @@ async fn inbox_list(State(k): K, h: HeaderMap) -> Response {
             i["app"] = k.offered_card(i["person"].as_str().unwrap_or_default(), &json!({ "connector": app }));
         }
     }
-    Json(json!({ "items": items })).into_response()
+    Ok(Json(json!({ "items": items })).into_response())
 }
 
-async fn respond(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.respond(&p, &id, &b).await {
+async fn respond(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
+    Ok(match k.respond(&p, &id, &b).await {
         Ok(Answer::Ok) => Json(json!({ "ok": true })).into_response(),
         Ok(Answer::Forbidden(m)) => err(StatusCode::FORBIDDEN, m),
         Ok(Answer::NotFound) => err(StatusCode::NOT_FOUND, "no such item"),
         Ok(Answer::Conflict(m)) => err(StatusCode::CONFLICT, m),
         Ok(Answer::Invalid(m)) => err(StatusCode::BAD_REQUEST, m),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn policies(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn policies(State(k): K, Caller(p): Caller) -> ApiResult {
     let all = k.read(|s| s.org.policies().clone());
     // The layers of their own tasks, which they may set (`put_policy`).
     let own_task = |l: &str| l.strip_prefix("task/").is_some_and(|t| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id)));
@@ -1397,14 +1233,10 @@ async fn policies(State(k): K, h: HeaderMap) -> Response {
         .filter(|(l, _)| inbox::may_set_policy(&p, l) || l == "org" || l == &format!("user/{}", p.id) || p.groups.iter().any(|g| l == &format!("group/{g}")) || own_task(l))
         .map(|(l, c)| (l, Value::String(c)))
         .collect();
-    Json(json!({ "layers": mine, "default_org": crate::policy::DEFAULT_ORG })).into_response()
+    Ok(Json(json!({ "layers": mine, "default_org": crate::policy::DEFAULT_ORG })).into_response())
 }
 
-async fn put_policy(State(k): K, h: HeaderMap, Path(layer): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let layer = layer.trim_matches('/').to_string();
     // A task's layer: the task's own, which only narrows, so its person
     // may set it as well as the owner (DECISIONS, Layering).
@@ -1414,82 +1246,63 @@ async fn put_policy(State(k): K, h: HeaderMap, Path(layer): Path<String>, Json(b
         || layer.strip_prefix("group/").is_some_and(|g| !g.is_empty() && !g.contains('/'))
         || task_of.is_some();
     if !valid {
-        return err(StatusCode::NOT_FOUND, "no such policy layer");
+        return refuse(StatusCode::NOT_FOUND, "no such policy layer");
     }
     if !(inbox::may_set_policy(&p, &layer) || task_of.as_deref() == Some(p.id.as_str())) {
-        return err(StatusCode::FORBIDDEN, "you may not set this layer's policy");
+        return refuse(StatusCode::FORBIDDEN, "you may not set this layer's policy");
     }
     let cedar = b["cedar"].as_str().unwrap_or_default().to_string();
     if let Err(e) = crate::policy::validate(&cedar) {
-        return err(StatusCode::BAD_REQUEST, format!("the policy does not parse: {e}"));
+        return refuse(StatusCode::BAD_REQUEST, format!("the policy does not parse: {e}"));
     }
     if let Err(why) = crate::policy_layers::tightens_only(&layer, &cedar) {
-        return err(StatusCode::UNPROCESSABLE_ENTITY, why);
+        return refuse(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
-    match k.emit(&format!("person:{}", p.id), Ev::PolicySet { layer, cedar }).await {
+    Ok(match k.emit(&format!("person:{}", p.id), Ev::PolicySet { layer, cedar }).await {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn secret_names(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
-    match k.vault.names() {
+async fn secret_names(State(k): K, _: Owner) -> ApiResult {
+    Ok(match k.vault.names() {
         Ok(n) => Json(json!({ "names": crate::secret_scope::server_names(&k, n) })).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn put_secret(State(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some(value) = b["value"].as_str() else { return err(StatusCode::BAD_REQUEST, "no value") };
+async fn put_secret(State(k): K, Owner(p): Owner, Path(name): Path<String>, Json(b): Json<Value>) -> ApiResult {
+    let Some(value) = b["value"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "no value") };
     if crate::secret_scope::personal(&k, &name) {
-        return err(StatusCode::FORBIDDEN, crate::secret_scope::REFUSED);
+        return refuse(StatusCode::FORBIDDEN, crate::secret_scope::REFUSED);
     }
     if k.vault.is_sealed() {
-        return err(StatusCode::CONFLICT, "the kill switch is engaged; turn it off before entering secrets");
+        return refuse(StatusCode::CONFLICT, "the kill switch is engaged; turn it off before entering secrets");
     }
-    if let Err(e) = k.vault.put(&name, value) {
-        return internal(e);
-    }
-    match k.emit(&format!("person:{}", p.id), Ev::SecretSet { name }).await {
+    k.vault.put(&name, value)?;
+    Ok(match k.emit(&format!("person:{}", p.id), Ev::SecretSet { name }).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// The kill switch and the secrets it took out (owner only): what to sign
 /// in to or enter again, and whether each provider revoked it.
 /// The backups on disk and whether the latest one restored (K10).
-async fn backups(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
-    Json(crate::backup::status(&k)).into_response()
+async fn backups(State(k): K, _: Owner) -> ApiResult {
+    Ok(Json(crate::backup::status(&k)).into_response())
 }
 
-async fn back_up(State(k): K, h: HeaderMap) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.back_up(&format!("person:{}", p.id)).await {
+async fn back_up(State(k): K, Owner(p): Owner) -> ApiResult {
+    Ok(match k.back_up(&format!("person:{}", p.id)).await {
         Ok(v) => (StatusCode::CREATED, Json(v)).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn kill_switch_state(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
+async fn kill_switch_state(State(k): K, _: Owner) -> ApiResult {
     let (engaged, revoked, sealed) = k.read(|s| (s.vault.kill_switch(), s.vault.revoked().clone(), s.vault.sealed().to_vec()));
-    Json(json!({ "engaged": engaged, "revoked": revoked, "sealed": if engaged { sealed } else { vec![] } })).into_response()
+    Ok(Json(json!({ "engaged": engaged, "revoked": revoked, "sealed": if engaged { sealed } else { vec![] } })).into_response())
 }
 
 impl Kernel {
@@ -1663,21 +1476,14 @@ impl Kernel {
     }
 }
 
-async fn kill_switch(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.kill_switch(&format!("person:{}", p.id), b["engaged"].as_bool().unwrap_or(true)).await {
+async fn kill_switch(State(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
+    Ok(match k.kill_switch(&format!("person:{}", p.id), b["engaged"].as_bool().unwrap_or(true)).await {
         Ok(v) => Json(v).into_response(),
         Err((st, v)) => (st, Json(v)).into_response(),
-    }
+    })
 }
 
-async fn adapters(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
+async fn adapters(State(k): K, _: Owner) -> ApiResult {
     let list: Vec<Value> = k
         .adapters
         .list()
@@ -1692,43 +1498,37 @@ async fn adapters(State(k): K, h: HeaderMap) -> Response {
             })
         })
         .collect();
-    Json(json!({ "adapters": list })).into_response()
+    Ok(Json(json!({ "adapters": list })).into_response())
 }
 
 /// Replace or add an adapter while the kernel runs. The candidate must pass
 /// the conformance suite against the live provider before it takes requests,
 /// unless the owner explicitly skips the gate.
-async fn put_adapter(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn put_adapter(State(k): K, Owner(p): Owner, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let cfg: Adapter = match serde_json::from_value(json!({ "id": id, "command": b["command"], "settings": b.get("settings").cloned().unwrap_or(json!({})) })) {
         Ok(c) => c,
-        Err(e) => return err(StatusCode::BAD_REQUEST, format!("bad adapter: {e}")),
+        Err(e) => return refuse(StatusCode::BAD_REQUEST, format!("bad adapter: {e}")),
     };
     let candidate = match k.adapters.launch(&cfg).await {
         Ok(r) => r,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
+        Err(e) => return refuse(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     };
     let info = json!({ "adapter": candidate.adapter, "version": candidate.version });
     if b["skip_conformance"].as_bool() != Some(true) {
         let model = match conformance_model(&k, &id, &b["model"]).await {
             Ok(m) => m,
-            Err(m) => return err(StatusCode::BAD_GATEWAY, m),
+            Err(m) => return refuse(StatusCode::BAD_GATEWAY, m),
         };
         let report = k.adapters.conformance(&candidate, &model).await;
         let rv = serde_json::to_value(&report).unwrap_or_default();
         let ev = Ev::AdapterVerified { adapter_id: id.clone(), adapter: report.adapter.clone(), version: report.version.clone(), model, passed: report.passed, report: rv.clone() };
-        if let Err(e) = k.emit(&format!("person:{}", p.id), ev).await {
-            return internal(e);
-        }
+        k.emit(&format!("person:{}", p.id), ev).await?;
         if !report.passed {
-            return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "installed": false, "conformance": rv }))).into_response();
+            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "installed": false, "conformance": rv }))).into_response());
         }
     }
     k.adapters.install(candidate).await;
-    Json(json!({ "installed": true, "running": info })).into_response()
+    Ok(Json(json!({ "installed": true, "running": info })).into_response())
 }
 
 /// The model a conformance run uses when none is named: the appliance's model
@@ -1752,54 +1552,38 @@ async fn conformance_model(k: &Kernel, id: &str, asked: &Value) -> Result<String
     }
 }
 
-async fn conformance(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn conformance(State(k): K, Owner(p): Owner, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let running = match k.adapters.get(&id).await {
         Ok(r) => r,
-        Err(e) => return err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
+        Err(e) => return refuse(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     };
     let model = match conformance_model(&k, &id, &b["model"]).await {
         Ok(m) => m,
-        Err(m) => return err(StatusCode::BAD_GATEWAY, m),
+        Err(m) => return refuse(StatusCode::BAD_GATEWAY, m),
     };
     let report = k.adapters.conformance(&running, &model).await;
     let rv = serde_json::to_value(&report).unwrap_or_default();
     let ev = Ev::AdapterVerified { adapter_id: id, adapter: report.adapter.clone(), version: report.version.clone(), model, passed: report.passed, report: rv.clone() };
-    if let Err(e) = k.emit(&format!("person:{}", p.id), ev).await {
-        return internal(e);
-    }
-    Json(rv).into_response()
+    k.emit(&format!("person:{}", p.id), ev).await?;
+    Ok(Json(rv).into_response())
 }
 
-async fn catalog(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
-    match k.adapters.catalog(&id).await {
+async fn catalog(State(k): K, _: Owner, Path(id): Path<String>) -> ApiResult {
+    Ok(match k.adapters.catalog(&id).await {
         Ok(ev) => Json(serde_json::to_value(ev).unwrap_or_default()).into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
-async fn sign_in_begin(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
-    match k.adapters.auth_begin(&id).await {
+async fn sign_in_begin(State(k): K, _: Owner, Path(id): Path<String>) -> ApiResult {
+    Ok(match k.adapters.auth_begin(&id).await {
         Ok(ev) => Json(serde_json::to_value(ev).unwrap_or_default()).into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
-async fn sign_in_complete(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match k.adapters.auth_complete(&id, b["flow"].clone(), b["input"].clone()).await {
+async fn sign_in_complete(State(k): K, Owner(p): Owner, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
+    Ok(match k.adapters.auth_complete(&id, b["flow"].clone(), b["input"].clone()).await {
         Ok(Ok(())) => {
             let name = k.cfg.adapters.iter().find(|a| a.id == id).and_then(|a| a.settings.get("credential")).and_then(|v| v.as_str()).unwrap_or(&id).to_string();
             let _ = k.emit(&format!("person:{}", p.id), Ev::SecretSet { name }).await;
@@ -1807,14 +1591,10 @@ async fn sign_in_complete(State(k): K, h: HeaderMap, Path(id): Path<String>, Jso
         }
         Ok(Err(m)) => err(StatusCode::BAD_REQUEST, m),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
-    }
+    })
 }
 
-async fn memory(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn memory(State(k): K, Caller(p): Caller) -> ApiResult {
     // Recalled for the person, through their wall.
     let items: Vec<Value> = match k.remembered(&p.id, |_| true).await {
         Ok(r) => r
@@ -1824,44 +1604,32 @@ async fn memory(State(k): K, h: HeaderMap) -> Response {
                 json!({ "id": m.id, "fact": r.fact, "topic": r.topic, "label": m.label, "run": m.run, "by": m.by.as_deref().unwrap_or("model"), "at": m.at })
             })
             .collect(),
-        Err(e) => return internal(e),
+        Err(e) => return Ok(internal(e)),
     };
-    Json(json!({ "memory": items })).into_response()
+    Ok(Json(json!({ "memory": items })).into_response())
 }
 
 /// Forget one of the person's own memories.
-async fn forget(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn forget(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
     if !k.read(|s| s.memory.iter().any(|m| m.id == id && m.person == p.id)) {
-        return err(StatusCode::NOT_FOUND, "no such memory");
+        return refuse(StatusCode::NOT_FOUND, "no such memory");
     }
-    crate::trash::trashed(k.trash(&p.id, p.is_owner(), &id).await)
+    Ok(crate::trash::trashed(k.trash(&p.id, rights(&p).moderates_shared_knowledge(), &id).await))
 }
 
-async fn health(State(k): K) -> Response {
+async fn health(State(k): K) -> ApiResult {
     // Down while the log's connection is lost: nothing can be recorded.
     let log = k.log.up().await;
     let body = Json(
         json!({ "ok": log, "log": if log { "up" } else { "down" }, "version": HARNESS_VERSION, "release": crate::update::version(), "kill_switch": k.read(|s| s.vault.kill_switch()) }),
     );
-    if log {
-        body.into_response()
-    } else {
-        (StatusCode::SERVICE_UNAVAILABLE, body).into_response()
-    }
+    Ok(if log { body.into_response() } else { (StatusCode::SERVICE_UNAVAILABLE, body).into_response() })
 }
 
 /// Model text for a task as it streams (server-sent events), before the
 /// turn is appended to the log (K6).
-async fn live(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some((_, run)) = find(&k, &p, &id) else { return err(StatusCode::NOT_FOUND, "no such task") };
+async fn live(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     let (so_far, mut rx) = k.live_text.subscribe(&run.id);
     let stream = async_stream(move |tx| async move {
         if !so_far.is_empty() && tx.send(format!("data: {}\n\n", json!({ "text": so_far }))).await.is_err() {
@@ -1880,7 +1648,7 @@ async fn live(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
             }
         }
     });
-    Response::builder().header("content-type", "text/event-stream").header("cache-control", "no-cache").body(axum::body::Body::from_stream(stream)).unwrap()
+    Ok(Response::builder().header("content-type", "text/event-stream").header("cache-control", "no-cache").body(axum::body::Body::from_stream(stream)).unwrap())
 }
 
 fn async_stream<F, Fut>(f: F) -> impl futures::Stream<Item = Result<String, std::convert::Infallible>>
@@ -1894,27 +1662,21 @@ where
 }
 
 /// Speech to text on the appliance. The person reviews the text before sending it.
-async fn transcribe(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = who(&k, &h).await {
-        return r;
-    }
-    let Some(data) = b["data_b64"].as_str() else { return err(StatusCode::BAD_REQUEST, "no audio") };
-    match crate::speech::transcribe(k.cfg.speech.as_ref(), &k.cfg.appliance.state_dir, data).await {
+async fn transcribe(State(k): K, _: Caller, Json(b): Json<Value>) -> ApiResult {
+    let Some(data) = b["data_b64"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "no audio") };
+    Ok(match crate::speech::transcribe(k.cfg.speech.as_ref(), &k.cfg.appliance.state_dir, data).await {
         Ok(text) => Json(json!({ "text": text })).into_response(),
         Err(e) => err(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")),
-    }
+    })
 }
 
 /// Text to speech on the appliance, so every app and browser hears the same
 /// voice. 503 when no voice is installed: the app then uses its system's own.
-async fn speak(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    if let Err(r) = who(&k, &h).await {
-        return r;
-    }
-    let Some(cfg) = &k.cfg.read_aloud else { return err(StatusCode::SERVICE_UNAVAILABLE, "no read-aloud voice is installed on this server") };
-    let Some(text) = b["text"].as_str().filter(|t| !t.trim().is_empty()) else { return err(StatusCode::BAD_REQUEST, "no text") };
+async fn speak(State(k): K, _: Caller, Json(b): Json<Value>) -> ApiResult {
+    let Some(cfg) = &k.cfg.read_aloud else { return refuse(StatusCode::SERVICE_UNAVAILABLE, "no read-aloud voice is installed on this server") };
+    let Some(text) = b["text"].as_str().filter(|t| !t.trim().is_empty()) else { return refuse(StatusCode::BAD_REQUEST, "no text") };
     use crate::speech::SpeakError;
-    match crate::speech::speak_limited(cfg, text).await {
+    Ok(match crate::speech::speak_limited(cfg, text).await {
         Ok(mp3) => Json(json!({ "media_type": "audio/mpeg", "audio_b64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, mp3) })).into_response(),
         Err(SpeakError::TooLong) => err(StatusCode::PAYLOAD_TOO_LARGE, format!("read aloud takes at most {} characters at a time", crate::speech::MAX_SPEAK)),
         Err(SpeakError::Busy) => err(StatusCode::TOO_MANY_REQUESTS, "the voice is busy; try again in a moment"),
@@ -1923,53 +1685,39 @@ async fn speak(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
             tracing::warn!("read aloud: {e:#}");
             err(StatusCode::INTERNAL_SERVER_ERROR, "read aloud failed")
         }
-    }
+    })
 }
 
-async fn get_model(State(k): K, h: HeaderMap) -> Response {
-    if let Err(r) = who(&k, &h).await {
-        return r;
-    }
+async fn get_model(State(k): K, _: Caller) -> ApiResult {
     let (adapter, model) = k.read(|s| s.org.model().clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
-    Json(json!({ "adapter": adapter, "model": model })).into_response()
+    Ok(Json(json!({ "adapter": adapter, "model": model })).into_response())
 }
 
 /// The models anyone signed in may choose for a task or a chat message,
 /// and the one used when they choose none.
-async fn models(State(k): K, h: HeaderMap) -> Response {
-    let Ok(p) = who(&k, &h).await else { return err(StatusCode::UNAUTHORIZED, "sign in") };
+async fn models(State(k): K, h: HeaderMap) -> ApiResult {
+    let Ok(p) = who(&k, &h).await else { return refuse(StatusCode::UNAUTHORIZED, "sign in") };
     let (default, lists) = k.models_for(&p.id).await;
     let list: Vec<Value> = lists.into_iter().map(|(id, models)| json!({ "adapter": id, "models": models })).collect();
-    Json(json!({ "default": default.map(|(adapter, model)| json!({ "adapter": adapter, "model": model })), "adapters": list })).into_response()
+    Ok(Json(json!({ "default": default.map(|(adapter, model)| json!({ "adapter": adapter, "model": model })), "adapters": list })).into_response())
 }
 
 /// Choose the model new tasks run on. Running tasks keep their pinned model (K9).
-async fn put_model(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn put_model(State(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
     let (Some(adapter), Some(model)) = (b["adapter"].as_str(), b["model"].as_str()) else {
-        return err(StatusCode::BAD_REQUEST, "adapter and model are required");
+        return refuse(StatusCode::BAD_REQUEST, "adapter and model are required");
     };
     if k.adapters.list().await.iter().all(|(id, _, _)| id != adapter) {
-        return err(StatusCode::NOT_FOUND, "no such adapter");
+        return refuse(StatusCode::NOT_FOUND, "no such adapter");
     }
-    match k.emit(&format!("person:{}", p.id), Ev::ModelSet { adapter: adapter.into(), model: model.into() }).await {
+    Ok(match k.emit(&format!("person:{}", p.id), Ev::ModelSet { adapter: adapter.into(), model: model.into() }).await {
         Ok(_) => Json(json!({ "adapter": adapter, "model": model })).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
-async fn schedules(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let words = match k.person_words(&p.id).await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+async fn schedules(State(k): K, Caller(p): Caller) -> ApiResult {
+    let words = k.person_words(&p.id).await?;
     let list: Vec<Value> = k.read(|s| {
         s.schedules
             .values()
@@ -2001,42 +1749,23 @@ async fn schedules(State(k): K, h: HeaderMap) -> Response {
             })
             .collect()
     });
-    Json(json!({ "schedules": list })).into_response()
+    Ok(Json(json!({ "schedules": list })).into_response())
 }
 
-fn schedule_rule(b: &Value, min: u32) -> Result<(Option<u32>, Option<String>), String> {
-    // A model that must fill every field sends 0 or "" for the one it does not mean.
-    let every = b["every_minutes"].as_u64().filter(|m| *m > 0).map(|m| m as u32);
-    let daily = b["daily_at"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
-    match (every, &daily) {
-        (Some(m), None) if m >= min => Ok((Some(m), None)),
-        (Some(_), None) => Err(format!("schedules run at most every {min} minutes")),
-        (None, Some(t)) if t.split_once(':').is_some_and(|(h, m)| h.parse::<u32>().is_ok_and(|h| h < 24) && m.parse::<u32>().is_ok_and(|m| m < 60)) => Ok((None, daily)),
-        _ => Err("give either every_minutes or daily_at as HH:MM".into()),
-    }
-}
-
-async fn add_schedule(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn add_schedule(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
     let text = b["text"].as_str().unwrap_or_default().trim().to_string();
     if text.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "the schedule has no task text");
+        return refuse(StatusCode::BAD_REQUEST, "the schedule has no task text");
     }
-    let (every_minutes, daily_at) = match schedule_rule(&b, k.cfg.schedules.min_every_minutes) {
+    let (every_minutes, daily_at) = match crate::cadence::rule_of(&b, k.cfg.schedules.min_every_minutes) {
         Ok(r) => r,
-        Err(m) => return err(StatusCode::BAD_REQUEST, m),
+        Err(m) => return refuse(StatusCode::BAD_REQUEST, m),
     };
     let (until, max_runs) = match end_for(&b) {
         Ok(r) => r,
-        Err(m) => return err(StatusCode::BAD_REQUEST, m),
+        Err(m) => return refuse(StatusCode::BAD_REQUEST, m),
     };
-    let project = match crate::library::chosen_project(&k, &p, &b) {
-        Ok(x) => x,
-        Err(r) => return r,
-    };
+    let project = crate::library::chosen_project(&k, &p, &b)?;
     let id = new_id("sched");
     let actor = format!("person:{}", p.id);
     if let Err(e) = k
@@ -2061,63 +1790,41 @@ async fn add_schedule(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respon
         )
         .await
     {
-        return internal(e);
+        return Ok(internal(e));
     }
     if project.is_some() {
-        if let Err(e) = k.emit(&actor, Ev::Moved { item: id.clone(), project }).await {
-            return internal(e);
-        }
+        k.emit(&actor, Ev::Moved { item: id.clone(), project }).await?;
     }
-    (StatusCode::CREATED, Json(json!({ "id": id }))).into_response()
+    Ok((StatusCode::CREATED, Json(json!({ "id": id }))).into_response())
 }
 
 /// Start a paused schedule again: failures count afresh, and the next run
 /// is due one interval from now.
-async fn resume_schedule(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match controlled(k.resume_schedule(&p, &id, None).await.map(|_| Value::Null)) {
+async fn resume_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(match controlled(k.resume_schedule(&p, &id, None).await.map(|_| Value::Null)) {
         r if r.status() == StatusCode::OK => StatusCode::NO_CONTENT.into_response(),
         r => r,
-    }
+    })
 }
 
 /// Pause: no more runs until it is resumed.
-async fn pause_schedule(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match controlled(k.pause_schedule(&p, &id, None).await.map(|_| Value::Null)) {
+async fn pause_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+    Ok(match controlled(k.pause_schedule(&p, &id, None).await.map(|_| Value::Null)) {
         r if r.status() == StatusCode::OK => StatusCode::NO_CONTENT.into_response(),
         r => r,
-    }
+    })
 }
 
 /// Change when it runs and when it ends.
-async fn edit_schedule(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    controlled(k.edit_schedule(&p, &id, &b, None).await)
+async fn edit_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
+    Ok(controlled(k.edit_schedule(&p, &id, &b, None).await))
 }
 
 /// Cancel: no more runs, and one still going stops.
-async fn remove_schedule(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn remove_schedule(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
     // The report goes back with the status: what each stopped run had
     // done, and how many actually stopped (#263).
-    controlled(k.cancel_schedule(&p, &id, None).await)
-}
-
-pub(crate) fn rule_for(b: &Value, min: u32) -> Result<(Option<u32>, Option<String>), String> {
-    schedule_rule(b, min)
+    Ok(controlled(k.cancel_schedule(&p, &id, None).await))
 }
 
 /// When a schedule ends: `until` (RFC 3339) and `max_runs`, either, both or
@@ -2136,18 +1843,14 @@ pub(crate) fn end_for(b: &Value) -> Result<(Option<chrono::DateTime<chrono::Utc>
 }
 
 /// Download a delivered file. Read from the log, the source of truth.
-async fn output(State(k): K, h: HeaderMap, Path((id, out)): Path<(String, String)>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some((_, run)) = find(&k, &p, &id) else { return err(StatusCode::NOT_FOUND, "no such task") };
+async fn output(State(k): K, Caller(p): Caller, Path((id, out)): Path<(String, String)>) -> ApiResult {
+    let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     if !run.outputs.iter().any(|(o, ..)| o == &out) {
-        return err(StatusCode::NOT_FOUND, "no such file");
+        return refuse(StatusCode::NOT_FOUND, "no such file");
     }
-    match k.output_bytes(&run.id, &out).await {
+    Ok(match k.output_bytes(&run.id, &out).await {
         Ok(Some((name, mt, bytes))) => crate::library::attachment(&name, &mt, bytes),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such file"),
         Err(e) => internal(e),
-    }
+    })
 }

@@ -105,6 +105,20 @@ fn next_daily<Tz: chrono::TimeZone>(after: DateTime<Utc>, fired: bool, h: u32, m
     None
 }
 
+/// A schedule's rule as a request names it: `every_minutes` (at least
+/// `min`) or `daily_at` ("HH:MM"), one of the two.
+pub fn rule_of(b: &serde_json::Value, min: u32) -> Result<(Option<u32>, Option<String>), String> {
+    // A model that must fill every field sends 0 or "" for the one it does not mean.
+    let every = b["every_minutes"].as_u64().filter(|m| *m > 0).map(|m| m as u32);
+    let daily = b["daily_at"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
+    match (every, &daily) {
+        (Some(m), None) if m >= min => Ok((Some(m), None)),
+        (Some(_), None) => Err(format!("schedules run at most every {min} minutes")),
+        (None, Some(t)) if t.split_once(':').is_some_and(|(h, m)| h.parse::<u32>().is_ok_and(|h| h < 24) && m.parse::<u32>().is_ok_and(|m| m < 60)) => Ok((None, daily)),
+        _ => Err("give either every_minutes or daily_at as HH:MM".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +229,24 @@ mod tests {
         assert_eq!(daily.next_after(None, made, la), Some(utc("2027-03-14T10:30:00Z")));
         let doubled = Recurrence::DailyAt { h: 1, m: 16 };
         assert_eq!(doubled.next_after(Some(utc("2026-11-01T08:16:00Z")), made, la), Some(utc("2026-11-02T09:16:00Z")));
+    }
+}
+
+#[cfg(test)]
+mod rule_tests {
+    use super::rule_of;
+    use serde_json::json;
+
+    /// One of the two, `every_minutes` no shorter than the floor, a daily time
+    /// a real one; a 0 or "" the model sends for the one it does not mean is
+    /// not there.
+    #[test]
+    fn a_rule_is_every_minutes_or_a_daily_time() {
+        assert_eq!(rule_of(&json!({ "every_minutes": 30, "daily_at": "" }), 15), Ok((Some(30), None)));
+        assert_eq!(rule_of(&json!({ "every_minutes": 0, "daily_at": " 07:05 " }), 15), Ok((None, Some("07:05".into()))));
+        assert!(rule_of(&json!({ "every_minutes": 5 }), 15).is_err());
+        for bad in [json!({}), json!({ "daily_at": "24:00" }), json!({ "daily_at": "7:60" }), json!({ "every_minutes": 30, "daily_at": "07:00" })] {
+            assert!(rule_of(&bad, 15).is_err(), "{bad}");
+        }
     }
 }

@@ -3,6 +3,7 @@
 use super::apps::NewApp;
 use super::KillMode;
 use crate::api::who;
+use crate::extract::Caller;
 use crate::grants::answered;
 use crate::kernel::Kernel;
 use axum::extract::ws::WebSocketUpgrade;
@@ -57,34 +58,21 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/operator/computers/{id}/screen", get(operator_screen))
 }
 
-macro_rules! person {
-    ($k:expr, $h:expr) => {
-        match who(&$k, &$h).await {
-            Ok(p) => p,
-            Err(r) => return r,
-        }
-    };
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NewIdentity {
     site: String,
 }
-async fn new_identity(State(k): K, h: HeaderMap, Json(b): Json<NewIdentity>) -> Response {
-    let p = person!(k, h);
+async fn new_identity(State(k): K, Caller(p): Caller, Json(b): Json<NewIdentity>) -> Response {
     answered(k.create_identity(&p, &b.site).await)
 }
-async fn identities(State(k): K, h: HeaderMap) -> Response {
-    let p = person!(k, h);
+async fn identities(State(k): K, Caller(p): Caller) -> Response {
     Json(k.identities_of(&p)).into_response()
 }
-async fn delete_identity(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn delete_identity(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.delete_identity(&p, &id).await)
 }
-async fn secure_form(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<super::identity::SecureForm>) -> Response {
-    let p = person!(k, h);
+async fn secure_form(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<super::identity::SecureForm>) -> Response {
     answered(k.fill_secure_form(&p, &id, &b).await)
 }
 /// `Debug` is deliberately not derived: this holds the secret itself.
@@ -95,12 +83,10 @@ struct NewSurrogate {
     value: String,
     host: String,
 }
-async fn save_attachment(State(k): K, h: HeaderMap, Path((task, name)): Path<(String, String)>) -> Response {
-    let p = person!(k, h);
+async fn save_attachment(State(k): K, Caller(p): Caller, Path((task, name)): Path<(String, String)>) -> Response {
     answered(k.save_attachment(&p, &task, &name).await)
 }
-async fn new_surrogate(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewSurrogate>) -> Response {
-    let p = person!(k, h);
+async fn new_surrogate(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewSurrogate>) -> Response {
     answered(k.issue_surrogate(&p, &id, &b.name, &b.value, &b.host).await)
 }
 
@@ -113,29 +99,24 @@ struct NewComputer {
 
 /// Nobody makes a computer (spec rev 142): a client from before that asks
 /// for one is given the one there is.
-async fn create(State(k): K, h: HeaderMap, b: Option<Json<NewComputer>>) -> Response {
-    let p = person!(k, h);
+async fn create(State(k): K, Caller(p): Caller, b: Option<Json<NewComputer>>) -> Response {
     let b = b.map(|Json(b)| b).unwrap_or_default();
     answered(k.my_computer(&p, b.workspace.as_deref()).await)
 }
 
-async fn list(State(k): K, h: HeaderMap) -> Response {
-    let p = person!(k, h);
+async fn list(State(k): K, Caller(p): Caller) -> Response {
     answered(Ok(k.computers_of(&p)))
 }
 
-async fn one(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn one(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.computer_json(&p, &id))
 }
 
-async fn start(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn start(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.start_computer(&p, &id).await)
 }
 
-async fn wake(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn wake(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.wake_computer(&p, &id))
 }
 
@@ -147,8 +128,7 @@ struct Kill {
     delete_volume: bool,
 }
 
-async fn kill(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Kill>) -> Response {
-    let p = person!(k, h);
+async fn kill(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Kill>) -> Response {
     answered(k.kill_computer(&p, &id, b.mode, b.delete_volume).await)
 }
 
@@ -158,8 +138,7 @@ struct Reset {
     keep_files: bool,
 }
 
-async fn reset(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Reset>) -> Response {
-    let p = person!(k, h);
+async fn reset(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Reset>) -> Response {
     answered(k.reset_computer(&p, &id, b.keep_files).await)
 }
 
@@ -169,8 +148,7 @@ struct NewGrant {
     label: String,
 }
 
-async fn grant(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewGrant>) -> Response {
-    let p = person!(k, h);
+async fn grant(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewGrant>) -> Response {
     answered(k.grant_computer(&p, &id, &b.label).await)
 }
 
@@ -179,15 +157,13 @@ struct FilePath {
     path: String,
 }
 
-async fn listing(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
-    let p = person!(k, h);
+async fn listing(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     answered(k.list_computer_files(&p, &id, &q.path).await)
 }
 
 /// The file itself, for the person to keep.
-async fn raw_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
+async fn raw_file(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     use base64::Engine;
-    let p = person!(k, h);
     let read = k.read_computer_file(&p, &id, &q.path).await;
     let bytes = read.map(|v: serde_json::Value| base64::engine::general_purpose::STANDARD.decode(v["data_b64"].as_str().unwrap_or_default()).unwrap_or_default());
     match bytes {
@@ -196,13 +172,11 @@ async fn raw_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Q
     }
 }
 
-async fn screen(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn screen(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.computer_preview(&p, &id).await)
 }
 
-async fn read_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
-    let p = person!(k, h);
+async fn read_file(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     answered(k.read_computer_file(&p, &id, &q.path).await)
 }
 
@@ -213,18 +187,15 @@ struct WriteFile {
     data_b64: String,
 }
 
-async fn write_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<WriteFile>) -> Response {
-    let p = person!(k, h);
+async fn write_file(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<WriteFile>) -> Response {
     answered(k.write_computer_file(&p, &id, &b.path, &b.data_b64).await)
 }
 
-async fn delete_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
-    let p = person!(k, h);
+async fn delete_file(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     answered(k.delete_computer_file(&p, &id, &q.path).await)
 }
 
-async fn hibernate(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn hibernate(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.hibernate_computer(&p, &id).await)
 }
 
@@ -235,33 +206,27 @@ struct DesktopTheme {
 }
 
 /// The person's app theme, for their computer's desktop.
-async fn theme(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<DesktopTheme>) -> Response {
-    let p = person!(k, h);
+async fn theme(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<DesktopTheme>) -> Response {
     answered(k.set_desktop_theme(&p, &id, b.theme).await)
 }
 
-async fn backup(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn backup(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.backup_computer(&p, &id).await)
 }
 
-async fn restore(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn restore(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.restore_computer(&p, &id).await)
 }
 
-async fn list_apps(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn list_apps(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.computer_apps(&p, &id))
 }
 
-async fn install_app(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewApp>) -> Response {
-    let p = person!(k, h);
+async fn install_app(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewApp>) -> Response {
     answered(k.record_computer_app(&p, &id, b).await)
 }
 
-async fn remove_app(State(k): K, h: HeaderMap, Path((id, name)): Path<(String, String)>) -> Response {
-    let p = person!(k, h);
+async fn remove_app(State(k): K, Caller(p): Caller, Path((id, name)): Path<(String, String)>) -> Response {
     answered(k.remove_computer_app(&p, &id, &name).await)
 }
 
@@ -271,8 +236,7 @@ struct NewDestination {
     host: String,
 }
 
-async fn add_destination(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewDestination>) -> Response {
-    let p = person!(k, h);
+async fn add_destination(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewDestination>) -> Response {
     answered(k.add_computer_destination(&p, &id, &b.host).await)
 }
 
@@ -282,34 +246,28 @@ struct NewPage {
     url: String,
 }
 
-async fn open_page(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewPage>) -> Response {
-    let p = person!(k, h);
+async fn open_page(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewPage>) -> Response {
     answered(k.open_computer_page(&p, &id, &b.url).await)
 }
 
-async fn close_page(State(k): K, h: HeaderMap, Path((id, page)): Path<(String, String)>) -> Response {
-    let p = person!(k, h);
+async fn close_page(State(k): K, Caller(p): Caller, Path((id, page)): Path<(String, String)>) -> Response {
     answered(k.close_computer_page(&p, &id, &page).await)
 }
 
-async fn takeover(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn takeover(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.start_takeover(&p, &id).await)
 }
 
-async fn handback(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn handback(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.hand_back(&p, &id).await)
 }
 
 /// What "I'm done" would close, asked before it is done.
-async fn handback_closes(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn handback_closes(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.handback_closes(&p, &id).await)
 }
 
-async fn activity(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn activity(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.computer_activity(&p, &id))
 }
 
@@ -320,23 +278,19 @@ struct NewOperator {
     minutes: i64,
 }
 
-async fn grant_operator(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewOperator>) -> Response {
-    let p = person!(k, h);
+async fn grant_operator(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewOperator>) -> Response {
     answered(k.grant_operator(&p, &id, &b.operator, b.minutes).await)
 }
 
-async fn end_operator(State(k): K, h: HeaderMap, Path((id, session)): Path<(String, String)>) -> Response {
-    let p = person!(k, h);
+async fn end_operator(State(k): K, Caller(p): Caller, Path((id, session)): Path<(String, String)>) -> Response {
     answered(k.end_operator(&p, &id, &session).await)
 }
 
-async fn operator_file(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
-    let p = person!(k, h);
+async fn operator_file(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> Response {
     answered(k.operator_file(&p, &id, &q.path).await)
 }
 
-async fn operator_screen(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = person!(k, h);
+async fn operator_screen(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.operator_screen(&p, &id).await)
 }
 

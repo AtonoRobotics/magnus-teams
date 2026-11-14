@@ -6,7 +6,6 @@
 //! sam owns the server and the workspace; mo is a server member and an
 //! admin of the workspace.
 
-use crate::admin_app::roles::is_guest;
 use crate::admin_app::tests::{server_with, Server};
 use crate::team::chat::{Chat, Invite};
 use crate::team::{Change, Role};
@@ -149,7 +148,7 @@ async fn an_unknown_address_is_emailed_and_joins_on_choosing_a_password() {
 
     // A guest's invitation makes a guest of the server, never a member.
     let (_, v) = s.post(&mo, &invites, json!({ "email": "gil@example.com", "role": "guest" })).await;
-    assert!(is_guest(&s.k.person("gil").unwrap()), "a workspace guest's account is not a guest: {v}");
+    assert!(is_guest_now(&s.k.person("gil").unwrap()), "a workspace guest's account is not a guest: {v}");
     s.done().await;
 }
 
@@ -243,7 +242,7 @@ async fn an_admin_invites_by_link() {
     let f = [("link", code.as_str()), ("name", "Gus"), ("email", "gus@example.com"), ("password", PW), ("confirm", PW)];
     let (st, to, session, _) = form(&s, "/invite", &f).await;
     assert_eq!((st, to.as_str(), session), (303, "/", true), "the newcomer was not signed in");
-    assert!(is_guest(&s.k.person("gus").unwrap()), "the link's guest role was not given");
+    assert!(is_guest_now(&s.k.person("gus").unwrap()), "the link's guest role was not given");
     let f = [("link", code.as_str()), ("name", "Hal"), ("email", "hal@example.com"), ("password", PW), ("confirm", PW)];
     let (_, _, _, body) = form(&s, "/invite", &f).await;
     assert!(body.contains("spent or expired") && s.k.person("hal").is_none(), "a link worked twice: {body}");
@@ -256,4 +255,8 @@ async fn an_admin_invites_by_link() {
     let (st, v) = s.post(&sam, "/v1/admin/people", json!({ "role": "member", "email": "" })).await;
     assert_eq!((st, v["link"].clone(), v["link_base"].as_bool()), (201, Value::Null, Some(false)), "{v}");
     s.done().await;
+}
+
+fn is_guest_now(p: &crate::config::Person) -> bool {
+    crate::people::rights(p).held_to_guest_limits()
 }

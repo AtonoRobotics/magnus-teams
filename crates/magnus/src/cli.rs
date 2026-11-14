@@ -272,7 +272,7 @@ async fn managed_accounts(cfg: &crate::config::Config, person: &str) -> Result<c
 /// Whether the person signs in with a local password: anyone the
 /// appliance itself keeps, or a config person allowed one.
 fn local_password(cfg: &crate::config::Config, accounts: &crate::accounts::Accounts, person: &str) -> bool {
-    accounts.is_local(person) || cfg.may_use_password(person)
+    accounts.is_local(person) || crate::people::may_use_password(cfg.person(person), cfg.sign_in.oidc.is_some())
 }
 
 /// Add a person to the appliance's own directory: they sign in with a

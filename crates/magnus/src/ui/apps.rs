@@ -3,13 +3,14 @@
 //! same sandbox as the agent's own HTML. What a view asks for starts a new
 //! request, which is never an approval.
 use super::images::{image_dir, split_id};
-use crate::api::{err, who};
+use crate::api::err;
 use crate::apps::CallOutput;
 use crate::boundary::Action;
+use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel, NewRun};
 use crate::tools::Label;
 use axum::extract::{Path as UrlPath, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -34,11 +35,7 @@ fn mine(k: &Kernel, person: &str, id: &str) -> bool {
     split_id(id).is_some_and(|(run, _)| k.read(|s| s.runs.get(run).is_some_and(|r| r.person == person)))
 }
 
-async fn view(State(k): State<Arc<Kernel>>, h: HeaderMap, UrlPath(id): UrlPath<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn view(State(k): State<Arc<Kernel>>, Caller(p): Caller, UrlPath(id): UrlPath<String>) -> Response {
     let stored = view_file(&k.cfg.appliance.state_dir, &id).filter(|_| mine(&k, &p.id, &id)).and_then(|f| std::fs::read(f).ok());
     match stored.and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
         Some(v) => Json(v).into_response(),
@@ -55,11 +52,7 @@ struct Asked {
 }
 
 /// A view asking to run a tool: a new, untrusted request, as a form is.
-async fn requested(State(k): State<Arc<Kernel>>, h: HeaderMap, UrlPath(id): UrlPath<String>, Json(a): Json<Asked>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn requested(State(k): State<Arc<Kernel>>, Caller(p): Caller, UrlPath(id): UrlPath<String>, Json(a): Json<Asked>) -> Response {
     if !mine(&k, &p.id, &id) {
         return err(StatusCode::NOT_FOUND, "no such view");
     }

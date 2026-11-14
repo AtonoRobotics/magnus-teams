@@ -4,14 +4,15 @@
 //! schedules and files, and holds the person's instructions for everything
 //! in it and its reference files. Only the person writes a project (I1).
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
 use crate::config::Person;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
 use crate::state::{LibFile, State as St};
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -89,11 +90,7 @@ pub(crate) fn file_json(s: &St, f: &LibFile, w: &crate::recall::Words) -> Value 
 /// The person's library, newest first. `q` matches every word against the
 /// name, where it came from, its project and a text file's content;
 /// `project` keeps one project's files (`none`: those in no project).
-async fn list(State(k): K, h: HeaderMap, Query(q): Query<HashMap<String, String>>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn list(State(k): K, Caller(p): Caller, Query(q): Query<HashMap<String, String>>) -> Response {
     let terms = crate::api::terms(q.get("q").map(String::as_str).unwrap_or_default());
     let texts = match k.file_texts(&p.id, &terms).await {
         Ok(t) => t,
@@ -140,11 +137,7 @@ pub(crate) fn files_matching(s: &St, p: &Person, terms: &[String], texts: &HashM
 
 /// Add a file: to the library, into a project of the person's, or in a
 /// chat thread of theirs (then it is in that thread's project).
-async fn upload(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn upload(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let thread = b["thread"].as_str().map(String::from);
     if let Some(t) = &thread {
         if !k.has_thread(&p.id, t) {
@@ -216,11 +209,7 @@ pub(crate) fn chosen_project(k: &Kernel, p: &Person, b: &Value) -> Result<Option
 }
 
 /// One file's entry, as the library lists it, for its own page.
-async fn info(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn info(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     let words = match k.person_words(&p.id).await {
         Ok(w) => w,
         Err(e) => return internal(e),
@@ -234,11 +223,7 @@ async fn info(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     }
 }
 
-async fn download(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn download(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     let Some(f) = k.read(|s| s.files.get(&id).filter(|f| f.person == p.id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such file") };
     // Recalled for the person, through their wall.
     let bytes = match k.file_bytes(&f).await {
@@ -287,11 +272,7 @@ fn project_json(s: &St, p: &crate::state::Project) -> Value {
     })
 }
 
-async fn projects(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn projects(State(k): K, Caller(p): Caller) -> Response {
     let v: Vec<Value> = k.read(|s| s.projects.values().filter(|x| x.person == p.id).map(|x| project_json(s, x)).collect());
     Json(json!({ "projects": v })).into_response()
 }
@@ -300,11 +281,7 @@ fn instructions_of(b: &Value) -> Option<String> {
     b["instructions"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from)
 }
 
-async fn new_project(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn new_project(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let Some(name) = b["name"].as_str().map(str::trim).filter(|n| !n.is_empty()) else { return err(StatusCode::BAD_REQUEST, "the project needs a name") };
     let id = new_id("proj");
     match k.emit(&actor(&p), Ev::ProjectSet { id: id.clone(), person: p.id.clone(), name: name.into(), instructions: instructions_of(&b) }).await {
@@ -314,11 +291,7 @@ async fn new_project(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respons
 }
 
 /// A project with everything in it: chats, tasks, schedules and files.
-async fn project(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn project(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
     let Some(mut v) = k.read(|s| s.projects.get(&id).filter(|x| x.person == p.id).map(|x| project_json(s, x))) else { return err(StatusCode::NOT_FOUND, "no such project") };
     let threads: Vec<Value> = match k.threads(&p.id).await {
         Ok(t) => t.into_iter().filter(|t| t["project"]["id"] == id.as_str()).collect(),
@@ -355,11 +328,7 @@ async fn project(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response 
 
 /// The person renames a project or changes its instructions. Tasks already
 /// running keep the instructions they started with.
-async fn set_project(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn set_project(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
     let Some(cur) = k.read(|s| s.projects.get(&id).filter(|x| x.person == p.id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such project") };
     let name = match b.get("name") {
         Some(n) => match n.as_str().map(str::trim).filter(|n| !n.is_empty()) {
@@ -377,11 +346,7 @@ async fn set_project(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b):
 
 /// Move a task, chat thread, schedule or file of the person's into one of
 /// their projects, or out (`project` null).
-async fn move_item(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn move_item(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let item = b["item"].as_str().unwrap_or_default().to_string();
     let project = match b["project"].as_str() {
         Some(id) if !k.read(|s| s.projects.get(id).is_some_and(|x| x.person == p.id)) => return err(StatusCode::NOT_FOUND, "no such project"),

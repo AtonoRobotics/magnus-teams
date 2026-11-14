@@ -9,6 +9,7 @@
 use crate::api::{err, internal, who};
 use crate::boundary::{Action, Facts, Issuer, Shown};
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::policy::{self, ToolFacts};
 use crate::state::Run;
@@ -335,11 +336,7 @@ async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
 }
 
 /// Words alone are recorded with nothing compiled, and so cover nothing.
-async fn add(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<NewRule>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn add(State(k): State<Arc<Kernel>>, Caller(p): Caller, Json(b): Json<NewRule>) -> Response {
     let (words, compiled) = match b.parts(&p.id) {
         Ok(x) => x,
         Err(m) => return err(StatusCode::BAD_REQUEST, m),
@@ -356,11 +353,7 @@ async fn add(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<NewRule>)
     }
 }
 
-async fn change(k: Arc<Kernel>, h: HeaderMap, id: String, make: impl FnOnce(String) -> Change) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn change(k: Arc<Kernel>, p: crate::config::Person, id: String, make: impl FnOnce(String) -> Change) -> Response {
     if !k.read(|s| s.rules.get(&id).is_some_and(|r| r.person == p.id)) {
         return err(StatusCode::NOT_FOUND, "no such rule");
     }
@@ -371,24 +364,21 @@ async fn change(k: Arc<Kernel>, h: HeaderMap, id: String, make: impl FnOnce(Stri
 }
 
 /// The person rewrites their rule: new words, a new match, or both.
-async fn edit(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>, Json(b): Json<NewRule>) -> Response {
-    let person = match who(&k, &h).await {
-        Ok(p) => p.id,
-        Err(r) => return r,
-    };
+async fn edit(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<NewRule>) -> Response {
+    let person = p.id.clone();
     let (words, compiled) = match b.parts(&person) {
         Ok(x) => x,
         Err(m) => return err(StatusCode::BAD_REQUEST, m),
     };
-    change(k, h, id, |id| Change::Edited { id, person, compiled, words }).await
+    change(k, p, id, |id| Change::Edited { id, person, compiled, words }).await
 }
 
-async fn accept(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>) -> Response {
-    change(k, h, id, |id| Change::Accepted { id }).await
+async fn accept(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>) -> Response {
+    change(k, p, id, |id| Change::Accepted { id }).await
 }
 
-async fn remove(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>) -> Response {
-    change(k, h, id, |id| Change::Removed { id }).await
+async fn remove(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>) -> Response {
+    change(k, p, id, |id| Change::Removed { id }).await
 }
 
 #[cfg(test)]

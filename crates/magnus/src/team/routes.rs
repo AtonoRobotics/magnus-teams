@@ -1,10 +1,13 @@
 //! The workspaces' HTTP API.
 use super::agent::{held_dir, volume_dir};
+use super::caller::{at, Member};
 use super::chat::Chat;
 use super::conversation::Why;
+use super::may::{allow, Act};
 use super::member_view::MemberView;
 use super::{fit_name, Change, File, Message, Role};
 use crate::api::{err, who};
+use crate::api_error::{refuse, ApiResult};
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -80,50 +83,48 @@ fn short(name: &str) -> bool {
     !name.trim().is_empty() && name.chars().count() <= MAX_NAME_CHARS
 }
 
-async fn list(State(k): K, h: HeaderMap) -> Reply {
-    let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
+async fn list(State(k): K, h: HeaderMap) -> ApiResult {
+    let p = who(&k, &h).await.map_err(Box::new)?;
     let v: Vec<Value> = k.read(|s| s.team.of(&p.id).into_iter().map(|w| json!({ "id": w.id, "name": w.name, "role": w.members.get(&p.id) })).collect());
-    Json(v).into_response()
+    Ok(Json(v).into_response())
 }
 
-async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> Reply {
-    let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
+async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> ApiResult {
+    let p = who(&k, &h).await.map_err(Box::new)?;
     // Only a Team Admin starts one, and owns it (the owner, 2026-11-11); the
     // app offers the form to them alone (`/v1/admin/standing`).
     if !k.is_team_admin(&p) {
-        return err(StatusCode::FORBIDDEN, "a Team Admin starts a workspace: a Magnus admin can make you one");
+        return refuse(StatusCode::FORBIDDEN, "a Team Admin starts a workspace: a Magnus admin can make you one");
     }
     if !short(&b.name) {
-        return err(StatusCode::BAD_REQUEST, "a workspace needs a short name");
+        return refuse(StatusCode::BAD_REQUEST, "a workspace needs a short name");
     }
     let id = new_id();
-    ok_or_return!(send(&k, &p, Change::Created { workspace: id.clone(), name: b.name, owner: p.id.clone() }).await);
+    send(&k, &p, Change::Created { workspace: id.clone(), name: b.name, owner: p.id.clone() }).await?;
     // Ready to talk in at once, with the team agent already there.
-    ok_or_return!(send(&k, &p, Change::Channel { workspace: id.clone(), channel: new_id(), name: FIRST_CHANNEL.into() }).await);
+    send(&k, &p, Change::Channel { workspace: id.clone(), channel: new_id(), name: FIRST_CHANNEL.into() }).await?;
     // And its computer, made now so nobody ever sets one up (spec rev 142).
     k.computer_soon(crate::computer::Owner::Workspace(id.clone()));
-    Json(json!({ "id": id })).into_response()
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
-async fn one(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn one(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path(ws): Path<String>) -> ApiResult {
     let seen = k.read(|s| {
         let v = MemberView::of(s, &ws, &p.id)?;
         let channels: Vec<Value> = v.channels().map(|(id, c)| json!({ "id": id, "name": c.name })).collect();
         Some((v.workspace().clone(), channels, v.files().cloned().collect::<Vec<File>>()))
     });
-    let Some((w, channels, files)) = seen else { return err(StatusCode::NOT_FOUND, "no such workspace") };
-    Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response()
+    let Some((w, channels, files)) = seen else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
+    Ok(Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response())
 }
 
 /// Delete the workspace: any of its Team Admins (its owner and its admins)
 /// may (the owner, 2026-11-11).
-async fn remove(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>) -> ApiResult {
     if let Err(e) = k.delete_workspace(&format!("person:{}", p.id), &ws).await {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+        return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -132,26 +133,22 @@ struct SetMember {
     role: Role,
 }
 
-async fn set_member(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<SetMember>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn set_member(State(k): K, Member { person: p, role, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<SetMember>) -> ApiResult {
     if k.person(&b.person).is_none() {
-        return err(StatusCode::NOT_FOUND, "no such person");
+        return refuse(StatusCode::NOT_FOUND, "no such person");
     }
-    ok_or_return!(membership(&k, &p, role, &ws, &b.person, Some(b.role)).await);
-    Json(json!({ "ok": true })).into_response()
+    membership(&k, &p, role, &ws, &b.person, Some(b.role)).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// An owner or admin removes a member; anyone leaves on their own.
-async fn remove_member(State(k): K, h: HeaderMap, Path((ws, person)): Path<(String, String)>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
-    if person != p.id && role < Role::Admin {
-        return err(StatusCode::FORBIDDEN, "that takes the Admin role here");
-    }
+async fn remove_member(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path((ws, person)): Path<(String, String)>) -> ApiResult {
+    allow(role, &p.id, Act::Remove { person: &person })?;
     if k.read(|s| s.team.role(&ws, &person)).is_none() {
-        return err(StatusCode::NOT_FOUND, "they are not in this workspace");
+        return refuse(StatusCode::NOT_FOUND, "they are not in this workspace");
     }
-    ok_or_return!(membership(&k, &p, role, &ws, &person, None).await);
-    Json(json!({ "ok": true })).into_response()
+    membership(&k, &p, role, &ws, &person, None).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// A role given or a member taken out, once the rules of who may allow it.
@@ -163,14 +160,13 @@ async fn membership(k: &Kernel, p: &Person, mine: Role, ws: &str, person: &str, 
     k.set_workspace_role(&format!("person:{}", p.id), ws, person, to).await.map_err(|e| Box::new(err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))
 }
 
-async fn add_channel(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Named>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn add_channel(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<Named>) -> ApiResult {
     if !short(&b.name) {
-        return err(StatusCode::BAD_REQUEST, "a channel needs a short name");
+        return refuse(StatusCode::BAD_REQUEST, "a channel needs a short name");
     }
     let id = new_id();
-    ok_or_return!(send(&k, &p, Change::Channel { workspace: ws, channel: id.clone(), name: b.name }).await);
-    Json(json!({ "id": id })).into_response()
+    send(&k, &p, Change::Channel { workspace: ws, channel: id.clone(), name: b.name }).await?;
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 /// Whether the channel is there and this person sees it.
@@ -180,14 +176,13 @@ pub(super) fn has_channel(k: &Kernel, ws: &str, channel: &str, person: &str) -> 
 
 /// A channel's messages, with each finished request's answer in its place:
 /// what was said, as the channel view shows it to this person.
-async fn messages(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn messages(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let now = chrono::Utc::now();
     let said = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| super::items::said(&v, &channel, now)).unwrap_or_default());
-    Json(said).into_response()
+    Ok(Json(said).into_response())
 }
 
 #[derive(Deserialize)]
@@ -207,28 +202,22 @@ struct NewMessage {
     model: serde_json::Value,
 }
 
-async fn post_message(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
-        return err(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
+        return refuse(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
-    if (b.agent || b.whisper) && role == Role::Guest {
-        return err(StatusCode::FORBIDDEN, "a guest can read and chat, and cannot have the agent act");
-    }
-    let model = match crate::api::chosen_model(&k, &json!({ "model": b.model })).await {
-        Ok(m) => m,
-        Err(r) => return r,
-    };
+    allow(role, &p.id, Act::Post { with_agent: b.agent || b.whisper })?;
+    let model = crate::api::chosen_model(&k, &json!({ "model": b.model })).await?;
     if b.whisper {
-        return match k.whisper(&ws, &channel, b.thread, &p.id, b.text, model).await {
+        return Ok(match k.whisper(&ws, &channel, b.thread, &p.id, b.text, model).await {
             Ok((task, run)) => Json(json!({ "task_id": task, "run_id": run })).into_response(),
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
-        };
+        });
     }
-    post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent, model).await
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent, model).await)
 }
 
 /// Post a message as `p`, and have the team agent take it on when asked, or
@@ -274,35 +263,38 @@ struct GrantConnector {
     roles: Vec<Role>,
 }
 
-async fn grant_connector(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<GrantConnector>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn grant_connector(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<GrantConnector>) -> ApiResult {
     if !k.connectors().iter().any(|c| c.name == b.app) {
-        return err(StatusCode::NOT_FOUND, "no such app");
+        return refuse(StatusCode::NOT_FOUND, "no such app");
     }
-    ok_or_return!(send(&k, &p, Change::Connector { workspace: ws, app: b.app, roles: b.roles }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Connector { workspace: ws, app: b.app, roles: b.roles }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
-async fn read_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn read_file(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, name)): Path<(String, String)>) -> ApiResult {
     let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees_file(&name, &p.id)));
     if !known || !fit_name(&name) {
-        return err(StatusCode::NOT_FOUND, "no such file");
+        return refuse(StatusCode::NOT_FOUND, "no such file");
     }
-    match tokio::fs::read(volume_dir(&k, &ws).join(&name)).await {
+    Ok(match tokio::fs::read(volume_dir(&k, &ws).join(&name)).await {
         Ok(bytes) => bytes.into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
-    }
+    })
 }
 
 /// An explicit share: the only way a member's file enters the volume.
-async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>, q: Query<HashMap<String, String>>, body: Bytes) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn write_file(
+    State(k): K,
+    Member { person: p, .. }: Member<at::Member>,
+    Path((ws, name)): Path<(String, String)>,
+    q: Query<HashMap<String, String>>,
+    body: Bytes,
+) -> ApiResult {
     if !fit_name(&name) {
-        return err(StatusCode::BAD_REQUEST, "that is not a file name");
+        return refuse(StatusCode::BAD_REQUEST, "that is not a file name");
     }
     if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
-        return err(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
+        return refuse(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
     }
     let dir = volume_dir(&k, &ws);
     if let Err(e) = async {
@@ -311,51 +303,47 @@ async fn write_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     }
     .await
     {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
+        return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
     let project = q.get("project").filter(|id| k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.projects.get(*id).is_some_and(|d| d.may_read(&p.id))))).cloned();
     let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
+    send(&k, &p, Change::File { workspace: ws.clone(), file }).await?;
     if project.is_some() {
-        ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project } }).await);
+        send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project } }).await?;
     }
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// Whoever put it there, or an owner or admin, may delete a file.
-async fn delete_file(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
-    let (p, role) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn delete_file(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>) -> ApiResult {
     let by = k.read(|s| s.team.workspace(&ws).filter(|w| w.sees_file(&name, &p.id)).and_then(|w| w.files.get(&name).map(|f| f.by.clone())));
-    let Some(by) = by else { return err(StatusCode::NOT_FOUND, "no such file") };
-    if by != p.id && role < Role::Admin {
-        return err(StatusCode::FORBIDDEN, "only who added it, or an admin, may delete it");
-    }
+    let Some(by) = by else { return refuse(StatusCode::NOT_FOUND, "no such file") };
+    allow(role, &p.id, Act::DeleteFile { by: &by })?;
     if fit_name(&name) {
         if let Err(e) = tokio::fs::remove_file(volume_dir(&k, &ws).join(&name)).await {
             tracing::warn!("{name}: {e}");
         }
     }
-    ok_or_return!(send(&k, &p, Change::FileRemoved { workspace: ws, name }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::FileRemoved { workspace: ws, name }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// The requester's own choice to put a held file on the team volume. The
 /// team gets a copy; theirs goes to their own library, so an admin deleting
 /// the team's copy, or the workspace, leaves it with them.
-async fn share_held(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn share_held(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>) -> ApiResult {
     let held = k.read(|s| s.team.workspace(&ws).and_then(|w| w.held.get(&p.id).and_then(|f| f.get(&name).cloned())));
-    let Some(file) = held else { return err(StatusCode::NOT_FOUND, "you hold no such file") };
+    let Some(file) = held else { return refuse(StatusCode::NOT_FOUND, "you hold no such file") };
     if k.read(|s| s.team.workspace(&ws).is_some_and(|w| super::keep::someone_elses(w, &name, &p.id))) {
-        return err(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
+        return refuse(StatusCode::CONFLICT, super::keep::SOMEONE_ELSES);
     }
     let from = held_dir(&k, &ws, &p.id).join(&name);
     let bytes = match tokio::fs::read(&from).await {
         Ok(b) => b,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+        Err(e) => return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     };
     if let Err(e) = k.keep_in_library(&format!("person:{}", p.id), &p.id, &name, &bytes).await {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+        return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
     let target = volume_dir(&k, &ws);
     if let Err(e) = async {
@@ -364,9 +352,9 @@ async fn share_held(State(k): K, h: HeaderMap, Path((ws, name)): Path<(String, S
     }
     .await
     {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
+        return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
-    ok_or_return!(send(&k, &p, Change::Released { workspace: ws, person: p.id.clone(), name }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::File { workspace: ws.clone(), file }).await?;
+    send(&k, &p, Change::Released { workspace: ws, person: p.id.clone(), name }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }

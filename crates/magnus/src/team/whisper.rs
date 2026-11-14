@@ -1,7 +1,8 @@
 //! A person's own agent in a thread. It sees the thread as data, and what it
 //! says reaches only its owner until they post it.
-use super::routes::{member, new_id, send, Reply, K};
-use super::{Change, Message, Role};
+use super::caller::{at, Member};
+use super::routes::{new_id, send, Reply, K};
+use super::{Change, Message};
 use crate::api::err;
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
@@ -9,7 +10,7 @@ use crate::state::Run;
 use crate::tools::Label;
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -77,8 +78,7 @@ fn whisper_label(others: bool) -> Label {
 }
 
 /// Only the owner's own whispers, whatever their role here.
-async fn mine(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Guest).await);
+async fn mine(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> Reply {
     let view: Vec<Value> = k.read(|s| {
         s.team
             .whispers_by(&ws, &channel, &p.id)
@@ -93,8 +93,7 @@ async fn mine(State(k): K, h: HeaderMap, Path((ws, channel)): Path<(String, Stri
 }
 
 /// The owner's explicit share: the one way a whisper reaches the thread.
-async fn share(State(k): K, h: HeaderMap, Path((ws, task)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn share(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, task)): Path<(String, String)>) -> Reply {
     let found = k.read(|s| s.team.whisper_of(&task).filter(|w| w.workspace == ws && w.owner == p.id).cloned());
     let Some(w) = found else { return err(StatusCode::NOT_FOUND, "you have no such whisper") };
     if w.shared {
@@ -111,8 +110,7 @@ async fn share(State(k): K, h: HeaderMap, Path((ws, task)): Path<(String, String
 
 /// The requester's explicit share of a team answer that only they could
 /// read: it reaches the thread as their own message, once.
-async fn share_answer(State(k): K, h: HeaderMap, Path((ws, task)): Path<(String, String)>) -> Reply {
-    let (p, _) = ok_or_return!(member(&k, &h, &ws, Role::Member).await);
+async fn share_answer(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, task)): Path<(String, String)>) -> Reply {
     let found = k.read(|s| s.team.run_of(&task).filter(|r| r.workspace == ws && r.requester == p.id && !r.sub).cloned());
     let Some(r) = found else { return err(StatusCode::NOT_FOUND, "you asked for no such answer") };
     let text = k.read(|s| s.tasks.get(&task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()).and_then(|run| run.summary.clone()));

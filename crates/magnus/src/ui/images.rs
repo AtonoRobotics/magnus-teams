@@ -1,12 +1,13 @@
 //! Images made by a provider. The agent gets a placeholder at once and goes
 //! on; the client draws the picture when it is ready. Each image is kept
 //! under its run, so it goes when the run's content goes.
-use crate::api::{err, who};
+use crate::api::err;
 use crate::boundary::Action;
+use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
 use anyhow::{anyhow, Context, Result};
 use axum::extract::{Path as UrlPath, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
@@ -101,11 +102,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 /// 202 while it is being made; only the person whose run made it may fetch it.
-async fn picture(State(k): State<Arc<Kernel>>, h: HeaderMap, UrlPath(id): UrlPath<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn picture(State(k): State<Arc<Kernel>>, Caller(p): Caller, UrlPath(id): UrlPath<String>) -> Response {
     let Some((run, _)) = split_id(&id) else { return err(StatusCode::NOT_FOUND, "no such image") };
     if !k.read(|s| s.runs.get(run).is_some_and(|r| r.person == p.id)) {
         return err(StatusCode::NOT_FOUND, "no such image");

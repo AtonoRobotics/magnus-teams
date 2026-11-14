@@ -6,6 +6,7 @@ use super::Change;
 use crate::admin_app::Admin;
 use crate::api::{err, internal, who};
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -110,11 +111,7 @@ async fn record(k: &Kernel, person: &str, c: Change) -> Response {
 }
 
 /// `{ "terms": <version>, "privacy": <version> }`, the versions shown.
-async fn accept_terms(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn accept_terms(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let now = Versions::of(&k.cfg.legal);
     if b["terms"] != now.terms.as_str() || b["privacy"] != now.privacy.as_str() {
         return err(StatusCode::CONFLICT, CHANGED);
@@ -123,11 +120,7 @@ async fn accept_terms(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respon
 }
 
 /// `{ "share": true|false, "version": <the prompt's version> }`.
-async fn choose_usage(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn choose_usage(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let Some(share) = b["share"].as_bool() else { return err(StatusCode::BAD_REQUEST, "share is true or false") };
     let now = Versions::of(&k.cfg.legal);
     if b["version"] != now.usage.as_str() {
@@ -137,11 +130,7 @@ async fn choose_usage(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Respon
 }
 
 /// `{ "version": <the Tester Terms' version> }`: joining is accepting them.
-async fn join(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn join(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let now = Versions::of(&k.cfg.legal);
     if b["version"] != now.testers.as_str() {
         return err(StatusCode::CONFLICT, CHANGED);
@@ -149,20 +138,12 @@ async fn join(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
     record(&k, &p.id, Change::TesterJoined { person: p.id.clone(), version: now.testers }).await
 }
 
-async fn leave(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn leave(State(k): K, Caller(p): Caller) -> Response {
     let Some(version) = k.read(|s| s.legal.tester_of(&p.id).cloned()) else { return err(StatusCode::CONFLICT, "you are not in the tester program") };
     record(&k, &p.id, Change::TesterLeft { person: p.id.clone(), version }).await
 }
 
-async fn decline(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn decline(State(k): K, Caller(p): Caller) -> Response {
     if k.read(|s| s.legal.invited_by(&p.id).is_none()) {
         return err(StatusCode::CONFLICT, "there is no invitation to decline");
     }

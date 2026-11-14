@@ -10,11 +10,17 @@
 
 mod authority;
 #[cfg(test)]
+mod guard_tests;
+#[cfg(test)]
 mod kernel_tests;
+mod rights;
+#[cfg(test)]
+mod rights_tests;
 #[cfg(test)]
 mod tests;
 
 pub use authority::Authority;
+pub use rights::{may_use_password, rights, Rights};
 
 use crate::accounts::{Accounts, LocalPerson};
 use crate::config::Person;
@@ -99,14 +105,6 @@ pub fn exists(config: &[Person], local: &dyn Local, id: &str) -> bool {
     config.iter().any(|p| p.id == id) || local.local(id).is_some()
 }
 
-/// Whether a password set here signs this person in: everyone's way in
-/// without an identity provider, the owner's backup alone with one (owner,
-/// 2026-10-30: "The back up password is only for me"). The owner is read
-/// from the config, never from the provider.
-pub fn may_use_password(config_person: Option<&Person>, provider: bool) -> bool {
-    config_person.is_some_and(|p| !provider || p.is_owner())
-}
-
 /// A person's name to show: their name, or their id when they have none.
 pub fn shown_name(p: Option<Person>, id: &str) -> String {
     p.map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string())
@@ -176,7 +174,7 @@ impl People<'_> {
 
     /// The owners: the config's first, in its order, then the server's own.
     pub fn owners(&self) -> Vec<Person> {
-        config_first(&self.k.cfg.people, &self.k.accounts).iter().filter_map(|id| self.get(id)).filter(|p| p.is_owner()).collect()
+        config_first(&self.k.cfg.people, &self.k.accounts).iter().filter_map(|id| self.get(id)).filter(|p| rights(p).is_server_owner()).collect()
     }
 
     /// Everyone who administers the server ([`Authority::administers`]).
