@@ -1,4 +1,4 @@
-crates/magnus/src/accounts.rs 2015
+crates/magnus/src/accounts.rs 1260
 crates/magnus/src/api.rs 2153
 crates/magnus/src/boundary.rs 1058
 crates/magnus/src/config.rs 1235
