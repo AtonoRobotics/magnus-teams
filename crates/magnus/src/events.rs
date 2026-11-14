@@ -142,8 +142,7 @@ pub enum Ev {
         layer: String,
         cedar: String,
     },
-    /// An admin turned a run module on or off for the organisation (None:
-    /// back to the config's), for runs that start from then.
+    /// An admin turned a run module on or off for the organisation (None: back to the config's), for runs that start from then.
     ModuleSet {
         name: String,
         on: Option<bool>,
@@ -189,6 +188,7 @@ pub enum Ev {
     Evidence(crate::evidence::Change),
     Spend(crate::spend::Change),
     Catalog(crate::catalog_withdrawal::Change),
+    Desktop(crate::desktop::Change),
     AdminSetting(crate::admin_app::settings::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {

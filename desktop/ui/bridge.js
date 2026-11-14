@@ -74,6 +74,10 @@ const appBridge = tauri && {
   async localStart(how) { return this.invoke("local_start", how); },
   async localPause(paused) { return this.invoke("local_pause", { paused }); },
   async localStop() { return this.invoke("local_stop"); },
+  // This computer as the bridge to its programs names it: { id, name }.
+  async desktopDevice() { return this.invoke("desktop_device"); },
+  // Report this computer's programs again now, after a consent.
+  async desktopRefresh() { return this.invoke("desktop_refresh").catch(() => {}); },
   // A takeover's screen, carried by the app so its pinned certificate applies.
   displayOpen(computer, ticket, prefix, onBytes, onEnd) {
     const handle = crypto.randomUUID();
@@ -193,6 +197,9 @@ const webBridge = {
   },
   // Connecting this computer needs the desktop app.
   async localState() { return null; },
+  // A program on this computer is used through the desktop app.
+  async desktopDevice() { return null; },
+  async desktopRefresh() {},
   displayOpen(computer, ticket, prefix, onBytes, onEnd) {
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
     // A server that knows the deflated screen chooses it; an older one sends it raw.

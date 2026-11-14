@@ -45,7 +45,7 @@ pub(crate) const BY_PERSON: &str = "by_person";
 
 /// A tool the kernel carries out away from the run's own computer.
 pub(crate) fn is_far_tool(tool: &str) -> bool {
-    ["local_", "team_", "image_", "connector_", "purchase_"].iter().any(|prefix| tool.starts_with(prefix))
+    ["local_", "team_", "image_", "connector_", "purchase_", "desktop_"].iter().any(|prefix| tool.starts_with(prefix))
 }
 
 pub const BUILTINS: &[Builtin] = &[
@@ -106,6 +106,8 @@ pub struct Ledger {
     computers: BTreeMap<String, Computer>,
     /// What Magnus wrote on them, for the person to see, keep or delete.
     pub files: crate::local_files::Files,
+    /// The programs on the person's computers, and where they allowed each.
+    pub desktop: crate::desktop::Ledger,
 }
 
 impl Ledger {
@@ -240,6 +242,9 @@ impl Kernel {
     /// What the person's computer says about this action: `None` for no
     /// objection, an error to refuse it, or a reason to ask a person.
     pub(crate) fn local_gate(&self, a: &Action, f: &Facts, person: &Person) -> Option<std::result::Result<(String, Option<String>), String>> {
+        if f.connector.is_none() && crate::desktop::program_of_app(&f.app).is_some() {
+            return self.desktop_gate(a, f, person);
+        }
         if f.app != "local" || f.connector.is_some() {
             return None;
         }
@@ -282,6 +287,9 @@ impl Kernel {
         if a.tool.starts_with("purchase_") {
             return self.purchase_tool(a).await;
         }
+        if a.tool.starts_with(crate::desktop::APP_PREFIX) {
+            return self.desktop_tool(a).await;
+        }
         self.local_tool(a).await
     }
 
@@ -315,7 +323,7 @@ impl Kernel {
     /// The tools offered beside the built-in list, for this person.
     pub(crate) fn far_specs(&self, person: &str) -> Vec<ToolSpec> {
         let payments = self.cfg.payments.iter().flat_map(|_| crate::payments::specs());
-        self.local_specs(person).into_iter().chain(crate::tools_ui::specs()).chain(crate::generated::specs()).chain(payments).collect()
+        self.local_specs(person).into_iter().chain(self.desktop_specs(person)).chain(crate::tools_ui::specs()).chain(crate::generated::specs()).chain(payments).collect()
     }
 
     pub(crate) fn local_specs(&self, person: &str) -> Vec<ToolSpec> {
@@ -370,6 +378,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/local/computers/{id}/result", post(result))
         .route("/v1/local/computers/{id}/resume", post(resume))
         .merge(crate::local_files::router())
+        .merge(crate::desktop_routes::router())
 }
 
 type K = State<Arc<Kernel>>;

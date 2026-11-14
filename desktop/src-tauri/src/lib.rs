@@ -4,12 +4,15 @@
 //! or tool credentials; approvals are made here, outside the agent's context.
 
 mod account;
+mod bridge;
+mod detect;
 mod display;
 mod files;
 mod frames;
 mod local;
 mod look;
 mod pin;
+mod programs;
 mod speech;
 mod store;
 mod update;
@@ -687,17 +690,19 @@ pub fn run() {
             let _ = VERSION.set(app.package_info().version.to_string());
             update::start(app.handle().clone());
             look::start_solid(app);
+            bridge::start(app.handle().clone());
             Ok(())
         })
         .manage(App { store: store::Store::open(), client: Mutex::new(None), live: Mutex::new(HashMap::new()), speech: speech::Speech::default(), loopback: Mutex::new(None), browser_sign_in: Mutex::new(BrowserSignIn::default()) })
         .manage(display::Displays::default())
         .manage(frames::Frames::default())
         .manage(local::Local::default())
+        .manage(bridge::Bridge::default())
         .register_uri_scheme_protocol(frames::SCHEME, |ctx, request| {
             use tauri::Manager;
             frames::serve(&ctx.app_handle().state::<frames::Frames>(), request.uri().path())
         })
-        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::whats_new, look::set_material, look::system_look])
+        .invoke_handler(tauri::generate_handler![put_bytes, display::display_open, display::display_send, display::display_close, frames::sandbox_frame, local::local_state, local::local_start, local::local_pause, local::local_stop, bridge::desktop_device, bridge::desktop_refresh, restore, connect, trust, sign_in_method, sign_in, account::forgot_password, pair_device, provider_sign_in, provider_sign_in_cancel, sign_out, api, fetch_bytes, download, live_start, live_stop, notify, speak, stop_speaking, open_url, loopback_open, loopback_wait, app_info, update::update_state, update::update_look, update::update_install, update::whats_new, look::set_material, look::system_look])
         .run(tauri::generate_context!())
         .expect("start the Magnus app");
 }
