@@ -80,16 +80,45 @@ pub async fn guest(socket: &Path, id: &str, req: Value) -> Result<Value> {
     guest_for(socket, id, req, GUEST_WAIT).await
 }
 
+/// A connection that never reached the guest carried nothing, so it is
+/// opened again, a few times: Firecracker drops a host's connection that a
+/// guest busy just after boot has not taken within its two seconds. Once the
+/// request is sent it is never sent again, whatever it was.
+const GUEST_CONNECT_TRIES: u32 = 3;
+const GUEST_CONNECT_RETRY_WAIT: Duration = Duration::from_millis(250);
+
+type GuestReader = BufReader<tokio::io::Take<tokio::net::unix::OwnedReadHalf>>;
+
+/// A stream to the guest agent, once computerd's relay says it reached it.
+async fn open_guest(socket: &Path, id: &str) -> Result<(GuestReader, tokio::net::unix::OwnedWriteHalf)> {
+    let s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
+    let (r, mut w) = s.into_split();
+    w.write_all(format!("{}\n", json!({ "op": "connect", "id": id })).as_bytes()).await?;
+    let mut r = BufReader::new(r.take(MAX_GUEST_REPLY_BYTES));
+    let mut ack = String::new();
+    r.read_line(&mut ack).await?;
+    checked(serde_json::from_str(&ack)?)?;
+    Ok((r, w))
+}
+
+async fn open_guest_retrying(socket: &Path, id: &str) -> Result<(GuestReader, tokio::net::unix::OwnedWriteHalf)> {
+    let mut tries = 1;
+    loop {
+        match open_guest(socket, id).await {
+            Ok(opened) => return Ok(opened),
+            Err(e) if tries >= GUEST_CONNECT_TRIES => return Err(e),
+            Err(_) => {
+                tries += 1;
+                tokio::time::sleep(GUEST_CONNECT_RETRY_WAIT).await;
+            }
+        }
+    }
+}
+
 /// For work that takes as long as it takes, such as an install step.
 pub async fn guest_for(socket: &Path, id: &str, req: Value, wait: Duration) -> Result<Value> {
     let reply = tokio::time::timeout(wait, async {
-        let s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
-        let (r, mut w) = s.into_split();
-        w.write_all(format!("{}\n", json!({ "op": "connect", "id": id })).as_bytes()).await?;
-        let mut r = BufReader::new(r.take(MAX_GUEST_REPLY_BYTES));
-        let mut ack = String::new();
-        r.read_line(&mut ack).await?;
-        checked(serde_json::from_str(&ack)?)?;
+        let (mut r, mut w) = open_guest_retrying(socket, id).await?;
         w.write_all(format!("{req}\n").as_bytes()).await?;
         let mut line = String::new();
         r.read_line(&mut line).await?;
@@ -98,3 +127,7 @@ pub async fn guest_for(socket: &Path, id: &str, req: Value, wait: Duration) -> R
     });
     reply.await.map_err(|_| anyhow!("the computer did not answer in time"))?
 }
+
+#[cfg(test)]
+#[path = "client_tests.rs"]
+mod tests;

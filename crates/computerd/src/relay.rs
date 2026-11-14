@@ -41,9 +41,17 @@ fn confine(root: &Path, uid: u32) -> Result<()> {
     Ok(())
 }
 
+/// Firecracker reads the `CONNECT` line once, without waiting, as soon as the
+/// stream has any bytes, and drops the stream if the line is not all there:
+/// the relay then sees "Connection reset by peer" or "Broken pipe". So the
+/// line goes in one write, never in pieces as `writeln!` sends it.
+fn send_connect(to: &mut impl Write, port: u32) -> std::io::Result<()> {
+    to.write_all(format!("CONNECT {port}\n").as_bytes())
+}
+
 fn connect_guest(port: u32) -> Result<(UnixStream, BufReader<UnixStream>)> {
     let mut guest = UnixStream::connect(VSOCK_IN_JAIL).context("reach the computer")?;
-    writeln!(guest, "CONNECT {port}")?;
+    send_connect(&mut guest, port)?;
     let mut reader = BufReader::new(guest.try_clone()?);
     let mut ack = String::new();
     reader.read_line(&mut ack)?;
@@ -119,5 +127,31 @@ pub fn api(root: &Path, uid: u32, what: &str) -> Result<()> {
             &format!(r#"{{"snapshot_path":"{SNAPSHOT_STATE}","mem_backend":{{"backend_path":"{SNAPSHOT_MEMORY}","backend_type":"File"}},"resume_vm":true}}"#),
         ),
         _ => bail!("no such API step"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each `write` call it is given, as Firecracker's socket would receive it.
+    #[derive(Default)]
+    struct Writes(Vec<Vec<u8>>);
+
+    impl Write for Writes {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.push(buf.to_vec());
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_connect_line_reaches_firecracker_in_one_write() {
+        let mut to = Writes::default();
+        send_connect(&mut to, GUEST_PORT).unwrap();
+        assert_eq!(to.0, vec![b"CONNECT 52\n".to_vec()], "the line went in pieces, and Firecracker drops a stream whose line is cut");
     }
 }
