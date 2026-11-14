@@ -111,13 +111,13 @@ one commit), 2026-11-02.
 - [x] The user clicks Connect in the Library (`connectors.mjs`, `app-apps.mjs`)
 - [ ] Or on a card the agent placed in chat
 - [x] The appliance keeps the PKCE verifier (`connectors.rs`; `google.rs` checks S256)
-- [ ] It signs a `state` naming the appliance, user, connector, a nonce and an expiry (a random `state` kept in memory, `connectors.rs` `pending`; lost on restart)
-- [ ] The redirect URI is the relay callback (today a loopback address on the person's computer, RFC 8252)
+- [ ] It signs a `state` naming the appliance, user, connector, a nonce and an expiry (a random `state` kept in memory, `connectors.rs` `pending`; lost on restart. A relayed sign-in's `state` is `<server id>.<nonce>`: the person and connector stay on the server, which the relay asks with a signed claim, so the provider never sees them; the nonce is kept in memory with the same expiry, `connectors/relay/sign_in.rs`; decisions/2026-11-13-relay-handoff-server-side.md)
+- [ ] The redirect URI is the relay callback (today a loopback address on the person's computer, RFC 8252. Built on the server: with `[relay]` configured, a provider in `via_relay` signs in with `redirect_uri` the relay callback, `connectors/relay/tests.rs` `a_relayed_sign_in_connects_and_its_nonce_is_used_once`; waits for the relay service and no server has `[relay]` yet)
 - [x] The desktop app opens the system browser at the provider's sign-in page; Magnus never sees a password (`app-apps.mjs`)
 - [ ] The provider redirects to the relay, which checks `state`, then sends the browser to the appliance's completion endpoint at its pyrallon.ai address, found from the appliance registry (proposed, not ruled)
 - [ ] The browser shows "Connected, return to Magnus." (the loopback page says "Signed in. You can close this page and return to Magnus.")
 - [x] A public client exchanges the code directly with the provider (`connectors.rs`, fake app)
-- [ ] A confidential client exchanges through the relay's token proxy, which adds the secret and stores nothing (the appliance sends the secret itself)
+- [ ] A confidential client exchanges through the relay's token proxy, which adds the secret and stores nothing (the appliance sends the secret itself. Server side built: the relay claims the nonce, gets the PKCE verifier, exchanges with its secret, and hands the tokens to the server in an ed25519-signed message; the server checks signature, server id, single-use unexpired claimed nonce, issue time and person and connector, then keeps them as any sign-in's; `connectors/relay/tests.rs` against a fake relay. The relay service is not built)
 - [x] The appliance stores the tokens, marks the connection live, and the agent sees the tools (`connectors.rs`)
 - [x] A Google sign-in completes from the desktop app: Google advertises `authorization_response_iss_parameter_supported`, so the kernel requires `iss`, and the shell's `loopback_wait` now carries it back (`connector-sign-in-iss`; `desktop_app.rs` `the_owner_connects_an_app_from_settings_and_reapproves_a_changed_tool` against a server that names itself as Google does). Not yet: a test that reaches Google's own token exchange (it needs a Google test account CI can sign in with).
 
@@ -126,7 +126,8 @@ one commit), 2026-11-02.
 - [ ] Bounces callbacks
 - [ ] Proxies token-endpoint calls (exchange, refresh, revoke) for confidential clients
 - [ ] Holds client secrets and no user data
-- [ ] Appliances authenticate with the mutual-TLS certificate issued at provisioning
+- [ ] Appliances authenticate with the mutual-TLS certificate issued at provisioning (not built. Every message between a server and the relay is signed besides, ed25519 over the message: the relay's public key is the server's `[relay] public_key`, the server's own key is made on first start, kept in its vault and read by the relay's registration from `GET /v1/relay`; the server's side is built, `connectors/relay.rs`)
+- [x] The server's side of the relay handoff, testable without the relay: start, claim, handoff, refresh and revocation, each refused case keeping nothing (`connectors/relay/tests.rs`, a fake relay signing with a test key). Off without `[relay]`, and then nothing changes (`without_a_relay_sign_in_is_as_before`)
 - [ ] Logs appliance, provider, operation, time and result, never a code or token
 - [ ] Runs active-active in at least two regions (Lifecycle)
 - [ ] A staging relay at connect.staging.pyrallon.ai with staging registrations (Building connectors)
@@ -270,7 +271,7 @@ one commit), 2026-11-02.
 ## Lifecycle
 
 - [x] Refresh: access tokens refreshed before they expire, directly for public clients (`connectors.rs`: 30-second tokens, every use refreshes; `connectors_review.rs` `a_refresh_without_expires_in_keeps_the_token_refreshing`)
-- [ ] Refresh through the relay for confidential clients
+- [ ] Refresh through the relay for confidential clients (server side built: a signed refresh request and a signed answer, a refused refresh marks the sign-in lapsed; `connectors/relay/tests.rs` `a_relayed_sign_in_refreshes_and_revokes_through_the_relay` against a fake relay; waits for the relay service)
 - [x] A rotated refresh token replaces the old in one vault write (`connectors.rs` `connector_secret`, one refresh at a time; `connectors.rs` test)
 - [ ] Re-sign-in: a refresh rejected as invalid marks the connection Needs attention and raises the card (drawn; no test; the card is not raised into the person's work)
 - [x] Revoked at the provider: the next call fails and the connection moves to Needs attention (`connector_lifecycle.rs` `a_sign_in_ended_at_the_app_asks_the_person_to_sign_in_again`)
@@ -278,12 +279,12 @@ one commit), 2026-11-02.
 - [ ] Revoked at the provider: the next call fails and the connection moves to Needs attention (no test)
 - [x] Disconnect deletes the person's tokens, and only theirs (`connectors.rs` test, "Alice ends her own sign-in")
 - [x] Disconnect first calls the provider's revocation endpoint, then deletes the tokens; both ends of a connection are in the log (`connector_lifecycle.rs` `disconnect_revokes_at_the_app_first_and_both_ends_of_a_connection_are_in_the_log`)
-- [ ] Disconnect through the relay for confidential clients
+- [ ] Disconnect through the relay for confidential clients (server side built: each token revoked by a signed request, the same test; the kill switch can still sign while the vault is sealed, the key being held from boot; waits for the relay service)
 - [x] For a provider with no revocation endpoint, the tokens are deleted and the card names the provider page where the user removes Magnus (`connector_lifecycle.rs` `an_app_that_cannot_revoke_is_disconnected_here_and_the_person_is_told`; every catalog manifest names its page, `remove_access`, catalog.rs `every_manifest_is_well_formed`)
 - [ ] Manifest updates: new versions pulled and applied when no call is in flight; brokered images by digest; local add-ons through the app's updater when the program is closed (decided: manifests are release-bound, a new version arrives with a signed server release, installed after running tasks finish their step, `update.rs`; brokered images by digest, `catalog::kind_problem`; local add-ons not built; decisions/2026-11-13-catalog-withdrawal.md)
 - [x] A new version needing more access asks through the scope-approval card the first time a tool needs it (when the provider answers the call with a scope challenge: `agent_apps.rs` `a_call_that_needs_more_access_asks_for_it_with_a_card_and_goes_through_once_approved`; Magnus does not compare a sign-in's granted scopes with a newer manifest's)
 - [x] Withdrawal: appliances disable the connector, revoke its connections and tell affected users in their Library (a list signed with the release key beside the update feed, `release/publish-withdrawals.sh`, read on the update check; `catalog_withdrawal.rs` `a_withdrawn_connector_is_turned_off_its_connections_revoked_and_its_people_told_once`; people are told by an inbox notice, and the Library draws no card for a withdrawn connector yet)
-- [ ] Relay availability: unreachable, confidential connections work until their access tokens expire; public ones unaffected
+- [ ] Relay availability: unreachable, confidential connections work until their access tokens expire; public ones unaffected (built on the server: a relay that cannot be reached leaves the sign-in as it is and the call goes without, `connector_secret`; no test of the unreachable case yet)
 - [x] Kill switch, from the app or `magnus kill` on the server itself: refuses every connector call, revokes every connection at its provider, deletes the tokens and seals the vault; releasing restores none (`kill_switch.rs`, `connectors.rs`, `inv1_boundary.rs` `kill_switch_stops_actions_and_release_resumes_nothing`; the relay part with the relay)
 
 ## Building connectors

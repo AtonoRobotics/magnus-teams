@@ -1706,7 +1706,7 @@ impl Kernel {
                     None => k.revoker_of(&name).await,
                 };
                 let (at_provider, detail) = if adapter.starts_with("connector:") {
-                    crate::connectors::revoke(secret.expose()).await
+                    crate::connectors::revoke(&k, secret.expose()).await
                 } else {
                     k.adapters.revoke(&adapter, secret.expose().to_string()).await
                 };

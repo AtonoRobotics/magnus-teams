@@ -80,6 +80,47 @@ Until that exists, provider consoles keep the loopback redirect the desktop
 app sends now. Do not switch them to the relay URL before the relay and the
 appliance both speak it.
 
+### The handoff, as the server speaks it (2026-11-13)
+
+The server's half is built (`crates/magnus/src/connectors/relay.rs` and
+`relay/`; `decisions/2026-11-13-relay-handoff-server-side.md`). It replaces
+the browser bounce above: the relay never forwards a code, and the browser
+never carries tokens.
+
+1. Start. For a provider in `[relay] via_relay`, the server builds the
+   provider address with `redirect_uri` the relay callback, its PKCE
+   challenge, and `state` = `<server id>.<nonce>`. The nonce waits in
+   memory for 15 minutes with whose sign-in it is. The provider sees no
+   person and no connector.
+2. Claim. The relay gets `code`, `state` and `iss`, finds the server by its
+   id, and posts a signed `claim` (server id, nonce, `iss`, issue time) to
+   `POST /v1/relay/claim`. The server answers, signed with its own key,
+   with the provider, connector, person and PKCE verifier, once per nonce,
+   and only when `iss` names the authorization server the sign-in went to.
+   An unclaimed code is never exchanged, so the relay is not an inbox for
+   codes.
+3. Exchange and handoff. The relay exchanges the code with its secret and
+   posts a signed `handoff` (server id, nonce, connector, person, tokens,
+   issue time) to `POST /v1/relay/handoff`. The server checks the signature,
+   the server id, that the nonce is claimed, unused and unexpired, the issue
+   time within 120 seconds, and the connector and person; then keeps the
+   tokens as any sign-in's and connects the app. Anything else: refused
+   (403), the reason logged, nothing kept. The relay keeps no tokens.
+4. Refresh and revocation. The server signs a `refresh` or `revoke` request
+   to `POST <relay url>/v1/refresh` or `/v1/revoke`; the relay answers with a
+   signed `refreshed` (tokens, or refused) or `revoked`.
+
+Every message is `{payload, signature}`: the message JSON, base64url, and
+an ed25519 signature over `magnus-relay-v1\n` and those bytes. The relay's
+public key is configuration; the server's key is made on first start, kept
+in its vault and held in memory from boot (so the kill switch, which seals
+the vault, can still revoke), and `GET /v1/relay` shows the owner its public
+half for the relay's registration.
+
+Not built: the relay service itself, its registry of servers, the desktop
+app waiting for the connection instead of a loopback callback, and the
+mutual TLS between server and relay.
+
 ## 2. What on StrixAlpha is reachable
 
 The appliance speaks HTTP/1.1 only (`crates/magnus/src/tls.rs`). A client
@@ -442,9 +483,10 @@ Not in this repository yet.
 The device-certificate path above is the mutual TLS between a person's
 computer and `magnus.pyrallon.ai`. It is not the mutual TLS the connectors
 spec describes between an appliance and the relay. That one is still
-unbuilt, for the same reason as before: the handoff is not ruled. A Worker
-that accepts a `code` and forwards it would be an open redirect for
-authorization codes.
+unbuilt. The handoff is now decided and its server half built (section 1,
+"The handoff, as the server speaks it"): the relay exchanges only codes
+whose nonce a server signed a claim answer for, so it is not an open
+redirect for authorization codes.
 
 The Worker is small only after the state format is ruled. What is ruled is
 the role (bounce the callback, proxy the token call, hold the secret, store
@@ -459,8 +501,11 @@ The site (homepage, privacy, terms) is also unwritten. Publishing a Worker
 that returns placeholder policy pages would be the guessed text the
 registration packet says not to submit.
 
-Next code, when the handoff is ruled, is a Worker in its own repository or
-under `relay/` here, plus the appliance changes: signed `state`, mutual TLS
-from the appliance to the relay (not the person's device certificate), and
-the desktop app posting the completion against its session after the relay
-has delivered the code to the appliance. That is larger than a draft Worker.
+Next code is the Worker, in its own repository or under `relay/` here: the
+callback, the server registry (server id, its address, its public key), the
+claim, the exchange with the secret, the handoff, and the refresh and revoke
+endpoints, speaking the messages in `connectors/relay.rs`. On the server
+side what remains is mutual TLS to the relay and the desktop app waiting for
+the connection (the sign-in's answer names no loopback callback). Then each
+provider moves over: its console's redirect switched to the relay callback
+and its name added to `via_relay`.

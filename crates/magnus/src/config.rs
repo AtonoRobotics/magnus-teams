@@ -88,6 +88,8 @@ pub struct Config {
     /// How account emails are sent (recovery, invitations). None: they are not.
     #[serde(default)]
     pub mail: Option<Mail>,
+    /// This server's registration with the relay. None: no sign-in goes through it.
+    pub relay: Option<crate::connectors::relay::Settings>,
     /// The facts the agreements state about whoever runs the server; all required.
     #[serde(default)]
     pub legal: crate::legal::Settings,
@@ -784,10 +786,8 @@ pub struct Connector {
     /// From the catalog, not added by the owner.
     #[serde(default)]
     pub catalog: bool,
-    /// A brokered connector (`transport = "brokered"`, `url` its server
-    /// image's digest, `sha256:<hex>`): the provider API hosts its microVM
-    /// may reach, `host` (port 443) or `host:port`, and the provider's
-    /// authorization server people sign in at.
+    /// A brokered connector (`transport = "brokered"`, `url` its server image's digest, `sha256:<hex>`): the provider API hosts
+    /// its microVM may reach, `host` (port 443) or `host:port`, and the provider's authorization server people sign in at.
     #[serde(default)]
     pub hosts: Vec<String>,
     #[serde(default)]
@@ -800,8 +800,7 @@ pub struct Connector {
     /// The one redirect the provider registered. The token exchange repeats it.
     #[serde(default)]
     pub redirect_uri: Option<String>,
-    /// The loopback address the desktop listens on when `redirect_uri` is
-    /// the public https callback.
+    /// The loopback address the desktop listens on when `redirect_uri` is the public https callback.
     #[serde(default)]
     pub handoff: Option<String>,
     /// Where a tool's action goes, read from what it acts on, by tool.
@@ -989,6 +988,7 @@ impl Config {
             tracing::warn!("{}: [admin] configured the retired admin console and is ignored; administration is in the app", path.display());
         }
         cfg.images.as_ref().map(|i| i.check(&cfg.adapters)).transpose()?;
+        cfg.relay.as_ref().map(|r| r.check()).transpose()?;
         anyhow::ensure!(cfg.backup.keep_days >= 1, "[backup] keep_days must be at least 1: with 0 every backup is deleted as soon as it is made");
         if let Some(b) = &cfg.browser {
             for site in &b.allow {

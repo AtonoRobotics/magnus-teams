@@ -45,13 +45,21 @@ fn stored(vault: &Vault, provider: &str) -> Result<serde_json::Map<String, Value
 pub fn client(vault: &Vault, provider: &str) -> Result<(String, Option<String>)> {
     let catalog = crate::catalog::client(provider).ok_or_else(|| anyhow!("no catalog client with {provider}"))?;
     let s = stored(vault, provider)?;
-    let id = s.get("client_id").and_then(Value::as_str).map(String::from).or_else(|| catalog.client_id.clone());
-    let id = id.ok_or_else(|| anyhow!("no client ID with {provider} here yet"))?;
+    let id = client_id(vault, provider)?;
     let secret = match catalog.needs_secret() {
         true => Some(s.get("client_secret").and_then(Value::as_str).ok_or_else(|| anyhow!("no client secret with {provider} here yet"))?.to_string()),
         false => None,
     };
     Ok((id, secret))
+}
+
+/// The client ID `provider`'s apps sign in with on this server, the one
+/// provisioned here, else the catalog's, without its secret: a sign-in
+/// through the relay, which holds the secret, needs only this.
+pub fn client_id(vault: &Vault, provider: &str) -> Result<String> {
+    let catalog = crate::catalog::client(provider).ok_or_else(|| anyhow!("no catalog client with {provider}"))?;
+    let id = stored(vault, provider)?.get("client_id").and_then(Value::as_str).map(String::from).or_else(|| catalog.client_id.clone());
+    id.ok_or_else(|| anyhow!("no client ID with {provider} here yet"))
 }
 
 /// Keep what is given for `provider`, its client ID, its secret or both,

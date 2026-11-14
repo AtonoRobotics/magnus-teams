@@ -227,7 +227,7 @@ impl Kernel {
         let mut sign_ins = 0;
         for name in mine {
             if let Some(s) = self.vault.remove(&name).map_err(failed)? {
-                let (done, detail) = crate::connectors::revoke(s.expose()).await;
+                let (done, detail) = crate::connectors::revoke(self, s.expose()).await;
                 tracing::info!("erasing {person}: revoked {name} {done}: {detail}");
                 sign_ins += 1;
             }

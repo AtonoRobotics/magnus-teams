@@ -210,7 +210,7 @@ impl Kernel {
                 let Some(person) = name.strip_prefix(&prefix).map(str::to_string) else {
                     // The old shared sign-in, no one's to be told of.
                     if let Some(s) = self.vault.remove(&name)? {
-                        let (done, detail) = crate::connectors::revoke(s.expose()).await;
+                        let (done, detail) = crate::connectors::revoke(self, s.expose()).await;
                         tracing::info!("{}: withdrawn; the shared sign-in revoked {done}: {detail}", m.id);
                     }
                     continue;

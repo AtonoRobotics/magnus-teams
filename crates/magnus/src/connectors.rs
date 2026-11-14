@@ -20,6 +20,8 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+pub(crate) mod relay;
+
 pub const OAUTH: &str = "oauth";
 
 /// The redirect Slack registers for a distributed app. The token exchange
@@ -80,6 +82,9 @@ struct Client {
     #[serde(default)]
     client_secret: Option<String>,
     resource: String,
+    /// The catalog provider whose client the relay holds, for a sign-in made through it: refreshed and revoked there.
+    #[serde(default)]
+    relay: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -160,6 +165,22 @@ fn granted(v: &Value) -> Result<Grant, String> {
     let refresh = if as_user { user["refresh_token"].as_str().or(v["refresh_token"].as_str()) } else { v["refresh_token"].as_str() };
     let expires = if as_user { user["expires_in"].as_i64().or(v["expires_in"].as_i64()) } else { v["expires_in"].as_i64() };
     Ok(Grant { access: access.to_string(), refresh: refresh.map(str::to_string), expires, account: account_of(v) })
+}
+
+/// A new sign-in's tokens, from what its token answer granted.
+fn fresh_tokens(g: Grant, client: Client) -> Tokens {
+    let now = chrono::Utc::now().timestamp();
+    Tokens {
+        access_token: g.access,
+        refresh_token: g.refresh,
+        expires_at: g.expires.map(|s| now + s),
+        lifetime: g.expires,
+        client,
+        connected_at: Some(now),
+        account: g.account,
+        lapsed: false,
+        wants: vec![],
+    }
 }
 
 /// Slack says a refresh token is dead with HTTP 200 and `ok: false`. Those
@@ -495,7 +516,8 @@ impl Kernel {
         match c.registration.as_deref() {
             None => true,
             Some(p) => crate::catalog::client(p).is_some_and(|cl| {
-                (!cl.needs_secret() || self.read(|s| s.registrations.contains(p))) && (cl.client_id.is_some() || crate::registrations::client(&self.vault, p).is_ok())
+                (!cl.needs_secret() || self.cfg.relay.as_ref().is_some_and(|r| r.relays(p)) || self.read(|s| s.registrations.contains(p)))
+                    && (cl.client_id.is_some() || crate::registrations::client(&self.vault, p).is_ok())
             }),
         }
     }
@@ -525,29 +547,49 @@ impl Kernel {
         let now = chrono::Utc::now().timestamp();
         if t.expires_at.is_some_and(|at| at - 60 <= now) {
             let Some(refresh) = t.refresh_token.clone() else { return Ok(None) };
+            // Through the relay, which holds the client's secret: a refused refresh
+            // ends the sign-in, an unreachable relay leaves it until it expires.
+            let r = match t.client.relay.clone() {
+                Some(provider) => match relay::refresh(self, &provider, &refresh).await {
+                    Ok(relay::Refreshed::Tokens { tokens }) => Some(tokens.as_answer()),
+                    Ok(relay::Refreshed::Refused { reason }) => {
+                        tracing::warn!("refresh for {} through the relay refused: {reason}", c.name);
+                        t.lapsed = true;
+                        self.vault.put(name, &serde_json::to_string(&t)?)?;
+                        return Ok(None);
+                    }
+                    Err(e) => {
+                        tracing::warn!("refresh for {} through the relay: {e:#}", c.name);
+                        return Ok(None);
+                    }
+                },
+                None => None,
+            };
             let mut form =
                 vec![("grant_type", "refresh_token".to_string()), ("refresh_token", refresh), ("client_id", t.client.client_id.clone()), ("resource", t.client.resource.clone())];
             form.retain(|(k, v)| *k != "resource" || !v.is_empty());
             if let Some(s) = &t.client.client_secret {
                 form.push(("client_secret", s.clone()));
             }
-            let r = crate::token_endpoint::post(&http(), &t.client.token_endpoint, &form).send().await;
             let v: Value = match r {
-                Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
-                Ok(r) => {
-                    tracing::warn!("refresh for {}: HTTP {}", c.name, r.status());
-                    // Refused (not a failure to reach it): the sign-in no
-                    // longer works until the person signs in again.
-                    if r.status().is_client_error() {
-                        t.lapsed = true;
-                        self.vault.put(name, &serde_json::to_string(&t)?)?;
+                Some(v) => v,
+                None => match crate::token_endpoint::post(&http(), &t.client.token_endpoint, &form).send().await {
+                    Ok(r) if r.status().is_success() => r.json().await.unwrap_or_default(),
+                    Ok(r) => {
+                        tracing::warn!("refresh for {}: HTTP {}", c.name, r.status());
+                        // Refused (not a failure to reach it): the sign-in no
+                        // longer works until the person signs in again.
+                        if r.status().is_client_error() {
+                            t.lapsed = true;
+                            self.vault.put(name, &serde_json::to_string(&t)?)?;
+                        }
+                        return Ok(None);
                     }
-                    return Ok(None);
-                }
-                Err(e) => {
-                    tracing::warn!("refresh for {}: {e}", c.name);
-                    return Ok(None);
-                }
+                    Err(e) => {
+                        tracing::warn!("refresh for {}: {e}", c.name);
+                        return Ok(None);
+                    }
+                },
             };
             if dead_token(&v) {
                 t.lapsed = true;
@@ -604,6 +646,10 @@ impl Kernel {
     /// Start signing in to an app: register if needed, and return the
     /// address to open in the person's browser.
     pub async fn connector_sign_in(&self, c: &Connector, person: &str, redirect_uri: &str) -> Result<(String, String)> {
+        // A confidential client the relay holds: the redirect is the relay's callback, whatever the app sent.
+        if let Some(s) = self.via_relay(c) {
+            return self.relay_sign_in(c, person, s).await;
+        }
         if let Some(fixed) = &c.redirect_uri {
             if redirect_uri != fixed {
                 bail!("sign in to {} from the Magnus app on this computer", c.title.as_deref().unwrap_or(&c.name));
@@ -712,7 +758,7 @@ impl Kernel {
                 until_client_known(u.as_str()).await;
             }
         }
-        let client = Client { token_endpoint: token, revocation_endpoint: s("revocation_endpoint"), client_id, client_secret, resource };
+        let client = Client { token_endpoint: token, revocation_endpoint: s("revocation_endpoint"), client_id, client_secret, resource, relay: None };
         let mut p = pending().lock().unwrap_or_else(|e| e.into_inner());
         p.retain(|_, x| x.at.elapsed() < PENDING_FOR);
         let iss_required = asm["authorization_response_iss_parameter_supported"] == true;
@@ -783,18 +829,12 @@ impl Kernel {
             bail!("the app's authorization server refused the sign-in: HTTP {status}");
         }
         let v: Value = r.json().await?;
-        let g = granted(&v).map_err(|e| anyhow!(e))?;
-        let t = Tokens {
-            access_token: g.access,
-            refresh_token: g.refresh,
-            expires_at: g.expires.map(|s| chrono::Utc::now().timestamp() + s),
-            lifetime: g.expires,
-            client: p.client,
-            connected_at: Some(chrono::Utc::now().timestamp()),
-            account: g.account,
-            lapsed: false,
-            wants: vec![],
-        };
+        self.keep_sign_in(app, person, fresh_tokens(granted(&v).map_err(|e| anyhow!(e))?, p.client)).await
+    }
+
+    /// Keep a person's new sign-in to an app, made here or through the
+    /// relay: its tokens in the vault, its tools asked for again, recorded.
+    async fn keep_sign_in(&self, app: &str, person: &str, t: Tokens) -> Result<()> {
         let account = t.account.clone();
         self.vault.put(&connection_name(app, person), &serde_json::to_string(&t)?)?;
         self.live_tools.lock().await.remove(&connection_name(app, person));
@@ -880,7 +920,7 @@ impl Kernel {
         let Some(s) = self.vault.get(&name)? else { return Ok(None) };
         // Its push subscription is ended first, while the sign-in still works.
         self.unsubscribe_push(app, person).await;
-        let (done, detail) = revoke(s.expose()).await;
+        let (done, detail) = revoke(self, s.expose()).await;
         self.vault.remove(&name)?;
         self.live_tools.lock().await.remove(&name);
         self.brokered.stop(Some(app), Some(person)).await;
@@ -892,8 +932,11 @@ impl Kernel {
 
 /// Revoke a signed-in app's tokens at its authorization server (RFC 7009):
 /// whether it was done there, and what happened.
-pub async fn revoke(stored: &str) -> (bool, String) {
+pub async fn revoke(k: &Kernel, stored: &str) -> (bool, String) {
     let Ok(t) = serde_json::from_str::<Tokens>(stored) else { return (false, "the stored sign-in could not be read".into()) };
+    if let Some(provider) = &t.client.relay {
+        return relay::revoke(k, provider, &[(t.refresh_token.clone(), "refresh_token"), (Some(t.access_token.clone()), "access_token")]).await;
+    }
     let Some(endpoint) = t.client.revocation_endpoint.clone() else {
         return (false, "the app publishes no revocation endpoint; its tokens stay valid until they expire".into());
     };
@@ -1155,7 +1198,7 @@ impl Kernel {
         for cred in names {
             match self.vault.remove(&cred).map_err(failed)? {
                 Some(s) if c.auth.as_deref() == Some(OAUTH) => {
-                    let (done, detail) = revoke(s.expose()).await;
+                    let (done, detail) = revoke(self, s.expose()).await;
                     tracing::info!("{}: revoked {cred} {done}: {detail}", c.name);
                     n += 1;
                 }
@@ -1311,6 +1354,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/connectors/{name}/sign-in/complete", post(sign_in_complete))
         .route("/v1/connectors/{name}/connection", delete(disconnect))
         .route("/v1/registrations/{provider}", put(set_registration))
+        .merge(relay::router())
 }
 
 /// Alpha Vector provisions its client secret for a provider to this
@@ -1569,64 +1613,4 @@ async fn disconnect(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Re
 }
 
 #[cfg(test)]
-mod naming {
-    /// An app added by its address is named by what it calls itself, else
-    /// by the part of its host that says something, made unique.
-    #[test]
-    fn an_app_is_named_from_its_address() {
-        let none = |_: &str| false;
-        assert_eq!(super::name_from("https://mcp.notion.com/mcp", None, none), "notion");
-        assert_eq!(super::name_from("https://mcp.linear.app/mcp", None, none), "linear");
-        assert_eq!(super::name_from("https://drivemcp.googleapis.com/mcp/v1", None, none), "drivemcp");
-        assert_eq!(super::name_from("https://mcp.example.com/mcp", Some("Team Calendar"), none), "team-calendar");
-        assert_eq!(super::name_from("http://127.0.0.1:8080/mcp", None, none), "app");
-        assert_eq!(super::name_from("https://mcp.notion.com/mcp", None, |n| n == "notion"), "notion-2");
-    }
-
-    /// A Slack answer that also carries a bot token keeps the person's
-    /// user token, and a dead refresh is told apart from a limit.
-    #[test]
-    fn a_slack_answer_keeps_the_persons_token_not_the_bots() {
-        let both = serde_json::json!({
-            "ok": true, "access_token": "xoxb-bot", "token_type": "bot", "refresh_token": "xoxe-bot", "expires_in": 43200,
-            "authed_user": { "id": "U1", "access_token": "xoxp-user", "refresh_token": "xoxe-user", "expires_in": 43200, "token_type": "user" },
-            "team": { "id": "T1", "name": "Veyra" }
-        });
-        let g = super::granted(&both).unwrap();
-        assert_eq!((g.access.as_str(), g.refresh.as_deref(), g.expires, g.account.as_deref()), ("xoxp-user", Some("xoxe-user"), Some(43200), Some("U1 in Veyra")));
-        let user = serde_json::json!({ "ok": true, "access_token": "xoxp-only", "token_type": "user", "refresh_token": "xoxe-1", "expires_in": 43200, "authed_user": { "id": "U2" }, "team": { "name": "Veyra" } });
-        assert_eq!(super::granted(&user).unwrap().access, "xoxp-only");
-        let google = serde_json::json!({ "access_token": "ya29", "refresh_token": "1//", "expires_in": 3600, "token_type": "Bearer" });
-        assert_eq!(super::granted(&google).unwrap().access, "ya29");
-        assert!(super::granted(&serde_json::json!({ "ok": false, "error": "invalid_code" })).is_err());
-        let bounced = super::slack_handoff_url("st", Some("the-code"), Some("https://mcp.slack.com"), None);
-        assert!(bounced.starts_with("http://127.0.0.1:17321/callback?"));
-        let back: std::collections::HashMap<String, String> = url::Url::parse(&bounced).unwrap().query_pairs().into_owned().collect();
-        assert_eq!(back.get("code").map(String::as_str), Some("the-code"));
-        assert_eq!(back.get("state").map(String::as_str), Some("st"));
-        assert_eq!(back.get("iss").map(String::as_str), Some("https://mcp.slack.com"));
-        assert!(!bounced.contains("client_secret"));
-        assert!(super::dead_token(&serde_json::json!({ "ok": false, "error": "invalid_refresh_token" })));
-        assert!(!super::dead_token(&serde_json::json!({ "ok": false, "error": "ratelimited" })));
-        assert!(!super::dead_token(&google));
-    }
-
-    /// A refused registration waits out the server's `Retry-After`, capped,
-    /// else a short backoff (#315).
-    #[test]
-    fn a_refused_registration_waits_out_retry_after_then_backs_off() {
-        use std::time::Duration;
-        let headers = |v: Option<&str>| {
-            let mut h = reqwest::header::HeaderMap::new();
-            if let Some(v) = v {
-                h.insert("retry-after", v.parse().unwrap());
-            }
-            h
-        };
-        assert_eq!(super::registration_backoff(&headers(Some("3")), 0), Duration::from_secs(3));
-        assert_eq!(super::registration_backoff(&headers(Some("120")), 0), Duration::from_secs(10));
-        assert_eq!(super::registration_backoff(&headers(None), 0), Duration::from_secs(1));
-        assert_eq!(super::registration_backoff(&headers(None), 1), Duration::from_secs(2));
-        assert_eq!(super::registration_backoff(&headers(Some("tomorrow")), 1), Duration::from_secs(2));
-    }
-}
+mod naming;

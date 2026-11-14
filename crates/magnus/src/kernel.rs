@@ -44,13 +44,12 @@ pub struct Kernel {
     /// item or a chat card is decided once however many answers race in, and
     /// a change of roles keeps an owner however many race in.
     pub(crate) decide: tokio::sync::Mutex<()>,
-    /// Held while a person's relationship notes are read and a new version
-    /// written, so two changes at once never lose one.
+    /// Held while a person's relationship notes are read and a new version written, so two changes at once never lose one.
     pub(crate) notes: tokio::sync::Mutex<()>,
     pub vault: Arc<Vault>,
+    pub(crate) relay_keys: crate::connectors::relay::Keys, // This server's key with the relay, held once read.
     pub accounts: crate::accounts::Accounts,
-    /// Computers paired with this appliance, and the certificates Cloudflare
-    /// issued for them. Empty until device certificates are configured.
+    /// Computers paired with this appliance, and the certificates Cloudflare issued for them. Empty until device certificates are configured.
     pub devices: crate::devices::Devices,
     /// Sign-in through an identity provider, when one is configured.
     pub oidc: crate::admin_app::identity_provider::Slot,
@@ -165,6 +164,7 @@ impl Kernel {
             browser: crate::browser::Browser::new(cfg.browser.clone(), &cfg.appliance.state_dir, cfg.host.clone()),
             mcp: Mcp::new()?.allowing_private(cfg.web.allow_private_networks),
             adapters,
+            relay_keys: crate::connectors::relay::Keys::at_boot(cfg.relay.as_ref(), &vault),
             vault,
             accounts,
             devices,
