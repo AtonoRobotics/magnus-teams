@@ -30,15 +30,7 @@ fn asked_by(s: &State, run: &Run) -> Value {
 
 /// What kind of work a run is, without its words.
 fn kind(s: &State, run: &Run) -> &'static str {
-    if s.sub_agents.get(&run.id).is_some() {
-        return "sub_agent";
-    }
-    match s.tasks.get(&run.task) {
-        Some(t) if t.background() => "background",
-        Some(t) if t.schedule.is_some() => "scheduled",
-        Some(t) if t.is_chat_turn() => "chat",
-        _ => "task",
-    }
+    s.run_kind(&run.id).label()
 }
 
 fn run_row(s: &State, r: &Run) -> Value {

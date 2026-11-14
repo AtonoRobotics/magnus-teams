@@ -179,7 +179,7 @@ impl Kernel {
     }
 
     pub(crate) fn playbook_for(&self, run: &Run) -> Vec<(String, String, bool)> {
-        if self.team_of(&run.task).is_some() {
+        if self.run_kind(&run.id).in_team() {
             return vec![];
         }
         self.read(|s| s.playbook_at(&run.person, run.config.playbook).into_iter().map(|i| (i.id.clone(), i.text.clone(), i.label.untrusted)).collect())

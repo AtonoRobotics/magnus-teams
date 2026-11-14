@@ -229,7 +229,7 @@ impl Kernel {
     /// recent messages are those that ended before it started, outside
     /// its own conversation, so its context is the same at every call.
     pub(crate) async fn person_context(&self, run: &Run) -> anyhow::Result<(String, Option<u32>)> {
-        if self.team_of(&run.task).is_some() {
+        if self.run_kind(&run.id).in_team() {
             return Ok((String::new(), None));
         }
         // Their notes, as they stood when it started (#259).
@@ -241,7 +241,7 @@ impl Kernel {
         // Their suggestion ledger, as it stood when it started (#253).
         let ledger = self.read(|s| crate::suggestions::ledger(s, &run.person, run.created_at));
         // In a conversation, their grants, so work that fits one starts under it (#235).
-        let chat = self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.is_chat_turn()));
+        let chat = self.run_kind(&run.id).is_chat_turn();
         let grants = if chat { self.grant_section(run).await? } else { String::new() };
         // Their open commitments, as they stood when it started (#236).
         let commitments = self.commitment_section(run).await?;

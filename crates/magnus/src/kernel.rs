@@ -813,7 +813,7 @@ impl Kernel {
         // 142: it asks when Auto Review says ask; `background_work`). Any
         // other stop ends it, and the next wake tries again. The log keeps
         // why, for the run inspector; the person sees nothing.
-        if self.is_background(run) && !crate::halts::is_kill(reason) && !self.read(|s| s.background_waits(run, reason)) {
+        if self.run_kind(run).is_background() && !crate::halts::is_kill(reason) && !self.read(|s| s.background_waits(run, reason)) {
             let ended = Ev::Failed { run: run.into(), reason: format!("background work ended rather than wait on its person ({reason})"), by: "kernel".into() };
             self.emit("kernel", ended).await?;
             self.on_stop(run, true).await;
@@ -836,24 +836,7 @@ impl Kernel {
     /// (`background_work`): each such run ends, and every card it put up
     /// that is neither one of its outputs nor an ask is put away.
     pub async fn settle_background(&self) {
-        let (runs, items) = self.read(|s| {
-            let bg = |task: &Option<String>| task.as_ref().and_then(|t| s.tasks.get(t)).is_some_and(|t| t.background());
-            let runs: Vec<String> = s
-                .runs
-                .values()
-                .filter(|r| r.status == crate::state::Status::Suspended && !r.reason.as_deref().is_some_and(|x| ["timer", "update"].contains(&x) || crate::halts::is_kill(x)))
-                .filter(|r| s.tasks.get(&r.task).is_some_and(|t| t.background()) && !r.reason.as_deref().is_some_and(|x| s.background_waits(&r.id, x)))
-                .map(|r| r.id.clone())
-                .collect();
-            let asks = |i: &crate::state::Item| i.kind == "approval" && i.run.as_deref().is_some_and(|r| s.background_asks(r));
-            let items: Vec<String> = s
-                .items
-                .values()
-                .filter(|i| i.resolution.is_none() && bg(&i.task) && !crate::state::BACKGROUND_OUTPUTS.contains(&i.kind.as_str()) && !asks(i))
-                .map(|i| i.id.clone())
-                .collect();
-            (runs, items)
-        });
+        let (runs, items) = self.read(|s| s.background_to_settle());
         if runs.is_empty() && items.is_empty() {
             return;
         }
@@ -866,11 +849,6 @@ impl Kernel {
         for r in &runs {
             self.on_stop(r, true).await;
         }
-    }
-
-    /// Whether a run is Magnus's own background work (`Task::background`).
-    pub fn is_background(&self, run: &str) -> bool {
-        self.read(|s| s.authority(run).is_some_and(|t| t.background()))
     }
 
     /// A notice in the person's inbox (something ended or stopped, with the

@@ -18,7 +18,9 @@ async fn a_team_request_talks_like_chat_not_like_a_task() {
     let (task, _) = s.k.team_request(&ws, &channel, None, "sam", "what is on the launch page".into()).await.unwrap();
     let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
 
-    assert!(s.k.team_talks(&run) && s.k.converses(&run), "a team request was run as a task");
+    let kind = s.k.run_kind(&run.id);
+    assert_eq!(kind, crate::run::kind::RunKind::TeamRequest, "a team request was not read as one");
+    assert!(kind.converses() && kind.prompt() == crate::run::kind::Prompt::Team, "a team request was run as a task");
     assert_eq!(run.config.instructions, crate::run::team_instructions_version(), "a team request was not given the team chat prompt");
     assert!(!crate::run::TEAM_INSTRUCTIONS.contains("task_complete"), "the team prompt tells it to finish a task");
     let tools: Vec<String> = s.k.tools_for(&run).await.into_iter().map(|t| t.name).collect();

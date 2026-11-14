@@ -187,7 +187,7 @@ impl crate::kernel::Kernel {
                 if let Some((id, verb, outcome, label)) = s
                     .tasks
                     .values()
-                    .filter(|t| t.person == person && !t.review && !t.poll && !t.chat.as_ref().is_some_and(|c| c.turn) && !s.outcome_turn_follows(&t.run_id))
+                    .filter(|t| t.person == person && s.end_wakes_review(&t.run_id))
                     .filter_map(|t| {
                         let r = s.runs.get(&t.run_id)?;
                         let verb = match r.status {

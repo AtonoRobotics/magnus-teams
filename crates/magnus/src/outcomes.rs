@@ -178,30 +178,6 @@ pub fn turn_text(task: &str, status: Status, attempt: u32, max: u32) -> String {
 }
 
 impl Kernel {
-    /// Whether this run's end returns to the conversation the person started
-    /// it in, as an outcome turn: a task from a conversation still there.
-    /// There the agent tells the person, and the thread shows the result, so
-    /// its failure puts no notice of its own in their inbox (K24 holds
-    /// through the thread): each attempt the agent is handling would. A
-    /// scheduled run keeps its notice: nobody is in its thread when it fails.
-    /// A sub-agent's outcome returns to its parent, as its tool's result.
-    pub(crate) fn outcome_returns(&self, run: &str) -> bool {
-        self.read(|s| {
-            if s.sub_agents.get(run).is_some() {
-                return true;
-            }
-            let Some(r) = s.runs.get(run).filter(|r| r.config.module(MODULE)) else { return false };
-            let Some(t) = s.tasks.get(&r.task).filter(|t| t.schedule.is_none()) else { return false };
-            t.chat.as_ref().is_some_and(|c| !s.trash.contains_key(&c.thread) && !s.removed_threads.contains(&c.thread))
-        })
-    }
-
-    /// Whether this chat turn is the server's, returning an outcome: the
-    /// person asked nothing in it.
-    pub(crate) fn is_outcome_turn(&self, task: &str) -> bool {
-        self.read(|s| s.outcomes.of(task).is_some())
-    }
-
     /// Return each ended task's outcome to its thread (the sweep calls this).
     pub async fn return_outcomes(self: &Arc<Self>) {
         let due: Vec<(Task, Run)> = self.read(|s| {

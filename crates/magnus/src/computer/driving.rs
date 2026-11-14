@@ -149,7 +149,7 @@ impl Kernel {
         let Ok(Some(computer)) = self.computer_for(&self.owner_of_run(&r)).await else {
             return Ok(("There is no computer for a person to take over.".into(), true, None));
         };
-        if self.is_background(run) {
+        if self.run_kind(run).is_background() {
             return Ok(("Taking over needs a person, and this work has no one to ask.".into(), true, None));
         }
         if let Some(open) = self.read(|s| open_request(s, run).map(|i| i.id.clone())) {

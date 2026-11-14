@@ -1610,7 +1610,7 @@ impl Kernel {
             for r in &stopped {
                 // Background work is not the person's to continue: it ends,
                 // and the next wake starts fresh (owner, 2026-11-07).
-                if k.is_background(&r.id) {
+                if k.run_kind(&r.id).is_background() {
                     evs.push(("kernel", Ev::Failed { run: r.id.clone(), reason: "background work stopped by the kill switch".into(), by: "kernel".into() }));
                     continue;
                 }
@@ -1622,10 +1622,10 @@ impl Kernel {
             }
             k.vault.unseal();
             k.release_computers(&actor, crate::halts::SERVER_REASON).await;
-            for r in stopped.iter().filter(|r| k.is_background(&r.id)) {
+            for r in stopped.iter().filter(|r| k.run_kind(&r.id).is_background()) {
                 k.on_stop(&r.id, true).await;
             }
-            return Ok(json!({ "engaged": false, "told": stopped.iter().filter(|r| !k.is_background(&r.id)).count() }));
+            return Ok(json!({ "engaged": false, "told": stopped.iter().filter(|r| !k.run_kind(&r.id).is_background()).count() }));
         }
         // One control (B11). The vault is sealed first, and each OAuth sign-in
         // taken out of it and revoked at its provider, whatever happens to the

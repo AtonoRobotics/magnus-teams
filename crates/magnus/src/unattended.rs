@@ -38,8 +38,7 @@ pub(crate) fn is_message(details: &Value) -> bool {
 /// An open ask of unwatched work whose run still waits on it, past its wait.
 fn due(s: &State, item: &Item, now: DateTime<Utc>) -> bool {
     // A sub-agent's ask is as unwatched as the run at its top.
-    let top = item.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| s.authority(&t.run_id));
-    let unwatched = top.is_some_and(|t| t.schedule.is_some() || t.background());
+    let unwatched = item.task.as_ref().and_then(|t| s.tasks.get(t)).is_some_and(|t| s.run_kind(&t.run_id).unattended());
     let waiting = item.run.as_ref().and_then(|r| s.runs.get(r)).is_some_and(|r| r.status == Status::Suspended && r.waiting_item.as_deref() == Some(item.id.as_str()));
     item.kind == "approval" && item.resolution.is_none() && unwatched && waiting && now - item.created_at >= Span::minutes(UNWATCHED_ASK_WAIT_MINUTES)
 }

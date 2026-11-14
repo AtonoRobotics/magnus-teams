@@ -200,7 +200,7 @@ impl Kernel {
         // refuses, which the context's app index then says.
         let tools = self.tools_for(&run).await;
         let (system, messages, relationship, personal) = self.context_with(&run).await?;
-        let chat = self.converses(&run);
+        let chat = self.run_kind(&run.id).converses();
         let tools_hash = {
             use sha2::Digest;
             hex::encode(&sha2::Sha256::digest(serde_json::to_vec(&tools)?)[..16])

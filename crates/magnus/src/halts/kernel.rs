@@ -114,7 +114,7 @@ impl Kernel {
         let mut told = 0;
         for r in &stopped {
             // Background work is not the person's to continue: it ends.
-            if self.is_background(&r.id) {
+            if self.run_kind(&r.id).is_background() {
                 evs.push(("kernel", Ev::Failed { run: r.id.clone(), reason: "background work stopped by a kill switch".into(), by: "kernel".into() }));
                 continue;
             }
@@ -124,7 +124,7 @@ impl Kernel {
         }
         self.emit_all(evs).await.map_err(failed)?;
         self.release_computers(actor, &reason).await;
-        for r in stopped.iter().filter(|r| self.is_background(&r.id)) {
+        for r in stopped.iter().filter(|r| self.run_kind(&r.id).is_background()) {
             self.on_stop(&r.id, true).await;
         }
         Ok(json!({ "engaged": false, "level": scope.level(), "id": scope.id(), "told": told }))

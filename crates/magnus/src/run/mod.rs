@@ -3,6 +3,7 @@
 //! that the loop writes to the log itself (K21). Run records grant nothing.
 
 mod agent_loop;
+pub mod kind;
 mod loop_calls;
 pub mod lost;
 mod memory;
@@ -188,7 +189,6 @@ impl Kernel {
         let scope = task.as_ref().and_then(|t| words.opt(t.seq, "scope"));
         let project = task.as_ref().and_then(|t| t.project.clone());
         let chat = task.as_ref().and_then(|t| t.chat.clone());
-        let review = task.as_ref().is_some_and(|t| t.review);
         let mut first = vec![];
         // A chat turn sees the thread so far, as recorded when the person
         // wrote; a task from chat, the conversation that started it.
@@ -285,24 +285,11 @@ impl Kernel {
                 msgs.push(Message { role: Role::User, content: user, state: None });
             }
         }
-        let system = if review {
-            REVIEW_INSTRUCTIONS
-        } else if chat.is_some_and(|c| c.turn) {
-            CHAT_INSTRUCTIONS
-        } else if self.team_talks(run) {
-            TEAM_INSTRUCTIONS
-        } else {
-            INSTRUCTIONS
-        };
+        let system = self.run_kind(&run.id).prompt().text();
         let harness = self.harness_context(run);
         let (person, relationship) = self.person_context(run).await?;
         let personal = !person.is_empty();
         Ok((format!("{system}{harness}{person}"), msgs, relationship, personal))
-    }
-
-    /// Whether the run is a chat turn.
-    pub fn is_chat_turn(&self, run: &Run) -> bool {
-        self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.is_chat_turn()))
     }
 
     /// What a run's system context says about its own harness (#270): what
@@ -314,7 +301,7 @@ impl Kernel {
         // A team run is told of no member's own apps (spec rev 142), and
         // any run only of what `poll_due` polls for its person.
         let held = |app: Option<&str>| self.hold(&crate::halts::Subject::person_app(&run.person, app), crate::halts::Phase::Call).is_some();
-        let watched_on = self.cfg.proactive.on && self.team_of(&run.task).is_none() && !held(None);
+        let watched_on = self.cfg.proactive.on && !self.run_kind(&run.id).in_team() && !held(None);
         let mut watched: Vec<(String, u64)> = if watched_on {
             self.connectors()
                 .iter()
@@ -342,21 +329,20 @@ impl Kernel {
     }
 
     async fn offered(&self, run: &Run, every: bool) -> Vec<ToolSpec> {
-        let chat = self.is_chat_turn(run);
+        let kind = self.run_kind(&run.id);
         let mut specs =
             tools::builtin_specs(self.sandboxes.available(), self.web.can_search(), self.browser.available() || self.cfg.computer.is_some(), self.cfg.computer.is_some());
-        if chat {
+        if kind.is_chat_turn() {
             specs.retain(|t| crate::chat_work::offered_in_chat(&t.name));
             specs.extend(tools::chat_specs());
         } else {
             // A task or a review suggests work to the inbox, having no thread
             // (#393), and sets up and sees schedules: a schedule never asks on
             // its own (spec rev 142). A scheduled run sets up none.
-            let scheduled = self.read(|s| s.authority(&run.id).is_some_and(|t| t.schedule.is_some()));
-            specs.extend(tools::chat_specs().into_iter().filter(|t| crate::chat_work::in_any_run(&t.name, scheduled)));
+            specs.extend(tools::chat_specs().into_iter().filter(|t| crate::chat_work::in_any_run(&t.name, kind.under_schedule())));
             // A member's request in a team thread ends with its answer, as
             // chat does: it is offered no contract, plan or Done.
-            if self.team_talks(run) {
+            if !kind.offers_records() {
                 specs.retain(|t| !tools::RECORDS.contains(&t.name.as_str()));
             }
         }
@@ -426,7 +412,7 @@ impl Kernel {
     async fn app_tool_specs(&self, run: &Run) -> Vec<ToolSpec> {
         let mut specs = vec![];
         let Some(person) = self.person(&run.person) else { return specs };
-        let team = self.team_of(&run.task).is_some();
+        let team = self.run_kind(&run.id).in_team();
         for c in self.connectors() {
             // A team run never lists, let alone uses, a member's own sign-in.
             if team && crate::team::signs_in_per_person(&c) {
@@ -567,7 +553,7 @@ impl Kernel {
             return flow;
         }
         // A chat turn has no contract, plan or Done: it ends with its answer.
-        if self.is_chat_turn(run) {
+        if self.run_kind(rid).is_chat_turn() {
             self.result(rid, call_id, format!("{name} is not available in chat. When the work is done, reply with your answer as text."), true).await?;
             return Ok(Flow::Continue);
         }
@@ -590,7 +576,7 @@ impl Kernel {
                 // Background work's failure is told to the run inspector, not the person (owner, 2026-11-07).
                 let mut evs = vec![("model", Ev::Failed { run: rid.into(), reason: reason.clone(), by: "model".into() })];
                 // One whose outcome returns to its thread is told there by the agent (outcomes.rs).
-                if !self.is_background(rid) && !self.outcome_returns(rid) {
+                if !self.run_kind(rid).is_background() && !self.read(|s| s.outcome_return(rid)).is_some_and(|o| o.replaces_notice()) {
                     evs.push((
                         "kernel",
                         self.notice_of(
@@ -709,7 +695,7 @@ impl Kernel {
     /// are drawn after it.
     async fn show(self: &Arc<Self>, run: &Run, call_id: &str, input: &Value) -> Result<Flow> {
         let rid = run.id.as_str();
-        if !self.is_chat_turn(run) {
+        if !self.run_kind(rid).is_chat_turn() {
             self.result(rid, call_id, "show is for chat. A task's outcome is the deliverable of task_complete.", true).await?;
             return Ok(Flow::Continue);
         }
@@ -737,7 +723,7 @@ impl Kernel {
         // In an outcome turn they asked nothing: a refused retry is the limit at work, which the answer reports.
         let unfinished = self.unfinished_chat_actions(&run);
         let mut evs = vec![("kernel", Ev::Completed { run: rid.into(), summary: answer, view: run.shown(), spoken: None })];
-        if !unfinished.is_empty() && !self.is_outcome_turn(&run.task) {
+        if !unfinished.is_empty() && self.run_kind(rid) != kind::RunKind::OutcomeTurn {
             evs.push(("kernel", self.notice_of(&run, format!("Not done: {}", self.title_of(&run).await), json!({ "reason": "chat_action_failed", "evidence": unfinished }))));
         }
         self.emit_all(evs).await?;
