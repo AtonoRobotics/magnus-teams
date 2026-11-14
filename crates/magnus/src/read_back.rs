@@ -205,6 +205,28 @@ mod tests {
         assert!(!differs(&rb, &had, &extra).is_empty());
     }
 
+    /// Outlook's send is read back from Sent Items by the Internet message
+    /// id the send returned, with a read tool of its own, and the copy
+    /// found must carry the subject and reach exactly the draft's people.
+    #[test]
+    fn outlook_reads_its_send_back_by_the_id_it_returned() {
+        let manifest: toml::Value = toml::from_str(include_str!("../../../catalog/microsoft-outlook.toml")).unwrap();
+        let rb: ReadBack = manifest["read_back"]["send_draft"].clone().try_into().unwrap();
+        let risk = |t: &str| manifest["tools"].get(t).and_then(|c| c.as_str()).map(String::from);
+        assert_eq!(rb.fault("send_draft", risk), None);
+        assert_eq!(rb.read, "get_sent_message");
+        let had = json!({"input": {"draft_id": "d1"}, "result": {"sent": true, "internet_message_id": "<m1@outlook.example>"},
+            "shown": {"recipients": {"to": ["a@example.com"], "cc": [], "bcc": ["b@example.com"]}, "content": {"subject": "Subject", "body": "Hi", "attachments": []}}});
+        assert_eq!(read_input(&rb, &had), json!({ "internet_message_id": "<m1@outlook.example>" }));
+        let got = json!({"to": ["a@example.com"], "cc": [], "bcc": ["b@example.com"], "subject": "Subject", "body": "Hi\r\n", "attachments": []});
+        assert!(differs(&rb, &had, &got).is_empty());
+        for (key, wrong) in [("to", json!(["a@example.com", "extra@example.com"])), ("cc", json!(["c@example.com"])), ("bcc", json!([])), ("subject", json!("Other"))] {
+            let mut changed = got.clone();
+            changed[key] = wrong;
+            assert_eq!(differs(&rb, &had, &changed), vec![key.to_string()], "{key} was not checked");
+        }
+    }
+
     #[test]
     fn missing_expected_fields_never_match() {
         let rb = ReadBack { read: "get".into(), input: BTreeMap::new(), expect: BTreeMap::from([("/missing".into(), "/status".into())]) };

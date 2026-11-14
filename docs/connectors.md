@@ -86,6 +86,7 @@ one commit), 2026-11-02.
 - [x] `auth.scopes`: exactly the scopes requested, each with its plain line (`scopes` and `asks`, `every_manifest_is_well_formed`; the request, `google.rs`)
 - [ ] `auth.revoke`: the provider's revocation endpoint in the manifest (found from the authorization server's metadata instead)
 - [x] `tools`: every tool's class, read, reversible, irreversible or financial (`every_manifest_is_well_formed`; named `reversible_write`)
+- [x] `read_back`: how the server reads the world back after an irreversible tool (spec rev 147; `read_back.rs`, checked by `every_manifest_is_well_formed`). Gmail's `send_draft` reads back with `get_message` (recipients, subject, text, parts); Outlook's `send_draft` returns the draft's Internet message id and reads back with `get_sent_message`, which finds the copy in Sent Items by it, looking again while Graph files it (recipients and subject; decisions/2026-11-13-outlook-read-back.md)
 - [ ] `platforms`: local only, `windows`, `linux` and supported program versions
 - [ ] `signature`: Alpha Vector's catalog signature over everything above
 - [x] A person's library is the catalog filtered by the org's policy: off for the organisation (`admin_connectors.rs`), and per group, allowed or blocked (`library_groups.rs`), plus servers the admin added by URL (`connectors.rs`)

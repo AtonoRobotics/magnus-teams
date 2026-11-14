@@ -26,8 +26,10 @@ Built:
   found is an `evidence` event beside the result. The agent is told whether
   it matched and which field differed, never the content. A connector with no
   read-back declared gets a "Not read back" line, so the gap shows. Gmail's
-  `send_draft` reads back with `get_message`; Outlook's send returns no id, so
-  it has none yet.
+  `send_draft` reads back with `get_message`. Outlook's send returned no id,
+  so it had none at first; it now returns the draft's Internet message id
+  and reads back with `get_sent_message` from Sent Items
+  (`2026-11-13-outlook-read-back.md`).
 - Sources: `task_complete` takes `sources`, each a claim and the call ID it
   came from; a call that is not this run's or returned an error is refused,
   so the agent can fix it.
