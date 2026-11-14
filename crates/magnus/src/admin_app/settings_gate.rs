@@ -20,7 +20,7 @@
 //! after it holds; releasing needs one and is recorded first.
 
 use super::mount::{audited, record, Audit};
-use super::{admin_of, guard, Admin};
+use super::{guard, Admin};
 use crate::kernel::Kernel;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Request, State};
@@ -93,7 +93,7 @@ pub(crate) async fn gate(State(k): State<Arc<Kernel>>, req: Request, next: Next)
         return next.run(req).await;
     }
     let Ok(person) = crate::api::who(&k, req.headers()).await else { return next.run(req).await };
-    if !admin_of(&person, k.accounts.role(&person.id).await) {
+    if !k.authority(&person).await.administers() {
         return next.run(req).await;
     }
     let source = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip().to_string());

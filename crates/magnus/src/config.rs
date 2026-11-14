@@ -1060,7 +1060,7 @@ impl Config {
     /// (the API checks where); the owner is read from this file, never from
     /// the provider. Without one, it is everyone's way in.
     pub fn may_use_password(&self, id: &str) -> bool {
-        self.person(id).is_some_and(|p| self.sign_in.oidc.is_none() || p.is_owner())
+        crate::people::may_use_password(self.person(id), self.sign_in.oidc.is_some())
     }
 
     pub fn person_by_token(&self, token: &str) -> Option<&Person> {

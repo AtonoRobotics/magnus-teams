@@ -3,9 +3,7 @@
 //! (spec rev 141, Administration). See the module documentation in `mod.rs`.
 
 use super::Admin;
-use crate::accounts::Role;
 use crate::api::{credential, err, internal, over_tls, who, Transport};
-use crate::config::Person;
 use crate::kernel::Kernel;
 use crate::password_check::{self, Attempt, Checked};
 use axum::extract::{ConnectInfo, Request, State};
@@ -65,12 +63,6 @@ pub fn stepped_up_until(credential: &str) -> Option<DateTime<Utc>> {
     fresh(at, Utc::now()).then(|| at + window())
 }
 
-/// Whether `p` administers here: the config's owner or admin role, or the
-/// server's own directory's admin role.
-pub fn admin_of(p: &Person, role: Role) -> bool {
-    p.is_owner() || p.has_role("admin") || role == Role::Admin
-}
-
 /// Whether a request needs a fresh step-up: any change, except pressing a
 /// kill switch and the step-up itself.
 pub fn needs_step_up(method: &Method, path: &str) -> bool {
@@ -89,7 +81,7 @@ pub(crate) async fn guard(State(k): State<Arc<Kernel>>, mut req: Request, next: 
         Ok(p) => p,
         Err(r) => return r,
     };
-    if !admin_of(&p, k.accounts.role(&p.id).await) {
+    if !k.authority(&p).await.administers() {
         return err(StatusCode::FORBIDDEN, "this needs an owner or admin");
     }
     if needs_step_up(req.method(), req.uri().path()) && credential(h).and_then(stepped_up_until).is_none() {

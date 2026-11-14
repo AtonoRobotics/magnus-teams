@@ -161,6 +161,18 @@ pub fn is_kill(reason: &str) -> bool {
     reason == SERVER_REASON || reason.strip_prefix(SERVER_REASON).is_some_and(|r| r.starts_with(':'))
 }
 
+/// The runs a kill switch holds stopped, the server's or one below it.
+pub fn halted_runs(s: &State) -> impl Iterator<Item = &Run> {
+    s.runs.values().filter(|r| r.status == crate::state::Status::Suspended && r.reason.as_deref().is_some_and(is_kill))
+}
+
+/// The runs the server's own switch holds stopped: its release tells their
+/// people. A run a narrower switch holds stays held by it, and is told when
+/// that one is released.
+pub fn held_by_server(s: &State) -> impl Iterator<Item = &Run> {
+    s.runs.values().filter(|r| r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some(SERVER_REASON))
+}
+
 /// The agent a person's own work is done by.
 pub fn agent_of_person(person: &str) -> String {
     format!("person:{person}")

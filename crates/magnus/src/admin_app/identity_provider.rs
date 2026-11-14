@@ -81,7 +81,7 @@ impl Kernel {
     /// without a provider, the owner's backup alone with one
     /// (`Config::may_use_password`, for the provider in use now).
     pub fn may_use_password(&self, id: &str) -> bool {
-        self.cfg.person(id).is_some_and(|p| self.oidc.get().is_none() || p.is_owner())
+        crate::people::may_use_password(self.cfg.person(id), self.oidc.get().is_some())
     }
 }
 

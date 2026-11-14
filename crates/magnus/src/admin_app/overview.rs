@@ -69,12 +69,13 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
     let spend = k.spend_overview(None).map(|s| spend_summary(&s)).unwrap_or(Value::Null);
     alerts.extend(spend_alerts(&spend));
     let switches = k.switches_all();
-    let name_of = |id: &str| k.person(id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string());
+    let name_of = |id: &str| k.people().name(id);
     alerts.extend(super::overview_stops::stop_alerts(&switches, &name_of));
+    let people = k.people().ids();
     let invited = {
         let mut n = 0;
-        for id in k.server_people() {
-            if k.accounts.status(&id).await == crate::accounts::Status::Invited {
+        for id in &people {
+            if k.accounts.status(id).await == crate::accounts::Status::Invited {
                 n += 1;
             }
         }
@@ -84,7 +85,7 @@ async fn overview(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) 
         "version": o["version"],
         "running": { "tasks": o["running_tasks"], "waiting": o["waiting_tasks"], "signed_in": o["signed_in"], "computers": o["microvms_running"] },
         "computers": capacity,
-        "people": { "total": k.server_people().len(), "invited": invited },
+        "people": { "total": people.len(), "invited": invited },
         "kill_switch": o["kill_switch"],
         "recent_errors": o["recent_errors"],
         "alerts": alerts,

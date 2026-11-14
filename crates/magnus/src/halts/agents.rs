@@ -122,19 +122,9 @@ pub fn stops_for(s: &State, person: &str) -> Vec<Value> {
 }
 
 impl Kernel {
-    /// Everyone the server keeps, by name: config people and local ones.
-    pub fn everyone(&self) -> Vec<(String, String)> {
-        let mut ids: std::collections::BTreeSet<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
-        ids.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
-        let mut v: Vec<(String, String)> =
-            ids.into_iter().map(|id| (id.clone(), self.person(&id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or_else(|| id.clone()))).collect();
-        v.sort_by_key(|p| p.1.to_lowercase());
-        v
-    }
-
     /// Admin › Agents.
     pub fn agents_view(&self) -> Value {
-        let people = self.everyone();
+        let people = self.people().named();
         let mut v = self.read(|s| agents(s, &people));
         // What a connector's switch can name.
         let mut names: Vec<String> = self.all_connectors().into_iter().map(|(c, _)| c.name).collect();

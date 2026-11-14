@@ -51,6 +51,23 @@ fn every_kill_reason_is_known_and_no_other() {
     assert!(!is_kill("timer"));
 }
 
+/// The console's count of what the kill switches hold stopped takes a run a
+/// person's switch holds as well as one the server's holds, and nothing
+/// waiting on anything else.
+#[test]
+fn the_halted_count_takes_every_switchs_runs() {
+    let mut s = world();
+    let suspend = |s: &mut State, seq: i64, run: &str, reason: &str| ev(s, seq, "kernel", json!({ "kind": "suspended", "run": run, "reason": reason, "item": null }));
+    suspend(&mut s, 10, "ra", "kill_switch");
+    suspend(&mut s, 11, "rb", &Scope::Person("bob".into()).reason());
+    suspend(&mut s, 12, "rt", "approval");
+    let mut halted: Vec<&str> = halted_runs(&s).map(|r| r.id.as_str()).collect();
+    halted.sort();
+    assert_eq!(halted, ["ra", "rb"], "the count missed a scoped switch's run or took one waiting on approval");
+    let server: Vec<&str> = held_by_server(&s).map(|r| r.id.as_str()).collect();
+    assert_eq!(server, ["ra"], "releasing the server's switch would tell a run a person's switch still holds");
+}
+
 #[test]
 fn a_persons_switch_holds_everything_done_for_them_and_nothing_else() {
     let mut s = world();

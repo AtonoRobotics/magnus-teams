@@ -5,6 +5,7 @@ use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::people::Authority;
 use crate::state::State;
 use crate::team::Role as WorkspaceRole;
 use anyhow::Result;
@@ -41,8 +42,8 @@ fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
 /// Stopping is always safe, so a server owner or admin may pause anyone's
 /// computer (spec rev 145, Agents: "An admin can pause or stop any one of
 /// them"); nothing more.
-fn may_stop(s: &State, who: &Person, owner: &Owner) -> bool {
-    may_control(s, who, owner) || who.is_owner() || who.has_role("admin")
+fn may_stop(s: &State, who: &Person, authority: Authority, owner: &Owner) -> bool {
+    may_control(s, who, owner) || authority.administers()
 }
 
 pub(super) fn failed(e: anyhow::Error) -> Refused {
@@ -85,8 +86,9 @@ impl Kernel {
     }
 
     /// A computer `who` may pause, and nothing else.
-    fn stoppable_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_stop(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
+    async fn stoppable_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
+        let authority = self.authority(who).await;
+        self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_stop(s, who, authority, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
     }
 
     pub(super) async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
@@ -299,7 +301,7 @@ impl Kernel {
 
     /// One step: the log first, so nothing can act on it from here on, then the VM.
     pub async fn kill_computer(&self, who: &Person, id: &str, mode: KillMode, delete_volume: bool) -> Result<Value, Refused> {
-        let c = if mode == KillMode::Pause && !delete_volume { self.stoppable_computer(who, id)? } else { self.controlled_computer(who, id)? };
+        let c = if mode == KillMode::Pause && !delete_volume { self.stoppable_computer(who, id).await? } else { self.controlled_computer(who, id)? };
         self.kill_this(who, &c, mode, delete_volume).await
     }
 
@@ -541,6 +543,21 @@ mod tests {
         for bad in ["/etc/passwd", "/workspace/", "/workspace/../etc/passwd", "workspace/a", ""] {
             assert!(user_path(bad).is_err(), "{bad} was allowed");
         }
+    }
+
+    /// An admin in the server's own directory, with no admin role in the
+    /// config, may pause anyone's computer, as a config admin may; a member
+    /// may pause only their own, and nobody else may change one.
+    #[test]
+    fn a_directory_admin_stops_a_computer_and_changes_none() {
+        use crate::accounts::Role as Directory;
+        let s = State::default();
+        let lee: Person = serde_json::from_value(json!({ "id": "lee" })).unwrap();
+        let mo = Owner::Person("mo".into());
+        assert!(may_stop(&s, &lee, Authority::of(&lee, Directory::Admin), &mo), "a directory admin could not pause another's computer");
+        assert!(!may_stop(&s, &lee, Authority::of(&lee, Directory::Member), &mo), "a member paused another's computer");
+        assert!(may_stop(&s, &lee, Authority::Member, &Owner::Person("lee".into())), "a member could not pause their own");
+        assert!(!may_control(&s, &lee, &mo), "an admin may change another's computer");
     }
 
     #[test]

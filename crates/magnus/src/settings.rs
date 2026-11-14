@@ -135,7 +135,7 @@ async fn set_roles(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): J
     // Checked and recorded under the decision lock: two owners taking the
     // role from each other at once must leave one.
     let _decide = k.decide.lock().await;
-    let still_owned = k.cfg.people.iter().filter(|c| c.id != id).filter_map(|c| k.person(&c.id)).any(|p| p.is_owner()) || roles.iter().any(|r| r == "owner");
+    let still_owned = k.people().owners().iter().any(|p| p.id != id) || roles.iter().any(|r| r == "owner");
     if !still_owned {
         return err(StatusCode::CONFLICT, "someone must keep the owner role");
     }

@@ -6,7 +6,7 @@
 //! sam owns the server and the workspace; mo is a server member and an
 //! admin of the workspace.
 
-use crate::admin_app::roles::{is_guest, role_of};
+use crate::admin_app::roles::is_guest;
 use crate::admin_app::tests::{server_with, Server};
 use crate::team::chat::{Chat, Invite};
 use crate::team::{Change, Role};
@@ -101,7 +101,7 @@ fn ws_role(s: &Server, ws: &str, person: &str) -> Option<Role> {
 }
 
 async fn server_role(s: &Server, id: &str) -> &'static str {
-    role_of(&s.k.person(id).unwrap(), s.k.accounts.role(id).await)
+    s.k.authority(&s.k.person(id).unwrap()).await.as_str()
 }
 
 fn token_of(link: &Value) -> String {

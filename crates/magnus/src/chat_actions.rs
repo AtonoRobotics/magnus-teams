@@ -207,7 +207,7 @@ async fn branch(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
 /// The people on this appliance, by name, to share with.
 async fn directory(State(k): K, h: HeaderMap) -> Response {
     let p = person!(k, h);
-    let people: Vec<Value> = k.cfg.people.iter().filter(|x| x.id != p.id).map(|x| json!({ "id": x.id, "name": x.name })).collect();
+    let people: Vec<Value> = k.people().all().into_iter().filter(|x| x.id != p.id).map(|x| json!({ "id": x.id, "name": x.name })).collect();
     Json(json!({ "people": people })).into_response()
 }
 

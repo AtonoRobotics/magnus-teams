@@ -131,12 +131,11 @@ async fn list(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, Stri
 /// when, and what it holds stopped (the runs it suspended, the schedules
 /// that do not fire while it is on).
 async fn switch_state(State(k): State<Arc<Kernel>>) -> Response {
-    let stopped: Vec<String> =
-        k.read(|s| s.runs.values().filter(|r| r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("kill_switch")).map(|r| r.id.clone()).collect());
+    let stopped: Vec<String> = k.read(|s| crate::halts::halted_runs(s).map(|r| r.id.clone()).collect());
     let frozen = stopped.iter().filter(|r| k.sandboxes.kept(r)).count();
     let running = k.sandboxes.running().await;
     Json(k.read(|s| {
-        let halted = s.runs.values().filter(|r| r.status == crate::state::Status::Suspended && r.reason.as_deref() == Some("kill_switch")).count();
+        let halted = crate::halts::halted_runs(s).count();
         let held = if s.kill_switch { s.schedules.values().filter(|x| x.next_due().is_some()).count() } else { 0 };
         json!({
             "engaged": s.kill_switch,
@@ -213,10 +212,8 @@ async fn people(State(k): State<Arc<Kernel>>) -> Response {
 /// role, status, last sign-in and open sessions the console's Users list
 /// shows (#508). The realm directory is no longer read for this.
 async fn admin_people(State(k): State<Arc<Kernel>>) -> Response {
-    let mut ids: std::collections::BTreeSet<String> = k.cfg.people.iter().map(|p| p.id.clone()).collect();
-    ids.extend(k.accounts.local_people().into_iter().map(|(id, _)| id));
     let mut rows = Vec::new();
-    for id in ids {
+    for id in k.people().ids() {
         rows.push(admin_person_row(&k, &id).await);
     }
     Json(json!({ "people": rows })).into_response()
@@ -708,7 +705,7 @@ fn policy_refused((st, m): crate::policy_admin::Refusal) -> Response {
 /// The sets, and what a test can name: the appliance's people and the
 /// organisation's tools.
 async fn policy_sets(State(k): State<Arc<Kernel>>) -> Response {
-    let people: Vec<Value> = k.cfg.people.iter().filter_map(|p| k.person(&p.id)).map(|p| json!({ "id": p.id, "name": p.name, "groups": p.groups })).collect();
+    let people: Vec<Value> = k.people().all().into_iter().map(|p| json!({ "id": p.id, "name": p.name, "groups": p.groups })).collect();
     let tools: Vec<Value> = k
         .connectors()
         .into_iter()

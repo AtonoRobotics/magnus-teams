@@ -204,7 +204,7 @@ impl Kernel {
             let name = c.title.clone().unwrap_or_else(|| title(&c.name));
             let names: Vec<String> = writes.iter().map(|(t, _)| plain(t)).collect();
             let what = if names.len() == 1 { "something new that can change or send" } else { "new things that can change or send" };
-            let owner = self.owners().first().map(|p| p.id.clone()).unwrap_or_default();
+            let owner = self.people().owners().first().map(|p| p.id.clone()).unwrap_or_default();
             evs.push((
                 "kernel",
                 Ev::Item {

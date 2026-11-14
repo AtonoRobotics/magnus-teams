@@ -11,7 +11,6 @@
 //! same; what the console lacked is here.
 
 use super::mount::{audited, body_json, control, Audit};
-use super::roles::role_of;
 use super::Admin;
 use crate::kernel::Kernel;
 use axum::extract::{Path, State};
@@ -50,7 +49,7 @@ fn id_of(raw: &str) -> String {
 async fn with_role(k: &Kernel, mut row: Value) -> Value {
     let id = row["id"].as_str().unwrap_or_default().to_string();
     if let Some(p) = k.person(&id) {
-        row["role"] = json!(role_of(&p, k.accounts.role(&id).await));
+        row["role"] = json!(k.authority(&p).await.as_str());
         row["roles"] = json!(p.roles);
     }
     row
@@ -84,7 +83,7 @@ fn owner_only(a: &Admin, role: &str, target_is_owner: bool) -> Option<Response> 
 
 /// Set a role on the record, audited as the console's `role_changed`.
 async fn set_role(k: &Arc<Kernel>, a: &Admin, id: &str, role: &str) -> Response {
-    let before = k.person(id).map(|p| role_of(&p, crate::accounts::Role::Member)).map(|r| json!(r));
+    let before = k.person(id).map(|p| crate::people::Authority::of(&p, crate::accounts::Role::Member).as_str()).map(|r| json!(r));
     let audit = Audit { action: "role_changed".into(), target: Some(format!("people/{id}")), before, after: Some(json!({ "role": role })) };
     let change = async {
         match k.set_server_role(&a.actor(), id, role).await {

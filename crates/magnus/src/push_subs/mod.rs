@@ -121,8 +121,7 @@ impl Kernel {
     pub async fn reconcile_push_subs(&self, ep: &Endpoints, now: DateTime<Utc>) {
         let base = self.cfg.appliance.public_url.as_ref().map(|u| u.as_str().to_string());
         let apps: Vec<(Connector, Kind)> = self.connectors().into_iter().filter_map(|c| kind_of(&c).map(|k| (c, k))).collect();
-        let mut people: std::collections::BTreeSet<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
-        people.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
+        let people = self.people().ids();
         for (c, kind) in &apps {
             for person in &people {
                 let want = !self.read(|s| s.turned_off.contains(person)) && self.connected(c, person) && !self.lapsed(c, person);
