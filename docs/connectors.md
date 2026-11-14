@@ -167,14 +167,14 @@ one commit), 2026-11-02.
 
 ### The bridge
 
-- [ ] Detect: on start and whenever installs change, supported programs and versions (Windows registry and install paths; Linux package records, Flatpak, Snap, install paths), reported to the appliance
-- [ ] Enable: one consent per program; the app installs the pinned add-on from the catalog
+- [x] Detect: on start and whenever installs change, supported programs and versions (Windows registry and install paths; Linux package records, Flatpak, Snap, install paths), reported to the appliance (`desktop/src-tauri/src/detect.rs`, tested with a fake computer and registry in `detect_tests.rs`; looked for again every minute, `bridge.rs` `DETECT_EVERY`, and reported each round to `/v1/desktop/devices`)
+- [ ] Enable: one consent per program; the app installs the pinned add-on from the catalog (the consent is built: one per program per computer, kept in the log, `desktop.rs` `consent_is_per_program_per_computer_and_replays`, asked in Apps as "Use <program> on this computer", `programs-check.mjs`; no add-on is installed yet, which comes with each program)
 - [ ] Enable: where the server is a built-in setting, the app shows that one setting and confirms the server answers
-- [ ] Supervise: knows whether each program runs, starts its server; launches a closed program when policy allows, else asks
-- [ ] Tunnel: loopback to each local server, carried over the app-to-appliance channel; servers never beyond loopback; the bridge takes calls only from its own appliance
+- [ ] Supervise: knows whether each program runs, starts its server; launches a closed program when policy allows, else asks (it knows whether an enabled program's server answers on its port, `bridge.rs` `report`; it starts and launches nothing yet)
+- [x] Tunnel: loopback to each local server, carried over the app-to-appliance channel; servers never beyond loopback; the bridge takes calls only from its own appliance (the app's long poll on its own session, `desktop_e2e_tests.rs`: a call reaches only the computer it was allowed on, a browser session or another person takes none; the app listens nowhere and reaches only a port registered on loopback for an enabled program, `bridge_tests.rs`; no program's port is named yet, each comes with its program)
 - [ ] Tunnel through pyrallon.ai: the trust model names Cloudflare as seeing this traffic; pinned on the office network (proposed, not ruled)
-- [ ] Report state per program per device: not installed, not enabled, program closed, ready; the agent sees them
-- [ ] Each device its own set, named by device
+- [x] Report state per program per device: not installed, not enabled, program closed, ready; the agent sees them (`desktop.rs` `ProgramState`; the agent sees a ready program's tools and `desktop_programs`, `the_agent_sees_tools_only_of_ready_programs`)
+- [x] Each device its own set, named by device (`desktop_e2e_tests.rs`; Apps lists the other computers by name, `programs-check.mjs`)
 - [ ] Files a program produces (STEP, STL) return as tool results through the tunnel
 
 ### Programs
@@ -186,9 +186,9 @@ one commit), 2026-11-02.
 
 ### Guarding the user's computer
 
-- [ ] Every local tool call passes the appliance's Cedar policy before the bridge forwards it
-- [ ] The default policy requires the user's approval for tools that execute code inside a local program
-- [ ] An admin can relax it for the organisation or a group; a user can only make it stricter (ruling 5)
+- [x] Every local tool call passes the appliance's Cedar policy before the bridge forwards it (a program's tool, `desktop_<program>__<tool>`, goes through the boundary's policy stage, and `desktop_gate` decides again with the run's task and taint before it is handed to the computer)
+- [x] The default policy requires the user's approval for tools that execute code inside a local program (a tool not classed otherwise runs code and is irreversible, so the default asks: case 4 of the four asks, `by_default_code_in_a_program_asks_the_person`)
+- [x] An admin can relax it for the organisation or a group; a user can only make it stricter (ruling 5) (`an_admin_relaxes_it_for_a_group`, `a_person_can_only_tighten_it`)
 
 ## How the agent uses connectors
 

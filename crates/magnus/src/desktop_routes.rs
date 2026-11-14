@@ -35,6 +35,8 @@ type K = State<Arc<Kernel>>;
 
 /// The bridge takes calls only on the app's own session: a bearer token the
 /// app signed in for, never a browser's cookie.
+// The refusal is a response, as `api::who`'s is.
+#[allow(clippy::result_large_err)]
 pub(crate) async fn app_session(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     let p = who(k, h).await?;
     let token = credential(h).unwrap_or_default();

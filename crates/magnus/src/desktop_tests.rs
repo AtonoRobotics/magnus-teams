@@ -73,7 +73,7 @@ fn each_program_is_not_installed_not_enabled_closed_or_ready() {
     assert_eq!(ProgramState::of(true, true, Some(&closed)), ProgramState::Closed);
     assert_eq!(ProgramState::of(true, false, Some(&r)), ProgramState::Closed, "a computer not connected was ready");
     assert_eq!(ProgramState::of(true, true, Some(&r)), ProgramState::Ready);
-    let v = view(&device("desk0001", "Mo's desk", &["blender"]), true, &[r.clone()]);
+    let v = view(&device("desk0001", "Mo's desk", &["blender"]), true, std::slice::from_ref(&r));
     assert_eq!(v.programs.len(), PROGRAMS.len(), "each computer lists every supported program");
     let states: BTreeMap<_, _> = v.programs.iter().map(|p| (p.program.as_str(), p.state)).collect();
     assert_eq!(states["blender"], ProgramState::Ready);
@@ -102,17 +102,17 @@ fn a_report_keeps_only_what_the_bridge_supports() {
 #[test]
 fn a_call_is_routed_to_the_computer_where_its_program_is_ready() {
     let ready = reported("blender", true, &["run_python"]);
-    let laptop = view(&device("laptop01", "Mo's laptop", &[]), true, &[ready.clone()]);
-    let desk = view(&device("desk0001", "Mo's desk", &["blender"]), true, &[ready.clone()]);
+    let laptop = view(&device("laptop01", "Mo's laptop", &[]), true, std::slice::from_ref(&ready));
+    let desk = view(&device("desk0001", "Mo's desk", &["blender"]), true, std::slice::from_ref(&ready));
     assert_eq!(pick(&[laptop.clone(), desk.clone()], "blender", None).unwrap(), "desk0001");
     assert_eq!(pick(&[laptop.clone(), desk.clone()], "blender", Some("Mo's desk")).unwrap(), "desk0001");
     let why = pick(&[laptop.clone(), desk.clone()], "blender", Some("Mo's laptop")).unwrap_err();
     assert!(why.contains("not enabled on Mo's laptop"), "{why}");
-    let why = pick(&[laptop.clone()], "freecad", None).unwrap_err();
+    let why = pick(std::slice::from_ref(&laptop), "freecad", None).unwrap_err();
     assert!(why.contains("not installed on Mo's laptop"), "{why}");
     assert!(pick(&[], "blender", None).unwrap_err().contains("no computer"));
-    assert!(pick(&[desk.clone()], "blender", Some("Ana's")).unwrap_err().contains("called Ana's"));
-    let other_desk = view(&device("desk0002", "Mo's other desk", &["blender"]), true, &[ready.clone()]);
+    assert!(pick(std::slice::from_ref(&desk), "blender", Some("Ana's")).unwrap_err().contains("called Ana's"));
+    let other_desk = view(&device("desk0002", "Mo's other desk", &["blender"]), true, std::slice::from_ref(&ready));
     let why = pick(&[desk.clone(), other_desk], "blender", None).unwrap_err();
     assert!(why.contains("name one"), "{why}");
     let closed = view(&device("desk0001", "Mo's desk", &["blender"]), true, &[reported("blender", false, &[])]);
@@ -123,8 +123,8 @@ fn a_call_is_routed_to_the_computer_where_its_program_is_ready() {
 #[test]
 fn the_agent_sees_tools_only_of_ready_programs() {
     let ready = reported("blender", true, &["run_python"]);
-    let desk = view(&device("desk0001", "Mo's desk", &["blender"]), true, &[ready.clone()]);
-    let laptop = view(&device("laptop01", "Mo's laptop", &[]), true, &[ready.clone()]);
+    let desk = view(&device("desk0001", "Mo's desk", &["blender"]), true, std::slice::from_ref(&ready));
+    let laptop = view(&device("laptop01", "Mo's laptop", &[]), true, std::slice::from_ref(&ready));
     let off = view(&device("old00001", "Mo's old one", &["blender"]), false, &[ready]);
     let s = specs(&[desk, laptop, off]);
     assert_eq!(s.len(), 1);

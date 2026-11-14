@@ -2442,8 +2442,9 @@ async function showLibrary(main, name) {
     <div class="lbar"><div class="lseg" role="group" aria-label="Show">${seg("yours", "Yours")}${seg("discover", "Discover")}</div>
     <div class="lsearch">${SVG.search}<label class="sr" for="libq">Search apps and capabilities</label><input id="libq" type="search" value="${esc(Lib.q)}" placeholder="Search apps and capabilities" autocomplete="off"></div></div>
     <div class="lchips" role="group" aria-label="Category">${CATEGORIES.map(([k, l]) => `<button data-lib-cat="${k}" aria-pressed="${Lib.cat === k}">${esc(l)}</button>`).join("")}</div>
-    <p><a href="#/chat/new" data-ask-app>Ask Magnus to find an app</a></p><div id="lib-sections">${connectors ? librarySections(Lib.all) : '<p class="empty">Apps are unavailable. Retrying when connected.</p>'}</div></div>`;
+    <p><a href="#/chat/new" data-ask-app>Ask Magnus to find an app</a></p><div id="lib-programs"></div><div id="lib-sections">${connectors ? librarySections(Lib.all) : '<p class="empty">Apps are unavailable. Retrying when connected.</p>'}</div></div>`;
   bindConnectorActs(main);
+  mountPrograms(main).catch(() => {});
   const update=async()=>{
     const connectors=await Resources.read("Apps","/v1/connectors","connectors",true);
     if(!connectors || !main.querySelector('#lib-sections'))return;
