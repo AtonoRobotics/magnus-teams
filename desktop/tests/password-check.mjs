@@ -45,7 +45,9 @@ function harness() {
     api: async (m, p, b) => { calls.push([m, p, b]); return m === "GET" ? { here: true, min_length: 12, provider: null } : { ok: true, signed_out: 2 }; },
     Magnus: { forgotPassword: async email => { calls.push(["forgot", email]); return { ok: true }; } },
   };
+  ctx.Magnus.api = ctx.api;
   vm.createContext(ctx);
+  vm.runInContext(read("server.js"), ctx);
   vm.runInContext(pw, ctx);
   return ctx;
 }

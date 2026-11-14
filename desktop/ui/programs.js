@@ -70,14 +70,14 @@ async function programAct(act, program, deviceId) {
   if (!id) return;
   const allowed = act === "program-allow";
   if (!allowed && !(await ask("Stop Magnus using this program on that computer? You can allow it again here at any time.", "Stop"))) return;
-  await api("PUT", `/v1/desktop/devices/${enc(id)}/programs/${enc(program)}`, { allowed });
+  await Server.desktop.allowProgram(id, program, allowed);
   Programs.later.delete(program);
   await Magnus.desktopRefresh();
 }
 
 async function loadPrograms() {
   Programs.device = await Magnus.desktopDevice().catch(() => null);
-  Programs.list = await api("GET", "/v1/desktop/devices").catch(() => null);
+  Programs.list = await Server.desktop.devices().catch(() => null);
 }
 
 /** Draw the programs into the Apps page, and keep them current. */

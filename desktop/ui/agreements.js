@@ -46,9 +46,11 @@ function agreementAsk(label, body, choices, escape) {
   });
 }
 
-/** Send one answer; a changed text is read again. @returns {Promise<AgreementStanding|null>} */
-async function agreementSend(path, body) {
-  try { return await api("POST", path, body); }
+/** Send one answer; a changed text is read again.
+ * @param {() => Promise<AgreementStanding>} send one of Server.legal's answers
+ * @returns {Promise<AgreementStanding|null>} */
+async function agreementSend(send) {
+  try { return await send(); }
   catch (err) { toast(err.body?.error || err.message); return null; }
 }
 
@@ -57,13 +59,13 @@ async function agreementSend(path, body) {
 async function agreementsGate() {
   for (;;) {
     /** @type {AgreementStanding} */
-    const st = await api("GET", "/v1/legal");
+    const st = await Server.legal.status();
     const docs = st.documents;
     if (st.terms_due) {
       const body = `<p>Before you use Magnus, read and accept the Terms of Use. The Privacy notice below says what is kept and who sees it.</p>${agreementDocHtml(docs.terms)}${agreementDocHtml(docs.privacy)}`;
       const a = await agreementAsk("Terms of Use", body, [["accept", "I accept"], ["decline", "Sign out"]]);
       if (a !== "accept") return false;
-      await agreementSend("/v1/legal/terms", { terms: docs.terms.version, privacy: docs.privacy.version });
+      await agreementSend(() => Server.legal.terms({ terms: docs.terms.version, privacy: docs.privacy.version }));
       continue;
     }
     if (st.usage_due) {
@@ -71,21 +73,21 @@ async function agreementsGate() {
       const body = `<h2>${esc(p.title)}</h2>${p.text.map(t => `<p>${esc(t)}</p>`).join("")}`;
       const a = await agreementAsk(p.title, body, [["yes", p.yes], ["no", p.no]], "later");
       if (a === "later") return true;
-      await agreementSend("/v1/legal/usage", { share: a === "yes", version: p.version });
+      await agreementSend(() => Server.legal.usage({ share: a === "yes", version: p.version }));
       continue;
     }
     if (st.tester && !st.tester.current) {
       const body = `<p>The Tester Terms changed. Accept them to stay in the tester program, or leave it.</p>${agreementDocHtml(docs.testers)}`;
       const a = await agreementAsk("Tester Terms", body, [["join", "Accept and stay"], ["leave", "Leave the program"]], "later");
       if (a === "later") return true;
-      await agreementSend(a === "join" ? "/v1/legal/testers/join" : "/v1/legal/testers/leave", { version: docs.testers.version });
+      await agreementSend(() => Server.legal.testers(a === "join" ? "join" : "leave", { version: docs.testers.version }));
       continue;
     }
     if (st.invited_by && !st.tester) {
       const body = `<p>${esc(st.invited_by)} invited you to the tester program. Read the Tester Terms: as a tester, Magnus's developers see your work in full.</p>${agreementDocHtml(docs.testers)}`;
       const a = await agreementAsk("Tester program", body, [["join", "Join the tester program"], ["decline", "Decline"]], "later");
       if (a === "later") return true;
-      await agreementSend(a === "join" ? "/v1/legal/testers/join" : "/v1/legal/testers/decline", { version: docs.testers.version });
+      await agreementSend(() => Server.legal.testers(a === "join" ? "join" : "decline", { version: docs.testers.version }));
       continue;
     }
     return true;
@@ -96,7 +98,7 @@ async function agreementsGate() {
 async function agreementsSection(el) {
   const draw = async () => {
     /** @type {AgreementStanding} */
-    const st = await api("GET", "/v1/legal");
+    const st = await Server.legal.status();
     if (st.set_up === false) {
       paint(el, `<h2>Agreements</h2><p class="small muted">This server's agreements are not set up yet.</p>`);
       return;
@@ -120,11 +122,11 @@ async function agreementsSection(el) {
       const usage = t.closest("[data-agreement-usage-set]"), program = t.closest("[data-agreement-tester]");
       if (usage) {
         const share = usage.getAttribute("data-agreement-usage-set") === "yes";
-        if (await agreementSend("/v1/legal/usage", { share, version: st.usage_prompt.version })) toast(share ? "You share anonymous usage data from now on." : "Nothing of yours reaches the developers from now on.");
+        if (await agreementSend(() => Server.legal.usage({ share, version: st.usage_prompt.version }))) toast(share ? "You share anonymous usage data from now on." : "Nothing of yours reaches the developers from now on.");
       } else if (program) {
         const join = program.getAttribute("data-agreement-tester") === "join";
         if (join && !(await ask("Join the tester program? Magnus's developers will see your work in full, as the Tester Terms say.", "Join"))) return;
-        if (await agreementSend(join ? "/v1/legal/testers/join" : "/v1/legal/testers/leave", { version: d.testers.version })) toast(join ? "You are in the tester program." : "You left the tester program.");
+        if (await agreementSend(() => Server.legal.testers(join ? "join" : "leave", { version: d.testers.version }))) toast(join ? "You are in the tester program." : "You left the tester program.");
       } else return;
       await draw();
     };

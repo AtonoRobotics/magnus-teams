@@ -22,8 +22,9 @@ const sandbox = {
     return method === "GET" ? terms : body;
   },
 };
+sandbox.Magnus = Object.assign(sandbox.Magnus || {}, { api: sandbox.api });
 sandbox.globalThis = sandbox;
-vm.runInNewContext(ui("connect.js"), sandbox);
+vm.runInNewContext(ui("server.js") + "\n" + ui("connect.js"), sandbox);
 
 const terms = {
   app: "crm", title: "Crm", terms: "abc123",

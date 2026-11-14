@@ -115,6 +115,60 @@ const Server = (() => {
     /** Everyone else on the server, for sharing. */
     directory: () => get("/v1/directory"),
 
+    /** The person's own rules for their agent. */
+    rules: {
+      list: () => get("/v1/rules"),
+      /** Accept a rule the agent proposed. */
+      accept: (/** @type {Id} */ id) => call("POST", `/v1/rules/${enc(id)}/accept`),
+      remove: (/** @type {Id} */ id) => del(`/v1/rules/${enc(id)}`),
+      /** A new rule, or a change to one. @param {?Id} id @param {any} body */
+      save: (id, body) => id ? put(`/v1/rules/${enc(id)}`, body) : post("/v1/rules", body),
+    },
+
+    connectors: {
+      terms: (/** @type {string} */ name) => get(`/v1/connectors/${enc(name)}/terms`),
+      consent: (/** @type {string} */ name, /** @type {string} */ terms) => post(`/v1/connectors/${enc(name)}/consent`, { terms }),
+    },
+
+    account: {
+      password: () => get("/v1/account/password"),
+      setPassword: (/** @type {string} */ current, /** @type {string} */ next) => post("/v1/account/password", { current_password: current, new_password: next }),
+      /** The server's mail settings. */
+      mail: () => get("/v1/mail"),
+      testMail: () => post("/v1/mail/test"),
+      /** Store a credential in the vault. */
+      setSecret: (/** @type {string} */ name, /** @type {string} */ value) => put(`/v1/secrets/${enc(name)}`, { value }),
+    },
+
+    /** Team messages to tell the person about, since `after` (an ISO time) or all. */
+    notices: (/** @type {?string} */ after) => get(`/v1/team/notices${query({ after })}`),
+
+    /** The terms, the privacy notice, usage data and the tester program. */
+    legal: {
+      status: () => get("/v1/legal"),
+      /** @param {{terms: string, privacy: string}} body */
+      terms: body => post("/v1/legal/terms", body),
+      /** @param {{share: boolean, version: string}} body */
+      usage: body => post("/v1/legal/usage", body),
+      /** @param {"join"|"leave"|"decline"} act @param {{version: string}} body */
+      testers: (act, body) => post(`/v1/legal/testers/${act === "join" ? "join" : act === "leave" ? "leave" : "decline"}`, body),
+    },
+
+    payments: {
+      get: () => get("/v1/payments"),
+      /** A link to connect a payment account. */
+      link: () => call("POST", "/v1/payments/link"),
+      unlink: () => del("/v1/payments/link"),
+      removeCard: () => del("/v1/payments/card"),
+      setCard: (/** @type {any} */ card) => put("/v1/payments/card", card),
+    },
+
+    /** The person's computers the desktop app bridges to their programs. */
+    desktop: {
+      devices: () => get("/v1/desktop/devices"),
+      allowProgram: (/** @type {Id} */ device, /** @type {string} */ program, /** @type {boolean} */ allowed) => put(`/v1/desktop/devices/${enc(device)}/programs/${enc(program)}`, { allowed }),
+    },
+
     spend: {
       /** Ask an admin for more to spend. @param {number} usd @param {string} reason */
       ask: (usd, reason) => post("/v1/spend/requests", { usd, reason }),

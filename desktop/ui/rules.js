@@ -45,7 +45,7 @@ async function rulesSection(el) {
   let editing = "";
   const draw = async () => {
     /** @type {PersonRule[]} */
-    const rules = (await api("GET", "/v1/rules")).rules || [];
+    const rules = (await Server.rules.list()).rules || [];
     const label = v => (RULE_EFFECTS.find(x => x[0] === v) || [v, v])[1];
     paint(el, `<h2>Rules</h2>
       <p class="muted">Tell the agent, in your own words, what it may do without asking, what to ask you first, and what never to do.</p>
@@ -61,14 +61,14 @@ async function rulesSection(el) {
       const id = b.dataset.id;
       if (b.dataset.rule === "edit") editing = id;
       if (b.dataset.rule === "cancel") editing = "";
-      if (b.dataset.rule === "accept") await api("POST", `/v1/rules/${enc(id)}/accept`);
-      if (b.dataset.rule === "remove" && await ask("Remove this rule?", "Remove")) await api("DELETE", `/v1/rules/${enc(id)}`);
+      if (b.dataset.rule === "accept") await Server.rules.accept(id);
+      if (b.dataset.rule === "remove" && await ask("Remove this rule?", "Remove")) await Server.rules.remove(id);
     }));
     el.querySelectorAll("[data-rule-form]").forEach(form => form.onsubmit = e => {
       e.preventDefault();
       const id = form.dataset.ruleForm;
       run(async () => {
-        await api(id ? "PUT" : "POST", id ? `/v1/rules/${enc(id)}` : "/v1/rules", ruleBody(form));
+        await Server.rules.save(id, ruleBody(form));
         editing = "";
       });
     });

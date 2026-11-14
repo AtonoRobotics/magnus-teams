@@ -2,7 +2,7 @@
 // Link cannot serve them. A card goes from here to the vault and is never shown again.
 async function paymentsSection(el) {
   const draw = async () => {
-    const s = await api("GET", "/v1/payments");
+    const s = await Server.payments.get();
     if (!s.available) { paint(el, `<h2>Payments</h2><p class="muted">Payments are not set up on this server.</p>`); return; }
     paint(el, `<h2>Payments</h2>
       <p class="muted">The agent asks before it buys anything. It never sees a card number.</p>
@@ -26,15 +26,15 @@ async function paymentsSection(el) {
     const note = m => { $("[data-pay-note]", el).textContent = m; };
     const run = async fn => { try { await fn(); await draw(); } catch (e) { note(e.message || String(e)); } };
     el.querySelectorAll("[data-pay]").forEach(b => b.onclick = () => run(async () => {
-      if (b.dataset.pay === "connect") { const { url } = await api("POST", "/v1/payments/link"); window.open(url, "_blank", "noopener"); }
-      if (b.dataset.pay === "disconnect") await api("DELETE", "/v1/payments/link");
-      if (b.dataset.pay === "remove-card") await api("DELETE", "/v1/payments/card");
+      if (b.dataset.pay === "connect") { const { url } = await Server.payments.link(); window.open(url, "_blank", "noopener"); }
+      if (b.dataset.pay === "disconnect") await Server.payments.unlink();
+      if (b.dataset.pay === "remove-card") await Server.payments.removeCard();
     }));
     const form = $("[data-pay-form]", el);
     if (form) form.onsubmit = e => {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(form));
-      run(() => api("PUT", "/v1/payments/card", { ...d, exp_month: Number(d.exp_month), exp_year: Number(d.exp_year) }));
+      run(() => Server.payments.setCard({ ...d, exp_month: Number(d.exp_month), exp_year: Number(d.exp_year) }));
     };
   };
   await draw();

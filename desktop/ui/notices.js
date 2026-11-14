@@ -29,8 +29,8 @@ const Notices = {
 
   /** One look for new team messages to tell about. */
   async poll() {
-    const q = this.after ? `?after=${encodeURIComponent(new Date(Date.parse(this.after) - NOTICE_OVERLAP_MS).toISOString())}` : "";
-    const r = await api("GET", `/v1/team/notices${q}`).catch(() => null);
+    const after = this.after ? new Date(Date.parse(this.after) - NOTICE_OVERLAP_MS).toISOString() : null;
+    const r = await Server.notices(after).catch(() => null);
     if (!r) return;
     const first = this.after === null;
     this.after = r.now;

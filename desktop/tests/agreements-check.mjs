@@ -57,6 +57,8 @@ function load(states, answers) {
     },
     document: {},
   });
+  ctx.Magnus = { api: ctx.api };
+  vm.runInContext(read("server.js"), ctx);
   vm.runInContext(src, ctx);
   ctx.agreementAsk = async (label, body, choices, escape) => { asked.push({ label, body, choices, escape }); return answers.shift(); };
   vm.runInContext("agreementAsk = globalThis.agreementAsk;", ctx);

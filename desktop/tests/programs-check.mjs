@@ -21,8 +21,9 @@ const sandbox = {
   api: async (method, path, body) => { calls.push([method, path, body]); return {}; },
   Magnus: { desktopDevice: async () => ({ id: "desk-1", name: "Mo's desk" }), desktopRefresh: async () => { refreshed++; } },
 };
+sandbox.Magnus.api = sandbox.api;
 sandbox.globalThis = sandbox;
-vm.runInNewContext(ui("programs.js"), sandbox);
+vm.runInNewContext(ui("server.js") + "\n" + ui("programs.js"), sandbox);
 
 const program = (id, title, state, allowed) => ({ program: id, title, state, allowed, version: state === "not_installed" ? null : "4.2" });
 const list = [
