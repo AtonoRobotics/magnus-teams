@@ -7,11 +7,21 @@
 //! caller to read. The guest reads the fields it knows and ignores the rest,
 //! so a field left out here (`None`) is left off the wire, as before.
 //!
+//! The guest reads each line as a [`GuestRequest`]: an unknown op or a
+//! missing field is refused as a bad request, and a field it does not know is
+//! ignored, so an older or newer sender still reaches it
+//! (`decisions/2026-11-14-guest-requests-typed.md`).
+//!
 //! A browser VM's agent is asked through the same stream, but its requests
 //! are mostly the model's own tool arguments passed through, so they are not
 //! typed here.
 
 use serde::{Deserialize, Serialize};
+
+/// The most a reader takes of one guest answer: a file read comes back
+/// whole, in base64. A guest runs the model's commands and so is not trusted
+/// to end its line.
+pub const MAX_GUEST_REPLY_BYTES: u64 = 64 << 20;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -49,6 +59,14 @@ pub enum GuestRequest {
     TakeoverEnd,
     /// What a handback would stop, without stopping it.
     TakeoverLeftovers,
+    /// Computerd's, on a restored snapshot: what every restore of it would
+    /// otherwise share, the clock, machine id, name, MAC and entropy.
+    Reset { unix_seconds: u64, machine_id: String, hostname: String, mac: String, entropy_b64: String },
+    /// Computerd's, before a backup copies the volume: holds its writes. The
+    /// guest lets go by itself if no thaw comes.
+    Freeze,
+    /// Computerd's, after the copy: lets the volume's writes go.
+    Thaw,
 }
 
 impl GuestRequest {

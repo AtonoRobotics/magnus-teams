@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 base64 = "0.22"
 libc = "0.2"
+magnus-computerd-proto = { path = "../../crates/computerd-proto" }
 serde_json = "1"
 
 [lints]

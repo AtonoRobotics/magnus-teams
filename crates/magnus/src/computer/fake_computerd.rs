@@ -184,11 +184,13 @@ async fn guest(mut lines: tokio::io::Lines<BufReader<tokio::net::unix::OwnedRead
 
 /// As `sandbox/guest` answers, with every desktop action's screenshot "SHOT".
 fn guest_answer(line: &str, script: &Script) -> Value {
-    let Ok(req) = serde_json::from_str::<GuestRequest>(line) else {
-        return json!({ "error": "unknown op" });
+    let req = match serde_json::from_str::<GuestRequest>(line) {
+        Ok(req) => req,
+        Err(e) => return json!({ "error": format!("bad request: {e}") }),
     };
     match req {
         GuestRequest::Ping | GuestRequest::Sync | GuestRequest::ZeroFree | GuestRequest::Erase { .. } | GuestRequest::TakeoverBegin => json!({ "ok": true }),
+        GuestRequest::Reset { .. } | GuestRequest::Freeze | GuestRequest::Thaw => json!({ "ok": true }),
         GuestRequest::Exec { .. } => json!({ "exit_code": 0 }),
         GuestRequest::Read { path, .. } => json!({ "data_b64": "SHOT", "path": path }),
         GuestRequest::Write { path, .. } => json!({ "ok": true, "path": path }),
