@@ -516,6 +516,9 @@ pub struct Schedule {
     pub ended: Option<String>,
     /// The conversation it was set up in, if any: where its runs post (`schedule_thread::of`).
     pub thread: Option<String>,
+    /// The zone its daily time is read in: its person's, kept current as
+    /// they change it, else the server's (`cadence::Zone::of_preferences`).
+    pub zone: crate::cadence::Zone,
 }
 
 /// A person's standing authority over a category of their own work
@@ -647,34 +650,6 @@ pub enum Answer {
     Later,
     /// Declined, with their reason.
     Declined(Option<String>),
-}
-
-impl Schedule {
-    /// Whether it may start no more runs: past its end, or out of runs.
-    pub fn finished(&self, now: DateTime<Utc>) -> Option<String> {
-        if self.ended.is_some() {
-            return None;
-        }
-        if let Some(m) = self.max_runs.filter(|m| self.started >= *m) {
-            return Some(format!("it ran {m} time{}, as set", if m == 1 { "" } else { "s" }));
-        }
-        self.until.filter(|u| *u <= now).map(|u| format!("it reached its end, {}", u.to_rfc3339()))
-    }
-
-    /// The next time this schedule is due after its last run (or creation),
-    /// unless it is paused, ended (by its own run or a limit) or out of runs.
-    pub fn next_due(&self) -> Option<DateTime<Utc>> {
-        if self.ended.is_some() || self.paused.is_some() || self.max_runs.is_some_and(|m| self.started >= m) {
-            return None;
-        }
-        let next = self.next_time()?;
-        self.until.is_none_or(|u| next < u).then_some(next)
-    }
-
-    fn next_time(&self) -> Option<DateTime<Utc>> {
-        let every = crate::cadence::Recurrence::of_schedule(self.every_minutes, self.daily_at.as_deref())?;
-        every.next_after(self.last_fired, self.created, crate::cadence::Zone::Server)
-    }
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -1470,6 +1445,9 @@ impl State {
                         p.insert(k.clone(), v.clone());
                     }
                 }
+                // Daily times follow the person's zone (owner, 2026-11-14).
+                let zone = crate::cadence::Zone::of_preferences(self.preferences.get(person));
+                self.schedules.values_mut().filter(|x| x.person == *person).for_each(|x| x.zone = zone);
             }
             Ev::ChatHidden { thread, entries, .. } => {
                 self.hidden.entry(thread.clone()).or_default().extend(entries.iter().cloned());
@@ -1541,6 +1519,7 @@ impl State {
                     id.clone(),
                     Schedule {
                         id: id.clone(),
+                        zone: crate::cadence::Zone::of_preferences(self.preferences.get(person)),
                         person: person.clone(),
                         every_minutes: *every_minutes,
                         daily_at: daily_at.clone(),

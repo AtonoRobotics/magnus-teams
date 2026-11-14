@@ -25,6 +25,14 @@ pub enum Zone {
     Server,
 }
 
+impl Zone {
+    /// A person's zone from their preferences (`timezone`, an IANA name);
+    /// the server's when they set none, or one that is not a zone.
+    pub fn of_preferences(prefs: Option<&serde_json::Value>) -> Zone {
+        prefs.and_then(|p| p.get("timezone")).and_then(serde_json::Value::as_str).and_then(|z| z.parse().ok()).map_or(Zone::Server, Zone::Named)
+    }
+}
+
 impl Recurrence {
     /// A schedule's recurrence as it is recorded: `every_minutes` wins over
     /// `daily_at` ("HH:MM"); neither, or a time that does not parse, is none.

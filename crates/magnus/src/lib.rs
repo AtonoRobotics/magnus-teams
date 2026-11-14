@@ -100,8 +100,11 @@ pub mod rules;
 pub mod run;
 pub mod safety;
 pub mod sandbox;
+pub mod schedule_due;
 mod schedule_request;
 pub mod schedule_thread;
+#[cfg(test)]
+mod schedule_zone_tests;
 pub(crate) mod secret_scope;
 pub mod settings;
 pub mod sign_in_name;
