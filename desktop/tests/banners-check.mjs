@@ -24,5 +24,5 @@ assert.ok(updates, "app.js draws the updates notice");
 assert.match(updates[0], /data-act="dismiss-updates"/, "the updates notice has a Dismiss button");
 assert.match(js, /closest\("\[data-act=dismiss-updates\][^"]*"\)\)\s*\{\s*App\.feedDismissed = true;\s*banners\(\);/, "Dismiss closes the notice");
 assert.match(js, /const sessionUpdates = !App\.feedDismissed &&/, "a dismissed notice stays closed");
-assert.match(js, /App\.feed = await api\("POST", "\/v1\/home\/opened"[^\n]*\n\s*App\.feedDismissed = false;/, "a new session shows its updates again");
+assert.match(js, /App\.feed = await Server\.homeOpened\(\)[^\n]*\n\s*App\.feedDismissed = false;/, "a new session shows its updates again");
 console.log("banners check passed");

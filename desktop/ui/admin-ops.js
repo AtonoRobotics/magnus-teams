@@ -61,7 +61,7 @@ function opsHealth(h) {
 }
 
 registerAdminSection("operations", async el => {
-  const [u, b, c, h] = await Promise.all([adminApi("GET", "/v1/admin/updates"), adminApi("GET", "/v1/admin/backups"), adminApi("GET", "/v1/admin/computers"), adminApi("GET", "/v1/admin/health")]);
+  const [u, b, c, h] = await Promise.all([Server.admin.updates(), Server.admin.backups(), Server.admin.computers(), Server.admin.health()]);
   paint(el, `<h2>Operations</h2><div class="admin-cards">${opsUpdates(u)}${opsBackups(b)}${opsComputers(c)}${opsHealth(h)}</div>`);
   const again = () => AdminState.sections.get("operations")?.(el);
   /** @param {any} err */
@@ -69,18 +69,18 @@ registerAdminSection("operations", async el => {
   el.onclick = async e => {
     const t = /** @type {HTMLElement} */ (e.target);
     try {
-      if (t.matches("[data-ops-install]")) { if (!confirm("Install the update now? Magnus restarts, and running tasks continue after.")) return; await adminApi("POST", "/v1/admin/updates/install", {}); toast("Installing."); }
-      else if (t.matches("[data-ops-rollback]")) { if (!confirm("Go back to the release kept? Magnus restarts.")) return; await adminApi("POST", "/v1/admin/updates/rollback", {}); toast("Rolling back."); }
-      else if (t.matches("[data-ops-backup]")) { t.setAttribute("disabled", ""); await adminApi("POST", "/v1/admin/backups", {}); toast("Backed up."); }
+      if (t.matches("[data-ops-install]")) { if (!confirm("Install the update now? Magnus restarts, and running tasks continue after.")) return; await Server.admin.install(); toast("Installing."); }
+      else if (t.matches("[data-ops-rollback]")) { if (!confirm("Go back to the release kept? Magnus restarts.")) return; await Server.admin.rollback(); toast("Rolling back."); }
+      else if (t.matches("[data-ops-backup]")) { t.setAttribute("disabled", ""); await Server.admin.backUp(); toast("Backed up."); }
       else return;
     } catch (err) { failed(err); }
     await again();
   };
   el.onchange = async e => {
     const s = /** @type {HTMLSelectElement} */ (e.target);
-    const path = s.matches("[data-ops-server-channel]") ? "/v1/admin/updates/server-channel" : s.matches("[data-ops-channel]") ? "/v1/admin/updates/desktop-channel" : null;
-    if (!path) return;
-    try { await adminApi("PUT", path, { channel: s.value }); toast("Saved."); }
+    const which = s.matches("[data-ops-server-channel]") ? "server" : s.matches("[data-ops-channel]") ? "desktop" : null;
+    if (!which) return;
+    try { await Server.admin.setUpdateChannel(which, s.value); toast("Saved."); }
     catch (err) { failed(err); }
     await again();
   };

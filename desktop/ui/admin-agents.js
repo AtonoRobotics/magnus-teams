@@ -3,7 +3,8 @@
 // what it runs now, who asked and what it has spent; Pause holds new work,
 // Stop is that agent's kill switch and stops running work too. The top bar's
 // kill switch gains one person's agents, one agent and one connector.
-// Pressing needs no step-up; releasing and pausing go through adminApi.
+// Pressing needs no step-up; releasing and pausing may ask for the
+// password first (Server, server.js).
 "use strict";
 
 /**
@@ -60,13 +61,13 @@ function agentsPick(title, options) {
 
 /** @returns {Promise<AgentsList>} */
 function agentsList() {
-  return api("GET", "/v1/admin/agents");
+  return Server.admin.agents();
 }
 
 /** The switches of one level that are on, for the top bar's Release buttons.
  * @param {string} level */
 async function agentsActive(level) {
-  const v = await api("GET", "/v1/admin/kill-switches");
+  const v = await Server.admin.killSwitches();
   return (v.on || []).filter(s => s.level === level);
 }
 
@@ -127,12 +128,12 @@ async function agentsSection(el) {
     if (!b) return;
     const d = b.dataset;
     try {
-      if (d.agentsPause) await adminApi("POST", `/v1/admin/agents/${encodeURIComponent(d.agentsPause)}/pause`, {});
-      if (d.agentsResume) await adminApi("POST", `/v1/admin/agents/${encodeURIComponent(d.agentsResume)}/resume`, {});
-      if (d.agentsStop) await api("POST", killPath("agent", d.agentsStop, "press"), {});
-      if (d.agentsRelease) await adminApi("POST", killPath("agent", d.agentsRelease, "release"), {});
-      if (d.agentsStopPerson) await api("POST", killPath("person", d.agentsStopPerson, "press"), {});
-      if (d.agentsReleasePerson) await adminApi("POST", killPath("person", d.agentsReleasePerson, "release"), {});
+      if (d.agentsPause) await Server.admin.pauseAgent(d.agentsPause);
+      if (d.agentsResume) await Server.admin.resumeAgent(d.agentsResume);
+      if (d.agentsStop) await Server.admin.press("agent", d.agentsStop);
+      if (d.agentsRelease) await Server.admin.release("agent", d.agentsRelease);
+      if (d.agentsStopPerson) await Server.admin.press("person", d.agentsStopPerson);
+      if (d.agentsReleasePerson) await Server.admin.release("person", d.agentsReleasePerson);
     } catch (err) { if (!err.cancelled) toast(err.message); }
     await adminPoll();
     await agentsSection(el);

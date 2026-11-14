@@ -16,8 +16,9 @@ const sandbox = {
   api: async (m, p) => { calls.push([m, p]); return { id: "c", status: "running", controller: null, driving: { by: "agent", person: null, runs: [{ run: "r1", task: "t1", status: "running" }], request: null } }; },
   document: { addEventListener: () => {} }, location: {}, $: () => null, setTimeout, UI: { computer: "<rect/>" },
 };
+sandbox.Magnus = { api: sandbox.api };
 sandbox.globalThis = sandbox;
-vm.runInNewContext(readFileSync(join(here, "../ui/screen.js"), "utf8"), sandbox);
+vm.runInNewContext(["server.js", "screen.js"].map(f => readFileSync(join(here, "../ui", f), "utf8")).join("\n"), sandbox);
 
 const running = driving => ({ id: "c", status: "running", controller: driving.person, driving });
 const agent = sandbox.drivingLine(running({ by: "agent", person: null, runs: [{ run: "r1", task: "t1", status: "running" }], request: null }));

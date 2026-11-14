@@ -42,7 +42,7 @@ function rulesHtml(v) {
 
 /** The org layer's history, and a draft to test and apply. @param {HTMLElement} box */
 async function rulesPolicy(box) {
-  const [sets, history] = await Promise.all([adminApi("GET", "/v1/admin/policy"), adminApi("GET", "/v1/admin/policy/history?layer=org")]);
+  const [sets, history] = await Promise.all([Server.admin.policy(), Server.admin.policyHistory("org")]);
   const org = (sets.sets || []).find(s => s.id === "org") || {};
   paint(box, `<form class="stack" data-policy-form>
       <textarea name="cedar" rows="10" class="mono" aria-label="The organisation's policy">${esc(org.draft ?? org.live ?? "")}</textarea>
@@ -50,19 +50,19 @@ async function rulesPolicy(box) {
     <h4>History</h4><ul class="small">${(history.versions || []).slice(-10).reverse().map(h => `<li>Version ${esc(h.version)} by ${esc(h.by || "")}, ${esc(when(h.at))}</li>`).join("") || "<li class=muted>No versions yet.</li>"}</ul>`);
   const form = /** @type {HTMLFormElement} */ ($("[data-policy-form]", box));
   const cedar = () => String(new FormData(form).get("cedar") || "");
-  $("[data-policy-draft]", box).onclick = () => adminApi("POST", "/v1/admin/policy/draft", { layer: "org", cedar: cedar() }).then(() => toast("Draft saved."), e => e.cancelled || toast(e.body?.error || e.message));
-  form.onsubmit = e => { e.preventDefault(); adminApi("POST", "/v1/admin/policy/apply", { layer: "org", cedar: cedar() }).then(() => toast("Applied."), err => err.cancelled || toast(err.body?.error || err.message)); };
+  $("[data-policy-draft]", box).onclick = () => Server.admin.draftPolicy("org", cedar()).then(() => toast("Draft saved."), e => e.cancelled || toast(e.body?.error || e.message));
+  form.onsubmit = e => { e.preventDefault(); Server.admin.applyPolicy("org", cedar()).then(() => toast("Applied."), err => err.cancelled || toast(err.body?.error || err.message)); };
 }
 
 registerAdminSection("rules", async el => {
   /** @type {AdminRules} */
-  const v = await adminApi("GET", "/v1/admin/rules");
+  const v = await Server.admin.rules();
   paint(el, rulesHtml(v));
   const again = () => AdminState.sections.get("rules")?.(el);
   /** @param {any} err */
   const failed = err => { if (!err.cancelled) toast(err.body?.message || err.message); };
   $("[data-auto-review-acts]", el).onchange = async e => {
-    try { await adminApi("PUT", "/v1/admin/auto-review", { acts: /** @type {HTMLInputElement} */ (e.target).checked }); toast("Saved."); }
+    try { await Server.admin.setAutoReview(/** @type {HTMLInputElement} */ (e.target).checked); toast("Saved."); }
     catch (err) { failed(err); }
     await again();
   };
@@ -70,13 +70,13 @@ registerAdminSection("rules", async el => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(/** @type {HTMLFormElement} */ (e.target)));
     const destinations = String(f.destinations || "").split(",").map(s => s.trim()).filter(Boolean);
-    try { await adminApi("POST", "/v1/admin/rules", { effect: f.effect, connector: f.connector, tool: f.tool, destinations, words: f.words }); toast("Rule added."); await again(); }
+    try { await Server.admin.addRule({ effect: f.effect, connector: f.connector, tool: f.tool, destinations, words: f.words }); toast("Rule added."); await again(); }
     catch (err) { failed(err); }
   };
   el.onclick = async e => {
     const b = /** @type {HTMLElement} */ (e.target).closest("[data-rule-remove]");
     if (!b) return;
-    try { await adminApi("DELETE", `/v1/admin/rules/${enc(b.closest("[data-rule]")?.getAttribute("data-rule"))}`); toast("Rule removed."); }
+    try { await Server.admin.removeRule(b.closest("[data-rule]")?.getAttribute("data-rule")); toast("Rule removed."); }
     catch (err) { failed(err); }
     await again();
   };

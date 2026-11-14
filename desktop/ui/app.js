@@ -5,24 +5,6 @@
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const api = async (m,p,b) => {
-  const owner=App.me?.id, appliance=App.appliance, session=App.sessionGeneration, view=App.seq;
-  let result;
-  try { result=await Magnus.api(m,p,b); }
-  catch(error) {
-    // A lost mutation reply does not establish whether its effect happened.
-    // Keep authoritative error metadata (including send rejection handling).
-    // A spent limit of the person's own: offer to ask for more where it appears (admin-spend.js).
-    if(error.status===402 && error.body?.spend_limit && typeof offerMoreSpend==="function")offerMoreSpend(error.body);
-    // An admin change the server holds for the password again (admin.js): ask once, then send it again.
-    if(error.status===403 && error.body?.error==="step_up" && typeof stepUp==="function")return stepUp().then(ok=>{if(!ok)throw Object.assign(new Error("The change was not made."),{cancelled:true});return Magnus.api(m,p,b);});
-    if(!["GET","HEAD","OPTIONS"].includes(m) && (!error.status || error.status>=500))
-      throw Object.assign(new Error(`Outcome not confirmed. ${error.message || "Check the current state before trying again."}`),{status:error.status,body:error.body});
-    throw error;
-  }
-  if(m==="GET" && (owner!==App.me?.id || appliance!==App.appliance || session!==App.sessionGeneration || view!==App.seq)) throw Object.assign(new Error("This view changed."),{cancelled:true});
-  return result;
-};
 const enc = encodeURIComponent;
 
 // Read aloud in the appliance's own voice, a sentence at a time, so the first
@@ -59,7 +41,7 @@ async function readAloud(source, entryId) {
     const parts=text.split(/(?<=[.!?])\s+/).filter(s=>s.trim()).flatMap(pieces);
     const ask=async(s,tries=8)=>{
       if(run!==voice.run)return null;
-      try{return await api("POST","/v1/speak",{text:s});}catch(e){
+      try{return await Server.speak(s);}catch(e){
         if(e.status!==429 || tries<=1 || run!==voice.run)throw e;
         await new Promise(r=>setTimeout(r,400));return ask(s,tries-1);
       }
@@ -206,7 +188,7 @@ const Resources = (()=>{
  function good(name){const s=states.get(name)||{};states.set(name,{...s,failed:false,at:Date.now()});render();}
  function bad(name,error){if(error?.cancelled)return;const s=states.get(name)||{};states.set(name,{...s,failed:true});render();if(error?.status===401 && App.me){stop();signInScreen("Your session ended. Sign in again.");}}
  async function read(name,path,key,cached=false){const scope=epoch,token=++serial,prior=states.get(name)||{};states.set(name,{...prior,token});
-  try{const response=await api("GET",path);if(scope!==epoch || states.get(name)?.token!==token)return;const value=key ? response[key] : response;states.set(name,{...states.get(name),path,value});good(name);return value;}
+  try{const response=await Server.call("GET",path);if(scope!==epoch || states.get(name)?.token!==token)return;const value=key ? response[key] : response;states.set(name,{...states.get(name),path,value});good(name);return value;}
   catch(error){if(cached && error?.cancelled)throw error;if(!error?.cancelled && scope===epoch && states.get(name)?.token===token){bad(name,error);if(cached && prior.path===path)return prior.value;}}
  }
 
@@ -230,7 +212,7 @@ function reportOpenedSoon() {
     }
     if(!ids.size)return;
     for(const id of ids)reporting.add(id);
-    api("POST","/v1/inbox/opened",{ids:[...ids]}).then(response=>{
+    Server.inbox.opened([...ids]).then(response=>{
       for(const id of response.opened || [])reported.add(id);
     },()=>{}).finally(()=>{for(const id of ids)reporting.delete(id);});
   });
@@ -699,7 +681,7 @@ function wireBlock(frame, view, block, fence) {
   const task = block.closest("[data-task]")?.dataset.task;
   if (!task) return;
   const at = kind => view.flatMap((c, i) => c.type === kind ? [i] : []);
-  const send = (index, values, b) => { b.disabled = true; api("POST", `/v1/tasks/${enc(task)}/actions/${index}`, { fence, values }).then(() => toast("Started as a new request")).catch(e => { b.disabled = false; toast(e.message); }); };
+  const send = (index, values, b) => { b.disabled = true; Server.tasks.action(task, index, { fence, values }).then(() => toast("Started as a new request")).catch(e => { b.disabled = false; toast(e.message); }); };
   const doc = frame.contentDocument;
   doc?.querySelectorAll("button.action:not(.form-send)").forEach((b, n) => b.addEventListener("click", () => send(at("action")[n], {}, b)));
   doc?.querySelectorAll(".deck-present").forEach(b => b.addEventListener("click", () => presentDeck(frame)));
@@ -732,7 +714,7 @@ async function drawAppView(block, id) {
   frame.dataset.view = id;
   block.append(frame);
   let v;
-  try { v = await api("GET", `/v1/ui/apps/${enc(id)}`); }
+  try { v = await Server.ui.app(id); }
   catch { frame.replaceWith(Object.assign(document.createElement("div"), { className: "small bad", textContent: "This view is no longer available." })); return; }
   const send = m => frame.contentWindow?.postMessage({ jsonrpc: "2.0", ...m }, "*");
   const onMessage = e => {
@@ -743,7 +725,7 @@ async function drawAppView(block, id) {
     else if (method === "ui/notifications/initialized") {
       send({ method: "ui/notifications/tool-input", params: { arguments: v.input } });
       send({ method: "ui/notifications/tool-result", params: { content: [{ type: "text", text: v.text }], structuredContent: v.structured ?? undefined } });
-    } else if (method === "tools/call") api("POST", `/v1/ui/apps/${enc(id)}/request`, { tool: String(params?.name), arguments: params?.arguments ?? {} })
+    } else if (method === "tools/call") Server.ui.appRequest(id, { tool: String(params?.name), arguments: params?.arguments ?? {} })
       .then(() => { toast("Started as a new request."); send({ id: rid, result: { content: [{ type: "text", text: "Started as a new request." }] } }); })
       .catch(err => send({ id: rid, error: { code: -32000, message: err.message || String(err) } }));
     else if (rid !== undefined) send({ id: rid, error: { code: -32601, message: "Not available here." } });
@@ -765,9 +747,9 @@ const IMAGE_POLLS = 120, IMAGE_POLL_MS = 3000;
 // Says what this client can draw, so the agent writes only that.
 async function loadUiCatalog() {
   try {
-    const c = await api("GET", "/v1/ui/catalog");
+    const c = await Server.ui.catalog();
     UiSpec.setCatalog(c);
-    await api("PUT", "/v1/ui/catalog", { version: c.version, elements: c.elements.map(e => e.name) });
+    await Server.ui.setCatalog({ version: c.version, elements: c.elements.map(e => e.name) });
   } catch {/* Drawn as "could not be drawn" until it loads. */}
 }
 function wireMarkdown(root) {
@@ -828,7 +810,7 @@ function wireDocument() {
     if (!verdict) { toast("Pick right, partly or wrong first."); return; }
     const box = $("textarea", bar);
     try {
-      await api("POST", `/v1/tasks/${enc(id)}/verdict`, { verdict, note: box.value });
+      await Server.tasks.verdict(id, verdict, box.value);
       delete drafts[box.dataset.draft];
       $$("[data-verdict]", bar).forEach(x => { const on = x.dataset.verdict === verdict; x.classList.toggle("on", on); x.setAttribute("aria-pressed", on); });
       toast(b.dataset.verdictSave !== undefined ? "Note saved." : "Recorded.");
@@ -843,7 +825,7 @@ function wireDocument() {
     if (!await ask(`${b.textContent}? It moves to the trash, where you can restore it until it is gone for good.`, b.textContent)) return;
     b.disabled = true;
     try {
-      await api("POST", "/v1/trash", { item: b.dataset.trash });
+      await Server.trash.add(b.dataset.trash);
       toast("Moved to the trash.");
       if (b.closest("#detail")) closePanel();
       if (b.dataset.then) location.hash = b.dataset.then; else await refresh();
@@ -853,7 +835,7 @@ function wireDocument() {
     const sel = e.target.closest("select[data-move]");
     if (!sel) return;
     try {
-      await api("POST", "/v1/moves", { item: sel.dataset.move, project: sel.value || null });
+      await Server.files.move(sel.dataset.move, sel.value || null);
       toast(sel.value ? `Moved to ${sel.selectedOptions[0].textContent}.` : "Taken out of the project.");
       await refresh();
     } catch (err) { toast(err.message); }
@@ -897,7 +879,7 @@ function readFile(file) {
 // Upload chosen files to the library (into a project, or in a thread).
 async function upload(list, where = {}) {
   const out = [];
-  for (const file of list) out.push(await api("POST", "/v1/files", { ...(await readFile(file)), ...where }));
+  for (const file of list) out.push(await Server.files.upload({ ...(await readFile(file)), ...where }));
   return out;
 }
 function projectOptions(projects, current, none = "No project") {
@@ -1173,7 +1155,7 @@ function describeChange(c) {
 async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects"})[k],path,k);
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
-  const computers = api("GET", "/v1/computers").then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
+  const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
   const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox(), computers]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks
@@ -1354,7 +1336,7 @@ function scheduleView(id) {
 // picks another; a pick holds only while the default it was made under is
 // still the default, so changing the default reaches new messages (#540).
 async function modelPicker() {
-  const { default: dflt, adapters } = await api("GET", "/v1/models").catch(() => ({ default: null, adapters: [] }));
+  const { default: dflt, adapters } = await Server.models.list().catch(() => ({ default: null, adapters: [] }));
   const key = m => JSON.stringify([m.adapter, m.model]);
   const opts = adapters.flatMap(a => a.models.map(model => ({ adapter: a.adapter, model })));
   if (dflt && !opts.some(o => key(o) === key(dflt))) opts.unshift(dflt);
@@ -1444,7 +1426,7 @@ function showChat(main, hash, view, panel) {
 async function home(main, panel = App.openAfter) {
   App.openAfter = null;
   const seq = App.seq;
-  const threads = (await api("GET", "/v1/chat")).threads;
+  const threads = (await Server.chat.threads()).threads;
   App.threads = threads;
   if (seq !== App.seq) return;
   if (threads.length) {
@@ -1472,7 +1454,7 @@ route(/^#\/project\/([^/]+)$/, (main, id) => home(main, `project:${id}`), true);
 // A task opens beside the conversation it came from.
 route(/^#\/task\/([^/]+)$/, async (main, id) => {
   const seq = App.seq;
-  const t = await api("GET", `/v1/tasks/${enc(id)}`);
+  const t = await Server.tasks.get(id);
   if (seq !== App.seq) return;
   if (!t.thread) return home(main, `task:${id}`);
   return showChat(main, `#/chat/${enc(t.thread)}`, m => showThread(m, t.thread), `task:${id}`);
@@ -2013,7 +1995,7 @@ function sizeComposedFrame(frame) {
 async function fill(frame, view, taskId, task) {
   if (!frame || frame._drawn) return;
   frame._drawn = true;
-  const t = task || (view?.some(c => c.type === "image" || c.type === "file") ? await api("GET", `/v1/tasks/${enc(taskId)}`) : null);
+  const t = task || (view?.some(c => c.type === "image" || c.type === "file") ? await Server.tasks.get(taskId) : null);
   frame.removeAttribute("data-sized");
   frame.srcdoc = Compose.documentFor(view, await fileData(view, t), fontCss(), t?.preview, ...look());
   frame.onload=()=>{wireMarkdown(frame.contentDocument);wireActions(frame,view,taskId);sizeComposedFrame(frame);};
@@ -2024,7 +2006,7 @@ function wireActions(frame, view, taskId) {
   const at = (view || []).flatMap((c, i) => c.type === "action" ? [i] : []);
   frame.contentDocument?.querySelectorAll("button.action").forEach((b, n) => b.addEventListener("click", async () => {
     b.disabled = true;
-    try { await api("POST", `/v1/tasks/${enc(taskId)}/actions/${at[n]}`); toast("Started as a new request"); }
+    try { await Server.tasks.action(taskId, at[n]); toast("Started as a new request"); }
     catch (e) { b.disabled = false; toast(e.message); }
   }));
 }
@@ -2043,7 +2025,7 @@ async function respond(btn, root) {
   if (decision === "answer" && !body.text) { toast("Write an answer first."); return; }
   btn.disabled = true;
   try {
-    await api("POST", `/v1/inbox/${enc(id)}`, body);
+    await Server.inbox.answer(id, body);
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
     toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
     await refresh();
@@ -2274,7 +2256,7 @@ function appOfferCard(e, theirs = true) {
 // trace. How the agent checked its work is internal (spec rev 140): it is in
 // the developer view and the run inspector, not here.
 async function taskView(id, composed) {
-  const [t, tl] = await Promise.all([api("GET", `/v1/tasks/${enc(id)}`), Panel.layer === "trace" ? api("GET", `/v1/tasks/${enc(id)}/timeline`) : null]);
+  const [t, tl] = await Promise.all([Server.tasks.get(id), Panel.layer === "trace" ? Server.tasks.timeline(id) : null]);
   const running = t.status === "running";
   if (running && Panel.liveFor !== id) {
     stopPanelLive();
@@ -2327,7 +2309,7 @@ function fileRow(f, project) {
 // One file, drawn the way an outcome draws it, with where it came from and
 // a way to save it.
 async function fileView(id) {
-  const f = await api("GET", `/v1/files/${enc(id)}/info`);
+  const f = await Server.files.info(id);
   const path = `/v1/files/${enc(id)}`;
   const body = `<h2 class="ptitle">${esc(f.name)}</h2>
     <p class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${fileFrom(f)} · ${esc(kb(f.size))} · ${esc(when(f.at))}</p>
@@ -2485,14 +2467,14 @@ function connectorBody(c) {
 }
 
 async function showConnectorPage(main, name) {
-  const c = await api("GET", `/v1/connectors/${enc(name)}`);
+  const c = await Server.connectors.get(name);
   main.innerHTML = `<div class="libpage cpage"><p class="small"><a href="#/library">Apps</a></p><section class="cp" aria-label="${esc(c.title)}">${connectorBody(c)}</section></div>`;
   bindConnectorActs(main);
 }
 
 // The same connector in the panel, from a card in chat or a task.
 async function connectorView(name) {
-  return plain(`<section class="cp">${connectorBody(await api("GET", `/v1/connectors/${enc(name)}`))}</section>`);
+  return plain(`<section class="cp">${connectorBody(await Server.connectors.get(name))}</section>`);
 }
 
 // What Disconnect did: ended at the app, or, where the app could not end it
@@ -2518,18 +2500,18 @@ function bindConnectorActs(root) {
     if (a.dataset.act === "connect") { e.preventDefault(); connectApp(a.dataset.app).catch(err => toast(err.message)); }
     if (a.dataset.act === "connect-page") { e.preventDefault(); Magnus.openExternal(a.dataset.url).catch(() => {}); }
     // The address is this server's, as the app reaches it; it is a credential, so it is copied, not shown.
-    if (a.dataset.act === "push-copy") { e.preventDefault(); try { const { url } = await api("GET", `/v1/connectors/${enc(a.dataset.app)}/push`); if (!url) { toast("Instant updates need a public address for this server, which your admin sets."); return; } await copyText(url); toast("Push address copied. Keep it private: anyone with it can make Magnus check this app."); } catch (err) { toast(err.message); } }
+    if (a.dataset.act === "push-copy") { e.preventDefault(); try { const { url } = await Server.connectors.push(a.dataset.app); if (!url) { toast("Instant updates need a public address for this server, which your admin sets."); return; } await copyText(url); toast("Push address copied. Keep it private: anyone with it can make Magnus check this app."); } catch (err) { toast(err.message); } }
     if (a.dataset.act === "gen-download") { e.preventDefault(); try { toast(`Saved ${await Magnus.download(`/v1/connectors/${enc(a.dataset.app)}/definition`, `${a.dataset.app}.json`)}`); } catch (err) { toast(err.message); } }
-    if (a.dataset.act === "gen-token") { e.preventDefault(); const input = $("[data-gen-token]", root); try { await api("PUT", `/v1/connectors/${enc(a.dataset.app)}/token`, { token: input.value }); input.value = ""; toast("Saved."); connectorsChanged(); } catch (err) { toast(err.message); } }
+    if (a.dataset.act === "gen-token") { e.preventDefault(); const input = $("[data-gen-token]", root); try { await Server.connectors.setToken(a.dataset.app, input.value); input.value = ""; toast("Saved."); connectorsChanged(); } catch (err) { toast(err.message); } }
     if (a.dataset.act === "gen-delete") {
       e.preventDefault();
       if (!await ask("Delete this connector? Its token and grants are revoked and its approval rules are removed.", "Delete")) return;
-      try { await api("DELETE", `/v1/connectors/${enc(a.dataset.app)}/generated`); location.hash = "#/library"; connectorsChanged(); } catch (err) { toast(err.message); }
+      try { await Server.connectors.removeGenerated(a.dataset.app); location.hash = "#/library"; connectorsChanged(); } catch (err) { toast(err.message); }
     }
     if (a.dataset.act === "disconnect") {
       e.preventDefault();
       if (!await ask("Disconnect? Your sign-in is ended at the app, and Magnus can no longer use it for you until you connect again.", "Disconnect")) return;
-      try { disconnected(await api("DELETE", `/v1/connectors/${enc(a.dataset.app)}/connection`)); connectorsChanged(); } catch (err) { toast(err.message); }
+      try { disconnected(await Server.connectors.disconnect(a.dataset.app)); connectorsChanged(); } catch (err) { toast(err.message); }
     }
   });
 }
@@ -2554,7 +2536,7 @@ async function connectApp(name) {
   // Slack's registered address is https. The desktop listens on the handoff,
   // and the sign-in tells Slack the https address, which the exchange repeats.
   let card = (Lib.all || []).find(c => c.name === name);
-  if (!card) { try { card = await api("GET", `/v1/connectors/${enc(name)}`); } catch { card = null; } }
+  if (!card) { try { card = await Server.connectors.get(name); } catch { card = null; } }
   // A click on a connector this server cannot sign anyone in to yet used to
   // do nothing at all (2026-11-09): say why instead.
   if (card && card.ready === false) {
@@ -2570,14 +2552,14 @@ async function connectApp(name) {
   const listenAt = card && (card.handoff || (onThisComputer(card.redirect_uri) ? card.redirect_uri : null));
   const caught = await Magnus.loopbackOpen(listenAt || null);
   const redirect = card && card.redirect_uri && !onThisComputer(card.redirect_uri) ? card.redirect_uri : caught;
-  const r = await api("POST", `/v1/connectors/${enc(name)}/sign-in`, { redirect_uri: redirect });
+  const r = await Server.connectors.signIn(name, redirect);
   Connecting[name] = r.authorize_url;
   connectorsChanged();
   Magnus.openExternal(r.authorize_url).catch(() => {});
   try {
     const got = await Magnus.loopbackWait();
     if (got.state !== r.state) throw new Error("That sign-in came back for another request. Try again.");
-    await api("POST", `/v1/connectors/${enc(name)}/sign-in/complete`, { state: got.state, code: got.code, iss: got.iss });
+    await Server.connectors.completeSignIn(name, { state: got.state, code: got.code, iss: got.iss });
     toast("Connected.");
   } catch (e) { toast(e.message); }
   finally { delete Connecting[name]; connectorsChanged(); }
@@ -2587,10 +2569,7 @@ async function connectApp(name) {
 // the conversations show.
 async function filesView() {
   const { q, project } = Panel.lib;
-  const qs = new URLSearchParams();
-  if (q) qs.set("q", q);
-  if (project) qs.set("project", project);
-  const { files } = await api("GET", `/v1/files${qs.size ? `?${qs}` : ""}`);
+  const { files } = await Server.files.list({ q, project });
   return plain(`<div class="row lib-bar"><label class="sr" for="lq">Search files</label><input id="lq" type="search" data-draft="lib-q" placeholder="Files, tasks, projects or text" autocomplete="off">
     <label class="sr" for="lp">Project</label><select id="lp" aria-label="Filter by project"><option value="">All files</option><option value="none"${project === "none" ? " selected" : ""}>In no project</option>${App.projects.map(p => `<option value="${esc(p.id)}"${p.id === project ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
     ${attachButton("Upload")}</div>
@@ -2606,7 +2585,7 @@ function projectsView() {
 }
 
 async function projectView(id) {
-  const p = await api("GET", `/v1/projects/${enc(id)}`);
+  const p = await Server.projects.get(id);
   return plain(`<div class="spread"><h2 class="ptitle">${esc(p.name)}</h2>${trashButton(id, "Delete project")}</div>
     <div class="row"><a class="button primary" href="#/chat/new/${enc(id)}">New conversation in this project</a></div>
     <h3>Instructions</h3><p class="small muted">Applied to every task and conversation in this project. Only you change them; Magnus reads them.</p>
@@ -2620,7 +2599,7 @@ async function projectView(id) {
 
 // One search across conversations, tasks and files.
 async function searchView(q) {
-  const r = await api("GET", `/v1/search?q=${enc(q)}`);
+  const r = await Server.search(q);
   const none = !r.conversations.length && !r.tasks.length && !r.files.length;
   return plain(none ? `<p class="empty">Nothing matches “${esc(q)}”.</p>` : `
     ${r.conversations.length ? `<h3>Conversations</h3><ul class="tlist">${r.conversations.map(c => `<li class="trow found" data-found-thread="${esc(c.thread)}"><a href="#/chat/${enc(c.thread)}"><span class="ttl">${esc(c.title)}</span><span class="small faint when">${esc(when(c.updated_at))}</span></a>${c.snippet ? `<div class="small muted snippet">${esc(c.snippet)}</div>` : ""}</li>`).join("")}</ul>` : ""}
@@ -2646,22 +2625,22 @@ function wirePanel() {
         case "hush": await hush(); break;
         case "cancel":
           if (!await ask("Stop this task? What it already did stays done.", "Stop")) return;
-          await api("POST", `/v1/tasks/${enc(id)}/cancel`, {}); break;
-        case "resume": await api("POST", `/v1/tasks/${enc(id)}/resume`, {}); break;
+          await Server.tasks.cancel(id); break;
+        case "resume": await Server.tasks.resume(id); break;
         case "stop-schedule":
           if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
-          await api("DELETE", `/v1/schedules/${enc(id)}`); toast("The schedule is stopped."); break;
+          await Server.schedules.remove(id); toast("The schedule is stopped."); break;
         case "delete-schedule":
           if (!await ask("Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks.", "Delete schedule")) return;
-          await api("DELETE", `/v1/schedules/${enc(id)}`); toast("The schedule is deleted."); break;
-        case "resume-schedule": await api("POST", `/v1/schedules/${enc(id)}/resume`, {}); toast("Schedule resumed."); break;
+          await Server.schedules.remove(id); toast("The schedule is deleted."); break;
+        case "resume-schedule": await Server.schedules.resume(id); toast("Schedule resumed."); break;
         case "connect": connectApp(a.dataset.app).catch(err => toast(err.message)); return;
         case "connect-page": await Magnus.openExternal(a.dataset.url); return;
         case "disconnect":
           if (!await ask("Disconnect? Your sign-in is ended at the app, and Magnus can no longer use it for you until you connect again.", "Disconnect")) return;
-          disconnected(await api("DELETE", `/v1/connectors/${enc(a.dataset.app)}/connection`)); break;
+          disconnected(await Server.connectors.disconnect(a.dataset.app)); break;
         case "save-ins":
-          await api("PUT", `/v1/projects/${enc(id)}`, { instructions: $("#pin", el).value }); delete drafts[`pin-${id}`];
+          await Server.projects.update(id, { instructions: $("#pin", el).value }); delete drafts[`pin-${id}`];
           toast("Instructions saved. New tasks here use them."); break;
         default: return;
       }
@@ -2686,7 +2665,7 @@ function wirePanel() {
     if (e.target.id !== "np") return;
     e.preventDefault();
     try {
-      const r = await api("POST", "/v1/projects", { name: $("#pn", el).value, instructions: $("#pi", el).value });
+      const r = await Server.projects.create({ name: $("#pn", el).value, instructions: $("#pi", el).value });
       delete drafts["new-project"];
       await refresh();
       openPanel(`project:${r.id}`);
@@ -2699,7 +2678,7 @@ function wirePanel() {
 const TRASHED = { task: "Task", conversation: "Conversation", message: "Chat message", file: "File", project: "Project", memory: "Memory", knowledge: "Knowledge entry" };
 route(/^#\/trash$/, async main => {
   const draw = async () => {
-    const { items, keep_days } = await api("GET", "/v1/trash");
+    const { items, keep_days } = await Server.trash.list();
     paint(main, `<h1>Trash</h1><p class="muted">What you delete waits here for ${esc(keep_days)} days, then it is gone for good. Restore puts it back where it was.</p>
       ${items.length ? `<div class="row"><button data-act="empty">Empty trash now</button></div>
       <table class="t trash"><thead><tr><th>Deleted</th><th>When</th><th>Gone for good</th><th></th></tr></thead><tbody>${items.map(i => `<tr data-trashed="${esc(i.item)}">
@@ -2712,14 +2691,14 @@ route(/^#\/trash$/, async main => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     const item = b.closest("[data-trashed]")?.dataset.trashed;
     try {
-      if (b.dataset.act === "restore") { b.disabled = true; await api("POST", `/v1/trash/${enc(item)}/restore`, {}); toast("Restored."); }
+      if (b.dataset.act === "restore") { b.disabled = true; await Server.trash.restore(item); toast("Restored."); }
       if (b.dataset.act === "remove") {
         if (!await ask("Delete this for good? It cannot be restored.", "Delete for good")) return;
-        b.disabled = true; await api("DELETE", `/v1/trash/${enc(item)}`); toast("Deleted for good.");
+        b.disabled = true; await Server.trash.remove(item); toast("Deleted for good.");
       }
       if (b.dataset.act === "empty") {
         if (!await ask("Delete everything in the trash for good? None of it can be restored.", "Delete everything")) return;
-        b.disabled = true; const r = await api("POST", "/v1/trash/empty", {}); toast(`${r.removed} deleted for good.`);
+        b.disabled = true; const r = await Server.trash.empty(); toast(`${r.removed} deleted for good.`);
       }
       await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
@@ -2766,7 +2745,7 @@ async function modelsSection(main, opts = {}) {
   const show = (a, html) => { signins[a] = html; const el = $(`#si-${CSS.escape(a)}`, main); if (el) el.innerHTML = html; };
   const finish = async (a, step, input) => {
     try {
-      await api("POST", `/v1/adapters/${enc(a)}/sign-in/complete`, { flow: step.flow, input });
+      await Server.models.completeSignIn(a, { flow: step.flow, input });
       delete catalogs[a];
       show(a, `<p class="small" style="color:var(--ok)">Connected.</p>`);
       draw();
@@ -2776,10 +2755,10 @@ async function modelsSection(main, opts = {}) {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     const a = b.dataset.adapter;
     try {
-      if (b.dataset.act === "use") { await api("PUT", "/v1/model", { adapter: $("#madapter").value, model: $("#mname").value }); toast("New tasks will use this model."); draw(); }
+      if (b.dataset.act === "use") { await Server.models.choose($("#madapter").value, $("#mname").value); toast("New tasks will use this model."); draw(); }
       if (b.dataset.act === "signin") {
         b.disabled = true;
-        const step = await api("POST", `/v1/adapters/${enc(a)}/sign-in`, {});
+        const step = await Server.models.signIn(a);
         b.disabled = false;
         if (step.event === "error") { show(a, `<p class="small" style="color:var(--bad)">${esc(step.message)}</p>`); return; }
         const head = `<div style="margin-top:12px"><p class="small">${esc(step.instructions)}</p>`;
@@ -2804,7 +2783,7 @@ async function modelsSection(main, opts = {}) {
       if (b.dataset.act === "suite") {
         const el = $(`#suite-${CSS.escape(a)}`, main);
         b.disabled = true; el.innerHTML = `<p class="small muted">Running the suite against the live provider…</p>`;
-        const r = await api("POST", `/v1/adapters/${enc(a)}/conformance`, {});
+        const r = await Server.models.conformance(a);
         el.innerHTML = `<table class="t small" style="margin-top:8px"><tbody>${r.checks.map(c => `<tr><td>${c.passed ? `<span class="chip ok">pass</span>` : `<span class="chip bad">fail</span>`}</td><td>${esc(c.name)}${c.simulated ? " <span class='faint'>(simulated)</span>" : ""}</td><td class="muted">${esc(c.detail)}</td></tr>`).join("")}</tbody></table>`;
         b.disabled = false; main._html = null;
       }
@@ -2886,7 +2865,7 @@ function appearanceSection(el) {
 // The owner's kill switch, and what it revoked.
 async function accountSection(el) {
   const draw = async () => {
-    const { sessions } = await api("GET", "/v1/sessions");
+    const { sessions } = await Server.sessions.list();
     paint(el, `<h2>Account</h2>
       <div class="card"><div class="spread"><div><strong>${esc(App.me.name)}</strong> <span class="faint">(${esc(App.me.id)})</span>
         <div class="small muted">Signed in to ${esc(App.appliance)}${App.me.roles?.length ? ` · roles: ${esc(App.me.roles.join(", "))}` : ""}${App.me.groups?.length ? ` · groups: ${esc(App.me.groups.join(", "))}` : ""}</div></div>
@@ -2905,7 +2884,7 @@ async function accountSection(el) {
     const b = e.target.closest("button[data-act]"); if (!b) return;
     try {
       if (b.dataset.act === "sign-out") return $("nav.side [data-act=sign-out]")?.click();
-      if (b.dataset.act === "end") { b.disabled = true; await api("DELETE", `/v1/sessions/${enc(b.dataset.id)}`); toast("That device is signed out."); }
+      if (b.dataset.act === "end") { b.disabled = true; await Server.sessions.end(b.dataset.id); toast("That device is signed out."); }
       el._html = null; await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
   };
@@ -2928,7 +2907,7 @@ function systemNotificationsCard() {
 
 async function notificationsSection(el) {
   const draw = async () => {
-    App.prefs = await api("GET", "/v1/preferences");
+    App.prefs = await Server.preferences.get();
     paint(el, `<h2>Notifications</h2><p class="muted">Magnus tells this computer when…</p>
       <div class="card">${NOTIFY.map(([k, label, hint]) => `<label class="row toggle"><input type="checkbox" data-pref="${k}" ${App.prefs[k] ? "checked" : ""}>
         <span><span>${esc(label)}</span><span class="small muted" style="display:block">${esc(hint)}</span></span></label>`).join("")}</div>
@@ -2940,7 +2919,7 @@ async function notificationsSection(el) {
       return draw();
     }
     const c = e.target.closest("input[data-pref]"); if (!c) return;
-    try { App.prefs = await api("PUT", "/v1/preferences", { [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
+    try { App.prefs = await Server.preferences.set({ [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
   };
   await draw();
 }
@@ -2949,7 +2928,7 @@ async function updatesSection(el) {
   const draw = async () => {
     // The server's own updates (install, roll back, channel) are Admin ›
     // Operations'; here, only what it runs and what changed.
-    const [st, notes, ver] = await Promise.all([Magnus.updateState().catch(() => null), Magnus.whatsNew(true).catch(() => null), api("GET", "/v1/version")]);
+    const [st, notes, ver] = await Promise.all([Magnus.updateState().catch(() => null), Magnus.whatsNew(true).catch(() => null), Server.version()]);
     const para = t => esc(t || "Fixes and improvements.").split(/\n+/).map(l => `<p>${l}</p>`).join("");
     paint(el, `<h2>Updates</h2>
       ${st ? `<div class="card" data-app-version><div class="spread"><div><strong>This app</strong> <span class="mono">${esc(st.current)}</span></div>
@@ -3012,7 +2991,7 @@ async function dataSection(el) {
   // The commitment being edited, if any.
   let editingC = null;
   const draw = async () => {
-    const [prefs, { requests }, rel, { disagreements }, granted, { commitments }] = await Promise.all([api("GET", "/v1/preferences"), api("GET", "/v1/deletion-requests"), api("GET", "/v1/relationship"), api("GET", "/v1/disagreements"), api("GET", "/v1/grants"), api("GET", "/v1/commitments")]);
+    const [prefs, { requests }, rel, { disagreements }, granted, { commitments }] = await Promise.all([Server.preferences.get(), Server.memory.deletionRequests(), Server.memory.relationship(), Server.memory.disagreements(), Server.memory.grants(), Server.memory.commitments()]);
     App.prefs = prefs;
     notes = rel.notes;
     const STATE = { done: ["ok", "done"], decline: ["bad", "declined"] };
@@ -3042,7 +3021,7 @@ async function dataSection(el) {
   };
   el.onchange = async e => {
     const c = e.target.closest("input[data-pref]"); if (!c) return;
-    try { App.prefs = await api("PUT", "/v1/preferences", { [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
+    try { App.prefs = await Server.preferences.set({ [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
   };
   el.onclick = async e => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
@@ -3050,38 +3029,38 @@ async function dataSection(el) {
       if (b.dataset.act === "delete-request") {
         const what = $("#delwhat", el).value.trim();
         if (!await ask(`Ask the owner to delete ${what || "all of your data"}?`, "Ask the owner")) return;
-        b.disabled = true; await api("POST", "/v1/deletion-requests", { what }); delete drafts.delwhat; toast("Asked. The owner has 30 days to act.");
+        b.disabled = true; await Server.memory.askToDelete(what); delete drafts.delwhat; toast("Asked. The owner has 30 days to act.");
       }
       const row = b.closest("[data-note]"), note = row && notes[+row.dataset.note];
-      if (b.dataset.act === "note-add") { b.disabled = true; await api("POST", "/v1/relationship", { action: "add", text: $("#newnote", el).value }); toast("Saved."); }
-      if (b.dataset.act === "note-save") { b.disabled = true; await api("POST", "/v1/relationship", { action: "change", note, text: $("input", row).value }); toast("Saved."); }
-      if (b.dataset.act === "note-remove") { b.disabled = true; await api("POST", "/v1/relationship", { action: "remove", note }); toast("Removed."); }
+      if (b.dataset.act === "note-add") { b.disabled = true; await Server.memory.note({ action: "add", text: $("#newnote", el).value }); toast("Saved."); }
+      if (b.dataset.act === "note-save") { b.disabled = true; await Server.memory.note({ action: "change", note, text: $("input", row).value }); toast("Saved."); }
+      if (b.dataset.act === "note-remove") { b.disabled = true; await Server.memory.note({ action: "remove", note }); toast("Removed."); }
       const g = b.closest("[data-grant]")?.dataset.grant;
       if (b.dataset.act === "grant-edit") editing = g;
       if (b.dataset.act === "grant-cancel") editing = null;
       if (b.dataset.act === "grant-save") {
         const f = readGrantForm(b.closest("[data-grant]"));
         if (!f.apps.length) return toast("Choose at least one app.");
-        b.disabled = true; await api("PUT", `/v1/grants/${enc(g)}`, f); editing = null; toast("Saved.");
+        b.disabled = true; await Server.memory.setGrant(g, f); editing = null; toast("Saved.");
         for (const k of Object.keys(drafts)) if (k.startsWith(`g-${g}-`)) delete drafts[k];
       }
       if (b.dataset.act === "grant-revoke") {
         if (!await ask("Revoke this? From now on, what it covered asks you again.", "Revoke")) return;
-        b.disabled = true; await api("DELETE", `/v1/grants/${enc(g)}`); toast("Revoked.");
+        b.disabled = true; await Server.memory.removeGrant(g); toast("Revoked.");
       }
       const cr = b.closest("[data-commitment]"), c = cr?.dataset.commitment;
       if (b.dataset.act === "cmt-edit") editingC = c;
       if (b.dataset.act === "cmt-cancel") editingC = null;
       const status = { "cmt-done": "done", "cmt-release": "released", "cmt-reopen": "open" }[b.dataset.act];
-      if (status) { b.disabled = true; await api("PUT", `/v1/commitments/${enc(c)}`, { status }); toast(status === "done" ? "Marked done." : status === "released" ? "Released." : "Reopened."); }
+      if (status) { b.disabled = true; await Server.memory.updateCommitment(c, { status }); toast(status === "done" ? "Marked done." : status === "released" ? "Released." : "Reopened."); }
       if (b.dataset.act === "cmt-save") {
         const f = k => $(`[data-f="${k}"]`, cr).value.trim();
         if (!f("what")) return toast("Say what will be done.");
-        b.disabled = true; await api("PUT", `/v1/commitments/${enc(c)}`, { what: f("what"), to: f("to"), by: f("by") }); editingC = null; toast("Saved.");
+        b.disabled = true; await Server.memory.updateCommitment(c, { what: f("what"), to: f("to"), by: f("by") }); editingC = null; toast("Saved.");
       }
       if (b.dataset.act === "cmt-remove") {
         if (!await ask("Remove this? It leaves your list and Magnus's context, and its words are deleted.", "Remove")) return;
-        b.disabled = true; await api("DELETE", `/v1/commitments/${enc(c)}`); toast("Removed.");
+        b.disabled = true; await Server.memory.removeCommitment(c); toast("Removed.");
       }
       el._html = null; await draw();
     } catch (err) { toast(err.message); b.disabled = false; }
@@ -3152,7 +3131,7 @@ async function boot() {
   await loadUiCatalog();
   App.sessionGeneration++;
   Resources.reset();
-  App.me = await api("GET", "/v1/me");
+  App.me = await Server.me();
   // The Terms of Use first, then the usage-data question (agreements.js).
   if (!(await agreementsGate())) {
     stop();
@@ -3172,13 +3151,13 @@ async function boot() {
   Magnus.onUpdateReady(() => refreshUpdate());
   refreshUpdate(true);
   showWhatsNew();
-  App.prefs = await api("GET", "/v1/preferences").catch(() => null);
+  App.prefs = await Server.preferences.get().catch(() => null);
   await Promise.all([refresh(), pollVersions()]);
   // Opening the app shows what changed since the last session: with
   // news, and landing on home, the needs panel opens beside it (#367).
   App.reported = new Set();
   App.reporting = new Set();
-  App.feed = await api("POST", "/v1/home/opened", {}).catch(() => null);
+  App.feed = await Server.homeOpened().catch(() => null);
   App.feedDismissed = false;
   // Return-session details stay in Activity; informational arrivals do
   // not switch the selected region or hide the conversation's composer.

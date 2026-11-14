@@ -52,7 +52,7 @@ function connectorKeySheet(name) {
 
 registerAdminSection("connectors", async el => {
   /** @type {{connectors: AdminConnector[]}} */
-  const v = await adminApi("GET", "/v1/admin/connectors");
+  const v = await Server.admin.connectors();
   paint(el, connectorsHtml(v.connectors || []));
   const again = () => AdminState.sections.get("connectors")?.(el);
   /** @param {any} err */
@@ -63,8 +63,8 @@ registerAdminSection("connectors", async el => {
     const t = /** @type {HTMLInputElement} */ (e.target), name = nameOf(t);
     if (!name) return;
     try {
-      if (t.matches("[data-connector-allow]")) await adminApi("PATCH", `/v1/admin/connectors/${enc(name)}`, { enabled: t.checked });
-      else if (t.matches("[data-connector-groups]")) await adminApi("PATCH", `/v1/admin/connectors/${enc(name)}`, { access_groups: t.value.split(",").map(s => s.trim()).filter(Boolean) });
+      if (t.matches("[data-connector-allow]")) await Server.admin.updateConnector(name, { enabled: t.checked });
+      else if (t.matches("[data-connector-groups]")) await Server.admin.updateConnector(name, { access_groups: t.value.split(",").map(s => s.trim()).filter(Boolean) });
       else return;
       toast("Saved.");
     } catch (err) { failed(err); }
@@ -75,7 +75,7 @@ registerAdminSection("connectors", async el => {
     if (!t.matches("[data-connector-key]")) return;
     const name = nameOf(t), value = await connectorKeySheet(name);
     if (!value) return;
-    try { await adminApi("PUT", `/v1/admin/connectors/${enc(name)}/credential`, { value }); toast("Key saved."); }
+    try { await Server.admin.setConnectorCredential(name, value); toast("Key saved."); }
     catch (err) { failed(err); }
     await again();
   };

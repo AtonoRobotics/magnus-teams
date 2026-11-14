@@ -23,8 +23,8 @@ const sandbox = {
   location: { hash: "#/inbox", origin: "https://server", pathname: "/" }, setTimeout: () => 0, clearTimeout: () => {}, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
-vm.runInNewContext(`${files.join("\n")}\nglobalThis.__x = { Team, Notices, ChatView };`, sandbox);
+const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js", "notices.js", "admin-workspaces.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, Notices, ChatView };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.

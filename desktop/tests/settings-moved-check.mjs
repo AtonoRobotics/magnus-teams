@@ -38,10 +38,11 @@ assert.match(app, /People's roles are set in <a href="#\/admin\/people">Admin â€
 assert.match(spend, /<div data-provider-setup><\/div>/);
 assert.match(spend, /if \(setup && owner && typeof modelsSection === "function"\) await modelsSection\(setup, \{ connectOnly: true \}\);/);
 // What the kill switch revoked is Overview's.
-assert.match(overview, /registerOverviewCard\("kill", async el => \{\s*const ks = await adminApi\("GET", "\/v1\/admin\/kill-switch"\);/);
+assert.match(overview, /registerOverviewCard\("kill", async el => \{\s*const ks = await Server\.admin\.killSwitch\(\);/);
 
-// api(): a change refused for a step-up asks for the password, then is sent again.
-const apiSrc = app.match(/const api = async \(m,p,b\) => \{[\s\S]*?\n\};/)[0];
+// Any request (server.js): a change refused for a step-up asks for the password, then is sent again.
+assert.ok(!/\bapi\(/.test(app), "app.js sends a request around server.js");
+const serverSrc = read("server.js");
 async function run(stepUpAnswer) {
   const calls = [];
   let first = true;
@@ -51,7 +52,7 @@ async function run(stepUpAnswer) {
     stepUp: async () => stepUpAnswer, offerMoreSpend: undefined, Object, Error,
   };
   vm.createContext(ctx);
-  vm.runInContext(`${apiSrc}\nglobalThis.api = api;`, ctx);
+  vm.runInContext(`${serverSrc}\nglobalThis.api = Server.call;`, ctx);
   try { return { r: await ctx.api("PUT", "/v1/adapters/a", {}), calls }; } catch (e) { return { e, calls }; }
 }
 const yes = await run(true);

@@ -58,9 +58,9 @@ function connectScreen(t) {
  */
 async function consentToConnect(name) {
   /** @type {ConnectTerms} */
-  const t = await api("GET", `/v1/connectors/${enc(name)}/terms`);
+  const t = await Server.connectors.terms(name);
   if (!await connectScreen(t)) return false;
-  await api("POST", `/v1/connectors/${enc(name)}/consent`, { terms: t.terms });
+  await Server.connectors.consent(name, t.terms);
   return true;
 }
 

@@ -1,6 +1,6 @@
 // A person's own password: changing it in Settings → Account, and the
 // "Forgot password?" step of signing in. Uses app.js's helpers ($, esc,
-// paint, api, toast) and the bridge's forgotPassword.
+// paint, toast), Server (server.js) and the bridge's forgotPassword.
 "use strict";
 
 /**
@@ -17,7 +17,7 @@ async function passwordCard(el) {
   if (!el) return;
   /** @type {PasswordRules} */
   let rules;
-  try { rules = await api("GET", "/v1/account/password"); }
+  try { rules = await Server.account.password(); }
   catch (err) { el.innerHTML = `<h3>Password</h3><p class="small" role="alert">${esc(err.message)}</p>`; return; }
   if (!rules.here) {
     el.innerHTML = `<h3>Password</h3><p class="small muted">Your password is kept by ${esc(rules.provider || "your sign-in provider")}. Change it there.</p>`;
@@ -47,7 +47,7 @@ async function passwordCard(el) {
     const save = /** @type {HTMLButtonElement} */ ($("[data-password-save]", form));
     save.disabled = true;
     try {
-      const r = await api("POST", "/v1/account/password", { current_password: current, new_password: next });
+      const r = await Server.account.setPassword(current, next);
       form.reset();
       toast(r.signed_out ? `Your password is changed. ${r.signed_out === 1 ? "One other device was" : `${r.signed_out} other devices were`} signed out.` : "Your password is changed.");
     } catch (err) { say(err.message || String(err)); }
@@ -107,7 +107,7 @@ async function mailCard(el) {
   if (!el) return;
   /** @type {MailStatus} */
   let m;
-  try { m = await api("GET", "/v1/mail"); } catch { el.innerHTML = ""; return; }
+  try { m = await Server.account.mail(); } catch { el.innerHTML = ""; return; }
   if (!m.configured) {
     el.innerHTML = `<h3>Email</h3><p class="small muted">This server sends no email, so "Forgot password?" cannot reach anyone. Outgoing mail is set up on the server itself.</p>`;
     return;
@@ -130,14 +130,14 @@ async function mailCard(el) {
     if (!input || !m.credential) return;
     if (!input.value) return say("Enter the mailbox password.");
     try {
-      await api("PUT", `/v1/secrets/${encodeURIComponent(m.credential)}`, { value: input.value });
+      await Server.account.setSecret(m.credential, input.value);
       input.value = ""; input.placeholder = "Saved. Enter a new one to replace it.";
       say("Saved. Send a test email to check it.", false);
     } catch (err) { say(err.message || String(err)); }
   };
   /** @type {HTMLButtonElement} */ ($("[data-mail-test]", form)).onclick = async () => {
     say("Sending…", false);
-    try { const r = await api("POST", "/v1/mail/test", {}); say(`Sent to ${r.to}. Check that inbox (and its spam folder).`, false); }
+    try { const r = await Server.account.testMail(); say(`Sent to ${r.to}. Check that inbox (and its spam folder).`, false); }
     catch (err) { say(err.message || String(err)); }
   };
 }

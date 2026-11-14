@@ -16,7 +16,7 @@ const { page, calls, stream, sandbox } = load({
 const rfb = new Proxy({}, { get: (_, k) => stream.rfb[k] });
 const closed = reason => stream.closed(reason);
 
-sandbox.computerScreen(page.body, { id: "c", status: "running" }, "/v1/computers/c", "#/computer/c/screen");
+sandbox.computerScreen(page.body, { id: "c", status: "running" }, "#/computer/c/screen");
 await settle();
 const preview = page.els["#preview"];
 assert.equal(preview.src, "data:image/png;base64,LAST", "the preview shows no screenshot");

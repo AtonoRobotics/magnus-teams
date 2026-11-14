@@ -10,7 +10,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
-const page = read("index.html"), app = read("app.js"), spend = read("admin-spend.js");
+const page = read("index.html"), app = read("app.js"), spend = read("admin-spend.js"), server = read("server.js");
 const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8");
 
 // Wiring.
@@ -18,10 +18,11 @@ const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m =>
 assert.ok(scripts.indexOf("admin-spend.js") > scripts.indexOf("admin.js"), "index.html loads admin-spend.js after admin.js");
 assert.match(spend, /registerAdminSection\("spend", el => adminSpend\(el\)\);/, "Admin → Spend is drawn");
 assert.match(spend, /registerAdminSection\("models", el => adminModels\(el\)\);/, "Admin → Models is drawn");
-assert.match(app, /error\.status===402 && error\.body\?\.spend_limit && typeof offerMoreSpend==="function"\)offerMoreSpend\(error\.body\)/, "a spent limit's refusal offers to ask, wherever it appears");
+assert.match(server, /error\?\.status === 402 && error\.body\?\.spend_limit && typeof offerMoreSpend === "function"\) offerMoreSpend\(error\.body\)/, "a spent limit's refusal offers to ask, wherever it appears");
 assert.match(app, /spend_limit: "paused: a monthly spend limit is reached"/, "a run stopped at a limit says so");
 assert.match(fast, /node desktop\/tests\/spend-check\.mjs/, "the fast tier runs this check");
-assert.ok(!/adminApi\("(POST|PATCH)", "\/v1\/spend/.test(spend), "the person's ask went through the admin guard");
+assert.match(spend, /await Server\.spend\.ask\(amount, String\(f\.reason \|\| ""\)\);/, "the person's ask is their own, not an admin call");
+assert.match(server, /ask: \([^)]*\) => post\("\/v1\/spend\/requests", \{ usd, reason \}\)/, "the person's ask goes to their own route");
 
 const plain = v => JSON.parse(JSON.stringify(v));
 
@@ -53,9 +54,9 @@ function harness(answers = {}) {
     if (answers[key] instanceof Error) throw answers[key];
     return answers[key] ?? { ok: true };
   };
-  ctx.api = async (m, p, b) => reply(m, p, b);
-  ctx.adminApi = async (m, p, b) => reply(m, p, b);
+  ctx.Magnus = { api: async (m, p, b) => reply(m, p, b) };
   vm.createContext(ctx);
+  vm.runInContext(server, ctx);
   vm.runInContext(spend, ctx);
   return ctx;
 }

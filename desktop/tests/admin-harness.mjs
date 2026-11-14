@@ -49,8 +49,8 @@ export function node(attrs = {}, parent = null) {
   return n;
 }
 
-/** Load admin.js and `file` with the API answering from `answers`, keyed
- * "METHOD path", each a value or a function of the body.
+/** Load server.js, admin.js and `file` with the transport answering from
+ * `answers`, keyed "METHOD path", each a value or a function of the body.
  * @param {string} file @param {Record<string, any>} answers */
 export function load(file, answers = {}) {
   const calls = [], toasts = [], els = new Map(), sections = new Map();
@@ -80,6 +80,7 @@ export function load(file, answers = {}) {
   };
   ctx.Magnus = { api: ctx.api };
   vm.createContext(ctx);
+  vm.runInContext(read("server.js"), ctx);
   vm.runInContext(read("admin.js"), ctx);
   vm.runInContext(`AdminState.standing = { admin: true, owner: ${answers.owner === true}, step_up_seconds: 300, stepped_up_until: null };`, ctx);
   vm.runInContext(read(file), ctx);

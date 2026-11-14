@@ -23,13 +23,13 @@ function adminTestersHtml(testers, invited, people) {
 
 /** Draw the testers into `box`. @param {HTMLElement} box @param {{ id: string, name: string }[]} people */
 async function adminTesters(box, people) {
-  const v = await adminApi("GET", "/v1/admin/testers");
+  const v = await Server.admin.testers();
   paint(box, adminTestersHtml(v.testers || [], v.invited || [], people));
   const form = $("[data-tester-invite]", box);
   if (form) form.onsubmit = async e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(/** @type {HTMLFormElement} */ (e.target)));
-    try { await adminApi("POST", "/v1/admin/testers/invite", { person: f.person }); toast("Invited. They are asked when they next open Magnus."); }
+    try { await Server.admin.inviteTester(f.person); toast("Invited. They are asked when they next open Magnus."); }
     catch (err) { if (!err.cancelled) toast(err.body?.error || err.message); }
     await adminTesters(box, people);
   };

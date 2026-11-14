@@ -97,8 +97,8 @@ function securitySave(filename, csv) {
 registerAdminSection("security", async el => {
   const owner = !!AdminState.standing?.owner;
   const [policy, audit, retention, dev, idp] = await Promise.all([
-    adminApi("GET", "/v1/admin/sign-in-policy"), adminApi("GET", "/v1/admin/audit"), adminApi("GET", "/v1/admin/retention"), adminApi("GET", "/v1/admin/developer-access"),
-    owner ? adminApi("GET", "/v1/admin/identity-provider") : null,
+    Server.admin.signInPolicy(), Server.admin.audit(), Server.admin.retention(), Server.admin.developerAccess(),
+    owner ? Server.admin.identityProvider() : null,
   ]);
   paint(el, `<h2>Security</h2>${signInHtml(policy)}${idp ? `<section class="card">${idpHtml(idp)}</section>` : ""}${auditHtml(audit.entries || [])}${retentionHtml(retention)}${devAccessHtml(dev.sessions || [])}`);
   /** @param {any} err */
@@ -109,14 +109,14 @@ registerAdminSection("security", async el => {
     const form = /** @type {HTMLFormElement} */ (e.target), f = new FormData(form);
     const body = { code_required: f.get("code_required") === "on", lockout_enabled: f.get("lockout_enabled") === "on", lockout_permanent: !!policy.lockout_permanent };
     for (const k of ["idle_minutes", "max_hours", "lockout_failures", "lockout_wait_minutes", "lockout_max_wait_minutes"]) body[k] = Number(f.get(k));
-    try { await adminApi("PUT", "/v1/admin/sign-in-policy", body); toast("Sign-in rules saved."); }
+    try { await Server.admin.setSignInPolicy(body); toast("Sign-in rules saved."); }
     catch (err) { failed(err); }
   };
   const keep = $("[data-retention-form]", el);
   if (keep) keep.onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(/** @type {HTMLFormElement} */ (e.target));
-    try { await adminApi("PUT", "/v1/admin/retention", { trash_days: Number(f.get("trash_days")), backup_days: Number(f.get("backup_days")) }); toast("Saved."); await AdminState.sections.get("security")?.(el); }
+    try { await Server.admin.setRetention({ trash_days: Number(f.get("trash_days")), backup_days: Number(f.get("backup_days")) }); toast("Saved."); await AdminState.sections.get("security")?.(el); }
     catch (err) { failed(err); }
   };
   if (idp) wireIdp(el, failed);
@@ -124,11 +124,11 @@ registerAdminSection("security", async el => {
     e.preventDefault();
     const f = new FormData(/** @type {HTMLFormElement} */ (e.target));
     query = new URLSearchParams([...f].filter(([, v]) => v)).toString();
-    try { const v = await adminApi("GET", `/v1/admin/audit${query ? `?${query}` : ""}`); paint($("[data-audit]", el), auditRows(v.entries || [])); }
+    try { const v = await Server.admin.audit(query); paint($("[data-audit]", el), auditRows(v.entries || [])); }
     catch (err) { failed(err); }
   };
   $("[data-audit-export]", el).onclick = async () => {
-    try { const v = await adminApi("GET", `/v1/admin/audit/export${query ? `?${query}` : ""}`); securitySave(v.filename, v.csv); }
+    try { const v = await Server.admin.auditExport(query); securitySave(v.filename, v.csv); }
     catch (err) { failed(err); }
   };
 });
@@ -143,13 +143,13 @@ function wireIdp(el, failed) {
   $("[data-idp-test]", el).onclick = async () => {
     try {
       const body = settings();
-      const s = await adminApi("POST", "/v1/admin/identity-provider/test", body);
+      const s = await Server.admin.testIdentityProvider(body);
       const url = s.verification_uri_complete || s.verification_uri;
       paint(status, `Open <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>, enter ${esc(s.user_code)} and sign in as yourself.`);
       const every = Math.max(1, s.interval);
       for (let waited = 0; waited < s.expires_in; waited += every) {
         await new Promise(r => setTimeout(r, every * 1000));
-        const p = await adminApi("POST", "/v1/admin/identity-provider/test/poll", {});
+        const p = await Server.admin.pollIdentityProviderTest();
         if (p.status === "pending") continue;
         paint(status, esc(p.message));
         if (p.status === "passed") { tested = body; use.disabled = false; }
@@ -158,13 +158,13 @@ function wireIdp(el, failed) {
     } catch (err) { failed(err); }
   };
   use.onclick = async () => {
-    try { await adminApi("PUT", "/v1/admin/identity-provider", { provider: tested }); toast("People sign in through the new provider."); await AdminState.sections.get("security")?.(el); }
+    try { await Server.admin.setIdentityProvider(tested); toast("People sign in through the new provider."); await AdminState.sections.get("security")?.(el); }
     catch (err) { failed(err); }
   };
   const off = $("[data-idp-off]", el);
   if (off) off.onclick = async () => {
     if (!confirm("Sign in with passwords kept here? People without one here cannot sign in until they set one.")) return;
-    try { await adminApi("PUT", "/v1/admin/identity-provider", { provider: null }); toast("People sign in with passwords kept here."); await AdminState.sections.get("security")?.(el); }
+    try { await Server.admin.setIdentityProvider(null); toast("People sign in with passwords kept here."); await AdminState.sections.get("security")?.(el); }
     catch (err) { failed(err); }
   };
 }

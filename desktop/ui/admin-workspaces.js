@@ -26,13 +26,13 @@ function adminWorkspacesHtml(list, people) {
 async function adminWorkspaces(box) {
   if (!box) return;
   /** @type {{ workspaces: AdminWorkspace[], people: AdminWsPerson[] }} */
-  const v = await adminApi("GET", "/v1/admin/workspaces").catch(() => ({ workspaces: [], people: [] }));
+  const v = await Server.admin.workspaces().catch(() => ({ workspaces: [], people: [] }));
   paint(box, adminWorkspacesHtml(v.workspaces || [], v.people || []));
   box.onchange = async e => {
     const c = /** @type {HTMLInputElement} */ (e.target);
     const id = c.closest("[data-ws-person]")?.getAttribute("data-ws-person");
     if (!c.matches("[data-team-admin]") || !id) return;
-    try { await adminApi("PUT", `/v1/admin/people/${enc(id)}/team-admin`, { on: c.checked }); toast(c.checked ? "Made a Team Admin." : "No longer a Team Admin."); }
+    try { await Server.admin.setTeamAdmin(id, c.checked); toast(c.checked ? "Made a Team Admin." : "No longer a Team Admin."); }
     catch (err) { if (!err.cancelled) toast(err.body?.message || err.body?.error || err.message); }
     await adminWorkspaces(box);
   };

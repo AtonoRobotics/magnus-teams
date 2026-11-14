@@ -176,13 +176,12 @@ const TeamChat = {
   async refresh(first = false) {
     const s = this.s;
     if (!s || !s.center.isConnected) return;
-    const base = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}`;
-    const [view, whispers] = await Promise.all([api("GET", `${base}/view`), Team.home.role === "guest" ? [] : api("GET", `${base}/whispers`).catch(() => [])]);
+    const [view, whispers] = await Promise.all([Server.channels.view(s.ws, s.channel), Team.home.role === "guest" ? [] : Server.channels.whispers(s.ws, s.channel).catch(() => [])]);
     if (s !== this.s) return;
     s.view = view; s.whispers = whispers;
     await this.draw(first);
     const newest = view.messages.at(-1)?.at || "";
-    if (newest && newest !== s.lastRead) { s.lastRead = newest; api("POST", `${base}/read`, {}).catch(() => {}); }
+    if (newest && newest !== s.lastRead) { s.lastRead = newest; Server.channels.read(s.ws, s.channel).catch(() => {}); }
   },
 
   /** Draw the channel (and its open thread) again from what is held. */
@@ -195,7 +194,7 @@ const TeamChat = {
 
   /** Ask in this channel, from outside its composer (the command menu, Catch me up). */
   async send(text, thread) {
-    const s = this.s, r = await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/messages`, { text, thread: thread || undefined });
+    const s = this.s, r = await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined });
     if (r.agent) toast(`${Team.home.agent.name} is on it.`);
     if (r.limited) toast(r.limited, 8000);
     await this.refresh();
@@ -212,7 +211,7 @@ const TeamChat = {
   async archive(on) {
     const s = this.s;
     try {
-      await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/archive`, { on });
+      await Server.channels.archive(s.ws, s.channel, on);
       await loadHome(s.ws);
       if (on) { toast("Archived. It comes back when someone writes in it."); this.away(); } else { toast("Back on your list."); await this.draw(); }
     } catch (err) { toast(err.message); }
@@ -230,7 +229,7 @@ const TeamChat = {
     const s = this.s;
     if (!(await ask("Delete this conversation from your list? What it holds now is gone for you. The others in it keep theirs.", "Delete"))) return;
     try {
-      await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/clear`, {});
+      await Server.channels.clear(s.ws, s.channel);
       await loadHome(s.ws);
       toast("Deleted from your list.");
       this.away();
@@ -240,6 +239,6 @@ const TeamChat = {
   async setting(what, body, local) {
     const s = this.s, c = Team.home.channels.find(x => x.id === s.channel);
     if (c) local(c);
-    try { await api("POST", `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/${what}`, body); } catch (err) { toast(err.message); await loadHome(s.ws); await this.draw(); }
+    try { await Server.channels.act(s.ws, s.channel, what, body); } catch (err) { toast(err.message); await loadHome(s.ws); await this.draw(); }
   },
 };
