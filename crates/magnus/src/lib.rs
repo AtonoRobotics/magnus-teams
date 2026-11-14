@@ -23,6 +23,7 @@ pub mod boundary;
 pub mod brokered;
 pub mod browser;
 pub mod bundle;
+pub mod cadence;
 pub mod catalog;
 pub mod catalog_withdrawal;
 pub mod chat;

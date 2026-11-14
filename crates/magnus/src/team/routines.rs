@@ -54,7 +54,8 @@ pub enum Firing {
 
 impl Routine {
     pub(super) fn due(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
-        self.last_at.is_none_or(|at| now - at >= chrono::Duration::hours(self.every_hours))
+        let every = crate::cadence::Recurrence::EveryHours(self.every_hours);
+        self.last_at.is_none_or(|at| every.next_after(Some(at), at, crate::cadence::Zone::Server).is_some_and(|t| t <= now))
     }
 }
 
