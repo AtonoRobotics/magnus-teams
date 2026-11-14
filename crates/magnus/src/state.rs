@@ -662,9 +662,9 @@ impl Schedule {
     }
 
     /// The next time this schedule is due after its last run (or creation),
-    /// unless it is paused or over.
+    /// unless it is paused, ended (by its own run or a limit) or out of runs.
     pub fn next_due(&self) -> Option<DateTime<Utc>> {
-        if self.paused.is_some() || self.max_runs.is_some_and(|m| self.started >= m) {
+        if self.ended.is_some() || self.paused.is_some() || self.max_runs.is_some_and(|m| self.started >= m) {
             return None;
         }
         let next = self.next_time()?;

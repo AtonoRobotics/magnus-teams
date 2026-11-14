@@ -708,7 +708,7 @@ impl Kernel {
                         // any run in flight; pausing stops future runs). No
                         // await stands between this recheck and the creation
                         // below.
-                        if !self.read(|s| s.schedules.get(&sc.id).is_some_and(|x| x.paused.is_none())) {
+                        if !self.read(|s| s.schedules.get(&sc.id).is_some_and(|x| x.paused.is_none() && x.ended.is_none())) {
                             continue;
                         }
                         let o = NewRun {

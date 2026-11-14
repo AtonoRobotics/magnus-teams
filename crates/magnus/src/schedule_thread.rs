@@ -51,4 +51,22 @@ mod tests {
         s.removed_threads.insert("th_gone".into());
         assert_eq!(of(&s, &s.schedules["sc1"]), "schedule-sc1");
     }
+
+    /// A schedule its own run ended, with no end time or run limit, is
+    /// never due again: it stayed due and fired again once that run was
+    /// over, while its card said it had ended.
+    #[test]
+    fn a_schedule_its_run_ended_is_never_due_again() {
+        let mut s = State::default();
+        set(&mut s, 1, "sc1", Value::Null);
+        assert!(s.schedules["sc1"].next_due().is_some());
+        s.apply(&Event {
+            seq: 2,
+            at: chrono::Utc::now(),
+            actor: "model".into(),
+            ev: serde_json::from_value(json!({ "kind": "schedule_ended", "id": "sc1", "reason": "the work is done", "run": "r1" })).unwrap(),
+        });
+        assert!(s.schedules["sc1"].ended.is_some());
+        assert!(s.schedules["sc1"].next_due().is_none(), "an ended schedule is still due");
+    }
 }
