@@ -280,9 +280,9 @@ one commit), 2026-11-02.
 - [x] Disconnect first calls the provider's revocation endpoint, then deletes the tokens; both ends of a connection are in the log (`connector_lifecycle.rs` `disconnect_revokes_at_the_app_first_and_both_ends_of_a_connection_are_in_the_log`)
 - [ ] Disconnect through the relay for confidential clients
 - [x] For a provider with no revocation endpoint, the tokens are deleted and the card names the provider page where the user removes Magnus (`connector_lifecycle.rs` `an_app_that_cannot_revoke_is_disconnected_here_and_the_person_is_told`; every catalog manifest names its page, `remove_access`, catalog.rs `every_manifest_is_well_formed`)
-- [ ] Manifest updates: new versions pulled and applied when no call is in flight; brokered images by digest; local add-ons through the app's updater when the program is closed
-- [ ] A new version needing more access asks through the scope-approval card the first time a tool needs it
-- [ ] Withdrawal: appliances disable the connector, revoke its connections and tell affected users in their Library
+- [ ] Manifest updates: new versions pulled and applied when no call is in flight; brokered images by digest; local add-ons through the app's updater when the program is closed (decided: manifests are release-bound, a new version arrives with a signed server release, installed after running tasks finish their step, `update.rs`; brokered images by digest, `catalog::kind_problem`; local add-ons not built; decisions/2026-11-13-catalog-withdrawal.md)
+- [x] A new version needing more access asks through the scope-approval card the first time a tool needs it (when the provider answers the call with a scope challenge: `agent_apps.rs` `a_call_that_needs_more_access_asks_for_it_with_a_card_and_goes_through_once_approved`; Magnus does not compare a sign-in's granted scopes with a newer manifest's)
+- [x] Withdrawal: appliances disable the connector, revoke its connections and tell affected users in their Library (a list signed with the release key beside the update feed, `release/publish-withdrawals.sh`, read on the update check; `catalog_withdrawal.rs` `a_withdrawn_connector_is_turned_off_its_connections_revoked_and_its_people_told_once`; people are told by an inbox notice, and the Library draws no card for a withdrawn connector yet)
 - [ ] Relay availability: unreachable, confidential connections work until their access tokens expire; public ones unaffected
 - [x] Kill switch, from the app or `magnus kill` on the server itself: refuses every connector call, revokes every connection at its provider, deletes the tokens and seals the vault; releasing restores none (`kill_switch.rs`, `connectors.rs`, `inv1_boundary.rs` `kill_switch_stops_actions_and_release_resumes_nothing`; the relay part with the relay)
 
@@ -338,7 +338,7 @@ one commit), 2026-11-02.
 - [ ] On merge, CI asks the catalog signing service (key in a hardware security module, signs only reviewed CI builds of the protected main branch)
 - [ ] The signed manifest goes to the staging catalog; staging appliances pull it and the sign-in suite runs there
 - [ ] The same manifest, byte for byte, promoted to the production catalog
-- [ ] Withdrawal by a signed withdrawal in both catalogs; key rotation through a successor the current key signed (proposed, not ruled)
+- [ ] Withdrawal by a signed withdrawal in both catalogs; key rotation through a successor the current key signed (proposed, not ruled; today one list signed with the release key, decisions/2026-11-13-catalog-withdrawal.md)
 - [ ] Client IDs and secrets never in the repository or manifest; the relay supplies the client per environment (client IDs are in `catalog/registrations.toml` today)
 
 ### Versions and upkeep

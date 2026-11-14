@@ -210,6 +210,7 @@ async fn run(cfg: Config) -> Result<()> {
     crate::trash::schedule(k.clone());
     k.watch_sessions();
     crate::update::schedule(k.clone());
+    crate::catalog_withdrawal::schedule(k.clone());
     crate::computer::schedule(k.clone());
     crate::unattended::schedule(k.clone());
     crate::team::schedule(k.clone());

@@ -24,6 +24,7 @@ pub mod brokered;
 pub mod browser;
 pub mod bundle;
 pub mod catalog;
+pub mod catalog_withdrawal;
 pub mod chat;
 pub mod chat_actions;
 pub mod chat_entry;

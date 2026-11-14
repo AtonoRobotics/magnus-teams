@@ -165,8 +165,7 @@ pub enum Ev {
         #[serde(default)]
         allow: Option<Vec<String>>,
     },
-    /// An admin's draft of a policy layer (None: dropped). Nothing in force
-    /// changes until it is applied.
+    /// An admin's draft of a policy layer (None: dropped). Nothing in force changes until it is applied.
     PolicyDrafted {
         layer: String,
         cedar: Option<String>,
@@ -189,6 +188,7 @@ pub enum Ev {
     /// A read-back or a result's sources (spec rev 147).
     Evidence(crate::evidence::Change),
     Spend(crate::spend::Change),
+    Catalog(crate::catalog_withdrawal::Change),
     AdminSetting(crate::admin_app::settings::Change),
     /// A fresh screenshot for a run after a person handed its computer back.
     Handback {

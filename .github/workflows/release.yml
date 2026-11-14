@@ -108,6 +108,12 @@ jobs:
           [ "$(release/can-publish.sh "$CONFIG" 1)" = 1 ]
           git log -1 --format='%s%n%n%b' > "$RUNNER_TEMP/notes"
 
+      - name: Publish the catalog's withdrawal list
+        # Signed with the release key beside the update feed; the server
+        # reads it on its update check (decisions/2026-11-13-catalog-withdrawal.md).
+        # Before the build is fetched: a withdrawal waits on nothing else.
+        run: release/publish-withdrawals.sh "$UPDATES"
+
       - name: Fetch the build
         run: |
           image=$(sh release/fetch-build.sh "${{ github.run_id }}" "$RUNNER_TEMP/build")
