@@ -459,13 +459,18 @@ impl Kernel {
         if views.is_empty() {
             return vec![];
         }
-        let mut v = vec![ToolSpec {
-            name: "desktop_programs".into(),
-            description: "Where each supported program stands on each of the person's computers: not installed, not enabled, closed or ready.".into(),
-            input_schema: obj(json!({}), &[]),
-        }];
+        let mut v = vec![programs_spec()];
         v.extend(specs(&views));
         v
+    }
+}
+
+/// `desktop_programs`: where each program stands.
+pub(crate) fn programs_spec() -> ToolSpec {
+    ToolSpec {
+        name: "desktop_programs".into(),
+        description: "Where each supported program stands on each of the person's computers: not installed, not enabled, closed or ready.".into(),
+        input_schema: obj(json!({}), &[]),
     }
 }
 

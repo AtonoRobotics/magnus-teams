@@ -399,7 +399,7 @@ impl Kernel {
     }
 }
 
-fn team_specs() -> Vec<ToolSpec> {
+pub(crate) fn team_specs() -> Vec<ToolSpec> {
     let tool = |name: &str, description: &str, props: Value, needs: &[&str]| ToolSpec { name: name.into(), description: description.into(), input_schema: obj(props, needs) };
     let text = json!({ "type": "string" });
     vec![

@@ -364,7 +364,7 @@ impl Kernel {
         if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {
             specs.retain(|t| t.name != "project_read");
         }
-        specs.extend(self.far_specs(&run.person));
+        specs.extend(self.family_specs(&run.person));
         let apps = self.app_tool_specs(run).await;
         if apps.len() > tools::LOAD_ALL && !every {
             let found = self.found_tools(run);
