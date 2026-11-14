@@ -446,7 +446,7 @@ impl Kernel {
         if a.issuer != Issuer::Model {
             return Ok(Gate::Stop(self.deny(a, "approval", "only the agent's own actions wait for a person", false, Some(rule.into())).await?));
         }
-        if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.background()) && !s.background_asks(&run.id)) {
+        if self.read(|s| s.asks_no_one(&run.id)) {
             let text = format!("{why}. This is the team agent's own routine work, so no one is asked; if it is worth doing, report it to the channel and finish");
             return Ok(Gate::Stop(self.deny(a, "approval", &text, false, Some(rule.into())).await?));
         }

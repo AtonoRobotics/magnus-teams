@@ -333,7 +333,7 @@ impl Kernel {
             self.fill_login(id, input["username_field"].as_str(), user.as_deref(), password_field, &password).await?;
             return Ok(("Signed in from the password manager.".to_string(), false, None));
         }
-        if self.is_background(run) {
+        if self.run_kind(run).is_background() {
             return Ok(("Signing in here needs a person, and this work has no one to ask.".to_string(), true, None));
         }
         let task = self.read(|s| s.runs.get(run).map(|r| r.task.clone())).unwrap_or_default();

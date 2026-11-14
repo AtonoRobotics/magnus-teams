@@ -236,9 +236,12 @@ impl Kernel {
         let no = |why: String| Ok((format!("No card: {why}"), true, None));
         let Some((run, chat, scheduled)) = self.read(|s| {
             let r = s.runs.get(&a.run)?;
-            let t = s.tasks.get(&r.task)?;
+            if !s.tasks.contains_key(&r.task) {
+                return None;
+            }
             // A sub-agent of a scheduled run is scheduled work too.
-            Some((r.clone(), t.is_chat_turn(), s.authority(&a.run).is_some_and(|top| top.schedule.is_some())))
+            let kind = s.run_kind(&a.run);
+            Some((r.clone(), kind.is_chat_turn(), kind.under_schedule()))
         }) else {
             return no("no such run.".into());
         };

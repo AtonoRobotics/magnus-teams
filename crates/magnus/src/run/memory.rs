@@ -34,17 +34,16 @@ impl Kernel {
         // excludes ended tasks, so without it the review cannot see what
         // failed (#383).
         if let Some((person, task, ended, label)) = self.read(|s| {
-            s.runs.get(run.as_str()).filter(|_| !s.outcome_turn_follows(&run)).map(|r| {
-                let ended = s.tasks.get(&r.task).map(|t| (t.review || t.poll, t.chat.as_ref().is_some_and(|c| c.turn), r.status, r.summary.clone()));
+            s.runs.get(run.as_str()).filter(|r| s.tasks.contains_key(&r.task) && s.end_wakes_review(&run)).map(|r| {
                 let label = crate::tools::Label { untrusted: r.untrusted, private: r.private };
-                (r.person.clone(), r.task.clone(), ended, label)
+                (r.person.clone(), r.task.clone(), (r.status, r.summary.clone()), label)
             })
         }) {
             // A failure's reason and a completion's summary both land in
             // the run summary; the reason field is for suspensions.
             let wake = match ended {
-                Some((false, false, crate::state::Status::Completed, summary)) => Some((format!("task {task} done"), summary.unwrap_or_default())),
-                Some((false, false, crate::state::Status::Failed, summary)) => Some((format!("task {task} failed"), summary.unwrap_or_default())),
+                (crate::state::Status::Completed, summary) => Some((format!("task {task} done"), summary.unwrap_or_default())),
+                (crate::state::Status::Failed, summary) => Some((format!("task {task} failed"), summary.unwrap_or_default())),
                 _ => None,
             };
             if let Some((reason, outcome)) = wake {
@@ -60,7 +59,7 @@ impl Kernel {
     async fn memory_pass(self: &Arc<Self>, run_id: &str) -> Result<()> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(()) };
         // Its grant's budget for the period, once spent, bounds it too (#286).
-        if self.team_of(&run.task).is_some() || !run.config.module("memory_pass") || run.model_calls >= run.config.budget.max_model_calls || self.grant_spent(run_id).is_some() {
+        if self.run_kind(&run.id).in_team() || !run.config.module("memory_pass") || run.model_calls >= run.config.budget.max_model_calls || self.grant_spent(run_id).is_some() {
             return Ok(());
         }
         let Some(text) = self.exchange(&run).await? else { return Ok(()) };

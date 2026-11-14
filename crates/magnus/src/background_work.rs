@@ -37,17 +37,36 @@ impl State {
             .any(|(run, _)| !self.runs.get(run).is_some_and(|r| r.status == Status::Suspended && r.reason.as_deref() == Some("approval")))
     }
 
-    /// Whether this ended run's outcome comes back to the agent as a turn in
-    /// its conversation (`outcomes`), or to its parent as a sub-agent's
-    /// result. Such an end wakes no review as well: the agent already has it,
-    /// and one end makes one run.
-    pub fn outcome_turn_follows(&self, run: &str) -> bool {
-        if self.sub_agents.get(run).is_some() {
-            return true;
-        }
-        let Some(r) = self.runs.get(run).filter(|r| r.config.module(crate::outcomes::MODULE)) else { return false };
-        let thread = self.tasks.get(&r.task).and_then(|t| t.chat.as_ref()).filter(|c| !c.turn).map(|c| c.thread.as_str());
-        thread.is_some_and(|th| !self.trash.contains_key(th) && !self.removed_threads.contains(th))
+    /// Whether an ask of this run's is refused rather than put to anyone:
+    /// background work that may not ask, a sub-agent of a team routine
+    /// included, since authority is looked up through the parent chain
+    /// (2026-11-10, 2026-11-13-run-kind).
+    pub fn asks_no_one(&self, run: &str) -> bool {
+        self.run_kind(run).is_background() && !self.background_asks(run)
+    }
+
+    /// What `settle_background` ends and puts away: background work, a
+    /// sub-agent of it included, left waiting on its person for anything but
+    /// an ask (or a timer, an update or a halt), and each open card of such
+    /// work that is neither one of its outputs nor an ask.
+    pub fn background_to_settle(&self) -> (Vec<String>, Vec<String>) {
+        let bg = |task: &Option<String>| task.as_ref().and_then(|t| self.tasks.get(t)).is_some_and(|t| self.run_kind(&t.run_id).is_background());
+        let held = |x: &str| ["timer", "update"].contains(&x) || crate::halts::is_kill(x);
+        let runs: Vec<String> = self
+            .runs
+            .values()
+            .filter(|r| r.status == Status::Suspended && !r.reason.as_deref().is_some_and(held))
+            .filter(|r| self.run_kind(&r.id).is_background() && !r.reason.as_deref().is_some_and(|x| self.background_waits(&r.id, x)))
+            .map(|r| r.id.clone())
+            .collect();
+        let asks = |i: &crate::state::Item| i.kind == "approval" && i.run.as_deref().is_some_and(|r| self.background_asks(r));
+        let items: Vec<String> = self
+            .items
+            .values()
+            .filter(|i| i.resolution.is_none() && bg(&i.task) && !crate::state::BACKGROUND_OUTPUTS.contains(&i.kind.as_str()) && !asks(i))
+            .map(|i| i.id.clone())
+            .collect();
+        (runs, items)
     }
 }
 

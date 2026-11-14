@@ -650,7 +650,7 @@ impl Kernel {
         }
         // In chat Magnus does the work itself, each call checked below like
         // any run's (spec, Chat and tasks); only the chat tools stay in chat.
-        let chat_turn = self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.is_chat_turn()));
+        let chat_turn = self.run_kind(&run.id).is_chat_turn();
         if let Some(why) = crate::chat_work::misplaced(chat_turn, f) {
             return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
         }
