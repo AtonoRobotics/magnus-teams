@@ -101,6 +101,12 @@ impl Kernel {
             self.suspend_with_notice(run_id, "spend_limit", format!("Stopped: {stop}"), crate::spend::enforce::details(&stop)).await?;
             return Ok(false);
         }
+        // So do a team's, its workspace's and its channel's, when they are
+        // lowered or overrun; a sub-agent through the run at its top.
+        if let Some((why, details)) = self.read(|s| crate::team::spend::stop_partway(s, run_id, chrono::Utc::now())) {
+            self.suspend_with_notice(run_id, "spend_limit", format!("Stopped: {why}"), details).await?;
+            return Ok(false);
+        }
         Ok(true)
     }
 

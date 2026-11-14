@@ -227,12 +227,10 @@ impl Kernel {
         let others = shown.iter().any(|m| m.sender != person);
         let outside = self.read(|s| shown.iter().any(|m| s.team.role(workspace, &m.sender).is_some_and(|r| r == Role::Guest)));
         // An owner's spend limit: nothing starts past it, and what starts
-        // gets no more budget than is left.
-        let left = self.team_budget_left(workspace, channel).map_err(anyhow::Error::msg)?;
-        let budget = left.map(|usd| crate::config::Budget { max_usd: self.cfg.budget.max_usd.min(usd), ..self.cfg.budget.clone() });
+        // gets no more budget than is left after open team runs (`spend`).
         let team = TeamRun { workspace: workspace.into(), channel: channel.into(), thread, task: String::new(), requester: person.into(), history, sub: false, outside };
-        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), team: Some(team), budget, model, ..Default::default() };
-        self.create_run(actor, person, text, vec![], new_run).await
+        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), team: Some(team), model, ..Default::default() };
+        self.start_team_run(actor, person, text, new_run).await
     }
 
     pub(crate) async fn team_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {

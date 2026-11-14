@@ -101,7 +101,15 @@ impl Kernel {
                 sub: false,
                 outside: false,
             };
-            let (task, _) = self.create_run("poll", &r.by, r.text.clone(), vec![], NewRun { team: Some(team), ..Default::default() }).await?;
+            // A routine is team work too: within the limits, or not yet.
+            let (task, _) = match self.start_team_run("poll", &r.by, r.text.clone(), NewRun { team: Some(team), ..Default::default() }).await {
+                Ok(started) => started,
+                Err(e) if e.is::<super::spend::TeamLimited>() => {
+                    tracing::info!("team routine {id} waits: {e}");
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
         }
         Ok(())

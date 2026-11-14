@@ -1,0 +1,11 @@
+# A team's spend limits hold across runs that are open at once
+
+A review found that a workspace's or a channel's limit could be passed. Each start was given what the month had left, but nothing held that amount for it. With $1 left, two requests started before either had spent anything each got a $1 budget. The loop rechecked the person's and the server's limits before each model call, but not the team's. That broke the 2026-11-10 decision that a limit holds partway through a task.
+
+**At a start, open runs' budgets are held.** What is left for new team work is the limit, less what the month's team runs have spent, less the unspent budget of every team run in the workspace (or channel) that has not ended. A paused run counts too, since it may be resumed. A sub-agent is not counted on its own: its budget comes out of its parent's, and its spend is already in its parent's. When nothing is left, nothing starts, and the poster gets the same words as when a limit is spent. The right panel still shows spend, not what is held.
+
+**Starts take turns.** One lock (`team::spend::STARTING`) covers reading what is left and recording the run that claims it. A second start therefore never reads a remainder that another start has claimed but not yet recorded. The same path starts the agent's own work: follow-ups, and the team routines, which used to start with no limit at all. A routine that hits a limit waits for its next tick. If another start claims the remainder between the route's check and the start, the poster gets the same `limited` answer, not an error.
+
+**Partway, the loop checks the team's limits too.** Before each model call, a team run stops if its workspace's or its channel's limit is spent by what has actually been spent. That happens when an owner lowers a limit, or when a call overruns its budget. A sub-agent is checked against the limits of the run at the top of its parents. The run stops the way the person's and the server's limits stop it: reason `spend_limit`, with a notice that says which limit. Its evidence has `which` set to `workspace` or `channel` and `can_ask: false`, so the app offers no "Ask for more".
+
+Reason: the 2026-11-10 rule that money is bounded before work starts, and holds partway through it, applied to runs that are open at the same time.
