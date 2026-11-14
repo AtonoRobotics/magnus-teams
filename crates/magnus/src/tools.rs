@@ -2,6 +2,7 @@
 //! tools every run is offered. App tools come from MCP servers, named
 //! `<app>__<tool>`, and are classified by the owner in the config.
 
+use crate::tool_registry::{Need, Offer};
 use magnus_adapter_proto::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -118,7 +119,11 @@ impl Audience {
     }
 }
 
-pub use crate::tools_ui::RECORDS;
+/// Run records the loop writes to the log itself, outside execute() (K21):
+/// the registry's, the rich-answer tools', and the retired `task_contract`,
+/// whose stored calls still read as a record.
+pub static RECORDS: std::sync::LazyLock<Vec<&'static str>> =
+    std::sync::LazyLock::new(|| crate::tool_registry::records().chain(crate::tools_ui::RECORDS.iter().copied()).chain([crate::tools_ui::RETIRED_CONTRACT]).collect());
 
 /// Built-in actions that pass the boundary like app tools.
 pub struct Builtin {
@@ -129,99 +134,8 @@ pub struct Builtin {
     pub audience: Audience,
 }
 
-pub const BUILTINS: &[Builtin] = &[
-    Builtin { name: "sandbox_exec", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "sandbox_write_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "sandbox_read_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "web_fetch", app: "web", risk: Risk::Read, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "web_search", app: "web", risk: Risk::Read, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_navigate", app: "browser", risk: Risk::Read, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_snapshot", app: "browser", risk: Risk::Read, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_screenshot", app: "browser", risk: Risk::Read, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_back", app: "browser", risk: Risk::Read, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_click", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_type", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_select", app: "browser", risk: Risk::ReversibleWrite, label: Label::UNTRUSTED, audience: Audience::Public },
-    Builtin { name: "browser_as_navigate", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_as_snapshot", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_as_screenshot", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_as_back", app: "browser", risk: Risk::Read, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_as_click", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_as_type", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_as_select", app: "browser", risk: Risk::ReversibleWrite, label: Label { untrusted: true, private: true }, audience: Audience::Private },
-    Builtin { name: "browser_sign_in", app: "browser", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "start_sub_agent", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "open_attachment", app: "sandbox", risk: Risk::Sandbox, label: Label::UNTRUSTED, audience: Audience::Private },
-    Builtin { name: "deliver_file", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_screenshot", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "add_computer_destination", app: "computer", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Public },
-    Builtin { name: "computer_exec", app: "computer", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_install_app", app: "computer", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_request_takeover", app: "computer", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_click", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_type", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_key", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "computer_scroll", app: "sandbox", risk: Risk::Sandbox, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "memory_write", app: "memory", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "memory_search", app: "memory", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // The person's relationship memory (behavior spec, Per-user
-    // relationship): their own notes, on the appliance, versioned.
-    Builtin { name: "relationship_note", app: "memory", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    // The person's disagreement log (behavior spec): theirs, on the appliance.
-    Builtin { name: "disagreement", app: "memory", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    // The person's commitment ledger (#236): what they and Magnus said
-    // they would do, recorded from their words or what a run read; theirs.
-    Builtin { name: "record_commitment", app: "memory", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "update_commitment", app: "memory", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    // The company knowledge base. A search's result carries the taint of
-    // what it returns; filing research changes nothing outside the appliance.
-    Builtin { name: "knowledge_search", app: "knowledge", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // The org context bundle (org context build spec): reads carry the
-    // taint their documents were written under; writes stay on the
-    // appliance, versioned and reversible.
-    Builtin { name: "bundle_read", app: "bundle", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "bundle_search", app: "bundle", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "bundle_write", app: "bundle", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "bundle_share", app: "bundle", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "knowledge_add", app: "knowledge", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    // A project's reference file, read when the work needs it (M2). Its
-    // result carries the file's own taint; an upload is private and untrusted.
-    Builtin { name: "project_read", app: "library", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "playbook_update", app: "playbook", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    // The person's apps (connectors spec, How the agent uses connectors):
-    // reading their Library, and putting an app's card in front of them.
-    // Only the person signs in; nothing leaves the appliance.
-    Builtin { name: "find_apps", app: "apps", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "app_details", app: "apps", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "offer_app", app: "apps", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // Past `LOAD_ALL` tools across the person's connected apps, a run is
-    // offered only those it found with this (connectors spec: tools searched
-    // across connectors and full schemas loaded on demand).
-    Builtin { name: "find_tools", app: "apps", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // Chat only: start a task, or set up a schedule, at the person's request
-    // (spec rev 140: asking grants the work). Both carry the turn's taint.
-    Builtin { name: "create_task", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "create_schedule", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // Magnus's own idea, from chat, a task or a review: a card the person
-    // accepts with one action (a task or a schedule starts), puts off or
-    // declines. Nothing happens until they accept.
-    Builtin { name: "suggest", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    // A grant card, when the person asked for standing authority over a
-    // kind of their work (#235): nothing is granted until they accept it.
-    // Revoking one of theirs at their word only narrows what Magnus may do.
-    Builtin { name: "revoke_grant", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    // Control of the person's own tasks and schedules, as the app's buttons
-    // (behavior spec, Tasks and schedules in conversation).
-    Builtin { name: "list_tasks", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "list_schedules", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "get_task", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "get_schedule", app: "chat", risk: Risk::Read, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "cancel_task", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "pause_schedule", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "resume_schedule", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "edit_schedule", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-    Builtin { name: "cancel_schedule", app: "chat", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Private },
-];
+/// The core family's built-ins, as `tool_registry` declares them.
+pub(crate) use crate::tool_registry::CORE_BUILTINS as BUILTINS;
 
 pub fn builtin(name: &str) -> Option<&'static Builtin> {
     crate::families::builtins().find(|b| b.name == name)
@@ -232,7 +146,7 @@ pub fn builtin(name: &str) -> Option<&'static Builtin> {
 /// Per-user relationship; #232, #233). Reads served to anyone but the run's
 /// person redact these calls' inputs and results (#257).
 pub fn person_only_tool(name: &str) -> bool {
-    matches!(name, "relationship_note" | "disagreement")
+    crate::tool_registry::decl(name).is_some_and(|d| d.person_only)
 }
 
 /// What a redacted call's input and result say, so the call stays listed.
@@ -250,353 +164,35 @@ pub(crate) fn obj(props: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": props, "required": required })
 }
 
-/// One component of a composition, of the given kinds. Every field is
-/// declared: a model that keeps to the schema cannot otherwise fill one in.
-fn component(kinds: &[&str]) -> Value {
-    let cell = json!({ "type": ["string", "number"] });
-    json!({ "type": "object", "properties": {
-        "type": { "type": "string", "enum": kinds },
-        "text": { "type": "string", "description": "heading, text" },
-        "items": { "type": "array", "items": { "type": "string" }, "description": "list" },
-        "columns": { "type": "array", "items": { "type": "string" }, "description": "table" },
-        "rows": { "type": "array", "items": { "type": "array", "items": cell }, "description": "table: one list of cells per row, as many as columns" },
-        "label": { "type": "string", "description": "stat, action: the button's words" }, "request": { "type": "string", "description": "action: the work a press asks for; it starts a new task and approves nothing" },
-        "value": { "type": ["string", "number"], "description": "stat" },
-        "unit": { "type": "string", "description": "stat, bar_chart" },
-        "labels": { "type": "array", "items": { "type": "string" }, "description": "bar_chart, line_chart" },
-        "values": { "type": "array", "items": { "type": "number" }, "description": "bar_chart: one per label" },
-        "series": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "values": { "type": "array", "items": { "type": "number" } } }, "required": ["name", "values"] }, "description": "line_chart: 1 to 6, one value per label each" },
-        "places": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "lat": { "type": "number" }, "lon": { "type": "number" }, "note": { "type": "string" } }, "required": ["name", "lat", "lon"] }, "description": "map" },
-        "events": { "type": "array", "items": { "type": "object", "properties": { "when": { "type": "string" }, "label": { "type": "string" }, "note": { "type": "string" } }, "required": ["when", "label"] }, "description": "timeline, in order" },
-        "options": { "type": "array", "items": { "type": "string" }, "description": "comparison: the 2 to 6 things compared" },
-        "aspects": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "values": { "type": "array", "items": cell }, "best": { "type": "integer" } }, "required": ["name", "values"] }, "description": "comparison: one value per option each; best is the index of the option that wins on it" },
-        "code": { "type": "string", "description": "code" },
-        "language": { "type": "string", "description": "code" },
-        "file": { "type": "string", "description": "image, file: the name of a file you delivered" },
-        "title": { "type": "string" },
-        "caption": { "type": "string" }
-    }, "required": ["type"] })
-}
-
-/// `instructions/tools.json`. It is compiled in and parsed by a test; were it broken, the tools would go out
-/// without descriptions rather than the server stop.
-fn tool_descriptions() -> Value {
-    serde_json::from_str(include_str!("../instructions/tools.json")).unwrap_or_else(|e| {
-        tracing::error!("instructions/tools.json does not parse: {e}");
-        Value::Null
-    })
-}
-
 /// The tools a chat turn may call besides reads: start a task, propose a
 /// schedule the person confirms in the thread, and control their tasks and
 /// schedules.
 pub fn chat_specs() -> Vec<ToolSpec> {
-    let desc = tool_descriptions();
-    let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
-    // No budget is the model's to set: a task's comes from the server (spec rev 133).
-    let evidence = json!({ "type": "array", "minItems": 1, "description": d("suggest.evidence"), "items": { "type": "object", "properties": {
-        "call": { "type": "string" }, "task": { "type": "string" }, "shows": { "type": "string" }
-    }, "required": ["shows"] } });
-    vec![
-        ToolSpec {
-            name: "show".into(),
-            description: d("show"),
-            input_schema: obj(json!({ "components": { "type": "array", "minItems": 1, "items": component(crate::compose::SHOWN) } }), &["components"]),
-        },
-        ToolSpec {
-            name: "create_task".into(),
-            description: d("create_task"),
-            input_schema: obj(json!({ "goal": { "type": "string" }, "title": { "type": "string" }, "grant": { "type": "string" } }), &["goal", "title"]),
-        },
-        ToolSpec {
-            name: "create_schedule".into(),
-            description: d("create_schedule"),
-            input_schema: obj(
-                json!({ "title": { "type": "string" }, "goal": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" } }),
-                &["title", "goal"],
-            ),
-        },
-        ToolSpec {
-            name: "suggest".into(),
-            description: d("suggest"),
-            input_schema: obj(
-                json!({
-                    "title": { "type": "string" },
-                    "goal": { "type": "string" },
-                    "evidence": evidence,
-                    "permissions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-                    "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" },
-                    "again": { "type": "string" }, "changed": { "type": "string" }
-                }),
-                &["title", "goal", "evidence", "permissions"],
-            ),
-        },
-        ToolSpec { name: "revoke_grant".into(), description: d("revoke_grant"), input_schema: obj(json!({ "grant": { "type": "string" } }), &["grant"]) },
-        ToolSpec {
-            name: "bundle_share".into(),
-            description: d("bundle_share"),
-            input_schema: obj(json!({ "path": { "type": "string" }, "groups": { "type": "array", "items": { "type": "string" } }, "everyone": { "type": "boolean" } }), &["path"]),
-        },
-        ToolSpec { name: "list_tasks".into(), description: d("list_tasks"), input_schema: obj(json!({ "limit": { "type": "integer" } }), &[]) },
-        ToolSpec { name: "list_schedules".into(), description: d("list_schedules"), input_schema: obj(json!({}), &[]) },
-        ToolSpec { name: "get_task".into(), description: d("get_task"), input_schema: obj(json!({ "id": { "type": "string" } }), &["id"]) },
-        ToolSpec { name: "get_schedule".into(), description: d("get_schedule"), input_schema: obj(json!({ "id": { "type": "string" } }), &["id"]) },
-        ToolSpec { name: "cancel_task".into(), description: d("cancel_task"), input_schema: obj(json!({ "id": { "type": "string" } }), &["id"]) },
-        ToolSpec { name: "pause_schedule".into(), description: d("pause_schedule"), input_schema: obj(json!({ "id": { "type": "string" } }), &["id"]) },
-        ToolSpec { name: "resume_schedule".into(), description: d("resume_schedule"), input_schema: obj(json!({ "id": { "type": "string" } }), &["id"]) },
-        ToolSpec {
-            name: "edit_schedule".into(),
-            description: d("edit_schedule"),
-            input_schema: obj(
-                json!({ "id": { "type": "string" }, "every_minutes": { "type": "integer" }, "daily_at": { "type": "string" }, "until": { "type": "string" }, "max_runs": { "type": "integer" } }),
-                &["id"],
-            ),
-        },
-        ToolSpec { name: "cancel_schedule".into(), description: d("cancel_schedule"), input_schema: obj(json!({ "id": { "type": "string" } }), &["id"]) },
-    ]
+    crate::tool_registry::specs(|o| o == Offer::Chat)
 }
 
-/// Specs for run records and built-in actions. Descriptions are part of the
-/// versioned instructions (X11): they live in `instructions/tools.json`.
 /// Up to this many tools across a person's connected apps, a run is offered
 /// all of them; past it, those it finds with `find_tools`.
 pub const LOAD_ALL: usize = 40;
 
 /// `find_tools`, offered only when a run's apps have more tools than `LOAD_ALL`.
 pub fn find_tools_spec() -> ToolSpec {
-    let desc = tool_descriptions();
-    ToolSpec {
-        name: "find_tools".into(),
-        description: desc["find_tools"].as_str().unwrap_or_default().to_string(),
-        input_schema: json!({ "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }),
-    }
+    let mut v = crate::tool_registry::specs(|o| o == Offer::FindTools);
+    v.pop().unwrap_or_else(|| ToolSpec { name: String::new(), description: String::new(), input_schema: Value::Null })
 }
 
+/// The run's built-in tools and records, for what this server has.
 pub fn builtin_specs(sandbox: bool, search: bool, browser: bool, computer: bool) -> Vec<ToolSpec> {
-    let desc = tool_descriptions();
-    let d = |n: &str| desc[n].as_str().unwrap_or_default().to_string();
-    let mut v = vec![
-        ToolSpec { name: "find_apps".into(), description: d("find_apps"), input_schema: obj(json!({ "query": { "type": "string" } }), &[]) },
-        ToolSpec { name: "app_details".into(), description: d("app_details"), input_schema: obj(json!({ "name": { "type": "string" } }), &["name"]) },
-        ToolSpec {
-            name: "offer_app".into(),
-            description: d("offer_app"),
-            input_schema: obj(json!({ "name": { "type": "string" }, "why": { "type": "string" } }), &["name", "why"]),
+    crate::tool_registry::specs(|o| match o {
+        Offer::Run(n) => match n {
+            Need::Always => true,
+            Need::Search => search,
+            Need::Sandbox => sandbox,
+            Need::Browser => browser,
+            Need::Computer => computer,
         },
-        ToolSpec {
-            name: "task_plan".into(),
-            description: d("task_plan"),
-            input_schema: obj(
-                json!({ "title": { "type": "string" }, "units": { "type": "array", "minItems": 1, "items": { "type": "object", "properties": {
-                    "id": { "type": "string" }, "goal": { "type": "string" }, "done_when": { "type": "string" },
-                    "status": { "type": "string", "enum": ["pending", "active", "done", "dropped"] }
-                }, "required": ["id", "goal"] } } }),
-                &["units"],
-            ),
-        },
-        ToolSpec {
-            name: "task_complete".into(),
-            description: d("task_complete"),
-            input_schema: obj(
-                json!({
-                    "summary": { "type": "string", "description": d("task_complete.summary") },
-                    // Every component field is declared: a model that keeps to
-                    // the schema cannot otherwise fill one in.
-                    "deliverable": { "type": "array", "minItems": 1, "description": d("task_complete.deliverable"), "items": component(crate::compose::KINDS) },
-                    "spoken": { "type": "string", "description": d("task_complete.spoken") },
-                    "sources": { "type": "array", "description": d("task_complete.sources"), "items": obj(json!({ "claim": { "type": "string" }, "call": { "type": "string" } }), &["claim", "call"]) }
-                }),
-                &["deliverable", "summary"],
-            ),
-        },
-        ToolSpec { name: "task_fail".into(), description: d("task_fail"), input_schema: obj(json!({ "reason": { "type": "string" } }), &["reason"]) },
-        ToolSpec {
-            name: "ask_principal".into(),
-            description: d("ask_principal"),
-            input_schema: obj(json!({ "question": { "type": "string" }, "options": { "type": "array", "items": { "type": "string" } } }), &["question"]),
-        },
-        ToolSpec {
-            name: "propose_policy".into(),
-            description: d("propose_policy"),
-            input_schema: obj(json!({ "layer": { "type": "string" }, "cedar": { "type": "string" }, "rationale": { "type": "string" } }), &["layer", "cedar", "rationale"]),
-        },
-        ToolSpec { name: "end_schedule".into(), description: d("end_schedule"), input_schema: obj(json!({ "reason": { "type": "string" } }), &["reason"]) },
-        ToolSpec {
-            name: "wait_until".into(),
-            description: d("wait_until"),
-            input_schema: obj(json!({ "at": { "type": "string" }, "reason": { "type": "string" } }), &["at", "reason"]),
-        },
-        ToolSpec { name: "notify".into(), description: d("notify"), input_schema: obj(json!({ "message": { "type": "string" } }), &["message"]) },
-        ToolSpec {
-            name: "observe".into(),
-            description: d("observe"),
-            input_schema: obj(json!({ "what": { "type": "string" }, "why": { "type": "string" }, "evidence": { "type": "string" } }), &["what", "why", "evidence"]),
-        },
-        ToolSpec {
-            name: "interrupt".into(),
-            description: d("interrupt"),
-            input_schema: obj(json!({ "what": { "type": "string" }, "why": { "type": "string" } }), &["what", "why"]),
-        },
-        ToolSpec { name: "web_fetch".into(), description: d("web_fetch"), input_schema: obj(json!({ "url": { "type": "string" } }), &["url"]) },
-        ToolSpec {
-            name: "memory_write".into(),
-            description: d("memory_write"),
-            input_schema: obj(json!({ "fact": { "type": "string" }, "topic": { "type": "string" } }), &["fact"]),
-        },
-        ToolSpec {
-            name: "relationship_note".into(),
-            description: d("relationship_note"),
-            input_schema: obj(
-                json!({ "action": { "type": "string", "enum": ["add", "change", "remove"] }, "note": { "type": "string" }, "text": { "type": "string" } }),
-                &["action"],
-            ),
-        },
-        ToolSpec {
-            name: "disagreement".into(),
-            description: d("disagreement"),
-            input_schema: obj(
-                json!({ "action": { "type": "string", "enum": ["record", "outcome"] }, "position": { "type": "string" }, "decision": { "type": "string" }, "id": { "type": "string" }, "outcome": { "type": "string" } }),
-                &["action"],
-            ),
-        },
-        ToolSpec {
-            name: "record_commitment".into(),
-            description: d("record_commitment"),
-            input_schema: obj(
-                json!({
-                    "who": { "type": "string", "enum": ["person", "magnus"] }, "what": { "type": "string" }, "to": { "type": "string" },
-                    "by": { "type": "string" }, "quote": { "type": "string" }, "call": { "type": "string" }
-                }),
-                &["who", "what", "quote"],
-            ),
-        },
-        ToolSpec {
-            name: "update_commitment".into(),
-            description: d("update_commitment"),
-            input_schema: obj(json!({ "id": { "type": "string" }, "status": { "type": "string", "enum": ["done", "released"] }, "note": { "type": "string" } }), &["id", "status"]),
-        },
-        ToolSpec { name: "bundle_read".into(), description: d("bundle_read"), input_schema: obj(json!({ "path": { "type": "string" } }), &["path"]) },
-        ToolSpec {
-            name: "bundle_search".into(),
-            description: d("bundle_search"),
-            input_schema: obj(json!({ "query": { "type": "string" }, "kinds": { "type": "array", "items": { "type": "string" } }, "limit": { "type": "integer" } }), &["query"]),
-        },
-        ToolSpec {
-            name: "bundle_write".into(),
-            description: d("bundle_write"),
-            input_schema: obj(json!({ "path": { "type": "string" }, "frontmatter": { "type": "object" }, "body": { "type": "string" } }), &["path", "frontmatter", "body"]),
-        },
-        ToolSpec { name: "memory_search".into(), description: d("memory_search"), input_schema: obj(json!({ "query": { "type": "string" } }), &["query"]) },
-        ToolSpec { name: "knowledge_search".into(), description: d("knowledge_search"), input_schema: obj(json!({ "query": { "type": "string" } }), &["query"]) },
-        ToolSpec {
-            name: "knowledge_add".into(),
-            description: d("knowledge_add"),
-            input_schema: obj(
-                json!({
-                    "title": { "type": "string" },
-                    "text": { "type": "string", "description": d("knowledge_add.text") },
-                    "citations": { "type": "array", "minItems": 1, "description": d("knowledge_add.citations"), "items": { "type": "object", "properties": {
-                        "source": { "type": "string" }, "quote": { "type": "string" }
-                    }, "required": ["source", "quote"] } },
-                    "value": { "type": "object", "description": d("knowledge_add.value"), "properties": {
-                        "key": { "type": "string" }, "type": { "type": "string", "enum": ["number", "boolean", "enum"] }, "options": { "type": "array", "items": { "type": "string" } }
-                    }, "required": ["key", "type"] },
-                    "propose": { "type": "boolean", "description": d("knowledge_add.propose") }
-                }),
-                &["title", "text", "citations"],
-            ),
-        },
-        ToolSpec {
-            name: "project_read".into(),
-            description: d("project_read"),
-            input_schema: obj(json!({ "name": { "type": "string", "description": "the file's name, as the project lists it" } }), &["name"]),
-        },
-        ToolSpec {
-            name: "playbook_update".into(),
-            description: d("playbook_update"),
-            input_schema: obj(
-                json!({
-                    "op": { "type": "string", "enum": ["add", "edit", "retire"] },
-                    "item": { "type": "string", "description": "the item id, for edit and retire" },
-                    "text": { "type": "string" },
-                    "addresses": { "type": "string", "description": "the failure this item addresses" }
-                }),
-                &["op"],
-            ),
-        },
-    ];
-    if search {
-        v.push(ToolSpec { name: "web_search".into(), description: d("web_search"), input_schema: obj(json!({ "query": { "type": "string" } }), &["query"]) });
-    }
-    if sandbox {
-        v.push(ToolSpec {
-            name: "open_attachment".into(),
-            description: d("open_attachment"),
-            input_schema: obj(json!({ "name": { "type": "string" }, "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"]),
-        });
-    }
-    v.push(crate::tools_identity::sub_agent_spec(&d));
-    if browser {
-        let target = json!({ "type": "string", "description": "an element ref like e12 from the latest snapshot, or visible text" });
-        v.push(ToolSpec { name: "browser_navigate".into(), description: d("browser_navigate"), input_schema: obj(json!({ "url": { "type": "string" } }), &["url"]) });
-        v.push(ToolSpec { name: "browser_snapshot".into(), description: d("browser_snapshot"), input_schema: obj(json!({}), &[]) });
-        v.push(ToolSpec { name: "browser_click".into(), description: d("browser_click"), input_schema: obj(json!({ "target": target }), &["target"]) });
-        v.push(ToolSpec {
-            name: "browser_type".into(),
-            description: d("browser_type"),
-            input_schema: obj(json!({ "target": target, "text": { "type": "string" }, "submit": { "type": "boolean" } }), &["target", "text"]),
-        });
-        v.push(ToolSpec {
-            name: "browser_select".into(),
-            description: d("browser_select"),
-            input_schema: obj(json!({ "target": target, "value": { "type": "string" } }), &["target", "value"]),
-        });
-        v.push(ToolSpec { name: "browser_back".into(), description: d("browser_back"), input_schema: obj(json!({}), &[]) });
-        v.push(ToolSpec { name: "browser_screenshot".into(), description: d("browser_screenshot"), input_schema: obj(json!({}), &[]) });
-    }
-    if computer {
-        v.extend(crate::tools_identity::specs(&d));
-        v.push(crate::computer::request_spec(&d));
-        v.extend(crate::computer::agent_specs(&d));
-        v.push(ToolSpec {
-            name: "add_computer_destination".into(),
-            description: d("add_computer_destination"),
-            input_schema: obj(json!({ "host": { "type": "string" } }), &["host"]),
-        });
-    }
-    if sandbox {
-        let xy = json!({ "type": "integer" });
-        v.push(ToolSpec { name: "computer_screenshot".into(), description: d("computer_screenshot"), input_schema: obj(json!({}), &[]) });
-        v.push(ToolSpec {
-            name: "computer_click".into(),
-            description: d("computer_click"),
-            input_schema: obj(json!({ "x": xy, "y": xy, "button": { "type": "string", "enum": ["left", "right", "middle"] }, "double": { "type": "boolean" } }), &["x", "y"]),
-        });
-        v.push(ToolSpec { name: "computer_type".into(), description: d("computer_type"), input_schema: obj(json!({ "text": { "type": "string" } }), &["text"]) });
-        v.push(ToolSpec { name: "computer_key".into(), description: d("computer_key"), input_schema: obj(json!({ "keys": { "type": "string" } }), &["keys"]) });
-        v.push(ToolSpec {
-            name: "computer_scroll".into(),
-            description: d("computer_scroll"),
-            input_schema: obj(json!({ "x": xy, "y": xy, "down": { "type": "integer" } }), &["x", "y", "down"]),
-        });
-        v.push(ToolSpec {
-            name: "deliver_file".into(),
-            description: d("deliver_file"),
-            input_schema: obj(json!({ "path": { "type": "string" }, "name": { "type": "string" }, "from": { "type": "string", "enum": ["computer", "sandbox"] } }), &["path"]),
-        });
-        v.push(ToolSpec {
-            name: "sandbox_exec".into(),
-            description: d("sandbox_exec"),
-            input_schema: obj(json!({ "command": { "type": "string" }, "timeout_s": { "type": "integer" } }), &["command"]),
-        });
-        v.push(ToolSpec {
-            name: "sandbox_write_file".into(),
-            description: d("sandbox_write_file"),
-            input_schema: obj(json!({ "path": { "type": "string" }, "content": { "type": "string" }, "base64": { "type": "boolean" } }), &["path", "content"]),
-        });
-        v.push(ToolSpec { name: "sandbox_read_file".into(), description: d("sandbox_read_file"), input_schema: obj(json!({ "path": { "type": "string" } }), &["path"]) });
-    }
-    v
+        _ => false,
+    })
 }
 
 /// The addresses in a recipients field, lowercased, as they match a grant
@@ -666,7 +262,7 @@ mod descriptions_tests {
     #[test]
     fn the_tool_descriptions_parse() {
         let d: serde_json::Value = serde_json::from_str(include_str!("../instructions/tools.json")).unwrap();
-        assert!(d.is_object() && super::tool_descriptions() == d);
+        assert!(d.is_object() && crate::tool_registry::descriptions() == d);
     }
 }
 

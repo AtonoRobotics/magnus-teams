@@ -1,13 +1,12 @@
 crates/magnus/src/accounts.rs 2034
 crates/magnus/src/api.rs 2132
-crates/magnus/src/boundary.rs 1058
+crates/magnus/src/boundary.rs 1057
 crates/magnus/src/config.rs 1293
 crates/magnus/src/connectors.rs 1570
 crates/magnus/src/control.rs 817
 crates/magnus/src/dev.rs 974
 crates/magnus/src/events.rs 1404
-crates/magnus/src/kernel.rs 939
 crates/magnus/src/run/mod.rs 892
-crates/magnus/src/state.rs 2730
+crates/magnus/src/state.rs 2603
 tests/scratch/tests/app.rs 814
 tests/scratch/tests/desktop_app.rs 1034
