@@ -218,15 +218,12 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.org.canonical_fields());
     v.extend(s.thread_extras.canonical_fields());
     v.extend(s.apps.canonical_fields());
+    v.extend(s.arrangements.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
         ("playbook_version", d(&s.playbook_version)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
         ("tools.consents", d(&s.tools.consents)),
-        ("schedules", d(&s.schedules)),
-        ("grants", d(&s.grants)),
-        ("commitments", d(&s.commitments)),
-        ("cards", d(&s.cards)),
         ("tasks.schedule", d(&s.tasks.iter().map(|(id, t)| (id, &t.schedule)).collect::<Vec<_>>())),
     ]);
     v

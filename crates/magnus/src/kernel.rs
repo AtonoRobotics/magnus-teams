@@ -319,7 +319,7 @@ impl Kernel {
     pub async fn end_turned_off(&self) -> usize {
         let Some(id) = self.identity() else { return 0 };
         let mut people = self.accounts.signed_in().await;
-        people.extend(self.read(|s| s.schedules.values().filter(|x| x.next_due().is_some()).map(|x| x.person.clone()).collect::<Vec<_>>()));
+        people.extend(self.read(|s| s.arrangements.schedules().values().filter(|x| x.next_due().is_some()).map(|x| x.person.clone()).collect::<Vec<_>>()));
         let mut ended = 0;
         for person in people {
             let sub = self.read(|s| s.subjects.get(&person).cloned());
@@ -359,7 +359,7 @@ impl Kernel {
             }
             Err(e) => tracing::error!("ending {person}'s sessions: {e:#}"),
         }
-        let schedules: Vec<crate::state::Schedule> = self.read(|s| s.schedules.values().filter(|x| x.person == person && x.next_due().is_some()).cloned().collect());
+        let schedules: Vec<crate::state::Schedule> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person && x.next_due().is_some()).cloned().collect());
         for sc in schedules {
             let title = self.schedule_title_for_notice(&sc).await;
             let notice = self.notice_to(

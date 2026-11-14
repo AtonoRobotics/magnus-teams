@@ -131,7 +131,8 @@ impl Kernel {
         if !may {
             return None;
         }
-        let schedule = self.read(|s| s.authority(&run.id).and_then(|t| t.schedule.clone()).filter(|id| s.schedules.get(id).is_some_and(|sc| sc.person == run.person)));
+        let schedule =
+            self.read(|s| s.authority(&run.id).and_then(|t| t.schedule.clone()).filter(|id| s.arrangements.schedules().get(id).is_some_and(|sc| sc.person == run.person)));
         schedule.map(Standing::Schedule).or_else(|| self.covering_grant(run, f).map(Standing::Grant))
     }
 

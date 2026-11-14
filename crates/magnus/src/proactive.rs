@@ -159,14 +159,14 @@ impl crate::kernel::Kernel {
             // first (it is marked, so the cadence cannot starve it, and it
             // is the more urgent), else the periodic one (#381).
             let event: Option<(String, Option<Ended>)> = self.read(|s| {
-                for sc in s.schedules.values().filter(|sc| sc.person == person && sc.paused.is_none()) {
+                for sc in s.arrangements.schedules().values().filter(|sc| sc.person == person && sc.paused.is_none()) {
                     if sc.next_due().is_some_and(|d| d > now && d <= now + chrono::Duration::minutes(st.every_minutes as i64))
                         && !s.wake_marks.get(&format!("{person}:schedule {}", sc.id)).is_some_and(|d| d == &today)
                     {
                         return Some((schedule_reason(&sc.id), None));
                     }
                 }
-                for c in s.commitments.values().filter(|c| c.person == person && c.status == "open") {
+                for c in s.arrangements.commitments().values().filter(|c| c.person == person && c.status == "open") {
                     if c.by.as_deref().and_then(crate::commitments::due).is_some_and(|d| d > now && d <= now + chrono::Duration::hours(24))
                         && !s.wake_marks.get(&format!("{person}:commitment {}", c.id)).is_some_and(|d| d == &today)
                     {
@@ -442,7 +442,8 @@ impl crate::kernel::Kernel {
                 .map(|t| (t.person.clone(), t.seq))
                 .collect::<Vec<_>>();
             let schedules = s
-                .schedules
+                .arrangements
+                .schedules()
                 .values()
                 .filter(|sc| sc.person == person)
                 .map(|sc| {
@@ -466,7 +467,8 @@ impl crate::kernel::Kernel {
                 .map(|d| format!("{} -> {}", d.position.chars().take(120).collect::<String>(), d.decision))
                 .collect::<Vec<_>>();
             let commitments = s
-                .commitments
+                .arrangements
+                .commitments()
                 .values()
                 .filter(|c| c.person == person && c.status == "open")
                 .map(|c| {

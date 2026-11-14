@@ -32,7 +32,7 @@ async fn an_admin_stops_someone_elses_work_and_changes_none_of_it() {
         assert!(matches!(k.edit_schedule(who, "sched_a", &json!({ "every_minutes": 5 }), None).await, Err(Refused::NotFound(_))), "{} changed mo's schedule", who.id);
         assert!(matches!(k.cancel_schedule(who, "sched_a", None).await, Err(Refused::NotFound(_))), "{} deleted mo's schedule", who.id);
     }
-    assert!(k.read(|st| st.schedules.get("sched_a").is_some_and(|x| x.every_minutes == Some(60) && x.ended.is_none())), "mo's schedule changed");
+    assert!(k.read(|st| st.arrangements.schedules().get("sched_a").is_some_and(|x| x.every_minutes == Some(60) && x.ended.is_none())), "mo's schedule changed");
     k.pause_schedule(&ana, "sched_a", None).await.unwrap();
     assert!(matches!(k.resume_schedule(&ana, "sched_a", None).await, Err(Refused::Denied(_))), "an admin resumed what was only paused");
     k.resume_schedule(&mo, "sched_a", None).await.unwrap();

@@ -12,12 +12,14 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod apps;
+pub mod arrangements;
 pub mod org;
 pub mod server_ops;
 pub mod thread_extras;
 pub mod vault;
 pub mod watch;
 pub use apps::ConnectorSetting;
+pub use arrangements::{Answer, CardState, Commitment, CommitmentStep, Grant, GrantAction, Schedule};
 pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
 pub use thread_extras::{Branch, Disagreement};
@@ -462,134 +464,6 @@ pub struct PlaybookItem {
     pub added_at: DateTime<Utc>,
 }
 
-/// A schedule's record. What its runs are asked (its text), its title and
-/// scope are recalled from the event `seq` names, as a task's are.
-#[derive(Clone, Debug)]
-pub struct Schedule {
-    pub id: String,
-    pub person: String,
-    pub every_minutes: Option<u32>,
-    pub daily_at: Option<String>,
-    pub created: DateTime<Utc>,
-    pub last_fired: Option<DateTime<Utc>>,
-    pub budget: Option<crate::config::Budget>,
-    pub card: Option<String>,
-    pub label: Label,
-    /// The event that set it: where its words are recalled from.
-    pub seq: i64,
-    /// Firings that could not start a task: when, and why.
-    pub failures: Vec<(DateTime<Utc>, String)>,
-    pub until: Option<DateTime<Utc>>,
-    pub max_runs: Option<u32>,
-    /// Runs it has started.
-    pub started: u32,
-    /// The latest firing that started nothing, because the last run was
-    /// still open: when, which task, why.
-    pub skipped: Option<(DateTime<Utc>, String, String)>,
-    /// Why it stopped starting runs, until its person resumes it.
-    pub paused: Option<String>,
-    /// The task whose run it is paused on, waiting on a person.
-    pub paused_on: Option<String>,
-    /// An admin suspended it: only an admin lifts it.
-    pub paused_by_admin: bool,
-    /// From when failures count toward pausing it again.
-    pub resumed: Option<DateTime<Utc>>,
-    /// Why it is over, once it is: an ended schedule stays, marked.
-    pub ended: Option<String>,
-    /// The conversation it was set up in, if any: where its runs post (`schedule_thread::of`).
-    pub thread: Option<String>,
-    /// The zone its daily time is read in: its person's, kept current as
-    /// they change it, else the server's (`cadence::Zone::of_preferences`).
-    pub zone: crate::cadence::Zone,
-}
-
-/// A person's standing authority over a category of their own work
-/// (#235). Its title is recalled from the event `seq` names (the latest
-/// setting), as a schedule's words are.
-#[derive(Clone, Debug)]
-pub struct Grant {
-    pub id: String,
-    pub person: String,
-    pub apps: Vec<String>,
-    /// Exclusions the person lifted: `send`, `irreversible`.
-    pub allow: Vec<String>,
-    /// `day`, `week` or `month`.
-    pub period: String,
-    pub max_usd: f64,
-    /// The policy the kernel wrote from these: what it covers.
-    pub cedar: String,
-    /// The card it was first set from.
-    pub card: Option<String>,
-    /// The taint of the words of its title, when not the person's own.
-    pub label: Label,
-    pub seq: i64,
-    /// When it was set first, and by whom (as the log names them).
-    pub at: DateTime<Utc>,
-    pub by: String,
-    /// When it was last edited.
-    pub edited: Option<DateTime<Utc>>,
-    pub revoked: Option<DateTime<Utc>>,
-    /// The actions taken under it, oldest first.
-    pub actions: Vec<GrantAction>,
-    /// What its tasks' model calls cost, as each was charged: kept with the
-    /// grant, so deleting a task gives none of it back (review of #278).
-    pub charges: Vec<(DateTime<Utc>, f64)>,
-}
-
-/// An action a grant covered.
-#[derive(Clone, Debug, Serialize)]
-pub struct GrantAction {
-    pub tool: String,
-    pub task: String,
-    pub run: String,
-    pub call_id: String,
-    pub at: DateTime<Utc>,
-}
-
-/// Something the person or Magnus said they would do (#236). Its words
-/// (what, for whom, the quote, notes) are recalled from its events, by
-/// `steps`; the rest is here. Overdue is never stored: it is open with
-/// `by` past (`commitments::overdue`).
-#[derive(Clone, Debug)]
-pub struct Commitment {
-    pub id: String,
-    pub person: String,
-    /// `person` or `magnus`.
-    pub who: String,
-    pub source: Value,
-    /// The taint of the run that recorded it.
-    pub label: Label,
-    /// When it was recorded, and by whom (as the log names them).
-    pub at: DateTime<Utc>,
-    pub by_actor: String,
-    /// When it last changed.
-    pub changed: DateTime<Utc>,
-    /// Its recording event.
-    pub seq: i64,
-    pub status: String,
-    pub by: Option<String>,
-    /// Each event of it, oldest first, with its status and date after it:
-    /// what it was as a run that started at any point saw it.
-    pub steps: Vec<CommitmentStep>,
-}
-
-#[derive(Clone, Debug)]
-pub struct CommitmentStep {
-    pub seq: i64,
-    pub status: String,
-    pub by: Option<String>,
-}
-
-impl Commitment {
-    /// Its status and date as they stood before the event `seq`, and the
-    /// events that made it so; None when it was recorded after.
-    pub fn before(&self, seq: i64) -> Option<(&str, Option<&str>, Vec<i64>)> {
-        let steps: Vec<&CommitmentStep> = self.steps.iter().filter(|s| s.seq < seq).collect();
-        let last = steps.last()?;
-        Some((last.status.as_str(), last.by.as_deref(), steps.iter().map(|s| s.seq).collect()))
-    }
-}
-
 /// What a scoped drafting step wrote from: the threads (none for a new
 /// draft) and their participants' addresses (#178).
 #[derive(Clone, Debug, PartialEq)]
@@ -597,29 +471,6 @@ pub struct DraftSources {
     pub person: String,
     pub threads: Vec<String>,
     pub participants: Vec<String>,
-}
-
-/// The person's answer to a card proposed in chat (a schedule or a
-/// suggestion), when they gave it and whose card it was.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CardState {
-    pub answer: Answer,
-    pub at: DateTime<Utc>,
-    pub person: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Answer {
-    /// Accepted: the schedule it made.
-    Confirmed(String),
-    /// Accepted: the task it started.
-    Started(String),
-    /// Accepted: the grant it set (#235).
-    Granted(String),
-    /// "Not now".
-    Later,
-    /// Declined, with their reason.
-    Declined(Option<String>),
 }
 
 /// An item in the trash: out of every view until it is restored or removed.
@@ -789,15 +640,8 @@ pub struct State {
     pub preferences: HashMap<String, Value>,
     /// Hidden entries, reactions, disagreements and branches.
     pub thread_extras: thread_extras::ThreadExtras,
-    pub schedules: BTreeMap<String, Schedule>,
-    /// Each person's grants (#235), revoked ones among them, by id.
-    pub grants: BTreeMap<String, Grant>,
-    /// Each person's commitment ledger (#236), by id.
-    pub commitments: BTreeMap<String, Commitment>,
-    /// Cards from chat (schedules and suggestions) the person answered, by
-    /// card id: with the cards in their turns' results, the suggestion
-    /// ledger (`suggestions::ledger`).
-    pub cards: HashMap<String, CardState>,
+    /// Schedules, grants, commitments and answered cards.
+    pub arrangements: arrangements::Arrangements,
     /// Runs a person stopped, as against the system.
     pub stopped_by_person: HashSet<String>,
     /// Drafts written by scoped steps, by draft id: the threads whose
@@ -863,7 +707,7 @@ impl State {
             Ev::BundleWritten { owner_user, .. } => return owner_user.clone(),
             Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.items.get(id).map(|i| i.person.clone()),
             Ev::Team(c) => return self.team.content_owner(c),
-            Ev::ScheduleEnded { id, .. } => return self.schedules.get(id).map(|s| s.person.clone()),
+            Ev::ScheduleEnded { id, .. } => return self.arrangements.schedules().get(id).map(|s| s.person.clone()),
             _ => {}
         }
         if let Some(p) = serde_json::to_value(ev).ok().and_then(|v| v["person"].as_str().map(String::from)) {
@@ -921,10 +765,16 @@ impl State {
         })
     }
 
+    /// The schedule a task was started by, while it is still set.
+    pub fn task_schedule(&self, task: &str) -> Option<(String, Schedule)> {
+        let id = self.tasks.get(task)?.schedule.clone()?;
+        self.arrangements.schedules().get(&id).map(|x| (id.clone(), x.clone()))
+    }
+
     /// How many of a schedule's latest firings in a row failed (since it was
     /// last resumed): runs that ended failed, and firings that started none.
     pub fn failures_in_a_row(&self, schedule: &str) -> u32 {
-        let Some(sc) = self.schedules.get(schedule) else { return 0 };
+        let Some(sc) = self.arrangements.schedules().get(schedule) else { return 0 };
         let since = sc.resumed.unwrap_or(sc.created);
         let mut ends: Vec<(DateTime<Utc>, bool)> = sc.failures.iter().filter(|(at, _)| *at >= since).map(|(at, _)| (*at, true)).collect();
         ends.extend(
@@ -1215,8 +1065,7 @@ impl State {
                     }
                 }
                 // Daily times follow the person's zone (owner, 2026-11-14).
-                let zone = crate::cadence::Zone::of_preferences(self.preferences.get(person));
-                self.schedules.values_mut().filter(|x| x.person == *person).for_each(|x| x.zone = zone);
+                self.arrangements.set_zone(person, crate::cadence::Zone::of_preferences(self.preferences.get(person)));
             }
             Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
                 self.thread_extras.fold(&e.ev, e.at)
@@ -1241,126 +1090,23 @@ impl State {
             Ev::PersonTurnedOff { person, .. } => {
                 self.turned_off.insert(person.clone());
             }
-            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, thread, .. } => {
-                self.schedules.insert(
-                    id.clone(),
-                    Schedule {
-                        id: id.clone(),
-                        zone: crate::cadence::Zone::of_preferences(self.preferences.get(person)),
-                        person: person.clone(),
-                        every_minutes: *every_minutes,
-                        daily_at: daily_at.clone(),
-                        created: e.at,
-                        last_fired: None,
-                        budget: budget.clone(),
-                        card: card.clone(),
-                        label: label.unwrap_or_default(),
-                        seq: e.seq,
-                        failures: vec![],
-                        until: *until,
-                        max_runs: *max_runs,
-                        started: 0,
-                        skipped: None,
-                        paused: None,
-                        paused_on: None,
-                        paused_by_admin: false,
-                        resumed: None,
-                        ended: None,
-                        thread: thread.clone(),
-                    },
-                );
-                if let Some(c) = card {
-                    self.cards.insert(c.clone(), CardState { answer: Answer::Confirmed(id.clone()), at: e.at, person: Some(person.clone()) });
-                }
-            }
-            Ev::GrantSet { id, person, apps, allow, period, max_usd, card, cedar, label, .. } => {
-                let g = self.grants.entry(id.clone()).or_insert_with(|| Grant {
-                    id: id.clone(),
-                    person: person.clone(),
-                    apps: vec![],
-                    allow: vec![],
-                    period: String::new(),
-                    max_usd: 0.0,
-                    cedar: String::new(),
-                    card: card.clone(),
-                    label: Label::PRINCIPAL,
-                    seq: e.seq,
-                    at: e.at,
-                    by: e.actor.clone(),
-                    edited: None,
-                    revoked: None,
-                    actions: vec![],
-                    charges: vec![],
-                });
-                if g.seq != e.seq {
-                    g.edited = Some(e.at);
-                }
-                g.apps = apps.clone();
-                g.allow = allow.clone();
-                g.period = period.clone();
-                g.max_usd = *max_usd;
-                g.cedar = cedar.clone();
-                g.label = label.unwrap_or_default();
-                g.seq = e.seq;
-                // A card accepted sets it; a proposal handled with it is
-                // answered by the task it started, which follows.
-                if let Some(c) = card.as_ref().filter(|c| !self.cards.contains_key(*c)) {
-                    self.cards.insert(c.clone(), CardState { answer: Answer::Granted(id.clone()), at: e.at, person: Some(person.clone()) });
-                }
-            }
-            Ev::GrantRevoked { id, .. } => {
-                if let Some(g) = self.grants.get_mut(id).filter(|g| g.revoked.is_none()) {
-                    g.revoked = Some(e.at);
-                }
-            }
-            Ev::GrantUsed { grant, task, run, call_id, tool } => {
-                if let Some(g) = self.grants.get_mut(grant) {
-                    g.actions.push(GrantAction { tool: tool.clone(), task: task.clone(), run: run.clone(), call_id: call_id.clone(), at: e.at });
-                }
-            }
-            Ev::CommitmentRecorded { id, person, who, by, source, label, .. } => {
-                let by = by.clone().filter(|b| !b.is_empty());
-                self.commitments.entry(id.clone()).or_insert_with(|| Commitment {
-                    id: id.clone(),
-                    person: person.clone(),
-                    who: who.clone(),
-                    source: source.clone(),
-                    label: *label,
-                    at: e.at,
-                    by_actor: e.actor.clone(),
-                    changed: e.at,
-                    seq: e.seq,
-                    status: "open".into(),
-                    by: by.clone(),
-                    steps: vec![CommitmentStep { seq: e.seq, status: "open".into(), by }],
-                });
-            }
-            Ev::CommitmentChanged { id, person, by, status, .. } => {
-                if let Some(c) = self.commitments.get_mut(id).filter(|c| &c.person == person) {
-                    if let Some(b) = by {
-                        c.by = Some(b.clone()).filter(|b| !b.is_empty());
-                    }
-                    if let Some(s) = status {
-                        c.status = s.clone();
-                    }
-                    c.changed = e.at;
-                    c.steps.push(CommitmentStep { seq: e.seq, status: c.status.clone(), by: c.by.clone() });
-                }
-            }
-            Ev::CommitmentRemoved { id, person } => {
-                if self.commitments.get(id).is_some_and(|c| &c.person == person) {
-                    self.commitments.remove(id);
-                }
-            }
-            Ev::CardDeclined { card, person, reason } => {
-                self.cards.insert(card.clone(), CardState { answer: Answer::Declined(reason.clone()), at: e.at, person: person.clone() });
-            }
-            Ev::CardDeferred { card, person } => {
-                self.cards.insert(card.clone(), CardState { answer: Answer::Later, at: e.at, person: person.clone() });
-            }
-            Ev::CardAccepted { card, person, task } => {
-                self.cards.insert(card.clone(), CardState { answer: Answer::Started(task.clone()), at: e.at, person: Some(person.clone()) });
-            }
+            Ev::ScheduleSet { .. }
+            | Ev::ScheduleRemoved { .. }
+            | Ev::ScheduleEnded { .. }
+            | Ev::ScheduleSkipped { .. }
+            | Ev::SchedulePaused { .. }
+            | Ev::ScheduleChanged { .. }
+            | Ev::ScheduleResumed { .. }
+            | Ev::ScheduleFailed { .. }
+            | Ev::GrantSet { .. }
+            | Ev::GrantRevoked { .. }
+            | Ev::GrantUsed { .. }
+            | Ev::CommitmentRecorded { .. }
+            | Ev::CommitmentChanged { .. }
+            | Ev::CommitmentRemoved { .. }
+            | Ev::CardDeclined { .. }
+            | Ev::CardDeferred { .. }
+            | Ev::CardAccepted { .. } => self.arrangements.fold(e, &self.preferences),
             Ev::MemoryForgotten { id } => self.memory.retain(|m| &m.id != id),
             Ev::Trashed { item, person } => {
                 if let Some((title, title_from, held)) = self.take(item) {
@@ -1422,75 +1168,11 @@ impl State {
                     k.version = e.seq;
                 }
             }
-            Ev::ScheduleRemoved { id, .. } => {
-                self.schedules.remove(id);
-            }
-            Ev::ScheduleEnded { id, reason, .. } => {
-                // It stays, marked with why: its card says it ended, with
-                // its latest run. Only a cancelled one is gone (#264). The
-                // end is terminal: no pause outlives it.
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.ended = Some(reason.clone());
-                    s.paused = None;
-                    s.paused_on = None;
-                    s.paused_by_admin = false;
-                }
-            }
-            Ev::ScheduleSkipped { id, task, reason } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.last_fired = Some(e.at);
-                    s.skipped = Some((e.at, task.clone(), reason.clone()));
-                }
-            }
-            Ev::SchedulePaused { id, reason, task, admin, .. } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.paused = Some(reason.clone());
-                    s.paused_on = task.clone();
-                    s.paused_by_admin = *admin;
-                }
-            }
-            Ev::ScheduleChanged { id, every_minutes, daily_at, until, max_runs, .. } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.every_minutes = *every_minutes;
-                    s.daily_at = daily_at.clone();
-                    s.until = *until;
-                    s.max_runs = *max_runs;
-                    // A new end puts an ended one back: edits only move the
-                    // end forward, so it runs again (#264).
-                    s.ended = None;
-                }
-            }
-            Ev::ScheduleResumed { id, .. } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.paused = None;
-                    s.paused_by_admin = false;
-                    // Failures count afresh only after a person resumes a
-                    // schedule paused for them.
-                    if s.paused_on.take().is_none() {
-                        s.resumed = Some(e.at);
-                    }
-                    // The next run is due from now, not from long ago.
-                    s.last_fired = Some(e.at);
-                }
-            }
-            // A firing that failed still counts as fired: the next one is due as usual.
-            Ev::ScheduleFailed { id, reason } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.last_fired = Some(e.at);
-                    s.failures.push((e.at, reason.clone()));
-                }
-            }
             Ev::ScheduleFired { id, task } => {
                 // A run its schedule created was counted when it was created
                 // (below), so a firing lost after it never lets one more run.
                 let counted = self.tasks.get(task).is_some_and(|t| t.schedule.as_deref() == Some(id.as_str()));
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.last_fired = Some(e.at);
-                    if !counted {
-                        s.started += 1;
-                    }
-                    s.skipped = None;
-                }
+                self.arrangements.fired(id, counted, e.at);
                 if let Some(t) = self.tasks.get_mut(task) {
                     t.schedule = Some(id.clone());
                 }
@@ -1509,13 +1191,11 @@ impl State {
                 // So do the person's open commitments, which its context
                 // carries as they stand now (#236): words read in a mailbox
                 // do not enter a clean run untainted.
-                let pb = self.commitments.values().filter(|c| &c.person == person && c.status == "open").fold(pb, |l, c| l.join(c.label));
+                let pb = self.arrangements.commitments().values().filter(|c| &c.person == person && c.status == "open").fold(pb, |l, c| l.join(c.label));
                 let uploads = !attachments.is_empty() || !files.is_empty();
                 // A schedule's run counts against it as it is created.
-                if let Some(s) = e.actor.strip_prefix("schedule:").and_then(|id| self.schedules.get_mut(id)) {
-                    s.last_fired = Some(e.at);
-                    s.started += 1;
-                    s.skipped = None;
+                if let Some(id) = e.actor.strip_prefix("schedule:") {
+                    self.arrangements.started(id, e.at);
                 }
                 if !attachments.is_empty() {
                     self.attachments.insert(task.clone(), attachments.clone());
@@ -2085,11 +1765,11 @@ mod tests {
         let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
         s.apply(&ev(2, "schedule:s1", json!({ "kind": "task_created", "task": "t1", "run": "r1", "person": "alice", "text": "Say hi.", "config": config })));
         // The firing itself was lost: the schedule is still out of runs.
-        assert_eq!(s.schedules["s1"].started, 1);
-        assert!(s.schedules["s1"].next_due().is_none(), "a lost firing let the schedule run again");
+        assert_eq!(s.arrangements.schedules()["s1"].started, 1);
+        assert!(s.arrangements.schedules()["s1"].next_due().is_none(), "a lost firing let the schedule run again");
         // And when the firing is recorded, it is not counted twice.
         s.apply(&ev(3, "kernel", json!({ "kind": "schedule_fired", "id": "s1", "task": "t1" })));
-        assert_eq!(s.schedules["s1"].started, 1);
+        assert_eq!(s.arrangements.schedules()["s1"].started, 1);
     }
 
     /// An admin's suspension marks the schedule until a resume clears it;
@@ -2099,12 +1779,12 @@ mod tests {
         let mut s = State::default();
         s.apply(&ev(1, "person:alice", json!({ "kind": "schedule_set", "id": "s1", "person": "alice", "text": "Say hi.", "every_minutes": 60, "max_runs": 1 })));
         s.apply(&ev(2, "kernel", json!({ "kind": "schedule_paused", "id": "s1", "reason": "its last 3 runs failed" })));
-        assert!(!s.schedules["s1"].paused_by_admin, "an old pause replayed as an admin's suspension");
+        assert!(!s.arrangements.schedules()["s1"].paused_by_admin, "an old pause replayed as an admin's suspension");
         s.apply(&ev(3, "kernel", json!({ "kind": "schedule_resumed", "id": "s1" })));
         s.apply(&ev(4, "admin:root", json!({ "kind": "schedule_paused", "id": "s1", "reason": "Suspended by Root, an admin", "admin": true })));
-        assert!(s.schedules["s1"].paused_by_admin, "the suspension left no mark");
+        assert!(s.arrangements.schedules()["s1"].paused_by_admin, "the suspension left no mark");
         s.apply(&ev(5, "admin:root", json!({ "kind": "schedule_resumed", "id": "s1" })));
-        assert!(!s.schedules["s1"].paused_by_admin, "the resume kept the mark");
+        assert!(!s.arrangements.schedules()["s1"].paused_by_admin, "the resume kept the mark");
     }
 
     /// A model call the provider charged for and then failed (a reply it
@@ -2216,16 +1896,16 @@ mod tests {
         s.apply(&ev(1, "person:alice", json!({ "kind": "schedule_set", "id": "s1", "person": "alice", "text": "Say hi.", "every_minutes": 60, "max_runs": 1 })));
         s.apply(&ev(2, "person:alice", json!({ "kind": "schedule_paused", "id": "s1", "reason": "Paused by you" })));
         s.apply(&ev(3, "kernel", json!({ "kind": "schedule_ended", "id": "s1", "reason": "it ran 1 time, as set" })));
-        let sc = s.schedules.get("s1").expect("an ended schedule was removed");
+        let sc = s.arrangements.schedules().get("s1").expect("an ended schedule was removed");
         assert_eq!(sc.ended.as_deref(), Some("it ran 1 time, as set"), "the end kept no reason");
         assert!(sc.paused.is_none(), "the end kept the pause");
         assert!(sc.finished(chrono::Utc::now()).is_none(), "an ended schedule finishes again");
         // An edit puts it back: a new end, no mark.
         s.apply(&ev(4, "person:alice", json!({ "kind": "schedule_changed", "id": "s1", "every_minutes": 60, "daily_at": null, "until": null, "max_runs": 2 })));
-        assert!(s.schedules["s1"].ended.is_none(), "the edit kept the end mark");
+        assert!(s.arrangements.schedules()["s1"].ended.is_none(), "the edit kept the end mark");
         // Cancelling removes it, as before.
         s.apply(&ev(5, "person:alice", json!({ "kind": "schedule_removed", "id": "s1" })));
-        assert!(!s.schedules.contains_key("s1"), "a cancelled schedule stayed");
+        assert!(!s.arrangements.schedules().contains_key("s1"), "a cancelled schedule stayed");
     }
 
     /// Erasure drops watched baselines, home marks and opened marks

@@ -761,7 +761,7 @@ impl Kernel {
     pub(crate) fn covering_grant(&self, run: &Run, f: &Facts) -> Option<String> {
         let now = chrono::Utc::now();
         let (g, spent) = self.read(|s| {
-            let g = s.authority(&run.id).and_then(|t| t.grant.as_ref()).and_then(|id| s.grants.get(id)).filter(|g| g.person == run.person && g.revoked.is_none())?;
+            let g = s.authority(&run.id).and_then(|t| t.grant.as_ref()).and_then(|id| s.arrangements.grants().get(id)).filter(|g| g.person == run.person && g.revoked.is_none())?;
             Some((g.clone(), crate::grants::spent(s, g, now)))
         })?;
         if spent >= g.max_usd {

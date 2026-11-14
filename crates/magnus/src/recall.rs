@@ -198,7 +198,7 @@ impl crate::kernel::Kernel {
     pub async fn person_words(&self, person: &str) -> Result<Words> {
         let seqs: Vec<(String, i64)> = self.read(|s| {
             let tasks = s.tasks.values().filter(|t| t.person == person).map(|t| t.seq);
-            let schedules = s.schedules.values().filter(|x| x.person == person).map(|x| x.seq);
+            let schedules = s.arrangements.schedules().values().filter(|x| x.person == person).map(|x| x.seq);
             tasks.chain(schedules).map(|seq| (person.to_string(), seq)).collect()
         });
         self.words(seqs).await

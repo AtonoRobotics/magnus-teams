@@ -102,6 +102,7 @@ impl State {
             org,
             thread_extras,
             apps,
+            arrangements,
             tools,
             spend,
             catalog,
@@ -123,10 +124,6 @@ impl State {
             subjects,
             roles_set,
             preferences,
-            schedules,
-            grants,
-            commitments,
-            cards,
             stopped_by_person,
             draft_sources,
             reviews_last,
@@ -156,7 +153,7 @@ impl State {
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 21] = [
+        let parts: [&mut dyn Forget; 22] = [
             computers,
             payments,
             rules,
@@ -175,6 +172,7 @@ impl State {
             org,
             thread_extras,
             apps,
+            arrangements,
             tools,
             spend,
             catalog,
@@ -189,11 +187,6 @@ impl State {
         items_opened.retain(|id, _| !who.items.contains(id));
         items_resolved_at.retain(|id, _| !who.items.contains(id));
         stopped_by_person.retain(|r| !who.runs.contains(r));
-        schedules.retain(|_, x| x.person != p);
-        // Their grants: none covers whoever is next known by their name.
-        grants.retain(|_, g| g.person != p);
-        // Their commitments, whose words went with theirs (#236).
-        commitments.retain(|_, c| c.person != p);
         memory.retain(|m| m.person != p);
         // Their own documents (their relationship memory among them) and
         // their versions, whose content went with theirs (org-context.md,
@@ -207,8 +200,6 @@ impl State {
         moved.retain(|id, _| !who.tasks.contains(id) && !who.files.contains(id) && !who.threads.contains(id));
         removed_threads.retain(|t| !who.threads.contains(t));
         preferences.remove(p);
-        // Their answers to cards, a decline's reason among them.
-        cards.retain(|_, c| c.person.as_deref() != Some(p));
         // What their drafts were written from.
         draft_sources.retain(|_, d| d.person != p);
         // The proactive loop's scheduling for them.

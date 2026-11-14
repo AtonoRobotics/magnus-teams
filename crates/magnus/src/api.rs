@@ -831,7 +831,7 @@ pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crat
     v["waiting_item"] = json!(r.waiting_item);
     v["ended_at"] = json!(r.ended_at);
     // A scheduled run's sub-agents are grouped under its schedule.
-    v["group"] = if let Some(sc) = s.authority(&t.run_id).and_then(|a| a.schedule.as_ref()).and_then(|id| s.schedules.get(id)) {
+    v["group"] = if let Some(sc) = s.authority(&t.run_id).and_then(|a| a.schedule.as_ref()).and_then(|id| s.arrangements.schedules().get(id)) {
         json!({ "kind": "schedule", "id": sc.id, "title": words.title(sc.seq).unwrap_or_else(|| words.text(sc.seq).to_string()) })
     } else if let Some((c, turn)) =
         t.chat.as_ref().and_then(|c| c.from_run.as_ref().and_then(|f| s.runs.get(f)).and_then(|r| s.tasks.get(&r.task)).map(|turn| (c, crate::outcomes::person_turn(s, turn))))
@@ -1971,9 +1971,8 @@ async fn schedules(State(k): K, h: HeaderMap) -> Response {
         Err(e) => return internal(e),
     };
     let list: Vec<Value> = k.read(|s| {
-        s.schedules
-            .values()
-            .filter(|x| x.person == p.id)
+        s.arrangements
+            .schedules_of(&p.id)
             .map(|x| {
                 // Its runs, newest first; the last result is the newest that ended.
                 let mut runs: Vec<(&crate::state::Task, &Run)> =

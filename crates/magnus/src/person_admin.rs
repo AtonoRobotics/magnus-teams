@@ -45,7 +45,8 @@ impl Kernel {
     pub async fn person_schedules(&self, person: &str) -> Result<Vec<Value>, Refusal> {
         Ok(self.read(|s| {
             let mut v: Vec<Value> = s
-                .schedules
+                .arrangements
+                .schedules()
                 .values()
                 .filter(|x| x.person == person)
                 .map(|x| {
@@ -67,7 +68,9 @@ impl Kernel {
     /// Suspend or resume one of a person's schedules, as an admin. A
     /// schedule whose run waits on its person resumes when they answer it.
     pub async fn admin_schedule(&self, actor: &str, by: &str, person: &str, id: &str, on: bool) -> Result<Value, Refusal> {
-        let Some(sc) = self.read(|s| s.schedules.get(id).filter(|x| x.person == person).cloned()) else { return Err((StatusCode::NOT_FOUND, "no such schedule".into())) };
+        let Some(sc) = self.read(|s| s.arrangements.schedules().get(id).filter(|x| x.person == person).cloned()) else {
+            return Err((StatusCode::NOT_FOUND, "no such schedule".into()));
+        };
         if on {
             if sc.paused.is_none() {
                 return Err((StatusCode::CONFLICT, "the schedule is not suspended".into()));
@@ -201,7 +204,7 @@ impl Kernel {
                 self.on_stop(run, true).await;
             }
         }
-        let schedules: Vec<String> = self.read(|s| s.schedules.values().filter(|x| x.person == person).map(|x| x.id.clone()).collect());
+        let schedules: Vec<String> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person).map(|x| x.id.clone()).collect());
         for id in &schedules {
             self.emit(actor, Ev::ScheduleRemoved { id: id.clone(), source: Some("console".into()), turn: None }).await.map_err(failed)?;
         }

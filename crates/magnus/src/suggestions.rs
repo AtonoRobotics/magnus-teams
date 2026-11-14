@@ -95,7 +95,7 @@ pub(crate) fn cards_of(s: &Projection, person: &str) -> Vec<Card> {
                 continue;
             }
             let at = r.intents.values().find(|i| &i.call_id == call).map_or(r.created_at, |i| i.at);
-            out.push(Card { answer: s.cards.get(&id).cloned(), id, data: d.clone(), at, tainted: r.untrusted || r.private });
+            out.push(Card { answer: s.arrangements.cards().get(&id).cloned(), id, data: d.clone(), at, tainted: r.untrusted || r.private });
         }
     }
     out
@@ -416,6 +416,6 @@ mod tests {
         assert!(ledger(&s, "carol", at(10)).is_empty());
         assert!(s.holding("thread_2", None).unwrap().matches.contains(&("card_declined", "card", "c3".to_string())), "a decline's reason stays after its conversation is removed");
         ev(&mut s, 10, json!({ "kind": "person_erased", "person": "carol" }));
-        assert!(s.cards.is_empty(), "the answers went with her");
+        assert!(s.arrangements.cards().is_empty(), "the answers went with her");
     }
 }

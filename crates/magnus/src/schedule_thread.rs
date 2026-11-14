@@ -38,8 +38,8 @@ mod tests {
         let mut s = State::default();
         set(&mut s, 1, "sc_chat", json!("th_origin"));
         set(&mut s, 2, "sc_old", Value::Null);
-        assert_eq!(of(&s, &s.schedules["sc_chat"]), "th_origin", "a schedule set up in chat posts elsewhere");
-        assert_eq!(of(&s, &s.schedules["sc_old"]), "schedule-sc_old", "a schedule with no conversation lost its own thread");
+        assert_eq!(of(&s, &s.arrangements.schedules()["sc_chat"]), "th_origin", "a schedule set up in chat posts elsewhere");
+        assert_eq!(of(&s, &s.arrangements.schedules()["sc_old"]), "schedule-sc_old", "a schedule with no conversation lost its own thread");
     }
 
     /// A conversation the person removed is not written to again: the
@@ -49,7 +49,7 @@ mod tests {
         let mut s = State::default();
         set(&mut s, 1, "sc1", json!("th_gone"));
         s.removed_threads.insert("th_gone".into());
-        assert_eq!(of(&s, &s.schedules["sc1"]), "schedule-sc1");
+        assert_eq!(of(&s, &s.arrangements.schedules()["sc1"]), "schedule-sc1");
     }
 
     /// A schedule its own run ended, with no end time or run limit, is
@@ -59,14 +59,14 @@ mod tests {
     fn a_schedule_its_run_ended_is_never_due_again() {
         let mut s = State::default();
         set(&mut s, 1, "sc1", Value::Null);
-        assert!(s.schedules["sc1"].next_due().is_some());
+        assert!(s.arrangements.schedules()["sc1"].next_due().is_some());
         s.apply(&Event {
             seq: 2,
             at: chrono::Utc::now(),
             actor: "model".into(),
             ev: serde_json::from_value(json!({ "kind": "schedule_ended", "id": "sc1", "reason": "the work is done", "run": "r1" })).unwrap(),
         });
-        assert!(s.schedules["sc1"].ended.is_some());
-        assert!(s.schedules["sc1"].next_due().is_none(), "an ended schedule is still due");
+        assert!(s.arrangements.schedules()["sc1"].ended.is_some());
+        assert!(s.arrangements.schedules()["sc1"].next_due().is_none(), "an ended schedule is still due");
     }
 }

@@ -182,7 +182,7 @@ impl Kernel {
                 continue;
             }
             // Its answer: the schedule or task it made, or the reason it was declined.
-            let (state, made) = crate::suggestions::state_of(self.read(|s| s.cards.get(&card).cloned()).as_ref());
+            let (state, made) = crate::suggestions::state_of(self.read(|s| s.arrangements.cards().get(&card).cloned()).as_ref());
             let kind = Kind::parse(crate::chat::card_kind(&d, state));
             let mut e = d.clone();
             if d["proposal"] == true {
@@ -197,7 +197,7 @@ impl Kernel {
             // The grant it set, when accepted (#235).
             e["granted"] = made["granted"].clone();
             if d["proposal"] == true || d["grant"] == true {
-                if let Some(g) = self.read(|s| s.grants.values().find(|g| g.card.as_deref() == Some(card.as_str())).map(|g| g.id.clone())) {
+                if let Some(g) = self.read(|s| s.arrangements.grants().values().find(|g| g.card.as_deref() == Some(card.as_str())).map(|g| g.id.clone())) {
                     e["granted"] = json!(g);
                 }
                 // What a grant form offers: the person's apps.

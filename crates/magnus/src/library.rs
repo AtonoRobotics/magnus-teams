@@ -282,7 +282,7 @@ fn project_json(s: &St, p: &crate::state::Project) -> Value {
         "counts": {
             "tasks": s.tasks.values().filter(|t| t.person == p.person && !t.is_chat_turn() && inside(&t.task_id)).count(),
             "files": s.files.values().filter(|f| f.person == p.person && inside(&f.id)).count(),
-            "schedules": s.schedules.values().filter(|x| x.person == p.person && inside(&x.id)).count(),
+            "schedules": s.arrangements.schedules().values().filter(|x| x.person == p.person && inside(&x.id)).count(),
         },
     })
 }
@@ -337,7 +337,8 @@ async fn project(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response 
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| crate::api::task_row(&k, s, &p, t, r, &words)))
             .collect();
         let schedules: Vec<Value> = s
-            .schedules
+            .arrangements
+            .schedules()
             .values()
             .filter(|x| x.person == p.id && inside(&x.id))
             .map(|x| json!({ "id": x.id, "title": words.title(x.seq).unwrap_or_else(|| words.text(x.seq).to_string()), "text": words.text(x.seq), "next": x.next_due() }))
@@ -389,7 +390,7 @@ async fn move_item(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response 
     };
     let mine = k.read(|s| {
         s.tasks.get(&item).is_some_and(|t| t.person == p.id && !t.is_chat_turn())
-            || s.schedules.get(&item).is_some_and(|x| x.person == p.id)
+            || s.arrangements.schedules().get(&item).is_some_and(|x| x.person == p.id)
             || s.files.get(&item).is_some_and(|f| f.person == p.id)
     }) || k.has_thread(&p.id, &item);
     if !mine {

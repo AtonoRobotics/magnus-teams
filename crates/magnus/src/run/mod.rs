@@ -624,9 +624,7 @@ impl Kernel {
                     (_, Err(e)) => self.result(rid, call_id, format!("The policy does not parse: {e}. A retry with the same text will not help."), true).await?,
                 }
             }
-            "end_schedule" => match self
-                .read(|s| s.tasks.get(&run.task).and_then(|t| t.schedule.clone()).filter(|id| s.schedules.contains_key(id)).map(|id| (id.clone(), s.schedules[&id].clone())))
-            {
+            "end_schedule" => match self.read(|s| s.task_schedule(&run.task)) {
                 Some((id, sc)) => {
                     let reason = input["reason"].as_str().map(str::trim).filter(|r| !r.is_empty()).unwrap_or("its run ended it").to_string();
                     let title = self.schedule_title(&sc).await?;

@@ -137,7 +137,7 @@ async fn switch_state(State(k): State<Arc<Kernel>>) -> Response {
     let running = k.sandboxes.running().await;
     Json(k.read(|s| {
         let halted = crate::halts::halted_runs(s).count();
-        let held = if s.vault.kill_switch() { s.schedules.values().filter(|x| x.next_due().is_some()).count() } else { 0 };
+        let held = if s.vault.kill_switch() { s.arrangements.schedules().values().filter(|x| x.next_due().is_some()).count() } else { 0 };
         json!({
             "engaged": s.vault.kill_switch(),
             "by": s.vault.kill_switch_by().map(|(who, _)| who), "at": s.vault.kill_switch_by().map(|(_, at)| at),
@@ -320,7 +320,7 @@ async fn admin_disable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): ax
     if k.person(&id).is_none() {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
     }
-    let due = k.read(|s| s.schedules.values().filter(|x| x.person == id && x.next_due().is_some()).count());
+    let due = k.read(|s| s.arrangements.schedules().values().filter(|x| x.person == id && x.next_due().is_some()).count());
     let ended = match k.accounts.set_status(&id, crate::accounts::Status::Disabled).await {
         Ok(ended) => ended,
         Err(e) => {
