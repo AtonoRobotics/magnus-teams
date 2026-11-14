@@ -12,9 +12,12 @@ use super::takeover::DISPLAY_PROTOCOL;
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};
 use flate2::{Compress, Compression, FlushCompress};
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::sync::watch;
 
 pub(super) const DEFLATE_PROTOCOL: &str = "magnus.display.deflate";
 const DISPLAY_BUFFER_BYTES: usize = 64 * 1024;
@@ -29,6 +32,23 @@ const BYTES_PER_KIB: u64 = 1024;
 
 /// The subprotocols the server takes, best first.
 pub(super) const PROTOCOLS: [&str; 2] = [DEFLATE_PROTOCOL, DISPLAY_PROTOCOL];
+
+/// Each computer's open screens hear when a handback cuts them, so no one
+/// acts on the computer once its cleanup has begun (computer/leftovers.rs).
+static CUTS: Mutex<Option<HashMap<String, watch::Sender<u64>>>> = Mutex::new(None);
+
+/// Taken before the stream is opened: a cut after this is never missed.
+pub(super) fn cut_signal(id: &str) -> watch::Receiver<u64> {
+    let mut slot = CUTS.lock().unwrap_or_else(|e| e.into_inner());
+    slot.get_or_insert_with(HashMap::new).entry(id.to_string()).or_insert_with(|| watch::channel(0).0).subscribe()
+}
+
+/// Closes every screen open on `id`.
+pub(super) fn cut(id: &str) {
+    if let Some(tx) = CUTS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(id)) {
+        tx.send_modify(|n| *n += 1);
+    }
+}
 
 /// Whether the client offered the deflated screen.
 pub(super) fn wants_deflate(offered: &str) -> bool {
@@ -75,13 +95,14 @@ struct Tally {
 }
 
 /// Bytes both ways until either side stops.
-pub(super) async fn carry(mut socket: WebSocket, mut stream: UnixStream, deflate: bool, id: String) {
+pub(super) async fn carry(mut socket: WebSocket, mut stream: UnixStream, deflate: bool, id: String, mut cut: watch::Receiver<u64>) {
     let opened = Instant::now();
     let mut squeeze = deflate.then(Squeeze::new);
     let mut tally = Tally::default();
     let mut buf = vec![0u8; DISPLAY_BUFFER_BYTES];
     loop {
         tokio::select! {
+            _ = cut.changed() => break,
             from_screen = stream.read(&mut buf) => match from_screen {
                 Ok(n) if n > 0 => {
                     if let (None, Some(asked)) = (tally.first_frame, tally.asked) {
@@ -128,6 +149,17 @@ pub(super) async fn carry(mut socket: WebSocket, mut stream: UnixStream, deflate
 mod tests {
     use super::*;
     use flate2::{Decompress, FlushDecompress};
+
+    #[tokio::test]
+    async fn a_handback_cuts_every_screen_open_on_its_computer_and_no_other() {
+        let mut mine = cut_signal("cut-a");
+        let mut also_mine = cut_signal("cut-a");
+        let other = cut_signal("cut-b");
+        cut("cut-a");
+        assert!(mine.changed().await.is_ok() && also_mine.changed().await.is_ok());
+        assert!(!other.has_changed().unwrap(), "another computer's screen was cut");
+        cut("never-opened");
+    }
 
     #[test]
     fn only_a_client_that_offers_it_gets_the_screen_deflated() {

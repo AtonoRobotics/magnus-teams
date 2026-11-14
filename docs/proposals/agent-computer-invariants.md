@@ -99,7 +99,7 @@ Fails with: "a grant unlocked a hard denial".
 **18. inv2 `capture_stops_and_the_agent_pauses_while_a_person_holds_control`**
 Rule: while a person holds control the agent takes no step and its screenshots and clipboard reads are refused. Handback gives a fresh screenshot and a log entry.
 Test: during a takeover the model is not called and capture tools are refused. No frame from that period is in any model request or the log. After "I'm done" the next request has a new screenshot, and the log shows the takeover.
-Limit: this covers the agent's tools. It cannot stop a process that root left running in the computer, which is why passwords go in the browser VM.
+Limit: this covers the agent's tools, and handback stops every process the session started (whatever started it, double-forked or exec'd included) and undoes autostart entries; the takeover ends only when the guest confirms that, otherwise the agent stays paused (decisions/2026-11-13-takeover-leaves-nothing-running.md). New processes of a browser that was already running stay. It does not undo files root changed in the computer (a replaced program, the guest itself, a D-Bus service, a browser extension), which is why passwords go in the browser VM.
 Fails with: "the agent captured the screen during a takeover".
 
 **19. inv1 `a_takeover_ticket_works_once_and_never_appears_in_a_url`**

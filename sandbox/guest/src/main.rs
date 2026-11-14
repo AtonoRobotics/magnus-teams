@@ -11,6 +11,7 @@
 
 mod browser;
 mod files;
+mod leftovers;
 
 use files::Files;
 
@@ -485,6 +486,13 @@ fn handle(req: Value) -> Value {
             }
         }
         "zero_free" => zero_free(),
+        // The desktop is up before the boundary, so it is not the session's.
+        "takeover_begin" => {
+            start_display();
+            leftovers::begin(&leftovers::ProcFs, &leftovers::dirs())
+        }
+        "takeover_end" => leftovers::end(&leftovers::ProcFs, &leftovers::dirs()),
+        "takeover_leftovers" => leftovers::preview(&leftovers::ProcFs),
         "list" => list_dir(&files, &path()),
         "sync" => {
             unsafe { libc::sync() };

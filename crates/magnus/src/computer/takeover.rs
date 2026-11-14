@@ -4,6 +4,7 @@
 //! takes no step on that computer and its captures are refused. The display
 //! itself is reached with a short-lived, single-use ticket carried in a
 //! WebSocket subprotocol, never in a URL. Only the ticket's hash is kept.
+use super::leftovers;
 use super::service::failed;
 use super::wake::{act_and_capture, screenshot, Woken};
 use super::{client, Activity, Change, Computer, Ledger, OperatorSession, Owner, Status};
@@ -83,6 +84,17 @@ pub(super) fn apply(l: &mut Ledger, change: &Change) {
             if let Some(c) = l.computers.get_mut(id) {
                 c.controller = None;
                 c.activity.push(note("handed back".into(), by, *at));
+            }
+        }
+        Change::TakeoverCleared { id, by, stopped, stopped_count, removed, at } => {
+            if let Some(c) = l.computers.get_mut(id) {
+                let cleared = leftovers::Cleared { stopped: stopped.clone(), stopped_count: *stopped_count, removed: removed.clone() };
+                c.activity.push(note(leftovers::activity(&cleared), by, *at));
+            }
+        }
+        Change::TakeoverUnclean { id, by, why, at } => {
+            if let Some(c) = l.computers.get_mut(id) {
+                c.activity.push(note(format!("could not confirm the takeover left nothing running ({why}); the agent stays paused"), by, *at));
             }
         }
         Change::OperatorGranted { id, session, operator, until, at } => {
@@ -223,7 +235,12 @@ impl Kernel {
         if c.status != Status::Running {
             return Err(Refused::Conflict("only a running computer can be taken over".into()));
         }
-        // The user always wins: a new holder simply replaces the last.
+        // The user always wins: a new holder simply replaces the last, and
+        // keeps the boundary the first one's session began at.
+        if c.controller.is_none() {
+            let socket = self.computer_socket()?;
+            leftovers::begin(&socket, id).await.map_err(|e| Refused::Conflict(leftovers::begin_refused(&e)))?;
+        }
         if c.controller.as_deref() != Some(who.id.as_str()) {
             let (cause, runs) = self.read(|s| {
                 let on_it = runs_on(s, &c.owner).filter(|r| !r.status.terminal());
@@ -242,13 +259,24 @@ impl Kernel {
         Ok(json!({ "ticket": issue(id, &who.id), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME.as_secs() }))
     }
 
-    /// "I'm done": the agent picks up with a fresh screenshot.
+    /// "I'm done": once the guest has stopped what the session left running,
+    /// the agent picks up with a fresh screenshot. Until it confirms that,
+    /// the person keeps the screen and the agent stays paused.
     pub async fn hand_back(self: &Arc<Self>, who: &Person, id: &str) -> Result<Value, Refused> {
         let c = self.opened_computer(who, id)?;
         if c.controller.is_none() {
             return Err(Refused::Conflict("no one holds this computer".into()));
         }
         let socket = self.computer_socket()?;
+        let _closing = leftovers::handing_back(id);
+        super::display::cut(id);
+        let cleared = match leftovers::end(&socket, id).await {
+            Ok(cleared) => cleared,
+            Err(why) => {
+                self.record_computer(who, Change::TakeoverUnclean { id: id.into(), by: who.id.clone(), why: why.clone(), at: Utc::now() }).await?;
+                return Err(Refused::Conflict(leftovers::unclean(&why)));
+            }
+        };
         let frame = screenshot(&socket, id).await.ok();
         let runs: Vec<(String, u32)> = self.read(|s| {
             runs_on(s, &c.owner)
@@ -259,7 +287,12 @@ impl Kernel {
         let ids: Vec<String> = runs.iter().map(|(r, _)| r.clone()).collect();
         let answered = self.read(|s| super::driving::answered_by_handback(s, id, &ids));
         let actor = format!("person:{}", who.id);
-        let mut evs: Vec<(&str, Ev)> = vec![(actor.as_str(), Ev::Computer(Change::TakeoverEnded { id: id.into(), by: who.id.clone(), at: Utc::now() }))];
+        let now = Utc::now();
+        let report = json!({ "stopped": cleared.stopped, "stopped_count": cleared.stopped_count, "removed": cleared.removed });
+        let leftover =
+            Change::TakeoverCleared { id: id.into(), by: who.id.clone(), stopped: cleared.stopped, stopped_count: cleared.stopped_count, removed: cleared.removed, at: now };
+        let mut evs: Vec<(&str, Ev)> =
+            vec![(actor.as_str(), Ev::Computer(leftover)), (actor.as_str(), Ev::Computer(Change::TakeoverEnded { id: id.into(), by: who.id.clone(), at: now }))];
         // What the agent asked for is answered by handing back.
         evs.extend(answered.into_iter().map(|item| (actor.as_str(), Ev::ItemResolved { id: item, decision: "handed_back".into(), scope: None, text: None })));
         for (run, step) in &runs {
@@ -281,7 +314,20 @@ impl Kernel {
         for (run, _) in &runs {
             self.wake(run);
         }
-        Ok(json!({ "controller": Value::Null, "resumed": runs.len() }))
+        Ok(json!({ "controller": Value::Null, "resumed": runs.len(), "left_running": report }))
+    }
+
+    /// What "I'm done" would close, for the person holding the screen to
+    /// save their work first. A computer that cannot say is unclean at
+    /// handback anyway, so the error is the person's to see.
+    pub async fn handback_closes(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let c = self.opened_computer(who, id)?;
+        if c.controller.as_deref() != Some(who.id.as_str()) {
+            return Err(Refused::Conflict("you do not hold this computer".into()));
+        }
+        let socket = self.computer_socket()?;
+        let programs = leftovers::preview(&socket, id).await.map_err(failed)?;
+        Ok(json!({ "programs": programs }))
     }
 
     pub async fn grant_operator(&self, who: &Person, id: &str, operator: &str, minutes: i64) -> Result<Value, Refused> {
@@ -359,7 +405,7 @@ impl Kernel {
     /// The controller's display stream, once the ticket has been redeemed.
     pub(super) async fn display_stream(&self, id: &str, person: &str) -> Result<tokio::net::UnixStream, Refused> {
         let holds = self.read(|s| s.computers.get(id).is_some_and(|c| c.controller.as_deref() == Some(person) && c.status == Status::Running));
-        if !holds {
+        if !holds || leftovers::is_handing_back(id) {
             return Err(Refused::Denied("you do not hold this computer".into()));
         }
         let socket = self.computer_socket()?;

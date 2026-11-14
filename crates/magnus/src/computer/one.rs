@@ -60,6 +60,8 @@ impl Change {
             | Change::Restored { id, .. }
             | Change::TakeoverStarted { id, .. }
             | Change::TakeoverEnded { id, .. }
+            | Change::TakeoverCleared { id, .. }
+            | Change::TakeoverUnclean { id, .. }
             | Change::OperatorGranted { id, .. }
             | Change::OperatorEnded { id, .. }
             | Change::OperatorLooked { id, .. }
