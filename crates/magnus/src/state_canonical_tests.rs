@@ -141,6 +141,60 @@ fn sequence() -> Vec<(&'static str, Value)> {
         ("kernel", json!({ "kind": "secret_revoked", "name": "connector_mail__alice", "adapter": "mail", "at_provider": false, "detail": "no answer" })),
         ("person:alice", json!({ "kind": "reacted", "person": "alice", "thread": "thread_2", "entry": "e5", "reaction": "great" })),
         ("person:alice", json!({ "kind": "watch_polled", "person": "alice", "app": "wiki", "tool": "list_pages" })),
+        // Arrangements: schedules, grants, commitments and cards.
+        ("person:alice", json!({ "kind": "preferences_set", "person": "alice", "prefs": { "timezone": "Europe/Paris" } })),
+        ("person:alice", json!({ "kind": "schedule_set", "id": "s1", "person": "alice", "text": "Sum up.", "every_minutes": 60, "card": "c-s1", "max_runs": 3 })),
+        ("person:alice", json!({ "kind": "schedule_set", "id": "s2", "person": "alice", "text": "Brief me.", "daily_at": "08:00", "thread": "thread_2" })),
+        ("person:carl", json!({ "kind": "schedule_set", "id": "s3", "person": "carl", "text": "Ping.", "every_minutes": 30 })),
+        ("person:alice", json!({ "kind": "preferences_set", "person": "alice", "prefs": { "timezone": "America/New_York" } })),
+        ("schedule:s1", json!({ "kind": "task_created", "task": "t-s1", "run": "r-s1", "person": "alice", "text": "Sum up.", "config": config })),
+        ("kernel", json!({ "kind": "schedule_fired", "id": "s1", "task": "t-s1" })),
+        ("kernel", json!({ "kind": "schedule_fired", "id": "s1", "task": "t-lost" })),
+        ("kernel", json!({ "kind": "schedule_skipped", "id": "s2", "task": "t-alice", "reason": "its last run is still running" })),
+        ("kernel", json!({ "kind": "schedule_failed", "id": "s2", "reason": "no model" })),
+        ("kernel", json!({ "kind": "schedule_paused", "id": "s2", "reason": "its last 3 runs failed" })),
+        ("person:alice", json!({ "kind": "schedule_resumed", "id": "s2" })),
+        ("admin:root", json!({ "kind": "schedule_paused", "id": "s2", "reason": "Suspended", "task": "t-alice", "admin": true })),
+        ("admin:root", json!({ "kind": "schedule_resumed", "id": "s2" })),
+        ("person:alice", json!({ "kind": "schedule_changed", "id": "s1", "every_minutes": 120, "daily_at": null, "until": null, "max_runs": 5 })),
+        ("kernel", json!({ "kind": "schedule_ended", "id": "s1", "reason": "it ran 5 times, as set" })),
+        ("person:alice", json!({ "kind": "schedule_changed", "id": "s1", "every_minutes": 120, "daily_at": null, "until": null, "max_runs": 6 })),
+        ("kernel", json!({ "kind": "schedule_ended", "id": "s3", "reason": "done" })),
+        ("person:carl", json!({ "kind": "schedule_removed", "id": "s3" })),
+        (
+            "person:alice",
+            json!({ "kind": "grant_set", "id": "g1", "person": "alice", "apps": ["mail"], "period": "day", "max_usd": 2.0, "card": "c-g1", "cedar": "permit(principal, action, resource);" }),
+        ),
+        (
+            "person:alice",
+            json!({ "kind": "grant_set", "id": "g1", "person": "alice", "apps": ["mail", "crm"], "allow": ["send"], "period": "week", "max_usd": 3.0, "card": "c-g1", "cedar": "permit(principal, action, resource);", "label": label }),
+        ),
+        (
+            "person:carl",
+            json!({ "kind": "grant_set", "id": "g2", "person": "carl", "apps": ["wiki"], "period": "month", "max_usd": 1.0, "card": "c-s1", "cedar": "permit(principal, action, resource);" }),
+        ),
+        ("person:alice", json!({ "kind": "task_created", "task": "t-g", "run": "r-g", "person": "alice", "text": "Send it.", "config": config, "grant": "g1" })),
+        (
+            "model",
+            json!({ "kind": "model_reply", "run": "r-g", "step": 1, "usage": { "input_tokens": 10, "output_tokens": 2, "cost_usd": 0.5 }, "served_model": "m", "stop": "end_turn" }),
+        ),
+        ("kernel", json!({ "kind": "grant_used", "grant": "g1", "task": "t-g", "run": "r-g", "call_id": "c1", "tool": "mail__send" })),
+        ("person:carl", json!({ "kind": "grant_revoked", "id": "g2", "person": "carl" })),
+        ("person:carl", json!({ "kind": "grant_revoked", "id": "g2", "person": "carl" })),
+        (
+            "kernel",
+            json!({ "kind": "commitment_recorded", "id": "cm1", "person": "alice", "who": "Dana", "what": "the deck", "by": "Friday", "source": { "kind": "conversation", "thread": "thread_2" }, "label": label }),
+        ),
+        ("kernel", json!({ "kind": "commitment_recorded", "id": "cm1", "person": "alice", "who": "Eve", "by": "" })),
+        ("kernel", json!({ "kind": "commitment_recorded", "id": "cm2", "person": "carl", "who": "Finn", "by": "" })),
+        ("person:alice", json!({ "kind": "commitment_changed", "id": "cm1", "person": "alice", "status": "done", "by": "" })),
+        ("person:carl", json!({ "kind": "commitment_changed", "id": "cm1", "person": "carl", "status": "dropped" })),
+        ("person:carl", json!({ "kind": "commitment_removed", "id": "cm1", "person": "carl" })),
+        ("person:carl", json!({ "kind": "commitment_removed", "id": "cm2", "person": "carl" })),
+        ("person:alice", json!({ "kind": "card_declined", "card": "c-d", "person": "alice", "reason": "not now" })),
+        ("person:alice", json!({ "kind": "card_deferred", "card": "c-l", "person": "alice" })),
+        ("person:alice", json!({ "kind": "card_accepted", "card": "c-a", "person": "alice", "task": "t-alice" })),
+        ("person:alice", json!({ "kind": "task_created", "task": "t-after", "run": "r-after", "person": "alice", "text": "Again.", "config": config })),
     ]
 }
 
@@ -169,6 +223,11 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
         ("playbook_version", d(&s.playbook_version)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
         ("tools.consents", d(&s.tools.consents)),
+        ("schedules", d(&s.schedules)),
+        ("grants", d(&s.grants)),
+        ("commitments", d(&s.commitments)),
+        ("cards", d(&s.cards)),
+        ("tasks.schedule", d(&s.tasks.iter().map(|(id, t)| (id, &t.schedule)).collect::<Vec<_>>())),
     ]);
     v
 }
