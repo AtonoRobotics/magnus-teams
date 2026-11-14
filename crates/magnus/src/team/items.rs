@@ -28,7 +28,8 @@ pub fn task_row(w: &Work) -> TaskRow {
         status: w.status,
         waiting_on: w.reason.clone(),
         waiting_item: None,
-        status_line: None,
+        // What it is doing, in the words a personal task's card uses.
+        status_line: w.doing.as_deref().filter(|_| w.status == Status::Running).map(crate::tool_registry::doing_words),
         requester: Some(w.requester.clone()),
         steps: Some(w.steps),
         doing: w.doing.clone(),
@@ -183,5 +184,8 @@ mod tests {
             (&row["task_id"], &row["status"], &row["waiting_on"], &row["requester"]),
             (&serde_json::json!("t1"), &serde_json::json!("suspended"), &serde_json::json!("approval"), &serde_json::json!("mo"))
         );
+        assert_eq!(row["status_line"], serde_json::Value::Null, "work waiting on an ask says what it last did");
+        let running = Work { status: Status::Running, ..w };
+        assert_eq!(work(&running).value()["tasks"][0]["status_line"], "Reading a team file", "the app is not told what the work is doing");
     }
 }

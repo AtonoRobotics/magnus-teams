@@ -12,7 +12,6 @@ use crate::state::{Item, Run, State, Status as RunStatus};
 use crate::team::conversation::AGENT_NAME;
 use crate::tools::obj;
 use anyhow::Result;
-use magnus_adapter_proto::ToolSpec;
 use serde_json::{json, Value};
 
 pub(crate) const REQUEST_TOOL: &str = "computer_request_takeover";
@@ -32,13 +31,10 @@ const REASONS: [(&str, &str); 7] = [
     ("other", "a step only you can do"),
 ];
 
-pub(crate) fn request_spec(d: &dyn Fn(&str) -> String) -> ToolSpec {
+/// `computer_request_takeover`'s input: one of the steps only a person can do, and why.
+pub(crate) fn request_schema(_: &dyn Fn(&str) -> String) -> Value {
     let reasons: Vec<&str> = REASONS.iter().map(|(r, _)| *r).collect();
-    ToolSpec {
-        name: REQUEST_TOOL.into(),
-        description: d(REQUEST_TOOL),
-        input_schema: obj(json!({ "reason": { "type": "string", "enum": reasons }, "why": { "type": "string" } }), &["reason", "why"]),
-    }
+    obj(json!({ "reason": { "type": "string", "enum": reasons }, "why": { "type": "string" } }), &["reason", "why"])
 }
 
 /// The run's open request, if it has one.

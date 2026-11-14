@@ -13,7 +13,6 @@ use super::{client, Owner};
 use crate::kernel::Kernel;
 use crate::tools::obj;
 use anyhow::{anyhow, Result};
-use magnus_adapter_proto::ToolSpec;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -32,25 +31,24 @@ pub(crate) fn handles(tool: &str) -> bool {
     tool == EXEC_TOOL || tool == INSTALL_TOOL
 }
 
-pub(crate) fn specs(d: &dyn Fn(&str) -> String) -> Vec<ToolSpec> {
+/// `computer_exec`'s input.
+pub(crate) fn exec_schema(_: &dyn Fn(&str) -> String) -> Value {
+    obj(json!({ "command": { "type": "string" }, "timeout_s": { "type": "integer" } }), &["command"])
+}
+
+/// `computer_install_app`'s input: what the app manifest keeps of it.
+pub(crate) fn install_schema(_: &dyn Fn(&str) -> String) -> Value {
     let text = json!({ "type": "string" });
-    vec![
-        ToolSpec { name: EXEC_TOOL.into(), description: d(EXEC_TOOL), input_schema: obj(json!({ "command": text, "timeout_s": { "type": "integer" } }), &["command"]) },
-        ToolSpec {
-            name: INSTALL_TOOL.into(),
-            description: d(INSTALL_TOOL),
-            input_schema: obj(
-                json!({
-                    "name": text, "version": text,
-                    "source": { "type": "string", "description": "the https address the installer was downloaded from" },
-                    "installer": { "type": "string", "description": "where the downloaded installer is on your computer" },
-                    "steps": { "type": "array", "items": text, "description": "shell commands that install it; refer to the installer as $INSTALLER" },
-                    "hosts": { "type": "array", "items": text, "description": "hosts the app itself needs to reach, if any" }
-                }),
-                &["name", "version", "source", "installer", "steps"],
-            ),
-        },
-    ]
+    obj(
+        json!({
+            "name": text, "version": text,
+            "source": { "type": "string", "description": "the https address the installer was downloaded from" },
+            "installer": { "type": "string", "description": "where the downloaded installer is on your computer" },
+            "steps": { "type": "array", "items": text, "description": "shell commands that install it; refer to the installer as $INSTALLER" },
+            "hosts": { "type": "array", "items": text, "description": "hosts the app itself needs to reach, if any" }
+        }),
+        &["name", "version", "source", "installer", "steps"],
+    )
 }
 
 /// The command's limit in seconds: the default when none is given.
@@ -133,8 +131,8 @@ mod tests {
 
     #[test]
     fn the_agent_has_a_shell_and_an_install_on_its_computer() {
-        let names: Vec<String> = specs(&|n: &str| n.to_string()).into_iter().map(|s| s.name).collect();
-        assert_eq!(names, [EXEC_TOOL, INSTALL_TOOL]);
+        let names: Vec<String> = crate::tools::builtin_specs(false, false, false, true).into_iter().map(|s| s.name).filter(|n| n.starts_with("computer_")).collect();
+        assert!(names.iter().any(|n| n == EXEC_TOOL) && names.iter().any(|n| n == INSTALL_TOOL), "{names:?}");
         assert!(handles(EXEC_TOOL) && handles(INSTALL_TOOL) && !handles("computer_click"));
     }
 

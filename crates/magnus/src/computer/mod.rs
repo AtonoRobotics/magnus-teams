@@ -30,9 +30,9 @@ mod sources;
 mod takeover;
 mod wake;
 
-pub(crate) use agent_tools::specs as agent_specs;
+pub(crate) use agent_tools::{exec_schema, install_schema, EXEC_TOOL, INSTALL_TOOL};
 pub(crate) use deliver::MAX_DELIVER_BYTES;
-pub(crate) use driving::request_spec;
+pub(crate) use driving::{request_schema, REQUEST_TOOL};
 pub use egress::migrate_sql;
 use egress::surrogate as egress_surrogate;
 pub(crate) use one::ONE_AT_A_TIME;

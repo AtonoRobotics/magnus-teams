@@ -36,10 +36,10 @@ impl Family {
     /// The family's built-in tools, with their risk, label and audience.
     pub fn builtins(self) -> &'static [Builtin] {
         match self {
-            Family::Core => crate::tools::BUILTINS,
+            Family::Core => crate::tools::BUILTINS.as_slice(),
             Family::Local => crate::local::BUILTINS,
             Family::Desktop => crate::desktop::BUILTINS,
-            Family::Team => crate::team::BUILTINS,
+            Family::Team => crate::team::BUILTINS.as_slice(),
             Family::Images => crate::tools_ui::BUILTINS,
             Family::Connector => crate::generated::BUILTINS,
             Family::Payments => crate::payments::BUILTINS,

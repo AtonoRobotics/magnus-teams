@@ -32,23 +32,6 @@ function teamPreviewUrl(file) {
   return new Promise(ok => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => ok(null); r.readAsDataURL(file); });
 }
 
-/** What a tool call means to a reader of the channel. */
-function doingWords(tool) {
-  if (!tool) return "Starting";
-  if (tool === "task_complete") return "Finishing up";
-  if (tool.startsWith("web_")) return "Searching the web";
-  if (tool.startsWith("computer_")) return "Using the team computer";
-  if (tool.startsWith("browser_")) return "Browsing";
-  if (tool === "team_read_file") return "Reading a team file";
-  if (tool === "team_write_file") return "Writing a file for the team";
-  if (tool === "team_post") return "Posting an update";
-  if (tool === "team_note") return "Taking notes";
-  if (tool === "team_add_fact" || tool === "team_fix_entry") return "Updating the knowledge base";
-  if (tool === "team_read_knowledge") return "Reading the knowledge base";
-  if (tool.includes("__")) return `Using ${tool.split("__")[0]}`;
-  return "Working";
-}
-
 /** A task's title as a card shows it: the ask, without the mention that made it. */
 function workTitle(text) {
   const t = firstLine(text).replace(/^\s*@[\w.-]+[\s,:]*/, "").trim();
@@ -63,7 +46,8 @@ function workTitle(text) {
  */
 function teamWork(w, r) {
   const who = r.name(w.requester), status = w.status;
-  const line = status === "running" ? (w.doing ? doingWords(w.doing) : "Thinking it through")
+  // What it is doing comes in the server's words (crates/magnus/src/tool_registry), as a personal task's card has them.
+  const line = status === "running" ? (w.status_line || (w.doing ? "Working" : "Thinking it through"))
     : status === "suspended" ? `Waiting for ${who} to answer an ask`
     : status === "completed" ? "Done" : status === "failed" ? `Could not finish${w.waiting_on ? `: ${w.waiting_on}` : ""}` : "Stopped";
   const needs = status === "suspended" && w.requester === r.me;
