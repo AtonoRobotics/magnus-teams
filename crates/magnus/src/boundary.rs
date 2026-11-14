@@ -122,7 +122,7 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 pub const REVIEWER_FLAG: &str = "reviewer:flag";
 
 pub(crate) fn is_chat_tool(f: &Facts) -> bool {
-    f.connector.is_none() && crate::chat_work::is_chat_only(&f.name)
+    f.connector.is_none() && crate::run::admission::placement::is_chat_only(&f.name)
 }
 
 /// A send the reviewer judges: the model's own action, changing the world

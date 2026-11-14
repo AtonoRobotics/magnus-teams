@@ -1,0 +1,534 @@
+{
+  "th1": {
+    "thread": "th1",
+    "entries": [
+      {
+        "id": "m:t1",
+        "kind": "message",
+        "text": "Plan my trip to Lisbon",
+        "at": "<at>",
+        "task_id": "t1",
+        "files": [],
+        "may": {
+          "edit": true,
+          "retry": false,
+          "feedback": false,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "card": "card1",
+        "suggestion": true,
+        "title": "Book the flights",
+        "text": "Book flights to Lisbon",
+        "plan": "Find and book the flights",
+        "id": "c:card1",
+        "task_id": "t1",
+        "kind": "suggestion_card",
+        "state": "open",
+        "schedule": null,
+        "started": null,
+        "reason": null,
+        "granted": null,
+        "acts_for": "mo",
+        "taint": {
+          "untrusted": false,
+          "private": false
+        },
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "card": "card2",
+        "suggestion": true,
+        "title": "Watch prices",
+        "text": "Watch the fares",
+        "every_minutes": 1440,
+        "id": "c:card2",
+        "task_id": "t1",
+        "kind": "suggestion_card",
+        "state": "declined",
+        "schedule": null,
+        "started": null,
+        "reason": "not needed",
+        "granted": null,
+        "acts_for": "mo",
+        "taint": {
+          "untrusted": false,
+          "private": false
+        },
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "card": "card3",
+        "connector": "no_such_app",
+        "why": "to read the booking mail",
+        "kind": "connector_card",
+        "state": "unavailable",
+        "id": "c:card3",
+        "task_id": "t1",
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "t:r1",
+        "kind": "tasks",
+        "text": "",
+        "at": "<at>",
+        "from_run": "r1",
+        "tasks": [
+          {
+            "task_id": "t2",
+            "title": "Find flights to Lisbon",
+            "text": "Find flights to Lisbon",
+            "status": "completed",
+            "waiting_on": null,
+            "waiting_item": null,
+            "status_line": null
+          }
+        ],
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "s:t1",
+        "kind": "sub_agents",
+        "task_id": "t1",
+        "from_run": "r1",
+        "agents": [
+          {
+            "run": "r3",
+            "parent": "r1",
+            "depth": 1,
+            "task_id": "t3",
+            "goal": "Look up hotels",
+            "status": "completed",
+            "waiting_on": null,
+            "waiting_item": null,
+            "summary": "Two hotels near the river.",
+            "tools": [
+              "web_fetch"
+            ],
+            "at": "<at>",
+            "ended_at": "<at>"
+          }
+        ],
+        "at": "<at>"
+      },
+      {
+        "id": "a:t1",
+        "kind": "answer",
+        "text": "Here is your plan.",
+        "at": "<at>",
+        "task_id": "t1",
+        "model": {
+          "adapter": "a",
+          "model": "m"
+        },
+        "may": {
+          "edit": false,
+          "retry": true,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "reaction": "great"
+      },
+      {
+        "id": "r:t2",
+        "kind": "result",
+        "task_id": "t2",
+        "title": "Find flights to Lisbon",
+        "text": "Find flights to Lisbon",
+        "status": "completed",
+        "summary": "Found three flights.",
+        "view": null,
+        "at": "<at>",
+        "files": [],
+        "verdict": null,
+        "evidence": {
+          "receipts": [],
+          "not_done": [],
+          "sources": [],
+          "status_line": null
+        },
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "m:t4",
+        "kind": "message",
+        "text": "And the hotel?",
+        "at": "<at>",
+        "task_id": "t4",
+        "files": [],
+        "may": {
+          "edit": true,
+          "retry": false,
+          "feedback": false,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "a:t4",
+        "kind": "turn",
+        "status": "running",
+        "waiting_on": null,
+        "waiting_item": null,
+        "text": null,
+        "task_id": "t4",
+        "at": null,
+        "may": {
+          "edit": false,
+          "retry": true,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      }
+    ]
+  },
+  "th2": {
+    "thread": "th2",
+    "entries": [
+      {
+        "id": "m:t5",
+        "kind": "opener",
+        "text": "What I could take over in Mail",
+        "at": "<at>",
+        "task_id": "t5",
+        "app": "mail",
+        "app_title": "Mail",
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "a:t5",
+        "kind": "answer",
+        "text": "I will watch for invoices.",
+        "at": "<at>",
+        "task_id": "t5",
+        "model": {
+          "adapter": "a",
+          "model": "m"
+        },
+        "may": {
+          "edit": false,
+          "retry": true,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      }
+    ]
+  },
+  "branch": {
+    "thread": "<branch>",
+    "entries": [
+      {
+        "id": "m:t1",
+        "kind": "message",
+        "text": "Plan my trip to Lisbon",
+        "at": "<at>",
+        "task_id": "t1",
+        "files": [],
+        "may": {
+          "edit": true,
+          "retry": false,
+          "feedback": false,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "copied": true
+      },
+      {
+        "id": "t:r1",
+        "kind": "tasks",
+        "text": "",
+        "at": "<at>",
+        "from_run": "r1",
+        "tasks": [
+          {
+            "task_id": "t2",
+            "title": "Find flights to Lisbon",
+            "text": "Find flights to Lisbon",
+            "status": "completed",
+            "waiting_on": null,
+            "waiting_item": null,
+            "status_line": null
+          }
+        ],
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "copied": true
+      },
+      {
+        "id": "s:t1",
+        "kind": "sub_agents",
+        "task_id": "t1",
+        "from_run": "r1",
+        "agents": [
+          {
+            "run": "r3",
+            "parent": "r1",
+            "depth": 1,
+            "task_id": "t3",
+            "goal": "Look up hotels",
+            "status": "completed",
+            "waiting_on": null,
+            "waiting_item": null,
+            "summary": "Two hotels near the river.",
+            "tools": [
+              "web_fetch"
+            ],
+            "at": "<at>",
+            "ended_at": "<at>"
+          }
+        ],
+        "at": "<at>",
+        "copied": true
+      },
+      {
+        "id": "a:t1",
+        "kind": "answer",
+        "text": "Here is your plan.",
+        "at": "<at>",
+        "task_id": "t1",
+        "model": {
+          "adapter": "a",
+          "model": "m"
+        },
+        "may": {
+          "edit": false,
+          "retry": true,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "copied": true
+      },
+      {
+        "card": "card1",
+        "suggestion": true,
+        "title": "Book the flights",
+        "text": "Book flights to Lisbon",
+        "plan": "Find and book the flights",
+        "id": "c:card1",
+        "task_id": "t1",
+        "kind": "suggestion_card",
+        "state": "open",
+        "schedule": null,
+        "started": null,
+        "reason": null,
+        "granted": null,
+        "acts_for": "mo",
+        "taint": {
+          "untrusted": false,
+          "private": false
+        },
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "copied": true
+      },
+      {
+        "card": "card2",
+        "suggestion": true,
+        "title": "Watch prices",
+        "text": "Watch the fares",
+        "every_minutes": 1440,
+        "id": "c:card2",
+        "task_id": "t1",
+        "kind": "suggestion_card",
+        "state": "declined",
+        "schedule": null,
+        "started": null,
+        "reason": "not needed",
+        "granted": null,
+        "acts_for": "mo",
+        "taint": {
+          "untrusted": false,
+          "private": false
+        },
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "copied": true
+      },
+      {
+        "card": "card3",
+        "connector": "no_such_app",
+        "why": "to read the booking mail",
+        "kind": "connector_card",
+        "state": "unavailable",
+        "id": "c:card3",
+        "task_id": "t1",
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        },
+        "copied": true
+      }
+    ]
+  },
+  "old_branch": {
+    "thread": "old-branch",
+    "entries": [
+      {
+        "id": "m:t0",
+        "kind": "message",
+        "text": "Old words",
+        "at": "<at>",
+        "task_id": "t0",
+        "view": null,
+        "files": [],
+        "copied": true,
+        "may": {
+          "edit": true,
+          "retry": false,
+          "feedback": false,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "a:t0",
+        "kind": "answer",
+        "text": "Old answer",
+        "at": "<at>",
+        "task_id": "t0",
+        "spoken": null,
+        "copied": true,
+        "may": {
+          "edit": false,
+          "retry": true,
+          "feedback": true,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      },
+      {
+        "id": "x:t0",
+        "kind": "some_retired_kind",
+        "text": "kept as it was",
+        "copied": true,
+        "may": {
+          "edit": false,
+          "retry": false,
+          "feedback": false,
+          "share": true,
+          "save": true,
+          "task": true,
+          "pin": false,
+          "delete": true
+        }
+      }
+    ]
+  }
+}
