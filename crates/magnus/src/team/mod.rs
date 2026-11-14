@@ -14,6 +14,7 @@ mod agent;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
+mod forget;
 #[cfg(test)]
 mod invite_tests;
 pub mod invites;

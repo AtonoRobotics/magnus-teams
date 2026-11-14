@@ -47,6 +47,7 @@ pub mod dev_panels;
 pub mod devices;
 pub mod events;
 pub mod evidence;
+pub mod forget;
 pub(crate) mod gate_reads;
 pub mod generated;
 pub mod grants;

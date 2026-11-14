@@ -286,7 +286,7 @@ mod tests {
         l.apply(&Change::Unsubscribed { person: "sam".into(), app: "microsoft-outlook".into(), why: "deleted".into(), at: t(3) });
         assert_eq!(l.sub("sam", "microsoft-outlook"), None);
         l.apply(&Change::Subscribed { person: "sam".into(), app: "google-drive".into(), sub: s, at: t(4) });
-        l.forget("sam");
+        crate::forget::Forget::forget(&mut l, &crate::forget::Erased { person: "sam".into(), ..Default::default() });
         assert!(l.subs().is_empty(), "an erased person's subscriptions were kept");
     }
 }

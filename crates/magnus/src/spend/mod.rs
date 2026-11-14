@@ -130,6 +130,21 @@ pub struct Ledger {
     pub access: access::Access,
 }
 
+/// Their limit, increases, alerts, requests (whose reasons are their
+/// words) and model access. Decisions they made on others' requests stay
+/// with those requests.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        let p = &who.person;
+        let limit = format!("person:{p}");
+        self.people_usd.remove(p);
+        self.extra_usd.retain(|(x, _), _| x != p);
+        self.alerted.retain(|(l, _, _)| *l != limit);
+        self.requests.retain(|_, r| r.person != *p);
+        self.access.people.remove(p);
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, at: DateTime<Utc>, c: &Change) {
         match c {

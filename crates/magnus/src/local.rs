@@ -110,6 +110,17 @@ pub struct Ledger {
     pub desktop: crate::desktop::Ledger,
 }
 
+/// Their own computers, what Magnus wrote on them, what they deleted
+/// there, and the programs they allowed.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        let theirs: Vec<String> = self.computers.values().filter(|c| who.is(&c.person)).map(|c| c.id.clone()).collect();
+        self.computers.retain(|_, c| !who.is(&c.person));
+        self.files.forget(who, &theirs);
+        crate::forget::Forget::forget(&mut self.desktop, who);
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Computer) {
         if c.removed {

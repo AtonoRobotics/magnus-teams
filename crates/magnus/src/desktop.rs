@@ -119,6 +119,13 @@ pub struct Ledger {
     devices: BTreeMap<String, Device>,
 }
 
+/// Their computers' apps and the programs they allowed on each.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.devices.retain(|_, d| !who.is(&d.person));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {

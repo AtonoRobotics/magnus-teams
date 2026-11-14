@@ -97,6 +97,17 @@ pub struct Ledger {
     pub screens: Vec<Value>,
 }
 
+/// Their acceptance of apps' connect screens. The screens themselves are
+/// the server's record of the apps' tools.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        for people in self.consents.values_mut() {
+            people.remove(&who.person);
+        }
+        self.consents.retain(|_, people| !people.is_empty());
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, at: DateTime<Utc>, c: &Change) {
         match c {

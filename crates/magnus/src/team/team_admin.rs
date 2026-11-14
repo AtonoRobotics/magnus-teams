@@ -29,6 +29,13 @@ pub struct Admins {
 }
 
 impl Admins {
+    /// An erased person is no Team Admin.
+    pub(super) fn forget(&mut self, person: &str) {
+        self.people.remove(person);
+    }
+}
+
+impl Admins {
     /// Apply a Team Admin change; false when `c` is not one.
     pub(super) fn apply(&mut self, c: &Change) -> bool {
         match c {

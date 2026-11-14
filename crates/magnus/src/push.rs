@@ -70,6 +70,17 @@ pub struct Ledger {
     failed: BTreeMap<(String, String), DateTime<Utc>>,
 }
 
+/// Their pushes go with them: whoever is next known by their name starts
+/// with none.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        let mine = |p: &String| who.is(p);
+        self.received.retain(|(p, _), _| !mine(p));
+        self.subs.retain(|(p, _), _| !mine(p));
+        self.failed.retain(|(p, _), _| !mine(p));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {
@@ -88,14 +99,6 @@ impl Ledger {
                 self.failed.insert((person.clone(), app.clone()), *at);
             }
         }
-    }
-
-    /// Their pushes go with them: whoever is next known by their name
-    /// starts with none.
-    pub fn forget(&mut self, person: &str) {
-        self.received.retain(|(p, _), _| p != person);
-        self.subs.retain(|(p, _), _| p != person);
-        self.failed.retain(|(p, _), _| p != person);
     }
 
     pub fn get(&self, person: &str, app: &str) -> Option<DateTime<Utc>> {
@@ -367,7 +370,7 @@ mod tests {
         l.apply(&Change::Received { person: "sam".into(), app: "mail".into(), at: t(5) });
         l.apply(&Change::Received { person: "ada".into(), app: "mail".into(), at: t(2) });
         assert_eq!(l.get("sam", "mail"), Some(t(5)));
-        l.forget("sam");
+        crate::forget::Forget::forget(&mut l, &crate::forget::Erased { person: "sam".into(), ..Default::default() });
         assert_eq!(l.get("sam", "mail"), None);
         assert_eq!(l.all().len(), 1);
     }

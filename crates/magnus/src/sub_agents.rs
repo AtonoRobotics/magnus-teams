@@ -39,6 +39,15 @@ pub struct Ledger {
     started: Vec<String>,
 }
 
+/// The sub-agents of their runs.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.children.retain(|child, s| !who.runs.contains(child) && !who.runs.contains(&s.parent));
+        let children = &self.children;
+        self.started.retain(|c| children.contains_key(c));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, s: &SubAgent) {
         if self.children.insert(s.child.clone(), s.clone()).is_none() {
