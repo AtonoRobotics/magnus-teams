@@ -4,7 +4,6 @@ use crate::computers::{Computers, Purpose};
 use crate::config::Config;
 use crate::id::ComputerId;
 use anyhow::{ensure, Context, Result};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::OwnedFd;
@@ -25,102 +24,9 @@ const EGRESS_DIR_MODE: u32 = 0o2770;
 const UMASK_BEFORE_BIND: libc::mode_t = 0o177;
 const UMASK_AFTER_BIND: libc::mode_t = 0o077;
 
-/// Unknown fields are refused: no request can carry a path or a size.
-#[derive(Deserialize, Debug)]
-#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Request {
-    Create {
-        id: String,
-    },
-    Start {
-        id: String,
-    },
-    Hibernate {
-        id: String,
-    },
-    Wake {
-        id: String,
-    },
-    DiscardSnapshot {
-        id: String,
-    },
-    Backup {
-        id: String,
-    },
-    /// Where the egress proxy listens.
-    EgressSocket,
-    /// How many computers run and exist, against the machine's limits.
-    Capacity,
-    /// The computer that runs as this uid.
-    Whose {
-        uid: u32,
-    },
-    RestoreBackup {
-        id: String,
-    },
-    /// A browser VM: the volume is its profile, and there is no shell.
-    StartBrowser {
-        id: String,
-    },
-    /// Whether the host can hold this volume with every block written.
-    ZeroRoom {
-        id: String,
-    },
-    /// Gives a stopped computer's zeroed blocks back to the host.
-    DigHoles {
-        id: String,
-    },
-    /// Encrypts a stopped browser's profile with a key the vault holds.
-    SealVolume {
-        id: String,
-        key_b64: String,
-    },
-    UnsealVolume {
-        id: String,
-        key_b64: String,
-    },
-    /// A VM with only the volume, to reach a stopped computer's files.
-    StartHelper {
-        id: String,
-        #[serde(default)]
-        read_only: bool,
-    },
-    Pause {
-        id: String,
-    },
-    Resume {
-        id: String,
-    },
-    Stop {
-        id: String,
-    },
-    Destroy {
-        id: String,
-        #[serde(default)]
-        delete_volume: bool,
-    },
-    /// A reset that erases the files: the same computer with a new, empty
-    /// volume. No path or size comes from the caller.
-    EraseVolume {
-        id: String,
-    },
-    Status {
-        id: String,
-    },
-    List,
-    /// Turns this connection into a stream to the guest agent.
-    Connect {
-        id: String,
-    },
-    /// The computer's desktop, as a raw stream to the guest.
-    Display {
-        id: String,
-    },
-    /// This build's release, base image and requests, for Magnus to compare
-    /// with the computerd it shipped with. A computerd older than this
-    /// request answers "bad request", which Magnus reads as older.
-    Version,
-}
+/// The requests, defined once for computerd and Magnus. Unknown fields
+/// are refused: no request can carry a path or a size.
+pub use magnus_computerd_proto::Request;
 
 fn key(b64: &str) -> Result<[u8; crate::seal::KEY_BYTES]> {
     use base64::Engine;
@@ -302,7 +208,7 @@ pub fn serve(cfg: Config) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::Request;
+    use super::*;
 
     #[test]
     fn a_request_cannot_carry_a_path_or_a_size() {
@@ -317,5 +223,18 @@ mod tests {
         assert!(serde_json::from_str::<Request>(r#"{"op":"destroy","id":"a","delete_volume":true}"#).is_ok());
         assert!(serde_json::from_str::<Request>(r#"{"op":"capacity"}"#).is_ok(), "the machine cannot be asked its capacity");
         assert!(serde_json::from_str::<Request>(r#"{"op":"version"}"#).is_ok(), "the service cannot be asked its version");
+    }
+
+    /// Magnus reads "bad request" as a computerd older than itself
+    /// (`decisions/2026-11-11-computerd-version-and-update.md`), so a request
+    /// this build does not know must be refused in those words.
+    #[test]
+    fn a_request_from_the_future_is_refused_as_a_bad_request() {
+        let (mut magnus, conn) = UnixStream::pair().unwrap();
+        writeln!(magnus, r#"{{"op":"a_request_from_the_future","id":"abc"}}"#).unwrap();
+        let e = read_request(&conn).unwrap_err();
+        assert!(format!("{e:#}").starts_with("bad request: unknown variant `a_request_from_the_future`"), "{e:#}");
+        writeln!(magnus, r#"{{"op":"capacity"}}"#).unwrap();
+        assert_eq!(read_request(&conn).unwrap(), Request::Capacity);
     }
 }

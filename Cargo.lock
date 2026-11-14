@@ -1591,6 +1591,7 @@ dependencies = [
  "libc",
  "magnus-adapter-proto",
  "magnus-brokered-kit",
+ "magnus-computerd-proto",
  "miette",
  "minisign",
  "minisign-verify",
@@ -1725,6 +1726,7 @@ dependencies = [
  "chacha20poly1305",
  "flate2",
  "libc",
+ "magnus-computerd-proto",
  "minisign",
  "minisign-verify",
  "semver",
@@ -1734,6 +1736,14 @@ dependencies = [
  "tar",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "magnus-computerd-proto"
+version = "0.2.5"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

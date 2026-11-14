@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tar = "0.4"
+magnus-computerd-proto = { path = "../computerd-proto" }
 toml = "0.8"
 
 [dev-dependencies]
