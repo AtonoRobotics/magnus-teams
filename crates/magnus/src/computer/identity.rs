@@ -1,6 +1,7 @@
 //! Browser VMs: one per identity, and a throwaway per run for untrusted
 //! reading. The agent reaches them only through the broker here, by commands
 //! and an accessibility snapshot; the guest serves nothing else.
+use super::client::{GuestRequest, Request};
 use super::egress_surrogate as surrogate;
 use super::service::{failed, new_id, wait_for_guest};
 use super::{client, Change, Computer, KillMode, Owner, Role, Status};
@@ -62,7 +63,7 @@ impl Kernel {
     async fn new_browser(&self, actor: &str, person: &str, role: Role, extra: Vec<Change>) -> Result<String> {
         let socket = self.computer_socket().map_err(|e| anyhow!("{e:?}"))?;
         let id = new_id();
-        client::ask(&socket, json!({ "op": "create", "id": id })).await?;
+        client::ask(&socket, Request::Create { id: id.to_string() }).await?;
         let owner = Owner::Person(person.to_string());
         let mut changes = vec![Change::BrowserCreated { id: id.clone(), owner, role }];
         changes.extend(extra);
@@ -123,7 +124,7 @@ impl Kernel {
         let socket = self.computer_socket()?;
         self.own_identity(&who.id, id)?;
         self.record_computer(who, Change::Killed { id: id.into(), mode: KillMode::Destroy, delete_volume: true }).await?;
-        client::ask(&socket, json!({ "op": "destroy", "id": id, "delete_volume": true })).await.map_err(failed)?;
+        client::ask(&socket, Request::Destroy { id: id.to_string(), delete_volume: true }).await.map_err(failed)?;
         let _ = self.vault.remove(&seal_key_name(id));
         let _ = self.vault.remove(&password_name(id));
         let _ = self.vault.remove(&username_name(id));
@@ -136,13 +137,13 @@ impl Kernel {
         let socket = self.computer_socket().map_err(|e| anyhow!("{e:?}"))?;
         let _one_boot = BOOT.lock().await;
         super::idle::touch(&c.id);
-        if client::ask(&socket, json!({ "op": "status", "id": c.id })).await?["state"] == "running" {
+        if client::ask(&socket, Request::Status { id: c.id.clone() }).await?["state"] == "running" {
             return Ok(());
         }
         if matches!(c.role, Role::Identity { .. }) {
-            client::ask(&socket, json!({ "op": "unseal_volume", "id": c.id, "key_b64": self.profile_key(&c.id)? })).await?;
+            client::ask(&socket, Request::UnsealVolume { id: c.id.clone(), key_b64: self.profile_key(&c.id)? }).await?;
         }
-        client::ask(&socket, json!({ "op": "start_browser", "id": c.id })).await.context("start the browser VM")?;
+        client::ask(&socket, Request::StartBrowser { id: c.id.clone() }).await.context("start the browser VM")?;
         wait_for_guest(&socket, &c.id).await?;
         self.emit("kernel", Ev::Computer(Change::Started { id: c.id.clone() })).await?;
         Ok(())
@@ -150,15 +151,15 @@ impl Kernel {
 
     /// Stops a browser VM. An identity's profile goes back under its key.
     async fn stop_browser(&self, socket: &Path, c: &Computer) -> Result<()> {
-        let _ = client::guest(socket, &c.id, json!({ "op": "sync" })).await;
-        client::ask(socket, json!({ "op": "stop", "id": c.id })).await?;
+        let _ = client::guest(socket, &c.id, GuestRequest::Sync).await;
+        client::ask(socket, Request::Stop { id: c.id.clone() }).await?;
         self.emit("kernel", Ev::Computer(Change::BrowserStopped { id: c.id.clone() })).await?;
         self.seal_browser(socket, c).await
     }
 
     async fn seal_browser(&self, socket: &Path, c: &Computer) -> Result<()> {
         if matches!(c.role, Role::Identity { .. }) {
-            client::ask(socket, json!({ "op": "seal_volume", "id": c.id, "key_b64": self.profile_key(&c.id)? })).await?;
+            client::ask(socket, Request::SealVolume { id: c.id.clone(), key_b64: self.profile_key(&c.id)? }).await?;
         }
         Ok(())
     }
@@ -171,7 +172,7 @@ impl Kernel {
             let tended = async {
                 // Not while a tool is opening this profile to boot it.
                 let _no_boot = BOOT.lock().await;
-                let live = client::ask(socket, json!({ "op": "status", "id": c.id })).await?["state"] == "running";
+                let live = client::ask(socket, Request::Status { id: c.id.clone() }).await?["state"] == "running";
                 if live && super::idle::idle_browser(&c.id, &c.role, BROWSER_IDLE) {
                     self.stop_browser(socket, &c).await?;
                 } else if !live {
@@ -210,7 +211,7 @@ impl Kernel {
         let Some(socket) = self.cfg.computer.as_ref().map(|s| s.socket.clone()) else { return };
         let gone = async {
             self.emit("kernel", Ev::Computer(Change::Killed { id: c.id.clone(), mode: KillMode::Destroy, delete_volume: true })).await?;
-            client::ask(&socket, json!({ "op": "destroy", "id": c.id, "delete_volume": true })).await
+            client::ask(&socket, Request::Destroy { id: c.id.clone(), delete_volume: true }).await
         };
         if let Err(e) = gone.await {
             tracing::warn!("the throwaway browser of {run} was not removed: {e:#}");
@@ -219,7 +220,7 @@ impl Kernel {
 
     async fn broker(&self, id: &str, req: Value) -> Result<Value> {
         let socket = self.computer_socket().map_err(|e| anyhow!("{e:?}"))?;
-        let reply = client::guest_for(&socket, id, req, BROKER_WAIT).await?;
+        let reply = client::guest_value_for(&socket, id, &req, BROKER_WAIT).await?;
         match reply["error"].as_str() {
             Some(error) => Err(anyhow!("{error}")),
             None => Ok(reply),

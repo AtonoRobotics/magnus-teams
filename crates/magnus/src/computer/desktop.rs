@@ -3,6 +3,7 @@
 //! goes in its menu. The desktop itself is the base image's `magnus-desktop`
 //! (sandbox/desktop).
 
+use super::client::GuestRequest;
 use super::{client, Change, Owner, Role, Status, Theme};
 use crate::config::Person;
 use crate::controls::Refused;
@@ -37,7 +38,7 @@ fn shell_quote(s: &str) -> String {
 }
 
 async fn run(socket: &Path, id: &str, command: String) -> Result<()> {
-    let done = client::guest(socket, id, json!({ "op": "exec", "command": command, "timeout_s": DESKTOP_COMMAND_SECONDS })).await?;
+    let done = client::guest(socket, id, GuestRequest::exec(command, DESKTOP_COMMAND_SECONDS)).await?;
     ensure!(done["exit_code"] == json!(0), "{}", done["stderr"].as_str().unwrap_or_default());
     Ok(())
 }

@@ -4,10 +4,11 @@
 //! only the sandbox, so work made on the computer could not reach the person
 //! (owner, 2026-11-13: a CAD package stayed at a path on the computer). Now
 //! a delivery reads from the computer when the file is there.
+use super::client::GuestRequest;
 use super::service::user_path;
 use crate::kernel::Kernel;
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// The most one delivery carries, in bytes.
 pub(crate) const MAX_DELIVER_BYTES: usize = 25 * 1024 * 1024;
@@ -79,7 +80,10 @@ impl Kernel {
         let path = user_path(path).map_err(|_| format!("{path} is not under /workspace/ on your computer; copy it there first"))?;
         let mut out = vec![];
         loop {
-            let v = self.computer_file_for(&c, json!({ "op": "read", "path": path, "offset": out.len(), "length": READ_PIECE_BYTES })).await.map_err(|e| format!("{e:?}"))?;
+            let v = self
+                .computer_file_for(&c, GuestRequest::Read { path: path.to_string(), offset: Some(out.len() as u64), length: Some(READ_PIECE_BYTES) })
+                .await
+                .map_err(|e| format!("{e:?}"))?;
             if let Some(e) = v["error"].as_str() {
                 return Err(e.to_string());
             }
@@ -99,6 +103,7 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_delivery_reads_first_where_the_run_has_been_working() {

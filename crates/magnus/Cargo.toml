@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 magnus-adapter-proto = { path = "../adapter-proto" }
+magnus-computerd-proto = { path = "../computerd-proto" }
 # The schema check and vsock ports a brokered connector's server shares with the appliance.
 magnus-brokered-kit = { path = "../../brokered/kit" }
 anyhow = "1"

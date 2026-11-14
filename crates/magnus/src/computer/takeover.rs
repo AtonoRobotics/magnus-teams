@@ -4,6 +4,7 @@
 //! takes no step on that computer and its captures are refused. The display
 //! itself is reached with a short-lived, single-use ticket carried in a
 //! WebSocket subprotocol, never in a URL. Only the ticket's hash is kept.
+use super::client::GuestRequest;
 use super::leftovers;
 use super::service::failed;
 use super::wake::{act_and_capture, screenshot, Woken};
@@ -383,7 +384,7 @@ impl Kernel {
     pub async fn operator_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
         let path = super::service::user_path(path)?;
         let c = self.operator_session(who, id, &format!("the file {path}")).await?;
-        self.computer_file_for(&c, json!({ "op": "read", "path": path })).await
+        self.computer_file_for(&c, GuestRequest::read(path)).await
     }
 
     /// A look at the screen, for the person. It is no use of the computer,

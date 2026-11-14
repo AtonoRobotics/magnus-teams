@@ -2,6 +2,7 @@
 //! Magnus shipped with (`decisions/2026-11-11-computerd-version-and-update.md`).
 //! Magnus's own updates do not reach this service: root installs it.
 
+use magnus_computerd_proto::VersionReply;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -9,36 +10,9 @@ use std::path::Path;
 pub const VERSION_FILE: &str = "VERSION";
 const MAX_VERSION_CHARS: usize = 64;
 
-/// Every request this computerd answers, by its `op`. A test holds it to
-/// the `Request` enum, so a new request cannot be left out.
-pub const OPS: &[&str] = &[
-    "create",
-    "start",
-    "hibernate",
-    "wake",
-    "discard_snapshot",
-    "backup",
-    "egress_socket",
-    "capacity",
-    "whose",
-    "restore_backup",
-    "start_browser",
-    "zero_room",
-    "dig_holes",
-    "seal_volume",
-    "unseal_volume",
-    "start_helper",
-    "pause",
-    "resume",
-    "stop",
-    "destroy",
-    "erase_volume",
-    "status",
-    "list",
-    "connect",
-    "display",
-    "version",
-];
+/// Every request this computerd answers, by its `op`: defined with the
+/// requests themselves, and held to them by a test there.
+pub use magnus_computerd_proto::OPS;
 
 /// The release this program came from: the VERSION the installer put beside
 /// it, or the version it was built as when it was installed without one.
@@ -53,29 +27,13 @@ pub fn installed(program_dir: Option<&Path>) -> String {
 /// The answer to `version`: the release, the base image's id (the sha256
 /// of `rootfs.ext4` as installed) and the requests this build knows.
 pub fn answer(program_dir: Option<&Path>, base_id: Option<String>) -> Value {
-    json!({ "version": installed(program_dir), "base_id": base_id, "ops": OPS })
+    let reply = VersionReply { version: installed(program_dir), base_id, ops: OPS.iter().map(|o| o.to_string()).collect() };
+    serde_json::to_value(reply).unwrap_or_else(|_| json!({}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::Request;
-
-    /// serde names every variant when it refuses an unknown one.
-    fn every_request() -> Vec<String> {
-        let e = serde_json::from_str::<Request>(r#"{"op":"no_such_request"}"#).unwrap_err().to_string();
-        let list = e.split("expected one of").nth(1).expect("serde lists the variants");
-        list.split(',').map(|s| s.split('`').nth(1).expect("a quoted name").to_string()).collect()
-    }
-
-    #[test]
-    fn ops_names_every_request() {
-        let mut ops: Vec<String> = OPS.iter().map(|s| s.to_string()).collect();
-        let mut all = every_request();
-        ops.sort();
-        all.sort();
-        assert_eq!(ops, all);
-    }
 
     #[test]
     fn version_answers_the_release_the_base_image_and_the_requests() {
