@@ -1052,7 +1052,7 @@ pub fn search_text(media_type: &str, data_b64: &str) -> String {
 
 impl State {
     /// The person an event's content belongs to: the person it names, else
-    /// the person of its run, item or schedule. `runs` holds the runs of
+    /// the person of its run, item or schedule (a team change: `team::owner`). `runs` holds the runs of
     /// events written in the same batch, before them. The organisation's
     /// own content (knowledge entries, the playbook) belongs to no one
     /// person: None.
@@ -1062,8 +1062,8 @@ impl State {
             Ev::KnowledgeAdded { .. } | Ev::Playbook { .. } => return None,
             // An org document is nobody's; a person's own is theirs.
             Ev::BundleWritten { owner_user, .. } => return owner_user.clone(),
-            Ev::ItemResolved { id, .. } => return self.items.get(id).map(|i| i.person.clone()),
-            Ev::ItemOpened { id } => return self.items.get(id).map(|i| i.person.clone()),
+            Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.items.get(id).map(|i| i.person.clone()),
+            Ev::Team(c) => return self.team.content_owner(c),
             Ev::ScheduleEnded { id, .. } => return self.schedules.get(id).map(|s| s.person.clone()),
             _ => {}
         }

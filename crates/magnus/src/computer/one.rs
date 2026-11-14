@@ -250,6 +250,19 @@ impl Kernel {
         Ok(ended)
     }
 
+    /// Erasing a person: their computer and its volume go by the usual
+    /// deletion, a config person's too (owner, 2026-11-13). One still on the
+    /// server gets a new, empty one at the next look. How many went.
+    pub(crate) async fn delete_computers_of(&self, person: &str) -> Result<usize, Refused> {
+        let _one = ONE_AT_A_TIME.lock().await;
+        let owner = Owner::Person(person.to_string());
+        let theirs: Vec<Computer> = self.read(|s| s.computers.all().filter(|c| c.role == Role::Computer && c.owner == owner).cloned().collect());
+        for c in &theirs {
+            self.delete_computer("kernel", c).await?;
+        }
+        Ok(theirs.len())
+    }
+
     /// One write: the others deleted, the one kept, and its people told.
     async fn keep_one(&self, socket: &Path, kept: &Computer, rest: &[Computer]) -> Result<(), Refused> {
         let mut evs: Vec<(&str, Ev)> = rest.iter().flat_map(deletion).map(|ch| ("kernel", Ev::Computer(ch))).collect();

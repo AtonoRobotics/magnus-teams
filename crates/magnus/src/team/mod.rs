@@ -16,6 +16,8 @@ mod chat_routes;
 pub mod conversation;
 mod forget;
 #[cfg(test)]
+mod forget_tests;
+#[cfg(test)]
 mod invite_tests;
 pub mod invites;
 pub mod items;
@@ -39,6 +41,9 @@ mod notices;
 mod own_view;
 #[cfg(test)]
 mod own_view_tests;
+pub mod owner;
+#[cfg(test)]
+mod owner_tests;
 mod presence;
 #[cfg(test)]
 mod privacy_tests;

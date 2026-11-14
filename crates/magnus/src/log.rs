@@ -237,6 +237,18 @@ pub const CONTENT_OWNERS: &str = "UPDATE public.content c SET person = o.person 
             WHERE i.kind = 'item' AND i.body->>'id' = e.body->>'id' ORDER BY i.seq LIMIT 1)
         WHEN e.kind = 'schedule_ended' THEN (SELECT x.body->>'person' FROM public.events x
             WHERE x.kind = 'schedule_set' AND x.body->>'id' = e.body->>'id' ORDER BY x.seq LIMIT 1)
+        -- `team::owner`: a message and its edits are the sender's, a
+        -- request's are the requester's, a mark is its person's.
+        WHEN e.kind = 'team' THEN NULLIF(CASE e.body->>'change'
+            WHEN 'message' THEN regexp_replace(w.body->'message'->>'sender', '^agent:', '')
+            WHEN 'note' THEN regexp_replace(w.body->'note'->>'by', '^agent:', '')
+            WHEN 'run' THEN e.body->>'requester'
+            WHEN 'whisper' THEN e.body->>'owner'
+            WHEN 'chat' THEN CASE WHEN w.body->'chat'->>'what' = 'edited' THEN (SELECT regexp_replace(mc.body->'message'->>'sender', '^agent:', '')
+                FROM public.events m JOIN public.content mc USING (seq) WHERE m.kind = 'team' AND m.body->>'change' = 'message'
+                AND m.body->>'workspace' = e.body->>'workspace' AND m.body->>'channel' = w.body->'chat'->>'channel'
+                AND mc.body->'message'->>'id' = w.body->'chat'->>'id' ORDER BY m.seq LIMIT 1) ELSE w.body->'chat'->>'person' END
+            ELSE e.body->>'person' END, '')
         ELSE COALESCE(e.body->>'person', (SELECT t.body->>'person' FROM public.events t
             WHERE t.kind = 'task_created' AND t.run_id = e.run_id ORDER BY t.seq LIMIT 1))
     END AS person

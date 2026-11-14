@@ -125,7 +125,7 @@ async fn server() -> Server {
     let c = crate::log::connect(&url).await.unwrap();
     c.batch_execute(
         "CREATE TABLE public.events (seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, at timestamptz NOT NULL DEFAULT now(), kind text NOT NULL, actor text NOT NULL, run_id text, body jsonb NOT NULL);
-         CREATE TABLE public.content (seq bigint PRIMARY KEY REFERENCES public.events (seq), salt bytea NOT NULL, body jsonb NOT NULL);",
+         CREATE TABLE public.content (seq bigint PRIMARY KEY REFERENCES public.events (seq), salt bytea NOT NULL, body jsonb NOT NULL, person text);",
     )
     .await
     .unwrap();
@@ -363,6 +363,29 @@ async fn a_removed_person_takes_their_computer_with_them() {
     for p in ["sam", "ana", "mo"] {
         assert_eq!(s.computers_of(&person(p)).len(), 1, "{p} from the config lost their computer");
     }
+    s.done().await;
+}
+
+/// Erasing a person deletes their computer and its volume by the usual
+/// deletion, a config person's too; one still on the server gets a new,
+/// empty computer at the next look. Before, only removal from the
+/// directory deleted a computer, so mo, from the config, kept theirs and
+/// everything on it.
+#[tokio::test(flavor = "multi_thread")]
+async fn erasing_a_person_deletes_their_computer_and_its_volume() {
+    let s = server().await;
+    s.k.reconcile_computers().await;
+    let mo = s.computers_of(&person("mo"))[0].id.clone();
+    let out = s.k.erase_person("person:sam", "mo").await.unwrap();
+    assert_eq!(out["computers_deleted"], json!(1), "{out}");
+    assert!(!s.computers_of(&person("mo")).iter().any(|c| c.id == mo), "mo's computer outlived the erasure");
+    assert!(s.asked("destroy").iter().any(|r| r["id"] == json!(mo) && r["delete_volume"] == true), "mo's computer and volume were not deleted");
+    for p in ["sam", "ana"] {
+        assert_eq!(s.computers_of(&person(p)).len(), 1, "{p} lost their computer with mo's");
+    }
+    s.k.reconcile_computers().await;
+    let now = s.computers_of(&person("mo"));
+    assert!(now.len() == 1 && now[0].id != mo, "mo, still in the config, should have a new computer: {now:?}");
     s.done().await;
 }
 

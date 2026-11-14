@@ -450,9 +450,10 @@ pub struct Ledger {
     takeovers: Vec<(Option<String>, Vec<String>)>,
 }
 
-/// A person's computer is not forgotten with them here: its record is
-/// what deletes it, at their removal or the next look (`one.rs`), and the
-/// takeovers name runs, not people.
+/// A person's computer is not forgotten with them here: the erasure
+/// deleted it before, by the usual deletion, whose `Killed` forgets it
+/// (`one.rs`, `delete_computers_of`), and the takeovers name runs, not
+/// people.
 impl crate::forget::Forget for Ledger {
     fn forget(&mut self, _: &crate::forget::Erased) {}
 }

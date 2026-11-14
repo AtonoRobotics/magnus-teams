@@ -41,11 +41,12 @@ What stays, and why:
   (#191). A kill switch is never lifted by erasing the one who pulled it.
 - Invite links they made: the link is the server's, its maker a record
   of what they did.
-- Their computer's record: it is what deletes the computer, at their
-  removal or the next look (`computer/one.rs`).
-- Their messages in a shared team channel: the channel is the
-  workspace's record, the others keep their copy, and only a sender
-  deletes a message (2026-11-11-deleting-and-archiving-messages.md).
+- ~~Their computer's record~~: changed by the owner the same day; the
+  erasure now deletes the computer and its volume
+  (2026-11-13-erasure-takes-team-words-and-the-computer.md).
+- ~~Their messages in a shared team channel~~: changed by the owner the
+  same day; they are deleted for everyone
+  (2026-11-13-erasure-takes-team-words-and-the-computer.md).
   Projects and workspaces they owned are handed on or deleted before the
   erasure (2026-11-11-admin-sections.md).
 - The organisation's own config, policies (a layer naming them is the

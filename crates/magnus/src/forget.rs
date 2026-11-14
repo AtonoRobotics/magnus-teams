@@ -11,8 +11,9 @@
 //! that it happened, #195); approvals, kill switches and spend decisions
 //! the person gave others (each was valid when given and is about the
 //! other person's work, #191); the organisation's own config, policies,
-//! apps and knowledge; and records the server needs to finish the erasure
-//! (their computer, deleted by its own path).
+//! apps and knowledge. Their computer and its volume are deleted by the
+//! erasure itself, before this runs (`person_admin::erase_person`), and
+//! their team messages deleted for everyone (`team/forget.rs`).
 
 use crate::state::State;
 use std::collections::HashSet;
