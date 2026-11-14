@@ -56,6 +56,14 @@ pub struct Files {
 }
 
 impl Files {
+    /// What Magnus wrote on their computers, and what they deleted there.
+    pub(crate) fn forget(&mut self, who: &crate::forget::Erased, computers: &[String]) {
+        self.made.retain(|c, _| !computers.contains(c));
+        self.deleted.remove(&who.person);
+    }
+}
+
+impl Files {
     pub fn apply(&mut self, c: &Change) {
         match c {
             Change::Written { computer, path, at, .. } => {

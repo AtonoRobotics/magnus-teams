@@ -123,6 +123,18 @@ pub struct Ledger {
     invited: BTreeMap<String, String>,
 }
 
+/// Their agreements and choices as they stand. The log keeps each
+/// acceptance's record, which names versions only.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        let p = &who.person;
+        self.terms.remove(p);
+        self.usage.remove(p);
+        self.testers.remove(p);
+        self.invited.remove(p);
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {

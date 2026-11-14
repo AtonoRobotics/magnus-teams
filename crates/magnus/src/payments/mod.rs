@@ -126,6 +126,14 @@ pub struct Ledger {
     all: BTreeMap<String, Purchase>,
 }
 
+/// Their purchases go with their runs. The log keeps each one's record,
+/// which never held a card's details.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.all.retain(|_, p| !who.is(&p.person));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, change: &Change) {
         match change {

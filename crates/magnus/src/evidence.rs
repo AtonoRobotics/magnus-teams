@@ -84,6 +84,14 @@ pub struct Ledger {
     sources: HashMap<String, Vec<Source>>,
 }
 
+/// Their runs' read-backs and sources, which hold what was found.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.read_backs.retain(|run, _| !who.runs.contains(run));
+        self.sources.retain(|run, _| !who.runs.contains(run));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, at: DateTime<Utc>, c: &Change) {
         match c {

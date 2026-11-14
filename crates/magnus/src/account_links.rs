@@ -46,6 +46,12 @@ pub struct Ledger {
     links: BTreeMap<String, Link>,
 }
 
+/// Nothing: an invite link is the server's, and who made it is a record of
+/// what they did, as an approval they gave others stays (#191).
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, _: &crate::forget::Erased) {}
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {

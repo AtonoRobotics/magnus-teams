@@ -126,6 +126,16 @@ pub struct Ledger {
     pub paused: BTreeMap<String, Pulled>,
 }
 
+/// The switches on them and their agent. Those they pulled on others stay
+/// pulled: taking a stop away is never what erasing someone means.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        let agent = who.agent();
+        self.on.retain(|s, _| !matches!(s, Scope::Person(p) if who.is(p)) && !matches!(s, Scope::Agent(a) if *a == agent));
+        self.paused.remove(&agent);
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change, actor: &str, at: DateTime<Utc>) {
         let pulled = |name: &str| Pulled { by: actor.into(), name: if name.is_empty() { actor.into() } else { name.into() }, at };

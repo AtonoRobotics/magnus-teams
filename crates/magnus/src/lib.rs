@@ -48,6 +48,7 @@ pub mod devices;
 pub mod events;
 pub mod evidence;
 pub mod families;
+pub mod forget;
 pub(crate) mod gate_reads;
 pub mod generated;
 pub mod grants;

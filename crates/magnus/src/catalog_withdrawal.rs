@@ -101,6 +101,13 @@ pub struct Ledger {
     told: BTreeSet<(String, String)>,
 }
 
+/// Whom a withdrawal was told to.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.told.retain(|(_, p)| !who.is(p));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {

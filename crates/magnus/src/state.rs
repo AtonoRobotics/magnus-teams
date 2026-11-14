@@ -856,7 +856,9 @@ pub struct ConnectorSetting {
     pub blocked_groups: Option<Vec<String>>,
 }
 
-#[derive(Default)]
+/// Debug, so a test can look through all of it for what erasing a person
+/// left behind (`forget_tests.rs`).
+#[derive(Default, Debug)]
 pub struct State {
     pub computers: crate::computer::Ledger,
     pub payments: crate::payments::Ledger,
@@ -1505,72 +1507,8 @@ impl State {
             }
             Ev::DataAccessSet { private } => self.data_private = *private,
             Ev::PersonDataRead { .. } => {}
-            Ev::PersonErased { person } => {
-                let runs: HashSet<String> = self.runs.values().filter(|r| &r.person == person).map(|r| r.id.clone()).collect();
-                let tasks: HashSet<String> = self.tasks.values().filter(|t| &t.person == person).map(|t| t.task_id.clone()).collect();
-                let their_items: HashSet<String> = self.items.values().filter(|i| &i.person == person).map(|i| i.id.clone()).collect();
-                self.tasks.retain(|_, t| &t.person != person);
-                self.runs.retain(|_, r| &r.person != person);
-                self.items.retain(|_, i| &i.person != person && i.run.as_ref().is_none_or(|r| !runs.contains(r)));
-                // Their items' opened and resolved marks go with the items (#412).
-                self.items_opened.retain(|id, _| !their_items.contains(id));
-                self.items_resolved_at.retain(|id, _| !their_items.contains(id));
-                self.schedules.retain(|_, x| &x.person != person);
-                // Their grants: none covers whoever is next known by their name.
-                self.grants.retain(|_, g| &g.person != person);
-                // Their commitments, whose words went with theirs (#236).
-                self.commitments.retain(|_, c| &c.person != person);
-                self.memory.retain(|m| &m.person != person);
-                // Their own documents (their relationship memory among
-                // them) and their versions, whose content went with theirs
-                // (org-context.md, the owner's ruling on erasure). A path
-                // counts its versions on, as through any removal.
-                self.bundle.retain(|_, d| d.owner_user.as_deref() != Some(person.as_str()));
-                self.turned_off.remove(person);
-                self.files.retain(|_, f| &f.person != person);
-                self.projects.retain(|_, x| &x.person != person);
-                self.trash.retain(|_, t| &t.person != person);
-                self.preferences.remove(person);
-                self.hidden.remove(person);
-                // Their reactions and disagreements, whose words went with theirs.
-                self.reactions.remove(person);
-                self.disagreements.retain(|_, d| &d.person != person);
-                // Their answers to cards, a decline's reason among them.
-                self.cards.retain(|_, c| c.person.as_ref() != Some(person));
-                // What their drafts were written from.
-                self.draft_sources.retain(|_, d| &d.person != person);
-                // The proactive loop's scheduling for them.
-                self.reviews_last.remove(person);
-                self.reviews_overnight.remove(person);
-                self.interrupts.remove(person);
-                self.review_runs.retain(|_, p| p != person);
-                self.wake_marks.retain(|k, _| k.split_once(':').is_some_and(|(p, _)| p != person));
-                // Their branched threads (the entries as shown then) and
-                // what their tasks had attached go too.
-                self.branches.retain(|_, b| &b.person != person);
-                self.attachments.retain(|t, _| !tasks.contains(t));
-                self.subjects.remove(person);
-                self.last_sign_in.remove(person);
-                self.app_connections.retain(|(p, _), _| p != person);
-                self.openers.retain(|(p, _)| p != person);
-                // Their watched baselines and home mark: whoever is next
-                // known by their name starts fresh (#412).
-                self.watched_seen.retain(|(p, _, _), _| p != person);
-                self.home_last_open.remove(person);
-                // Their poll clocks: whoever is next known by their
-                // name starts polling fresh (#406).
-                self.watch_last_polled.retain(|(p, _, _), _| p != person);
-                self.push.forget(person);
-                // The rights they held go with them: whoever is next known by
-                // their name starts from the organisation's config.
-                self.roles_set.remove(person);
-                self.provider_rights.remove(person);
-                // So do the approvals given for their actions: none covers
-                // whoever is next known by their name (#191). Those they gave
-                // others stay, as given; the gate still asks whether their
-                // approver may give a lasting one.
-                self.approvals.retain(|a| &a.person != person);
-            }
+            // Every per-person part forgets them (`forget.rs`).
+            Ev::PersonErased { person } => self.forget_person(person),
             Ev::RolesSet { person, roles } => {
                 self.roles_set.insert(person.clone(), roles.clone());
             }

@@ -106,6 +106,14 @@ impl Rule {
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct Ledger(BTreeMap<String, Rule>);
 
+/// Their rules go, with their words: the log's copy of the words is
+/// deleted with the rest of their content, and the state's copy with it.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.0.retain(|_, r| !who.is(&r.person));
+    }
+}
+
 impl Ledger {
     pub fn apply(&mut self, c: &Change) {
         match c {

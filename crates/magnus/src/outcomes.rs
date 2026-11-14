@@ -74,7 +74,7 @@ impl Settings {
 }
 
 /// What the log says about returned outcomes.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Ledger {
     /// Ended tasks whose outcome has not returned yet.
     due: BTreeSet<String>,
@@ -82,6 +82,15 @@ pub struct Ledger {
     returned: BTreeSet<String>,
     /// Outcome turns by their task: the task whose outcome each returned.
     turns: BTreeMap<String, String>,
+}
+
+/// Their tasks' outcomes, returned or due: none returns for them after.
+impl crate::forget::Forget for Ledger {
+    fn forget(&mut self, who: &crate::forget::Erased) {
+        self.due.retain(|t| !who.tasks.contains(t));
+        self.returned.retain(|t| !who.tasks.contains(t));
+        self.turns.retain(|turn, of| !who.tasks.contains(turn) && !who.tasks.contains(of));
+    }
 }
 
 impl Ledger {
