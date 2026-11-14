@@ -31,7 +31,7 @@ pub fn title(o: &Opener) -> String {
 impl Kernel {
     /// After a sign-in: the person's cold start, when they have nothing here yet.
     pub fn open_after_sign_in(self: &Arc<Self>, person: &str) {
-        if !self.read(|s| s.tasks.values().any(|t| t.person == person) || s.branches.values().any(|b| b.person == person)) {
+        if !self.read(|s| s.tasks.values().any(|t| t.person == person) || s.thread_extras.branches().values().any(|b| b.person == person)) {
             self.open(person, None);
         }
     }
@@ -39,7 +39,7 @@ impl Kernel {
     /// After an app is connected: its first connection by this person,
     /// never a reconnection.
     pub fn open_after_connect(self: &Arc<Self>, person: &str, app: &str) {
-        if self.read(|s| s.app_connections.get(&(person.to_string(), app.to_string())).copied()) == Some(1) {
+        if self.read(|s| s.apps.connections(person, app)) == Some(1) {
             self.open(person, Some(app));
         }
     }
@@ -47,7 +47,7 @@ impl Kernel {
     /// Start it in the background: the sign-in or the connection does not
     /// wait for the model.
     fn open(self: &Arc<Self>, person: &str, app: Option<&str>) {
-        if !self.cfg.proposals.openers || self.read(|s| s.kill_switch) {
+        if !self.cfg.proposals.openers || self.read(|s| s.vault.kill_switch()) {
             return;
         }
         let (k, person, app) = (self.clone(), person.to_string(), app.map(String::from));

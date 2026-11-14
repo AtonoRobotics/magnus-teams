@@ -124,7 +124,7 @@ fn capital(s: &str) -> String {
 /// switch first, then the person's, the agent's and the connector's, then
 /// a pause, then the person turned off.
 pub fn may_proceed(s: &State, who: &Subject, phase: Phase) -> Option<Hold> {
-    if s.kill_switch {
+    if s.vault.kill_switch() {
         return Some(Hold::Server);
     }
     let scopes = [Some(Scope::Person(who.person.clone())), Some(Scope::Agent(who.agent.clone())), who.connector.clone().map(Scope::Connector)];

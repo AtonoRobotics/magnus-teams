@@ -11,6 +11,18 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub mod apps;
+pub mod org;
+pub mod server_ops;
+pub mod thread_extras;
+pub mod vault;
+pub mod watch;
+pub use apps::ConnectorSetting;
+pub use org::PolicyVersion;
+pub use server_ops::{ScrubPending, Update};
+pub use thread_extras::{Branch, Disagreement};
+pub use vault::Revoked;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -271,28 +283,7 @@ pub struct Verdict {
     pub at: DateTime<Utc>,
 }
 
-/// A disagreement Magnus recorded: what it advised, what the person decided, and later how it turned out.
-#[derive(Clone, Debug, Serialize)]
-pub struct Disagreement {
-    pub id: String,
-    pub person: String,
-    pub position: String,
-    pub decision: String,
-    pub at: DateTime<Utc>,
-    pub outcome: Option<String>,
-    pub outcome_at: Option<DateTime<Utc>>,
-}
-
 /// The verdicts a person can give, best first.
-/// A secret the kill switch took out: `at_provider` is None until the
-/// provider answered.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Revoked {
-    pub adapter: Option<String>,
-    pub at_provider: Option<bool>,
-    pub detail: Option<String>,
-}
-
 pub const VERDICTS: [&str; 4] = ["right", "partly", "wrong", "undone"];
 
 /// A file in a person's library: one they uploaded, or one a task delivered.
@@ -455,15 +446,6 @@ impl BundleDoc {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct PolicyVersion {
-    pub layer: String,
-    pub seq: i64,
-    pub at: DateTime<Utc>,
-    pub by: String,
-    pub cedar: String,
-}
-
 /// One item of the agent's playbook (I2).
 #[derive(Clone, Debug)]
 pub struct PlaybookItem {
@@ -608,18 +590,6 @@ impl Commitment {
     }
 }
 
-/// A thread branched from another at one of its entries.
-#[derive(Clone, Debug)]
-pub struct Branch {
-    pub person: String,
-    pub from: String,
-    pub upto: String,
-    /// The entries up to `upto`, as they were shown then.
-    pub entries: Vec<Value>,
-    pub title: String,
-    pub at: DateTime<Utc>,
-}
-
 /// What a scoped drafting step wrote from: the threads (none for a new
 /// draft) and their participants' addresses (#178).
 #[derive(Clone, Debug, PartialEq)]
@@ -650,16 +620,6 @@ pub enum Answer {
     Later,
     /// Declined, with their reason.
     Declined(Option<String>),
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct Update {
-    /// "updated", "rolled_back" or "failed".
-    pub what: String,
-    pub from: String,
-    pub to: String,
-    pub detail: String,
-    pub at: DateTime<Utc>,
 }
 
 /// An item in the trash: out of every view until it is restored or removed.
@@ -751,18 +711,6 @@ pub enum NotTrashable {
     Running,
 }
 
-/// Removed content still in backups kept, while it is (#195): the backups
-/// whose rewrite failed have had the removals up to `from`, not those after
-/// it through `through`.
-#[derive(Clone, Debug, Serialize)]
-pub struct ScrubPending {
-    pub from: i64,
-    pub through: i64,
-    pub files: Vec<String>,
-    pub detail: String,
-    pub at: DateTime<Utc>,
-}
-
 /// A person erased with content: the removal that took it, their provider
 /// subject then (the console's name for them), and whether a backup still
 /// holds it.
@@ -771,15 +719,6 @@ pub struct Erasure {
     pub removal: i64,
     pub subject: Option<String>,
     pub pending: bool,
-}
-
-/// An admin's settings for one of the organisation's apps: on or off, and
-/// who may use it (None: the app's own groups).
-#[derive(Clone, Debug, Default)]
-pub struct ConnectorSetting {
-    pub enabled: bool,
-    pub access_groups: Option<Vec<String>>,
-    pub blocked_groups: Option<Vec<String>>,
 }
 
 /// Debug, so a test can look through all of it for what erasing a person
@@ -806,10 +745,10 @@ pub struct State {
     pub runs: HashMap<String, Run>,
     pub items: BTreeMap<String, Item>,
     pub approvals: Vec<Approval>,
-    pub policies: BTreeMap<String, String>,
-    pub kill_switch: bool,
-    /// Who last engaged or released it, and when (as the log names them).
-    pub kill_switch_by: Option<(String, DateTime<Utc>)>,
+    /// The organisation's settings, the admin audit and version notices.
+    pub org: org::OrgSettings,
+    /// Secrets' names and the kill switch.
+    pub vault: vault::Ledger,
     /// Everyone who has ever signed in here. Someone not in it signs in the
     /// first time on the identity provider's own page, which can walk them
     /// through what their account still needs (a new password, two-factor).
@@ -819,63 +758,24 @@ pub struct State {
     /// When each person last opened the app's home: the feed starts
     /// here (#367).
     pub home_last_open: HashMap<String, DateTime<Utc>>,
-    /// Watched baselines (#369): the last two answers' item ids per
-    /// person, app and tool, newest last. New ids wake a review. A
-    /// window, not an accumulation (#409): two answers bound the
-    /// memory whatever the source holds, an unchanged answer always
-    /// diffs empty against its own window, and an item absent for one
-    /// read stays known while one gone for two wakes again on return.
-    pub watched_seen: HashMap<(String, String, String), Vec<HashSet<String>>>,
-    /// When each watched read was last polled on schedule, per
-    /// person, app and tool (#406): the next poll is due an interval
-    /// after this, or at once when there is no entry yet.
-    pub watch_last_polled: HashMap<(String, String, String), DateTime<Utc>>,
+    /// Watched reads' baselines and poll clocks (#369, #406).
+    pub watch: watch::Watch,
     /// When each inbox item was first presented to its person (#367).
     pub items_opened: HashMap<String, DateTime<Utc>>,
     /// When each inbox item was decided, for the feed (#367).
     pub items_resolved_at: HashMap<String, DateTime<Utc>>,
-    /// How many times each person has connected each app (by person, then
-    /// app): the first connection is the one Magnus opens a conversation
-    /// about, never a reconnection.
-    pub app_connections: HashMap<(String, String), u32>,
     /// The conversations Magnus opened, by person then task: each starts
     /// once ever, so deleting one does not start it again (review of #274).
     pub openers: std::collections::BTreeSet<(String, String)>,
     /// People turned off at the identity provider or by an admin, until
     /// they sign in again: their apps answer no calls for them.
     pub turned_off: std::collections::BTreeSet<String>,
-    /// The latest backup's restore check: file, whether it restored, detail, when.
-    pub last_backup: Option<(String, bool, String, DateTime<Utc>)>,
-    /// The latest backup's off-host copy: file, whether it held, detail, when.
-    pub last_copy: Option<(String, bool, String, DateTime<Utc>)>,
-    /// Removed content some backups still hold, until they are rewritten.
-    pub scrub_pending: Option<ScrubPending>,
+    /// The server's updates and backups.
+    pub server_ops: server_ops::ServerOps,
     /// Each person erased with content, by their id then.
     pub erasures: BTreeMap<String, Erasure>,
-    /// An appliance update in progress: from, to, and whether it is a rollback.
-    pub updating: Option<(String, String, bool)>,
-    pub last_update: Option<Update>,
-    /// Releases rolled back from: not installed again by themselves.
-    pub skipped_releases: std::collections::BTreeSet<String>,
-    /// Apps the owner added from the app (config-file apps are not here).
-    pub connectors: BTreeMap<String, crate::config::Connector>,
-    /// Providers the organisation has a registration with (its client ID
-    /// and secret are in the vault).
-    pub registrations: std::collections::BTreeSet<String>,
-    /// The admin's settings for each app: on or off, and who may use it.
-    pub connector_settings: BTreeMap<String, ConnectorSetting>,
-    /// When each organisation credential was last set or revoked: an app's
-    /// key by the app's name, a provider's client secret as
-    /// `registration:<provider>`. Never the value.
-    pub credential_changed: BTreeMap<String, (bool, DateTime<Utc>)>,
-    /// What was done in the admin console, oldest first: each entry's seq,
-    /// when, and the action as written.
-    pub audit: Vec<(i64, DateTime<Utc>, Value)>,
-    /// Secrets the kill switch emptied from the vault, latest engagement
-    /// only: what the owner signs in to or enters again.
-    pub revoked: BTreeMap<String, Revoked>,
-    /// Secrets the kill switch kept, sealed: only their provider can revoke them.
-    pub sealed: Vec<String>,
+    /// The apps the owner added, their settings, credentials and registrations.
+    pub apps: apps::Apps,
     /// Groups and roles from the identity provider, per person, as of their
     /// latest sign-in.
     pub provider_rights: HashMap<String, (Option<Vec<String>>, Option<Vec<String>>)>,
@@ -887,16 +787,8 @@ pub struct State {
     pub data_private: bool,
     /// Each person's own settings, by person.
     pub preferences: HashMap<String, Value>,
-    /// Entries people deleted from their threads, by thread.
-    pub hidden: HashMap<String, std::collections::HashSet<String>>,
-    /// Each person's reactions to Magnus's messages, by (thread, entry):
-    /// every reaction given, oldest first, and when (None: taken back), so
-    /// a run sees them as they stood when it started.
-    pub reactions: HashMap<String, BTreeMap<(String, String), Vec<(Option<String>, DateTime<Utc>)>>>,
-    /// The disagreements Magnus recorded, by id.
-    pub disagreements: BTreeMap<String, Disagreement>,
-    /// Threads branched from another, by thread.
-    pub branches: HashMap<String, Branch>,
+    /// Hidden entries, reactions, disagreements and branches.
+    pub thread_extras: thread_extras::ThreadExtras,
     pub schedules: BTreeMap<String, Schedule>,
     /// Each person's grants (#235), revoked ones among them, by id.
     pub grants: BTreeMap<String, Grant>,
@@ -921,13 +813,11 @@ pub struct State {
     pub review_runs: HashMap<String, String>,
     /// One-a-day wake marks (a coming-up schedule, a due commitment).
     pub wake_marks: HashMap<String, String>,
-    pub model: Option<(String, String)>,
     /// App tool definitions as screened, those held back, and who connected which app through its connect screen (spec rev 140).
     pub tools: crate::tool_gate::Ledger,
     pub spend: crate::spend::Ledger,
     pub catalog: crate::catalog_withdrawal::Ledger,
     pub admin_settings: crate::admin_app::settings::Settings,
-    pub secrets: HashSet<String>,
     pub memory: Vec<MemoryEntry>,
     /// The company knowledge base; its searchable index is in Postgres.
     pub knowledge: HashMap<String, KnowledgeEntry>,
@@ -938,8 +828,6 @@ pub struct State {
     pub projects: BTreeMap<String, Project>,
     /// Items the person moved into a project (Some) or out of one (None).
     pub moved: HashMap<String, Option<String>>,
-    /// Latest conformance result per adapter id: (version, model, passed, report).
-    pub conformance: HashMap<String, (String, String, bool, Value)>,
     pub playbook: BTreeMap<String, PlaybookItem>,
     /// The org context bundle, by path.
     pub bundle: BTreeMap<String, BundleDoc>,
@@ -947,21 +835,6 @@ pub struct State {
     /// removal: a path written again counts on, so (path, version) names
     /// one version in the log.
     pub bundle_last: HashMap<String, u32>,
-    /// Every policy a layer ever had, oldest first.
-    pub policy_history: Vec<PolicyVersion>,
-    /// Run modules an admin turned on or off for the organisation.
-    pub module_settings: BTreeMap<String, bool>,
-    /// Model providers an admin disabled.
-    pub providers_off: std::collections::BTreeSet<String>,
-    /// The desktop channel for everyone but the owner and testers, when an
-    /// admin set one.
-    pub desktop_channel: Option<String>,
-    /// The admin console's session lifetimes, as an admin set them.
-    pub console_settings: Option<Value>,
-    /// Admins' drafts of policy layers, not in force.
-    pub policy_drafts: BTreeMap<String, String>,
-    /// Model and harness changes, for version notices (U5): (seq, at, what, value).
-    pub version_changes: Vec<(i64, DateTime<Utc>, String, String)>,
     /// Increments with every playbook change (I3).
     pub playbook_version: u64,
     pub last_seq: i64,
@@ -1105,7 +978,7 @@ impl State {
                 })
                 .collect();
             turns.sort_by_key(|(t, _)| t.created_at);
-            let branch = self.branches.remove(item);
+            let branch = self.thread_extras.take_branch(item);
             // A conversation's title is its first message, recalled when
             // listed; one Magnus opened is called what the app calls it, not
             // by the appliance's instruction (review of #274).
@@ -1188,7 +1061,7 @@ impl State {
     /// Which erasures a backup still holds, after a scrub's record: each
     /// change is in the audit, as the console names the person (#195).
     fn erasures_pending(&mut self, e: &Event) {
-        let pending = self.scrub_pending.clone();
+        let pending = self.server_ops.scrub_pending().cloned();
         for (person, er) in self.erasures.iter_mut() {
             let now = pending.as_ref().is_some_and(|p| p.from < er.removal && er.removal <= p.through);
             if now == er.pending {
@@ -1200,7 +1073,7 @@ impl State {
                 _ => ("user_erasure_completed", serde_json::json!({ "backups": "every backup kept is rewritten without their content" })),
             };
             let target = er.subject.clone().unwrap_or_else(|| person.clone());
-            self.audit.push((e.seq, e.at, serde_json::json!({ "kind": "admin_action", "admin": "kernel", "name": "Magnus", "action": action, "target": target, "source": null, "before": null, "after": after })));
+            self.org.note_audit(e, serde_json::json!({ "kind": "admin_action", "admin": "kernel", "name": "Magnus", "action": action, "target": target, "source": null, "before": null, "after": after }));
         }
     }
 
@@ -1223,7 +1096,7 @@ impl State {
                     self.tasks.insert(t.task_id.clone(), t);
                 }
                 if let Some(b) = branch {
-                    self.branches.insert(id, b);
+                    self.thread_extras.put_branch(id, b);
                 }
             }
             Held::Entry { .. } => {}
@@ -1255,52 +1128,17 @@ impl State {
             r.last_at = e.at;
         }
         match &e.ev {
-            Ev::KernelBoot { version, instructions, .. } => {
-                for (what, v) in [("harness", version), ("instructions", instructions)] {
-                    if !v.is_empty() && self.version_changes.iter().rev().find(|c| c.2 == what).is_none_or(|c| &c.3 != v) {
-                        self.version_changes.push((e.seq, e.at, what.into(), v.clone()));
-                    }
-                }
-            }
-            Ev::SecretSet { name } => {
-                self.secrets.insert(name.clone());
-                self.revoked.remove(name);
-            }
-            Ev::PolicySet { layer, cedar } => {
-                self.policies.insert(layer.clone(), cedar.clone());
-                self.policy_history.push(PolicyVersion { layer: layer.clone(), seq: e.seq, at: e.at, by: e.actor.clone(), cedar: cedar.clone() });
-                let n = self.policy_history.iter().filter(|p| &p.layer == layer).count();
-                self.version_changes.push((e.seq, e.at, format!("policy:{layer}"), format!("v{n}")));
-            }
-            Ev::ModuleSet { name, on } => match on {
-                Some(on) => {
-                    self.module_settings.insert(name.clone(), *on);
-                }
-                None => {
-                    self.module_settings.remove(name);
-                }
-            },
-            Ev::ProviderSet { id, enabled } => {
-                if *enabled {
-                    self.providers_off.remove(id);
-                } else {
-                    self.providers_off.insert(id.clone());
-                }
-            }
-            Ev::DesktopChannelSet { channel } => {
-                self.desktop_channel = Some(channel.clone());
-            }
-            Ev::ConsoleSettings { idle_minutes, session_hours, allow } => {
-                self.console_settings = Some(serde_json::json!({ "idle_minutes": idle_minutes, "session_hours": session_hours, "allow": allow }));
-            }
-            Ev::PolicyDrafted { layer, cedar } => match cedar {
-                Some(c) => {
-                    self.policy_drafts.insert(layer.clone(), c.clone());
-                }
-                None => {
-                    self.policy_drafts.remove(layer);
-                }
-            },
+            Ev::KernelBoot { .. }
+            | Ev::PolicySet { .. }
+            | Ev::ModuleSet { .. }
+            | Ev::ProviderSet { .. }
+            | Ev::DesktopChannelSet { .. }
+            | Ev::ConsoleSettings { .. }
+            | Ev::PolicyDrafted { .. }
+            | Ev::AdminAction { .. }
+            | Ev::ModelSet { .. }
+            | Ev::AdapterVerified { .. } => self.org.fold(e),
+            Ev::SecretSet { .. } | Ev::KillSwitch { .. } | Ev::VaultSealed { .. } | Ev::SecretRevoked { .. } => self.vault.fold(&e.ev, &e.actor, e.at),
             Ev::Computer(c) => self.computers.apply_at(c, e.at),
             Ev::Payment(c) => self.payments.apply(c),
             Ev::Rule(c) => self.rules.apply(c),
@@ -1315,88 +1153,29 @@ impl State {
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
             Ev::AdminSetting(c) => self.admin_settings.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
-            Ev::KillSwitch { engaged } => {
-                self.kill_switch = *engaged;
-                self.kill_switch_by = Some((e.actor.clone(), e.at));
-            }
-            Ev::AdminAction { .. } => {
-                if let Ok(v) = serde_json::to_value(&e.ev) {
-                    self.audit.push((e.seq, e.at, v));
-                }
-            }
-            Ev::BackupMade { .. } => {}
-            Ev::UpdateStarted { from, to, rollback } => self.updating = Some((from.clone(), to.clone(), *rollback)),
-            Ev::UpdateFinished { from, to } => {
-                self.updating = None;
-                self.last_update = Some(Update { what: "updated".into(), from: from.clone(), to: to.clone(), detail: String::new(), at: e.at });
-            }
-            Ev::UpdateRolledBack { from, to, reason } => {
-                self.updating = None;
-                self.skipped_releases.insert(from.clone());
-                self.last_update = Some(Update { what: "rolled_back".into(), from: from.clone(), to: to.clone(), detail: reason.clone(), at: e.at });
-            }
-            Ev::UpdateFailed { to, reason } => {
-                self.updating = None;
-                self.last_update = Some(Update { what: "failed".into(), from: String::new(), to: to.clone(), detail: reason.clone(), at: e.at });
-            }
-            Ev::BackupChecked { file, ok, detail } => {
-                self.last_backup = Some((file.clone(), *ok, detail.clone(), e.at));
-            }
-            Ev::BackupCopied { file, ok, detail } => {
-                self.last_copy = Some((file.clone(), *ok, detail.clone(), e.at));
-            }
-            Ev::BackupScrubPending { from, through, files, detail } => {
-                self.scrub_pending = Some(ScrubPending { from: *from, through: *through, files: files.clone(), detail: detail.clone(), at: e.at });
+            Ev::BackupMade { .. }
+            | Ev::UpdateStarted { .. }
+            | Ev::UpdateFinished { .. }
+            | Ev::UpdateRolledBack { .. }
+            | Ev::UpdateFailed { .. }
+            | Ev::BackupChecked { .. }
+            | Ev::BackupCopied { .. } => self.server_ops.fold(&e.ev, e.at),
+            // Which erasures a backup still holds follows the scrub.
+            Ev::BackupScrubPending { .. } | Ev::BackupsScrubbed { .. } => {
+                self.server_ops.fold(&e.ev, e.at);
                 self.erasures_pending(e);
             }
-            Ev::BackupsScrubbed { through } => {
-                if self.scrub_pending.as_ref().is_some_and(|p| p.through <= *through) {
-                    self.scrub_pending = None;
-                }
-                self.erasures_pending(e);
-            }
-            Ev::ConnectorAdded { connector } => {
-                if connector.credential.is_some() && connector.auth.as_deref() != Some(crate::connectors::OAUTH) {
-                    self.credential_changed.insert(connector.name.clone(), (true, e.at));
-                }
-                self.connectors.insert(connector.name.clone(), connector.clone());
-            }
-            Ev::ConnectorSettings { name, enabled, access_groups, blocked_groups } => {
-                self.connector_settings.insert(name.clone(), ConnectorSetting { enabled: *enabled, access_groups: access_groups.clone(), blocked_groups: blocked_groups.clone() });
-            }
-            // The connection itself is in the vault; these are its record.
-            Ev::AppConnected { app, person, .. } => {
-                *self.app_connections.entry((person.clone(), app.clone())).or_default() += 1;
-            }
-            Ev::AppDisconnected { .. } => {}
-            Ev::CredentialSet { connector, set } => {
-                self.credential_changed.insert(connector.clone(), (*set, e.at));
-            }
+            Ev::ConnectorAdded { .. }
+            | Ev::ConnectorSettings { .. }
+            | Ev::AppConnected { .. }
+            | Ev::AppDisconnected { .. }
+            | Ev::CredentialSet { .. }
+            | Ev::RegistrationSet { .. }
+            | Ev::ToolClassified { .. } => self.apps.fold(&e.ev, e.at),
+            // Its people's acceptance of its connect screen goes with it.
             Ev::ConnectorRemoved { name } => {
-                self.connectors.remove(name);
+                self.apps.fold(&e.ev, e.at);
                 self.tools.consents.remove(name);
-            }
-            Ev::RegistrationSet { provider, set } => {
-                self.credential_changed.insert(format!("registration:{provider}"), (*set, e.at));
-                if *set {
-                    self.registrations.insert(provider.clone());
-                } else {
-                    self.registrations.remove(provider);
-                }
-            }
-            Ev::ToolClassified { connector, tool, risk } => {
-                if let Some(c) = self.connectors.get_mut(connector) {
-                    match risk {
-                        Some(r) => {
-                            // Its reach is what the tool is, whatever its class.
-                            let reach = c.tools.get(tool).and_then(|t| t.reach.clone());
-                            c.tools.insert(tool.clone(), crate::config::ToolClass { risk: r.clone(), label: None, reach });
-                        }
-                        None => {
-                            c.tools.remove(tool);
-                        }
-                    }
-                }
             }
             Ev::ContextReset { run, from, to, note, .. } => {
                 if let Some(r) = self.runs.get_mut(run) {
@@ -1409,16 +1188,6 @@ impl State {
                     r.escalated = Some((adapter.clone(), model.clone()));
                     r.lost_since = r.replies.len() as u32;
                 }
-            }
-            Ev::VaultSealed { revoking, kept } => {
-                self.revoked = revoking.iter().map(|n| (n.clone(), Revoked::default())).collect();
-                self.sealed = kept.clone();
-                for n in revoking {
-                    self.secrets.remove(n);
-                }
-            }
-            Ev::SecretRevoked { name, adapter, at_provider, detail } => {
-                self.revoked.insert(name.clone(), Revoked { adapter: Some(adapter.clone()), at_provider: Some(*at_provider), detail: Some(detail.clone()) });
             }
             Ev::SubjectBound { person, subject } => match subject {
                 Some(sub) => {
@@ -1449,27 +1218,8 @@ impl State {
                 let zone = crate::cadence::Zone::of_preferences(self.preferences.get(person));
                 self.schedules.values_mut().filter(|x| x.person == *person).for_each(|x| x.zone = zone);
             }
-            Ev::ChatHidden { thread, entries, .. } => {
-                self.hidden.entry(thread.clone()).or_default().extend(entries.iter().cloned());
-            }
-            Ev::Reacted { person, thread, entry, reaction } => {
-                let mine = self.reactions.entry(person.clone()).or_default();
-                mine.entry((thread.clone(), entry.clone())).or_default().push((reaction.clone(), e.at));
-            }
-            Ev::DisagreementRecorded { id, person, position, decision, .. } => {
-                let d = Disagreement { id: id.clone(), person: person.clone(), position: position.clone(), decision: decision.clone(), at: e.at, outcome: None, outcome_at: None };
-                self.disagreements.insert(id.clone(), d);
-            }
-            Ev::DisagreementOutcome { id, outcome, .. } => {
-                // The first outcome stands.
-                if let Some(d) = self.disagreements.get_mut(id).filter(|d| d.outcome.is_none()) {
-                    d.outcome = Some(outcome.clone());
-                    d.outcome_at = Some(e.at);
-                }
-            }
-            Ev::ThreadBranched { person, thread, from, upto, entries, title } => {
-                self.branches
-                    .insert(thread.clone(), Branch { person: person.clone(), from: from.clone(), upto: upto.clone(), entries: entries.clone(), title: title.clone(), at: e.at });
+            Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
+                self.thread_extras.fold(&e.ev, e.at)
             }
             Ev::SignedIn { person, .. } => {
                 self.signed_in_before.insert(person.clone());
@@ -1480,31 +1230,8 @@ impl State {
             Ev::HomeOpened { person } => {
                 self.home_last_open.insert(person.clone(), e.at);
             }
-            Ev::WatchedSeen { person, app, tool, ids, full } => {
-                let window = self.watched_seen.entry((person.clone(), app.clone(), tool.clone())).or_default();
-                let seen: HashSet<String> = ids.iter().cloned().collect();
-                // Tagged wholes push as they come (#415). Untagged history
-                // splits by overlap (#423): era-1 deltas are fresh-only,
-                // hence always disjoint from the window, and union onto
-                // the newest entry they extend; an overlapping untagged
-                // event is an era-2 whole answer and pushes. A total-churn
-                // era-2 pair is indistinguishable from seed plus delta and
-                // unions transiently, healed by later tagged reads.
-                let entry = if *full || window.iter().flatten().any(|id| seen.contains(id)) {
-                    seen
-                } else {
-                    let mut union = window.last().cloned().unwrap_or_default();
-                    union.extend(seen);
-                    union
-                };
-                window.push(entry);
-                if window.len() > 2 {
-                    window.remove(0);
-                }
-            }
-            Ev::WatchPolled { person, app, tool } => {
-                self.watch_last_polled.insert((person.clone(), app.clone(), tool.clone()), e.at);
-            }
+            Ev::WatchedSeen { person, app, tool, ids, full } => self.watch.fold_seen(person, app, tool, ids, *full),
+            Ev::WatchPolled { person, app, tool } => self.watch.fold_polled(person, app, tool, e.at),
             Ev::ItemOpened { id } => {
                 // First presentation stands: opened is when it was
                 // first seen, and the app reports it on every open.
@@ -1655,7 +1382,7 @@ impl State {
                 }
                 match self.trash.remove(item).map(|t| t.held) {
                     Some(Held::Entry { thread }) => {
-                        self.hidden.entry(thread).or_default().insert(item.clone());
+                        self.thread_extras.hide(thread, item.clone());
                     }
                     Some(Held::Thread { id, .. }) => {
                         self.removed_threads.insert(id);
@@ -1767,10 +1494,6 @@ impl State {
                 if let Some(t) = self.tasks.get_mut(task) {
                     t.schedule = Some(id.clone());
                 }
-            }
-            Ev::ModelSet { adapter, model } => {
-                self.model = Some((adapter.clone(), model.clone()));
-                self.version_changes.push((e.seq, e.at, "model".into(), format!("{adapter}/{model}")));
             }
             Ev::ToolPinned { tool, hash, description, input_schema, approved } => self.tools.pinned(tool, hash, description, input_schema, *approved),
             Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
@@ -2017,7 +1740,7 @@ impl State {
             Ev::Playbook { item, op, person, run, text, addresses, label } => {
                 self.playbook_version += 1;
                 let v = self.playbook_version;
-                self.version_changes.push((e.seq, e.at, "playbook".into(), format!("v{v}")));
+                self.org.note_version(e, "playbook", format!("v{v}"));
                 match op.as_str() {
                     "add" => {
                         self.playbook.insert(
@@ -2272,9 +1995,6 @@ impl State {
             Ev::Moved { item, project } => {
                 self.moved.insert(item.clone(), project.clone());
             }
-            Ev::AdapterVerified { adapter_id, version, model, passed, report, .. } => {
-                self.conformance.insert(adapter_id.clone(), (version.clone(), model.clone(), *passed, report.clone()));
-            }
             Ev::BundleWritten { path, version, doc_kind: kind, scope, owner_user, actor, run, label, sources, writer: named, .. } => {
                 let writer = named.clone().or_else(|| run.as_ref().and_then(|r| self.runs.get(r)).map(|r| r.person.clone()));
                 let d = self.bundle.entry(path.clone()).or_insert_with(|| BundleDoc {
@@ -2463,9 +2183,9 @@ mod tests {
             s.apply(&ev(seq + 10, &format!("person:{p}"), json!({ "kind": "thread_branched", "person": p, "thread": format!("b-{p}"), "from": format!("t-{p}"), "upto": "e1", "entries": [{ "id": "e1", "text": format!("{p} earns 91,000") }], "title": "Pay" })));
         }
         s.apply(&ev(30, "admin:root", json!({ "kind": "person_erased", "person": "bob" })));
-        assert!(!s.branches.contains_key("b-bob"), "bob's branch kept his words");
+        assert!(!s.thread_extras.branches().contains_key("b-bob"), "bob's branch kept his words");
         assert!(!s.attachments.contains_key("t-bob"), "bob's task kept what it had attached");
-        assert!(s.branches.contains_key("b-alice") && s.attachments.contains_key("t-alice"), "alice's went with bob's");
+        assert!(s.thread_extras.branches().contains_key("b-alice") && s.attachments.contains_key("t-alice"), "alice's went with bob's");
     }
 
     /// A scoped draft records its threads and who is entitled to them, and
@@ -2508,36 +2228,6 @@ mod tests {
         assert!(!s.schedules.contains_key("s1"), "a cancelled schedule stayed");
     }
 
-    /// Pre-#411 history holds fresh-only ids after the seed (#415):
-    /// replay unions each onto the newest entry, reconstructing the
-    /// answers instead of misreading deltas as wholes.
-    #[test]
-    fn old_delta_events_replay_as_full_answers() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        s.apply(&ev(3, "person:bob", w(vec!["c"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string(), "b".to_string()]), "the middle answer lost its seed");
-        assert_eq!(window[1], std::collections::HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]), "the last answer lost its history");
-    }
-
-    /// New events carry whole answers (#415): replay pushes them as they
-    /// come, with no unioning.
-    #[test]
-    fn full_answer_events_replay_whole() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids, "full": true });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["b".to_string()]));
-    }
-
     /// Erasure drops watched baselines, home marks and opened marks
     /// (#412): whoever is next known by the name starts fresh.
     #[test]
@@ -2548,56 +2238,11 @@ mod tests {
         s.apply(&ev(3, "person:bob", json!({ "kind": "item", "id": "i1", "item_kind": "approval", "task": null, "run": null, "person": "bob" })));
         s.apply(&ev(4, "person:bob", json!({ "kind": "item_opened", "id": "i1" })));
         s.apply(&ev(5, "person:bob", json!({ "kind": "item_resolved", "id": "i1", "decision": "approved" })));
-        assert!(!s.watched_seen.is_empty() && !s.home_last_open.is_empty() && !s.items_opened.is_empty() && !s.items_resolved_at.is_empty(), "the setup left nothing to erase");
+        assert!(!s.watch.is_empty() && !s.home_last_open.is_empty() && !s.items_opened.is_empty() && !s.items_resolved_at.is_empty(), "the setup left nothing to erase");
         s.apply(&ev(6, "kernel", json!({ "kind": "person_erased", "person": "bob" })));
-        assert!(s.watched_seen.is_empty(), "the erased baseline stayed: {:?}", s.watched_seen.keys().collect::<Vec<_>>());
+        assert!(s.watch.is_empty(), "the erased baseline stayed: {:?}", s.watch);
         assert!(!s.home_last_open.contains_key("bob"), "the erased home mark stayed");
         assert!(!s.items_opened.contains_key("i1"), "the erased opened mark stayed");
         assert!(!s.items_resolved_at.contains_key("i1"), "the erased resolved mark stayed");
-    }
-
-    /// Era-2 history (whole answers, untagged, #423): an untagged event
-    /// overlapping the window pushes whole instead of unioning.
-    #[test]
-    fn overlapping_untagged_events_replay_whole() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["a", "b"])));
-        s.apply(&ev(3, "person:bob", w(vec!["b"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string(), "b".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["b".to_string()]), "the overlapping answer unioned");
-    }
-
-    /// Mixed history across the upgrade (#423): era-1 deltas union,
-    /// then an overlapping era-2 whole pushes.
-    #[test]
-    fn mixed_delta_then_whole_history_replays_each_as_itself() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        s.apply(&ev(3, "person:bob", w(vec!["b", "c"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string(), "b".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["b".to_string(), "c".to_string()]), "the whole answer unioned onto history");
-    }
-
-    /// The accepted edge (#423): a total-churn era-2 pair is
-    /// indistinguishable from seed plus delta, so it unions. Two
-    /// tagged reads heal the window; this pins the transient shape.
-    #[test]
-    fn disjoint_untagged_era_two_pair_unions_transiently() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["a".to_string(), "b".to_string()]), "the disjoint pair did not union");
     }
 }

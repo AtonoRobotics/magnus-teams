@@ -354,7 +354,7 @@ impl Kernel {
     }
 
     fn generated_of(&self, person: &str, name: &str) -> Option<Connector> {
-        self.read(|s| s.connectors.get(name).filter(|c| c.owner.as_deref() == Some(person)).cloned())
+        self.read(|s| s.apps.connectors().get(name).filter(|c| c.owner.as_deref() == Some(person)).cloned())
     }
 
     /// Its token and grants revoked, its rules removed, its file gone.

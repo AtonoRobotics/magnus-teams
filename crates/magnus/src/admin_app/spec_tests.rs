@@ -61,7 +61,7 @@ async fn magnus_kill_on_the_server_stops_everything() {
     tokio::spawn(crate::control::serve(s.k.clone(), l));
     let said = crate::kill_cli::kill(&dir, "root", false).await.unwrap();
     assert!(said.starts_with("The kill switch is on"), "{said}");
-    let by = s.k.read(|st| (st.kill_switch, st.kill_switch_by.as_ref().map(|(a, _)| a.clone())));
+    let by = s.k.read(|st| (st.vault.kill_switch(), st.vault.kill_switch_by().map(|(a, _)| a.clone())));
     assert_eq!(by, (true, Some("server:root".to_string())), "the switch is not on, by the server's operator");
     let engaged = s.audited("kill_switch_engaged");
     assert_eq!((engaged.len(), engaged[0]["admin"].as_str(), engaged[0]["source"].as_str()), (1, Some("server:root"), Some("server")), "{engaged:?}");
@@ -69,7 +69,7 @@ async fn magnus_kill_on_the_server_stops_everything() {
     let (_, v) = s.get(&mo, "/v1/stops").await;
     assert_eq!(v["stops"][0]["by_name"], "root on the server", "{v}");
     crate::kill_cli::kill(&dir, "root", true).await.unwrap();
-    assert!(!s.k.read(|st| st.kill_switch), "magnus kill --release left the switch on");
+    assert!(!s.k.read(|st| st.vault.kill_switch()), "magnus kill --release left the switch on");
     assert_eq!(s.audited("kill_switch_released").len(), 1);
     s.done().await;
 }
@@ -115,11 +115,11 @@ async fn settings_routes_take_the_admin_step_up_and_audit() {
     // Pressing stops at once; releasing asks.
     let (st, v) = s.post(&sam, "/v1/kill-switch", json!({ "engaged": true })).await;
     assert_eq!(st, 200, "{v}");
-    assert!(s.k.read(|x| x.kill_switch));
+    assert!(s.k.read(|x| x.vault.kill_switch()));
     assert_eq!(s.audited("kill_switch_engaged").len(), 1, "pressing is not in the admin audit");
     let (st, v) = s.post(&sam, "/v1/kill-switch", json!({ "engaged": false })).await;
     assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "released with no step-up: {v}");
-    assert!(s.k.read(|x| x.kill_switch), "the switch was released with no step-up");
+    assert!(s.k.read(|x| x.vault.kill_switch()), "the switch was released with no step-up");
     mark(&sam, Utc::now());
     assert_eq!(s.post(&sam, "/v1/kill-switch", json!({ "engaged": false })).await.0, 200);
     assert_eq!(s.audited("kill_switch_released").len(), 1);

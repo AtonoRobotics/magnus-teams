@@ -250,7 +250,7 @@ impl State {
             return None;
         }
         let Some(person) = person else { return Some("policy cannot evaluate the loop action: the run has no person".into()) };
-        match crate::policy::loop_allowed(&self.policies, person, op, tool, run.untrusted, run.private) {
+        match crate::policy::loop_allowed(self.org.policies(), person, op, tool, run.untrusted, run.private) {
             Ok(_) => None,
             Err(crate::policy::LoopDeny::Forbidden(r)) | Err(crate::policy::LoopDeny::Broken(r)) => Some(r),
         }

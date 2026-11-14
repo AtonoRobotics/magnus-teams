@@ -28,7 +28,7 @@ async fn state(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -> 
     let mut v = body_json(control(&k, &a, Method::GET, "/v1/kill-switch", None).await).await;
     v["by_name"] = json!(v["by"].as_str().map(|by| name_of(&k, by)));
     // What it revoked and sealed, for Overview's report: what to connect again.
-    let (revoked, sealed) = k.read(|s| (s.revoked.clone(), if s.kill_switch { s.sealed.clone() } else { vec![] }));
+    let (revoked, sealed) = k.read(|s| (s.vault.revoked().clone(), if s.vault.kill_switch() { s.vault.sealed().to_vec() } else { vec![] }));
     v["revoked"] = json!(revoked);
     v["sealed"] = json!(sealed);
     Json(v).into_response()
@@ -80,7 +80,7 @@ fn name_of(k: &Kernel, actor: &str) -> String {
 /// when, to the admins and to the people affected"); each then says whether
 /// it is `mine` and names its target (`target_name`).
 fn stops_for(k: &Kernel, person: &str, admin: bool) -> Vec<Value> {
-    let server = k.read(|s| s.kill_switch.then(|| s.kill_switch_by.clone()));
+    let server = k.read(|s| s.vault.kill_switch().then(|| s.vault.kill_switch_by().cloned()));
     let mut out = vec![];
     if let Some(by) = server {
         let (actor, at) = by.map(|(who, at)| (Some(who), Some(at))).unwrap_or((None, None));

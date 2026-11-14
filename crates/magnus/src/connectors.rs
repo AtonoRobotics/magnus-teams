@@ -489,7 +489,7 @@ impl Kernel {
     /// Every app, on or off (admin console spec, Security › Connectors and credentials).
     pub fn all_connectors(&self) -> Vec<(Connector, bool)> {
         let mut all = self.cfg.connectors.clone();
-        let (added, settings) = self.read(|s| (s.connectors.values().cloned().collect::<Vec<Connector>>(), s.connector_settings.clone()));
+        let (added, settings) = self.read(|s| (s.apps.connectors().values().cloned().collect::<Vec<Connector>>(), s.apps.connector_settings().clone()));
         all.extend(added.into_iter().filter(|c| self.cfg.connectors.iter().all(|f| f.name != c.name)));
         for m in crate::catalog::manifests() {
             // A withdrawn one is offered to no one and reached by no run (`catalog_withdrawal`).
@@ -521,7 +521,7 @@ impl Kernel {
         match c.registration.as_deref() {
             None => true,
             Some(p) => crate::catalog::client(p).is_some_and(|cl| {
-                (!cl.needs_secret() || self.cfg.relay.as_ref().is_some_and(|r| r.relays(p)) || self.read(|s| s.registrations.contains(p)))
+                (!cl.needs_secret() || self.cfg.relay.as_ref().is_some_and(|r| r.relays(p)) || self.read(|s| s.apps.registrations().contains(p)))
                     && (cl.client_id.is_some() || crate::registrations::client(&self.vault, p).is_ok())
             }),
         }
@@ -1015,9 +1015,9 @@ impl Kernel {
     pub fn admin_connectors(&self) -> Vec<Value> {
         let (added, changed, registered, people) = self.read(|s| {
             (
-                s.connectors.keys().cloned().collect::<Vec<String>>(),
-                s.credential_changed.clone(),
-                s.registrations.clone(),
+                s.apps.connectors().keys().cloned().collect::<Vec<String>>(),
+                s.apps.credential_changed().clone(),
+                s.apps.registrations().clone(),
                 s.runs.values().map(|r| r.person.clone()).collect::<std::collections::BTreeSet<String>>(),
             )
         });
@@ -1175,7 +1175,7 @@ impl Kernel {
             return Err(refusal(StatusCode::CONFLICT, "this app is set in the server's config file; change it there"));
         }
         // One a person built is theirs alone (`generated.rs`), never the organisation's to change.
-        match self.read(|s| s.connectors.get(name).filter(|c| c.owner.is_none()).cloned()) {
+        match self.read(|s| s.apps.connectors().get(name).filter(|c| c.owner.is_none()).cloned()) {
             Some(c) => Ok(c),
             None if crate::catalog::manifest(name).is_some() => Err(refusal(StatusCode::CONFLICT, "this app is in the catalog: turn it off instead")),
             None => Err(refusal(StatusCode::NOT_FOUND, "no such app")),
@@ -1226,7 +1226,7 @@ impl Kernel {
         if [&access_groups, &blocked_groups].iter().any(|l| l.as_ref().is_some_and(|g| g.iter().any(|g| g.is_empty() || g.len() > 100))) {
             return Err(refusal(StatusCode::BAD_REQUEST, "each group is a group's name"));
         }
-        let had = self.read(|s| s.connector_settings.get(name).cloned()).unwrap_or_default();
+        let had = self.read(|s| s.apps.connector_settings().get(name).cloned()).unwrap_or_default();
         let groups = access_groups.or(had.access_groups);
         let blocked = blocked_groups.or(had.blocked_groups);
         let enabled = enabled.unwrap_or(on);
@@ -1363,7 +1363,7 @@ async fn set_registration(AxState(k): K, Owner(p): Owner, Path(provider): Path<S
 /// classification (none: the worker is not offered it) and the
 /// classification the app's own hints suggest.
 async fn list(AxState(k): K, Caller(p): Caller) -> ApiResult {
-    let added: Vec<String> = k.read(|s| s.connectors.keys().cloned().collect());
+    let added: Vec<String> = k.read(|s| s.apps.connectors().keys().cloned().collect());
     let mut out = vec![];
     for c in k.connectors() {
         // An app blocked for the person's groups, or for groups they are
@@ -1525,7 +1525,7 @@ async fn sign_in(AxState(k): K, Caller(p): Caller, Path(name): Path<String>, Bod
     if !crate::boundary::may_use(&p, &c) {
         return refuse(StatusCode::FORBIDDEN, "your organisation has not made this app available to you");
     }
-    if k.read(|s| s.kill_switch) {
+    if k.read(|s| s.vault.kill_switch()) {
         return refuse(StatusCode::CONFLICT, "the kill switch is engaged");
     }
     Ok(match k.connector_sign_in(&c, &p.id, &b.redirect_uri).await {

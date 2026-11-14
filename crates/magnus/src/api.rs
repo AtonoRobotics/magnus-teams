@@ -29,7 +29,7 @@ pub(crate) use crate::api_error::{err, internal};
 /// New work is refused while the kill switch is on, before anything about
 /// it is recorded (owner's ruling 11).
 pub(crate) fn refused_by_kill_switch(k: &crate::kernel::Kernel) -> Option<Response> {
-    k.read(|s| s.kill_switch).then(|| internal(crate::kernel::KillSwitchOn.into()))
+    k.read(|s| s.vault.kill_switch()).then(|| internal(crate::kernel::KillSwitchOn.into()))
 }
 
 /// Which listener a request came in on.
@@ -717,14 +717,14 @@ async fn me(State(k): K, h: HeaderMap) -> ApiResult {
 /// tell people when the agent they work with has changed (U5).
 async fn versions(State(k): K, _: Caller) -> ApiResult {
     let v = k.read(|s| {
-        let changes: Vec<Value> = s.version_changes.iter().map(|(seq, at, what, value)| json!({ "seq": seq, "at": at, "what": what, "value": value })).collect();
+        let changes: Vec<Value> = s.org.version_changes().iter().map(|(seq, at, what, value)| json!({ "seq": seq, "at": at, "what": what, "value": value })).collect();
         json!({
             "harness": crate::kernel::HARNESS_VERSION,
             "instructions": crate::run::instructions_version(),
             "chat_instructions": crate::run::chat_instructions_version(),
-            "model": s.model.as_ref().map(|(a, m)| format!("{a}/{m}")),
+            "model": s.org.model().as_ref().map(|(a, m)| format!("{a}/{m}")),
             "playbook": s.playbook_version,
-            "latest_seq": s.version_changes.last().map(|c| c.0),
+            "latest_seq": s.org.version_changes().last().map(|c| c.0),
             "changes": changes,
         })
     });
@@ -1225,7 +1225,7 @@ async fn respond(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b)
 }
 
 async fn policies(State(k): K, Caller(p): Caller) -> ApiResult {
-    let all = k.read(|s| s.policies.clone());
+    let all = k.read(|s| s.org.policies().clone());
     // The layers of their own tasks, which they may set (`put_policy`).
     let own_task = |l: &str| l.strip_prefix("task/").is_some_and(|t| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id)));
     let mine: serde_json::Map<String, Value> = all
@@ -1301,7 +1301,7 @@ async fn back_up(State(k): K, Owner(p): Owner) -> ApiResult {
 }
 
 async fn kill_switch_state(State(k): K, _: Owner) -> ApiResult {
-    let (engaged, revoked, sealed) = k.read(|s| (s.kill_switch, s.revoked.clone(), s.sealed.clone()));
+    let (engaged, revoked, sealed) = k.read(|s| (s.vault.kill_switch(), s.vault.revoked().clone(), s.vault.sealed().to_vec()));
     Ok(Json(json!({ "engaged": engaged, "revoked": revoked, "sealed": if engaged { sealed } else { vec![] } })).into_response())
 }
 
@@ -1461,7 +1461,7 @@ impl Kernel {
     /// took); otherwise what it took and did not see revoked is revoked,
     /// released since or not.
     pub async fn finish_kill_switch(self: &Arc<Self>) {
-        if self.vault.is_sealed() && !self.read(|s| s.kill_switch) {
+        if self.vault.is_sealed() && !self.read(|s| s.vault.kill_switch()) {
             tracing::warn!("the vault is sealed but the kill switch is not recorded: engaging it again");
             if let Err((_, e)) = self.kill_switch("kernel", true).await {
                 tracing::error!("could not engage the kill switch again: {e}");
@@ -1490,7 +1490,7 @@ async fn adapters(State(k): K, _: Owner) -> ApiResult {
         .await
         .into_iter()
         .map(|(id, cmd, running)| {
-            let verified = k.read(|s| s.conformance.get(&id).cloned());
+            let verified = k.read(|s| s.org.conformance().get(&id).cloned());
             json!({
                 "id": id, "command": cmd,
                 "running": running.map(|(a, v)| json!({ "adapter": a, "version": v })),
@@ -1538,7 +1538,7 @@ async fn conformance_model(k: &Kernel, id: &str, asked: &Value) -> Result<String
     if let Some(m) = asked.as_str() {
         return Ok(m.to_string());
     }
-    let (adapter, model) = k.read(|s| s.model.clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
+    let (adapter, model) = k.read(|s| s.org.model().clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
     if adapter == id {
         return Ok(model);
     }
@@ -1621,7 +1621,7 @@ async fn health(State(k): K) -> ApiResult {
     // Down while the log's connection is lost: nothing can be recorded.
     let log = k.log.up().await;
     let body = Json(
-        json!({ "ok": log, "log": if log { "up" } else { "down" }, "version": HARNESS_VERSION, "release": crate::update::version(), "kill_switch": k.read(|s| s.kill_switch) }),
+        json!({ "ok": log, "log": if log { "up" } else { "down" }, "version": HARNESS_VERSION, "release": crate::update::version(), "kill_switch": k.read(|s| s.vault.kill_switch()) }),
     );
     Ok(if log { body.into_response() } else { (StatusCode::SERVICE_UNAVAILABLE, body).into_response() })
 }
@@ -1689,7 +1689,7 @@ async fn speak(State(k): K, _: Caller, Json(b): Json<Value>) -> ApiResult {
 }
 
 async fn get_model(State(k): K, _: Caller) -> ApiResult {
-    let (adapter, model) = k.read(|s| s.model.clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
+    let (adapter, model) = k.read(|s| s.org.model().clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
     Ok(Json(json!({ "adapter": adapter, "model": model })).into_response())
 }
 

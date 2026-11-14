@@ -223,7 +223,7 @@ pub fn covers(s: &State, scope: &Scope, run: &Run) -> bool {
 /// The schedules due now that may fire: none under the server's switch,
 /// and none for a person whose agent is held.
 pub fn due_schedules(s: &State, now: DateTime<Utc>) -> Vec<Schedule> {
-    if s.kill_switch {
+    if s.vault.kill_switch() {
         return vec![];
     }
     s.schedules.values().filter(|x| x.next_due().is_some_and(|t| t <= now) && holds_new(s, &x.person, false).is_none()).cloned().collect()

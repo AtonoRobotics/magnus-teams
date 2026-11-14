@@ -109,7 +109,7 @@ pub fn kept(item: &Item) -> Vec<Ev> {
 /// A server the organisation added by its address: not the catalog's, not
 /// the config file's.
 fn third_party(k: &Kernel, c: &Connector) -> bool {
-    !c.catalog && k.cfg.connectors.iter().all(|f| f.name != c.name) && k.read(|s| s.connectors.contains_key(&c.name))
+    !c.catalog && k.cfg.connectors.iter().all(|f| f.name != c.name) && k.read(|s| s.apps.connectors().contains_key(&c.name))
 }
 
 /// A third-party server that takes no sign-in, which no one has connected
@@ -191,7 +191,7 @@ impl Kernel {
         static ADDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _one_at_a_time = ADDING.lock().await;
         // Read again under the lock: another run may have classed them.
-        let Some(c) = self.read(|s| s.connectors.get(&c.name).cloned()) else { return Ok(()) };
+        let Some(c) = self.read(|s| s.apps.connectors().get(&c.name).cloned()) else { return Ok(()) };
         let new: Vec<(String, &'static str)> = live.iter().filter(|t| !c.tools.contains_key(&t.name)).map(|t| (t.name.clone(), suggested_risk(&t.annotations))).collect();
         if new.is_empty() {
             return Ok(());

@@ -190,7 +190,7 @@ impl Kernel {
     /// Return each ended task's outcome to its thread (the sweep calls this).
     pub async fn return_outcomes(self: &Arc<Self>) {
         let due: Vec<(Task, Run)> = self.read(|s| {
-            if s.kill_switch {
+            if s.vault.kill_switch() {
                 return vec![];
             }
             s.outcomes

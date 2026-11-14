@@ -137,7 +137,7 @@ impl Kernel {
         }
         let vault = Arc::new(Vault::open(&cfg.appliance.state_dir)?);
         vault.bind_unbound()?;
-        if state.kill_switch {
+        if state.vault.kill_switch() {
             vault.seal();
         }
         let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
@@ -459,7 +459,7 @@ impl Kernel {
     /// The adapter and model new runs use unless the person chooses one.
     pub fn default_model(&self) -> (String, String) {
         let m = &self.cfg.model;
-        self.read(|s| s.model.clone()).unwrap_or_else(|| (m.adapter.clone(), m.name.clone()))
+        self.read(|s| s.org.model().clone()).unwrap_or_else(|| (m.adapter.clone(), m.name.clone()))
     }
 
     /// The models a person may choose for a task or a chat message: each
@@ -467,7 +467,7 @@ impl Kernel {
     /// provider does not answer (not signed in, unreachable) offers none.
     pub async fn models(&self) -> Vec<(String, Vec<String>)> {
         // A provider an admin disabled offers nothing.
-        let off = self.read(|s| s.providers_off.clone());
+        let off = self.read(|s| s.org.providers_off().clone());
         let ids: Vec<String> = self.adapters.list().await.into_iter().map(|(id, ..)| id).filter(|id| !off.contains(id)).collect();
         let lists = futures::future::join_all(ids.iter().map(|id| self.adapters.catalog(id))).await;
         ids.into_iter()

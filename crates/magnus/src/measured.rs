@@ -68,7 +68,7 @@ fn suggestions(s: &State, seen: Seen) -> Value {
 /// Each run a person marked with this reaction on the answer it gave.
 fn complained_runs(s: &State) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
-    for ((_, entry), history) in s.reactions.values().flat_map(|mine| mine.iter()) {
+    for ((_, entry), history) in s.thread_extras.reactions().values().flat_map(|mine| mine.iter()) {
         if history.last().and_then(|(r, _)| r.as_deref()) != Some(COMPLAINT_REACTION) {
             continue;
         }

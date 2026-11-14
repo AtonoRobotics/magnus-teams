@@ -52,7 +52,7 @@ impl Kernel {
 
     pub(crate) fn entries_with(&self, person: &str, thread: &str, w: &Words) -> Option<Vec<Entry>> {
         let runs = self.thread(person, thread);
-        let branch = self.read(|s| s.branches.get(thread).filter(|b| b.person == person).cloned());
+        let branch = self.read(|s| s.thread_extras.branches().get(thread).filter(|b| b.person == person).cloned());
         if runs.is_empty() && branch.is_none() {
             return None;
         }
@@ -105,7 +105,10 @@ impl Kernel {
         }
         out.sort_by_key(|x| (x.0, x.1));
         let (hidden, trashed) = self.read(|s| {
-            (s.hidden.get(thread).cloned().unwrap_or_default(), s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>())
+            (
+                s.thread_extras.hidden(thread).cloned().unwrap_or_default(),
+                s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>(),
+            )
         });
         // What a hidden answer started is hidden with it, whenever it shows
         // up (a task's result after the hiding), so its words and taint
