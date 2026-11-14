@@ -161,6 +161,18 @@ impl RunKind {
         self.under_schedule() || self.is_background()
     }
 
+    /// Whether the loop policy (`suggest`, `interrupt`, `act`) governs it
+    /// (#368): a review or a schedule's run, or a sub-agent of one, as its
+    /// top run is (2026-11-13-loop-policy-through-the-chain). Work the
+    /// person directed is not the loop.
+    pub fn loop_governed(&self) -> bool {
+        match self {
+            RunKind::Review | RunKind::Scheduled => true,
+            RunKind::SubAgent(top) => top.loop_governed(),
+            _ => false,
+        }
+    }
+
     /// Team work: a request, a routine, or a sub-agent of one. It never
     /// uses a member's own apps, notes or memory (spec rev 142).
     pub fn in_team(&self) -> bool {
@@ -220,6 +232,28 @@ impl State {
     /// makes one run.
     pub fn outcome_turn_follows(&self, run: &str) -> bool {
         self.outcome_return(run).is_some()
+    }
+
+    /// Whether the loop may `op` (`suggest`, `interrupt`, `act`) for this
+    /// run, by `person`'s policy: a run the loop policy does not govern
+    /// (`RunKind::loop_governed`) is allowed; a governed one needs the
+    /// policy's leave (#368). A sub-agent is governed as its top run is,
+    /// with its own taint. Some reason denies, following the boundary's
+    /// fail-closed rule: a run, or a top run, whose task the log does not
+    /// hold, or no person.
+    pub fn loop_deny(&self, run: &crate::state::Run, person: Option<&crate::config::Person>, op: &str, tool: Option<&crate::policy::ToolFacts>) -> Option<String> {
+        let held = |r: &str| self.runs.get(r).is_some_and(|r| self.tasks.contains_key(&r.task));
+        if !self.tasks.contains_key(&run.task) || self.sub_agents.top(&run.id).is_some_and(|top| !held(&top)) {
+            return Some("policy cannot evaluate the loop action: the run has no task".into());
+        }
+        if !self.run_kind(&run.id).loop_governed() {
+            return None;
+        }
+        let Some(person) = person else { return Some("policy cannot evaluate the loop action: the run has no person".into()) };
+        match crate::policy::loop_allowed(&self.policies, person, op, tool, run.untrusted, run.private) {
+            Ok(_) => None,
+            Err(crate::policy::LoopDeny::Forbidden(r)) | Err(crate::policy::LoopDeny::Broken(r)) => Some(r),
+        }
     }
 
     /// Whether this run's end wakes its person's review (`RunKind::end_wakes_review`).

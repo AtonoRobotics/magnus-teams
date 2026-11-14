@@ -83,6 +83,7 @@ struct Answers {
     scheduled: bool,
     unattended: bool,
     team: bool,
+    loop_governed: bool,
     wakes_review: bool,
     label: &'static str,
     outcome: Option<OutcomeReturn>,
@@ -99,6 +100,7 @@ fn answers(s: &State, run: &str) -> Answers {
         scheduled: k.under_schedule(),
         unattended: k.unattended(),
         team: k.in_team(),
+        loop_governed: k.loop_governed(),
         wakes_review: s.end_wakes_review(run),
         label: k.label(),
         outcome: s.outcome_return(run),
@@ -114,24 +116,25 @@ fn every_kind_answers_every_question() {
     #[rustfmt::skip]
     let table: Vec<(&str, RunKind, Answers)> = vec![
         // run, kind, then (chat turn, converses, records, prompt, background,
-        // under schedule, unattended, team, end wakes review, label, outcome)
-        ("r_turn", RunKind::ChatTurn, a(true, true, false, Chat, false, false, false, false, false, "chat", None)),
-        ("r_oturn", RunKind::OutcomeTurn, a(true, true, false, Chat, false, false, false, false, false, "chat", None)),
-        ("r_request", RunKind::TeamRequest, a(false, true, false, Team, false, false, false, true, true, "task", None)),
-        ("r_routine", RunKind::TeamRoutine, a(false, true, false, Team, true, false, true, true, false, "background", None)),
-        ("r_plain", RunKind::Task, a(false, false, true, Task, false, false, false, false, true, "task", None)),
-        ("r_fromchat", RunKind::Task, a(false, false, true, Task, false, false, false, false, false, "task", Some(ToConversation))),
-        ("r_sched", RunKind::Scheduled, a(false, false, true, Task, false, true, true, false, false, "scheduled", Some(ToScheduleThread))),
-        ("r_review", RunKind::Review, a(false, false, true, Review, true, false, true, false, false, "background", None)),
-        ("r_poll", RunKind::Poll, a(false, false, true, Task, true, false, true, false, false, "background", None)),
-        ("r_sub_turn", sub_of(RunKind::ChatTurn), a(false, false, true, Task, false, false, false, false, false, "sub_agent", Some(ToParent))),
-        ("r_sub_review", sub_of(RunKind::Review), a(false, false, true, Task, true, false, true, false, false, "sub_agent", Some(ToParent))),
-        ("r_sub_routine", sub_of(RunKind::TeamRoutine), a(false, false, true, Task, true, false, true, true, false, "sub_agent", Some(ToParent))),
-        ("r_sub_sub_routine", sub_of(RunKind::TeamRoutine), a(false, false, true, Task, true, false, true, true, false, "sub_agent", Some(ToParent))),
-        ("r_sub_request", sub_of(RunKind::TeamRequest), a(false, false, true, Task, false, false, false, true, false, "sub_agent", Some(ToParent))),
-        ("r_sub_sched", sub_of(RunKind::Scheduled), a(false, false, true, Task, false, true, true, false, false, "sub_agent", Some(ToParent))),
+        // under schedule, unattended, team, loop governed, end wakes review,
+        // label, outcome)
+        ("r_turn", RunKind::ChatTurn, a(true, true, false, Chat, false, false, false, false, false, false, "chat", None)),
+        ("r_oturn", RunKind::OutcomeTurn, a(true, true, false, Chat, false, false, false, false, false, false, "chat", None)),
+        ("r_request", RunKind::TeamRequest, a(false, true, false, Team, false, false, false, true, false, true, "task", None)),
+        ("r_routine", RunKind::TeamRoutine, a(false, true, false, Team, true, false, true, true, false, false, "background", None)),
+        ("r_plain", RunKind::Task, a(false, false, true, Task, false, false, false, false, false, true, "task", None)),
+        ("r_fromchat", RunKind::Task, a(false, false, true, Task, false, false, false, false, false, false, "task", Some(ToConversation))),
+        ("r_sched", RunKind::Scheduled, a(false, false, true, Task, false, true, true, false, true, false, "scheduled", Some(ToScheduleThread))),
+        ("r_review", RunKind::Review, a(false, false, true, Review, true, false, true, false, true, false, "background", None)),
+        ("r_poll", RunKind::Poll, a(false, false, true, Task, true, false, true, false, false, false, "background", None)),
+        ("r_sub_turn", sub_of(RunKind::ChatTurn), a(false, false, true, Task, false, false, false, false, false, false, "sub_agent", Some(ToParent))),
+        ("r_sub_review", sub_of(RunKind::Review), a(false, false, true, Task, true, false, true, false, true, false, "sub_agent", Some(ToParent))),
+        ("r_sub_routine", sub_of(RunKind::TeamRoutine), a(false, false, true, Task, true, false, true, true, false, false, "sub_agent", Some(ToParent))),
+        ("r_sub_sub_routine", sub_of(RunKind::TeamRoutine), a(false, false, true, Task, true, false, true, true, false, false, "sub_agent", Some(ToParent))),
+        ("r_sub_request", sub_of(RunKind::TeamRequest), a(false, false, true, Task, false, false, false, true, false, false, "sub_agent", Some(ToParent))),
+        ("r_sub_sched", sub_of(RunKind::Scheduled), a(false, false, true, Task, false, true, true, false, true, false, "sub_agent", Some(ToParent))),
         // A run the log does not hold answers as a plain task.
-        ("r_gone", RunKind::Task, a(false, false, true, Task, false, false, false, false, true, "task", None)),
+        ("r_gone", RunKind::Task, a(false, false, true, Task, false, false, false, false, false, true, "task", None)),
     ];
     for (run, kind, want) in table {
         assert_eq!(s.run_kind(run), kind, "{run} is the wrong kind");
@@ -151,11 +154,12 @@ fn a(
     scheduled: bool,
     unattended: bool,
     team: bool,
+    loop_governed: bool,
     wakes_review: bool,
     label: &'static str,
     outcome: Option<OutcomeReturn>,
 ) -> Answers {
-    Answers { chat, converses, records, prompt, background, scheduled, unattended, team, wakes_review, label, outcome }
+    Answers { chat, converses, records, prompt, background, scheduled, unattended, team, loop_governed, wakes_review, label, outcome }
 }
 
 /// A sub-agent of a team routine asks no one, as its routine does: it was
@@ -187,4 +191,29 @@ fn a_sub_agent_of_a_review_left_on_a_question_is_settled() {
     let (runs, items) = s.background_to_settle();
     assert_eq!(runs, vec!["r_sub_review".to_string()], "a sub-agent of a review was left waiting on its person");
     assert_eq!(items, vec!["i_sub_review".to_string()], "a sub-agent of a review left its card up");
+}
+
+/// A sub-agent of a review or of a scheduled run is held to the loop
+/// policy as its top run is: where the org forbids `interrupt`, it may not
+/// interrupt either (owner, 2026-11-13). It was read off its own task,
+/// which is neither, so it interrupted where its top run could not.
+#[test]
+fn a_sub_agent_is_held_to_its_top_runs_loop_policy() {
+    let mut s = every_kind();
+    sub(&mut s, "r_sub_sched", "sub_sub_sched", false);
+    ev(&mut s, "person:alice", json!({ "kind": "policy_set", "layer": "org", "cedar": "forbid(principal, action == Action::\"interrupt\", resource);" }));
+    let carol: crate::config::Person = serde_json::from_value(json!({ "id": "carol" })).unwrap();
+    let deny = |run: &str, op: &str| s.loop_deny(&s.runs[run], Some(&carol), op, None);
+    for run in ["r_review", "r_sched", "r_sub_review", "r_sub_sched", "r_sub_sub_sched"] {
+        assert!(deny(run, "interrupt").is_some(), "{run} interrupted where the org forbids it");
+        assert!(deny(run, "suggest").is_none(), "{run} was denied a suggestion the org allows");
+    }
+    for run in ["r_plain", "r_turn", "r_sub_turn", "r_request", "r_sub_request", "r_poll"] {
+        assert!(deny(run, "interrupt").is_none(), "{run} is person-directed work, which the loop policy does not govern");
+    }
+    // A governed run with no person, or a sub-agent whose top run's task is
+    // gone, is denied, never let through.
+    assert!(s.loop_deny(&s.runs["r_sub_review"], None, "suggest", None).is_some(), "a sub-agent of a review with no person was let through");
+    s.tasks.remove("review");
+    assert!(s.loop_deny(&s.runs["r_sub_review"], Some(&carol), "suggest", None).is_some(), "a sub-agent whose top run has no task was let through");
 }
