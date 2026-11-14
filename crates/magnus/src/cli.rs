@@ -265,7 +265,7 @@ mod tests {
 /// kept by the appliance itself (#429).
 async fn managed_accounts(cfg: &crate::config::Config, person: &str) -> Result<crate::accounts::Accounts> {
     let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
-    anyhow::ensure!(cfg.person(person).is_some() || accounts.is_local(person), "{person} is not a person here");
+    anyhow::ensure!(crate::people::exists(&cfg.people, &accounts, person), "{person} is not a person here");
     Ok(accounts)
 }
 

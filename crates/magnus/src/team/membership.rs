@@ -59,7 +59,7 @@ impl Kernel {
 
     /// Everyone the server keeps, with their names.
     pub(crate) fn named_people(&self) -> Vec<(String, String)> {
-        self.server_people().into_iter().filter_map(|id| self.person(&id).map(|p| (id, p.name))).collect()
+        self.people().all().into_iter().map(|p| (p.id, p.name)).collect()
     }
 }
 

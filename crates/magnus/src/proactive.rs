@@ -144,7 +144,7 @@ impl crate::kernel::Kernel {
         // Subscriptions at providers kept to what they should be.
         self.push_subs_due(now);
         // Everyone the server keeps: config people and those invited since.
-        let people: Vec<String> = self.everyone().into_iter().map(|(id, _)| id).collect();
+        let people: Vec<String> = self.people().ids();
         for person in people {
             let start = crate::halts::Subject::new_work(&person, false);
             if self.read(|s| crate::halts::may_proceed(s, &start, crate::halts::Phase::Start).is_some() || s.reviewing(&person)) {
@@ -235,7 +235,7 @@ impl crate::kernel::Kernel {
         if !self.cfg.proactive.on {
             return;
         }
-        let people: Vec<String> = self.everyone().into_iter().map(|(id, _)| id).collect();
+        let people: Vec<String> = self.people().ids();
         for person in people {
             // A poll is work done for the person through their sign-in: the
             // server's switch, theirs, their agent's, the app's, and their

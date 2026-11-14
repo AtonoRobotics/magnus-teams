@@ -60,7 +60,7 @@ impl Kernel {
         let details = json!({ "reason": "spend_request", "evidence": { "request": id, "person": person, "usd": usd } });
         let actor = format!("person:{person}");
         let mut evs = vec![(actor.as_str(), Ev::Spend(Change::IncreaseAsked { id: id.clone(), person: person.into(), month: m, usd, reason: reason.into() }))];
-        let admins = self.admins().await;
+        let admins = self.people().admins().await;
         evs.extend(admins.iter().map(|a| ("kernel", self.notice_to(None, None, a.clone(), summary.clone(), details.clone()))));
         self.emit_all(evs).await.map_err(failed)?;
         Ok(json!({ "id": id, "usd": usd }))

@@ -10,6 +10,7 @@
 //! layers can only narrow. Any evaluation error denies.
 
 use crate::config::Person;
+use crate::people::Authority;
 use crate::tools::{Audience, Risk};
 use anyhow::{anyhow, Result};
 use cedar_policy::{ActionConstraint, Authorizer, Context, Decision, Entities, Entity, EntityUid, PolicySet, Request, RestrictedExpression};
@@ -183,13 +184,16 @@ pub enum ControlDeny {
 /// Whether `person` may `t` under the layered policy: the organization
 /// layer permits and no lower layer forbids (#266). The allowing rule, or
 /// why not.
-pub fn control_allowed(policies: &BTreeMap<String, String>, person: &Person, t: &ControlFacts) -> Result<String, ControlDeny> {
+/// `authority` is the person's on the server (`Kernel::authority`), so an
+/// admin in the server's own directory is an admin here too.
+pub fn control_allowed(policies: &BTreeMap<String, String>, person: &Person, authority: Authority, t: &ControlFacts) -> Result<String, ControlDeny> {
     let failed = |e: String| ControlDeny::Broken(format!("policy failed to evaluate {} for {}: {e}", t.op, person.id));
     let ents = control_entities(person, t).map_err(|e| failed(format!("{e:#}")))?;
     let layers = layers_for(policies, person, None);
     let ctx = Context::from_pairs([
-        ("is_owner".to_string(), RestrictedExpression::new_bool(person.is_owner())),
-        ("is_admin".to_string(), RestrictedExpression::new_bool(person.has_role("admin"))),
+        ("is_owner".to_string(), RestrictedExpression::new_bool(authority == Authority::Owner)),
+        // An owner who also holds the admin role reads as both, as always.
+        ("is_admin".to_string(), RestrictedExpression::new_bool(authority == Authority::Admin || person.has_role("admin"))),
     ])
     .map_err(|e| failed(e.to_string()))?;
     let req = Request::new(
@@ -525,29 +529,37 @@ mod tests {
     /// and the organisation's policy can narrow it (#266).
     #[test]
     fn controls_follow_the_layered_policy_with_todays_rule_as_default() {
+        use crate::accounts::Role as Directory;
         use std::collections::BTreeMap;
         let person = |id: &str, roles: &[&str]| serde_json::from_value::<Person>(serde_json::json!({ "id": id, "groups": ["staff"], "roles": roles })).unwrap();
         let (carol, bob, alice, dave) = (person("carol", &[]), person("bob", &[]), person("alice", &["owner"]), person("dave", &["admin"]));
+        let of = |p: &Person| Authority::of(p, Directory::Member);
         let cancel = |id: &'static str, owner: &'static str| ControlFacts { op: "cancel_task", kind: "Task", id, owner };
         let policies = BTreeMap::new();
         let c = cancel("t1", "carol");
-        assert!(control_allowed(&policies, &carol, &c).is_ok(), "own task");
-        assert!(control_allowed(&policies, &alice, &c).is_ok(), "owner");
-        assert!(control_allowed(&policies, &dave, &c).is_ok(), "admin");
-        assert!(control_allowed(&policies, &bob, &c).is_err(), "another person's task");
+        assert!(control_allowed(&policies, &carol, of(&carol), &c).is_ok(), "own task");
+        assert!(control_allowed(&policies, &alice, of(&alice), &c).is_ok(), "owner");
+        assert!(control_allowed(&policies, &dave, of(&dave), &c).is_ok(), "admin");
+        assert!(control_allowed(&policies, &bob, of(&bob), &c).is_err(), "another person's task");
         let narrow = format!("{DEFAULT_ORG}\nforbid(principal, action == Action::\"cancel_task\", resource) when {{ context.is_admin && !(resource in principal) }};");
         let mut narrowed = BTreeMap::new();
         narrowed.insert("org".to_string(), narrow);
-        assert!(control_allowed(&narrowed, &dave, &c).is_err(), "admin cancel of another's allowed");
+        assert!(control_allowed(&narrowed, &dave, of(&dave), &c).is_err(), "admin cancel of another's allowed");
         let own = cancel("t2", "dave");
-        assert!(control_allowed(&narrowed, &dave, &own).is_ok(), "admin cancel of own denied");
-        assert!(control_allowed(&narrowed, &alice, &c).is_ok(), "owner cancel denied");
+        assert!(control_allowed(&narrowed, &dave, of(&dave), &own).is_ok(), "admin cancel of own denied");
+        assert!(control_allowed(&narrowed, &alice, of(&alice), &c).is_ok(), "owner cancel denied");
         let pause = ControlFacts { op: "pause_schedule", kind: "Schedule", id: "s1", owner: "carol" };
-        assert!(control_allowed(&policies, &carol, &pause).is_ok(), "own schedule");
-        assert!(control_allowed(&policies, &bob, &pause).is_err(), "another person's schedule");
+        assert!(control_allowed(&policies, &carol, of(&carol), &pause).is_ok(), "own schedule");
+        assert!(control_allowed(&policies, &bob, of(&bob), &pause).is_err(), "another person's schedule");
         let mut broken = BTreeMap::new();
         broken.insert("org".to_string(), "permit(principal, action, resource) when {".to_string());
-        assert!(control_allowed(&broken, &carol, &c).is_err(), "broken policy allowed");
+        assert!(control_allowed(&broken, &carol, of(&carol), &c).is_err(), "broken policy allowed");
+        // An admin in the server's own directory, with no admin role here,
+        // is an admin to the policy too.
+        let erin = person("erin", &[]);
+        let directory_admin = Authority::of(&erin, Directory::Admin);
+        assert!(control_allowed(&policies, &erin, directory_admin, &c).is_ok(), "a directory admin could not stop another's task");
+        assert!(control_allowed(&narrowed, &erin, directory_admin, &c).is_err(), "a narrowing on admins missed a directory admin");
     }
 
     /// A grant covers its person's actions in its apps, never moving money

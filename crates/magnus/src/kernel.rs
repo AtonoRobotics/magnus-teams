@@ -4,7 +4,7 @@
 
 use crate::adapters::Adapters;
 use crate::apps::{AppTool, Mcp};
-use crate::config::{Config, Person};
+use crate::config::Config;
 use crate::events::Ev;
 use crate::log::{Event, Log};
 use crate::sandbox::Sandboxes;
@@ -24,17 +24,6 @@ const SESSIONS_EVERY: Duration = Duration::from_secs(300);
 const SWEEP_TICK: Duration = Duration::from_millis(500);
 
 pub const HARNESS_VERSION: &str = concat!("magnus-", env!("CARGO_PKG_VERSION"));
-
-/// The record a sign-in resolves: the config first, else the server's own
-/// directory, where a local person has no token, groups or roles: a member,
-/// nothing more. Split out so tests reach it without a kernel (Postgres).
-pub(crate) fn resolve_person(cfg: &Config, accounts: &crate::accounts::Accounts, id: &str) -> Option<Person> {
-    if let Some(p) = cfg.person(id) {
-        return Some(p.clone());
-    }
-    let local = accounts.local_person(id)?;
-    Some(Person { id: id.to_string(), name: local.name, token: None, groups: vec![], roles: vec![] })
-}
 
 pub struct Kernel {
     pub cfg: Config,
@@ -388,27 +377,6 @@ impl Kernel {
 
     pub fn identity(&self) -> Option<Arc<dyn crate::identity::Identity>> {
         self.oidc.get().map(|o| o as Arc<dyn crate::identity::Identity>)
-    }
-
-    pub fn person(&self, id: &str) -> Option<Person> {
-        let mut p = resolve_person(&self.cfg, &self.accounts, id)?;
-        if let Some(r) = self.read(|s| s.roles_set.get(id).cloned()) {
-            p.roles = r;
-        }
-        if let Some((groups, roles)) = self.read(|s| s.provider_rights.get(id).cloned()) {
-            if let Some(g) = groups {
-                p.groups = g;
-            }
-            if let Some(r) = roles {
-                p.roles = r;
-            }
-        }
-        crate::legal::testers_group(self, &mut p);
-        Some(p)
-    }
-
-    pub fn owners(&self) -> Vec<Person> {
-        self.cfg.people.iter().filter_map(|p| self.person(&p.id)).filter(|p| p.is_owner()).collect()
     }
 
     /// Start driving a run if nothing is.
@@ -967,44 +935,5 @@ impl Live {
     pub fn subscribe(&self, run: &str) -> (String, tokio::sync::broadcast::Receiver<(String, String)>) {
         let so_far = self.so_far.lock().unwrap_or_else(|e| e.into_inner());
         (so_far.get(run).cloned().unwrap_or_default(), self.tx.subscribe())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    /// Sign-ins resolve the config first and the appliance's own directory
-    /// after: a config person keeps their record even with a local namesake,
-    /// a local person arrives as a plain member, and nobody else resolves.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn sign_ins_resolve_config_first_then_local() {
-        let d = tempfile::tempdir().unwrap();
-        let p = d.path().join("magnus.toml");
-        std::fs::write(&p, format!("[appliance]\nstate_dir = \"/s\"\nlisten = \"127.0.0.1:0\"\n[database]\nurl = \"postgres://x\"\n[model]\nname = \"m\"\nadapter = \"a\"\nmax_tokens = 1\n{}[[people]]\nid = \"sam\"\nname = \"Sam\"\nroles = [\"owner\"]\n", crate::legal::TEST_CONFIG)).unwrap();
-        let cfg = super::Config::load(&p).unwrap();
-        let server = std::env::var("MAGNUS_TEST_PG").unwrap_or_else(|_| "postgres://postgres:magnus_dev@127.0.0.1:54340/postgres".into());
-        let name = format!("k_{}", uuid::Uuid::new_v4().simple());
-        let (server_client, conn) = tokio_postgres::connect(&server, tokio_postgres::NoTls).await.unwrap();
-        tokio::spawn(async move {
-            let _ = conn.await;
-        });
-        server_client.batch_execute(&format!("CREATE DATABASE {name}")).await.unwrap();
-        let mut u = url::Url::parse(&server).unwrap();
-        u.set_path(&format!("/{name}"));
-        let url = u.to_string();
-        let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
-        tokio::spawn(async move {
-            let _ = conn.await;
-        });
-        client.batch_execute(&crate::accounts::migrate_sql("postgres")).await.unwrap();
-        let accounts = crate::accounts::Accounts::open(&url, cfg.sign_in.clone()).await.unwrap();
-        accounts.add_person("sam", "Intruder", None).await.unwrap();
-        accounts.add_person("ada", "Ada", None).await.unwrap();
-        let sam = super::resolve_person(&cfg, &accounts, "sam").unwrap();
-        assert_eq!((sam.name.as_str(), sam.is_owner()), ("Sam", true), "the config lost to a local namesake");
-        let ada = super::resolve_person(&cfg, &accounts, "ada").unwrap();
-        assert_eq!(ada.name.as_str(), "Ada", "the local record came back wrong");
-        assert!(!ada.is_owner() && !ada.is_developer() && ada.token.is_none() && ada.groups.is_empty(), "a local person arrived with powers");
-        assert!(super::resolve_person(&cfg, &accounts, "ghost").is_none(), "nobody resolved");
-        server_client.batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)")).await.unwrap();
     }
 }

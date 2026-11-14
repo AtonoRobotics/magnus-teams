@@ -205,7 +205,7 @@ fn layer_sight(lens: &Lens, layer: &str) -> Sight {
 pub(crate) async fn policy(AxState(k): K, h: HeaderMap) -> Response {
     let p = dev!(k, h);
     let lens = k.lens(&p);
-    let people = k.cfg.people.clone();
+    let people = k.people().all();
     let (mut v, hidden) = k.read(|s| {
         let (seen, hidden) = runs_seen(&lens, s);
         let mut layers: BTreeMap<String, Vec<Value>> = BTreeMap::new();

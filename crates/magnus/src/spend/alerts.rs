@@ -69,23 +69,6 @@ pub fn due(s: &State, now: DateTime<Utc>) -> Vec<Due> {
 }
 
 impl Kernel {
-    /// Everyone who administers the server, as the app's admin guard
-    /// decides it (`admin_app::admin_of`).
-    pub async fn admins(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
-        ids.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
-        ids.sort();
-        ids.dedup();
-        let mut out = vec![];
-        for id in ids {
-            let Some(p) = self.person(&id) else { continue };
-            if crate::admin_app::admin_of(&p, self.accounts.role(&id).await) {
-                out.push(id);
-            }
-        }
-        out
-    }
-
     /// Records and sends the alerts due now. A failed write is tried again
     /// on the next check.
     pub async fn spend_alerts(&self, now: DateTime<Utc>) {
@@ -93,7 +76,7 @@ impl Kernel {
         if due.is_empty() {
             return;
         }
-        let admins = self.admins().await;
+        let admins = self.people().admins().await;
         for d in due {
             let label = match d.limit.strip_prefix("person:").and_then(|id| self.person(id)) {
                 Some(p) if !p.name.is_empty() => format!("{}'s monthly limit", p.name),

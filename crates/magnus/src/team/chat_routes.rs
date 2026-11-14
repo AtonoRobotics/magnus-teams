@@ -46,7 +46,7 @@ pub(super) fn name_of(k: &Kernel, id: &str) -> String {
     if id == AGENT_ID {
         return AGENT_NAME.to_string();
     }
-    k.person(id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string())
+    k.people().name(id)
 }
 
 fn workspace(k: &Kernel, ws: &str) -> Option<Workspace> {

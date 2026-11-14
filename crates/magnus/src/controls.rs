@@ -8,6 +8,7 @@
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::people::Authority;
 use crate::state::{Run, Schedule, State as Projection, Task};
 use crate::tools::Label;
 use serde_json::{json, Value};
@@ -33,8 +34,10 @@ impl std::fmt::Display for Refused {
     }
 }
 
-fn may_control(who: &Person, owner: &str) -> bool {
-    who.id == owner || who.is_owner() || who.has_role("admin")
+/// Whether `who`, with their `authority` on the server, may control what
+/// `owner` owns: their own, and anyone's for an owner or admin.
+fn may_control(who: &Person, authority: Authority, owner: &str) -> bool {
+    who.id == owner || authority.administers()
 }
 
 /// What an owner or admin may do to another person's task or schedule: stop
@@ -60,18 +63,19 @@ fn sources(turn: Option<&str>) -> (Option<String>, Option<String>) {
 /// can see is honest; of one they cannot, it reads as not found, as
 /// today. A policy that fails to evaluate falls back to today's fixed
 /// rule, so one broken layer cannot stop every control in the place.
-fn control_check(client: &Kernel, who: &Person, op: &str, kind: &str, id: &str, owner: &str, what: &'static str) -> Result<(), Refused> {
+async fn control_check(client: &Kernel, who: &Person, op: &str, kind: &str, id: &str, owner: &str, what: &'static str) -> Result<(), Refused> {
     // Someone else's work is stopped, never changed (spec rev 145, Agents:
     // "An admin can pause or stop any one of them"), whatever a layer allows.
     if who.id != owner && !OTHERS_MAY.contains(&op) {
         return Err(Refused::NotFound(what));
     }
+    let authority = client.authority(who).await;
     let policies = client.read(|s| s.policies.clone());
     let t = crate::policy::ControlFacts { op, kind, id, owner };
-    match crate::policy::control_allowed(&policies, who, &t) {
+    match crate::policy::control_allowed(&policies, who, authority, &t) {
         Ok(_) => Ok(()),
-        Err(crate::policy::ControlDeny::Forbidden(m)) if may_control(who, owner) => Err(Refused::Denied(m)),
-        Err(crate::policy::ControlDeny::Broken(_)) if may_control(who, owner) => Ok(()),
+        Err(crate::policy::ControlDeny::Forbidden(m)) if may_control(who, authority, owner) => Err(Refused::Denied(m)),
+        Err(crate::policy::ControlDeny::Broken(_)) if may_control(who, authority, owner) => Ok(()),
         Err(_) => Err(Refused::NotFound(what)),
     }
 }
@@ -97,24 +101,25 @@ fn schedule_row(s: &Projection, x: &Schedule) -> Value {
 
 /// One task's row by id, however old, for `who` to control. None when
 /// there is no such task or it is not theirs (#265).
-fn controlled_task(s: &Projection, who: &Person, id: &str) -> Option<Value> {
-    let t = s.tasks.get(id).filter(|t| may_control(who, &t.person))?;
+fn controlled_task(s: &Projection, who: &Person, authority: Authority, id: &str) -> Option<Value> {
+    let t = s.tasks.get(id).filter(|t| may_control(who, authority, &t.person))?;
     s.runs.get(&t.run_id).map(|r| task_row(t, r))
 }
 
 /// One schedule's row by id for `who` to control (#265).
-fn controlled_schedule(s: &Projection, who: &Person, id: &str) -> Option<Value> {
-    s.schedules.get(id).filter(|x| may_control(who, &x.person)).map(|x| schedule_row(s, x))
+fn controlled_schedule(s: &Projection, who: &Person, authority: Authority, id: &str) -> Option<Value> {
+    s.schedules.get(id).filter(|x| may_control(who, authority, &x.person)).map(|x| schedule_row(s, x))
 }
 
 impl Kernel {
     /// The tasks `who` controls (their own; everyone's for the owner and
     /// admins), newest first.
-    pub fn tasks_for(&self, who: &Person, limit: usize) -> Vec<Value> {
+    pub async fn tasks_for(&self, who: &Person, limit: usize) -> Vec<Value> {
+        let authority = self.authority(who).await;
         let mut v: Vec<Value> = self.read(|s| {
             s.tasks
                 .values()
-                .filter(|t| may_control(who, &t.person) && t.chat.as_ref().is_none_or(|c| !c.turn) && !t.background())
+                .filter(|t| may_control(who, authority, &t.person) && t.chat.as_ref().is_none_or(|c| !c.turn) && !t.background())
                 .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(t, r)))
                 .collect()
         });
@@ -124,15 +129,17 @@ impl Kernel {
     }
 
     /// The schedules `who` controls.
-    pub fn schedules_for(&self, who: &Person) -> Vec<Value> {
-        self.read(|s| s.schedules.values().filter(|x| may_control(who, &x.person)).map(|x| schedule_row(s, x)).collect())
+    pub async fn schedules_for(&self, who: &Person) -> Vec<Value> {
+        let authority = self.authority(who).await;
+        self.read(|s| s.schedules.values().filter(|x| may_control(who, authority, &x.person)).map(|x| schedule_row(s, x)).collect())
     }
 
     /// One task by id, however old: the list's row, and what its run did
     /// so far, split the way a cancel report splits it; under the same
     /// who-may-control rule, no such task when it is not theirs (#340).
-    pub fn get_task(&self, who: &Person, id: &str) -> Result<Value, Refused> {
-        let mut row = self.read(|s| controlled_task(s, who, id)).ok_or(Refused::NotFound("task"))?;
+    pub async fn get_task(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let authority = self.authority(who).await;
+        let mut row = self.read(|s| controlled_task(s, who, authority, id)).ok_or(Refused::NotFound("task"))?;
         // The row above passed the control rule; its run is fetched as is.
         let run = self.read(|s| s.tasks.get(id).and_then(|t| s.runs.get(&t.run_id).cloned()));
         let Some(run) = run else { return Err(Refused::NotFound("task")) };
@@ -146,8 +153,9 @@ impl Kernel {
     }
 
     /// One schedule by id under the same rule (#265).
-    pub fn get_schedule(&self, who: &Person, id: &str) -> Result<Value, Refused> {
-        self.read(|s| controlled_schedule(s, who, id)).ok_or(Refused::NotFound("schedule"))
+    pub async fn get_schedule(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let authority = self.authority(who).await;
+        self.read(|s| controlled_schedule(s, who, authority, id)).ok_or(Refused::NotFound("schedule"))
     }
 
     /// Cancel a task: its run stops, the cancellation is in the log, and
@@ -156,7 +164,7 @@ impl Kernel {
     pub async fn cancel_task(&self, who: &Person, id: &str, turn: Option<&str>) -> Result<Value, Refused> {
         let found = self.read(|s| s.tasks.get(id).and_then(|t| s.runs.get(&t.run_id).map(|r| (t.person.clone(), r.clone()))));
         let Some((owner, run)) = found else { return Err(Refused::NotFound("task")) };
-        control_check(self, who, "cancel_task", "Task", id, &owner, "task")?;
+        control_check(self, who, "cancel_task", "Task", id, &owner, "task").await?;
         if run.status.terminal() {
             return Err(Refused::Conflict(format!("the task has already ended ({})", crate::api::status_str(run.status))));
         }
@@ -217,9 +225,9 @@ impl Kernel {
         (done_irr, done_rev, possibly_done)
     }
 
-    fn schedule_owned(&self, who: &Person, id: &str, op: &str) -> Result<crate::state::Schedule, Refused> {
+    async fn schedule_owned(&self, who: &Person, id: &str, op: &str) -> Result<crate::state::Schedule, Refused> {
         let sc = self.read(|s| s.schedules.get(id).cloned()).ok_or(Refused::NotFound("schedule"))?;
-        control_check(self, who, op, "Schedule", id, &sc.person, "schedule")?;
+        control_check(self, who, op, "Schedule", id, &sc.person, "schedule").await?;
         Ok(sc)
     }
 
@@ -228,7 +236,7 @@ impl Kernel {
     /// the person's pause: the hold's end does not resume it. An admin's
     /// suspension is not paused over.
     pub async fn pause_schedule(&self, who: &Person, id: &str, turn: Option<&str>) -> Result<(), Refused> {
-        let sc = self.schedule_owned(who, id, "pause_schedule")?;
+        let sc = self.schedule_owned(who, id, "pause_schedule").await?;
         if sc.ended.is_some() {
             return Err(Refused::Conflict("the schedule has ended".into()));
         }
@@ -255,14 +263,14 @@ impl Kernel {
     /// Resume a schedule its person paused. An admin's suspension is
     /// lifted only by an admin (or the owner), here or in the console.
     pub async fn resume_schedule(&self, who: &Person, id: &str, turn: Option<&str>) -> Result<(), Refused> {
-        let sc = self.schedule_owned(who, id, "resume_schedule")?;
+        let sc = self.schedule_owned(who, id, "resume_schedule").await?;
         if sc.ended.is_some() {
             return Err(Refused::Conflict("the schedule has ended".into()));
         }
         if sc.paused.is_none() {
             return Err(Refused::Conflict("the schedule is not paused".into()));
         }
-        if sc.paused_by_admin && !(who.is_owner() || who.has_role("admin")) {
+        if sc.paused_by_admin && !self.authority(who).await.administers() {
             return Err(Refused::Conflict("it is suspended by an admin: only an admin lifts it".into()));
         }
         if who.id != sc.person && !sc.paused_by_admin {
@@ -280,7 +288,7 @@ impl Kernel {
     /// An ended schedule is only deleted: it starts no more runs anyway,
     /// and its last run, which can still be going, goes on (#452).
     pub async fn cancel_schedule(&self, who: &Person, id: &str, turn: Option<&str>) -> Result<Value, Refused> {
-        let sc = self.schedule_owned(who, id, "cancel_schedule")?;
+        let sc = self.schedule_owned(who, id, "cancel_schedule").await?;
         let going: Vec<(String, String)> = if sc.ended.is_some() {
             vec![]
         } else {
@@ -315,7 +323,7 @@ impl Kernel {
     /// Change when a schedule runs and when it ends. What each run does
     /// stays: to change that, cancel it and set up another.
     pub async fn edit_schedule(&self, who: &Person, id: &str, b: &Value, turn: Option<&str>) -> Result<Value, Refused> {
-        let sc = self.schedule_owned(who, id, "edit_schedule")?;
+        let sc = self.schedule_owned(who, id, "edit_schedule").await?;
         let timing = b.get("every_minutes").is_some_and(|v| !v.is_null()) || b.get("daily_at").is_some_and(|v| !v.is_null());
         let (every_minutes, daily_at) =
             if timing { crate::api::rule_for(b, self.cfg.schedules.min_every_minutes).map_err(Refused::Invalid)? } else { (sc.every_minutes, sc.daily_at.clone()) };
@@ -396,14 +404,14 @@ impl Kernel {
         let r: Result<Value, Refused> = match tool {
             "list_tasks" => {
                 let limit = input.get("limit").and_then(Value::as_u64).unwrap_or(30).clamp(1, 200) as usize;
-                self.as_policy_allows(&who, self.tasks_for(&who, limit)).await.map(|v| json!({ "tasks": v }))
+                self.as_policy_allows(&who, self.tasks_for(&who, limit).await).await.map(|v| json!({ "tasks": v }))
             }
-            "list_schedules" => self.as_policy_allows(&who, self.schedules_for(&who)).await.map(|v| json!({ "schedules": v })),
-            "get_task" => match self.get_task(&who, id) {
+            "list_schedules" => self.as_policy_allows(&who, self.schedules_for(&who).await).await.map(|v| json!({ "schedules": v })),
+            "get_task" => match self.get_task(&who, id).await {
                 Ok(row) => self.as_policy_allows(&who, vec![row]).await.map(|mut rows| json!({ "task": rows.pop().unwrap_or(Value::Null) })),
                 Err(e) => Err(e),
             },
-            "get_schedule" => match self.get_schedule(&who, id) {
+            "get_schedule" => match self.get_schedule(&who, id).await {
                 Ok(row) => self.as_policy_allows(&who, vec![row]).await.map(|mut rows| json!({ "schedule": rows.pop().unwrap_or(Value::Null) })),
                 Err(e) => Err(e),
             },
@@ -449,7 +457,7 @@ mod others_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{controlled_schedule, controlled_task, report_class, sources, ReportClass};
+    use super::{controlled_schedule, controlled_task, report_class, sources, Authority, ReportClass};
     use crate::log::Event;
     use crate::state::ResultRec;
     use crate::state::State as Projection;
@@ -459,10 +467,6 @@ mod tests {
         ResultRec { seq: 0, text: String::new(), is_error, status: status.into(), data: None }
     }
 
-    /// One task or schedule by id: status, result or latest run, what it
-    /// did — the list's row, however old, for its person, the owner and
-    /// admins alone (#265).
-    #[test]
     /// A control's event names the chat run that did it, or the button.
     #[test]
     fn a_controls_event_names_conversation_or_button() {
@@ -470,6 +474,10 @@ mod tests {
         assert_eq!(sources(None), (Some("button".into()), None));
     }
 
+    /// One task or schedule by id: status, result or latest run, what it
+    /// did — the list's row, however old, for its person, the owner and
+    /// admins alone (#265).
+    #[test]
     fn get_reaches_any_controlled_task_or_schedule() {
         let mut s = Projection::default();
         let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
@@ -490,20 +498,23 @@ mod tests {
         ev(t0, "kernel", json!({ "kind": "completed", "run": "rs", "summary": "watered" }));
         let who = |id: &str, roles: &[&str]| serde_json::from_value::<crate::config::Person>(json!({ "id": id, "roles": roles })).unwrap();
         let (carol, bob, alice) = (who("carol", &[]), who("bob", &[]), who("alice", &["owner"]));
+        let of = |p: &crate::config::Person| Authority::of(p, crate::accounts::Role::Member);
 
         // The oldest of 31, past the list's 30, with its result.
-        let oldest = controlled_task(&s, &carol, "t00").expect("the oldest task");
+        let oldest = controlled_task(&s, &carol, of(&carol), "t00").expect("the oldest task");
         assert_eq!((&oldest["status"], &oldest["summary"]), (&json!("completed"), &json!("did 0")), "{oldest}");
-        assert!(controlled_task(&s, &carol, "t99").is_none(), "no such task");
-        assert!(controlled_task(&s, &carol, "tb").is_none(), "another person's task");
-        assert!(controlled_task(&s, &bob, "t00").is_none(), "another person's task");
-        assert_eq!(controlled_task(&s, &alice, "t00").as_ref().and_then(|r| r["summary"].as_str()), Some("did 0"), "the owner reads anyone's");
+        assert!(controlled_task(&s, &carol, of(&carol), "t99").is_none(), "no such task");
+        assert!(controlled_task(&s, &carol, of(&carol), "tb").is_none(), "another person's task");
+        assert!(controlled_task(&s, &bob, of(&bob), "t00").is_none(), "another person's task");
+        assert_eq!(controlled_task(&s, &alice, of(&alice), "t00").as_ref().and_then(|r| r["summary"].as_str()), Some("did 0"), "the owner reads anyone's");
+        let directory_admin = Authority::of(&bob, crate::accounts::Role::Admin);
+        assert!(controlled_task(&s, &bob, directory_admin, "t00").is_some(), "an admin in the server's own directory could not reach carol's task");
 
         // The schedule with its latest run.
-        let got = controlled_schedule(&s, &carol, "s1").expect("the schedule");
+        let got = controlled_schedule(&s, &carol, of(&carol), "s1").expect("the schedule");
         assert_eq!((&got["daily_at"], &got["latest"]["task"], &got["latest"]["summary"]), (&json!("03:00"), &json!("ts"), &json!("watered")), "{got}");
-        assert!(controlled_schedule(&s, &carol, "s9").is_none(), "no such schedule");
-        assert!(controlled_schedule(&s, &bob, "s1").is_none(), "another person's schedule");
+        assert!(controlled_schedule(&s, &carol, of(&carol), "s9").is_none(), "no such schedule");
+        assert!(controlled_schedule(&s, &bob, of(&bob), "s1").is_none(), "another person's schedule");
     }
 
     /// In flight and outcome-unknown read possibly done; done reads

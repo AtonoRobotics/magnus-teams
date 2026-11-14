@@ -663,7 +663,7 @@ async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectI
         return err(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
     match k.accept_invitation(token, password).await.map(|a| a.map(|a| a.person)) {
-        Ok(Some(person)) if k.cfg.person(&person).is_some() || k.accounts.is_local(&person) => {
+        Ok(Some(person)) if k.people().exists(&person) => {
             k.computer_soon(crate::computer::Owner::Person(person.clone()));
             Json(json!({ "person": person })).into_response()
         }
@@ -1410,7 +1410,7 @@ async fn put_policy(State(k): K, h: HeaderMap, Path(layer): Path<String>, Json(b
     // may set it as well as the owner (DECISIONS, Layering).
     let task_of = layer.strip_prefix("task/").and_then(|t| k.read(|s| s.tasks.get(t).map(|t| t.person.clone())));
     let valid = layer == "org"
-        || layer.strip_prefix("user/").is_some_and(|u| k.cfg.person(u).is_some() || k.accounts.is_local(u))
+        || layer.strip_prefix("user/").is_some_and(|u| k.people().exists(u))
         || layer.strip_prefix("group/").is_some_and(|g| !g.is_empty() && !g.contains('/'))
         || task_of.is_some();
     if !valid {
@@ -1511,8 +1511,7 @@ impl Kernel {
             // resumes by itself (K53). Each person's tasks are their own: each
             // is told which of theirs the switch stopped, and continues them,
             // in the same write as the release, so none is released untold.
-            let stopped: Vec<crate::state::Run> =
-                k.read(|s| s.runs.values().filter(|r| r.status == Status::Suspended && r.reason.as_deref() == Some("kill_switch")).cloned().collect());
+            let stopped: Vec<crate::state::Run> = k.read(|s| crate::halts::held_by_server(s).cloned().collect());
             let why = json!({ "reason": "kill_switch", "evidence": { "why": "the owner engaged the kill switch, and has released it; Continue goes on from where it stopped" } });
             let mut evs = vec![(actor.as_str(), Ev::KillSwitch { engaged })];
             for r in &stopped {

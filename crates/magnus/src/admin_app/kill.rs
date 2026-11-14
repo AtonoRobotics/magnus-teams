@@ -105,7 +105,7 @@ fn stops_for(k: &Kernel, person: &str, admin: bool) -> Vec<Value> {
 pub(super) async fn stops(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
     match crate::api::who(&k, &h).await {
         Ok(p) => {
-            let admin = super::admin_of(&p, k.accounts.role(&p.id).await);
+            let admin = k.authority(&p).await.administers();
             Json(json!({ "stops": stops_for(&k, &p.id, admin) })).into_response()
         }
         Err(r) => r,

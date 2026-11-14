@@ -8,6 +8,7 @@ use crate::accounts::Role as Directory;
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::people::Authority;
 use axum::http::StatusCode;
 
 /// The four roles, most trusted first.
@@ -18,22 +19,12 @@ pub const GUEST_RULE: &str = "kernel:guest_reads_and_chats_only";
 
 pub type Refusal = (StatusCode, &'static str, String);
 
-/// Whether `p` is a guest: the guest role and no role above it.
+/// Whether `p` is a guest: the guest role and no role above it. Read from
+/// their roles alone, without the server's directory, because the boundary
+/// asks it on every action without a wait; `set_server_role` keeps the two in
+/// step, and where they differ this errs toward a guest's limits.
 pub fn is_guest(p: &Person) -> bool {
-    p.has_role("guest") && !p.is_owner() && !p.has_role("admin")
-}
-
-/// The one role of the four a person holds, the highest when several.
-pub fn role_of(p: &Person, directory: Directory) -> &'static str {
-    if p.is_owner() {
-        "owner"
-    } else if p.has_role("admin") || directory == Directory::Admin {
-        "admin"
-    } else if p.has_role("guest") {
-        "guest"
-    } else {
-        "member"
-    }
+    Authority::of(p, Directory::Member) == Authority::Guest
 }
 
 /// `roles` with its one role of the four replaced by `role`, the rest kept.
@@ -44,19 +35,12 @@ pub fn with_role(roles: &[String], role: &str) -> Vec<String> {
 }
 
 impl Kernel {
-    /// Everyone the server keeps: the config's people and its own.
-    pub fn server_people(&self) -> Vec<String> {
-        let mut ids: std::collections::BTreeSet<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
-        ids.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
-        ids.into_iter().collect()
-    }
-
     /// The owners who are turned on, by id.
     pub async fn active_owners(&self) -> Vec<String> {
         let mut out = vec![];
-        for id in self.server_people() {
-            if self.person(&id).is_some_and(|p| p.is_owner()) && self.accounts.status(&id).await != crate::accounts::Status::Disabled {
-                out.push(id);
+        for p in self.people().owners() {
+            if self.accounts.status(&p.id).await != crate::accounts::Status::Disabled {
+                out.push(p.id);
             }
         }
         out
@@ -110,10 +94,6 @@ mod tests {
 
     #[test]
     fn a_person_holds_one_of_the_four_and_keeps_the_rest() {
-        assert_eq!(role_of(&person(&["owner", "guest"]), Directory::Member), "owner");
-        assert_eq!(role_of(&person(&[]), Directory::Admin), "admin", "the directory's admin was not an admin");
-        assert_eq!(role_of(&person(&["guest"]), Directory::Member), "guest");
-        assert_eq!(role_of(&person(&["developer"]), Directory::Member), "member");
         assert_eq!(with_role(&["developer".into(), "admin".into()], "guest"), vec!["developer".to_string(), "guest".to_string()]);
         assert!(is_guest(&person(&["guest"])));
         assert!(!is_guest(&person(&["guest", "admin"])), "an admin was held to a guest's limits");

@@ -30,7 +30,7 @@ pub fn via(peer: SocketAddr, h: &HeaderMap) -> Via {
 /// server's own store does. A person only the server keeps is checked here,
 /// not at the provider, which never heard of them (#429); a person the
 /// config knows keeps the provider, even with a local namesake, as
-/// `resolve_person` resolves the config first.
+/// `people::resolve` resolves the config first.
 pub async fn provider_for(k: &Kernel, person: &str) -> Option<Arc<dyn Identity>> {
     let id = k.identity()?;
     provider_keeps(k.cfg.person(person).is_some(), k.accounts.is_local_fresh(person).await).then_some(id)

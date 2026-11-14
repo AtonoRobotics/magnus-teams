@@ -27,7 +27,7 @@ fn rows<T>(m: &BTreeMap<String, T>, f: impl Fn(&String, &T) -> Value) -> Vec<Val
 
 impl Kernel {
     fn name_of(&self, id: &str) -> String {
-        self.person(id).map(|p| p.name).filter(|n| !n.is_empty()).unwrap_or_else(|| id.to_string())
+        self.people().name(id)
     }
 
     /// Admin → Spend: the limits, the month's spend broken down by person,
@@ -55,8 +55,7 @@ impl Kernel {
                 .collect();
             (month::spent(s, &m), s.spend.clone(), workspaces)
         });
-        let mut people: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
-        people.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
+        let mut people = self.people().ids();
         people.extend(spent.by_person.keys().cloned());
         people.extend(l.people_usd.keys().cloned());
         people.sort();
@@ -139,19 +138,13 @@ impl Kernel {
         let (adapter, model) = self.default_model();
         let access = self.read(|s| s.spend.access.clone());
         let mut roles: Vec<String> = vec![super::access::EVERYONE.into(), "admin".into()];
-        for p in &self.cfg.people {
-            if let Some(p) = self.person(&p.id) {
-                roles.extend(p.roles.into_iter().filter(|r| r != "owner"));
-            }
+        for p in self.people().all() {
+            roles.extend(p.roles.into_iter().filter(|r| r != "owner"));
         }
         roles.extend(access.roles.keys().cloned());
         roles.sort();
         roles.dedup();
-        let mut people: Vec<String> = self.cfg.people.iter().map(|p| p.id.clone()).collect();
-        people.extend(self.accounts.local_people().into_iter().map(|(id, _)| id));
-        people.sort();
-        people.dedup();
-        let people: Vec<Value> = people.iter().map(|p| json!({ "id": p, "name": self.name_of(p), "owner": self.person(p).is_some_and(|x| x.is_owner()) })).collect();
+        let people: Vec<Value> = self.people().ids().iter().map(|p| json!({ "id": p, "name": self.name_of(p), "owner": self.person(p).is_some_and(|x| x.is_owner()) })).collect();
         json!({ "default": { "adapter": adapter, "model": model }, "access": access, "roles": roles, "people": people })
     }
 

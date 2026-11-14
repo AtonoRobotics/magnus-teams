@@ -211,7 +211,7 @@ impl Kernel {
                 tracing::warn!("could not delete computer {} of a deleted workspace or person: {e:?}", c.id);
             }
         }
-        let mut owners: Vec<Owner> = self.everyone().into_iter().map(|(id, _)| Owner::Person(id)).collect();
+        let mut owners: Vec<Owner> = self.people().ids().into_iter().map(Owner::Person).collect();
         owners.extend(self.read(|s| s.team.all().map(|w| Owner::Workspace(w.id.clone())).collect::<Vec<_>>()));
         for owner in owners {
             if let Err(e) = self.computer_for(&owner).await {
@@ -230,7 +230,7 @@ impl Kernel {
             return vec![];
         }
         let theirs: Vec<Computer> = self.read(|s| s.computers.all().filter(|c| c.role == Role::Computer && matches!(c.owner, Owner::Person(_))).cloned().collect());
-        theirs.into_iter().filter(|c| matches!(&c.owner, Owner::Person(p) if self.cfg.person(p).is_none() && self.person(p).is_none())).collect()
+        theirs.into_iter().filter(|c| matches!(&c.owner, Owner::Person(p) if !self.people().exists(p))).collect()
     }
 
     /// Removes a person from the server's own directory, after their

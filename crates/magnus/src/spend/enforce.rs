@@ -118,12 +118,16 @@ pub fn choose(allowed: &Option<BTreeSet<String>>, chosen: Option<(String, String
 }
 
 impl Kernel {
-    /// The person's roles as model access reads them: the kernel's, an
-    /// admin of the console's, and `member`.
+    /// The person's roles as model access reads them: the kernel's, `admin`
+    /// for anyone who administers the server (`Kernel::authority`), and
+    /// `member`. The directory is not asked when no role has a rule.
     pub async fn access_roles(&self, person: &str) -> Vec<String> {
-        let mut roles = self.person(person).map(|p| p.roles).unwrap_or_default();
-        if !self.read(|s| s.spend.access.roles.is_empty()) && self.accounts.role(person).await == crate::accounts::Role::Admin {
-            roles.push("admin".into());
+        let p = self.person(person);
+        let mut roles = p.as_ref().map(|p| p.roles.clone()).unwrap_or_default();
+        if let Some(p) = p.filter(|_| !self.read(|s| s.spend.access.roles.is_empty())) {
+            if self.authority(&p).await.administers() && !roles.iter().any(|r| r == "admin") {
+                roles.push("admin".into());
+            }
         }
         roles.push(access::EVERYONE.into());
         roles
