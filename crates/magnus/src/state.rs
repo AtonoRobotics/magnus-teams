@@ -11,9 +11,11 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub mod org;
 pub mod server_ops;
 pub mod vault;
 pub mod watch;
+pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
 pub use vault::Revoked;
 
@@ -452,15 +454,6 @@ impl BundleDoc {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct PolicyVersion {
-    pub layer: String,
-    pub seq: i64,
-    pub at: DateTime<Utc>,
-    pub by: String,
-    pub cedar: String,
-}
-
 /// One item of the agent's playbook (I2).
 #[derive(Clone, Debug)]
 pub struct PlaybookItem {
@@ -855,7 +848,8 @@ pub struct State {
     pub runs: HashMap<String, Run>,
     pub items: BTreeMap<String, Item>,
     pub approvals: Vec<Approval>,
-    pub policies: BTreeMap<String, String>,
+    /// The organisation's settings, the admin audit and version notices.
+    pub org: org::OrgSettings,
     /// Secrets' names and the kill switch.
     pub vault: vault::Ledger,
     /// Everyone who has ever signed in here. Someone not in it signs in the
@@ -898,9 +892,6 @@ pub struct State {
     /// key by the app's name, a provider's client secret as
     /// `registration:<provider>`. Never the value.
     pub credential_changed: BTreeMap<String, (bool, DateTime<Utc>)>,
-    /// What was done in the admin console, oldest first: each entry's seq,
-    /// when, and the action as written.
-    pub audit: Vec<(i64, DateTime<Utc>, Value)>,
     /// Groups and roles from the identity provider, per person, as of their
     /// latest sign-in.
     pub provider_rights: HashMap<String, (Option<Vec<String>>, Option<Vec<String>>)>,
@@ -946,7 +937,6 @@ pub struct State {
     pub review_runs: HashMap<String, String>,
     /// One-a-day wake marks (a coming-up schedule, a due commitment).
     pub wake_marks: HashMap<String, String>,
-    pub model: Option<(String, String)>,
     /// App tool definitions as screened, those held back, and who connected which app through its connect screen (spec rev 140).
     pub tools: crate::tool_gate::Ledger,
     pub spend: crate::spend::Ledger,
@@ -962,8 +952,6 @@ pub struct State {
     pub projects: BTreeMap<String, Project>,
     /// Items the person moved into a project (Some) or out of one (None).
     pub moved: HashMap<String, Option<String>>,
-    /// Latest conformance result per adapter id: (version, model, passed, report).
-    pub conformance: HashMap<String, (String, String, bool, Value)>,
     pub playbook: BTreeMap<String, PlaybookItem>,
     /// The org context bundle, by path.
     pub bundle: BTreeMap<String, BundleDoc>,
@@ -971,21 +959,6 @@ pub struct State {
     /// removal: a path written again counts on, so (path, version) names
     /// one version in the log.
     pub bundle_last: HashMap<String, u32>,
-    /// Every policy a layer ever had, oldest first.
-    pub policy_history: Vec<PolicyVersion>,
-    /// Run modules an admin turned on or off for the organisation.
-    pub module_settings: BTreeMap<String, bool>,
-    /// Model providers an admin disabled.
-    pub providers_off: std::collections::BTreeSet<String>,
-    /// The desktop channel for everyone but the owner and testers, when an
-    /// admin set one.
-    pub desktop_channel: Option<String>,
-    /// The admin console's session lifetimes, as an admin set them.
-    pub console_settings: Option<Value>,
-    /// Admins' drafts of policy layers, not in force.
-    pub policy_drafts: BTreeMap<String, String>,
-    /// Model and harness changes, for version notices (U5): (seq, at, what, value).
-    pub version_changes: Vec<(i64, DateTime<Utc>, String, String)>,
     /// Increments with every playbook change (I3).
     pub playbook_version: u64,
     pub last_seq: i64,
@@ -1224,7 +1197,7 @@ impl State {
                 _ => ("user_erasure_completed", serde_json::json!({ "backups": "every backup kept is rewritten without their content" })),
             };
             let target = er.subject.clone().unwrap_or_else(|| person.clone());
-            self.audit.push((e.seq, e.at, serde_json::json!({ "kind": "admin_action", "admin": "kernel", "name": "Magnus", "action": action, "target": target, "source": null, "before": null, "after": after })));
+            self.org.note_audit(e, serde_json::json!({ "kind": "admin_action", "admin": "kernel", "name": "Magnus", "action": action, "target": target, "source": null, "before": null, "after": after }));
         }
     }
 
@@ -1279,49 +1252,17 @@ impl State {
             r.last_at = e.at;
         }
         match &e.ev {
-            Ev::KernelBoot { version, instructions, .. } => {
-                for (what, v) in [("harness", version), ("instructions", instructions)] {
-                    if !v.is_empty() && self.version_changes.iter().rev().find(|c| c.2 == what).is_none_or(|c| &c.3 != v) {
-                        self.version_changes.push((e.seq, e.at, what.into(), v.clone()));
-                    }
-                }
-            }
+            Ev::KernelBoot { .. }
+            | Ev::PolicySet { .. }
+            | Ev::ModuleSet { .. }
+            | Ev::ProviderSet { .. }
+            | Ev::DesktopChannelSet { .. }
+            | Ev::ConsoleSettings { .. }
+            | Ev::PolicyDrafted { .. }
+            | Ev::AdminAction { .. }
+            | Ev::ModelSet { .. }
+            | Ev::AdapterVerified { .. } => self.org.fold(e),
             Ev::SecretSet { .. } | Ev::KillSwitch { .. } | Ev::VaultSealed { .. } | Ev::SecretRevoked { .. } => self.vault.fold(&e.ev, &e.actor, e.at),
-            Ev::PolicySet { layer, cedar } => {
-                self.policies.insert(layer.clone(), cedar.clone());
-                self.policy_history.push(PolicyVersion { layer: layer.clone(), seq: e.seq, at: e.at, by: e.actor.clone(), cedar: cedar.clone() });
-                let n = self.policy_history.iter().filter(|p| &p.layer == layer).count();
-                self.version_changes.push((e.seq, e.at, format!("policy:{layer}"), format!("v{n}")));
-            }
-            Ev::ModuleSet { name, on } => match on {
-                Some(on) => {
-                    self.module_settings.insert(name.clone(), *on);
-                }
-                None => {
-                    self.module_settings.remove(name);
-                }
-            },
-            Ev::ProviderSet { id, enabled } => {
-                if *enabled {
-                    self.providers_off.remove(id);
-                } else {
-                    self.providers_off.insert(id.clone());
-                }
-            }
-            Ev::DesktopChannelSet { channel } => {
-                self.desktop_channel = Some(channel.clone());
-            }
-            Ev::ConsoleSettings { idle_minutes, session_hours, allow } => {
-                self.console_settings = Some(serde_json::json!({ "idle_minutes": idle_minutes, "session_hours": session_hours, "allow": allow }));
-            }
-            Ev::PolicyDrafted { layer, cedar } => match cedar {
-                Some(c) => {
-                    self.policy_drafts.insert(layer.clone(), c.clone());
-                }
-                None => {
-                    self.policy_drafts.remove(layer);
-                }
-            },
             Ev::Computer(c) => self.computers.apply_at(c, e.at),
             Ev::Payment(c) => self.payments.apply(c),
             Ev::Rule(c) => self.rules.apply(c),
@@ -1336,11 +1277,6 @@ impl State {
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
             Ev::AdminSetting(c) => self.admin_settings.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
-            Ev::AdminAction { .. } => {
-                if let Ok(v) = serde_json::to_value(&e.ev) {
-                    self.audit.push((e.seq, e.at, v));
-                }
-            }
             Ev::BackupMade { .. }
             | Ev::UpdateStarted { .. }
             | Ev::UpdateFinished { .. }
@@ -1729,10 +1665,6 @@ impl State {
                     t.schedule = Some(id.clone());
                 }
             }
-            Ev::ModelSet { adapter, model } => {
-                self.model = Some((adapter.clone(), model.clone()));
-                self.version_changes.push((e.seq, e.at, "model".into(), format!("{adapter}/{model}")));
-            }
             Ev::ToolPinned { tool, hash, description, input_schema, approved } => self.tools.pinned(tool, hash, description, input_schema, *approved),
             Ev::ToolChanged { tool, hash, .. } => self.tools.changed(tool, hash),
             Ev::Tools(c) => self.tools.apply(e.at, c),
@@ -1978,7 +1910,7 @@ impl State {
             Ev::Playbook { item, op, person, run, text, addresses, label } => {
                 self.playbook_version += 1;
                 let v = self.playbook_version;
-                self.version_changes.push((e.seq, e.at, "playbook".into(), format!("v{v}")));
+                self.org.note_version(e, "playbook", format!("v{v}"));
                 match op.as_str() {
                     "add" => {
                         self.playbook.insert(
@@ -2232,9 +2164,6 @@ impl State {
             }
             Ev::Moved { item, project } => {
                 self.moved.insert(item.clone(), project.clone());
-            }
-            Ev::AdapterVerified { adapter_id, version, model, passed, report, .. } => {
-                self.conformance.insert(adapter_id.clone(), (version.clone(), model.clone(), *passed, report.clone()));
             }
             Ev::BundleWritten { path, version, doc_kind: kind, scope, owner_user, actor, run, label, sources, writer: named, .. } => {
                 let writer = named.clone().or_else(|| run.as_ref().and_then(|r| self.runs.get(r)).map(|r| r.person.clone()));

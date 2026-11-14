@@ -285,7 +285,8 @@ impl Kernel {
                 if let Err(why) = crate::policy_layers::tightens_only(&layer, add) {
                     return Ok(Answer::Invalid(why));
                 }
-                let current = self.read(|s| s.policies.get(&layer).cloned()).unwrap_or_else(|| if layer == "org" { crate::policy::DEFAULT_ORG.to_string() } else { String::new() });
+                let current =
+                    self.read(|s| s.org.policies().get(&layer).cloned()).unwrap_or_else(|| if layer == "org" { crate::policy::DEFAULT_ORG.to_string() } else { String::new() });
                 let next = format!("{current}\n{add}\n");
                 if let Err(e) = crate::policy::validate(&next) {
                     return Ok(Answer::Invalid(format!("the combined policy does not parse: {e}")));

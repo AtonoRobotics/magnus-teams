@@ -779,14 +779,14 @@ async fn versions(State(k): K, h: HeaderMap) -> Response {
         return r;
     }
     let v = k.read(|s| {
-        let changes: Vec<Value> = s.version_changes.iter().map(|(seq, at, what, value)| json!({ "seq": seq, "at": at, "what": what, "value": value })).collect();
+        let changes: Vec<Value> = s.org.version_changes().iter().map(|(seq, at, what, value)| json!({ "seq": seq, "at": at, "what": what, "value": value })).collect();
         json!({
             "harness": crate::kernel::HARNESS_VERSION,
             "instructions": crate::run::instructions_version(),
             "chat_instructions": crate::run::chat_instructions_version(),
-            "model": s.model.as_ref().map(|(a, m)| format!("{a}/{m}")),
+            "model": s.org.model().as_ref().map(|(a, m)| format!("{a}/{m}")),
             "playbook": s.playbook_version,
-            "latest_seq": s.version_changes.last().map(|c| c.0),
+            "latest_seq": s.org.version_changes().last().map(|c| c.0),
             "changes": changes,
         })
     });
@@ -1389,7 +1389,7 @@ async fn policies(State(k): K, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
-    let all = k.read(|s| s.policies.clone());
+    let all = k.read(|s| s.org.policies().clone());
     // The layers of their own tasks, which they may set (`put_policy`).
     let own_task = |l: &str| l.strip_prefix("task/").is_some_and(|t| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id)));
     let mine: serde_json::Map<String, Value> = all
@@ -1684,7 +1684,7 @@ async fn adapters(State(k): K, h: HeaderMap) -> Response {
         .await
         .into_iter()
         .map(|(id, cmd, running)| {
-            let verified = k.read(|s| s.conformance.get(&id).cloned());
+            let verified = k.read(|s| s.org.conformance().get(&id).cloned());
             json!({
                 "id": id, "command": cmd,
                 "running": running.map(|(a, v)| json!({ "adapter": a, "version": v })),
@@ -1738,7 +1738,7 @@ async fn conformance_model(k: &Kernel, id: &str, asked: &Value) -> Result<String
     if let Some(m) = asked.as_str() {
         return Ok(m.to_string());
     }
-    let (adapter, model) = k.read(|s| s.model.clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
+    let (adapter, model) = k.read(|s| s.org.model().clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
     if adapter == id {
         return Ok(model);
     }
@@ -1930,7 +1930,7 @@ async fn get_model(State(k): K, h: HeaderMap) -> Response {
     if let Err(r) = who(&k, &h).await {
         return r;
     }
-    let (adapter, model) = k.read(|s| s.model.clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
+    let (adapter, model) = k.read(|s| s.org.model().clone()).unwrap_or_else(|| (k.cfg.model.adapter.clone(), k.cfg.model.name.clone()));
     Json(json!({ "adapter": adapter, "model": model })).into_response()
 }
 

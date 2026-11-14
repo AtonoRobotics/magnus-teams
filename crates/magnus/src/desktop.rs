@@ -422,7 +422,7 @@ impl Kernel {
             return Some(Err(why));
         }
         let run = self.read(|s| s.runs.get(&a.run).cloned())?;
-        let policies = self.read(|s| s.policies.clone());
+        let policies = self.read(|s| s.org.policies().clone());
         match crate::policy::decide(&policies, person, Some(&run.task), &ToolFacts::from(f), run.untrusted, run.private) {
             Ok(outcome) => ask_of(&outcome, f),
             Err(e) => Some(Err(format!("policy could not decide: {e:#}"))),

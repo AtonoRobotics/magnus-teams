@@ -34,7 +34,7 @@ impl Kernel {
     /// with what an admin set for the organisation on top.
     pub fn modules_for(&self, adapter: &str, model: &str) -> (std::collections::BTreeMap<String, bool>, Option<String>) {
         let (mut on, to) = self.cfg.modules_for(adapter, model);
-        for (name, set) in self.read(|s| s.module_settings.clone()) {
+        for (name, set) in self.read(|s| s.org.module_settings().clone()) {
             on.insert(name, set);
         }
         (on, to)
@@ -45,7 +45,7 @@ impl Kernel {
     pub fn admin_modules(&self) -> Vec<Value> {
         let (a, m) = self.default_model();
         let (on, to) = self.modules_for(&a, &m);
-        let set = self.read(|s| s.module_settings.clone());
+        let set = self.read(|s| s.org.module_settings().clone());
         let acted = self.read(|s| {
             let mut n: std::collections::HashMap<&str, usize> = Default::default();
             for r in s.runs.values() {
@@ -82,7 +82,7 @@ impl Kernel {
     /// last error a run met on it. Its credentials never appear.
     pub async fn admin_providers(&self) -> Vec<Value> {
         let (da, dm) = self.default_model();
-        let disabled = self.read(|s| s.providers_off.clone());
+        let disabled = self.read(|s| s.org.providers_off().clone());
         let mut out = vec![];
         for (id, command, running) in self.adapters.list().await {
             let models = match tokio::time::timeout(OVERVIEW_CATALOG_WAIT, self.adapters.catalog(&id)).await {
@@ -95,7 +95,7 @@ impl Kernel {
             let settings = self.cfg.adapters.iter().find(|a| a.id == id).map(|a| shown_settings(&a.settings)).unwrap_or_default();
             let endpoint = ["base_url", "endpoint", "url", "host"].iter().find_map(|k| settings.get(*k).and_then(|v| v.as_str()).map(String::from));
             let (conformance, last_error) = self.read(|s| {
-                let c = s.conformance.get(&id).map(|(v, m, ok, _)| json!({ "version": v, "model": m, "passed": ok }));
+                let c = s.org.conformance().get(&id).map(|(v, m, ok, _)| json!({ "version": v, "model": m, "passed": ok }));
                 let mut failed: Vec<&crate::state::Run> =
                     s.runs.values().filter(|r| r.config.adapter == id && r.status == crate::state::Status::Failed && r.reason.is_some()).collect();
                 failed.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
@@ -146,7 +146,7 @@ impl Kernel {
             evs.push((actor, Ev::ProviderSet { id: id.into(), enabled: on }));
         }
         if let Some(m) = default_model {
-            if enabled == Some(false) || (enabled.is_none() && self.read(|s| s.providers_off.contains(id))) {
+            if enabled == Some(false) || (enabled.is_none() && self.read(|s| s.org.providers_off().contains(id))) {
                 return Err((StatusCode::CONFLICT, "a disabled provider's model cannot be the default".into()));
             }
             let offered = match tokio::time::timeout(CATALOG_WAIT, self.adapters.catalog(id)).await {
@@ -163,7 +163,7 @@ impl Kernel {
         }
         self.emit_all(evs).await.map_err(failed)?;
         let (a, m) = self.default_model();
-        Ok(json!({ "id": id, "enabled": !self.read(|s| s.providers_off.contains(id)), "default": { "adapter": a, "model": m } }))
+        Ok(json!({ "id": id, "enabled": !self.read(|s| s.org.providers_off().contains(id)), "default": { "adapter": a, "model": m } }))
     }
 
     /// The updates: this version, the latest release with its notes, what
@@ -173,7 +173,7 @@ impl Kernel {
         let latest = self.latest_release().map(|m| json!({ "version": m["version"], "notes": m["notes"] }));
         let prev = crate::update::previous_version();
         let (updating, last, skipped, channel) =
-            self.read(|s| (s.server_ops.updating().cloned(), s.server_ops.last_update().cloned(), s.server_ops.skipped_releases().clone(), s.desktop_channel.clone()));
+            self.read(|s| (s.server_ops.updating().cloned(), s.server_ops.last_update().cloned(), s.server_ops.skipped_releases().clone(), s.org.desktop_channel().clone()));
         let channels: Vec<Value> = crate::update::CHANNELS
             .iter()
             .map(|c| {

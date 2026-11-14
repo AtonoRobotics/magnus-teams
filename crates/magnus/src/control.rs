@@ -110,7 +110,8 @@ async fn list(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, Stri
     let until = q.get("until").and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
     let has = |v: &Value, f: &str, want: Option<&String>| want.is_none_or(|w| v[f].as_str().is_some_and(|x| x.to_lowercase().contains(&w.to_lowercase())));
     let rows: Vec<Value> = k.read(|s| {
-        s.audit
+        s.org
+            .audit()
             .iter()
             .rev()
             .filter(|(_, at, _)| since.is_none_or(|t| *at >= t) && until.is_none_or(|t| *at <= t))
@@ -140,8 +141,7 @@ async fn switch_state(State(k): State<Arc<Kernel>>) -> Response {
         json!({
             "engaged": s.vault.kill_switch(),
             "by": s.vault.kill_switch_by().map(|(who, _)| who), "at": s.vault.kill_switch_by().map(|(_, at)| at),
-            "tasks_halted": halted, "schedules_held": held,
-            "sign_ins_revoked": s.vault.revoked().len(),
+            "tasks_halted": halted, "schedules_held": held, "sign_ins_revoked": s.vault.revoked().len(),
             "microvms_frozen": frozen, "microvms_running": running,
         })
     }))

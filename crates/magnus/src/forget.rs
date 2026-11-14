@@ -99,6 +99,7 @@ impl State {
             watch,
             server_ops,
             vault,
+            org,
             tools,
             spend,
             catalog,
@@ -148,33 +149,22 @@ impl State {
             // person's: a policy layer naming them is the admins' rule, and
             // their apps' records are harmless once the id is never given
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
-            audit: _,
             erasures: _,
-            policies: _,
-            policy_history: _,
-            policy_drafts: _,
             connectors: _,
             registrations: _,
             connector_settings: _,
             credential_changed: _,
             data_private: _,
-            model: _,
             admin_settings: _,
             knowledge: _,
-            conformance: _,
             playbook: _,
             // A path counts its versions on through any removal.
             bundle_last: _,
-            module_settings: _,
-            providers_off: _,
-            desktop_channel: _,
-            console_settings: _,
-            version_changes: _,
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 18] =
-            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, server_ops, vault, tools, spend, catalog];
+        let parts: [&mut dyn Forget; 19] =
+            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, server_ops, vault, org, tools, spend, catalog];
         for part in parts {
             part.forget(&who);
         }

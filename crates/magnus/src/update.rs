@@ -471,7 +471,7 @@ pub fn desktop_manifest(cfg: &Config, origin: &str, channel: &str) -> Option<Val
 /// production: everyone's builds, and its only way forward.
 pub async fn assigned_channel(k: &Kernel, h: &HeaderMap) -> Option<&'static str> {
     // Everyone else's, as an admin set it (Operations › Updates).
-    let everyone = k.read(|s| s.desktop_channel.clone()).and_then(|c| CHANNELS.iter().copied().find(|x| *x == c)).unwrap_or("production");
+    let everyone = k.read(|s| s.org.desktop_channel().clone()).and_then(|c| CHANNELS.iter().copied().find(|x| *x == c)).unwrap_or("production");
     if let Ok(p) = crate::api::who(k, h).await {
         return Some(if p.is_owner() {
             "development"

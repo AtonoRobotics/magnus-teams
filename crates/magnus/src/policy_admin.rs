@@ -250,7 +250,7 @@ impl Kernel {
     /// Every policy set: what is live (the organisation's default when none
     /// was written), the draft if there is one, and its versions.
     pub fn policy_sets(&self) -> Vec<Value> {
-        let (live, drafts, history) = self.read(|s| (s.policies.clone(), s.policy_drafts.clone(), s.policy_history.clone()));
+        let (live, drafts, history) = self.read(|s| (s.org.policies().clone(), s.org.policy_drafts().clone(), s.org.policy_history().clone()));
         let mut layers: Vec<String> = live.keys().chain(drafts.keys()).filter(|l| crate::policy_layers::kept_by_the_server(l)).cloned().collect();
         layers.push("org".into());
         layers.sort();
@@ -305,13 +305,13 @@ impl Kernel {
                 format!("the policy has {} problem{}: {}", problems.len(), if problems.len() == 1 { "" } else { "s" }, problems[0]["message"].as_str().unwrap_or_default()),
             ));
         }
-        let had_draft = self.read(|s| s.policy_drafts.contains_key(layer));
+        let had_draft = self.read(|s| s.org.policy_drafts().contains_key(layer));
         let mut evs = vec![(actor, Ev::PolicySet { layer: layer.into(), cedar: cedar.into() })];
         if had_draft {
             evs.push((actor, Ev::PolicyDrafted { layer: layer.into(), cedar: None }));
         }
         let done = self.emit_all(evs).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
-        Ok(json!({ "id": layer, "version": self.read(|s| s.policy_history.iter().filter(|v| v.layer == layer).count()), "seq": done.first().map(|e| e.seq) }))
+        Ok(json!({ "id": layer, "version": self.read(|s| s.org.policy_history().iter().filter(|v| v.layer == layer).count()), "seq": done.first().map(|e| e.seq) }))
     }
 
     /// Every version of a layer, newest first.
@@ -320,7 +320,8 @@ impl Kernel {
             return vec![];
         }
         let mut v: Vec<Value> = self.read(|s| {
-            s.policy_history
+            s.org
+                .policy_history()
                 .iter()
                 .filter(|v| v.layer == layer)
                 .enumerate()
@@ -350,10 +351,10 @@ impl Kernel {
         let facts = crate::policy::ToolFacts { name: &tool, app: &app, risk, audience };
         // Only the layers the server keeps: a person's own rules and their
         // tasks' are theirs, and may narrow what this answer says.
-        let mut policies: BTreeMap<String, String> = self.read(|s| s.policies.clone());
+        let mut policies: BTreeMap<String, String> = self.read(|s| s.org.policies().clone());
         policies.retain(|l, _| crate::policy_layers::kept_by_the_server(l));
         if b["drafts"].as_bool().unwrap_or(false) {
-            for (l, d) in self.read(|s| s.policy_drafts.clone()) {
+            for (l, d) in self.read(|s| s.org.policy_drafts().clone()) {
                 if crate::policy_layers::kept_by_the_server(&l) {
                     policies.insert(l, d);
                 }

@@ -161,19 +161,9 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     let mut v = s.watch.canonical_fields();
     v.extend(s.server_ops.canonical_fields());
     v.extend(s.vault.canonical_fields());
+    v.extend(s.org.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
-        ("policies", d(&s.policies)),
-        ("policy_history", d(&s.policy_history)),
-        ("policy_drafts", d(&s.policy_drafts)),
-        ("module_settings", d(&s.module_settings)),
-        ("providers_off", d(&s.providers_off)),
-        ("desktop_channel", d(&s.desktop_channel)),
-        ("console_settings", d(&s.console_settings)),
-        ("model", d(&s.model)),
-        ("conformance", d(&s.conformance)),
-        ("audit", d(&s.audit)),
-        ("version_changes", d(&s.version_changes)),
         ("playbook_version", d(&s.playbook_version)),
         ("hidden", d(&s.hidden)),
         ("reactions", d(&s.reactions)),

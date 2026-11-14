@@ -109,7 +109,7 @@ impl Server {
     }
 
     pub(crate) fn audited(&self, action: &str) -> Vec<Value> {
-        self.k.read(|s| s.audit.iter().map(|(_, _, v)| v.clone()).filter(|v| v["action"] == action).collect())
+        self.k.read(|s| s.org.audit().iter().map(|(_, _, v)| v.clone()).filter(|v| v["action"] == action).collect())
     }
 }
 

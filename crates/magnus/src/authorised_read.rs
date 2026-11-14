@@ -120,7 +120,7 @@ impl Kernel {
         let Some(c) = rf.connector.clone() else { return Err(Refused::Unknown) };
         let run_id = run.map_or("", |r| r.id.as_str());
         self.check_pin(&c, &rf, &r.person.id, run_id).await.map_err(|(why, _)| Refused::Pin(why))?;
-        let judged = judge(&self.read(|s| s.policies.clone()), r.person, &rf, run)?;
+        let judged = judge(&self.read(|s| s.org.policies().clone()), r.person, &rf, run)?;
         if let Some(w) = &r.within {
             let audited = Action {
                 run: w.action.run.clone(),
