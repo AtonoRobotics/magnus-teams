@@ -116,6 +116,8 @@ pub mod team;
 pub mod tls;
 pub(crate) mod token_endpoint;
 pub mod tool_gate;
+#[cfg(test)]
+mod tool_specs_pin;
 pub mod tools;
 mod tools_core;
 mod tools_identity;
