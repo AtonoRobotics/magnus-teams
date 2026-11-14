@@ -60,6 +60,18 @@ fn seed(s: &mut State, base: i64, p: &str) {
             actor.clone(),
             json!({ "kind": "team", "change": "whisper", "workspace": "ws", "channel": "general", "thread": null, "task": task, "owner": p, "history": format!("{p} whispered") }),
         ),
+        (
+            actor.clone(),
+            json!({ "kind": "team", "change": "message", "workspace": "ws", "channel": "general", "message": { "id": format!("msg-{base}"), "sender": p, "text": format!("{p}'s door code"), "at": AT } }),
+        ),
+        (
+            format!("run:{run}"),
+            json!({ "kind": "team", "change": "message", "workspace": "ws", "channel": "general", "message": { "id": format!("post-{base}"), "sender": format!("agent:{p}"), "text": format!("posted for {p}"), "at": AT } }),
+        ),
+        (
+            actor.clone(),
+            json!({ "kind": "team", "change": "chat", "workspace": "ws", "chat": { "what": "edited", "channel": "general", "id": format!("msg-{base}"), "text": format!("{p}'s new door code"), "at": AT } }),
+        ),
         (actor.clone(), json!({ "kind": "legal", "what": "terms_accepted", "person": p, "terms": "1", "privacy": "1" })),
         (actor.clone(), json!({ "kind": "legal", "what": "usage_chosen", "person": p, "share": true, "version": "1" })),
         ("kernel".into(), json!({ "kind": "push", "change": "received", "person": p, "app": "mail", "at": AT })),

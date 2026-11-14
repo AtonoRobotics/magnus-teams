@@ -10,9 +10,10 @@
 //!   owner, 2026-11-11, replacing ruling 14). There is no support session
 //!   a person grants yet, so there is no way in for anyone else.
 //! - A person's data deleted: their runs stopped and schedules ended, their
-//!   sessions and their own sign-ins to apps revoked, their content out of
-//!   the store and the backups, and their records out of the appliance's
-//!   state. What is left of them is the log's record that they existed.
+//!   computer and its volume deleted, their sessions and their own sign-ins
+//!   to apps revoked, their team messages deleted for everyone, their
+//!   content out of the store and the backups, and their records out of
+//!   the appliance's state. What is left of them is the log's record that they existed.
 
 use crate::config::Person;
 use crate::events::Ev;
@@ -189,7 +190,7 @@ impl Kernel {
     }
 
     /// Delete a person's data, as `actor`. Their runs stop, their schedules
-    /// end, their sessions and their own sign-ins to apps are revoked, their
+    /// end, their computer is deleted, their sessions and their own sign-ins to apps are revoked, their
     /// content leaves the store and the backups, and their records leave
     /// the appliance's state. What it did, counted.
     pub async fn erase_person(&self, actor: &str, person: &str) -> Result<Value, Refusal> {
@@ -206,6 +207,12 @@ impl Kernel {
         }
         // Their brokered connectors' microVMs.
         self.brokered.stop(None, Some(person)).await;
+        // Their computer and its volume, a config person's too (owner,
+        // 2026-11-13). Nothing after this runs until it is gone.
+        let computers = self.delete_computers_of(person).await.map_err(|e| {
+            tracing::error!("erasing {person}: their computer could not be deleted: {e:?}");
+            (StatusCode::BAD_GATEWAY, "their computer could not be deleted, so the erasure stopped there; try again".to_string())
+        })?;
         // Every device signed in as them.
         let ended = self.accounts.end_all(person).await.map_err(failed)?;
         let sessions = ended.len();
@@ -230,7 +237,13 @@ impl Kernel {
         }
         // Their content: recorded as removed first (a removal cut short
         // finishes at the next start), then deleted, then out of the backups.
-        let seqs = self.log.person_content_seqs(person).await.map_err(failed)?;
+        // Their team messages are deleted for everyone first, as a sender's
+        // own delete is, so the channels keep their places (owner, 2026-11-13).
+        let said = self.unsend_all_of(actor, person).await.map_err(failed)?;
+        let mut seqs = self.log.person_content_seqs(person).await.map_err(failed)?;
+        seqs.extend(said);
+        seqs.sort_unstable();
+        seqs.dedup();
         let n = seqs.len();
         if !seqs.is_empty() {
             self.emit(actor, Ev::Removed { item: format!("person:{person}"), seqs: seqs.clone() }).await.map_err(failed)?;
@@ -241,7 +254,7 @@ impl Kernel {
         self.emit(actor, Ev::PersonErased { person: person.to_string() }).await.map_err(failed)?;
         // Not complete while a backup still holds their content: the backups
         // left are recorded and tried again until they are rewritten (#195).
-        let mut out = json!({ "runs_stopped": going.len(), "schedules_ended": schedules.len(), "sessions_ended": sessions, "sign_ins_revoked": sign_ins, "content_removed": n, "erasure": "complete" });
+        let mut out = json!({ "runs_stopped": going.len(), "schedules_ended": schedules.len(), "sessions_ended": sessions, "sign_ins_revoked": sign_ins, "computers_deleted": computers, "content_removed": n, "erasure": "complete" });
         if n > 0 {
             if let Err(e) = self.scrub_backups().await {
                 tracing::error!("erasing {person}: their content is still in backups: {e:#}");
