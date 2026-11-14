@@ -223,12 +223,19 @@ fn a_handback_without_a_boundary_is_never_called_clean_and_a_retry_sweeps_again(
     let dirs = no_dirs();
     *BOUNDARY.lock().unwrap() = None;
     assert!(end(&sys, &dirs)["error"].as_str().unwrap().contains("no takeover boundary"));
+    assert!(preview(&sys)["error"].is_string(), "a preview without a boundary said nothing would close");
     assert_eq!(begin(&sys, &dirs)["ok"], true);
     sys.start(proc(400, 61, "first-holder", "/usr/bin/x"), Answer::Polite);
     // A second holder keeps the first one's boundary.
     assert_eq!(begin(&sys, &dirs)["kept"], true);
+    // The preview names it, once per program, and signals nothing.
+    sys.start(proc(403, 400, "first-holder", "/usr/bin/x"), Answer::Polite);
+    sys.start(proc(404, 70, "chromium", CHROMIUM), Answer::Polite);
+    assert_eq!(preview(&sys), json!({ "ok": true, "programs": ["first-holder"] }));
+    assert!(sys.signals.borrow().is_empty(), "the preview signalled a process");
+    assert!(sys.alive(400) && sys.alive(403));
     let done = end(&sys, &dirs);
-    assert_eq!((done["ok"].as_bool(), done["stopped_count"].as_u64()), (Some(true), Some(1)), "{done}");
+    assert_eq!((done["ok"].as_bool(), done["stopped_count"].as_u64()), (Some(true), Some(2)), "{done}");
     sys.start(proc(401, 61, "late", "/usr/bin/x"), Answer::Polite);
     let again = end(&sys, &dirs);
     assert_eq!(again["stopped"], json!(["late (pid 401)"]), "a retried handback did not look again");

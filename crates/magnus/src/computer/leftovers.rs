@@ -61,6 +61,16 @@ pub(super) async fn end(socket: &Path, id: &str) -> Result<Cleared, String> {
     }
 }
 
+/// The programs a handback would close now. Nothing is stopped.
+pub(super) async fn preview(socket: &Path, id: &str) -> Result<Vec<String>> {
+    let reply = client::guest(socket, id, json!({ "op": "takeover_leftovers" })).await?;
+    if reply["ok"] != true {
+        return Err(anyhow!("{}", short(reply["error"].as_str().unwrap_or("the computer did not answer"), MAX_WHY_CHARS)));
+    }
+    let names = reply["programs"].as_array().map(|a| a.iter().filter_map(Value::as_str).take(MAX_LOGGED_NAMES).map(|s| short(s, MAX_NAME_CHARS)).collect());
+    Ok(names.unwrap_or_default())
+}
+
 pub(super) fn begin_refused(e: &anyhow::Error) -> String {
     format!(
         "Taking control was refused: the computer could not mark where your session begins ({e:#}), so what you start could not be stopped when you hand back. Try again; if it keeps happening, reset the computer, keeping your files."

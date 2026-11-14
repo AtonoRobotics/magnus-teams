@@ -62,10 +62,17 @@ session's processes apart; the freeze-then-kill sweep does what
 reads autostart entries (no session manager), so there are no units or jobs
 to diff; the autostart entries are undone anyway in case one is added.
 
-**What it costs the person.** An app they opened during the takeover is
-closed at handback, after SIGTERM's grace; one that does not save on
-SIGTERM loses unsaved work. The handback toast says how many were closed.
-Windows the agent had open stay.
+**No silent loss.** An app the person opened during the takeover is closed
+at handback, and one that does not save on SIGTERM would lose unsaved work.
+So "I'm done" first asks (`GET /v1/computers/{id}/handback/closes`, the
+guest's `takeover_leftovers`, which signals nothing) what it would close,
+by program name. Only the person holding the screen may ask. An empty list
+hands back at once; otherwise a sheet names the programs ("Save your work
+in them first") with Close them and hand back or Keep control. A computer
+that cannot list them gets the sheet in general words. Leaving the page
+while in control hands back only if that closes nothing; otherwise the
+person keeps control and only the screen closes. Windows the agent had
+open stay.
 
 **Still not enforced.** Root in the computer can change files: replace a
 program the agent or the guest runs (`/usr/bin/import`, the desktop script,

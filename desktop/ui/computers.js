@@ -278,7 +278,7 @@ function computerScreen(body, c, base, alive, opts = {}) {
     strip();
     try { await api("POST", `${base}/wake`, {}); } catch (e) { toast(e.message); }
   };
-  const handBack = async () => { try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
+  const handBack = async () => { if (!(await readyToHandBack(base))) return; try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on.`); } catch (e) { toast(e.message); } };
   const done = () => view.done ? view.done() : handBack();
   // The strip, the veil, the "you are in control" bar and the caption, all
   // from the computer as last seen; only what changed is redrawn.
@@ -366,13 +366,21 @@ function takeOver(body, id, base, grant, view, strip) {
     onError: failed,
   });
   const gone = () => { if (!view.alive()) leave(); };
-  const leave = async () => {
-    if (ended) return;
+  // Asked from I'm done, it first says what handing back closes. Left by
+  // going elsewhere, it hands back only if that closes nothing; otherwise
+  // the person keeps control and only the screen is closed: nothing of
+  // theirs is closed without their word.
+  const leave = async (asked = false) => {
+    if (ended) return false;
     ended = true;
+    const go = asked ? await readyToHandBack(base) : await closesNothing(base);
+    if (!go && asked) { ended = false; return false; }
     window.removeEventListener("hashchange", gone);
     view.leave = null;
     link.close();
+    if (!go) return false;
     try { const r = await api("POST", `${base}/handback`, {}); toast(`Handed back. ${closedNote(r)}${agentName(view.c)} carries on with a fresh look at the screen.`); } catch (e) { toast(e.message); }
+    return true;
   };
   view.leave = leave;
   link = Magnus.displayOpen(id, grant.ticket, grant.protocol_prefix, b => rfb.feed(b), reason => { if (!ended) failed(reason || "The connection to the screen ended."); });
@@ -384,7 +392,7 @@ function takeOver(body, id, base, grant, view, strip) {
   for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => { if (rfb.key(e.key, down)) e.preventDefault(); });
   // Handing back keeps the last frame on screen as the preview.
   view.done = async () => {
-    await leave();
+    if (!(await leave(true))) return;
     if (view.live) { try { preview.src = canvas.toDataURL(); } catch { /* The next look replaces it. */ } }
     showLive(false);
     view.holding = false;
@@ -509,3 +517,43 @@ const closedNote = r => {
   const n = r?.left_running?.stopped_count || 0;
   return n ? `${n} ${n === 1 ? "program" : "programs"} you started ${n === 1 ? "was" : "were"} closed. ` : "";
 };
+
+/**
+ * The sheet before handing back: the programs it closes, by name. Without a
+ * list (the computer could not say), it says what handing back does anyway.
+ * @param {string[] | null} programs
+ */
+function handBackSheet(programs) {
+  const what = programs ? `<p>Handing back closes these programs you opened: <b>${programs.map(esc).join(", ")}</b>. Save your work in them first.</p>` : `<p>The computer could not say what is still open. Handing back closes every program you opened during your takeover. Save your work in them first.</p>`;
+  return `<h3>Close what you opened?</h3>${what}<div class="row"><button data-ask="keep">Keep control</button><button class="primary" data-ask="close">Close them and hand back</button></div>`;
+}
+
+/** @param {string[] | null} programs @returns {Promise<boolean>} whether to close them and hand back */
+function chooseHandBack(programs) {
+  return new Promise(done => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    d.innerHTML = handBackSheet(programs);
+    d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
+    d.addEventListener("close", () => { d.remove(); done(d.returnValue === "close"); });
+    document.body.append(d);
+    d.showModal();
+    $("[data-ask=keep]", d).focus();
+  });
+}
+
+/** Whether handing back would close nothing (false when the computer cannot say). @param {string} base */
+async function closesNothing(base) {
+  try { return !((await api("GET", `${base}/handback/closes`)).programs || []).length; } catch { return false; }
+}
+
+/**
+ * Whether "I'm done" goes on: at once when it closes nothing, otherwise
+ * only once the person has seen what it closes and agreed.
+ * @param {string} base the computer's API path
+ */
+async function readyToHandBack(base) {
+  let programs = null;
+  try { programs = (await api("GET", `${base}/handback/closes`)).programs || []; } catch { /* The sheet says it could not tell. */ }
+  return (programs && !programs.length) || chooseHandBack(programs);
+}

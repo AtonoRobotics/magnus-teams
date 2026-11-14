@@ -317,6 +317,19 @@ impl Kernel {
         Ok(json!({ "controller": Value::Null, "resumed": runs.len(), "left_running": report }))
     }
 
+    /// What "I'm done" would close, for the person holding the screen to
+    /// save their work first. A computer that cannot say is unclean at
+    /// handback anyway, so the error is the person's to see.
+    pub async fn handback_closes(&self, who: &Person, id: &str) -> Result<Value, Refused> {
+        let c = self.opened_computer(who, id)?;
+        if c.controller.as_deref() != Some(who.id.as_str()) {
+            return Err(Refused::Conflict("you do not hold this computer".into()));
+        }
+        let socket = self.computer_socket()?;
+        let programs = leftovers::preview(&socket, id).await.map_err(failed)?;
+        Ok(json!({ "programs": programs }))
+    }
+
     pub async fn grant_operator(&self, who: &Person, id: &str, operator: &str, minutes: i64) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         if !(1..=MAX_OPERATOR_MINUTES).contains(&minutes) {

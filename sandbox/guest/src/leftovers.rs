@@ -132,6 +132,22 @@ pub fn end(sys: &dyn System, dirs: &[PathBuf]) -> Value {
     json!({ "ok": true, "stopped_count": stopped.len(), "stopped": stopped.iter().take(MAX_NAMED).collect::<Vec<_>>(), "removed": removed })
 }
 
+/// What a handback would close now, by program name, each once: nothing is
+/// signalled, so the person can save their work first.
+pub fn preview(sys: &dyn System) -> Value {
+    let slot = BOUNDARY.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(b) = slot.as_ref() else {
+        return json!({ "error": "no takeover boundary was recorded, so what the session started cannot be told apart" });
+    };
+    match sys.processes() {
+        Ok(procs) => {
+            let names: BTreeSet<String> = strays(&procs, b, sys.me()).into_iter().map(|p| p.name).collect();
+            json!({ "ok": true, "programs": names.into_iter().take(MAX_NAMED).collect::<Vec<_>>() })
+        }
+        Err(e) => json!({ "error": e }),
+    }
+}
+
 pub fn boundary(sys: &dyn System, dirs: &[PathBuf]) -> Result<Boundary, String> {
     let seen = sys.processes()?.into_iter().map(|p| (p.pid, (p.start, p.exe))).collect();
     Ok(Boundary { seen, autostart: read_autostart(dirs)?, open: true })

@@ -81,6 +81,7 @@ fn fake_computerd(socket: &Path, full: Full, old: Full, unclean: Full) -> Asked 
                         "create" | "connect" | "ping" | "hibernate" | "pause" | "resume" => json!({ "ok": true }),
                         "exec" => json!({ "exit_code": 0 }),
                         "takeover_begin" => json!({ "ok": true }),
+                        "takeover_leftovers" => json!({ "ok": true, "programs": ["gedit"] }),
                         "takeover_end" if unclean.load(std::sync::atomic::Ordering::SeqCst) => {
                             json!({ "error": "1 processes started during the takeover would not stop: spy (pid 9)" })
                         }
@@ -519,5 +520,23 @@ async fn a_handback_the_computer_cannot_confirm_clean_keeps_the_agent_paused() {
     let back = &s.computers_of(&person("mo"))[0];
     assert!(back.controller.is_none());
     assert!(back.activity.iter().any(|a| a.what == "stopped what the takeover left running: spy (pid 9)"), "{:?}", back.activity);
+    s.done().await;
+}
+
+/// "I'm done" first asks what it would close, so the person can save their
+/// work; only the person holding the screen may ask, and asking stops nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_person_in_control_sees_what_handback_would_close() {
+    let s = server().await;
+    s.k.reconcile_computers().await;
+    let id = s.computers_of(&person("mo"))[0].id.clone();
+    let (mo, ana) = (s.k.person("mo").unwrap(), s.k.person("ana").unwrap());
+    assert!(s.k.handback_closes(&mo, &id).await.is_err(), "the preview answered with no one in control");
+    s.k.start_takeover(&mo, &id).await.unwrap();
+    assert!(s.k.handback_closes(&ana, &id).await.is_err(), "an admin saw what another person opened");
+    let closes = s.k.handback_closes(&mo, &id).await.unwrap();
+    assert_eq!(closes["programs"], json!(["gedit"]));
+    assert!(s.asked("takeover_end").is_empty(), "the preview stopped something");
+    assert_eq!(s.computers_of(&person("mo"))[0].controller.as_deref(), Some("mo"));
     s.done().await;
 }

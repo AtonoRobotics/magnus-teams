@@ -43,6 +43,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/computers/{id}/apps/{name}", delete(remove_app))
         .route("/v1/computers/{id}/takeover", post(takeover))
         .route("/v1/computers/{id}/handback", post(handback))
+        .route("/v1/computers/{id}/handback/closes", get(handback_closes))
         .route("/v1/computers/{id}/display", get(display))
         .route("/v1/computers/{id}/activity", get(activity))
         .route("/v1/computers/{id}/operator-sessions", post(grant_operator))
@@ -299,6 +300,12 @@ async fn takeover(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response
 async fn handback(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     let p = person!(k, h);
     answered(k.hand_back(&p, &id).await)
+}
+
+/// What "I'm done" would close, asked before it is done.
+async fn handback_closes(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
+    let p = person!(k, h);
+    answered(k.handback_closes(&p, &id).await)
 }
 
 async fn activity(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {

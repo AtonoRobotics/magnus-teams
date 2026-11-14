@@ -492,6 +492,7 @@ fn handle(req: Value) -> Value {
             leftovers::begin(&leftovers::ProcFs, &leftovers::dirs())
         }
         "takeover_end" => leftovers::end(&leftovers::ProcFs, &leftovers::dirs()),
+        "takeover_leftovers" => leftovers::preview(&leftovers::ProcFs),
         "list" => list_dir(&files, &path()),
         "sync" => {
             unsafe { libc::sync() };
