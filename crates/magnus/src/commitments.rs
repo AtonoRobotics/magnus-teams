@@ -18,16 +18,17 @@
 //! (`State::apply`, `TaskCreated`), as the playbook's items do. Raising an
 //! overdue one is the proactive loop's (#237).
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
 use crate::boundary::Action;
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::state::{Commitment, Run};
 use crate::tools::{Label, Risk};
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, put};
 use axum::{Json, Router};
@@ -412,30 +413,18 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 /// The person's own commitments: no one else's, whoever asks, the owner too.
-async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn list(State(k): State<Arc<Kernel>>, Caller(p): Caller) -> Response {
     match k.commitments_json(&p.id).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => internal(e),
     }
 }
 
-async fn edit(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn edit(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
     answered(k.edit_commitment(&p, &id, &b).await)
 }
 
-async fn remove(State(k): State<Arc<Kernel>>, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn remove(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>) -> Response {
     answered(k.remove_commitment(&p, &id).await)
 }
 

@@ -76,3 +76,66 @@ pub fn entry<R: Runs>(v: &MemberView<R>, channel: &str, id: &str, now: At) -> Op
     e.may = may(v, channel, &e);
     Some(e)
 }
+
+/// What a member asks to do in a workspace, beside acting on an entry: the
+/// team's rules for each, decided here once.
+pub enum Act<'a> {
+    /// Post a message, `with_agent` when it asks the agent or whispers to it,
+    /// or start a conversation with the agent: a guest reads and chats, and
+    /// has the agent do nothing.
+    Post { with_agent: bool },
+    /// Take `person` out of the workspace: anyone leaves, an admin removes.
+    Remove { person: &'a str },
+    /// Delete a file `by` added: they may, and so may an admin.
+    DeleteFile { by: &'a str },
+    /// Tie a channel to a project its `owner` keeps, or untie it (None):
+    /// the project's owner or an admin ties, an admin unties.
+    LinkChannel { owner: Option<&'a str> },
+}
+
+/// Whether a member with `role`, `me`, may do `a`: why not when not.
+pub fn act(role: Role, me: &str, a: Act) -> Result<(), &'static str> {
+    let admin = role >= Role::Admin;
+    let (ok, why) = match a {
+        Act::Post { with_agent } => (!with_agent || role > Role::Guest, "a guest can read and chat, and cannot have the agent act"),
+        Act::Remove { person } => (person == me || admin, "that takes the Admin role here"),
+        Act::DeleteFile { by } => (by == me || admin, "only who added it, or an admin, may delete it"),
+        Act::LinkChannel { owner: Some(owner) } => (owner == me || admin, "the project's owner or an admin ties a channel to it"),
+        Act::LinkChannel { owner: None } => (admin, "an admin unties a channel"),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(why)
+    }
+}
+
+/// `act`, as a route refuses: a 403 saying why not.
+pub fn allow(role: Role, me: &str, a: Act) -> crate::api_error::ApiResult<()> {
+    act(role, me, a).map_err(|why| crate::api_error::ApiError::new(StatusCode::FORBIDDEN, why))
+}
+
+#[cfg(test)]
+mod act_tests {
+    use super::*;
+
+    /// Each workspace rule by role, for oneself and for another member.
+    #[test]
+    fn each_role_may_what_the_team_rules_say() {
+        let roles = [Role::Guest, Role::Member, Role::Admin, Role::Owner];
+        for role in roles {
+            let admin = role >= Role::Admin;
+            assert!(act(role, "me", Act::Post { with_agent: false }).is_ok(), "{role:?} could not chat");
+            assert_eq!(act(role, "me", Act::Post { with_agent: true }).is_ok(), role != Role::Guest, "{role:?} with the agent");
+            assert!(act(role, "me", Act::Remove { person: "me" }).is_ok(), "{role:?} could not leave");
+            assert_eq!(act(role, "me", Act::Remove { person: "you" }).is_ok(), admin, "{role:?} removed another");
+            assert!(act(role, "me", Act::DeleteFile { by: "me" }).is_ok());
+            assert_eq!(act(role, "me", Act::DeleteFile { by: "you" }).is_ok(), admin, "{role:?} deleted another's file");
+            assert!(act(role, "me", Act::LinkChannel { owner: Some("me") }).is_ok());
+            assert_eq!(act(role, "me", Act::LinkChannel { owner: Some("you") }).is_ok(), admin);
+            assert_eq!(act(role, "me", Act::LinkChannel { owner: None }).is_ok(), admin, "{role:?} untied a channel");
+        }
+        assert_eq!(act(Role::Guest, "me", Act::Post { with_agent: true }), Err("a guest can read and chat, and cannot have the agent act"));
+        assert_eq!(act(Role::Member, "me", Act::Remove { person: "you" }), Err("that takes the Admin role here"));
+    }
+}

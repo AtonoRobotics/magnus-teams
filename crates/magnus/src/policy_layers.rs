@@ -13,27 +13,8 @@
 //! payment asks its person, Auto Review on every boundary action, the rule
 //! of two, the hard denials) is compiled into the kernel and in no layer.
 
-use crate::config::Person;
 use cedar_policy::{Effect, PolicySet};
 use std::str::FromStr;
-
-/// Whether `p` may write, read as theirs, or accept a proposal for `layer`.
-/// A person's own layer is theirs alone, with no role needed and nobody
-/// else's say, the owner's included. The organisation's is the owner's; a
-/// group's is the owner's and its policy role's. A task's layer is its
-/// person's, which the caller checks with the task in hand.
-pub fn may_write(p: &Person, layer: &str) -> bool {
-    if let Some(u) = layer.strip_prefix("user/") {
-        return !u.is_empty() && u == p.id;
-    }
-    if layer == "org" {
-        return p.is_owner();
-    }
-    if let Some(g) = layer.strip_prefix("group/") {
-        return !g.is_empty() && (p.is_owner() || p.has_role(&format!("policy:group:{g}")));
-    }
-    false
-}
 
 /// A layer the server's owner and policy roles keep: the organisation's or a
 /// group's. A person's and a task's are not theirs to read.
@@ -74,6 +55,11 @@ pub fn tightens_only(layer: &str, cedar: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Person;
+
+    fn may_write_policy(p: &Person, layer: &str) -> bool {
+        crate::people::rights(p).may_write_policy_layer(layer)
+    }
 
     fn person(id: &str, roles: &[&str]) -> Person {
         serde_json::from_value(serde_json::json!({ "id": id, "roles": roles })).unwrap()
@@ -82,12 +68,12 @@ mod tests {
     #[test]
     fn a_persons_own_layer_is_theirs_alone_and_the_rest_the_servers() {
         let (sam, carol, erin) = (person("sam", &["owner"]), person("carol", &[]), person("erin", &["policy:group:finance"]));
-        assert!(may_write(&carol, "user/carol"), "carol needed a role for her own rules");
-        assert!(!may_write(&sam, "user/carol"), "the owner wrote carol's own rules");
-        assert!(!may_write(&erin, "user/carol") && !may_write(&carol, "user/"));
-        assert!(may_write(&sam, "org") && !may_write(&carol, "org") && !may_write(&erin, "org"));
-        assert!(may_write(&erin, "group/finance") && !may_write(&erin, "group/staff") && may_write(&sam, "group/staff"));
-        assert!(!may_write(&sam, "task/t1"), "the owner wrote a person's task layer");
+        assert!(may_write_policy(&carol, "user/carol"), "carol needed a role for her own rules");
+        assert!(!may_write_policy(&sam, "user/carol"), "the owner wrote carol's own rules");
+        assert!(!may_write_policy(&erin, "user/carol") && !may_write_policy(&carol, "user/"));
+        assert!(may_write_policy(&sam, "org") && !may_write_policy(&carol, "org") && !may_write_policy(&erin, "org"));
+        assert!(may_write_policy(&erin, "group/finance") && !may_write_policy(&erin, "group/staff") && may_write_policy(&sam, "group/staff"));
+        assert!(!may_write_policy(&sam, "task/t1"), "the owner wrote a person's task layer");
         assert!(kept_by_the_server("org") && kept_by_the_server("group/staff"));
         assert!(!kept_by_the_server("user/carol") && !kept_by_the_server("task/t1") && !kept_by_the_server("group/"));
     }

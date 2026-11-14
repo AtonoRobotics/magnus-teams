@@ -70,7 +70,7 @@ async fn control_check(client: &Kernel, who: &Person, op: &str, kind: &str, id: 
         return Err(Refused::NotFound(what));
     }
     let authority = client.authority(who).await;
-    let policies = client.read(|s| s.policies.clone());
+    let policies = client.read(|s| s.org.policies().clone());
     let t = crate::policy::ControlFacts { op, kind, id, owner };
     match crate::policy::control_allowed(&policies, who, authority, &t) {
         Ok(_) => Ok(()),
@@ -326,7 +326,7 @@ impl Kernel {
         let sc = self.schedule_owned(who, id, "edit_schedule").await?;
         let timing = b.get("every_minutes").is_some_and(|v| !v.is_null()) || b.get("daily_at").is_some_and(|v| !v.is_null());
         let (every_minutes, daily_at) =
-            if timing { crate::api::rule_for(b, self.cfg.schedules.min_every_minutes).map_err(Refused::Invalid)? } else { (sc.every_minutes, sc.daily_at.clone()) };
+            if timing { crate::cadence::rule_of(b, self.cfg.schedules.min_every_minutes).map_err(Refused::Invalid)? } else { (sc.every_minutes, sc.daily_at.clone()) };
         let (until, max_runs) = crate::api::end_for(b).map_err(Refused::Invalid)?;
         let until = if b.get("until").is_some() { until } else { sc.until };
         let max_runs = if b.get("max_runs").is_some() { max_runs } else { sc.max_runs };

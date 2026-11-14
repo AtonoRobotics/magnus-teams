@@ -70,15 +70,18 @@ async fn roles_are_owner_admin_member_or_guest() {
     assert_eq!((st, v["error"].as_str()), (409, Some("last_admin")), "{v}");
     assert_eq!(patch(&s, &ana, "/v1/admin/people/mo", json!({ "role": "admin" })).await.0, 204);
     assert_eq!(patch(&s, &ana, "/v1/admin/people/lee", json!({ "role": "member" })).await.0, 204);
+    // The audit says what lee was: an admin by the directory, not a member.
+    let lee_before: Vec<Value> = s.audited("role_changed").into_iter().filter(|v| v["target"] == "people/lee").map(|v| v["before"].clone()).collect();
+    assert!(!lee_before.is_empty() && lee_before.iter().all(|b| b == "admin"), "the audit misread lee's role before the change: {lee_before:?}");
     let lee = s.token("lee").await;
     assert_eq!(s.get(&lee, "/v1/admin/standing").await.1["admin"], false, "a demoted admin still administers");
     assert_eq!(patch(&s, &ana, "/v1/admin/people/lee", json!({ "role": "guest" })).await.0, 204);
-    assert!(super::roles::is_guest(&s.k.person("lee").unwrap()), "lee is not a guest");
+    assert!(crate::people::rights(&s.k.person("lee").unwrap()).held_to_guest_limits(), "lee is not a guest");
     assert_eq!(role(&s, &ana, "lee").await, "guest");
     let (st, v) = s.post(&ana, "/v1/admin/people", json!({ "email": "gus@example.com", "name": "Gus", "role": "guest" })).await;
     assert_eq!(st, 201, "{v}");
     assert!(v["invite_token"].is_string() && v["role"] == "guest", "{v}");
-    assert!(super::roles::is_guest(&s.k.person("gus").unwrap()), "an invited guest is not a guest");
+    assert!(crate::people::rights(&s.k.person("gus").unwrap()).held_to_guest_limits(), "an invited guest is not a guest");
     let (st, v) = s.post(&ana, "/v1/admin/people", json!({ "email": "own@example.com", "name": "Own", "role": "owner" })).await;
     assert_eq!((st, v["error"].as_str()), (403, Some("owner_only")), "an admin invited an owner: {v}");
     s.done().await;

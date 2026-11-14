@@ -77,7 +77,7 @@ impl Ledger {
 impl Kernel {
     /// Whether `p` may start a workspace.
     pub fn is_team_admin(&self, p: &Person) -> bool {
-        p.has_role(ROLE) || self.read(|s| s.team.admins.holds(&p.id))
+        crate::people::rights(p).holds_team_admin_role() || self.read(|s| s.team.admins.holds(&p.id))
     }
 
     /// Once: whoever owns a workspace when Team Admin comes in becomes one,

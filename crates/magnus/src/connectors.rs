@@ -10,7 +10,9 @@
 //! app catches it. Tokens are kept in the vault and refreshed when they
 //! expire; the kill switch revokes them (RFC 7009).
 
+use crate::api_error::{refuse, ApiResult};
 use crate::config::Connector;
+use crate::extract::{Body, Caller, Owner};
 use crate::kernel::Kernel;
 use crate::vault::Secret;
 use anyhow::{anyhow, bail, Context, Result};
@@ -21,6 +23,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 pub(crate) mod relay;
+mod requests;
 mod sign_in_target;
 use sign_in_target::{sign_in_target, SignInTarget};
 
@@ -486,7 +489,7 @@ impl Kernel {
     /// Every app, on or off (admin console spec, Security › Connectors and credentials).
     pub fn all_connectors(&self) -> Vec<(Connector, bool)> {
         let mut all = self.cfg.connectors.clone();
-        let (added, settings) = self.read(|s| (s.connectors.values().cloned().collect::<Vec<Connector>>(), s.connector_settings.clone()));
+        let (added, settings) = self.read(|s| (s.apps.connectors().values().cloned().collect::<Vec<Connector>>(), s.apps.connector_settings().clone()));
         all.extend(added.into_iter().filter(|c| self.cfg.connectors.iter().all(|f| f.name != c.name)));
         for m in crate::catalog::manifests() {
             // A withdrawn one is offered to no one and reached by no run (`catalog_withdrawal`).
@@ -518,7 +521,7 @@ impl Kernel {
         match c.registration.as_deref() {
             None => true,
             Some(p) => crate::catalog::client(p).is_some_and(|cl| {
-                (!cl.needs_secret() || self.cfg.relay.as_ref().is_some_and(|r| r.relays(p)) || self.read(|s| s.registrations.contains(p)))
+                (!cl.needs_secret() || self.cfg.relay.as_ref().is_some_and(|r| r.relays(p)) || self.read(|s| s.apps.registrations().contains(p)))
                     && (cl.client_id.is_some() || crate::registrations::client(&self.vault, p).is_ok())
             }),
         }
@@ -960,11 +963,11 @@ pub fn suggested_risk(annotations: &Value) -> &'static str {
 // removes; and each person's own sign-in to them, which only they make and
 // end, and which only their runs use.
 
-use crate::api::{err, internal, owner, who};
-use crate::events::Ev;
+use crate::api::{err, internal};
+use crate::{boundary::may_use, events::Ev, people::rights};
 use axum::{
     extract::{Path, Query, State as AxState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
@@ -1012,9 +1015,9 @@ impl Kernel {
     pub fn admin_connectors(&self) -> Vec<Value> {
         let (added, changed, registered, people) = self.read(|s| {
             (
-                s.connectors.keys().cloned().collect::<Vec<String>>(),
-                s.credential_changed.clone(),
-                s.registrations.clone(),
+                s.apps.connectors().keys().cloned().collect::<Vec<String>>(),
+                s.apps.credential_changed().clone(),
+                s.apps.registrations().clone(),
                 s.runs.values().map(|r| r.person.clone()).collect::<std::collections::BTreeSet<String>>(),
             )
         });
@@ -1172,7 +1175,7 @@ impl Kernel {
             return Err(refusal(StatusCode::CONFLICT, "this app is set in the server's config file; change it there"));
         }
         // One a person built is theirs alone (`generated.rs`), never the organisation's to change.
-        match self.read(|s| s.connectors.get(name).filter(|c| c.owner.is_none()).cloned()) {
+        match self.read(|s| s.apps.connectors().get(name).filter(|c| c.owner.is_none()).cloned()) {
             Some(c) => Ok(c),
             None if crate::catalog::manifest(name).is_some() => Err(refusal(StatusCode::CONFLICT, "this app is in the catalog: turn it off instead")),
             None => Err(refusal(StatusCode::NOT_FOUND, "no such app")),
@@ -1223,7 +1226,7 @@ impl Kernel {
         if [&access_groups, &blocked_groups].iter().any(|l| l.as_ref().is_some_and(|g| g.iter().any(|g| g.is_empty() || g.len() > 100))) {
             return Err(refusal(StatusCode::BAD_REQUEST, "each group is a group's name"));
         }
-        let had = self.read(|s| s.connector_settings.get(name).cloned()).unwrap_or_default();
+        let had = self.read(|s| s.apps.connector_settings().get(name).cloned()).unwrap_or_default();
         let groups = access_groups.or(had.access_groups);
         let blocked = blocked_groups.or(had.blocked_groups);
         let enabled = enabled.unwrap_or(on);
@@ -1350,21 +1353,8 @@ pub fn router() -> Router<Arc<Kernel>> {
 /// appliance (its deployment calls this; no person types it, and nothing
 /// shows it again), until the relay holds it (connectors spec rev 46). The
 /// log records only that it was provisioned.
-async fn set_registration(AxState(k): K, h: HeaderMap, Path(provider): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    answer(k.set_registration(&format!("person:{}", p.id), &provider, b["client_secret"].as_str().unwrap_or_default()).await, StatusCode::NO_CONTENT)
-}
-
-macro_rules! owner {
-    ($k:expr, $h:expr) => {
-        match owner(&$k, &$h).await {
-            Ok(p) => p,
-            Err(r) => return r,
-        }
-    };
+async fn set_registration(AxState(k): K, Owner(p): Owner, Path(provider): Path<String>, Body(b): Body<requests::Registration>) -> ApiResult {
+    Ok(answer(k.set_registration(&format!("person:{}", p.id), &provider, &b.client_secret).await, StatusCode::NO_CONTENT))
 }
 
 /// The organisation's apps, each with whether the person asking is
@@ -1372,19 +1362,15 @@ macro_rules! owner {
 /// them now (through the owner's own sign-in), each with the owner's
 /// classification (none: the worker is not offered it) and the
 /// classification the app's own hints suggest.
-async fn list(AxState(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let added: Vec<String> = k.read(|s| s.connectors.keys().cloned().collect());
+async fn list(AxState(k): K, Caller(p): Caller) -> ApiResult {
+    let added: Vec<String> = k.read(|s| s.apps.connectors().keys().cloned().collect());
     let mut out = vec![];
     for c in k.connectors() {
         // An app blocked for the person's groups, or for groups they are
         // not in, is not in their Library (connectors spec, Org policy).
         // The owner still manages it in Settings, marked as not theirs.
         let theirs = crate::boundary::may_use(&p, &c);
-        if !theirs && (!p.is_owner() || c.owner.is_some()) {
+        if !theirs && (!rights(&p).manages_shared_apps() || c.owner.is_some()) {
             continue;
         }
         let from_app = added.contains(&c.name) && k.cfg.connectors.iter().all(|f| f.name != c.name);
@@ -1392,7 +1378,7 @@ async fn list(AxState(k): K, h: HeaderMap) -> Response {
         card["for_you"] = json!(theirs);
         let secret = k.connector_secret(&c, &p.id).await.ok().flatten();
         let signed_in = c.credential.is_none() || secret.is_some();
-        if !p.is_owner() {
+        if !rights(&p).manages_shared_apps() {
             out.push(card);
             continue;
         }
@@ -1421,7 +1407,7 @@ async fn list(AxState(k): K, h: HeaderMap) -> Response {
         }
         out.push(card);
     }
-    Json(json!({ "connectors": out })).into_response()
+    Ok(Json(json!({ "connectors": out })).into_response())
 }
 
 /// A name for an app: what it calls itself, else the first part of its
@@ -1492,22 +1478,19 @@ async fn card(k: &Kernel, c: &Connector, person: &str) -> Value {
 
 /// One app's card for the person asking, with the last things Magnus did
 /// through it for them (from the event log).
-async fn detail(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
+async fn detail(AxState(k): K, Caller(p): Caller, Path(name): Path<String>) -> ApiResult {
+    let Some(c) = k.connector(&name).filter(|c| may_use(&p, c) || c.owner.is_none() && rights(&p).manages_shared_apps()) else {
+        return refuse(StatusCode::NOT_FOUND, "no such app");
     };
-    let Some(c) = k.connector(&name).filter(|c| (p.is_owner() && c.owner.is_none()) || crate::boundary::may_use(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
     let mut v = card(&k, &c, &p.id).await;
     v["for_you"] = json!(crate::boundary::may_use(&p, &c));
     v["recent"] = json!(k.recent_uses(&c.name, &p.id, 10));
-    Json(v).into_response()
+    Ok(Json(v).into_response())
 }
 
 /// Add an app by its MCP address.
-async fn add(AxState(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = owner!(k, h);
-    answer(k.add_connector(&format!("person:{}", p.id), &b).await, StatusCode::CREATED)
+async fn add(AxState(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
+    Ok(answer(k.add_connector(&format!("person:{}", p.id), &b).await, StatusCode::CREATED))
 }
 
 fn added(k: &Kernel, name: &str) -> Result<Connector, Response> {
@@ -1515,59 +1498,45 @@ fn added(k: &Kernel, name: &str) -> Result<Connector, Response> {
 }
 
 /// Remove an app: its sign-in is revoked at the app and its credential deleted.
-async fn remove(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
-    let p = owner!(k, h);
-    answer(k.remove_connector(&format!("person:{}", p.id), &name).await, StatusCode::NO_CONTENT)
+async fn remove(AxState(k): K, Owner(p): Owner, Path(name): Path<String>) -> ApiResult {
+    Ok(answer(k.remove_connector(&format!("person:{}", p.id), &name).await, StatusCode::NO_CONTENT))
 }
 
 /// Classify one tool: its risk class, or null to stop offering it.
-async fn classify(AxState(k): K, h: HeaderMap, Path((name, tool)): Path<(String, String)>, Json(b): Json<Value>) -> Response {
-    let p = owner!(k, h);
-    if let Err(r) = added(&k, &name) {
-        return r;
-    }
+async fn classify(AxState(k): K, Owner(p): Owner, Path((name, tool)): Path<(String, String)>, Json(b): Json<Value>) -> ApiResult {
+    added(&k, &name)?;
     let risk = b["risk"].as_str().map(String::from);
     if risk.as_deref().is_some_and(|r| crate::tools::Risk::parse(r).is_none()) {
-        return err(StatusCode::BAD_REQUEST, "risk is read, reversible_write, irreversible, financial or prohibited");
+        return refuse(StatusCode::BAD_REQUEST, "risk is read, reversible_write, irreversible, financial or prohibited");
     }
     // The sandbox is the appliance's own microVM: an app's tool acts at the
     // app, so classed so it would skip the contract and the Rule of Two.
     if risk.as_deref() == Some("sandbox") {
-        return err(StatusCode::BAD_REQUEST, "sandbox is the server's own microVM, never an app's tool: risk is read, reversible_write, irreversible, financial or prohibited");
+        return refuse(StatusCode::BAD_REQUEST, "sandbox is the server's own microVM, never an app's tool: risk is read, reversible_write, irreversible, financial or prohibited");
     }
-    if let Err(e) = k.emit(&format!("person:{}", p.id), Ev::ToolClassified { connector: name, tool, risk }).await {
-        return internal(e);
-    }
-    StatusCode::NO_CONTENT.into_response()
+    k.emit(&format!("person:{}", p.id), Ev::ToolClassified { connector: name, tool, risk }).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// A person signs in to one of the organisation's apps with their own
 /// account; the sign-in is theirs alone.
-async fn sign_in(AxState(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let Some(c) = k.connector(&name).filter(|c| c.auth.as_deref() == Some(OAUTH)) else { return err(StatusCode::NOT_FOUND, "no app by that name signs in") };
+async fn sign_in(AxState(k): K, Caller(p): Caller, Path(name): Path<String>, Body(b): Body<requests::SignIn>) -> ApiResult {
+    let Some(c) = k.connector(&name).filter(|c| c.auth.as_deref() == Some(OAUTH)) else { return refuse(StatusCode::NOT_FOUND, "no app by that name signs in") };
     if !crate::boundary::may_use(&p, &c) {
-        return err(StatusCode::FORBIDDEN, "your organisation has not made this app available to you");
+        return refuse(StatusCode::FORBIDDEN, "your organisation has not made this app available to you");
     }
-    if k.read(|s| s.kill_switch) {
-        return err(StatusCode::CONFLICT, "the kill switch is engaged");
+    if k.read(|s| s.vault.kill_switch()) {
+        return refuse(StatusCode::CONFLICT, "the kill switch is engaged");
     }
-    match k.connector_sign_in(&c, &p.id, b["redirect_uri"].as_str().unwrap_or_default()).await {
+    Ok(match k.connector_sign_in(&c, &p.id, &b.redirect_uri).await {
         Ok((url, state)) => Json(json!({ "authorize_url": url, "state": state })).into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, &format!("{e:#}")),
-    }
+    })
 }
 
-async fn sign_in_complete(AxState(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let (Some(state), Some(code)) = (b["state"].as_str(), b["code"].as_str()) else { return err(StatusCode::BAD_REQUEST, "state and code are required") };
-    match k.connector_sign_in_complete(&name, &p.id, state, code, b["iss"].as_str()).await {
+async fn sign_in_complete(AxState(k): K, Caller(p): Caller, Path(name): Path<String>, Body(b): Body<requests::SignInComplete>) -> ApiResult {
+    let (Some(state), Some(code)) = (&b.state, &b.code) else { return refuse(StatusCode::BAD_REQUEST, "state and code are required") };
+    Ok(match k.connector_sign_in_complete(&name, &p.id, state, code, b.iss.as_deref()).await {
         Ok(()) => {
             // Connected for the first time: Magnus opens a conversation about
             // it, and the tools its connect screen covered are classed.
@@ -1576,20 +1545,16 @@ async fn sign_in_complete(AxState(k): K, h: HeaderMap, Path(name): Path<String>,
             StatusCode::NO_CONTENT.into_response()
         }
         Err(e) => err(StatusCode::BAD_REQUEST, &format!("{e:#}")),
-    }
+    })
 }
 
 /// A person ends their own sign-in to an app.
-async fn disconnect(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn disconnect(AxState(k): K, Caller(p): Caller, Path(name): Path<String>) -> ApiResult {
     // Turned off, an app keeps its sign-ins: each person can still end theirs.
     if !k.all_connectors().iter().any(|(c, _)| c.name == name) {
-        return err(StatusCode::NOT_FOUND, "no such app");
+        return refuse(StatusCode::NOT_FOUND, "no such app");
     }
-    match k.disconnect(&name, &p.id, &format!("person:{}", p.id)).await {
+    Ok(match k.disconnect(&name, &p.id, &format!("person:{}", p.id)).await {
         // Where the app could not end the sign-in itself, the person is
         // told where they remove Magnus there (connectors spec, Lifecycle).
         Ok(Some((at_provider, detail))) => {
@@ -1598,7 +1563,7 @@ async fn disconnect(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Re
         }
         Ok(None) => err(StatusCode::NOT_FOUND, "you are not signed in to this app"),
         Err(e) => internal(e),
-    }
+    })
 }
 
 #[cfg(test)]

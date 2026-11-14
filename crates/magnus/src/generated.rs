@@ -3,17 +3,18 @@
 //! a token. Each is one person's, listed with their other connectors, and
 //! goes through the same checks. A copy is kept as a file on their volume;
 //! the agent can edit that copy, so what runs is the one approved in the log.
-use crate::api::{err, who};
+use crate::api::err;
 use crate::apps::CallError;
 use crate::boundary::Action;
 use crate::computer::{Owner, Role};
 use crate::config::{Connector, ToolClass};
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::tools::{obj, Audience, Builtin, Label, Risk};
 use anyhow::{Context, Result};
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, put};
 use axum::{Json, Router};
@@ -353,7 +354,7 @@ impl Kernel {
     }
 
     fn generated_of(&self, person: &str, name: &str) -> Option<Connector> {
-        self.read(|s| s.connectors.get(name).filter(|c| c.owner.as_deref() == Some(person)).cloned())
+        self.read(|s| s.apps.connectors().get(name).filter(|c| c.owner.as_deref() == Some(person)).cloned())
     }
 
     /// Its token and grants revoked, its rules removed, its file gone.
@@ -400,22 +401,14 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/connectors/{name}/token", put(set_token))
 }
 
-async fn definition(State(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn definition(State(k): K, Caller(p): Caller, Path(name): Path<String>) -> Response {
     match k.generated_of(&p.id, &name).and_then(|c| Definition::decoded(&c.url)) {
         Some(d) => Json(d).into_response(),
         None => err(StatusCode::NOT_FOUND, "no such connector of yours"),
     }
 }
 
-async fn remove(State(k): K, h: HeaderMap, Path(name): Path<String>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn remove(State(k): K, Caller(p): Caller, Path(name): Path<String>) -> Response {
     let Some(c) = k.generated_of(&p.id, &name) else { return err(StatusCode::NOT_FOUND, "no such connector of yours") };
     match k.delete_generated(&p.id, &c).await {
         Ok(n) => Json(json!({ "tokens_revoked": n })).into_response(),
@@ -423,11 +416,7 @@ async fn remove(State(k): K, h: HeaderMap, Path(name): Path<String>) -> Response
     }
 }
 
-async fn set_token(State(k): K, h: HeaderMap, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn set_token(State(k): K, Caller(p): Caller, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
     let Some(c) = k.generated_of(&p.id, &name) else { return err(StatusCode::NOT_FOUND, "no such connector of yours") };
     let Some(credential) = &c.credential else { return err(StatusCode::CONFLICT, "this connector takes no token") };
     let token = b["token"].as_str().map(str::trim).unwrap_or_default();

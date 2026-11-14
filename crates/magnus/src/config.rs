@@ -972,34 +972,11 @@ impl Config {
         self.people.iter().find(|p| p.id == id)
     }
 
-    /// Whether a password set on the appliance signs this person in. With an
-    /// identity provider it is the owner's backup alone, so turning someone
-    /// off at the provider shuts them out (owner, 2026-10-30: "The back up
-    /// password is only for me"), and only on the appliance's own machine
-    /// (the API checks where); the owner is read from this file, never from
-    /// the provider. Without one, it is everyone's way in.
-    pub fn may_use_password(&self, id: &str) -> bool {
-        crate::people::may_use_password(self.person(id), self.sign_in.oidc.is_some())
-    }
-
     pub fn person_by_token(&self, token: &str) -> Option<&Person> {
         use sha2::Digest;
         // Compare digests so the comparison time does not depend on the token.
         let want = sha2::Sha256::digest(token.as_bytes());
         self.people.iter().find(|p| p.token.as_ref().is_some_and(|t| sha2::Sha256::digest(t.as_bytes()) == want))
-    }
-}
-
-impl Person {
-    pub fn has_role(&self, role: &str) -> bool {
-        self.roles.iter().any(|r| r == role)
-    }
-    pub fn is_owner(&self) -> bool {
-        self.has_role("owner")
-    }
-    /// The developer view: raw log, runs, experiments (K10, K45).
-    pub fn is_developer(&self) -> bool {
-        self.has_role("developer")
     }
 }
 

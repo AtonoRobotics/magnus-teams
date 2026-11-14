@@ -12,6 +12,8 @@ use crate::tools;
 use magnus_adapter_proto::ToolSpec;
 use std::collections::BTreeSet;
 
+pub(crate) mod placement;
+
 /// Why a run may not use a tool.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Refusal {
@@ -55,7 +57,7 @@ impl<'a> Admission<'a> {
         if let Some((reason, said)) = crate::halts::halt(self.s, self.run, Some(tool)) {
             return Err(Refusal::Halted { reason, said });
         }
-        if let Some(why) = crate::chat_work::placement(&self.kind, tool) {
+        if let Some(why) = placement::placement(&self.kind, tool) {
             return Err(Refusal::Denied { why, rule: None });
         }
         if tools::RECORDS.contains(&tool) {

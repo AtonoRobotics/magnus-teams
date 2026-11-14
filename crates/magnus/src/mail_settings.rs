@@ -3,12 +3,14 @@
 //! password itself goes in through the vault route (`PUT /v1/secrets/{name}`),
 //! so it never passes through chat, the config or a log.
 
-use crate::api::{err, owner};
+use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
+use crate::extract::Owner;
 use crate::kernel::Kernel;
 use crate::mail_config::Mail;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -36,32 +38,24 @@ fn describe(mail: Option<&Mail>, password_set: bool, address: Option<String>) ->
     })
 }
 
-async fn status(State(k): K, h: HeaderMap) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn status(State(k): K, Owner(p): Owner) -> ApiResult {
     let mail = k.cfg.mail.as_ref();
     let password_set = mail.and_then(|m| m.credential.as_ref()).is_some_and(|c| matches!(k.vault.get(c), Ok(Some(_))));
     let address = k.accounts.local_person(&p.id).and_then(|l| l.email);
-    Json(describe(mail, password_set, address)).into_response()
+    Ok(Json(describe(mail, password_set, address)).into_response())
 }
 
 /// Send a test email now and say how it went, so the owner learns of a
 /// wrong password or a blocked port here and not from a lost recovery.
-async fn test(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
-    let p = match owner(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn test(State(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
     let to = b["to"].as_str().map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).or_else(|| k.accounts.local_person(&p.id).and_then(|l| l.email));
-    let Some(to) = to else { return err(StatusCode::BAD_REQUEST, "Say which address to send the test to.") };
+    let Some(to) = to else { return refuse(StatusCode::BAD_REQUEST, "Say which address to send the test to.") };
     let text = "This is a test from your Magnus server. Password recovery emails will come from this address.".to_string();
-    match crate::mailer::send(&k, &to, "Magnus test email", text).await {
+    Ok(match crate::mailer::send(&k, &to, "Magnus test email", text).await {
         Ok(true) => Json(json!({ "ok": true, "to": to })).into_response(),
         Ok(false) => err(StatusCode::CONFLICT, "The server has no outgoing mail set up."),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("The test email was not sent: {e:#}")),
-    }
+    })
 }
 
 #[cfg(test)]

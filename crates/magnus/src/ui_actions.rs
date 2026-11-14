@@ -2,12 +2,13 @@
 //! as written by the agent, and that request goes through the boundary like
 //! any other. Nothing here can answer an approval: the approval surface is
 //! the only route that resolves one.
-use crate::api::{err, who};
+use crate::api::err;
+use crate::extract::Caller;
 use crate::kernel::{Kernel, NewRun};
 use crate::tools::Label;
 use crate::ui::docs;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -54,11 +55,7 @@ fn answers_of(c: &Value, values: &Map<String, Value>) -> String {
 
 /// The server reads what was pressed from what the task delivered, so a
 /// client cannot change what a button asks for.
-async fn pressed(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((task, index)): Path<(String, usize)>, body: Option<Json<Pressed>>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn pressed(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path((task, index)): Path<(String, usize)>, body: Option<Json<Pressed>>) -> Response {
     let Pressed { fence, values } = body.map(|Json(b)| b).unwrap_or_default();
     let Some(run) = k.read(|s| s.tasks.get(&task).filter(|t| t.person == p.id).map(|t| t.run_id.clone())) else { return err(StatusCode::NOT_FOUND, "no such action") };
     let component = match fence {

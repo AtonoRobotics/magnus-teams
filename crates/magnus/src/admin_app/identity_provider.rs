@@ -79,7 +79,7 @@ impl Slot {
 impl Kernel {
     /// Whether a password set here signs this person in: everyone's way in
     /// without a provider, the owner's backup alone with one
-    /// (`Config::may_use_password`, for the provider in use now).
+    /// (`people::may_use_password`, for the provider in use now).
     pub fn may_use_password(&self, id: &str) -> bool {
         crate::people::may_use_password(self.cfg.person(id), self.oidc.get().is_some())
     }
@@ -164,7 +164,8 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
 }
 
 fn owner_only(a: &Admin) -> Option<Response> {
-    (!a.person.is_owner()).then(|| refuse(StatusCode::FORBIDDEN, "owner_only", "Only an owner chooses the identity provider: who it signs in, it signs in as anyone here."))
+    (!crate::people::rights(&a.person).may_choose_identity_provider())
+        .then(|| refuse(StatusCode::FORBIDDEN, "owner_only", "Only an owner chooses the identity provider: who it signs in, it signs in as anyone here."))
 }
 
 async fn current(State(k): State<Arc<Kernel>>) -> Response {

@@ -79,6 +79,6 @@ impl Kernel {
 
     /// Whether the switch that paused a computer is still on.
     pub(crate) fn switch_still_on(&self, reason: &str) -> bool {
-        self.read(|s| if reason == SERVER_REASON { s.kill_switch } else { s.halts.on.keys().any(|scope| scope.reason() == reason) })
+        self.read(|s| if reason == SERVER_REASON { s.vault.kill_switch() } else { s.halts.on.keys().any(|scope| scope.reason() == reason) })
     }
 }

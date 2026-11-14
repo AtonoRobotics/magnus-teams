@@ -91,7 +91,7 @@ pub(crate) fn cards_of(s: &Projection, person: &str) -> Vec<Card> {
             let Some(d) = res.data.as_ref().filter(|d| d["card"].is_string() && !d["connector"].is_string()) else { continue };
             let id = d["card"].as_str().unwrap_or_default().to_string();
             let entry = format!("c:{id}");
-            if s.trash.contains_key(&entry) || s.hidden.get(&c.thread).is_some_and(|h| h.contains(&entry)) {
+            if s.trash.contains_key(&entry) || s.thread_extras.hidden(&c.thread).is_some_and(|h| h.contains(&entry)) {
                 continue;
             }
             let at = r.intents.values().find(|i| &i.call_id == call).map_or(r.created_at, |i| i.at);
@@ -184,7 +184,7 @@ pub(crate) fn timing(input: &Value, min_every: u32) -> Result<Option<((Option<u3
     if !["every_minutes", "daily_at", "until", "max_runs"].iter().any(|k| given(&input[*k])) {
         return Ok(None);
     }
-    let rule = crate::api::rule_for(input, min_every).map_err(|m| format!("{m}. A retry with the same values will not help."))?;
+    let rule = crate::cadence::rule_of(input, min_every).map_err(|m| format!("{m}. A retry with the same values will not help."))?;
     let end = crate::api::end_for(input).map_err(|m| format!("{m}. A retry with the same values will not help."))?;
     Ok(Some((rule, end)))
 }

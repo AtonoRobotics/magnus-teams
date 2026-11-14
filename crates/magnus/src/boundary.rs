@@ -14,6 +14,7 @@ use crate::policy::{self, Outcome, ToolFacts};
 use crate::run::admission::{Refusal, HARD_DENIAL};
 use crate::spend::allowance::Spender;
 use crate::state::{Intent, Run, Status};
+use crate::tool_registry::Taint;
 use crate::tools::{self, Audience, Label, Risk};
 use crate::vault::redact;
 use anyhow::{anyhow, Result};
@@ -121,7 +122,7 @@ pub fn facts(k: &Kernel, tool: &str) -> Option<Facts> {
 pub const REVIEWER_FLAG: &str = "reviewer:flag";
 
 pub(crate) fn is_chat_tool(f: &Facts) -> bool {
-    f.connector.is_none() && crate::chat_work::is_chat_only(&f.name)
+    f.connector.is_none() && crate::run::admission::placement::is_chat_only(&f.name)
 }
 
 /// A send the reviewer judges: the model's own action, changing the world
@@ -458,7 +459,8 @@ impl Kernel {
         // memory_search returns content with the taint it was written under
         // (M1), taken from the same entries it returns: a second lookup could
         // miss a fact forgotten in between and label its text clean.
-        let (out, memory) = if a.tool == "memory_search" {
+        let taint = crate::tool_registry::taint(&a.tool);
+        let (out, memory) = if taint == Taint::Memory {
             let hits = self.memory_hits(&a.run, a.input["query"].as_str().unwrap_or_default()).await?;
             (Ok((memory_text(&hits), false, None)), Some(memory_taint(&hits)))
         } else {
@@ -466,20 +468,17 @@ impl Kernel {
         };
         let (label, sources) = if let Some(taint) = memory {
             taint
-        } else if a.tool == "knowledge_search" || a.tool == "bundle_read" || a.tool == "bundle_search" || a.tool == "start_sub_agent" {
-            // What the search returned decides; a result that says nothing is untrusted and private.
-            let d = out.as_ref().ok().and_then(|(_, _, d)| d.clone()).unwrap_or_default();
-            (Label { untrusted: d["untrusted"] != false, private: d["private"] != false }, vec![f.app.clone()])
-        } else if a.tool == "project_read" {
-            // A reference file carries its own taint (M1, M2).
-            let label = self.project_file(&a.run, a.input["name"].as_str().unwrap_or_default()).map_or(Label::PRINCIPAL, |f| f.label);
-            (label, vec![f.app.clone()])
-        } else if is_chat_tool(&f) && (a.tool == "list_tasks" || a.tool == "list_schedules" || a.tool == "get_task" || a.tool == "get_schedule") {
-            // The summaries it lists carry what their runs read.
-            let d = out.as_ref().ok().and_then(|(_, _, d)| d.clone()).unwrap_or_default();
-            self.listed_taint(&d)
         } else {
-            (f.label, vec![f.app.clone()])
+            let d = || out.as_ref().ok().and_then(|(_, _, d)| d.clone()).unwrap_or_default();
+            match taint {
+                // What the search returned decides; a result that says nothing is untrusted and private.
+                Taint::Returned => (Label { untrusted: d()["untrusted"] != false, private: d()["private"] != false }, vec![f.app.clone()]),
+                // A reference file carries its own taint (M1, M2).
+                Taint::ProjectFile => (self.project_file(&a.run, a.input["name"].as_str().unwrap_or_default()).map_or(Label::PRINCIPAL, |f| f.label), vec![f.app.clone()]),
+                // The summaries it lists carry what their runs read.
+                Taint::Listed if is_chat_tool(&f) => self.listed_taint(&d()),
+                _ => (f.label, vec![f.app.clone()]),
+            }
         };
         let clean = |t: &str| match &secret {
             Some(s) => redact(t, s.expose()),
@@ -609,7 +608,7 @@ impl Kernel {
             return Ok(Err(self.deny(a, "policy", "a read-back may only read", false, None).await?));
         }
         let (untrusted, private) = (run.untrusted, run.private);
-        let policies = self.read(|s| s.policies.clone());
+        let policies = self.read(|s| s.org.policies().clone());
         let facts = ToolFacts::from(f);
         let outcome = policy::decide(&policies, person, Some(&run.task), &facts, untrusted, private)?;
         // A policy's ask is no longer an ask of its own (spec rev 140): Auto
@@ -735,7 +734,7 @@ impl Kernel {
         if self.brokered.generation(&c.name, person) != stops {
             return Err(format!("{app}'s microVM for {person} was stopped while this call waited. Nothing was sent"));
         }
-        if self.read(|s| s.kill_switch) {
+        if self.read(|s| s.vault.kill_switch()) {
             return Err("the kill switch is engaged. Nothing was sent".into());
         }
         if !self.connected(c, person) {

@@ -5,6 +5,7 @@
 use crate::api::{credential, err, internal, over_tls, who, Transport};
 use crate::config::Config;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -31,11 +32,7 @@ async fn kept_here(k: &Kernel, person: &str) -> bool {
 
 /// What Settings needs to draw the form: whether the password is changed
 /// here, how long a new one must be, and where it is changed otherwise.
-async fn rules(State(k): K, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn rules(State(k): K, Caller(p): Caller) -> Response {
     let here = kept_here(&k, &p.id).await;
     Json(json!({ "here": here, "min_length": k.cfg.sign_in.min_password_length, "provider": k.identity().map(|i| i.label()) })).into_response()
 }

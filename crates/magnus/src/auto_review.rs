@@ -127,7 +127,7 @@ impl Kernel {
         if f.risk == crate::tools::Risk::Financial {
             return None;
         }
-        let may = self.person(&run.person).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())) || f.risk == crate::tools::Risk::ReversibleWrite);
+        let may = self.person(&run.person).is_some_and(|p| crate::people::rights(&p).may_approve(f.risk));
         if !may {
             return None;
         }
@@ -151,7 +151,7 @@ impl Kernel {
     /// organisation's, their groups', their own and the task's. Never another
     /// person's own layer (spec rev 140: Auto Review sees the person's rules).
     fn policy_texts(&self, person: &str, task: Option<&str>) -> Vec<String> {
-        let policies = self.read(|s| s.policies.clone());
+        let policies = self.read(|s| s.org.policies().clone());
         match self.person(person) {
             Some(p) => applicable_texts(&policies, &p, task),
             None => vec![policies.get("org").cloned().unwrap_or_else(|| crate::policy::DEFAULT_ORG.to_string())],

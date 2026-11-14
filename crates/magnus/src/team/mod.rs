@@ -13,6 +13,7 @@ macro_rules! ok_or_return {
 #[cfg(test)]
 mod admission_tests;
 mod agent;
+mod caller;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
@@ -51,6 +52,9 @@ mod presence;
 mod privacy_tests;
 mod project_routes;
 mod routes;
+mod routine_sweep;
+#[cfg(test)]
+mod routine_tests;
 pub(crate) mod routines;
 mod search;
 pub mod spend;
@@ -65,7 +69,7 @@ mod whisper;
 pub(crate) use agent::refusal;
 pub(crate) use agent::signs_in_per_person;
 pub(crate) use agent::team_specs as specs;
-pub use agent::BUILTINS;
+pub(crate) use agent::{TeamOp, BUILTINS};
 pub use routes::router;
 pub use routines::schedule;
 pub use upkeep::{pack_files, unpack_files};
@@ -252,6 +256,28 @@ pub enum Change {
         workspace: String,
         id: String,
         task: String,
+        at: chrono::DateTime<chrono::Utc>,
+    },
+    /// A routine's firing could not start its run, and why: its admin is told (`routines`).
+    RoutineFailed {
+        workspace: String,
+        id: String,
+        error: String,
+        at: chrono::DateTime<chrono::Utc>,
+    },
+    /// A routine's firing started nothing, because its last run was still open.
+    RoutineSkipped {
+        workspace: String,
+        id: String,
+        task: String,
+        reason: String,
+        at: chrono::DateTime<chrono::Utc>,
+    },
+    /// Too many of a routine's firings in a row failed: it starts no more until it is changed or removed.
+    RoutineStopped {
+        workspace: String,
+        id: String,
+        reason: String,
         at: chrono::DateTime<chrono::Utc>,
     },
     /// Messaging, the board, invites and per-channel settings: see `chat`.
@@ -537,19 +563,14 @@ impl Ledger {
                     ch.project = project.clone();
                 }
             }
-            Change::Routine { workspace, id, routine } => {
+            Change::Routine { workspace, .. }
+            | Change::RoutineRemoved { workspace, .. }
+            | Change::RoutineRan { workspace, .. }
+            | Change::RoutineFailed { workspace, .. }
+            | Change::RoutineSkipped { workspace, .. }
+            | Change::RoutineStopped { workspace, .. } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
-                    w.routines.insert(id.clone(), routine.clone());
-                }
-            }
-            Change::RoutineRemoved { workspace, id } => {
-                if let Some(w) = self.workspaces.get_mut(workspace) {
-                    w.routines.remove(id);
-                }
-            }
-            Change::RoutineRan { workspace, id, at, .. } => {
-                if let Some(r) = self.workspaces.get_mut(workspace).and_then(|w| w.routines.get_mut(id)) {
-                    r.last_at = Some(*at);
+                    routines::apply(w, c);
                 }
             }
             Change::Chat { workspace, chat } => {

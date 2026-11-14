@@ -2,6 +2,7 @@
 use super::{catalog, deck, docs, spec};
 use crate::api::{err, who};
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::Kernel;
 use crate::run::Flow;
 use crate::state::Run;
@@ -41,11 +42,7 @@ struct Advertised {
 }
 
 /// The client says what it can draw. An older client is told so.
-async fn advertised(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Advertised>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn advertised(Caller(p): Caller, Json(b): Json<Advertised>) -> Response {
     if b.version != catalog::CATALOG_VERSION {
         return err(StatusCode::CONFLICT, format!("this appliance uses catalog version {}", catalog::CATALOG_VERSION));
     }
@@ -54,11 +51,7 @@ async fn advertised(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Ad
 }
 
 /// A deck the person's work wrote, as a file.
-async fn exported(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((id, format)): Path<(String, String)>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn exported(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path((id, format)): Path<(String, String)>) -> Response {
     let compiled = k.read(|s| docs::documents(s, &p.id).remove(&id)).and_then(|t| spec::compile(&t, &catalog::allowed(&p.id)).ok());
     let Some(deck) = compiled.and_then(|c| c.into_iter().find(|e| e["type"] == "deck")) else { return err(StatusCode::NOT_FOUND, "no such deck") };
     let (bytes, media) = match format.as_str() {

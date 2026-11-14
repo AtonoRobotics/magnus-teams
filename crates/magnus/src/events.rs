@@ -552,7 +552,7 @@ pub enum Ev {
         /// Minutes between runs, or None with `daily_at`.
         #[serde(default)]
         every_minutes: Option<u32>,
-        /// Local time "HH:MM" for a daily run.
+        /// "HH:MM" for a daily run, in its person's time zone (the server's when they set none).
         #[serde(default)]
         daily_at: Option<String>,
         /// Each run's limits, when they are tighter than the appliance's.

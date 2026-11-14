@@ -22,7 +22,7 @@ pub(crate) const REFUSED: &str = "that is a person's own secret: only they set i
 pub(crate) fn personal(k: &Kernel, name: &str) -> bool {
     PERSONAL_PREFIXES.iter().any(|p| name.starts_with(p))
         || (name.starts_with("connector_") && name.contains("__"))
-        || k.read(|s| s.connectors.values().any(|c| c.owner.is_some() && c.credential.as_deref() == Some(name)))
+        || k.read(|s| s.apps.connectors().values().any(|c| c.owner.is_some() && c.credential.as_deref() == Some(name)))
 }
 
 /// The names the owner may see: the server's own.

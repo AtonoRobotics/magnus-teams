@@ -87,7 +87,7 @@ pub fn agents(s: &State, people: &[(String, String)]) -> Value {
     for (id, name) in people {
         rows.push(agent_row(s, &super::agent_of_person(id), name, Some(id)));
     }
-    json!({ "agents": rows, "server": { "engaged": s.kill_switch, "by": s.kill_switch_by.as_ref().filter(|_| s.kill_switch).map(|(by, at)| json!({ "by": by, "at": at })) } })
+    json!({ "agents": rows, "server": { "engaged": s.vault.kill_switch(), "by": s.vault.kill_switch_by().filter(|_| s.vault.kill_switch()).map(|(by, at)| json!({ "by": by, "at": at })) } })
 }
 
 /// What an agent did, newest first: each run with every boundary decision
@@ -166,8 +166,8 @@ impl Kernel {
             let on: Vec<Value> =
                 s.halts.on.iter().map(|(x, p)| json!({ "level": x.level(), "target": x.id(), "by": p.by, "by_name": p.name, "at": p.at, "said": x.said() })).collect();
             let paused: Vec<Value> = s.halts.paused.iter().map(|(a, p)| json!({ "agent": a, "by": p.by, "name": p.name, "at": p.at })).collect();
-            let server = s.kill_switch_by.as_ref().filter(|_| s.kill_switch).map(|(by, at)| json!({ "by": by, "at": at }));
-            json!({ "server": { "engaged": s.kill_switch, "pulled": server }, "on": on, "paused": paused })
+            let server = s.vault.kill_switch_by().filter(|_| s.vault.kill_switch()).map(|(by, at)| json!({ "by": by, "at": at }));
+            json!({ "server": { "engaged": s.vault.kill_switch(), "pulled": server }, "on": on, "paused": paused })
         })
     }
 }

@@ -14,12 +14,15 @@
 use crate::boundary::{Action, Facts};
 use crate::kernel::Kernel;
 use crate::state::{Run, State};
+use crate::tool_registry::{navigates, web_read, WebRead};
 use crate::tools::Risk;
 use anyhow::Result;
 
-/// The reads whose results are where an address may be found: the public
-/// web, never a page read through the person's own sign-in.
-const SOURCES: [&str; 5] = ["web_search", "web_fetch", "browser_navigate", "browser_snapshot", "browser_back"];
+/// Whether this read's results are where an address may be found: the
+/// public web, never a page read through the person's own sign-in.
+fn is_source(tool: &str) -> bool {
+    matches!(web_read(tool), WebRead::Query | WebRead::OpensUrl | WebRead::OpenPage)
+}
 
 /// Whether a web or browser read can carry out nothing but what it was
 /// given. `known` says whether an address appeared in a source.
@@ -27,10 +30,10 @@ pub(crate) fn sends_nothing_new(a: &Action, f: &Facts, known: impl Fn(&str) -> b
     if f.connector.is_some() || f.risk != Risk::Read || !matches!(f.app.as_str(), "web" | "browser") {
         return false;
     }
-    match a.tool.as_str() {
-        "browser_snapshot" | "browser_screenshot" | "browser_back" => true,
-        "web_fetch" | "browser_navigate" => a.input["url"].as_str().is_some_and(|u| known(u.trim())),
-        _ => false,
+    match web_read(&a.tool) {
+        WebRead::OpenPage | WebRead::Picture => true,
+        WebRead::OpensUrl => a.input["url"].as_str().is_some_and(|u| known(u.trim())),
+        WebRead::Query | WebRead::No => false,
     }
 }
 
@@ -58,7 +61,7 @@ pub(crate) fn appears_in(url: &str, texts: &[String]) -> bool {
 /// last successful navigation.
 pub(crate) fn page_host(s: &State, run: &str) -> Option<String> {
     let r = s.runs.get(run)?;
-    let last = r.intents.values().filter(|i| i.tool == "browser_navigate" && i.result.as_ref().is_some_and(|res| !res.is_error)).max_by_key(|i| i.at)?;
+    let last = r.intents.values().filter(|i| navigates(&i.tool) && i.result.as_ref().is_some_and(|res| !res.is_error)).max_by_key(|i| i.at)?;
     url::Url::parse(last.input["url"].as_str()?).ok()?.host_str().map(str::to_lowercase)
 }
 
@@ -66,10 +69,7 @@ pub(crate) fn page_host(s: &State, run: &str) -> Option<String> {
 fn returned(s: &State, run: &str) -> Vec<String> {
     let tasks = s.lineage(run);
     let runs = tasks.iter().filter_map(|t| s.tasks.get(t)).filter_map(|t| s.runs.get(&t.run_id));
-    runs.flat_map(|r| r.intents.values())
-        .filter(|i| SOURCES.contains(&i.tool.as_str()))
-        .filter_map(|i| i.result.as_ref().filter(|res| !res.is_error).map(|res| res.text.clone()))
-        .collect()
+    runs.flat_map(|r| r.intents.values()).filter(|i| is_source(&i.tool)).filter_map(|i| i.result.as_ref().filter(|res| !res.is_error).map(|res| res.text.clone())).collect()
 }
 
 impl Kernel {

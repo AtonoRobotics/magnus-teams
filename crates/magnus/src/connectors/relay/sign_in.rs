@@ -2,12 +2,13 @@
 
 use super::super::{challenge, fresh_tokens, granted, random, sign_in_target, Client, SignInTarget, PENDING_FOR};
 use super::{now, open, timely, Message, Settings, Signed, B64};
-use crate::api::{err, owner};
+use crate::api::err;
 use crate::config::Connector;
+use crate::extract::Owner;
 use crate::kernel::Kernel;
 use anyhow::{anyhow, bail, Result};
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -177,7 +178,7 @@ pub(crate) async fn handoff(k: &Arc<Kernel>, env: &Signed) -> Result<(), String>
     if w.app != connector || w.person != person {
         return Err(format!("the handoff is for {connector} and {person}, the sign-in for {} and {}", w.app, w.person));
     }
-    if k.read(|s| s.kill_switch) {
+    if k.read(|s| s.vault.kill_switch()) {
         return Err("the kill switch is engaged".into());
     }
     if !k.connector(&w.app).is_some_and(|c| k.via_relay(&c).is_some()) {
@@ -198,10 +199,7 @@ pub(crate) fn router() -> Router<Arc<Kernel>> {
 }
 
 /// What the relay registers for this server: its id and public key.
-async fn registration(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    if let Err(r) = owner(&k, &h).await {
-        return r;
-    }
+async fn registration(State(k): State<Arc<Kernel>>, _: Owner) -> Response {
     let Some(s) = &k.cfg.relay else { return err(StatusCode::NOT_FOUND, "no relay is configured") };
     match k.relay_keys.public(&k.vault) {
         Ok(p) => Json(json!({ "server_id": s.server_id, "public_key": B64.encode(p), "callback": s.callback, "via_relay": s.via_relay })).into_response(),

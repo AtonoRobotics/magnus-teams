@@ -177,6 +177,19 @@ impl Run {
 }
 
 impl State {
+    /// The chat turn a sub-agent works inside: the run at the top of its
+    /// parents, when that run is a chat turn.
+    pub fn chat_turn_above(&self, run: &str) -> Option<&Run> {
+        let top = self.runs.get(&self.sub_agents.top(run)?)?;
+        self.tasks.get(&top.task).filter(|t| t.is_chat_turn()).map(|_| top)
+    }
+
+    /// Shown in a conversation rather than listed as a task: a chat turn,
+    /// and a sub-agent working inside one.
+    pub fn in_chat(&self, t: &Task) -> bool {
+        t.is_chat_turn() || self.chat_turn_above(&t.run_id).is_some()
+    }
+
     /// The task whose authority a run acts under: the top run's, itself
     /// when it is no sub-agent. A sub-agent carries its grant, confirmed
     /// scope (a schedule's too), project and requester, and is background
@@ -440,7 +453,7 @@ mod tests {
     fn a_retired_grant_input_is_read_as_nothing() {
         let a: Ask = serde_json::from_value(json!({ "goal": "Check the notes.", "grant": "grant_someone_elses", "tools": ["notes__list"] })).unwrap();
         assert_eq!((a.goal.as_str(), a.tools.as_slice(), a.budget_share), ("Check the notes.", &["notes__list".to_string()][..], None));
-        let spec = crate::tools_identity::sub_agent_spec(&|_| String::new());
+        let Some(spec) = crate::tools::builtin_specs(false, false, false, false).into_iter().find(|t| t.name == "start_sub_agent") else { panic!("no start_sub_agent") };
         assert!(spec.input_schema["properties"].get("grant").is_none(), "start_sub_agent still takes a grant");
     }
 
@@ -453,5 +466,40 @@ mod tests {
         let b = child_budget(&Budget { max_model_calls: 100, max_actions: 40, max_usd: 2.0 }, 1.5, Some(0.5));
         assert!((b.max_usd - 0.25).abs() < f64::EPSILON, "a sub-agent got more than its parent has left: {}", b.max_usd);
         assert!(child_budget(&Budget { max_model_calls: 1, max_actions: 1, max_usd: 2.0 }, 3.0, None).max_usd == 0.0);
+    }
+
+    /// Where a turn's sub-agents are shown: in its conversation.
+    mod in_chat {
+        use super::*;
+        use crate::log::Event;
+        use serde_json::{json, Value};
+
+        fn ev(seq: i64, actor: &str, ev: Value) -> Event {
+            Event { seq, at: chrono::Utc::now(), actor: actor.into(), ev: serde_json::from_value(ev).unwrap() }
+        }
+
+        fn created(seq: i64, task: &str, run: &str, chat: Value) -> Event {
+            let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
+            ev(seq, "person:alice", json!({ "kind": "task_created", "task": task, "run": run, "person": "alice", "text": "x", "config": config, "chat": chat }))
+        }
+
+        /// A sub-agent a chat turn starts, and one it starts in turn, work in
+        /// that chat and are not listed as tasks. One a task starts stays with
+        /// that task.
+        #[test]
+        fn sub_agents_of_a_chat_turn_show_in_its_conversation() {
+            let mut s = State::default();
+            s.apply(&created(1, "turn", "rt", json!({ "thread": "th", "turn": true })));
+            s.apply(&created(2, "c1", "r1", Value::Null));
+            s.apply(&ev(3, "kernel", json!({ "kind": "sub_agent", "child": "r1", "parent": "rt", "tools": [] })));
+            s.apply(&created(4, "c2", "r2", Value::Null));
+            s.apply(&ev(5, "kernel", json!({ "kind": "sub_agent", "child": "r2", "parent": "r1", "tools": ["web_fetch"] })));
+            s.apply(&ev(6, "kernel", json!({ "kind": "completed", "run": "r2", "summary": "Found three flights." })));
+            s.apply(&created(7, "job", "rj", Value::Null));
+            s.apply(&created(8, "c3", "r3", Value::Null));
+            s.apply(&ev(9, "kernel", json!({ "kind": "sub_agent", "child": "r3", "parent": "rj", "tools": [] })));
+            assert!(s.in_chat(&s.tasks["c1"]) && s.in_chat(&s.tasks["c2"]), "a chat turn's sub-agent was listed as a task");
+            assert!(!s.in_chat(&s.tasks["c3"]) && !s.in_chat(&s.tasks["job"]), "a task's sub-agent left its task");
+        }
     }
 }

@@ -2,13 +2,13 @@
 //! removes members; anyone leaves on their own; nobody changes someone whose
 //! role is above theirs; and a workspace always keeps an owner, so its owner
 //! goes only by handing ownership on first or by deleting the workspace.
-use super::routes::{member, Reply, K};
+use super::caller::{at, Member};
+use super::routes::{Reply, K};
 use super::{Change, Role, Workspace};
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::Result;
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -65,8 +65,7 @@ impl Kernel {
 
 /// The people on this server who are not in the workspace yet, for an
 /// owner or admin to add: names only, never their addresses.
-async fn candidates(State(k): K, h: HeaderMap, Path(ws): Path<String>) -> Reply {
-    ok_or_return!(member(&k, &h, &ws, Role::Admin).await);
+async fn candidates(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> Reply {
     let inside: BTreeSet<String> = k.read(|s| s.team.workspace(&ws).map(|w| w.members.keys().cloned().collect()).unwrap_or_default());
     let out: Vec<Value> = k
         .named_people()

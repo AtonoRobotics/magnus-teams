@@ -17,13 +17,15 @@
 //! went. Both are the person's alone: no other person's run, the owner or
 //! an admin sees them.
 
-use crate::api::{err, internal, who};
+use crate::api::{err, internal};
+use crate::chat_thread::Entry;
 use crate::events::Ev;
+use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel};
 use crate::state::Run;
 use crate::state::State as Projection;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -35,19 +37,14 @@ use std::sync::Arc;
 /// The reactions a person can give, and how their runs read them.
 pub const REACTIONS: &[(&str, &str)] = &[("great", "that was great"), ("annoying", "that was annoying")];
 
-/// The thread entries that are Magnus's messages: its answers (or what it
-/// said when it could not answer), its tasks' results, the tasks a turn
-/// started, the cards it proposed (#267), and its own openings (#359).
-/// The person's own messages are not its to be judged on.
-const MAGNUS: &[&str] = &["answer", "turn", "result", "tasks", "grant_card", "suggestion_card", "schedule_card", "connector_card", "opener"];
-
-/// The thread's entries with the person's reaction on each of Magnus's
-/// messages that has one, for them to see.
-pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Value>) -> Vec<Value> {
-    let Some(mine) = s.reactions.get(person) else { return entries };
-    for e in &mut entries {
-        if let Some(r) = e["id"].as_str().and_then(|id| mine.get(&(thread.to_string(), id.to_string()))).and_then(|h| h.last()).and_then(|(r, _)| r.clone()) {
-            e["reaction"] = json!(r);
+/// The thread's entries with the person's reaction on each entry that has
+/// one, for them to see. Only Magnus's messages take one
+/// (`chat_thread::Kind::is_magnus`).
+pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Entry>) -> Vec<Entry> {
+    let Some(mine) = s.thread_extras.reactions().get(person) else { return entries };
+    for e in entries.iter_mut().filter(|e| e.has_id()) {
+        if let Some(r) = mine.get(&(thread.to_string(), e.id.clone())).and_then(|h| h.last()).and_then(|(r, _)| r.clone()) {
+            e.reaction = Some(r);
         }
     }
     entries
@@ -62,7 +59,7 @@ pub fn marked(s: &Projection, person: &str, thread: &str, mut entries: Vec<Value
 /// the conversation is named without its words: they would bring its taint
 /// into every later run of theirs.
 pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Utc>) -> Vec<(DateTime<Utc>, String)> {
-    let Some(mine) = s.reactions.get(person) else { return vec![] };
+    let Some(mine) = s.thread_extras.reactions().get(person) else { return vec![] };
     // A card's proposing run: cards live in run results, with no state
     // link of their own, so index them once when a card carries one.
     let mut card_runs: HashMap<&str, &Run> = HashMap::new();
@@ -80,7 +77,7 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
         .filter_map(|((thread, entry), history)| {
             let (reaction, at) = history.iter().rev().find(|(_, at)| *at < before)?;
             let reaction = reaction.as_ref()?;
-            let hidden = |id: &str| s.trash.contains_key(id) || s.hidden.get(thread).is_some_and(|h| h.contains(id));
+            let hidden = |id: &str| s.trash.contains_key(id) || s.thread_extras.hidden(thread).is_some_and(|h| h.contains(id));
             if s.trash.contains_key(thread) || s.removed_threads.contains(thread) || hidden(entry) {
                 return None;
             }
@@ -129,7 +126,8 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
 /// newest first, each with its id for recording the outcome.
 pub(crate) fn open_before(s: &Projection, person: &str, before: DateTime<Utc>) -> Vec<(DateTime<Utc>, String)> {
     let mut out: Vec<(DateTime<Utc>, String)> = s
-        .disagreements
+        .thread_extras
+        .disagreements()
         .values()
         .filter(|d| d.person == person && d.at < before && d.outcome_at.is_none_or(|o| o >= before))
         .map(|d| (d.at, format!("{}: you advised: {} They decided: {}", d.id, d.position, d.decision)))
@@ -201,7 +199,7 @@ impl Kernel {
                     return no("this run has read content from outside the conversation: its outcome is worked, failed or unclear, so that content writes no free text into the person's log".into());
                 }
                 let (found, open) = self.read(|s| {
-                    let mine = || s.disagreements.values().filter(|d| d.person == r.person);
+                    let mine = || s.thread_extras.disagreements().values().filter(|d| d.person == r.person);
                     (
                         mine().find(|d| d.id == id).map(|d| (d.outcome.is_none(), d.position.clone(), d.decision.clone())),
                         mine().filter(|d| d.outcome.is_none()).map(|d| d.id.clone()).collect::<Vec<_>>(),
@@ -241,11 +239,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 
 /// The person reacts to one of Magnus's messages in their thread
 /// (`reaction`: `great` or `annoying`), or takes their reaction back (null).
-async fn react(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((thread, entry)): Path<(String, String)>, Json(b): Json<Value>) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+async fn react(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path((thread, entry)): Path<(String, String)>, Json(b): Json<Value>) -> Response {
     let reaction = match &b["reaction"] {
         Value::Null => None,
         Value::String(r) if REACTIONS.iter().any(|(k, _)| k == r) => Some(r.clone()),
@@ -256,8 +250,8 @@ async fn react(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((thread, entry))
         Ok(None) => return err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => return internal(e),
     };
-    let Some(e) = entries.iter().find(|e| e["id"] == entry.as_str()) else { return err(StatusCode::NOT_FOUND, "no such message") };
-    if !MAGNUS.contains(&e["kind"].as_str().unwrap_or_default()) {
+    let Some(e) = entries.iter().find(|e| e.has_id() && e.id == entry) else { return err(StatusCode::NOT_FOUND, "no such message") };
+    if !e.is_magnus() {
         return err(StatusCode::BAD_REQUEST, "only Magnus's messages take a reaction");
     }
     match k.emit(&format!("person:{}", p.id), Ev::Reacted { person: p.id.clone(), thread, entry, reaction: reaction.clone() }).await {
@@ -267,12 +261,8 @@ async fn react(State(k): State<Arc<Kernel>>, h: HeaderMap, Path((thread, entry))
 }
 
 /// The person's own disagreement log, newest first: no one else's, whoever asks.
-async fn disagreements(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
-    let p = match who(&k, &h).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    let mut mine: Vec<Value> = k.read(|s| s.disagreements.values().filter(|d| d.person == p.id).map(|d| json!(d)).collect());
+async fn disagreements(State(k): State<Arc<Kernel>>, Caller(p): Caller) -> Response {
+    let mut mine: Vec<Value> = k.read(|s| s.thread_extras.disagreements().values().filter(|d| d.person == p.id).map(|d| json!(d)).collect());
     mine.sort_by(|a, b| b["at"].as_str().cmp(&a["at"].as_str()));
     Json(json!({ "disagreements": mine })).into_response()
 }
@@ -328,10 +318,10 @@ mod tests {
         ev(&mut s, 6, json!({ "kind": "chat_hidden", "person": "carol", "thread": "th", "entries": ["a:t1"] }));
         assert!(reactions_before(&s, "carol", at(7)).is_empty(), "its message was deleted");
         ev(&mut s, 7, json!({ "kind": "reacted", "person": "carol", "thread": "th", "entry": "a:t1" }));
-        assert!(marked(&s, "carol", "th", vec![json!({ "id": "a:t1" })])[0]["reaction"].is_null(), "taken back");
+        assert!(marked(&s, "carol", "th", vec![crate::chat_thread::Entry::copied(json!({ "id": "a:t1" }))])[0].reaction.is_none(), "taken back");
         ev(&mut s, 8, json!({ "kind": "reacted", "person": "carol", "thread": "th", "entry": "a:t1", "reaction": "great" }));
         ev(&mut s, 9, json!({ "kind": "person_erased", "person": "carol" }));
-        assert!(!s.reactions.contains_key("carol") && s.disagreements.is_empty(), "erased with her");
+        assert!(!s.thread_extras.reactions().contains_key("carol") && s.thread_extras.disagreements().is_empty(), "erased with her");
         let sec = section(&[(at(2), "that was great, on your message \"x\"".into())], &[(at(3), "d1: you advised: Wait. They decided: Ship now.".into())]);
         assert!(sec.contains("# How this person reacted") && sec.contains("# Disagreements with this person still open") && sec.contains("d1: you advised"), "{sec}");
         assert_eq!(section(&[], &[]), "");

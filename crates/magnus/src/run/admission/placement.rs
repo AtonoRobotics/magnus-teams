@@ -1,18 +1,9 @@
-//! In chat Magnus does the work itself (spec, "Chat and tasks"): a chat
+//! Where a tool may be used. In chat Magnus does the work itself (spec, "Chat and tasks"): a chat
 //! turn reads, writes, makes files, uses its computer, starts sub-agents and
 //! sends, each boundary action reviewed like any run's. A task is for work
 //! on a schedule, in the background, or that outlasts the conversation.
-//!
-//! The sub-agents a turn starts work inside its conversation: they are shown
-//! there, what each is doing, its status and its result, and are not listed
-//! as the person's tasks.
-use crate::kernel::Kernel;
-use crate::recall::Words;
 use crate::run::kind::RunKind;
-use crate::state::{Run, State, Task};
 use crate::tools;
-use chrono::{DateTime, Utc};
-use serde_json::{json, Value};
 
 /// Why a run of this kind may not use `tool` for where it is, if so: the
 /// one rule for what it is offered and what its call may do
@@ -49,7 +40,7 @@ fn record_placement(kind: &RunKind, tool: &str) -> Option<String> {
 }
 
 /// The run records every run has: the rich-answer tools.
-const UI_RECORDS: [&str; 3] = ["ui_catalog", crate::ui::docs::EDIT_TOOL, crate::ui::docs::SCREENSHOT_TOOL];
+const UI_RECORDS: &[&str] = crate::tools_ui::RECORDS;
 
 /// A tool of the chat family (`boundary::is_chat_tool`): the person's
 /// controls. Sharing is the one bundle write that belongs to conversation,
@@ -66,55 +57,9 @@ pub(crate) fn is_chat_only(tool: &str) -> bool {
 /// schedules would breed (2026-10-30).
 const IN_ANY_RUN: [&str; 2] = ["create_schedule", "list_schedules"];
 
-impl State {
-    /// The chat turn a sub-agent works inside: the run at the top of its
-    /// parents, when that run is a chat turn.
-    pub fn chat_turn_above(&self, run: &str) -> Option<&Run> {
-        let top = self.runs.get(&self.sub_agents.top(run)?)?;
-        self.tasks.get(&top.task).filter(|t| t.is_chat_turn()).map(|_| top)
-    }
-
-    /// Shown in a conversation rather than listed as a task: a chat turn,
-    /// and a sub-agent working inside one.
-    pub fn in_chat(&self, t: &Task) -> bool {
-        t.is_chat_turn() || self.chat_turn_above(&t.run_id).is_some()
-    }
-}
-
-/// The sub-agents a chat turn started, nested ones too, as one entry of its
-/// conversation placed when the first began: each one's goal, status, what
-/// it waits on and its result.
-pub(crate) fn sub_agents_entry(s: &State, turn: &Task, r: &Run, w: &Words) -> Option<(DateTime<Utc>, i64, Value)> {
-    let mut first: Option<DateTime<Utc>> = None;
-    let agents: Vec<Value> = s
-        .sub_agents
-        .below(&r.id)
-        .into_iter()
-        .filter_map(|(depth, c)| {
-            let cr = s.runs.get(&c.child)?;
-            let ct = s.tasks.get(&cr.task)?;
-            first = Some(first.map_or(ct.created_at, |f| f.min(ct.created_at)));
-            Some(json!({
-                "run": c.child, "parent": c.parent, "depth": depth, "task_id": ct.task_id, "goal": w.text(ct.seq),
-                "status": crate::api::status_str(cr.status), "waiting_on": cr.reason, "waiting_item": cr.waiting_item,
-                "summary": cr.summary, "tools": c.tools, "at": ct.created_at, "ended_at": cr.ended_at,
-            }))
-        })
-        .collect();
-    let at = first?;
-    Some((at, 1, json!({ "id": format!("s:{}", turn.task_id), "kind": "sub_agents", "task_id": turn.task_id, "from_run": r.id, "agents": agents, "at": at })))
-}
-
-impl Kernel {
-    pub(crate) fn sub_agents_entry(&self, turn: &Task, r: &Run, w: &Words) -> Option<(DateTime<Utc>, i64, Value)> {
-        self.read(|s| sub_agents_entry(s, turn, r, w))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::Event;
 
     const CHAT: RunKind = RunKind::ChatTurn;
     const TASK: RunKind = RunKind::Task;
@@ -183,40 +128,5 @@ mod tests {
         assert!(!p.contains("may only read"), "chat is still told it may only read");
         assert!(p.contains("start_sub_agent"), "chat is not told it can start sub-agents");
         assert!(p.contains("Do the work yourself"), "chat is not told to do the work itself");
-    }
-
-    fn ev(seq: i64, actor: &str, ev: Value) -> Event {
-        Event { seq, at: chrono::Utc::now(), actor: actor.into(), ev: serde_json::from_value(ev).unwrap() }
-    }
-
-    fn created(seq: i64, task: &str, run: &str, chat: Value) -> Event {
-        let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
-        ev(seq, "person:alice", json!({ "kind": "task_created", "task": task, "run": run, "person": "alice", "text": "x", "config": config, "chat": chat }))
-    }
-
-    /// A sub-agent a chat turn starts, and one it starts in turn, work in
-    /// that chat: shown there with their status and result, not listed as
-    /// tasks. One a task starts stays with that task.
-    #[test]
-    fn sub_agents_of_a_chat_turn_show_in_its_conversation() {
-        let mut s = State::default();
-        s.apply(&created(1, "turn", "rt", json!({ "thread": "th", "turn": true })));
-        s.apply(&created(2, "c1", "r1", Value::Null));
-        s.apply(&ev(3, "kernel", json!({ "kind": "sub_agent", "child": "r1", "parent": "rt", "tools": [] })));
-        s.apply(&created(4, "c2", "r2", Value::Null));
-        s.apply(&ev(5, "kernel", json!({ "kind": "sub_agent", "child": "r2", "parent": "r1", "tools": ["web_fetch"] })));
-        s.apply(&ev(6, "kernel", json!({ "kind": "completed", "run": "r2", "summary": "Found three flights." })));
-        s.apply(&created(7, "job", "rj", Value::Null));
-        s.apply(&created(8, "c3", "r3", Value::Null));
-        s.apply(&ev(9, "kernel", json!({ "kind": "sub_agent", "child": "r3", "parent": "rj", "tools": [] })));
-        assert!(s.in_chat(&s.tasks["c1"]) && s.in_chat(&s.tasks["c2"]), "a chat turn's sub-agent was listed as a task");
-        assert!(!s.in_chat(&s.tasks["c3"]) && !s.in_chat(&s.tasks["job"]), "a task's sub-agent left its task");
-        let (_, _, e) = sub_agents_entry(&s, &s.tasks["turn"], &s.runs["rt"], &Words::default()).expect("no entry for the turn's sub-agents");
-        assert_eq!(e["kind"], "sub_agents");
-        let agents = e["agents"].as_array().unwrap();
-        assert_eq!(agents.iter().map(|a| (a["run"].as_str().unwrap(), a["depth"].as_u64().unwrap())).collect::<Vec<_>>(), [("r1", 1), ("r2", 2)]);
-        assert_eq!((agents[0]["status"].as_str(), agents[1]["status"].as_str()), (Some("running"), Some("completed")));
-        assert_eq!(agents[1]["summary"], "Found three flights.");
-        assert!(sub_agents_entry(&s, &s.tasks["job"], &s.runs["rj"], &Words::default()).is_some_and(|(_, _, e)| e["agents"].as_array().unwrap().len() == 1));
     }
 }

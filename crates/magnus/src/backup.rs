@@ -296,7 +296,7 @@ impl Kernel {
         let dir = self.cfg.backup_dir();
         // A directory backups were made in that is gone now (a disk not
         // mounted) is not one without backups: they are only out of reach.
-        let made = self.read(|s| s.last_backup.is_some() || s.scrub_pending.is_some());
+        let made = self.read(|s| s.server_ops.last_backup().is_some() || s.server_ops.scrub_pending().is_some());
         let shown = dir.display().to_string();
         let _one = backing_up().lock().await;
         let cfg = self.cfg.clone();
@@ -333,12 +333,12 @@ impl Kernel {
             // still hold. The backups already pending stay so; with none,
             // the directory is, for the latest removal.
             Err(detail) => {
-                let (from, files) = self.read(|s| s.scrub_pending.as_ref().map(|p| (p.from, p.files.clone()))).filter(|(_, f)| !f.is_empty()).unwrap_or((before, vec![shown]));
+                let (from, files) = self.read(|s| s.server_ops.scrub_pending().map(|p| (p.from, p.files.clone()))).filter(|(_, f)| !f.is_empty()).unwrap_or((before, vec![shown]));
                 (0, files.into_iter().map(|f| (f, from, detail.clone())).collect())
             }
         };
         if left.is_empty() {
-            if self.read(|s| s.scrub_pending.is_some()) {
+            if self.read(|s| s.server_ops.scrub_pending().is_some()) {
                 self.emit("kernel", Ev::BackupsScrubbed { through: latest }).await?;
             }
             return Ok(rewritten);
@@ -347,7 +347,7 @@ impl Kernel {
         let files: Vec<String> = left.iter().map(|l| l.0.clone()).collect();
         let detail = left.iter().map(|(f, _, e)| format!("{f}: {e}")).collect::<Vec<_>>().join("; ");
         // Once per change, not at every retry.
-        let same = self.read(|s| s.scrub_pending.as_ref().is_some_and(|p| (p.from, p.through, &p.files) == (from, latest, &files)));
+        let same = self.read(|s| s.server_ops.scrub_pending().is_some_and(|p| (p.from, p.through, &p.files) == (from, latest, &files)));
         if !same {
             self.emit("kernel", Ev::BackupScrubPending { from, through: latest, files: files.clone(), detail: detail.clone() }).await?;
         }
@@ -656,12 +656,13 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
 pub fn status(k: &Kernel) -> Value {
     let dir = k.cfg.backup_dir();
     let files: Vec<Value> = list(&dir).into_iter().map(|(f, b)| json!({ "file": f, "bytes": b })).collect();
-    let last = k.read(|s| s.last_backup.clone()).map(|(file, ok, detail, at)| json!({ "file": file, "restored": ok, "detail": detail, "at": at }));
-    let copy = k.read(|s| s.last_copy.clone()).map(|(file, ok, detail, at)| json!({ "file": file, "copied": ok, "detail": detail, "at": at }));
+    let last = k.read(|s| s.server_ops.last_backup().cloned()).map(|(file, ok, detail, at)| json!({ "file": file, "restored": ok, "detail": detail, "at": at }));
+    let copy = k.read(|s| s.server_ops.last_copy().cloned()).map(|(file, ok, detail, at)| json!({ "file": file, "copied": ok, "detail": detail, "at": at }));
     let c = &k.cfg.backup;
     // Backups that still hold removed content, erased people's among it (#195).
-    let pending =
-        k.read(|s| s.scrub_pending.clone().map(|p| json!({ "files": p.files, "detail": p.detail, "since": p.at, "erasures": s.erasures.values().filter(|e| e.pending).count() })));
+    let pending = k.read(|s| {
+        s.server_ops.scrub_pending().cloned().map(|p| json!({ "files": p.files, "detail": p.detail, "since": p.at, "erasures": s.erasures.values().filter(|e| e.pending).count() }))
+    });
     json!({ "dir": dir, "every_hours": c.every_hours, "keep_days": k.backup_keep_days(), "copy_to": c.copy_to, "on_appliance_disk": c.dir.is_none(), "latest": last, "copy": copy, "files": files, "scrub_pending": pending })
 }
 

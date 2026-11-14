@@ -137,7 +137,7 @@ impl Kernel {
         }
         let vault = Arc::new(Vault::open(&cfg.appliance.state_dir)?);
         vault.bind_unbound()?;
-        if state.kill_switch {
+        if state.vault.kill_switch() {
             vault.seal();
         }
         let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
@@ -281,13 +281,13 @@ impl Kernel {
 
     /// Debug builds only: the firing gate for the sweep race test (#261).
     #[cfg(debug_assertions)]
-    async fn sweep_gate(&self, schedule: &str) {
+    pub(crate) async fn sweep_gate(&self, schedule: &str) {
         self.debug_gate("sweep-gate", "sweep-gated", schedule).await;
     }
 
     /// Debug builds only: the release gate for the stale-release test (#318).
     #[cfg(debug_assertions)]
-    async fn release_gate(&self, schedule: &str) {
+    pub(crate) async fn release_gate(&self, schedule: &str) {
         self.debug_gate("release-gate", "release-gated", schedule).await;
     }
 
@@ -459,7 +459,7 @@ impl Kernel {
     /// The adapter and model new runs use unless the person chooses one.
     pub fn default_model(&self) -> (String, String) {
         let m = &self.cfg.model;
-        self.read(|s| s.model.clone()).unwrap_or_else(|| (m.adapter.clone(), m.name.clone()))
+        self.read(|s| s.org.model().clone()).unwrap_or_else(|| (m.adapter.clone(), m.name.clone()))
     }
 
     /// The models a person may choose for a task or a chat message: each
@@ -467,7 +467,7 @@ impl Kernel {
     /// provider does not answer (not signed in, unreachable) offers none.
     pub async fn models(&self) -> Vec<(String, Vec<String>)> {
         // A provider an admin disabled offers nothing.
-        let off = self.read(|s| s.providers_off.clone());
+        let off = self.read(|s| s.org.providers_off().clone());
         let ids: Vec<String> = self.adapters.list().await.into_iter().map(|(id, ..)| id).filter(|id| !off.contains(id)).collect();
         let lists = futures::future::join_all(ids.iter().map(|id| self.adapters.catalog(id))).await;
         ids.into_iter()
@@ -581,147 +581,8 @@ impl Kernel {
     pub async fn sweep(self: Arc<Self>) {
         loop {
             let now = chrono::Utc::now();
-            // A schedule past its end or out of runs is over: it stays,
-            // marked with why, and its person is told.
-            let finished: Vec<(crate::state::Schedule, String)> = self.read(|s| s.schedules.values().filter_map(|x| x.finished(now).map(|why| (x.clone(), why))).collect());
-            for (sc, why) in finished {
-                let title = self.schedule_title_for_notice(&sc).await;
-                let notice = self.notice_to(
-                    None,
-                    None,
-                    sc.person.clone(),
-                    format!("A schedule ended: {title}"),
-                    serde_json::json!({ "reason": "schedule_ended", "evidence": { "schedule": sc.id, "why": why } }),
-                );
-                self.tell(vec![("kernel", Ev::ScheduleEnded { id: sc.id.clone(), reason: why, run: None }), ("kernel", notice)]).await;
-            }
-            // A schedule whose run waits on a person pauses until that person
-            // answers (owner, 2026-10-30: without it, it acts without the
-            // authority or the information it needs), then goes on by itself.
-            let (hold, release): (Vec<(crate::state::Schedule, String, String)>, Vec<String>) = self.read(|s| {
-                let mut hold = vec![];
-                let mut release = vec![];
-                for x in s.schedules.values() {
-                    match (s.held_by_person(&x.id), &x.paused_on) {
-                        (Some((task, why)), None) if x.paused.is_none() && x.ended.is_none() => hold.push((x.clone(), task, why)),
-                        (None, Some(_)) => release.push(x.id.clone()),
-                        _ => {}
-                    }
-                }
-                (hold, release)
-            });
-            for (sc, task, why) in hold {
-                let title = self.schedule_title_for_notice(&sc).await;
-                let notice = self.notice_to(
-                    Some(task.clone()),
-                    None,
-                    sc.person.clone(),
-                    format!("A schedule paused until you answer its run: {title}"),
-                    serde_json::json!({ "reason": "schedule_paused", "evidence": { "schedule": sc.id, "why": why, "task": task } }),
-                );
-                self.tell(vec![("kernel", Ev::SchedulePaused { id: sc.id.clone(), reason: why, task: Some(task), admin: false, source: None, turn: None }), ("kernel", notice)])
-                    .await;
-            }
-            for id in release {
-                #[cfg(debug_assertions)]
-                self.release_gate(&id).await;
-                // The hold's end was read before the notifications above
-                // went out; a pause that landed since must not be resumed
-                // here. Only a schedule still paused on a run that no
-                // longer waits goes on (#318).
-                let ended = self.read(|s| s.held_by_person(&id).is_none());
-                let held_pause = self.read(|s| s.schedules.get(&id).is_some_and(|x| x.paused_on.is_some()));
-                if ended && held_pause {
-                    let _ = self.emit("kernel", Ev::ScheduleResumed { id, source: None, turn: None }).await;
-                }
-            }
-            let due_schedules: Vec<crate::state::Schedule> = self.read(|s| crate::halts::due_schedules(s, now));
-            for sc in due_schedules {
-                let title = self.schedule_title_for_notice(&sc).await;
-                // Not while its last run is open: running, or waiting on
-                // someone. Runs that pile up waiting flood the inbox
-                // (2026-10-30: 75 runs of one test schedule).
-                if let Some((task, why)) = self.read(|s| s.open_run_of(&sc.id)) {
-                    let _ = self.emit("kernel", Ev::ScheduleSkipped { id: sc.id.clone(), task, reason: why }).await;
-                    continue;
-                }
-                // Too many failures in a row: it stops spending until its
-                // person looks.
-                let n = self.cfg.schedules.pause_after_failures;
-                if n > 0 && self.read(|s| s.failures_in_a_row(&sc.id)) >= n {
-                    let why = format!("its last {n} runs failed");
-                    let notice = self.notice_to(
-                        None,
-                        None,
-                        sc.person.clone(),
-                        format!("A schedule paused: {title}"),
-                        serde_json::json!({ "reason": "schedule_paused", "evidence": { "schedule": sc.id, "why": why } }),
-                    );
-                    self.tell(vec![("kernel", Ev::SchedulePaused { id: sc.id.clone(), reason: why, task: None, admin: false, source: None, turn: None }), ("kernel", notice)])
-                        .await;
-                    continue;
-                }
-                // A scheduled task acts for the person who set it up (K54),
-                // within the schedule's budget.
-                // Its runs start in the project the schedule is in now.
-                // What it asks, and the scope its person confirmed, recalled
-                // for them; a recall that fails is a firing that failed.
-                let started = match self.words_of(&sc.person, sc.seq).await {
-                    Ok(w) => {
-                        #[cfg(debug_assertions)]
-                        self.sweep_gate(&sc.id).await;
-                        // Cancelled or paused while its words were recalled:
-                        // no run starts for a schedule that is gone or paused
-                        // now (behavior spec: cancelling stops future runs and
-                        // any run in flight; pausing stops future runs). No
-                        // await stands between this recheck and the creation
-                        // below.
-                        if !self.read(|s| s.schedules.get(&sc.id).is_some_and(|x| x.paused.is_none() && x.ended.is_none())) {
-                            continue;
-                        }
-                        let o = NewRun {
-                            // The server's per-task limit, never one the model set on the card.
-                            budget: Some(crate::task_budget::scheduled(&self.cfg.budget, sc.budget.as_ref())),
-                            label: (sc.label != crate::tools::Label::PRINCIPAL).then_some(sc.label),
-                            project: self.read(|s| s.project_of(&sc.id)),
-                            scope: w.opt(sc.seq, "scope"),
-                            // Each run posts in the conversation the schedule was set up in, where
-                            // its outcome wakes the agent too (outcomes.rs); one set up elsewhere,
-                            // or before that was recorded, in its own thread (owner, 2026-11-10).
-                            chat: Some(crate::events::ChatOrigin {
-                                thread: self.read(|s| crate::schedule_thread::of(s, &sc)),
-                                turn: false,
-                                from_run: None,
-                                conversation: vec![],
-                                opener: None,
-                            }),
-                            // A confirmed schedule runs on its own: the verifier judges the criteria
-                            // no code checks, and only what it cannot judge goes to its person
-                            // (owner, 2026-11-02; invariant 7 holds).
-                            modules: [("verifier".to_string(), true)].into(),
-                            ..Default::default()
-                        };
-                        self.create_run(&format!("schedule:{}", sc.id), &sc.person, w.text(sc.seq).to_string(), vec![], o).await
-                    }
-                    Err(e) => Err(e),
-                };
-                match started {
-                    Ok((task, _)) => {
-                        let _ = self.emit("kernel", Ev::ScheduleFired { id: sc.id.clone(), task }).await;
-                    }
-                    Err(e) => {
-                        tracing::error!("schedule {}: {e:#}", sc.id);
-                        let notice = self.notice_to(
-                            None,
-                            None,
-                            sc.person.clone(),
-                            format!("A schedule could not start: {title}"),
-                            serde_json::json!({ "reason": "schedule_failed", "evidence": { "schedule": sc.id, "error": format!("{e:#}") } }),
-                        );
-                        self.tell(vec![("kernel", Ev::ScheduleFailed { id: sc.id.clone(), reason: format!("{e:#}") }), ("kernel", notice)]).await;
-                    }
-                }
-            }
+            // People's schedules (`schedule_sweep`).
+            self.sweep_schedules(now).await;
             let (running, due): (Vec<String>, Vec<(String, u32)>) = self.read(|s| {
                 let running = s.runs.values().filter(|r| r.status == Status::Running).map(|r| r.id.clone()).collect();
                 let due = s
@@ -829,7 +690,7 @@ impl Kernel {
     /// The sweep writes an event and its notice; if the write fails, both
     /// are left unwritten and the next sweep tries again, so it is logged
     /// rather than returned.
-    async fn tell(&self, evs: Vec<(&str, Ev)>) {
+    pub(crate) async fn tell(&self, evs: Vec<(&str, Ev)>) {
         if let Err(e) = self.emit_all(evs).await {
             tracing::error!("sweep: {e:#}");
         }

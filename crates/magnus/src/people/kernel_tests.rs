@@ -46,7 +46,7 @@ async fn an_admin_in_the_servers_own_directory_stops_others_work() {
     let s = server_with("", |_| Router::new()).await;
     let k = &s.k;
     let lee = k.person("lee").unwrap();
-    assert!(!lee.has_role("admin"), "lee has an admin role here: the test needs one only in the directory");
+    assert!(!lee.roles.iter().any(|r| r == "admin"), "lee has an admin role here: the test needs one only in the directory");
     assert_eq!(k.authority(&lee).await, Authority::Admin);
     k.emit("person:mo", schedule("sched_a")).await.unwrap();
     let (task, _) = k.create_run("person:mo", "mo", "draft the letter".into(), vec![], crate::kernel::NewRun::default()).await.unwrap();

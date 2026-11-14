@@ -25,11 +25,12 @@ pub enum Authority {
 impl Authority {
     /// `p`'s, with the server's own directory's role for them.
     pub fn of(p: &Person, directory: Directory) -> Authority {
-        if p.is_owner() {
+        let r = super::rights(p);
+        if r.is_server_owner() {
             Authority::Owner
-        } else if p.has_role("admin") || directory == Directory::Admin {
+        } else if r.holds_admin_role() || directory == Directory::Admin {
             Authority::Admin
-        } else if p.has_role("guest") {
+        } else if r.holds_guest_role() {
             Authority::Guest
         } else {
             Authority::Member

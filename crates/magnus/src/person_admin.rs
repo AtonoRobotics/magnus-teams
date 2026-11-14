@@ -231,7 +231,7 @@ impl Kernel {
             }
         }
         // Their card, their Link wallet and the tokens of apps they built.
-        let built: Vec<String> = self.read(|s| s.connectors.values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
+        let built: Vec<String> = self.read(|s| s.apps.connectors().values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
         for name in [format!("payments/card/{person}"), format!("payments/link/{person}")].into_iter().chain(built) {
             self.vault.remove(&name).map_err(failed)?;
         }
@@ -259,7 +259,7 @@ impl Kernel {
             if let Err(e) = self.scrub_backups().await {
                 tracing::error!("erasing {person}: their content is still in backups: {e:#}");
                 out["erasure"] = json!("incomplete");
-                out["backups_pending"] = json!(self.read(|s| s.scrub_pending.as_ref().map(|p| p.files.clone())).unwrap_or_default());
+                out["backups_pending"] = json!(self.read(|s| s.server_ops.scrub_pending().map(|p| p.files.clone())).unwrap_or_default());
                 out["detail"] = json!(format!("their content is still in backups, which are rewritten without it at the next try (hourly, and at start): {e:#}"));
             }
         }
