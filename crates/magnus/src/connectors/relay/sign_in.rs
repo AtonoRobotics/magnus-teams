@@ -177,7 +177,7 @@ pub(crate) async fn handoff(k: &Arc<Kernel>, env: &Signed) -> Result<(), String>
     if w.app != connector || w.person != person {
         return Err(format!("the handoff is for {connector} and {person}, the sign-in for {} and {}", w.app, w.person));
     }
-    if k.read(|s| s.kill_switch) {
+    if k.read(|s| s.vault.kill_switch()) {
         return Err("the kill switch is engaged".into());
     }
     if !k.connector(&w.app).is_some_and(|c| k.via_relay(&c).is_some()) {

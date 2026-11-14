@@ -47,7 +47,7 @@ impl Kernel {
     /// Start it in the background: the sign-in or the connection does not
     /// wait for the model.
     fn open(self: &Arc<Self>, person: &str, app: Option<&str>) {
-        if !self.cfg.proposals.openers || self.read(|s| s.kill_switch) {
+        if !self.cfg.proposals.openers || self.read(|s| s.vault.kill_switch()) {
             return;
         }
         let (k, person, app) = (self.clone(), person.to_string(), app.map(String::from));

@@ -98,6 +98,7 @@ impl State {
             halts,
             watch,
             server_ops,
+            vault,
             tools,
             spend,
             catalog,
@@ -135,8 +136,6 @@ impl State {
             interrupts,
             review_runs,
             wake_marks,
-            secrets,
-            revoked,
             memory,
             attachments,
             files,
@@ -151,8 +150,6 @@ impl State {
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             audit: _,
             erasures: _,
-            kill_switch: _,
-            kill_switch_by: _,
             policies: _,
             policy_history: _,
             policy_drafts: _,
@@ -160,7 +157,6 @@ impl State {
             registrations: _,
             connector_settings: _,
             credential_changed: _,
-            sealed: _,
             data_private: _,
             model: _,
             admin_settings: _,
@@ -177,8 +173,8 @@ impl State {
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 17] =
-            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, server_ops, tools, spend, catalog];
+        let parts: [&mut dyn Forget; 18] =
+            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, server_ops, vault, tools, spend, catalog];
         for part in parts {
             part.forget(&who);
         }
@@ -234,9 +230,6 @@ impl State {
         // Their home mark: whoever is next known by their name starts
         // fresh (#412).
         home_last_open.remove(p);
-        // Their secrets' names, which the erasure took from the vault.
-        secrets.retain(|n| !their_secret(n, p));
-        revoked.retain(|n, _| !their_secret(n, p));
         // The rights they held go with them: whoever is next known by their
         // name starts from the organisation's config.
         roles_set.remove(p);

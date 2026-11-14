@@ -1552,7 +1552,7 @@ async fn sign_in(AxState(k): K, h: HeaderMap, Path(name): Path<String>, Json(b):
     if !crate::boundary::may_use(&p, &c) {
         return err(StatusCode::FORBIDDEN, "your organisation has not made this app available to you");
     }
-    if k.read(|s| s.kill_switch) {
+    if k.read(|s| s.vault.kill_switch()) {
         return err(StatusCode::CONFLICT, "the kill switch is engaged");
     }
     match k.connector_sign_in(&c, &p.id, b["redirect_uri"].as_str().unwrap_or_default()).await {

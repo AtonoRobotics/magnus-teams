@@ -12,8 +12,10 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod server_ops;
+pub mod vault;
 pub mod watch;
 pub use server_ops::{ScrubPending, Update};
+pub use vault::Revoked;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -288,15 +290,6 @@ pub struct Disagreement {
 }
 
 /// The verdicts a person can give, best first.
-/// A secret the kill switch took out: `at_provider` is None until the
-/// provider answered.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Revoked {
-    pub adapter: Option<String>,
-    pub at_provider: Option<bool>,
-    pub detail: Option<String>,
-}
-
 pub const VERDICTS: [&str; 4] = ["right", "partly", "wrong", "undone"];
 
 /// A file in a person's library: one they uploaded, or one a task delivered.
@@ -863,9 +856,8 @@ pub struct State {
     pub items: BTreeMap<String, Item>,
     pub approvals: Vec<Approval>,
     pub policies: BTreeMap<String, String>,
-    pub kill_switch: bool,
-    /// Who last engaged or released it, and when (as the log names them).
-    pub kill_switch_by: Option<(String, DateTime<Utc>)>,
+    /// Secrets' names and the kill switch.
+    pub vault: vault::Ledger,
     /// Everyone who has ever signed in here. Someone not in it signs in the
     /// first time on the identity provider's own page, which can walk them
     /// through what their account still needs (a new password, two-factor).
@@ -909,11 +901,6 @@ pub struct State {
     /// What was done in the admin console, oldest first: each entry's seq,
     /// when, and the action as written.
     pub audit: Vec<(i64, DateTime<Utc>, Value)>,
-    /// Secrets the kill switch emptied from the vault, latest engagement
-    /// only: what the owner signs in to or enters again.
-    pub revoked: BTreeMap<String, Revoked>,
-    /// Secrets the kill switch kept, sealed: only their provider can revoke them.
-    pub sealed: Vec<String>,
     /// Groups and roles from the identity provider, per person, as of their
     /// latest sign-in.
     pub provider_rights: HashMap<String, (Option<Vec<String>>, Option<Vec<String>>)>,
@@ -965,7 +952,6 @@ pub struct State {
     pub spend: crate::spend::Ledger,
     pub catalog: crate::catalog_withdrawal::Ledger,
     pub admin_settings: crate::admin_app::settings::Settings,
-    pub secrets: HashSet<String>,
     pub memory: Vec<MemoryEntry>,
     /// The company knowledge base; its searchable index is in Postgres.
     pub knowledge: HashMap<String, KnowledgeEntry>,
@@ -1300,10 +1286,7 @@ impl State {
                     }
                 }
             }
-            Ev::SecretSet { name } => {
-                self.secrets.insert(name.clone());
-                self.revoked.remove(name);
-            }
+            Ev::SecretSet { .. } | Ev::KillSwitch { .. } | Ev::VaultSealed { .. } | Ev::SecretRevoked { .. } => self.vault.fold(&e.ev, &e.actor, e.at),
             Ev::PolicySet { layer, cedar } => {
                 self.policies.insert(layer.clone(), cedar.clone());
                 self.policy_history.push(PolicyVersion { layer: layer.clone(), seq: e.seq, at: e.at, by: e.actor.clone(), cedar: cedar.clone() });
@@ -1353,10 +1336,6 @@ impl State {
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
             Ev::AdminSetting(c) => self.admin_settings.apply(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
-            Ev::KillSwitch { engaged } => {
-                self.kill_switch = *engaged;
-                self.kill_switch_by = Some((e.actor.clone(), e.at));
-            }
             Ev::AdminAction { .. } => {
                 if let Ok(v) = serde_json::to_value(&e.ev) {
                     self.audit.push((e.seq, e.at, v));
@@ -1428,16 +1407,6 @@ impl State {
                     r.escalated = Some((adapter.clone(), model.clone()));
                     r.lost_since = r.replies.len() as u32;
                 }
-            }
-            Ev::VaultSealed { revoking, kept } => {
-                self.revoked = revoking.iter().map(|n| (n.clone(), Revoked::default())).collect();
-                self.sealed = kept.clone();
-                for n in revoking {
-                    self.secrets.remove(n);
-                }
-            }
-            Ev::SecretRevoked { name, adapter, at_provider, detail } => {
-                self.revoked.insert(name.clone(), Revoked { adapter: Some(adapter.clone()), at_provider: Some(*at_provider), detail: Some(detail.clone()) });
             }
             Ev::SubjectBound { person, subject } => match subject {
                 Some(sub) => {

@@ -136,12 +136,12 @@ async fn switch_state(State(k): State<Arc<Kernel>>) -> Response {
     let running = k.sandboxes.running().await;
     Json(k.read(|s| {
         let halted = crate::halts::halted_runs(s).count();
-        let held = if s.kill_switch { s.schedules.values().filter(|x| x.next_due().is_some()).count() } else { 0 };
+        let held = if s.vault.kill_switch() { s.schedules.values().filter(|x| x.next_due().is_some()).count() } else { 0 };
         json!({
-            "engaged": s.kill_switch,
-            "by": s.kill_switch_by.as_ref().map(|(who, _)| who), "at": s.kill_switch_by.as_ref().map(|(_, at)| at),
+            "engaged": s.vault.kill_switch(),
+            "by": s.vault.kill_switch_by().map(|(who, _)| who), "at": s.vault.kill_switch_by().map(|(_, at)| at),
             "tasks_halted": halted, "schedules_held": held,
-            "sign_ins_revoked": s.revoked.len(),
+            "sign_ins_revoked": s.vault.revoked().len(),
             "microvms_frozen": frozen, "microvms_running": running,
         })
     }))
@@ -177,7 +177,7 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
         let bundle = s.bundle.values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).filter(|v| v.2 > day && !v.3.starts_with("human:")).count();
         let last_change = s.bundle.values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).map(|v| v.1).max();
         json!({
-            "version": crate::update::version(), "log_up": log_up, "kill_switch": s.kill_switch,
+            "version": crate::update::version(), "log_up": log_up, "kill_switch": s.vault.kill_switch(),
             "running_tasks": s.runs.values().filter(|r| r.status == Status::Running).count(),
             "waiting_tasks": s.runs.values().filter(|r| r.status == Status::Suspended).count(),
             "signed_in": signed_in, "microvms_running": vms,

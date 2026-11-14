@@ -735,7 +735,7 @@ impl Kernel {
         if self.brokered.generation(&c.name, person) != stops {
             return Err(format!("{app}'s microVM for {person} was stopped while this call waited. Nothing was sent"));
         }
-        if self.read(|s| s.kill_switch) {
+        if self.read(|s| s.vault.kill_switch()) {
             return Err("the kill switch is engaged. Nothing was sent".into());
         }
         if !self.connected(c, person) {

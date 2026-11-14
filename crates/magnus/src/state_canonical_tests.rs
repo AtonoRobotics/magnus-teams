@@ -160,13 +160,9 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     let d = |v: &dyn std::fmt::Debug| format!("{v:?}");
     let mut v = s.watch.canonical_fields();
     v.extend(s.server_ops.canonical_fields());
+    v.extend(s.vault.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
-        ("secrets", d(&s.secrets)),
-        ("revoked", d(&s.revoked)),
-        ("sealed", d(&s.sealed)),
-        ("kill_switch", d(&s.kill_switch)),
-        ("kill_switch_by", d(&s.kill_switch_by)),
         ("policies", d(&s.policies)),
         ("policy_history", d(&s.policy_history)),
         ("policy_drafts", d(&s.policy_drafts)),

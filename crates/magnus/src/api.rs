@@ -41,7 +41,7 @@ pub(crate) fn internal(e: anyhow::Error) -> Response {
 /// New work is refused while the kill switch is on, before anything about
 /// it is recorded (owner's ruling 11).
 pub(crate) fn refused_by_kill_switch(k: &crate::kernel::Kernel) -> Option<Response> {
-    k.read(|s| s.kill_switch).then(|| internal(crate::kernel::KillSwitchOn.into()))
+    k.read(|s| s.vault.kill_switch()).then(|| internal(crate::kernel::KillSwitchOn.into()))
 }
 
 /// Which listener a request came in on.
@@ -1488,7 +1488,7 @@ async fn kill_switch_state(State(k): K, h: HeaderMap) -> Response {
     if let Err(r) = owner(&k, &h).await {
         return r;
     }
-    let (engaged, revoked, sealed) = k.read(|s| (s.kill_switch, s.revoked.clone(), s.sealed.clone()));
+    let (engaged, revoked, sealed) = k.read(|s| (s.vault.kill_switch(), s.vault.revoked().clone(), s.vault.sealed().to_vec()));
     Json(json!({ "engaged": engaged, "revoked": revoked, "sealed": if engaged { sealed } else { vec![] } })).into_response()
 }
 
@@ -1648,7 +1648,7 @@ impl Kernel {
     /// took); otherwise what it took and did not see revoked is revoked,
     /// released since or not.
     pub async fn finish_kill_switch(self: &Arc<Self>) {
-        if self.vault.is_sealed() && !self.read(|s| s.kill_switch) {
+        if self.vault.is_sealed() && !self.read(|s| s.vault.kill_switch()) {
             tracing::warn!("the vault is sealed but the kill switch is not recorded: engaging it again");
             if let Err((_, e)) = self.kill_switch("kernel", true).await {
                 tracing::error!("could not engage the kill switch again: {e}");
@@ -1845,7 +1845,7 @@ async fn health(State(k): K) -> Response {
     // Down while the log's connection is lost: nothing can be recorded.
     let log = k.log.up().await;
     let body = Json(
-        json!({ "ok": log, "log": if log { "up" } else { "down" }, "version": HARNESS_VERSION, "release": crate::update::version(), "kill_switch": k.read(|s| s.kill_switch) }),
+        json!({ "ok": log, "log": if log { "up" } else { "down" }, "version": HARNESS_VERSION, "release": crate::update::version(), "kill_switch": k.read(|s| s.vault.kill_switch()) }),
     );
     if log {
         body.into_response()

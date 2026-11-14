@@ -254,7 +254,7 @@ impl Kernel {
     }
 
     async fn resume_updated(self: &Arc<Self>) -> Result<()> {
-        if self.read(|s| s.kill_switch) {
+        if self.read(|s| s.vault.kill_switch()) {
             return Ok(());
         }
         let runs: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.status == Status::Suspended && r.reason.as_deref() == Some("update")).map(|r| r.id.clone()).collect());
@@ -383,7 +383,7 @@ impl Kernel {
     fn rebind_after_failed_switch(&self, rollback: bool) -> Result<()> {
         if rollback {
             self.vault.bind_unbound()?;
-            if !self.read(|s| s.kill_switch) {
+            if !self.read(|s| s.vault.kill_switch()) {
                 self.vault.unseal();
             }
         }

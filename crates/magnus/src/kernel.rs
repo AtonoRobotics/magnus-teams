@@ -137,7 +137,7 @@ impl Kernel {
         }
         let vault = Arc::new(Vault::open(&cfg.appliance.state_dir)?);
         vault.bind_unbound()?;
-        if state.kill_switch {
+        if state.vault.kill_switch() {
             vault.seal();
         }
         let accounts = crate::accounts::Accounts::open(&cfg.database.url, cfg.sign_in.clone()).await?;
