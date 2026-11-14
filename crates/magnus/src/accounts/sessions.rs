@@ -1,9 +1,9 @@
 //! Sessions: opening one, finding the live one a token belongs to, and
 //! ending them, one, a device's or a person's.
 
-use super::{key, session_of, token_hash, Accounts, Session};
+use super::{key, rules, session_of, token_hash, Accounts, Session, Status};
 use anyhow::{Context, Result};
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use rand::RngCore;
 
 impl Accounts {
@@ -52,7 +52,7 @@ impl Accounts {
             id: crate::kernel::new_id("sess"),
             person,
             created: now,
-            expires: now + Duration::hours(policy.max_hours.max(1)),
+            expires: rules::session_expires(now, &policy),
             client: client.to_string(),
             device: device.map(str::to_string),
         };
@@ -79,19 +79,25 @@ impl Accounts {
         let policy = self.ttl_policy(c).await;
         let r = c
             .query_opt(
-                "SELECT s.id, s.person, s.created, s.expires, s.client, s.device, COALESCE(s.seen, s.created) FROM public.account_sessions s
+                "SELECT s.id, s.person, s.created, s.expires, s.client, s.device, COALESCE(s.seen, s.created) AS seen, t.status, now() AS now FROM public.account_sessions s
                  LEFT JOIN public.account_statuses t ON t.person = s.person
-                 WHERE s.hash = $1 AND s.expires > now() AND COALESCE(s.seen, s.created) > now() - make_interval(mins => $2::int) AND (t.status IS NULL OR t.status = 'active')",
-                &[&token_hash(token), &(policy.idle_minutes.max(1) as i32)],
+                 WHERE s.hash = $1",
+                &[&token_hash(token)],
             )
             .await
             .ok()
             .flatten()?;
+        // Judged on the store's own clock, read with the row.
+        let life = rules::SessionRow { expires: r.get("expires"), seen: r.get("seen"), status: r.get::<_, Option<String>>("status").map(|s| Status::parse(&s)), now: r.get("now") };
+        if !rules::session_live(&life, &policy) {
+            return None;
+        }
         let session = session_of(&r);
         // Best-effort: a stamp that cannot be written does not end a live
         // session, it only leaves the older one.
-        let _ =
-            c.execute("UPDATE public.account_sessions SET seen = now() WHERE hash = $1 AND COALESCE(seen, created) < now() - '60 seconds'::interval", &[&token_hash(token)]).await;
+        if rules::needs_restamp(&life) {
+            let _ = c.execute("UPDATE public.account_sessions SET seen = now() WHERE hash = $1", &[&token_hash(token)]).await;
+        }
         Some(session)
     }
 

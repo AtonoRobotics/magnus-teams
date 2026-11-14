@@ -30,6 +30,8 @@ mod directory;
 mod lockout;
 mod password;
 mod phc;
+mod reads;
+mod rules;
 mod schema;
 mod sessions;
 pub use check::{Attempt, Checked, Keeper, Via};
@@ -449,29 +451,6 @@ impl Accounts {
             .unwrap_or(Role::Member)
     }
 
-    /// Whether `person` is an enabled admin with no other: demoting or
-    /// disabling them would strand the organisation. Unrecorded people are
-    /// members, so an unmanaged switch never guards.
-    async fn sole_enabled_admin_tx(tx: &tokio_postgres::Transaction<'_>, person: &str) -> Result<bool> {
-        let role: Option<String> = tx.query_opt("SELECT role FROM public.account_roles WHERE person = $1", &[&person]).await?.map(|r| r.get(0));
-        if role.as_deref() != Some("admin") {
-            return Ok(false);
-        }
-        let status: Option<String> = tx.query_opt("SELECT status FROM public.account_statuses WHERE person = $1", &[&person]).await?.map(|r| r.get(0));
-        if status.as_deref().is_some_and(|s| s != "active") {
-            return Ok(false);
-        }
-        let others: i64 = tx
-            .query_one(
-                "SELECT COUNT(*) FROM public.account_roles r LEFT JOIN public.account_statuses s ON s.person = r.person
-                 WHERE r.role = 'admin' AND (s.status IS NULL OR s.status = 'active') AND r.person <> $1",
-                &[&person],
-            )
-            .await?
-            .get(0);
-        Ok(others == 0)
-    }
-
     /// Whether the appliance itself keeps this person (as opposed to the
     /// config or an outside directory). From the directory cache.
     pub fn is_local(&self, person: &str) -> bool {
@@ -760,12 +739,13 @@ impl Accounts {
         // stays live for a re-enabling, but accepting refuses alike and
         // consumes nothing (#449).
         let held: Option<String> = tx.query_opt("SELECT person FROM public.account_invites WHERE hash = $1", &[&token_hash(token.trim())]).await?.map(|r| r.get(0));
-        if let Some(person) = &held {
-            let status: Option<String> = tx.query_opt("SELECT status FROM public.account_statuses WHERE person = $1", &[person]).await?.map(|r| r.get(0));
-            if status.as_deref() == Some("disabled") {
-                tx.commit().await?;
-                return Ok(None);
-            }
+        let held = match &held {
+            Some(person) => Some(Self::status_tx(&tx, person).await?),
+            None => None,
+        };
+        if !rules::invite_consumes(held) {
+            tx.commit().await?;
+            return Ok(None);
         }
         // Consumed by the delete itself, so racing accepts admit exactly
         // one (#450).
@@ -814,21 +794,18 @@ impl Accounts {
             tx.commit().await?;
             return Ok(None);
         };
-        let status: Option<String> = tx.query_opt("SELECT status FROM public.account_statuses WHERE person = $1", &[&person]).await?.map(|r| r.get(0));
-        if status.as_deref().is_some_and(|s| s != "active") {
-            // Invited people follow their invitation; disabled people stay
-            // out. Either way the token, if any, is left alone.
-            tx.commit().await?;
-            return Ok(None);
-        }
-        let recent: bool = tx
-            .query_opt("SELECT requested FROM public.account_reset_tokens WHERE person = $1", &[&person])
-            .await?
-            .map(|r| r.get::<_, DateTime<Utc>>(0))
-            .is_some_and(|t| (at - t).num_seconds() < RESET_RESEND_SECONDS);
-        if recent {
-            tx.commit().await?;
-            return Ok(Some(ResetRequest { person, token: String::new(), send: false }));
+        let status = Self::status_tx(&tx, &person).await?;
+        let requested: Option<DateTime<Utc>> = tx.query_opt("SELECT requested FROM public.account_reset_tokens WHERE person = $1", &[&person]).await?.map(|r| r.get(0));
+        match rules::reset_request(Some(&rules::ResetHolder { status, requested }), at) {
+            rules::ResetAnswer::Nothing => {
+                tx.commit().await?;
+                return Ok(None);
+            }
+            rules::ResetAnswer::Silent => {
+                tx.commit().await?;
+                return Ok(Some(ResetRequest { person, token: String::new(), send: false }));
+            }
+            rules::ResetAnswer::Issue => {}
         }
         let mut raw = [0u8; 16];
         rand::rngs::OsRng.fill_bytes(&mut raw);
@@ -862,16 +839,21 @@ impl Accounts {
         tx.batch_execute("SELECT pg_advisory_xact_lock(hashtext('magnus-accounts'))").await?;
         tx.execute("DELETE FROM public.account_reset_tokens WHERE expires <= $1", &[&at]).await?;
         let held: Option<String> = tx.query_opt("SELECT person FROM public.account_reset_tokens WHERE hash = $1", &[&token_hash(token.trim())]).await?.map(|r| r.get(0));
-        if let Some(person) = &held {
-            // A token for nobody here confirms nothing: people made on the
-            // command line carry no status row, so the record, not the
-            // status, decides (#541).
-            let known: bool = tx.query_opt("SELECT 1 FROM public.account_people WHERE person = $1", &[person]).await?.is_some();
-            let status: Option<String> = tx.query_opt("SELECT status FROM public.account_statuses WHERE person = $1", &[person]).await?.map(|r| r.get(0));
-            if !known || status.as_deref().is_some_and(|s| s != "active") {
-                if !known {
-                    tx.execute("DELETE FROM public.account_reset_tokens WHERE hash = $1", &[&token_hash(token.trim())]).await?;
-                }
+        let holder = match &held {
+            Some(person) => {
+                let known: bool = tx.query_opt("SELECT 1 FROM public.account_people WHERE person = $1", &[person]).await?.is_some();
+                Some(rules::TokenHolder { known, status: Self::status_tx(&tx, person).await? })
+            }
+            None => None,
+        };
+        match rules::reset_confirm(holder.as_ref()) {
+            rules::ConfirmAnswer::Consume => {}
+            rules::ConfirmAnswer::DropToken => {
+                tx.execute("DELETE FROM public.account_reset_tokens WHERE hash = $1", &[&token_hash(token.trim())]).await?;
+                tx.commit().await?;
+                return Ok(None);
+            }
+            rules::ConfirmAnswer::Refuse => {
                 tx.commit().await?;
                 return Ok(None);
             }
