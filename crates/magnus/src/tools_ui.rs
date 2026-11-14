@@ -9,24 +9,12 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: crate::ui::images::EDIT_TOOL, app: "images", risk: Risk::ReversibleWrite, label: Label::PRINCIPAL, audience: Audience::Public },
 ];
 
-/// Run records the loop writes to the log itself, outside execute() (K21).
-pub const RECORDS: &[&str] = &[
-    "show",
-    "ui_catalog",
-    crate::ui::docs::EDIT_TOOL,
-    crate::ui::docs::SCREENSHOT_TOOL,
-    "task_contract",
-    "task_plan",
-    "task_complete",
-    "task_fail",
-    "ask_principal",
-    "propose_policy",
-    "end_schedule",
-    "wait_until",
-    "notify",
-    "observe",
-    "interrupt",
-];
+/// The rich-answer tools: run records the loop writes to the log itself,
+/// outside execute() (K21), declared here with their specs.
+pub const RECORDS: &[&str] = &["ui_catalog", crate::ui::docs::EDIT_TOOL, crate::ui::docs::SCREENSHOT_TOOL];
+
+/// A task's contract, retired at rev 147: its stored calls still read as a record.
+pub const RETIRED_CONTRACT: &str = "task_contract";
 
 const CATALOG: &str = "Rich answers. Most answers are plain text. To show a card, form, chart, table, gallery or dashboard, write a fenced block in your answer that starts ```magnus-ui, optionally with id=NAME, one element per line: `stat label=Revenue value=41.7 unit=M`. Indented lines belong to the element above. For what the catalog cannot express, write a ```magnus-html block: it runs in a sandbox with no network. Use this tool with an element name to read how it is written; with none, to list the elements.";
 const SCREENSHOT: &str = "See how a named magnus-html block you wrote looks, as the person will see it.";

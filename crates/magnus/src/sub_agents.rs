@@ -440,7 +440,7 @@ mod tests {
     fn a_retired_grant_input_is_read_as_nothing() {
         let a: Ask = serde_json::from_value(json!({ "goal": "Check the notes.", "grant": "grant_someone_elses", "tools": ["notes__list"] })).unwrap();
         assert_eq!((a.goal.as_str(), a.tools.as_slice(), a.budget_share), ("Check the notes.", &["notes__list".to_string()][..], None));
-        let spec = crate::tools_identity::sub_agent_spec(&|_| String::new());
+        let Some(spec) = crate::tools::builtin_specs(false, false, false, false).into_iter().find(|t| t.name == "start_sub_agent") else { panic!("no start_sub_agent") };
         assert!(spec.input_schema["properties"].get("grant").is_none(), "start_sub_agent still takes a grant");
     }
 

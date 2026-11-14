@@ -1,5 +1,5 @@
-//! The core family's tools: the ones `tools::BUILTINS` lists, carried out
-//! on this server, in the sandbox, the browser or the run's computer.
+//! The core family's tools: the ones `tool_registry` declares with an `Op`,
+//! carried out on this server, in the sandbox, the browser or the run's computer.
 use crate::boundary::{computer_command, media_type_for, Action, Issuer};
 use crate::events::Ev;
 use crate::kernel::{new_id, Kernel};
@@ -8,8 +8,9 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// What carries out a core tool. Every core built-in names one (a test
-/// holds it), and the match that carries them out is exhaustive.
+/// What carries out a core tool. Every core built-in names one in its
+/// declaration, every op is named by one (a test holds both), and the match
+/// that carries them out is exhaustive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Op {
     WebFetch,
@@ -19,7 +20,9 @@ pub(crate) enum Op {
     Suggest,
     RevokeGrant,
     FindTools,
-    Apps,
+    FindApps,
+    AppDetails,
+    OfferApp,
     Control,
     SandboxExec,
     SandboxWrite,
@@ -41,38 +44,43 @@ pub(crate) enum Op {
     Playbook,
 }
 
+/// Every op, for the test that each is declared: a new one is added here too.
+#[cfg(test)]
+pub(crate) const ALL: [Op; 29] = [
+    Op::WebFetch,
+    Op::WebSearch,
+    Op::CreateTask,
+    Op::CreateSchedule,
+    Op::Suggest,
+    Op::RevokeGrant,
+    Op::FindTools,
+    Op::FindApps,
+    Op::AppDetails,
+    Op::OfferApp,
+    Op::Control,
+    Op::SandboxExec,
+    Op::SandboxWrite,
+    Op::SandboxRead,
+    Op::Browser,
+    Op::Side,
+    Op::Computer,
+    Op::DeliverFile,
+    Op::MemoryWrite,
+    Op::MemorySearch,
+    Op::KnowledgeSearch,
+    Op::Bundle,
+    Op::Relationship,
+    Op::Disagreement,
+    Op::RecordCommitment,
+    Op::UpdateCommitment,
+    Op::KnowledgeAdd,
+    Op::ProjectRead,
+    Op::Playbook,
+];
+
 /// The op that carries out a core tool, by its name.
 pub(crate) fn op(tool: &str) -> Option<Op> {
-    Some(match tool {
-        "web_fetch" => Op::WebFetch,
-        "web_search" => Op::WebSearch,
-        "create_task" => Op::CreateTask,
-        "create_schedule" => Op::CreateSchedule,
-        "suggest" => Op::Suggest,
-        "revoke_grant" => Op::RevokeGrant,
-        "find_tools" => Op::FindTools,
-        "find_apps" | "app_details" | "offer_app" => Op::Apps,
-        t if crate::controls::TOOLS.contains(&t) => Op::Control,
-        "sandbox_exec" => Op::SandboxExec,
-        "sandbox_write_file" => Op::SandboxWrite,
-        "sandbox_read_file" => Op::SandboxRead,
-        t if t.starts_with("browser_") => Op::Browser,
-        "add_computer_destination" | "open_attachment" | "start_sub_agent" => Op::Side,
-        t if t.starts_with("computer_") => Op::Computer,
-        "deliver_file" => Op::DeliverFile,
-        "memory_write" => Op::MemoryWrite,
-        "memory_search" => Op::MemorySearch,
-        "knowledge_search" => Op::KnowledgeSearch,
-        "bundle_read" | "bundle_search" | "bundle_write" | "bundle_share" => Op::Bundle,
-        "relationship_note" => Op::Relationship,
-        "disagreement" => Op::Disagreement,
-        "record_commitment" => Op::RecordCommitment,
-        "update_commitment" => Op::UpdateCommitment,
-        "knowledge_add" => Op::KnowledgeAdd,
-        "project_read" => Op::ProjectRead,
-        "playbook_update" => Op::Playbook,
-        _ => return None,
-    })
+    crate::tool_registry::op(tool)
 }
 
 impl Kernel {
@@ -94,15 +102,15 @@ impl Kernel {
                 let v = self.find_tools(&run, a.input["query"].as_str().unwrap_or_default()).await;
                 Ok((v.to_string(), false, Some(v)))
             }
-            Op::Apps => {
+            Op::FindApps | Op::AppDetails | Op::OfferApp => {
                 let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).and_then(|p| self.person(&p));
                 let Some(person) = person else { return Ok(("no such person".into(), true, None)) };
-                Ok(match a.tool.as_str() {
-                    "find_apps" => {
+                Ok(match op {
+                    Op::FindApps => {
                         let v = self.find_apps(&person, a.input["query"].as_str().unwrap_or_default());
                         (v.to_string(), false, Some(v))
                     }
-                    "app_details" => match self.app_details(&person, a.input["name"].as_str().unwrap_or_default()) {
+                    Op::AppDetails => match self.app_details(&person, a.input["name"].as_str().unwrap_or_default()) {
                         Ok(v) => (v.to_string(), false, Some(v)),
                         Err(e) => (e, true, None),
                     },

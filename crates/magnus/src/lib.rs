@@ -116,11 +116,11 @@ pub mod team;
 pub mod tls;
 pub(crate) mod token_endpoint;
 pub mod tool_gate;
+pub(crate) mod tool_registry;
 #[cfg(test)]
 mod tool_specs_pin;
 pub mod tools;
 mod tools_core;
-mod tools_identity;
 pub mod tools_ui;
 pub mod totp;
 pub mod transport;
