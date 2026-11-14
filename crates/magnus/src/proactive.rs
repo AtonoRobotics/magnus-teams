@@ -526,28 +526,10 @@ impl crate::kernel::Kernel {
     /// working hours or over budget it waits for the next session; in
     /// quiet hours it posts now and pings when quiet ends (#237). What
     /// the `interrupt` record says back.
-    /// Whether the loop may `op` (`suggest`, `interrupt`, `act`) for
-    /// this run: person-directed runs are not the loop, so only review
-    /// and schedule-originated runs are governed and anything else is
-    /// allowed; a governed run needs the policy's leave (#368). Some
-    /// reason denies, following the boundary's fail-closed rule.
+    /// Whether the loop may `op` for this run (`State::loop_deny`).
     pub(crate) fn loop_deny(&self, run: &crate::state::Run, op: &str, tool: Option<&crate::policy::ToolFacts>) -> Option<String> {
-        let (task, policies) = self.read(|s| (s.tasks.get(&run.task).cloned(), s.policies.clone()));
-        let task = match task {
-            Some(t) => t,
-            None => return Some("policy cannot evaluate the loop action: the run has no task".into()),
-        };
-        if !task.review && task.schedule.is_none() {
-            return None;
-        }
-        let person = match self.person(&run.person) {
-            Some(p) => p,
-            None => return Some("policy cannot evaluate the loop action: the run has no person".into()),
-        };
-        match crate::policy::loop_allowed(&policies, &person, op, tool, run.untrusted, run.private) {
-            Ok(_) => None,
-            Err(crate::policy::LoopDeny::Forbidden(r)) | Err(crate::policy::LoopDeny::Broken(r)) => Some(r),
-        }
+        let person = self.person(&run.person);
+        self.read(|s| s.loop_deny(run, person.as_ref(), op, tool))
     }
 
     pub async fn interrupt_for(&self, run: &crate::state::Run, what: &str, why: &str, call_id: &str) -> anyhow::Result<(String, bool)> {
