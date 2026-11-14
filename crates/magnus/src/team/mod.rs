@@ -10,6 +10,8 @@ macro_rules! ok_or_return {
     };
 }
 
+#[cfg(test)]
+mod admission_tests;
 mod agent;
 pub mod chat;
 mod chat_routes;
@@ -60,6 +62,7 @@ pub mod team_admin;
 pub(crate) mod upkeep;
 mod whisper;
 
+pub(crate) use agent::refusal;
 pub(crate) use agent::signs_in_per_person;
 pub(crate) use agent::team_specs as specs;
 pub use agent::BUILTINS;

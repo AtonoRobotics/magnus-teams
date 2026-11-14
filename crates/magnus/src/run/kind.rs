@@ -120,9 +120,9 @@ impl RunKind {
         self.is_chat_turn() || matches!(self, RunKind::TeamRequest | RunKind::TeamRoutine)
     }
 
-    /// Whether it is offered a task's records (plan, Done, failure). A run
-    /// that converses ends with its answer instead. Only a chat turn has a
-    /// record call refused: a team run that makes one is handled as before.
+    /// Whether it may use a task's records (plan, Done, failure). A run
+    /// that converses ends with its answer instead, and a record call it
+    /// makes is refused (`run::admission`).
     pub fn offers_records(&self) -> bool {
         !self.converses()
     }

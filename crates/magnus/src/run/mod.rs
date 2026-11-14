@@ -2,6 +2,7 @@
 //! run records (contract, completion, failure, questions, proposals, waits)
 //! that the loop writes to the log itself (K21). Run records grant nothing.
 
+pub(crate) mod admission;
 mod agent_loop;
 pub mod kind;
 mod loop_calls;
@@ -315,9 +316,8 @@ impl Kernel {
         harness_text(&who, self.web.can_search(), self.sandboxes.available(), self.browser.available(), &watched)
     }
 
-    /// Tools offered to the run's next model call: run records, built-ins,
-    /// and the person's classified app tools with screened definitions.
-    /// A chat turn is offered every built-in action and the chat tools.
+    /// Tools offered to the run's next model call: its catalog, as far as
+    /// the one rule of what it may use admits (`admission`).
     pub async fn tools_for(&self, run: &Run) -> Vec<ToolSpec> {
         self.offered(run, false).await
     }
@@ -329,23 +329,17 @@ impl Kernel {
     }
 
     async fn offered(&self, run: &Run, every: bool) -> Vec<ToolSpec> {
-        let kind = self.run_kind(&run.id);
+        self.admitted(run, self.tool_catalog(run, every).await)
+    }
+
+    /// Every tool there is for this run on this server, before the one rule
+    /// of what it may use (`admission`): the built-ins this server can carry
+    /// out, the chat and team tools, the person's families, and their
+    /// connected apps (past `LOAD_ALL`, those found, unless `every`).
+    pub(crate) async fn tool_catalog(&self, run: &Run, every: bool) -> Vec<ToolSpec> {
         let mut specs =
             tools::builtin_specs(self.sandboxes.available(), self.web.can_search(), self.browser.available() || self.cfg.computer.is_some(), self.cfg.computer.is_some());
-        if kind.is_chat_turn() {
-            specs.retain(|t| crate::chat_work::offered_in_chat(&t.name));
-            specs.extend(tools::chat_specs());
-        } else {
-            // A task or a review suggests work to the inbox, having no thread
-            // (#393), and sets up and sees schedules: a schedule never asks on
-            // its own (spec rev 142). A scheduled run sets up none.
-            specs.extend(tools::chat_specs().into_iter().filter(|t| crate::chat_work::in_any_run(&t.name, kind.under_schedule())));
-            // A member's request in a team thread ends with its answer, as
-            // chat does: it is offered no contract, plan or Done.
-            if !kind.offers_records() {
-                specs.retain(|t| !tools::RECORDS.contains(&t.name.as_str()));
-            }
-        }
+        specs.extend(tools::chat_specs());
         // project_read only where there are reference files to read.
         if !self.read(|s| s.with_authority(&run.id).and_then(|t| t.project).is_some_and(|p| !p.files.is_empty())) {
             specs.retain(|t| t.name != "project_read");
@@ -359,11 +353,8 @@ impl Kernel {
         } else {
             specs.extend(apps);
         }
-        // A sub-agent: what it and each run above it were given, and its records.
-        self.read(|s| specs.retain(|t| tools::RECORDS.contains(&t.name.as_str()) || s.sub_agents.refusal(&run.id, &t.name).is_none()));
-        // Without the tools of a connector a kill switch took away.
-        let specs = self.team_scoped(run, specs);
-        self.read(|s| crate::halts::offered(s, specs))
+        specs.extend(crate::team::specs());
+        specs
     }
 
     /// The tools found by this run's `find_tools` calls.
@@ -546,16 +537,24 @@ impl Kernel {
 
     pub(crate) async fn record_call(self: &Arc<Self>, run: &Run, call_id: &str, _step_id: &str, name: &str, input: &Value) -> Result<Flow> {
         let rid = run.id.as_str();
+        // The one rule of what a run may use (`admission`): a chat turn or a
+        // team run has no contract, plan or Done, and ends with its answer.
+        match self.admits(run, name) {
+            Ok(()) => {}
+            Err(admission::Refusal::Halted { reason, .. }) => {
+                self.suspend(rid, &reason, None).await?;
+                return Ok(Flow::Stop);
+            }
+            Err(admission::Refusal::Denied { why, .. }) => {
+                self.result(rid, call_id, why, true).await?;
+                return Ok(Flow::Continue);
+            }
+        }
         if name == "show" {
             return self.show(run, call_id, input).await;
         }
         if let Some(flow) = self.ui_record(run, call_id, name, input).await {
             return flow;
-        }
-        // A chat turn has no contract, plan or Done: it ends with its answer.
-        if self.run_kind(rid).is_chat_turn() {
-            self.result(rid, call_id, format!("{name} is not available in chat. When the work is done, reply with your answer as text."), true).await?;
-            return Ok(Flow::Continue);
         }
         match name {
             // Retired by spec rev 147: no contract is recorded, and none is needed.

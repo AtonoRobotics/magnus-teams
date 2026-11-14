@@ -83,7 +83,10 @@ fn a_connectors_switch_holds_a_call_to_it_and_takes_its_tools_away() {
     assert_eq!(halt_of(&s, "ra", Some("notes__list")), None);
     assert!(holds_new(&s, "alice", false).is_none(), "a connector's switch refused work that may not need it");
     let spec = |n: &str| magnus_adapter_proto::ToolSpec { name: n.into(), description: String::new(), input_schema: json!({}) };
-    let kept: Vec<String> = offered(&s, vec![spec("mail__send"), spec("notes__list")]).into_iter().map(|t| t.name).collect();
+    // Offered by the same rule the boundary asks (`run::admission`).
+    let setting = crate::run::admission::Setting::default();
+    let admission = crate::run::admission::Admission::new(&s, &s.runs["ra"], &setting);
+    let kept: Vec<String> = admission.filter(vec![spec("mail__send"), spec("notes__list")]).into_iter().map(|t| t.name).collect();
     assert_eq!(kept, ["notes__list"]);
     // Running work that needs it: a run that has called it.
     ev(&mut s, 6, "kernel", json!({ "kind": "intent", "run": "ra", "call_id": "c1", "step_id": "s", "key": "k1", "tool": "mail__send", "input": {}, "issuer": "model" }));

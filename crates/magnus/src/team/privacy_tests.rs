@@ -132,20 +132,12 @@ async fn a_team_run_never_uses_a_members_own_sign_in() {
     let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "update the crm".into()).await.unwrap();
     let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
     let spec = |name: &str| magnus_adapter_proto::ToolSpec { name: name.into(), description: String::new(), input_schema: json!({}) };
-    let offered: Vec<String> = s.k.team_scoped(&run, vec![spec("crm__update"), spec("open__search")]).into_iter().map(|t| t.name).collect();
+    let offered: Vec<String> = s.k.admitted(&run, vec![spec("crm__update"), spec("open__search")]).into_iter().map(|t| t.name).collect();
     assert!(!offered.contains(&"crm__update".to_string()), "a member's own sign-in was offered to a team run: {offered:?}");
     assert!(offered.contains(&"open__search".to_string()), "{offered:?}");
-    let action = |tool: &str| crate::boundary::Action {
-        run: run.id.clone(),
-        call_id: "c".into(),
-        step_id: "s".into(),
-        tool: tool.into(),
-        input: json!({}),
-        issuer: crate::boundary::Issuer::Model,
-    };
-    let why = s.k.team_refusal(&action("crm__update"), &run);
-    assert!(why.as_deref().is_some_and(|w| w.contains("own sign-in")), "{why:?}");
-    assert_eq!(s.k.team_refusal(&action("open__search"), &run), None);
+    let why = s.k.admits(&run, "crm__update");
+    assert!(matches!(&why, Err(crate::run::admission::Refusal::Denied { why, .. }) if why.contains("own sign-in")), "{why:?}");
+    assert_eq!(s.k.admits(&run, "open__search"), Ok(()));
     s.done().await;
 }
 
