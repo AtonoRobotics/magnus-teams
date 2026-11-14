@@ -1,33 +1,12 @@
+use super::super::fake_computerd::Fake;
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
 
 /// A computerd that wakes VMs (or is full) and whose guests answer at once.
-fn fake_computerd(dir: &Path, full: bool) -> std::path::PathBuf {
-    let socket = dir.join("computerd.sock");
-    let listener = UnixListener::bind(&socket).unwrap();
-    tokio::spawn(async move {
-        while let Ok((s, _)) = listener.accept().await {
-            tokio::spawn(async move {
-                let (r, mut w) = s.into_split();
-                let mut lines = BufReader::new(r).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let req: Value = serde_json::from_str(&line).unwrap();
-                    let reply = match req["op"].as_str().unwrap() {
-                        "wake" if full => json!({ "ok": false, "error": "the server runs as many computers as it can" }),
-                        "wake" => json!({ "ok": true, "resumed": true, "overlay_fresh": false }),
-                        "connect" | "ping" => json!({ "ok": true }),
-                        "exec" => json!({ "exit_code": 0 }),
-                        "read" => json!({ "data_b64": "SHOT" }),
-                        other => json!({ "ok": false, "error": format!("unexpected {other}") }),
-                    };
-                    w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
-                }
-            });
-        }
-    });
-    socket
+fn fake_computerd(full: bool) -> Fake {
+    let f = Fake::start();
+    f.set(|s| s.full = full);
+    f
 }
 
 #[test]
@@ -82,8 +61,8 @@ fn a_wake_is_logged_with_where_its_time_went() {
 
 #[tokio::test]
 async fn a_wake_records_the_start_then_waits_for_the_guest() {
-    let d = tempfile::tempdir().unwrap();
-    let socket = fake_computerd(d.path(), false);
+    let f = fake_computerd(false);
+    let socket = f.socket.clone();
     assert!(claim("w-boot"));
     let started = AtomicBool::new(false);
     let booted = boot(&socket, "w-boot", || async {
@@ -100,8 +79,8 @@ async fn a_wake_records_the_start_then_waits_for_the_guest() {
 
 #[tokio::test]
 async fn a_full_server_queues_the_wake_instead_of_failing() {
-    let d = tempfile::tempdir().unwrap();
-    let socket = fake_computerd(d.path(), true);
+    let f = fake_computerd(true);
+    let socket = f.socket.clone();
     let started = AtomicBool::new(false);
     let booted = boot(&socket, "w-full", || async {
         started.store(true, Ordering::SeqCst);
@@ -115,8 +94,8 @@ async fn a_full_server_queues_the_wake_instead_of_failing() {
 
 #[tokio::test]
 async fn the_last_screenshot_is_kept_to_show_while_it_sleeps_and_wakes() {
-    let d = tempfile::tempdir().unwrap();
-    let socket = fake_computerd(d.path(), false);
+    let f = fake_computerd(false);
+    let socket = f.socket.clone();
     assert!(last_screen("w-shot").is_none());
     assert_eq!(screenshot(&socket, "w-shot").await.unwrap(), "SHOT");
     assert_eq!(last_screen("w-shot").map(|(i, _)| i).as_deref(), Some("SHOT"), "the screenshot before sleep was not kept");

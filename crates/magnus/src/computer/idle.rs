@@ -1,4 +1,5 @@
 //! A computer no one is using hibernates to a snapshot.
+use super::client::Request;
 use super::{Change, Role, Status};
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -122,7 +123,7 @@ impl Kernel {
         for id in running {
             // Not while a wake boots it or a hibernation puts it to sleep.
             let Some(_held) = super::wake::claim_hibernation(&id) else { continue };
-            let state = match super::client::ask(socket, serde_json::json!({ "op": "status", "id": id })).await {
+            let state = match super::client::ask(socket, Request::Status { id: id.to_string() }).await {
                 Ok(v) => v["state"].as_str().unwrap_or_default().to_string(),
                 Err(e) => {
                     tracing::warn!("computer {id}: could not ask the machine whether it runs: {e:#}");

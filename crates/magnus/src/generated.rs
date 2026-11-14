@@ -19,6 +19,7 @@ use axum::routing::{delete, get, put};
 use axum::{Json, Router};
 use base64::Engine;
 use magnus_adapter_proto::ToolSpec;
+use magnus_computerd_proto::guest::GuestRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -335,17 +336,17 @@ impl Kernel {
             .filter(|(c, _)| c.owner.as_deref() == Some(person))
             .filter_map(|(c, _)| Some((format!("{}.json", c.name), serde_json::to_string_pretty(&Definition::decoded(&c.url)?).ok()?)))
             .collect();
-        if let Ok(listed) = self.computer_file_for(&computer, json!({ "op": "list", "path": FOLDER })).await {
+        if let Ok(listed) = self.computer_file_for(&computer, GuestRequest::List { path: FOLDER.to_string() }).await {
             for e in listed["entries"].as_array().into_iter().flatten() {
                 let name = e["name"].as_str().unwrap_or_default();
                 if !mine.iter().any(|(file, _)| file == name) {
-                    let _ = self.computer_file_for(&computer, json!({ "op": "erase", "path": format!("{FOLDER}/{name}") })).await;
+                    let _ = self.computer_file_for(&computer, GuestRequest::Erase { path: format!("{FOLDER}/{name}") }).await;
                 }
             }
         }
         for (file, body) in mine {
             let data_b64 = base64::engine::general_purpose::STANDARD.encode(body);
-            if let Err(e) = self.computer_file_for(&computer, json!({ "op": "write", "path": format!("{FOLDER}/{file}"), "data_b64": data_b64 })).await {
+            if let Err(e) = self.computer_file_for(&computer, GuestRequest::write(format!("{FOLDER}/{file}"), data_b64)).await {
                 tracing::warn!("keeping {file} on the volume: {e:?}");
             }
         }

@@ -5,6 +5,7 @@
 //! the computer deletes both. A computer the log no longer knows (deleted
 //! before this existed, or by a kill cut short) is swept at start.
 
+use super::client::Request;
 use super::{Change, Computer, KillMode, Owner};
 use crate::config::Person;
 use crate::controls::Refused;
@@ -97,7 +98,7 @@ impl Kernel {
         self.emit_all(changes.into_iter().map(|ch| (actor.as_str(), Ev::Computer(ch))).collect()).await.map_err(super::service::failed)?;
         forget_surrogates(&self.vault, id).map_err(super::service::failed)?;
         super::wake::forget_screen(id);
-        super::client::ask(&socket, json!({ "op": "erase_volume", "id": id })).await.map_err(super::service::failed)?;
+        super::client::ask(&socket, Request::EraseVolume { id: id.to_string() }).await.map_err(super::service::failed)?;
         Ok(json!({ "id": id, "revoked": revoked, "erased": true }))
     }
 

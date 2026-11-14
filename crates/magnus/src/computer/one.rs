@@ -9,6 +9,7 @@
 //! its volume; the others go by the usual deletion, which computerd finishes
 //! within the purge window, and the owner is told.
 
+use super::client::Request;
 use super::{client, service::failed, Change, Computer, KillMode, Ledger, Owner, Role, Status};
 use crate::controls::Refused;
 use crate::events::Ev;
@@ -116,7 +117,7 @@ pub(super) fn deletion(c: &Computer) -> Vec<Change> {
 pub(super) async fn delete_after(k: &Kernel, socket: &Path, id: &str) -> Result<(), Refused> {
     super::lifecycle::forget_secrets(&k.vault, id).map_err(failed)?;
     super::wake::forget_screen(id);
-    client::ask(socket, json!({ "op": "destroy", "id": id, "delete_volume": true })).await.map_err(failed)?;
+    client::ask(socket, Request::Destroy { id: id.to_string(), delete_volume: true }).await.map_err(failed)?;
     Ok(())
 }
 
@@ -150,7 +151,7 @@ impl Kernel {
             return Err(Refused::NotFound("person or workspace"));
         }
         let id = super::service::new_id();
-        client::ask(&socket, json!({ "op": "create", "id": id })).await.map_err(failed)?;
+        client::ask(&socket, Request::Create { id: id.to_string() }).await.map_err(failed)?;
         self.emit("kernel", Ev::Computer(Change::Created { id: id.clone(), owner: owner.clone() })).await.map_err(failed)?;
         tracing::info!("made computer {id} for {owner:?}");
         Ok(Some(id))

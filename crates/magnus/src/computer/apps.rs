@@ -1,6 +1,7 @@
 //! The app manifest: what a computer has installed, kept outside it with its
 //! installers, so a VM can be thrown away and its apps put back.
 
+use super::client::GuestRequest;
 use super::{client, App, Change, Status};
 use crate::config::Person;
 use crate::controls::Refused;
@@ -85,7 +86,7 @@ fn verified(dir: &Path, sha256: &str) -> Result<PathBuf> {
 }
 
 async fn exec(socket: &Path, id: &str, command: String) -> Result<Value> {
-    client::guest_for(socket, id, json!({ "op": "exec", "command": command, "timeout_s": STEP_SECONDS }), STEP_WAIT).await
+    client::guest_for(socket, id, GuestRequest::exec(command, STEP_SECONDS), STEP_WAIT).await
 }
 
 /// Puts one app back on a computer whose overlay is new.
@@ -101,7 +102,7 @@ pub(super) async fn replay(dir: &Path, socket: &Path, id: &str, app: &App) -> Re
             break;
         }
         let data_b64 = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-        let reply = client::guest(socket, id, json!({ "op": "write", "path": target, "data_b64": data_b64, "append": append })).await?;
+        let reply = client::guest(socket, id, GuestRequest::Write { path: target.to_string(), data_b64, append: Some(append) }).await?;
         ensure!(reply["error"].is_null(), "{}", reply["error"]);
         if n == 0 {
             break;
@@ -176,7 +177,7 @@ impl Kernel {
         let mut hash = Sha256::new();
         let mut offset = 0u64;
         loop {
-            let reply = client::guest(socket, id, json!({ "op": "read", "path": installer, "offset": offset, "length": CHUNK_BYTES })).await?;
+            let reply = client::guest(socket, id, GuestRequest::Read { path: installer.to_string(), offset: Some(offset), length: Some(CHUNK_BYTES) }).await?;
             ensure!(reply["error"].is_null(), "{}", reply["error"]);
             let bytes = b64.decode(reply["data_b64"].as_str().unwrap_or_default()).context("the computer sent bad base64")?;
             if bytes.is_empty() {

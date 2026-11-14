@@ -1,101 +1,9 @@
 //! One computer, always there: against a kernel booted on a fresh database
 //! and a computerd that answers at once and remembers what it was asked.
 
+use super::super::fake_computerd::Fake;
 use super::*;
 use crate::legal::TEST_CONFIG as LEGAL;
-use std::sync::Mutex;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
-
-type Asked = Arc<Mutex<Vec<Value>>>;
-/// While set, the server has no room: every wake is refused for capacity.
-type Full = Arc<std::sync::atomic::AtomicBool>;
-/// What computerd serves (crates/computerd/src/version.rs, `OPS`).
-const REAL_OPS: &[&str] = &[
-    "create",
-    "start",
-    "hibernate",
-    "wake",
-    "discard_snapshot",
-    "backup",
-    "egress_socket",
-    "capacity",
-    "whose",
-    "restore_backup",
-    "start_browser",
-    "zero_room",
-    "dig_holes",
-    "seal_volume",
-    "unseal_volume",
-    "start_helper",
-    "pause",
-    "resume",
-    "stop",
-    "destroy",
-    "erase_volume",
-    "status",
-    "list",
-    "connect",
-    "display",
-    "version",
-];
-
-/// Creates, wakes, destroys and erases at once; its guests answer every
-/// desktop action with a screenshot. As the real one, a computer whose
-/// overlay was thrown away (a destroy, an erase) wakes on a fresh one.
-fn fake_computerd(socket: &Path, full: Full, old: Full, unclean: Full) -> Asked {
-    let asked: Asked = Arc::default();
-    let listener = UnixListener::bind(socket).unwrap();
-    let log = asked.clone();
-    let fresh: Arc<Mutex<std::collections::HashSet<String>>> = Arc::default();
-    tokio::spawn(async move {
-        while let Ok((s, _)) = listener.accept().await {
-            let log = log.clone();
-            let fresh = fresh.clone();
-            let full = full.clone();
-            let old = old.clone();
-            let unclean = unclean.clone();
-            tokio::spawn(async move {
-                let (r, mut w) = s.into_split();
-                let mut lines = BufReader::new(r).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let req: Value = serde_json::from_str(&line).unwrap();
-                    log.lock().unwrap().push(req.clone());
-                    let id = req["id"].as_str().unwrap_or_default().to_string();
-                    let reply = match req["op"].as_str().unwrap() {
-                        // Built before `version` and `erase_volume`, as the server's was on 2026-11-11.
-                        op @ ("version" | "erase_volume") if old.load(std::sync::atomic::Ordering::SeqCst) => {
-                            json!({ "ok": false, "error": format!("bad request: unknown variant `{op}`") })
-                        }
-                        "version" => json!({ "ok": true, "version": "0.0.0", "base_id": null, "ops": REAL_OPS }),
-                        "wake" if full.load(std::sync::atomic::Ordering::SeqCst) => json!({ "ok": false, "error": "computerd already runs as many computers as it may" }),
-                        "wake" => {
-                            let new = fresh.lock().unwrap().remove(&id);
-                            json!({ "ok": true, "resumed": !new, "overlay_fresh": new })
-                        }
-                        "destroy" | "erase_volume" => {
-                            fresh.lock().unwrap().insert(id);
-                            json!({ "ok": true })
-                        }
-                        "write" => json!({}),
-                        "create" | "connect" | "ping" | "hibernate" | "pause" | "resume" => json!({ "ok": true }),
-                        "exec" => json!({ "exit_code": 0 }),
-                        "takeover_begin" => json!({ "ok": true }),
-                        "takeover_leftovers" => json!({ "ok": true, "programs": ["gedit"] }),
-                        "takeover_end" if unclean.load(std::sync::atomic::Ordering::SeqCst) => {
-                            json!({ "error": "1 processes started during the takeover would not stop: spy (pid 9)" })
-                        }
-                        "takeover_end" => json!({ "ok": true, "stopped": ["spy (pid 9)"], "stopped_count": 1, "removed": [] }),
-                        "read" => json!({ "data_b64": "SHOT" }),
-                        other => json!({ "ok": false, "error": format!("unexpected {other}") }),
-                    };
-                    w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
-                }
-            });
-        }
-    });
-    asked
-}
 
 fn pg() -> String {
     std::env::var("MAGNUS_TEST_PG").unwrap_or_else(|_| "postgres://postgres:magnus_dev@127.0.0.1:54340/postgres".into())
@@ -103,11 +11,9 @@ fn pg() -> String {
 
 struct Server {
     k: Arc<Kernel>,
-    asked: Asked,
-    full: Full,
-    old: Full,
-    /// While set, the guest cannot confirm a takeover left nothing running.
-    unclean: Full,
+    /// Creates, wakes, destroys and erases at once; its guests answer every
+    /// desktop action with a screenshot.
+    fake: Fake,
     db: String,
     _dir: tempfile::TempDir,
 }
@@ -131,10 +37,7 @@ async fn server() -> Server {
     .unwrap();
     c.batch_execute(&crate::accounts::migrate_sql("postgres")).await.unwrap();
     let socket = dir.path().join("computerd.sock");
-    let full = Full::default();
-    let old = Full::default();
-    let unclean = Full::default();
-    let asked = fake_computerd(&socket, full.clone(), old.clone(), unclean.clone());
+    let fake = Fake::at(&socket);
     let p = dir.path().join("magnus.toml");
     let state = dir.path().join("state");
     std::fs::write(
@@ -146,7 +49,7 @@ async fn server() -> Server {
     )
     .unwrap();
     let k = Kernel::boot(crate::config::Config::load(&p).unwrap()).await.unwrap();
-    Server { k, asked, full, old, unclean, db: name, _dir: dir }
+    Server { k, fake, db: name, _dir: dir }
 }
 
 impl Server {
@@ -160,7 +63,7 @@ impl Server {
     }
 
     fn asked(&self, op: &str) -> Vec<Value> {
-        self.asked.lock().unwrap().iter().filter(|r| r["op"] == op).cloned().collect()
+        self.fake.asked_op(op)
     }
 
     /// A computer made the way it was before rev 142: by hand, one of several.
@@ -298,14 +201,14 @@ async fn a_reset_an_older_computerd_cannot_do_is_refused_plainly_and_changes_not
     let s = server().await;
     s.k.reconcile_computers().await;
     let id = s.computers_of(&person("mo"))[0].id.clone();
-    s.old.store(true, std::sync::atomic::Ordering::SeqCst);
+    s.fake.set(|f| f.old = true);
     let mo = s.k.person("mo").unwrap();
     let e = s.k.reset_computer(&mo, &id, false).await.unwrap_err();
     assert_eq!(e.to_string(), super::super::lifecycle::ERASE_NEEDS_UPDATE);
     assert!(!e.to_string().contains("bad request"));
     assert!(s.asked("erase_volume").is_empty(), "computerd was asked anyway");
     assert!(!s.k.read(|st| st.computers.get(&id).is_some_and(|c| c.status == Status::Killed)), "the reset was recorded though nothing was erased");
-    s.old.store(false, std::sync::atomic::Ordering::SeqCst);
+    s.fake.set(|f| f.old = false);
     s.k.reset_computer(&mo, &id, false).await.expect("once computerd is updated, the reset works without a restart");
     assert_eq!(s.asked("erase_volume").len(), 1);
     s.done().await;
@@ -458,7 +361,7 @@ async fn a_tool_call_at_capacity_waits_its_turn_and_goes_on() {
     let s = server().await;
     s.k.reconcile_computers().await;
     let id = s.computers_of(&person("mo"))[0].id.clone();
-    s.full.store(true, std::sync::atomic::Ordering::SeqCst);
+    s.fake.set(|f| f.full = true);
     let gave_up = s.k.wake_in_turn(&id, "run:r0", Duration::from_secs(1)).await.unwrap_err();
     assert!(gave_up.to_string().contains("no room"), "{gave_up}");
     assert_eq!(s.computers_of(&person("mo"))[0].status, Status::Queued);
@@ -526,7 +429,7 @@ async fn a_handback_the_computer_cannot_confirm_clean_keeps_the_agent_paused() {
     let mo = s.k.person("mo").unwrap();
     s.k.start_takeover(&mo, &id).await.unwrap();
     assert_eq!(s.asked("takeover_begin").len(), 1, "the takeover began without a boundary");
-    s.unclean.store(true, std::sync::atomic::Ordering::SeqCst);
+    s.fake.set(|f| f.unclean = true);
     let e = s.k.hand_back(&mo, &id).await.unwrap_err();
     assert!(e.to_string().contains("the agent stays paused") && e.to_string().contains("spy (pid 9)"), "{e}");
     let held = &s.computers_of(&person("mo"))[0];
@@ -537,7 +440,7 @@ async fn a_handback_the_computer_cannot_confirm_clean_keeps_the_agent_paused() {
     // Taking control again keeps the first boundary; the retry is clean.
     s.k.start_takeover(&mo, &id).await.unwrap();
     assert_eq!(s.asked("takeover_begin").len(), 1, "a second take moved the boundary past what the first session started");
-    s.unclean.store(false, std::sync::atomic::Ordering::SeqCst);
+    s.fake.set(|f| f.unclean = false);
     let done = s.k.hand_back(&mo, &id).await.unwrap();
     assert_eq!(done["left_running"]["stopped"], json!(["spy (pid 9)"]));
     let back = &s.computers_of(&person("mo"))[0];

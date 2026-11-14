@@ -1,6 +1,7 @@
 //! The operations on a computer: who may, what the log says, what computerd does.
 
-use super::{apps, client, Change, Computer, KillMode, Owner, Role, Status};
+use super::client::{self, GuestRequest, Request};
+use super::{apps, Change, Computer, KillMode, Owner, Role, Status};
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::events::Ev;
@@ -22,6 +23,8 @@ pub(super) const USER_FILES: &str = "/workspace/";
 const MAX_HOST_CHARS: usize = 253;
 /// Where the guest looks for certificate authorities to trust.
 const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.crt";
+/// How long the guest gives `update-ca-certificates`.
+const CA_UPDATE_SECONDS: u64 = 60;
 /// A stopped computer's files are reached one helper VM at a time.
 /// As long as filling a whole volume can take.
 const ZERO_FREE_WAIT: Duration = Duration::from_secs(30 * 60);
@@ -155,7 +158,7 @@ impl Kernel {
                 return Err(Refused::Conflict("a kill switch holds the computer; it resumes when the switch is released".into()));
             }
             Status::Paused => {
-                client::ask(&socket, json!({ "op": "resume", "id": id })).await.map_err(failed)?;
+                client::ask(&socket, Request::Resume { id: id.to_string() }).await.map_err(failed)?;
                 self.record_computer(who, Change::Started { id: id.into() }).await?;
                 return Ok(json!({ "status": "running" }));
             }
@@ -235,8 +238,8 @@ impl Kernel {
         use base64::Engine;
         let pem = super::egress::certificate_pem(&self.vault, id)?;
         let data_b64 = base64::engine::general_purpose::STANDARD.encode(pem);
-        client::guest(socket, id, json!({ "op": "write", "path": GUEST_CA_FILE, "data_b64": data_b64 })).await?;
-        client::guest(socket, id, json!({ "op": "exec", "command": "update-ca-certificates", "timeout_s": 60 })).await?;
+        client::guest(socket, id, GuestRequest::write(GUEST_CA_FILE, data_b64)).await?;
+        client::guest(socket, id, GuestRequest::exec("update-ca-certificates", CA_UPDATE_SECONDS)).await?;
         Ok(())
     }
 
@@ -258,19 +261,19 @@ impl Kernel {
     /// as the computer service counts them (Admin, Operations).
     pub async fn computer_capacity(&self) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
-        client::ask(&socket, json!({ "op": "capacity" })).await.map_err(failed)
+        client::ask(&socket, Request::Capacity).await.map_err(failed)
     }
 
     pub async fn backup_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
         self.controlled_computer(who, id)?;
-        client::ask(&socket, json!({ "op": "backup", "id": id })).await.map_err(failed)
+        client::ask(&socket, Request::Backup { id: id.to_string() }).await.map_err(failed)
     }
 
     pub async fn restore_computer(&self, who: &Person, id: &str) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
         self.controlled_computer(who, id)?;
-        let v = client::ask(&socket, json!({ "op": "restore_backup", "id": id })).await.map_err(failed)?;
+        let v = client::ask(&socket, Request::RestoreBackup { id: id.to_string() }).await.map_err(failed)?;
         self.record_computer(who, Change::Restored { id: id.into(), at: v["restored"].as_u64().unwrap_or_default() }).await?;
         Ok(v)
     }
@@ -278,7 +281,7 @@ impl Kernel {
     pub async fn delete_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         let path = user_path(path)?;
-        self.on_computer(who, id, json!({ "op": "erase", "path": path })).await?;
+        self.on_computer(who, id, GuestRequest::Erase { path: path.to_string() }).await?;
         self.record_computer(who, Change::FileDeleted { id: id.into(), path: path.into(), at: chrono::Utc::now() }).await?;
         Ok(json!({ "deleted": path }))
     }
@@ -324,9 +327,9 @@ impl Kernel {
         evs.push((actor.as_str(), Ev::Computer(Change::Killed { id: id.into(), mode, delete_volume })));
         self.emit_all(evs).await.map_err(failed)?;
         let req = match mode {
-            KillMode::Pause if c.status == Status::Running => json!({ "op": "pause", "id": id }),
+            KillMode::Pause if c.status == Status::Running => Request::Pause { id: id.to_string() },
             KillMode::Pause => return Ok(json!({ "revoked": revoked })),
-            KillMode::Destroy => json!({ "op": "destroy", "id": id, "delete_volume": false }),
+            KillMode::Destroy => Request::Destroy { id: id.to_string(), delete_volume: false },
         };
         client::ask(&socket, req).await.map_err(failed)?;
         Ok(json!({ "revoked": revoked }))
@@ -346,14 +349,14 @@ impl Kernel {
         evs.push((actor, Ev::Computer(Change::Killed { id: id.into(), mode: KillMode::Pause, delete_volume: false })));
         evs.extend(also.map(|ch| (actor, Ev::Computer(ch))));
         self.emit_all(evs).await?;
-        client::ask(&socket, json!({ "op": "pause", "id": id })).await?;
+        client::ask(&socket, Request::Pause { id: id.to_string() }).await?;
         Ok(())
     }
 
     pub async fn write_computer_file(&self, who: &Person, id: &str, path: &str, data_b64: &str) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         let path = user_path(path)?;
-        let v = self.on_computer(who, id, json!({ "op": "write", "path": path, "data_b64": data_b64 })).await?;
+        let v = self.on_computer(who, id, GuestRequest::write(path, data_b64)).await?;
         Ok(json!({ "written": path, "reply": v }))
     }
 
@@ -361,18 +364,18 @@ impl Kernel {
     pub async fn list_computer_files(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         let path = if path == USER_FILES { path } else { user_path(path)? };
-        self.on_computer(who, id, json!({ "op": "list", "path": path })).await
+        self.on_computer(who, id, GuestRequest::List { path: path.to_string() }).await
     }
 
     pub async fn read_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
         self.opened_computer(who, id)?;
         let path = user_path(path)?;
-        self.on_computer(who, id, json!({ "op": "read", "path": path })).await
+        self.on_computer(who, id, GuestRequest::read(path)).await
     }
 
     /// A live computer's guest agent, or for a stopped one a helper VM with
     /// its volume and no network: the host never mounts a volume.
-    async fn on_computer(&self, who: &Person, id: &str, req: Value) -> Result<Value, Refused> {
+    async fn on_computer(&self, who: &Person, id: &str, req: GuestRequest) -> Result<Value, Refused> {
         let c = self.controlled_computer(who, id)?;
         self.computer_file_for(&c, req).await
     }
@@ -386,9 +389,9 @@ impl Kernel {
             tracing::warn!("computer {}: no screenshot was kept before it slept: {e:#}", c.id);
         }
         let zeroed = self.zero_deleted_blocks(socket, c).await;
-        client::ask(socket, json!({ "op": "hibernate", "id": c.id })).await?;
+        client::ask(socket, Request::Hibernate { id: c.id.clone() }).await?;
         if zeroed {
-            if let Err(e) = client::ask(socket, json!({ "op": "dig_holes", "id": c.id })).await {
+            if let Err(e) = client::ask(socket, Request::DigHoles { id: c.id.clone() }).await {
                 tracing::warn!("computer {}: the host did not get its blocks back: {e:#}", c.id);
             }
         }
@@ -399,7 +402,7 @@ impl Kernel {
         if c.deleted_files.last().is_none_or(|d| c.free_space_zeroed.is_some_and(|at| at >= d.at)) {
             return false;
         }
-        match client::ask(socket, json!({ "op": "zero_room", "id": c.id })).await {
+        match client::ask(socket, Request::ZeroRoom { id: c.id.clone() }).await {
             Ok(v) if v["room"] == true => {}
             Ok(_) => {
                 tracing::warn!("computer {}: the host has no room to zero its free space, so deleted files may linger there", c.id);
@@ -410,7 +413,7 @@ impl Kernel {
                 return false;
             }
         }
-        match client::guest_for(socket, &c.id, json!({ "op": "zero_free" }), ZERO_FREE_WAIT).await {
+        match client::guest_for(socket, &c.id, GuestRequest::ZeroFree, ZERO_FREE_WAIT).await {
             Ok(v) if v["error"].is_null() => {
                 let change = Change::FreeSpaceZeroed { id: c.id.clone(), at: chrono::Utc::now() };
                 if let Err(e) = self.emit("kernel", Ev::Computer(change)).await {
@@ -430,13 +433,13 @@ impl Kernel {
     }
 
     /// A file request on a computer the caller may already reach.
-    pub(crate) async fn computer_file_for(&self, c: &Computer, req: Value) -> Result<Value, Refused> {
+    pub(crate) async fn computer_file_for(&self, c: &Computer, req: GuestRequest) -> Result<Value, Refused> {
         let socket = self.computer_socket()?;
         let id = c.id.as_str();
         let reply = match c.status {
             Status::Running => {
                 let reply = client::guest(&socket, id, req).await.map_err(failed)?;
-                client::guest(&socket, id, json!({ "op": "sync" })).await.map_err(failed)?;
+                client::guest(&socket, id, GuestRequest::Sync).await.map_err(failed)?;
                 reply
             }
             Status::Stopped | Status::Hibernated => {
@@ -455,7 +458,7 @@ impl Kernel {
 pub(super) async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
     let started = Instant::now();
     loop {
-        match client::guest(socket, id, json!({ "op": "ping" })).await {
+        match client::guest(socket, id, GuestRequest::Ping).await {
             Ok(_) => return Ok(()),
             Err(e) if started.elapsed() > BOOT_WAIT => return Err(e.context("the computer did not boot")),
             Err(_) => tokio::time::sleep(BOOT_POLL).await,
@@ -463,18 +466,18 @@ pub(super) async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
     }
 }
 
-async fn in_helper(socket: &Path, id: &str, req: Value) -> Result<Value> {
+async fn in_helper(socket: &Path, id: &str, req: GuestRequest) -> Result<Value> {
     // Reading leaves a hibernated computer's memory snapshot usable.
-    let read_only = req["op"] == "read";
-    client::ask(socket, json!({ "op": "start_helper", "id": id, "read_only": read_only })).await?;
+    let read_only = matches!(req, GuestRequest::Read { .. });
+    client::ask(socket, Request::StartHelper { id: id.to_string(), read_only }).await?;
     let done = async {
         wait_for_guest(socket, id).await?;
         let reply = client::guest(socket, id, req).await?;
-        client::guest(socket, id, json!({ "op": "sync" })).await?;
+        client::guest(socket, id, GuestRequest::Sync).await?;
         Ok::<Value, anyhow::Error>(reply)
     }
     .await;
-    client::ask(socket, json!({ "op": "stop", "id": id })).await?;
+    client::ask(socket, Request::Stop { id: id.to_string() }).await?;
     done
 }
 
@@ -490,7 +493,7 @@ pub fn schedule(k: Arc<Kernel>) {
     tokio::spawn(async move {
         let killed: Vec<String> = k.read(|s| s.computers.all().filter(|c| c.status == Status::Killed).map(|c| c.id.clone()).collect());
         for id in killed {
-            if let Err(e) = client::ask(&socket, json!({ "op": "stop", "id": id })).await {
+            if let Err(e) = client::ask(&socket, Request::Stop { id: id.to_string() }).await {
                 tracing::warn!("could not finish killing computer {id}: {e:#}");
             }
         }
@@ -502,7 +505,7 @@ pub fn schedule(k: Arc<Kernel>) {
             if !super::wake::claim(&id) {
                 continue;
             }
-            match client::ask(&socket, json!({ "op": "wake", "id": id })).await {
+            match client::ask(&socket, Request::Wake { id: id.to_string() }).await {
                 Ok(woke) => {
                     if let Err(e) = k.emit("kernel", Ev::Computer(Change::Started { id: id.clone() })).await {
                         tracing::warn!("computer {id} started but could not be recorded: {e:#}");

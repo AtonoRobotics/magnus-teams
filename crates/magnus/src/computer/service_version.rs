@@ -7,7 +7,9 @@
 //! with the command that updates it, and refuses what it cannot serve in
 //! plain words instead of passing "bad request" on.
 
+use super::client::Request;
 use anyhow::{anyhow, Result};
+use magnus_computerd_proto::VersionReply;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -70,11 +72,10 @@ pub fn is_bad_request(e: &anyhow::Error) -> bool {
 /// What a reply to `version` means.
 pub fn read_reply(reply: Result<Value>) -> Result<Seen> {
     match reply {
-        Ok(v) => Ok(Seen::Known {
-            version: v["version"].as_str().unwrap_or_default().to_string(),
-            base_id: v["base_id"].as_str().map(str::to_string),
-            ops: v["ops"].as_array().map(|a| a.iter().filter_map(|o| o.as_str().map(str::to_string)).collect()).unwrap_or_default(),
-        }),
+        Ok(v) => {
+            let VersionReply { version, base_id, ops } = serde_json::from_value(v).unwrap_or_default();
+            Ok(Seen::Known { version, base_id, ops })
+        }
         Err(e) if is_bad_request(&e) => Ok(Seen::Old),
         Err(e) => Err(e),
     }
@@ -82,7 +83,7 @@ pub fn read_reply(reply: Result<Value>) -> Result<Seen> {
 
 /// Ask computerd what it is, and remember it.
 pub async fn check(socket: &Path) -> Result<Seen> {
-    let s = read_reply(super::client::ask_unchecked(socket, json!({ "op": "version" })).await)?;
+    let s = read_reply(super::client::ask_unchecked(socket, Request::Version).await)?;
     remember(socket, s.clone());
     Ok(s)
 }

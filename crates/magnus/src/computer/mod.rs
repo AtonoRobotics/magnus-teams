@@ -12,6 +12,8 @@ mod display;
 mod driving;
 mod egress;
 mod export;
+#[cfg(test)]
+mod fake_computerd;
 mod halt;
 mod identity;
 mod idle;

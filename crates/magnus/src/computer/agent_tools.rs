@@ -8,6 +8,7 @@
 //! is for runs and checks (decisions/2026-11-08-agent-computer-rulings.md).
 
 use super::apps::NewApp;
+use super::client::GuestRequest;
 use super::{client, Owner};
 use crate::kernel::Kernel;
 use crate::tools::obj;
@@ -97,8 +98,7 @@ impl Kernel {
         if tool == EXEC_TOOL {
             let command = input["command"].as_str().unwrap_or_default();
             let seconds = exec_seconds(input);
-            let v = client::guest_for(&socket, &id, json!({ "op": "exec", "command": command, "timeout_s": seconds }), Duration::from_secs(seconds + EXEC_REPLY_MARGIN_SECONDS))
-                .await?;
+            let v = client::guest_for(&socket, &id, GuestRequest::exec(command, seconds), Duration::from_secs(seconds + EXEC_REPLY_MARGIN_SECONDS)).await?;
             let (text, failed) = shown(&v);
             return Ok(Some((text, failed, Some(v))));
         }
@@ -110,7 +110,7 @@ impl Kernel {
             let v = client::guest_for(
                 &socket,
                 &id,
-                json!({ "op": "exec", "command": step_command(new.installer(), step), "timeout_s": EXEC_MAX_SECONDS }),
+                GuestRequest::exec(step_command(new.installer(), step), EXEC_MAX_SECONDS),
                 Duration::from_secs(EXEC_MAX_SECONDS + EXEC_REPLY_MARGIN_SECONDS),
             )
             .await?;

@@ -9,8 +9,9 @@
 //! cut and none opens, so nothing is started behind the cleanup.
 
 use super::client;
+use super::client::GuestRequest;
 use anyhow::{anyhow, Result};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
@@ -47,7 +48,7 @@ pub(super) fn cleared(reply: &Value) -> Result<Cleared, String> {
 
 /// The boundary, recorded before the takeover is.
 pub(super) async fn begin(socket: &Path, id: &str) -> Result<()> {
-    let reply = client::guest(socket, id, json!({ "op": "takeover_begin" })).await?;
+    let reply = client::guest(socket, id, GuestRequest::TakeoverBegin).await?;
     if reply["ok"] == true {
         return Ok(());
     }
@@ -55,7 +56,7 @@ pub(super) async fn begin(socket: &Path, id: &str) -> Result<()> {
 }
 
 pub(super) async fn end(socket: &Path, id: &str) -> Result<Cleared, String> {
-    match client::guest(socket, id, json!({ "op": "takeover_end" })).await {
+    match client::guest(socket, id, GuestRequest::TakeoverEnd).await {
         Ok(reply) => cleared(&reply),
         Err(e) => Err(short(&format!("{e:#}"), MAX_WHY_CHARS)),
     }
@@ -63,7 +64,7 @@ pub(super) async fn end(socket: &Path, id: &str) -> Result<Cleared, String> {
 
 /// The programs a handback would close now. Nothing is stopped.
 pub(super) async fn preview(socket: &Path, id: &str) -> Result<Vec<String>> {
-    let reply = client::guest(socket, id, json!({ "op": "takeover_leftovers" })).await?;
+    let reply = client::guest(socket, id, GuestRequest::TakeoverLeftovers).await?;
     if reply["ok"] != true {
         return Err(anyhow!("{}", short(reply["error"].as_str().unwrap_or("the computer did not answer"), MAX_WHY_CHARS)));
     }
@@ -129,6 +130,7 @@ impl Drop for HandingBack {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn only_a_plain_ok_is_clean_and_what_the_guest_names_is_kept_short() {

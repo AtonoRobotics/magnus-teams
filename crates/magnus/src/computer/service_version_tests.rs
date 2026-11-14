@@ -1,6 +1,5 @@
+use super::super::fake_computerd::Fake;
 use super::*;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixListener;
 
 fn known(version: &str, base: Option<&str>, ops: &[&str]) -> Seen {
     Seen::Known { version: version.into(), base_id: base.map(str::to_string), ops: ops.iter().map(|s| s.to_string()).collect() }
@@ -87,68 +86,36 @@ fn the_update_command_names_the_shipped_installer_and_the_release_directory() {
     );
 }
 
-/// A computerd from before `version` and `erase_volume`: it refuses both
-/// as the real one did, "bad request".
-fn old_computerd(socket: &Path) {
-    let listener = UnixListener::bind(socket).unwrap();
-    tokio::spawn(async move {
-        while let Ok((s, _)) = listener.accept().await {
-            tokio::spawn(async move {
-                let (r, mut w) = s.into_split();
-                let mut line = String::new();
-                BufReader::new(r).read_line(&mut line).await.unwrap();
-                let req: Value = serde_json::from_str(&line).unwrap();
-                let reply = match req["op"].as_str().unwrap() {
-                    "capacity" => json!({ "ok": true, "live": 0 }),
-                    op => json!({ "ok": false, "error": format!("bad request: unknown variant `{op}`, expected one of `create`, `capacity`") }),
-                };
-                w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
-            });
-        }
-    });
-}
-
+/// A computerd from before `version` and `erase_volume` refuses both as
+/// the real one did, "bad request".
 #[tokio::test]
 async fn an_old_computerd_is_seen_as_behind_and_its_bad_request_is_put_plainly() {
-    let d = tempfile::tempdir().unwrap();
-    let socket = d.path().join("computerd.sock");
-    old_computerd(&socket);
-    assert_eq!(check(&socket).await.unwrap(), Seen::Old);
-    let e = super::super::client::ask(&socket, json!({ "op": "erase_volume", "id": "abc" })).await.unwrap_err();
+    let f = Fake::start();
+    f.set(|s| s.old = true);
+    let socket = &f.socket;
+    assert_eq!(check(socket).await.unwrap(), Seen::Old);
+    let e = super::super::client::ask(socket, Request::EraseVolume { id: "abc".into() }).await.unwrap_err();
     assert_eq!(e.to_string(), OUTDATED);
     assert!(!e.to_string().contains("bad request"));
-    assert!(super::super::client::ask(&socket, json!({ "op": "capacity" })).await.is_ok(), "what it can do still works");
-    assert!(!serves(&socket, "erase_volume").await.unwrap());
+    assert!(super::super::client::ask(socket, Request::Capacity).await.is_ok(), "what it can do still works");
+    assert!(!serves(socket, "erase_volume").await.unwrap());
 }
 
-/// A computerd that says what it serves is not sent what it does not.
+/// A computerd that says what it serves is not sent what it does not. A
+/// request no computerd knows cannot be written at all: the requests are
+/// typed (`magnus_computerd_proto`), and computerd refuses an unknown one as
+/// a bad request (its server's tests).
 #[tokio::test]
 async fn a_request_computerd_does_not_list_is_refused_before_it_is_sent() {
-    let d = tempfile::tempdir().unwrap();
-    let socket = d.path().join("computerd.sock");
-    let listener = UnixListener::bind(&socket).unwrap();
-    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-    let log = asked.clone();
-    tokio::spawn(async move {
-        while let Ok((s, _)) = listener.accept().await {
-            let log = log.clone();
-            tokio::spawn(async move {
-                let (r, mut w) = s.into_split();
-                let mut line = String::new();
-                BufReader::new(r).read_line(&mut line).await.unwrap();
-                let req: Value = serde_json::from_str(&line).unwrap();
-                let op = req["op"].as_str().unwrap().to_string();
-                log.lock().unwrap().push(op.clone());
-                let reply = if op == "version" { json!({ "ok": true, "version": "1.0.0", "base_id": null, "ops": ["version", "capacity"] }) } else { json!({ "ok": true }) };
-                w.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
-            });
-        }
-    });
-    check(&socket).await.unwrap();
-    let e = super::super::client::ask(&socket, json!({ "op": "a_request_from_the_future", "id": "abc" })).await.unwrap_err();
+    let f = Fake::start();
+    f.set(|s| s.ops = Some(vec!["version".into(), "capacity".into()]));
+    let socket = &f.socket;
+    check(socket).await.unwrap();
+    let e = super::super::client::ask(socket, Request::EraseVolume { id: "abc".into() }).await.unwrap_err();
     assert_eq!(e.to_string(), OUTDATED);
-    assert!(!asked.lock().unwrap().iter().any(|o| o == "a_request_from_the_future"), "it was sent anyway");
-    super::super::client::ask(&socket, json!({ "op": "capacity" })).await.unwrap();
+    assert!(f.asked_op("erase_volume").is_empty(), "it was sent anyway");
+    super::super::client::ask(socket, Request::Capacity).await.unwrap();
+    assert_eq!(f.asked_op("capacity").len(), 1);
 }
 
 #[test]

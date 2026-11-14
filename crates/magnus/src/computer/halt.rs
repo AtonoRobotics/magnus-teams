@@ -12,12 +12,12 @@
 //! microVM, never in the agent's computer, so no computer's work is a
 //! connector's (`decisions/2026-11-11-kill-switch-reaches-the-computer.md`).
 
+use super::client::Request;
 use super::{client, Change, KillMode, Owner, Role, Status};
 use crate::events::Ev;
 use crate::halts::{Scope, SERVER_REASON};
 use crate::kernel::Kernel;
 use anyhow::Result;
-use serde_json::json;
 
 impl Kernel {
     /// The owners whose computers a switch below the server's reaches, given
@@ -64,14 +64,14 @@ impl Kernel {
     }
 
     async fn resume_held(&self, socket: &std::path::Path, actor: &str, id: &str) -> Result<()> {
-        match client::ask(socket, json!({ "op": "resume", "id": id })).await {
+        match client::ask(socket, Request::Resume { id: id.to_string() }).await {
             Ok(_) => {
                 self.emit(actor, Ev::Computer(Change::Started { id: id.into() })).await?;
             }
             Err(e) => {
                 tracing::warn!("computer {id} could not resume ({e:#}); it is rebuilt on its next use");
                 self.emit(actor, Ev::Computer(Change::Killed { id: id.into(), mode: KillMode::Destroy, delete_volume: false })).await?;
-                client::ask(socket, json!({ "op": "destroy", "id": id, "delete_volume": false })).await?;
+                client::ask(socket, Request::Destroy { id: id.to_string(), delete_volume: false }).await?;
             }
         }
         Ok(())

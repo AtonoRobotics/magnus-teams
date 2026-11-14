@@ -1,5 +1,6 @@
 //! A computer's files, leaving in bulk: what the person picked, or the whole
 //! user volume with its app manifest, as one ordinary tar file.
+use super::client::GuestRequest;
 use super::service::{user_path, USER_FILES};
 use crate::api::who;
 use crate::config::Person;
@@ -30,7 +31,7 @@ const FILE_MODE: u32 = 0o644;
 /// by the guest as files and never followed into.
 pub(super) async fn gather<F, Fut>(roots: &[String], mut ask: F) -> Result<Vec<(String, Vec<u8>)>, Refused>
 where
-    F: FnMut(Value) -> Fut,
+    F: FnMut(GuestRequest) -> Fut,
     Fut: Future<Output = Result<Value, Refused>>,
 {
     let mut todo: Vec<(String, usize)> = roots.iter().rev().map(|r| (r.clone(), 0)).collect();
@@ -40,7 +41,7 @@ where
             return Err(Refused::Invalid(format!("{path} is more than {MAX_EXPORT_DEPTH} folders deep")));
         }
         if path.ends_with('/') {
-            let listed = ask(json!({ "op": "list", "path": path })).await?;
+            let listed = ask(GuestRequest::List { path: path.to_string() }).await?;
             let entries = listed["entries"].as_array().cloned().unwrap_or_default();
             for e in entries.iter().rev() {
                 let name = e["name"].as_str().unwrap_or_default();
@@ -52,7 +53,7 @@ where
             }
             continue;
         }
-        let read = ask(json!({ "op": "read", "path": path })).await?;
+        let read = ask(GuestRequest::read(path.as_str())).await?;
         let bytes = base64::engine::general_purpose::STANDARD.decode(read["data_b64"].as_str().unwrap_or_default()).map_err(|e| Refused::Failed(format!("{path}: {e}")))?;
         total += bytes.len();
         if total > MAX_EXPORT_BYTES || out.len() >= MAX_EXPORT_FILES {
@@ -132,15 +133,14 @@ mod tests {
         BTreeMap::from([("/workspace/a.txt", "one"), ("/workspace/notes/b.md", "two"), ("/workspace/notes/deep/c.csv", "three"), ("/workspace/other.txt", "four")])
     }
 
-    async fn ask(tree: &BTreeMap<&'static str, &'static str>, req: Value) -> Result<Value, Refused> {
-        let path = req["path"].as_str().unwrap_or_default();
-        match req["op"].as_str() {
-            Some("read") => {
-                tree.get(path).map(|t| json!({ "data_b64": base64::engine::general_purpose::STANDARD.encode(t) })).ok_or(Refused::Failed(format!("{path}: no such file")))
+    async fn ask(tree: &BTreeMap<&'static str, &'static str>, req: GuestRequest) -> Result<Value, Refused> {
+        match req {
+            GuestRequest::Read { path, .. } => {
+                tree.get(path.as_str()).map(|t| json!({ "data_b64": base64::engine::general_purpose::STANDARD.encode(t) })).ok_or(Refused::Failed(format!("{path}: no such file")))
             }
-            Some("list") => {
+            GuestRequest::List { path } => {
                 let mut names = std::collections::BTreeSet::new();
-                for k in tree.keys().filter_map(|k| k.strip_prefix(path)) {
+                for k in tree.keys().filter_map(|k| k.strip_prefix(path.as_str())) {
                     names.insert(match k.split_once('/') {
                         Some((d, _)) => (d.to_string(), true),
                         None => (k.to_string(), false),
@@ -198,9 +198,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_tree_too_deep_is_refused_not_walked_forever() {
-        let deep = |req: Value| async move {
-            let p = req["path"].as_str().unwrap_or_default().to_string();
-            Ok::<_, Refused>(if p.ends_with('/') { json!({ "entries": [{ "name": "d", "dir": true }] }) } else { json!({}) })
+        let deep = |req: GuestRequest| async move {
+            let listing = matches!(req, GuestRequest::List { .. });
+            Ok::<_, Refused>(if listing { json!({ "entries": [{ "name": "d", "dir": true }] }) } else { json!({}) })
         };
         assert!(matches!(gather(&["/workspace/x/".to_string()], deep).await, Err(Refused::Invalid(_))));
     }

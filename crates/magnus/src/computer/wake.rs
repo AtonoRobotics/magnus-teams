@@ -6,6 +6,7 @@
 //!
 //! The paused state is the kill switch: no use wakes it. Only its person's
 //! Resume does (`decisions/2026-11-09-wake-on-use.md`).
+use super::client::{GuestRequest, Request};
 use super::{client, Change, Status};
 use crate::controls::Refused;
 use crate::events::Ev;
@@ -170,7 +171,7 @@ where
 {
     set_phase(id, Phase::Starting);
     let asked = Instant::now();
-    let mut woke = match client::ask(socket, json!({ "op": "wake", "id": id })).await {
+    let mut woke = match client::ask(socket, Request::Wake { id: id.to_string() }).await {
         Ok(v) => v,
         Err(e) if client::at_capacity(&e) => return Ok(Booted::AtCapacity),
         Err(e) => return Err(e),
@@ -320,11 +321,11 @@ const CAPTURE_TIMEOUT_SECONDS: u64 = 60;
 /// One desktop action, then a screenshot of what it left.
 pub(super) async fn act_and_capture(socket: &Path, id: &str, tool: &str, input: &Value) -> Result<String> {
     let command = crate::boundary::computer_command(tool, input)?;
-    let done = client::guest(socket, id, json!({ "op": "exec", "command": command, "timeout_s": CAPTURE_TIMEOUT_SECONDS })).await?;
+    let done = client::guest(socket, id, GuestRequest::exec(command, CAPTURE_TIMEOUT_SECONDS)).await?;
     if done["exit_code"] != json!(0) {
         return Err(anyhow!("the desktop action failed: {}", done["stderr"].as_str().unwrap_or_default()));
     }
-    let shot = client::guest(socket, id, json!({ "op": "read", "path": SCREENSHOT_PATH })).await?;
+    let shot = client::guest(socket, id, GuestRequest::read(SCREENSHOT_PATH)).await?;
     let image = shot["data_b64"].as_str().map(String::from).ok_or_else(|| anyhow!("the computer did not return its screen"))?;
     keep_screen(id, &image);
     Ok(image)

@@ -1,7 +1,12 @@
-//! Talks to `magnus-computerd`. What a guest sends back is untrusted.
+//! Talks to `magnus-computerd`, in the requests both define once
+//! (`magnus_computerd_proto`): the socket, the op names, the version check
+//! and the guest's reopening stay here. What a guest sends back is
+//! untrusted, and stays a JSON value for the caller to read.
 
 use anyhow::{anyhow, bail, Context, Result};
-use serde_json::{json, Value};
+pub(crate) use magnus_computerd_proto::guest::GuestRequest;
+pub(crate) use magnus_computerd_proto::Request;
+use serde_json::Value;
 use std::path::Path;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -16,6 +21,13 @@ const MAX_REPLY_BYTES: u64 = 1 << 16;
 const MAX_GUEST_REPLY_BYTES: u64 = 64 << 20;
 /// Computerd's words when a machine is at its limit of live computers.
 const AT_CAPACITY: &str = "as many computers";
+
+/// One request as it goes on the socket: a JSON line.
+fn line(req: &impl serde::Serialize) -> Result<Vec<u8>> {
+    let mut l = serde_json::to_vec(req)?;
+    l.push(b'\n');
+    Ok(l)
+}
 
 async fn read_line(s: impl tokio::io::AsyncRead + Unpin, limit: u64) -> Result<Value> {
     let mut line = String::new();
@@ -40,19 +52,18 @@ pub fn at_capacity(e: &anyhow::Error) -> bool {
 /// One request to computerd. One it is known not to serve is refused here,
 /// and one it cannot read comes back in plain words: computerd is older
 /// than this server (`service_version`).
-pub async fn ask(socket: &Path, req: Value) -> Result<Value> {
-    let op = req["op"].as_str().unwrap_or_default().to_string();
-    if super::service_version::known_to_lack(socket, &op).await {
+pub async fn ask(socket: &Path, req: Request) -> Result<Value> {
+    if super::service_version::known_to_lack(socket, req.op()).await {
         return Err(super::service_version::outdated());
     }
     ask_unchecked(socket, req).await.map_err(|e| if super::service_version::is_bad_request(&e) { super::service_version::outdated() } else { e })
 }
 
 /// The request as it is, and computerd's answer as it is.
-pub(super) async fn ask_unchecked(socket: &Path, req: Value) -> Result<Value> {
+pub(super) async fn ask_unchecked(socket: &Path, req: Request) -> Result<Value> {
     let reply = tokio::time::timeout(REPLY_WAIT, async {
         let mut s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
-        s.write_all(format!("{req}\n").as_bytes()).await?;
+        s.write_all(&line(&req)?).await?;
         read_line(s, MAX_REPLY_BYTES).await
     });
     checked(reply.await.map_err(|_| anyhow!("magnus-computerd did not answer in time"))??)
@@ -61,7 +72,7 @@ pub(super) async fn ask_unchecked(socket: &Path, req: Value) -> Result<Value> {
 /// A raw stream to a computer's desktop, after computerd says it is open.
 pub async fn display(socket: &Path, id: &str) -> Result<UnixStream> {
     let mut s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
-    s.write_all(format!("{}\n", json!({ "op": "display", "id": id })).as_bytes()).await?;
+    s.write_all(&line(&Request::Display { id: id.to_string() })?).await?;
     let mut ack = Vec::new();
     loop {
         let byte = s.read_u8().await?;
@@ -76,8 +87,19 @@ pub async fn display(socket: &Path, id: &str) -> Result<UnixStream> {
 }
 
 /// One request to a computer's guest agent.
-pub async fn guest(socket: &Path, id: &str, req: Value) -> Result<Value> {
+pub async fn guest(socket: &Path, id: &str, req: GuestRequest) -> Result<Value> {
     guest_for(socket, id, req, GUEST_WAIT).await
+}
+
+/// For work that takes as long as it takes, such as an install step.
+pub async fn guest_for(socket: &Path, id: &str, req: GuestRequest, wait: Duration) -> Result<Value> {
+    guest_line_for(socket, id, line(&req)?, wait).await
+}
+
+/// A request whose shape is the guest's own: a browser VM's, mostly the
+/// model's tool arguments passed through.
+pub async fn guest_value_for(socket: &Path, id: &str, req: &Value, wait: Duration) -> Result<Value> {
+    guest_line_for(socket, id, line(req)?, wait).await
 }
 
 /// A connection that never reached the guest carried nothing, so it is
@@ -93,7 +115,7 @@ type GuestReader = BufReader<tokio::io::Take<tokio::net::unix::OwnedReadHalf>>;
 async fn open_guest(socket: &Path, id: &str) -> Result<(GuestReader, tokio::net::unix::OwnedWriteHalf)> {
     let s = UnixStream::connect(socket).await.context("reach magnus-computerd")?;
     let (r, mut w) = s.into_split();
-    w.write_all(format!("{}\n", json!({ "op": "connect", "id": id })).as_bytes()).await?;
+    w.write_all(&line(&Request::Connect { id: id.to_string() })?).await?;
     let mut r = BufReader::new(r.take(MAX_GUEST_REPLY_BYTES));
     let mut ack = String::new();
     r.read_line(&mut ack).await?;
@@ -115,11 +137,10 @@ async fn open_guest_retrying(socket: &Path, id: &str) -> Result<(GuestReader, to
     }
 }
 
-/// For work that takes as long as it takes, such as an install step.
-pub async fn guest_for(socket: &Path, id: &str, req: Value, wait: Duration) -> Result<Value> {
+async fn guest_line_for(socket: &Path, id: &str, req: Vec<u8>, wait: Duration) -> Result<Value> {
     let reply = tokio::time::timeout(wait, async {
         let (mut r, mut w) = open_guest_retrying(socket, id).await?;
-        w.write_all(format!("{req}\n").as_bytes()).await?;
+        w.write_all(&req).await?;
         let mut line = String::new();
         r.read_line(&mut line).await?;
         anyhow::ensure!(line.ends_with('\n'), "the computer closed the connection");

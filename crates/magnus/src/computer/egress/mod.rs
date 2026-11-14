@@ -14,10 +14,10 @@ pub(super) use ca::certificate_pem;
 pub(super) use ca::{secret_name as ca_secret_name, SECRET_PREFIX as CA_SECRET_PREFIX};
 
 use super::client;
+use super::client::Request;
 use crate::kernel::Kernel;
 use anyhow::{Context, Result};
 use rustls::pki_types::pem::PemObject;
-use serde_json::json;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -67,7 +67,7 @@ struct Proxy {
 /// Starts when computerd answers, so either can come up first.
 pub async fn serve(kernel: Arc<Kernel>, computerd: PathBuf) {
     let path = loop {
-        match client::ask(&computerd, json!({ "op": "egress_socket" })).await {
+        match client::ask(&computerd, Request::EgressSocket).await {
             Ok(v) => break PathBuf::from(v["socket"].as_str().unwrap_or_default()),
             Err(_) => tokio::time::sleep(BIND_RETRY).await,
         }
@@ -117,7 +117,7 @@ async fn listen(kernel: Arc<Kernel>, computerd: &Path, path: &Path) -> Result<()
 /// The kernel says who connected; computerd says which computer that uid is.
 async fn connection(proxy: Arc<Proxy>, computerd: &Path, conn: UnixStream) -> Result<()> {
     let uid = conn.peer_cred().context("who connected")?.uid();
-    let reply = client::ask(computerd, json!({ "op": "whose", "uid": uid })).await?;
+    let reply = client::ask(computerd, Request::Whose { uid }).await?;
     let id = reply["id"].as_str().context("a connection from no computer")?.to_string();
     http::serve_connection(proxy, id, conn).await
 }
