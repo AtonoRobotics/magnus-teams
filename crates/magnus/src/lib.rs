@@ -108,6 +108,8 @@ pub mod spawn;
 pub mod speech;
 pub mod spend;
 pub mod state;
+#[cfg(test)]
+mod state_canonical_tests;
 pub mod sub_agents;
 pub mod suggestions;
 pub(crate) mod task_budget;
