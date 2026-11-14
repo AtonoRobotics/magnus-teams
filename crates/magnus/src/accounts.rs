@@ -26,6 +26,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 use tokio_postgres::Client;
 mod check;
+mod credentials;
 mod directory;
 mod lockout;
 mod password;
@@ -356,16 +357,7 @@ impl Accounts {
 
     /// Whether the person has a password set.
     pub async fn has_password(&self, person: &str) -> bool {
-        let person = key(person);
-        let mut g = match self.client().await {
-            Ok(g) => g,
-            Err(_) => return false,
-        };
-        let c = match g.as_mut() {
-            Some(c) => c,
-            None => return false,
-        };
-        c.query_opt("SELECT 1 FROM public.account_passwords WHERE person = $1", &[&person]).await.map(|r| r.is_some()).unwrap_or(false)
+        credentials::Credentials::password(self, &key(person)).await.ok().flatten().is_some()
     }
 
     /// Whether the person enrolled an authenticator app.

@@ -19,13 +19,16 @@
 //! - The provider signing in someone other than the person asked about is a
 //!   wrong password, never a yes.
 
-use super::{key, Accounts, SignInError};
+use super::credentials::Credentials;
+use super::lockout::Lockout;
+use super::{key, Accounts, Policy, SignInError, Status};
 use crate::identity::{Identity, Polled};
 use anyhow::{Context, Result};
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
+use std::sync::Mutex;
 
 /// Where a password was typed: on the server's own machine, or from
 /// anywhere else. Each counts on its own counter.
@@ -101,6 +104,176 @@ impl Accounts {
     /// say. Called through `crate::password_check::check`, which settles
     /// the `Keeper`.
     pub(crate) async fn check_password(&self, keeper: &Keeper, a: &Attempt<'_>) -> Result<Checked> {
+        self.refresh_rules().await;
+        self.checker().check_password(keeper, a).await
+    }
+
+    /// The check over this store, its counters and its rules as cached.
+    fn checker(&self) -> Checker<'_, Accounts> {
+        Checker { creds: self, lockout: &self.failures, policy: self.policy.lock().unwrap().1 }
+    }
+
+    /// Read the lockout rules fresh, as another process may have changed
+    /// them; `locked` and `failed` read the cached ones.
+    async fn refresh_rules(&self) {
+        if let Ok(mut g) = self.client().await {
+            if let Some(c) = g.as_mut() {
+                let _ = self.fresh_policy(c).await;
+            }
+        }
+    }
+
+    /// Read the rules fresh, failing when the store cannot be reached.
+    async fn fresh_rules(&self) -> Result<()> {
+        let mut g = self.client().await?;
+        let c = g.as_mut().context("accounts connection")?;
+        let _ = self.fresh_policy(c).await;
+        Ok(())
+    }
+
+    /// Until when codes guessed from `from` (an invitation link's) may not
+    /// be tried again. Never for passwords: those go through
+    /// `check_password`.
+    pub fn guesses_locked(&self, from: std::net::IpAddr) -> Option<DateTime<Utc>> {
+        self.locked(&guesses_counter(from))
+    }
+
+    /// Count a wrong code guessed from `from`.
+    pub fn guessed_wrong(&self, from: std::net::IpAddr) {
+        self.failed(&guesses_counter(from));
+    }
+
+    /// Until when a counter may not try another password, after too many
+    /// wrong ones: the appliance's own and the identity provider's alike.
+    /// Reads the cached rules; async auth entries refresh them first.
+    pub(super) fn locked(&self, person: &str) -> Option<DateTime<Utc>> {
+        let p = self.policy.lock().unwrap().1;
+        self.failures.lock().unwrap().locked(&key(person), Utc::now(), &p)
+    }
+
+    /// Count a wrong password (`Lockout::failed`). Only for people of this
+    /// appliance, so guessing names cannot grow the table.
+    pub(super) fn failed(&self, person: &str) {
+        let p = self.policy.lock().unwrap().1;
+        self.failures.lock().unwrap().failed(&key(person), Utc::now(), &p);
+    }
+
+    pub(super) fn succeeded(&self, person: &str) {
+        self.failures.lock().unwrap().succeeded(&key(person));
+    }
+
+    /// Clear every counter of a person: their own and each scope's. A
+    /// status switch does this, so turning someone back on also unlocks
+    /// them, including out of a permanent lockout.
+    pub(super) fn clear_counters(&self, person: &str) {
+        let person = key(person);
+        let mut f = self.failures.lock().unwrap();
+        for c in [person.clone(), Self::network_counter(&person), Self::local_counter(&person), Self::console_counter(&person), Self::backup_counter(&person)] {
+            f.clear(&key(&c));
+        }
+    }
+
+    /// The counter that guards the owner's backup password: its own, so
+    /// wrong passwords sent to the identity provider from anywhere cannot
+    /// lock the owner out of the backup on the appliance's machine.
+    pub(super) fn backup_counter(person: &str) -> String {
+        format!("backup:{person}")
+    }
+
+    /// The counter for attempts made over the network. Every counter is a
+    /// scope and the whole person id, so no two people's counters meet,
+    /// whatever their ids.
+    pub(super) fn network_counter(person: &str) -> String {
+        format!("net:{person}")
+    }
+
+    /// The counter for attempts made on the appliance's own machine: its own,
+    /// so wrong passwords sent from the network cannot lock the person out
+    /// of the appliance itself.
+    pub(super) fn local_counter(person: &str) -> String {
+        format!("local:{person}")
+    }
+
+    /// The counter for console sign-in attempts: its own, so guessing at
+    /// the console cannot lock the person's apps, and guessing at the apps
+    /// cannot lock the console (#429).
+    pub(super) fn console_counter(person: &str) -> String {
+        format!("console:{person}")
+    }
+
+    /// Check a password. The caller opens the session.
+    #[cfg(test)]
+    pub(super) async fn sign_in(&self, person: &str, password: &str) -> Result<std::result::Result<(), SignInError>> {
+        self.sign_in_counted(person, password, &Self::network_counter(person)).await
+    }
+
+    /// Check a password, counting wrong ones on `counter`.
+    pub(super) async fn sign_in_counted(&self, person: &str, password: &str, counter: &str) -> Result<std::result::Result<(), SignInError>> {
+        self.fresh_rules().await?;
+        self.checker().sign_in_counted(person, password, counter).await
+    }
+
+    pub(super) fn password_ok(phc: Option<&str>, password: &str) -> bool {
+        // Verify against a throwaway hash when the person is unknown, so
+        // timing does not tell which names exist.
+        static DUMMY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        let dummy = DUMMY.get_or_init(|| {
+            let salt = SaltString::generate(&mut OsRng);
+            Argon2::default().hash_password(salt.as_str().as_bytes(), &salt).map(|h| h.to_string()).unwrap_or_default()
+        });
+        PasswordHash::new(phc.unwrap_or(dummy)).map(|h| Argon2::default().verify_password(password.as_bytes(), &h).is_ok()).unwrap_or(false)
+    }
+
+    /// Check a password and, where the person enrolled one, the code from
+    /// their authenticator app. A missing code answers `NeedsCode`
+    /// (uncounted); a wrong code rejects and counts, like a wrong password.
+    pub(super) async fn sign_in_counted_with_code(&self, person: &str, password: &str, code: Option<&str>, counter: &str) -> Result<std::result::Result<(), SignInError>> {
+        self.sign_in_counted_with_code_at(person, password, code, counter, Utc::now()).await
+    }
+
+    /// `sign_in_counted_with_code` at `at`, for tests.
+    pub(super) async fn sign_in_counted_with_code_at(
+        &self,
+        person: &str,
+        password: &str,
+        code: Option<&str>,
+        counter: &str,
+        at: DateTime<Utc>,
+    ) -> Result<std::result::Result<(), SignInError>> {
+        self.fresh_rules().await?;
+        self.checker().sign_in_counted_with_code_at(person, password, code, counter, at).await
+    }
+}
+
+/// One check over a store (`Credentials`), the in-memory counters and the
+/// sign-in rules read at its start. The counters see the real clock; the
+/// authenticator code is judged at the time it is given.
+pub(super) struct Checker<'a, C: Credentials + ?Sized> {
+    pub(super) creds: &'a C,
+    pub(super) lockout: &'a Mutex<Lockout>,
+    pub(super) policy: Policy,
+}
+
+impl<C: Credentials + ?Sized> Checker<'_, C> {
+    fn locked(&self, counter: &str) -> Option<DateTime<Utc>> {
+        self.lockout.lock().unwrap().locked(&key(counter), Utc::now(), &self.policy)
+    }
+
+    fn failed(&self, counter: &str) {
+        self.lockout.lock().unwrap().failed(&key(counter), Utc::now(), &self.policy);
+    }
+
+    fn succeeded(&self, counter: &str) {
+        self.lockout.lock().unwrap().succeeded(&key(counter));
+    }
+
+    /// Take back one counted attempt: one counted before its answer came,
+    /// whose answer said nothing about the password (the provider was down).
+    fn forgive(&self, counter: &str) {
+        self.lockout.lock().unwrap().forgive(&key(counter));
+    }
+
+    pub(super) async fn check_password(&self, keeper: &Keeper, a: &Attempt<'_>) -> Result<Checked> {
         let person = key(a.person);
         let Some(provider) = keeper.provider.as_deref() else {
             return self.check_here(keeper.known, &person, a).await;
@@ -108,7 +281,6 @@ impl Accounts {
         if let Some(machine) = a.machine_code {
             return self.check_backup(keeper, &person, a.password, machine, a.via).await;
         }
-        self.refresh_rules().await;
         let counter = counter_of(a.via, &person);
         let known = keeper.known;
         if let Some(until) = self.locked(&counter) {
@@ -160,10 +332,10 @@ impl Accounts {
     /// wrong password, uncounted.
     async fn check_here(&self, known: bool, person: &str, a: &Attempt<'_>) -> Result<Checked> {
         if !known {
-            let _ = Self::password_ok(None, a.password);
+            let _ = Accounts::password_ok(None, a.password);
             return Ok(Checked::Wrong(None));
         }
-        Ok(match self.sign_in_counted_with_code(person, a.password, a.code, &counter_of(a.via, person)).await? {
+        Ok(match self.sign_in_counted_with_code_at(person, a.password, a.code, &counter_of(a.via, person), Utc::now()).await? {
             Ok(()) => Checked::Yes(None),
             Err(SignInError::NeedsCode) => Checked::NeedsCode,
             Err(SignInError::MustChoose) => Checked::MustChoose,
@@ -178,16 +350,15 @@ impl Accounts {
     /// provider cannot lock the owner out of it. The machine code is the
     /// second factor, so no authenticator code is asked.
     async fn check_backup(&self, keeper: &Keeper, person: &str, password: &str, machine: &str, via: Via) -> Result<Checked> {
-        if !(keeper.backup_allowed && via == Via::ThisMachine && self.has_password(person).await) {
+        if !(keeper.backup_allowed && via == Via::ThisMachine && self.creds.password(person).await.ok().flatten().is_some()) {
             return Ok(Checked::Wrong(None));
         }
-        self.refresh_rules().await;
-        let counter = Self::backup_counter(person);
+        let counter = Accounts::backup_counter(person);
         if let Some(until) = self.locked(&counter) {
             self.failed(&counter);
             return Ok(Checked::Locked(self.locked(&counter).unwrap_or(until)));
         }
-        if !self.take_machine_code(machine).await? {
+        if !self.creds.take_machine_code(machine).await? {
             self.failed(&counter);
             return Ok(Checked::Wrong(None));
         }
@@ -199,119 +370,24 @@ impl Accounts {
         })
     }
 
-    /// Read the lockout rules fresh, as another process may have changed
-    /// them; `locked` and `failed` read the cached ones.
-    async fn refresh_rules(&self) {
-        if let Ok(mut g) = self.client().await {
-            if let Some(c) = g.as_mut() {
-                let _ = self.fresh_policy(c).await;
-            }
-        }
-    }
-
-    /// Until when codes guessed from `from` (an invitation link's) may not
-    /// be tried again. Never for passwords: those go through
-    /// `check_password`.
-    pub fn guesses_locked(&self, from: std::net::IpAddr) -> Option<DateTime<Utc>> {
-        self.locked(&guesses_counter(from))
-    }
-
-    /// Count a wrong code guessed from `from`.
-    pub fn guessed_wrong(&self, from: std::net::IpAddr) {
-        self.failed(&guesses_counter(from));
-    }
-
-    /// Until when a counter may not try another password, after too many
-    /// wrong ones: the appliance's own and the identity provider's alike.
-    /// Reads the cached rules; async auth entries refresh them first.
-    pub(super) fn locked(&self, person: &str) -> Option<DateTime<Utc>> {
-        let p = self.policy.lock().unwrap().1;
-        self.failures.lock().unwrap().locked(&key(person), Utc::now(), &p)
-    }
-
-    /// Count a wrong password (`Lockout::failed`). Only for people of this
-    /// appliance, so guessing names cannot grow the table.
-    pub(super) fn failed(&self, person: &str) {
-        let p = self.policy.lock().unwrap().1;
-        self.failures.lock().unwrap().failed(&key(person), Utc::now(), &p);
-    }
-
-    pub(super) fn succeeded(&self, person: &str) {
-        self.failures.lock().unwrap().succeeded(&key(person));
-    }
-
-    /// Take back one counted attempt: one counted before its answer came,
-    /// whose answer said nothing about the password (the provider was down).
-    pub(super) fn forgive(&self, person: &str) {
-        self.failures.lock().unwrap().forgive(&key(person));
-    }
-
-    /// Clear every counter of a person: their own and each scope's. A
-    /// status switch does this, so turning someone back on also unlocks
-    /// them, including out of a permanent lockout.
-    pub(super) fn clear_counters(&self, person: &str) {
-        let person = key(person);
-        let mut f = self.failures.lock().unwrap();
-        for c in [person.clone(), Self::network_counter(&person), Self::local_counter(&person), Self::console_counter(&person), Self::backup_counter(&person)] {
-            f.clear(&key(&c));
-        }
-    }
-
-    /// The counter that guards the owner's backup password: its own, so
-    /// wrong passwords sent to the identity provider from anywhere cannot
-    /// lock the owner out of the backup on the appliance's machine.
-    pub(super) fn backup_counter(person: &str) -> String {
-        format!("backup:{person}")
-    }
-
-    /// The counter for attempts made over the network. Every counter is a
-    /// scope and the whole person id, so no two people's counters meet,
-    /// whatever their ids.
-    pub(super) fn network_counter(person: &str) -> String {
-        format!("net:{person}")
-    }
-
-    /// The counter for attempts made on the appliance's own machine: its own,
-    /// so wrong passwords sent from the network cannot lock the person out
-    /// of the appliance itself.
-    pub(super) fn local_counter(person: &str) -> String {
-        format!("local:{person}")
-    }
-
-    /// The counter for console sign-in attempts: its own, so guessing at
-    /// the console cannot lock the person's apps, and guessing at the apps
-    /// cannot lock the console (#429).
-    pub(super) fn console_counter(person: &str) -> String {
-        format!("console:{person}")
-    }
-
-    /// Check a password. The caller opens the session.
-    #[cfg(test)]
-    pub(super) async fn sign_in(&self, person: &str, password: &str) -> Result<std::result::Result<(), SignInError>> {
-        self.sign_in_counted(person, password, &Self::network_counter(person)).await
-    }
-
     /// Check a password, counting wrong ones on `counter`.
     pub(super) async fn sign_in_counted(&self, person: &str, password: &str, counter: &str) -> Result<std::result::Result<(), SignInError>> {
         let person = key(person);
         let counter = key(counter);
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("accounts connection")?;
-        let _ = self.fresh_policy(c).await;
         if let Some(until) = self.locked(&counter) {
             // Counted too: hammering a lock extends it, up to the rules'
             // longest wait, while waiting it out never does.
             self.failed(&counter);
             return Ok(Err(SignInError::Locked(self.locked(&counter).unwrap_or(until))));
         }
-        let row: Option<(String, bool)> = c.query_opt("SELECT phc, temporary FROM public.account_passwords WHERE person = $1", &[&person]).await?.map(|r| (r.get(0), r.get(1)));
+        let row = self.creds.password(&person).await?;
         let Some((phc, temporary)) = row else {
             // The same work as a wrong password, so timing does not tell
             // which names exist.
-            let _ = Self::password_ok(None, password);
+            let _ = Accounts::password_ok(None, password);
             return Ok(Err(SignInError::Rejected));
         };
-        if !Self::password_ok(Some(&phc), password) {
+        if !Accounts::password_ok(Some(&phc), password) {
             self.failed(&counter);
             return Ok(Err(SignInError::Rejected));
         }
@@ -322,25 +398,7 @@ impl Accounts {
         Ok(Ok(()))
     }
 
-    pub(super) fn password_ok(phc: Option<&str>, password: &str) -> bool {
-        // Verify against a throwaway hash when the person is unknown, so
-        // timing does not tell which names exist.
-        static DUMMY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-        let dummy = DUMMY.get_or_init(|| {
-            let salt = SaltString::generate(&mut OsRng);
-            Argon2::default().hash_password(salt.as_str().as_bytes(), &salt).map(|h| h.to_string()).unwrap_or_default()
-        });
-        PasswordHash::new(phc.unwrap_or(dummy)).map(|h| Argon2::default().verify_password(password.as_bytes(), &h).is_ok()).unwrap_or(false)
-    }
-
-    /// Check a password and, where the person enrolled one, the code from
-    /// their authenticator app. A missing code answers `NeedsCode`
-    /// (uncounted); a wrong code rejects and counts, like a wrong password.
-    pub(super) async fn sign_in_counted_with_code(&self, person: &str, password: &str, code: Option<&str>, counter: &str) -> Result<std::result::Result<(), SignInError>> {
-        self.sign_in_counted_with_code_at(person, password, code, counter, Utc::now()).await
-    }
-
-    /// `sign_in_counted_with_code` at `at`, for tests.
+    /// Check a password and, where enrolled, the code, at `at`.
     pub(super) async fn sign_in_counted_with_code_at(
         &self,
         person: &str,
@@ -351,19 +409,17 @@ impl Accounts {
     ) -> Result<std::result::Result<(), SignInError>> {
         let person = key(person);
         let counter = key(counter);
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("accounts connection")?;
-        let policy = self.fresh_policy(c).await;
+        let policy = self.policy;
         if let Some(until) = self.locked(&counter) {
             self.failed(&counter);
             return Ok(Err(SignInError::Locked(self.locked(&counter).unwrap_or(until))));
         }
-        let row: Option<(String, bool)> = c.query_opt("SELECT phc, temporary FROM public.account_passwords WHERE person = $1", &[&person]).await?.map(|r| (r.get(0), r.get(1)));
+        let row = self.creds.password(&person).await?;
         let Some((phc, temporary)) = row else {
-            let _ = Self::password_ok(None, password);
+            let _ = Accounts::password_ok(None, password);
             return Ok(Err(SignInError::Rejected));
         };
-        if !Self::password_ok(Some(&phc), password) {
+        if !Accounts::password_ok(Some(&phc), password) {
             self.failed(&counter);
             return Ok(Err(SignInError::Rejected));
         }
@@ -375,13 +431,12 @@ impl Accounts {
         // After the password, so timing does not tell the status apart, and
         // before the code, so no NeedsCode betrays a right password for
         // someone turned off. Uncounted: the password was not wrong.
-        let status: Option<String> = c.query_opt("SELECT status FROM public.account_statuses WHERE person = $1", &[&person]).await?.map(|r| r.get(0));
-        if status.as_deref().is_some_and(|s| s != "active") {
+        if self.creds.status(&person).await?.is_some_and(|s| s != Status::Active) {
             return Ok(Err(SignInError::Rejected));
         }
         // The password was right, so the person is known: a wrong code
         // counts on their counter, as a wrong password does.
-        let secret: Option<String> = c.query_opt("SELECT secret FROM public.account_totp WHERE person = $1", &[&person]).await?.map(|r| r.get(0));
+        let secret = self.creds.totp_secret(&person).await?;
         let Some(secret) = secret else {
             // With a code required, a password alone signs no one in —
             // they enroll first, through the owner — answered as a wrong
@@ -399,14 +454,7 @@ impl Accounts {
                     // Recorded by compare-and-set, so concurrent uses of
                     // the code admit exactly one; a used or passed step
                     // rejects and counts, like a wrong code (#441).
-                    let n = c
-                        .execute(
-                            "INSERT INTO public.account_totp_steps (person, step) VALUES ($1, $2)
-                             ON CONFLICT (person) DO UPDATE SET step = EXCLUDED.step WHERE account_totp_steps.step < EXCLUDED.step",
-                            &[&person, &matched],
-                        )
-                        .await?;
-                    if n != 1 {
+                    if !self.creds.advance_totp_step(&person, matched).await? {
                         self.failed(&counter);
                         return Ok(Err(SignInError::Rejected));
                     }
