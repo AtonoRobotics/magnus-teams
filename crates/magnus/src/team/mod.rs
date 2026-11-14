@@ -65,7 +65,7 @@ mod whisper;
 pub(crate) use agent::refusal;
 pub(crate) use agent::signs_in_per_person;
 pub(crate) use agent::team_specs as specs;
-pub use agent::BUILTINS;
+pub(crate) use agent::{TeamOp, BUILTINS};
 pub use routes::router;
 pub use routines::schedule;
 pub use upkeep::{pack_files, unpack_files};

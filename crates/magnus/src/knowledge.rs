@@ -234,7 +234,7 @@ fn normal(s: &str) -> String {
 /// Where a tool result came from, for telling independent sources apart:
 /// a web page's host, an app, or the tool.
 fn source_of(tool: &str, input: &Value) -> String {
-    if let Some(url) = input["url"].as_str().filter(|_| tool == "web_fetch" || tool == "browser_navigate") {
+    if let Some(url) = input["url"].as_str().filter(|_| crate::tool_registry::web_read(tool) == crate::tool_registry::WebRead::OpensUrl) {
         return url::Url::parse(url)
             .ok()
             // The host alone: two ports of one host are one source.

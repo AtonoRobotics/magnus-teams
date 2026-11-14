@@ -12,6 +12,7 @@
 //! A task's card shows a live status line while it works (`status_line`),
 //! and becomes the result when it ends.
 use crate::state::{Run, State};
+use crate::tool_registry::doing_words as doing;
 use crate::tools::Risk;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -246,26 +247,6 @@ pub fn status_line(run: &Run) -> Option<String> {
     }
     let last = run.intents.values().filter(|i| i.issuer == "model").max_by(|a, b| (a.at, &a.call_id).cmp(&(b.at, &b.call_id)))?;
     Some(doing(&last.tool))
-}
-
-/// What a tool call is doing, in a few plain words.
-fn doing(tool: &str) -> String {
-    let name = tool.split_once("__").map_or(tool, |(_, r)| r);
-    let app = tool.split_once("__").map(|(a, _)| a);
-    let verb = name.replace('_', " ");
-    match (tool, app) {
-        ("web_search", _) => "Searching the web".into(),
-        ("web_fetch", _) | ("browser_navigate", _) | ("browser_snapshot", _) => "Reading a page".into(),
-        (t, _) if t.starts_with("sandbox_") || t.starts_with("computer_") => "Working on its computer".into(),
-        (_, Some(a)) => format!("{} in {a}", capitalised(&verb)),
-        _ => capitalised(&verb),
-    }
-}
-
-/// The first letter upper case, whatever its width in bytes.
-fn capitalised(s: &str) -> String {
-    let mut c = s.chars();
-    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
 }
 
 impl crate::kernel::Kernel {
