@@ -109,12 +109,6 @@ impl Kernel {
 /// The longest name a person gives themselves on a sign-up form.
 pub const MAX_NAME_CHARS: usize = 200;
 
-/// The counter a sign-up form's attempts from this address are counted on,
-/// as wrong passwords are at sign-in: an unknown or ended code counts.
-pub fn attempts(ip: std::net::IpAddr) -> String {
-    format!("signup:{ip}")
-}
-
 /// What someone with a link gives to make their account.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Signup {

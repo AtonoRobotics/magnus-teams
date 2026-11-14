@@ -6,7 +6,7 @@
 //! only its code's hash, as the accounts store keeps a token's.
 //!
 //! Attempts are counted like wrong passwords at sign-in
-//! (`invitations::attempts`), so codes cannot be guessed at speed.
+//! (`Accounts::guessed_wrong`, per address), so codes cannot be guessed at speed.
 
 use crate::admin_app::invite_page::{escape, shell, signed_in, INVITE_PATH};
 use crate::api::Transport;
@@ -127,12 +127,11 @@ fn live(k: &Kernel, code: &str) -> Option<Link> {
 
 /// The form behind a link, or why there is none.
 pub fn page(k: &Kernel, peer: SocketAddr, code: &str) -> Response {
-    let tries = crate::invitations::attempts(peer.ip());
-    if let Some(until) = k.accounts.locked(&tries) {
+    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
         return too_many(until);
     }
     if live(k, code).is_none() {
-        k.accounts.failed(&tries);
+        k.accounts.guessed_wrong(peer.ip());
         return ended();
     }
     form(code, None)
@@ -140,8 +139,7 @@ pub fn page(k: &Kernel, peer: SocketAddr, code: &str) -> Response {
 
 /// Make the account a link gives, sign them in, and spend the link.
 pub async fn create(k: &Arc<Kernel>, t: Transport, peer: SocketAddr, f: &HashMap<String, String>) -> Response {
-    let tries = crate::invitations::attempts(peer.ip());
-    if let Some(until) = k.accounts.locked(&tries) {
+    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
         return too_many(until);
     }
     let code = f.get("link").map(|s| s.trim().to_string()).unwrap_or_default();
@@ -149,13 +147,13 @@ pub async fn create(k: &Arc<Kernel>, t: Transport, peer: SocketAddr, f: &HashMap
         Ok(who) => who,
         Err(why) if live(k, &code).is_some() => return form(&code, Some(&why)),
         Err(_) => {
-            k.accounts.failed(&tries);
+            k.accounts.guessed_wrong(peer.ip());
             return ended();
         }
     };
     let spending = SPENDING.lock().await;
     let Some(link) = live(k, &code) else {
-        k.accounts.failed(&tries);
+        k.accounts.guessed_wrong(peer.ip());
         return ended();
     };
     let wrong = || form(&code, Some("Something went wrong. Try again in a minute."));

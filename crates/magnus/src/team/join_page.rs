@@ -67,15 +67,14 @@ async fn page(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, 
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
         return r;
     }
-    let tries = crate::invitations::attempts(peer.ip());
-    if let Some(until) = k.accounts.locked(&tries) {
+    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
         return too_many(until);
     }
     let code = q.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
     match link_invite(&k, &code) {
         Some((_, name, _)) => form(&code, &name, None),
         None => {
-            k.accounts.failed(&tries);
+            k.accounts.guessed_wrong(peer.ip());
             ended()
         }
     }
@@ -85,13 +84,12 @@ async fn create(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
         return r;
     }
-    let tries = crate::invitations::attempts(peer.ip());
-    if let Some(until) = k.accounts.locked(&tries) {
+    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
         return too_many(until);
     }
     let code = f.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
     let Some((ws, workspace, inv)) = link_invite(&k, &code) else {
-        k.accounts.failed(&tries);
+        k.accounts.guessed_wrong(peer.ip());
         return ended();
     };
     let again = |why: &str| form(&code, &workspace, Some(why));
