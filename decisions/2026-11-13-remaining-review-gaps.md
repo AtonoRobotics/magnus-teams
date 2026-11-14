@@ -100,3 +100,15 @@ only on green.
 check event-driven (wait for the run to end, then assert over the whole
 record) rather than lengthening windows. It is an invariant edit, done with
 the owner's approval when taken up.
+
+## Since built (2026-11-13)
+
+- GAP6 step 1, the server's side of the relay handoff (`2804360`,
+  `2026-11-13-relay-handoff-server-side.md`): signed claim, handoff, refresh
+  and revoke, tested against a fake relay; off until `[relay]` is set. The
+  relay service on pyrallon.ai is next and is a deployment the owner approves.
+- GAP10 phase 1, the desktop bridge (`7f15532`,
+  `2026-11-13-local-desktop-bridge.md`): detection, consent per program per
+  computer, the loopback tunnel over the app's session, policy with a
+  default ask for code-running tools, and state per program. Blender and
+  FreeCAD come next, each with its port and tool classes.
