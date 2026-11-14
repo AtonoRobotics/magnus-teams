@@ -101,6 +101,7 @@ impl State {
             vault,
             org,
             thread_extras,
+            apps,
             tools,
             spend,
             catalog,
@@ -116,7 +117,6 @@ impl State {
             home_last_open,
             items_opened,
             items_resolved_at,
-            app_connections,
             openers,
             turned_off,
             provider_rights,
@@ -147,10 +147,6 @@ impl State {
             // their apps' records are harmless once the id is never given
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             erasures: _,
-            connectors: _,
-            registrations: _,
-            connector_settings: _,
-            credential_changed: _,
             data_private: _,
             admin_settings: _,
             knowledge: _,
@@ -160,7 +156,7 @@ impl State {
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 20] = [
+        let parts: [&mut dyn Forget; 21] = [
             computers,
             payments,
             rules,
@@ -178,6 +174,7 @@ impl State {
             vault,
             org,
             thread_extras,
+            apps,
             tools,
             spend,
             catalog,
@@ -225,7 +222,6 @@ impl State {
         subjects.remove(p);
         last_sign_in.remove(p);
         signed_in_before.remove(p);
-        app_connections.retain(|(x, _), _| x != p);
         openers.retain(|(x, _)| x != p);
         // Their home mark: whoever is next known by their name starts
         // fresh (#412).

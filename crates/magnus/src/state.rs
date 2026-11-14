@@ -11,11 +11,13 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub mod apps;
 pub mod org;
 pub mod server_ops;
 pub mod thread_extras;
 pub mod vault;
 pub mod watch;
+pub use apps::ConnectorSetting;
 pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
 pub use thread_extras::{Branch, Disagreement};
@@ -719,15 +721,6 @@ pub struct Erasure {
     pub pending: bool,
 }
 
-/// An admin's settings for one of the organisation's apps: on or off, and
-/// who may use it (None: the app's own groups).
-#[derive(Clone, Debug, Default)]
-pub struct ConnectorSetting {
-    pub enabled: bool,
-    pub access_groups: Option<Vec<String>>,
-    pub blocked_groups: Option<Vec<String>>,
-}
-
 /// Debug, so a test can look through all of it for what erasing a person
 /// left behind (`forget_tests.rs`).
 #[derive(Default, Debug)]
@@ -771,10 +764,6 @@ pub struct State {
     pub items_opened: HashMap<String, DateTime<Utc>>,
     /// When each inbox item was decided, for the feed (#367).
     pub items_resolved_at: HashMap<String, DateTime<Utc>>,
-    /// How many times each person has connected each app (by person, then
-    /// app): the first connection is the one Magnus opens a conversation
-    /// about, never a reconnection.
-    pub app_connections: HashMap<(String, String), u32>,
     /// The conversations Magnus opened, by person then task: each starts
     /// once ever, so deleting one does not start it again (review of #274).
     pub openers: std::collections::BTreeSet<(String, String)>,
@@ -785,17 +774,8 @@ pub struct State {
     pub server_ops: server_ops::ServerOps,
     /// Each person erased with content, by their id then.
     pub erasures: BTreeMap<String, Erasure>,
-    /// Apps the owner added from the app (config-file apps are not here).
-    pub connectors: BTreeMap<String, crate::config::Connector>,
-    /// Providers the organisation has a registration with (its client ID
-    /// and secret are in the vault).
-    pub registrations: std::collections::BTreeSet<String>,
-    /// The admin's settings for each app: on or off, and who may use it.
-    pub connector_settings: BTreeMap<String, ConnectorSetting>,
-    /// When each organisation credential was last set or revoked: an app's
-    /// key by the app's name, a provider's client secret as
-    /// `registration:<provider>`. Never the value.
-    pub credential_changed: BTreeMap<String, (bool, DateTime<Utc>)>,
+    /// The apps the owner added, their settings, credentials and registrations.
+    pub apps: apps::Apps,
     /// Groups and roles from the identity provider, per person, as of their
     /// latest sign-in.
     pub provider_rights: HashMap<String, (Option<Vec<String>>, Option<Vec<String>>)>,
@@ -1185,48 +1165,17 @@ impl State {
                 self.server_ops.fold(&e.ev, e.at);
                 self.erasures_pending(e);
             }
-            Ev::ConnectorAdded { connector } => {
-                if connector.credential.is_some() && connector.auth.as_deref() != Some(crate::connectors::OAUTH) {
-                    self.credential_changed.insert(connector.name.clone(), (true, e.at));
-                }
-                self.connectors.insert(connector.name.clone(), connector.clone());
-            }
-            Ev::ConnectorSettings { name, enabled, access_groups, blocked_groups } => {
-                self.connector_settings.insert(name.clone(), ConnectorSetting { enabled: *enabled, access_groups: access_groups.clone(), blocked_groups: blocked_groups.clone() });
-            }
-            // The connection itself is in the vault; these are its record.
-            Ev::AppConnected { app, person, .. } => {
-                *self.app_connections.entry((person.clone(), app.clone())).or_default() += 1;
-            }
-            Ev::AppDisconnected { .. } => {}
-            Ev::CredentialSet { connector, set } => {
-                self.credential_changed.insert(connector.clone(), (*set, e.at));
-            }
+            Ev::ConnectorAdded { .. }
+            | Ev::ConnectorSettings { .. }
+            | Ev::AppConnected { .. }
+            | Ev::AppDisconnected { .. }
+            | Ev::CredentialSet { .. }
+            | Ev::RegistrationSet { .. }
+            | Ev::ToolClassified { .. } => self.apps.fold(&e.ev, e.at),
+            // Its people's acceptance of its connect screen goes with it.
             Ev::ConnectorRemoved { name } => {
-                self.connectors.remove(name);
+                self.apps.fold(&e.ev, e.at);
                 self.tools.consents.remove(name);
-            }
-            Ev::RegistrationSet { provider, set } => {
-                self.credential_changed.insert(format!("registration:{provider}"), (*set, e.at));
-                if *set {
-                    self.registrations.insert(provider.clone());
-                } else {
-                    self.registrations.remove(provider);
-                }
-            }
-            Ev::ToolClassified { connector, tool, risk } => {
-                if let Some(c) = self.connectors.get_mut(connector) {
-                    match risk {
-                        Some(r) => {
-                            // Its reach is what the tool is, whatever its class.
-                            let reach = c.tools.get(tool).and_then(|t| t.reach.clone());
-                            c.tools.insert(tool.clone(), crate::config::ToolClass { risk: r.clone(), label: None, reach });
-                        }
-                        None => {
-                            c.tools.remove(tool);
-                        }
-                    }
-                }
             }
             Ev::ContextReset { run, from, to, note, .. } => {
                 if let Some(r) = self.runs.get_mut(run) {

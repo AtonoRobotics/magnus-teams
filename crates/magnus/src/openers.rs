@@ -39,7 +39,7 @@ impl Kernel {
     /// After an app is connected: its first connection by this person,
     /// never a reconnection.
     pub fn open_after_connect(self: &Arc<Self>, person: &str, app: &str) {
-        if self.read(|s| s.app_connections.get(&(person.to_string(), app.to_string())).copied()) == Some(1) {
+        if self.read(|s| s.apps.connections(person, app)) == Some(1) {
             self.open(person, Some(app));
         }
     }

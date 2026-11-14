@@ -231,7 +231,7 @@ impl Kernel {
             }
         }
         // Their card, their Link wallet and the tokens of apps they built.
-        let built: Vec<String> = self.read(|s| s.connectors.values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
+        let built: Vec<String> = self.read(|s| s.apps.connectors().values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
         for name in [format!("payments/card/{person}"), format!("payments/link/{person}")].into_iter().chain(built) {
             self.vault.remove(&name).map_err(failed)?;
         }

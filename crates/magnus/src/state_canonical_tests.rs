@@ -163,15 +163,11 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.vault.canonical_fields());
     v.extend(s.org.canonical_fields());
     v.extend(s.thread_extras.canonical_fields());
+    v.extend(s.apps.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
         ("playbook_version", d(&s.playbook_version)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
-        ("connectors", d(&s.connectors)),
-        ("connector_settings", d(&s.connector_settings)),
-        ("app_connections", d(&s.app_connections)),
-        ("credential_changed", d(&s.credential_changed)),
-        ("registrations", d(&s.registrations)),
         ("tools.consents", d(&s.tools.consents)),
     ]);
     v
