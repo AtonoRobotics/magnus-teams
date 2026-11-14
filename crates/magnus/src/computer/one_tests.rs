@@ -563,3 +563,53 @@ async fn only_the_person_in_control_sees_what_handback_would_close() {
     assert_eq!(s.computers_of(&person("mo"))[0].controller.as_deref(), Some("mo"));
     s.done().await;
 }
+
+/// A workspace's computer where sam (its Team Admin) and mo (a member) may
+/// both take control.
+async fn shared_computer(s: &Server) -> String {
+    let ws = "w1";
+    s.k.emit("person:sam", Ev::Team(crate::team::Change::Created { workspace: ws.into(), name: "Ops".into(), owner: "sam".into() })).await.unwrap();
+    s.k.emit("person:sam", Ev::Team(crate::team::Change::Member { workspace: ws.into(), person: "mo".into(), role: crate::team::Role::Member })).await.unwrap();
+    s.k.reconcile_computers().await;
+    s.computers_of(&Owner::Workspace(ws.into()))[0].id.clone()
+}
+
+/// A new holder simply replaces the last: the last one's open screen is cut,
+/// so they cannot type on a computer someone else now holds, and cannot
+/// reopen it; the new holder's screen, opened after, is not cut.
+#[tokio::test(flavor = "multi_thread")]
+async fn taking_control_cuts_the_last_holders_screen() {
+    let s = server().await;
+    let id = shared_computer(&s).await;
+    let (sam, mo) = (s.k.person("sam").unwrap(), s.k.person("mo").unwrap());
+    s.k.start_takeover(&sam, &id).await.unwrap();
+    // As the display route does, before it opens sam's stream.
+    let sams = super::super::display::cut_signal(&id);
+    s.k.start_takeover(&mo, &id).await.unwrap();
+    assert!(sams.has_changed().unwrap(), "sam's screen stayed open after mo took control");
+    assert!(matches!(s.k.display_stream(&id, "sam").await, Err(Refused::Denied(_))), "sam reopened a computer mo holds");
+    let mos = super::super::display::cut_signal(&id);
+    s.k.start_takeover(&mo, &id).await.unwrap();
+    assert!(!mos.has_changed().unwrap(), "taking control again cut the holder's own screen");
+    assert_eq!(s.computers_of(&Owner::Workspace("w1".into()))[0].controller.as_deref(), Some("mo"));
+    s.done().await;
+}
+
+/// Only the person holding the computer hands it back: another member cannot
+/// end their session, close what they opened or resume the agent.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_the_holder_hands_back() {
+    let s = server().await;
+    let id = shared_computer(&s).await;
+    let (sam, mo) = (s.k.person("sam").unwrap(), s.k.person("mo").unwrap());
+    s.k.start_takeover(&mo, &id).await.unwrap();
+    let mos = super::super::display::cut_signal(&id);
+    let e = s.k.hand_back(&sam, &id).await.unwrap_err();
+    assert!(e.to_string().contains("you do not hold this computer"), "{e}");
+    assert!(s.asked("takeover_end").is_empty(), "another member's handback stopped what mo opened");
+    assert!(!mos.has_changed().unwrap(), "another member's handback cut mo's screen");
+    assert_eq!(s.computers_of(&Owner::Workspace("w1".into()))[0].controller.as_deref(), Some("mo"));
+    s.k.hand_back(&mo, &id).await.unwrap();
+    assert!(s.computers_of(&Owner::Workspace("w1".into()))[0].controller.is_none(), "the holder could not hand back");
+    s.done().await;
+}

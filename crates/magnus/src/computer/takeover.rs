@@ -254,6 +254,10 @@ impl Kernel {
                 (cause, waiting.iter().chain(&active).map(|r| r.id.clone()).collect())
             });
             self.record_computer(who, Change::TakeoverStarted { id: id.into(), by: who.id.clone(), at: Utc::now(), cause: Some(cause), runs }).await?;
+            // Only the holder has a screen. Cut once the new holder is
+            // recorded: the last one cannot reopen, and this holder's ticket,
+            // issued below, opens a screen the cut has already passed.
+            super::display::cut(id);
         }
         super::idle::touch(id);
         Ok(json!({ "ticket": issue(id, &who.id), "protocol_prefix": TICKET_PROTOCOL_PREFIX, "expires_in_seconds": TICKET_LIFETIME.as_secs() }))
@@ -266,6 +270,11 @@ impl Kernel {
         let c = self.opened_computer(who, id)?;
         if c.controller.is_none() {
             return Err(Refused::Conflict("no one holds this computer".into()));
+        }
+        // Only the holder says "I'm done": another member of a workspace
+        // could otherwise end their session and close what they opened.
+        if c.controller.as_deref() != Some(who.id.as_str()) {
+            return Err(Refused::Conflict("you do not hold this computer".into()));
         }
         let socket = self.computer_socket()?;
         let _closing = leftovers::handing_back(id);
