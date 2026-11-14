@@ -204,9 +204,65 @@ fn reply_draft(a: &Value, t: &str) -> Result<Value, Failure> {
     Ok(draft(&API.call("POST", &format!("{ME}messages/{}/{how}", id(a, "message_id")?), t, Some(&body))?))
 }
 
+/// One request to Graph as the person: its method, path and body.
+type Call<'a> = dyn FnMut(&str, &str, Option<&Value>) -> Result<Value, Failure> + 'a;
+
 fn send_draft(a: &Value, t: &str) -> Result<Value, Failure> {
-    API.call("POST", &format!("{ME}messages/{}/send", id(a, "draft_id")?), t, None)?;
-    Ok(json!({ "sent": true }))
+    sending(a, &mut |method, path, body| API.call(method, path, t, body))
+}
+
+/// A draft sent, named by the Internet message id it keeps once sent.
+/// Graph's send answers with nothing, and the copy in Sent Items has an id
+/// of its own, so the id is read from the draft before it is sent; the
+/// server finds the sent copy by it afterwards (`get_sent_message`).
+fn sending(a: &Value, call: &mut Call) -> Result<Value, Failure> {
+    let d = id(a, "draft_id")?;
+    let m = call("GET", &format!("{ME}messages/{d}?$select=isDraft,internetMessageId"), None)?;
+    if m["isDraft"] != true {
+        return Err("That message is not a draft, so it is not sent here. Nothing was sent.".to_string().into());
+    }
+    call("POST", &format!("{ME}messages/{d}/send"), None)?;
+    Ok(json!({ "sent": true, "internet_message_id": m["internetMessageId"] }))
+}
+
+/// How many times a sent message is looked for in Sent Items, and how long
+/// apart: Graph files it there shortly after the send, not at once.
+const SENT_LOOKUP_ATTEMPTS: u32 = 5;
+const SENT_LOOKUP_WAIT_SECS: u64 = 2;
+
+fn get_sent_message(a: &Value, t: &str) -> Result<Value, Failure> {
+    let wait = std::time::Duration::from_secs(SENT_LOOKUP_WAIT_SECS);
+    find_sent(&s(a, "internet_message_id"), &mut |path| API.call("GET", path, t, None), &mut || std::thread::sleep(wait))
+}
+
+/// Sent Items' messages with this Internet message id, read whole.
+fn sent_path(internet_id: &str) -> String {
+    let q = query(&[
+        ("$filter", Some(format!("internetMessageId eq '{}'", internet_id.replace('\'', "''")))),
+        ("$select", Some(WHOLE.into())),
+        ("$expand", Some("attachments($select=name,contentType,size)".into())),
+    ]);
+    format!("{ME}mailFolders/sentitems/messages{q}")
+}
+
+/// The sent message as it was sent, found in Sent Items by its Internet
+/// message id, looked for again a bounded number of times while Graph
+/// files it.
+fn find_sent(internet_id: &str, get: &mut dyn FnMut(&str) -> Result<Value, Failure>, wait: &mut dyn FnMut()) -> Result<Value, Failure> {
+    if internet_id.trim().is_empty() {
+        return Err("internet_message_id is missing".to_string().into());
+    }
+    let path = sent_path(internet_id);
+    for attempt in 0..SENT_LOOKUP_ATTEMPTS {
+        if attempt > 0 {
+            wait();
+        }
+        let r = get(&path)?;
+        if let Some(m) = r["value"].as_array().and_then(|v| v.first()) {
+            return Ok(message(m));
+        }
+    }
+    Err(format!("The sent message {internet_id} is not in Sent Items yet. A retry may help.").into())
 }
 
 fn tools() -> Vec<Tool> {
@@ -272,8 +328,15 @@ fn tools() -> Vec<Tool> {
             "send_draft",
             "Send a draft to everyone it is addressed to. Sent mail cannot be called back.",
             obj(json!({ "draft_id": st }), &["draft_id"]),
-            obj(json!({ "sent": yes }), &["sent"]),
+            obj(json!({ "sent": yes, "internet_message_id": maybe }), &["sent", "internet_message_id"]),
             send_draft,
+        ),
+        tool(
+            "get_sent_message",
+            "Read a message as it was sent, from Sent Items, by the Internet message id its send returned.",
+            obj(json!({ "internet_message_id": st }), &["internet_message_id"]),
+            whole,
+            get_sent_message,
         ),
     ]
 }
