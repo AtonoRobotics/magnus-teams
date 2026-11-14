@@ -96,6 +96,7 @@ impl State {
             legal,
             push,
             halts,
+            watch,
             tools,
             spend,
             catalog,
@@ -109,8 +110,6 @@ impl State {
             signed_in_before,
             last_sign_in,
             home_last_open,
-            watched_seen,
-            watch_last_polled,
             items_opened,
             items_resolved_at,
             app_connections,
@@ -183,7 +182,8 @@ impl State {
             playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 15] = [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, tools, spend, catalog];
+        let parts: [&mut dyn Forget; 16] =
+            [computers, payments, rules, evidence, sub_agents, outcomes, local, team, account_links, legal, push, halts, watch, tools, spend, catalog];
         for part in parts {
             part.forget(&who);
         }
@@ -236,11 +236,9 @@ impl State {
         signed_in_before.remove(p);
         app_connections.retain(|(x, _), _| x != p);
         openers.retain(|(x, _)| x != p);
-        // Their watched baselines and home mark: whoever is next known by
-        // their name starts fresh (#412). So do their poll clocks (#406).
-        watched_seen.retain(|(x, _, _), _| x != p);
+        // Their home mark: whoever is next known by their name starts
+        // fresh (#412).
         home_last_open.remove(p);
-        watch_last_polled.retain(|(x, _, _), _| x != p);
         // Their secrets' names, which the erasure took from the vault.
         secrets.retain(|n| !their_secret(n, p));
         revoked.retain(|n, _| !their_secret(n, p));

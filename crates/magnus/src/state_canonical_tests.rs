@@ -158,9 +158,8 @@ fn replayed() -> State {
 /// Each moved field by its name, as `{:?}` renders it.
 fn fields(s: &State) -> Vec<(&'static str, String)> {
     let d = |v: &dyn std::fmt::Debug| format!("{v:?}");
-    vec![
-        ("watched_seen", d(&s.watched_seen)),
-        ("watch_last_polled", d(&s.watch_last_polled)),
+    let mut v = s.watch.canonical_fields();
+    v.extend([
         ("updating", d(&s.updating)),
         ("last_update", d(&s.last_update)),
         ("skipped_releases", d(&s.skipped_releases)),
@@ -196,7 +195,8 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
         ("credential_changed", d(&s.credential_changed)),
         ("registrations", d(&s.registrations)),
         ("tools.consents", d(&s.tools.consents)),
-    ]
+    ]);
+    v
 }
 
 /// The state's moved fields, one a line, sorted by name, each with its

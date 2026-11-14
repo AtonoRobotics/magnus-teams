@@ -11,6 +11,8 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+pub mod watch;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -893,17 +895,8 @@ pub struct State {
     /// When each person last opened the app's home: the feed starts
     /// here (#367).
     pub home_last_open: HashMap<String, DateTime<Utc>>,
-    /// Watched baselines (#369): the last two answers' item ids per
-    /// person, app and tool, newest last. New ids wake a review. A
-    /// window, not an accumulation (#409): two answers bound the
-    /// memory whatever the source holds, an unchanged answer always
-    /// diffs empty against its own window, and an item absent for one
-    /// read stays known while one gone for two wakes again on return.
-    pub watched_seen: HashMap<(String, String, String), Vec<HashSet<String>>>,
-    /// When each watched read was last polled on schedule, per
-    /// person, app and tool (#406): the next poll is due an interval
-    /// after this, or at once when there is no entry yet.
-    pub watch_last_polled: HashMap<(String, String, String), DateTime<Utc>>,
+    /// Watched reads' baselines and poll clocks (#369, #406).
+    pub watch: watch::Watch,
     /// When each inbox item was first presented to its person (#367).
     pub items_opened: HashMap<String, DateTime<Utc>>,
     /// When each inbox item was decided, for the feed (#367).
@@ -1551,31 +1544,8 @@ impl State {
             Ev::HomeOpened { person } => {
                 self.home_last_open.insert(person.clone(), e.at);
             }
-            Ev::WatchedSeen { person, app, tool, ids, full } => {
-                let window = self.watched_seen.entry((person.clone(), app.clone(), tool.clone())).or_default();
-                let seen: HashSet<String> = ids.iter().cloned().collect();
-                // Tagged wholes push as they come (#415). Untagged history
-                // splits by overlap (#423): era-1 deltas are fresh-only,
-                // hence always disjoint from the window, and union onto
-                // the newest entry they extend; an overlapping untagged
-                // event is an era-2 whole answer and pushes. A total-churn
-                // era-2 pair is indistinguishable from seed plus delta and
-                // unions transiently, healed by later tagged reads.
-                let entry = if *full || window.iter().flatten().any(|id| seen.contains(id)) {
-                    seen
-                } else {
-                    let mut union = window.last().cloned().unwrap_or_default();
-                    union.extend(seen);
-                    union
-                };
-                window.push(entry);
-                if window.len() > 2 {
-                    window.remove(0);
-                }
-            }
-            Ev::WatchPolled { person, app, tool } => {
-                self.watch_last_polled.insert((person.clone(), app.clone(), tool.clone()), e.at);
-            }
+            Ev::WatchedSeen { person, app, tool, ids, full } => self.watch.fold_seen(person, app, tool, ids, *full),
+            Ev::WatchPolled { person, app, tool } => self.watch.fold_polled(person, app, tool, e.at),
             Ev::ItemOpened { id } => {
                 // First presentation stands: opened is when it was
                 // first seen, and the app reports it on every open.
@@ -2635,36 +2605,6 @@ mod tests {
         assert!(!s.schedules.contains_key("s1"), "a cancelled schedule stayed");
     }
 
-    /// Pre-#411 history holds fresh-only ids after the seed (#415):
-    /// replay unions each onto the newest entry, reconstructing the
-    /// answers instead of misreading deltas as wholes.
-    #[test]
-    fn old_delta_events_replay_as_full_answers() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        s.apply(&ev(3, "person:bob", w(vec!["c"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string(), "b".to_string()]), "the middle answer lost its seed");
-        assert_eq!(window[1], std::collections::HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]), "the last answer lost its history");
-    }
-
-    /// New events carry whole answers (#415): replay pushes them as they
-    /// come, with no unioning.
-    #[test]
-    fn full_answer_events_replay_whole() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids, "full": true });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["b".to_string()]));
-    }
-
     /// Erasure drops watched baselines, home marks and opened marks
     /// (#412): whoever is next known by the name starts fresh.
     #[test]
@@ -2675,56 +2615,11 @@ mod tests {
         s.apply(&ev(3, "person:bob", json!({ "kind": "item", "id": "i1", "item_kind": "approval", "task": null, "run": null, "person": "bob" })));
         s.apply(&ev(4, "person:bob", json!({ "kind": "item_opened", "id": "i1" })));
         s.apply(&ev(5, "person:bob", json!({ "kind": "item_resolved", "id": "i1", "decision": "approved" })));
-        assert!(!s.watched_seen.is_empty() && !s.home_last_open.is_empty() && !s.items_opened.is_empty() && !s.items_resolved_at.is_empty(), "the setup left nothing to erase");
+        assert!(!s.watch.is_empty() && !s.home_last_open.is_empty() && !s.items_opened.is_empty() && !s.items_resolved_at.is_empty(), "the setup left nothing to erase");
         s.apply(&ev(6, "kernel", json!({ "kind": "person_erased", "person": "bob" })));
-        assert!(s.watched_seen.is_empty(), "the erased baseline stayed: {:?}", s.watched_seen.keys().collect::<Vec<_>>());
+        assert!(s.watch.is_empty(), "the erased baseline stayed: {:?}", s.watch);
         assert!(!s.home_last_open.contains_key("bob"), "the erased home mark stayed");
         assert!(!s.items_opened.contains_key("i1"), "the erased opened mark stayed");
         assert!(!s.items_resolved_at.contains_key("i1"), "the erased resolved mark stayed");
-    }
-
-    /// Era-2 history (whole answers, untagged, #423): an untagged event
-    /// overlapping the window pushes whole instead of unioning.
-    #[test]
-    fn overlapping_untagged_events_replay_whole() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["a", "b"])));
-        s.apply(&ev(3, "person:bob", w(vec!["b"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string(), "b".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["b".to_string()]), "the overlapping answer unioned");
-    }
-
-    /// Mixed history across the upgrade (#423): era-1 deltas union,
-    /// then an overlapping era-2 whole pushes.
-    #[test]
-    fn mixed_delta_then_whole_history_replays_each_as_itself() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        s.apply(&ev(3, "person:bob", w(vec!["b", "c"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string(), "b".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["b".to_string(), "c".to_string()]), "the whole answer unioned onto history");
-    }
-
-    /// The accepted edge (#423): a total-churn era-2 pair is
-    /// indistinguishable from seed plus delta, so it unions. Two
-    /// tagged reads heal the window; this pins the transient shape.
-    #[test]
-    fn disjoint_untagged_era_two_pair_unions_transiently() {
-        let mut s = State::default();
-        let w = |ids: Vec<&str>| json!({ "kind": "watched_seen", "person": "bob", "app": "mail", "tool": "list_inbox", "ids": ids });
-        s.apply(&ev(1, "person:bob", w(vec!["a"])));
-        s.apply(&ev(2, "person:bob", w(vec!["b"])));
-        let window = &s.watched_seen[&("bob".to_string(), "mail".to_string(), "list_inbox".to_string())];
-        assert_eq!(window.len(), 2, "replay kept {window:?}");
-        assert_eq!(window[0], std::collections::HashSet::from(["a".to_string()]));
-        assert_eq!(window[1], std::collections::HashSet::from(["a".to_string(), "b".to_string()]), "the disjoint pair did not union");
     }
 }
