@@ -262,6 +262,8 @@ pub(super) async fn post_and_ask(
             );
             Json(json!({ "id": id, "task_id": task, "run_id": run, "agent": why })).into_response()
         }
+        // Another start claimed what was left since the check above.
+        Err(e) if e.is::<super::spend::TeamLimited>() => Json(json!({ "id": id, "limited": e.to_string() })).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
 }
