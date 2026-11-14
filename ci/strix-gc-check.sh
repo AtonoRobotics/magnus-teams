@@ -40,5 +40,30 @@ STRIX_GC_ROOT=$r STRIX_GC_FREE_GB=$t/free-full sh "$here/strix-gc.sh" current 2>
 gone "$r" a; gone "$r" b
 kept "$r" c; kept "$r" current; kept "$r" busy
 
+# An outgrown build of the current NAME is emptied; a small one is kept.
+r=$t/big; mkdir -p "$r/.running"
+name "$r" current "1 hour ago"
+echo 900 > "$t/free-big"; echo 41 > "$t/size-big"
+STRIX_GC_ROOT=$r STRIX_GC_FREE_GB=$t/free-big STRIX_GC_TARGET_GB=$t/size-big sh "$here/strix-gc.sh" current 2>/dev/null
+[ ! -e "$r/targets/current" ] || { echo "FAIL: an outgrown build should be emptied"; fail=1; }
+name "$r" current "1 hour ago"; echo 30 > "$t/size-big"
+STRIX_GC_ROOT=$r STRIX_GC_FREE_GB=$t/free-big STRIX_GC_TARGET_GB=$t/size-big sh "$here/strix-gc.sh" current 2>/dev/null
+kept "$r" current
+
+# Leftover test databases go only when no NAME is running, and postgres stays.
+cat > "$t/psql" <<'P'
+#!/bin/sh
+case "$*" in *"select datname"*) printf 'a_1\nt_2\n' ;; *drop*) echo "$*" >> "$PSQL_LOG" ;; esac
+P
+chmod +x "$t/psql"
+r=$t/db; mkdir -p "$r/.running"; name "$r" current "1 hour ago"; name "$r" other "1 hour ago"
+touch "$r/.running/other"
+PSQL_LOG=$t/drops STRIX_GC_PG=pg STRIX_GC_PSQL=$t/psql STRIX_GC_ROOT=$r STRIX_GC_FREE_GB=$t/free-big STRIX_GC_TARGET_GB=$t/size-big sh "$here/strix-gc.sh" current 2>/dev/null
+[ ! -s "$t/drops" ] || { echo "FAIL: databases dropped while a NAME runs"; fail=1; }
+rm "$r/.running/other"
+PSQL_LOG=$t/drops STRIX_GC_PG=pg STRIX_GC_PSQL=$t/psql STRIX_GC_ROOT=$r STRIX_GC_FREE_GB=$t/free-big STRIX_GC_TARGET_GB=$t/size-big sh "$here/strix-gc.sh" current 2>/dev/null
+[ "$(grep -c 'drop database' "$t/drops" 2>/dev/null)" = 2 ] || { echo "FAIL: leftover databases should be dropped"; fail=1; }
+grep -q '"postgres"' "$t/drops" 2>/dev/null && { echo "FAIL: postgres was dropped"; fail=1; }
+
 [ $fail = 0 ] && echo "strix-gc-check: ok"
 exit $fail

@@ -15,12 +15,21 @@
 # its marker (ROOT/.running/NAME) is younger than MAX_RUN_HOURS: a marker
 # older than that is left by a run whose connection died.
 #
-# STRIX_GC_ROOT and STRIX_GC_FREE_GB stand in for the real root and the
-# measured free space in ci/strix-gc-check.sh.
+# Cargo never deletes an old build, so the current NAME's build directory
+# grows with every change; past MAX_TARGET_GB it is emptied and rebuilt.
+#
+# The tests create a database for each server and account they start and do
+# not always drop it. With STRIX_GC_PG set (the test Postgres), when no NAME
+# is running every database but postgres is dropped.
+#
+# STRIX_GC_ROOT, STRIX_GC_FREE_GB, STRIX_GC_TARGET_GB and STRIX_GC_PSQL stand
+# in for the real root, the measured free space, the measured build size and
+# psql in ci/strix-gc-check.sh.
 set -eu
 KEEP_IDLE_HOURS=24
 MIN_FREE_GB=200
 MAX_RUN_HOURS=12
+MAX_TARGET_GB=40
 current=${1:?usage: strix-gc.sh CURRENT_NAME}
 root=${STRIX_GC_ROOT:-$HOME/magnus-teams-ci}
 mkdir -p "$root/.used" "$root/.running" "$root/targets"
@@ -61,3 +70,26 @@ for n in $idle; do
     remove "$n"
   fi
 done
+
+# The current NAME's build, when it has outgrown MAX_TARGET_GB.
+target_gb() {
+  if [ -n "${STRIX_GC_TARGET_GB:-}" ]; then cat "$STRIX_GC_TARGET_GB"; else du -s -BG "$root/targets/$current" 2>/dev/null | awk '{ sub("G", "", $1); print $1 }'; fi
+}
+if [ -d "$root/targets/$current" ] && [ "$(target_gb)" -gt "$MAX_TARGET_GB" ]; then
+  echo "strix-gc: emptying the build of $current (over ${MAX_TARGET_GB} GB)" >&2
+  rm -rf "${root:?}/targets/$current"
+fi
+
+# Leftover test databases, once nothing is running.
+if [ -n "${STRIX_GC_PG:-}" ]; then
+  busy=0
+  for m in "$root/.running"/*; do
+    [ -e "$m" ] && running "$(basename "$m")" && busy=1
+  done
+  if [ $busy = 0 ]; then
+    psql=${STRIX_GC_PSQL:-psql}
+    $psql "$STRIX_GC_PG" -Atqc "select datname from pg_database where not datistemplate and datname <> 'postgres'" | while read -r d; do
+      [ -n "$d" ] && $psql "$STRIX_GC_PG" -qc "drop database \"$d\" with (force)" >/dev/null && echo "strix-gc: dropped test database $d" >&2
+    done
+  fi
+fi
