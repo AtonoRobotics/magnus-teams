@@ -5,10 +5,10 @@
 //! sandbox has no network and no tool calls this API).
 
 use crate::config::{Adapter, Person};
-use crate::events::Ev;
 use crate::inbox::{self, Answer};
 use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
 use crate::state::{Run, Status};
+use crate::{events::Ev, people::rights};
 use axum::{
     extract::{ConnectInfo, Form, Path, Query, Request, State},
     http::{HeaderMap, Method, StatusCode},
@@ -18,8 +18,7 @@ use axum::{
     Extension, Json, Router,
 };
 use serde_json::{json, Value};
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 type K = State<Arc<Kernel>>;
 
@@ -75,7 +74,7 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
 
 pub(crate) async fn developer(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     let p = who(k, h).await?;
-    if !p.is_developer() {
+    if !rights(&p).sees_developer_view() {
         return Err(err(StatusCode::FORBIDDEN, "this needs the developer role"));
     }
     Ok(p)
@@ -98,7 +97,7 @@ async fn cookie_guard(req: Request, next: Next) -> Response {
 
 pub(crate) async fn owner(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     let p = who(k, h).await?;
-    if !p.is_owner() {
+    if !rights(&p).is_server_owner() {
         return Err(err(StatusCode::FORBIDDEN, "this needs the owner role"));
     }
     Ok(p)
@@ -365,7 +364,7 @@ async fn list_devices(State(k): K, h: HeaderMap) -> Response {
         Ok(p) => p,
         Err(r) => return r,
     };
-    let mine = if person.is_owner() { None } else { Some(person.id.as_str()) };
+    let mine = if rights(&person).manages_every_device() { None } else { Some(person.id.as_str()) };
     let devices: Vec<Value> = k
         .devices
         .list(mine)
@@ -381,7 +380,7 @@ async fn revoke_device(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Res
         Err(r) => return r,
     };
     let Some(device) = k.devices.get(&id) else { return err(StatusCode::NOT_FOUND, "no such device") };
-    if device.person != person.id && !person.is_owner() {
+    if device.person != person.id && !rights(&person).manages_every_device() {
         return err(StatusCode::NOT_FOUND, "no such device");
     }
     let cf = match cloudflare_of(&k) {
@@ -1238,9 +1237,10 @@ async fn verdict(State(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Jso
     };
     // An experiment's trials run as the eval people, who have no sign-in of
     // their own: the owner judges them, though they see no one else's tasks.
+    let judge = rights(&p).judges_experiments();
     let trial = || k.read(|s| s.tasks.get(&id).and_then(|t| s.runs.get(&t.run_id).filter(|r| r.experiment.is_some()).map(|r| (t.clone(), r.clone()))));
-    let Some((task, run)) = find(&k, &p, &id).or_else(|| p.is_owner().then(trial).flatten()) else { return err(StatusCode::NOT_FOUND, "no such task") };
-    if task.person != p.id && !(p.is_owner() && run.experiment.is_some()) {
+    let Some((task, run)) = find(&k, &p, &id).or_else(|| judge.then(trial).flatten()) else { return err(StatusCode::NOT_FOUND, "no such task") };
+    if task.person != p.id && !(judge && run.experiment.is_some()) {
         return err(StatusCode::FORBIDDEN, "only the person it is for gives a verdict");
     }
     let Some(v) = b["verdict"].as_str().filter(|v| crate::state::VERDICTS.contains(v)) else {
@@ -1838,7 +1838,7 @@ async fn forget(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
     if !k.read(|s| s.memory.iter().any(|m| m.id == id && m.person == p.id)) {
         return err(StatusCode::NOT_FOUND, "no such memory");
     }
-    crate::trash::trashed(k.trash(&p.id, p.is_owner(), &id).await)
+    crate::trash::trashed(k.trash(&p.id, rights(&p).moderates_shared_knowledge(), &id).await)
 }
 
 async fn health(State(k): K) -> Response {

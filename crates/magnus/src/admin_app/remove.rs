@@ -106,7 +106,7 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
     if k.last_owner(&id).await {
         return last_owner();
     }
-    if target.is_owner() && !a.person.is_owner() {
+    if crate::people::rights(&target).is_server_owner() && !crate::people::rights(&a.person).may_change_owners() {
         return refuse(StatusCode::FORBIDDEN, "owner_only", "Only an owner removes an owner.");
     }
     let to = b["to"].as_str().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty());

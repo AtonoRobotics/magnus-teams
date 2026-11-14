@@ -67,7 +67,7 @@ fn app_readers(c: Option<&crate::config::Connector>, person: &[String]) -> Vec<S
 }
 
 pub fn may_endorse(p: &Person) -> bool {
-    p.is_owner() || p.has_role(ENDORSE)
+    crate::people::rights(p).may_endorse_knowledge()
 }
 
 /// The search index and the reader role whose row security filters it.

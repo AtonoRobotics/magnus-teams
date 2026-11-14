@@ -39,7 +39,7 @@ fn the_config_wins_a_namesake_and_a_local_person_arrives_a_plain_member() {
         assert_eq!(exists(&config, &local, id), resolves, "{id} existed wrong");
         let Some(p) = p else { continue };
         assert_eq!(p.name, name, "{id} has the wrong record");
-        assert_eq!(p.is_owner(), owner, "{id}'s ownership is wrong");
+        assert_eq!(rights(&p).is_server_owner(), owner, "{id}'s ownership is wrong");
         assert_eq!(p.token.is_some() || !p.groups.is_empty(), powers, "{id} arrived with the wrong powers");
     }
 }

@@ -127,7 +127,7 @@ impl Kernel {
         if f.risk == crate::tools::Risk::Financial {
             return None;
         }
-        let may = self.person(&run.person).is_some_and(|p| p.is_owner() || p.has_role(&format!("approver:{}", f.risk.as_str())) || f.risk == crate::tools::Risk::ReversibleWrite);
+        let may = self.person(&run.person).is_some_and(|p| crate::people::rights(&p).may_approve(f.risk));
         if !may {
             return None;
         }

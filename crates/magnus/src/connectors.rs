@@ -961,7 +961,7 @@ pub fn suggested_risk(annotations: &Value) -> &'static str {
 // end, and which only their runs use.
 
 use crate::api::{err, internal, owner, who};
-use crate::events::Ev;
+use crate::{boundary::may_use, events::Ev, people::rights};
 use axum::{
     extract::{Path, Query, State as AxState},
     http::{HeaderMap, StatusCode},
@@ -1384,7 +1384,7 @@ async fn list(AxState(k): K, h: HeaderMap) -> Response {
         // not in, is not in their Library (connectors spec, Org policy).
         // The owner still manages it in Settings, marked as not theirs.
         let theirs = crate::boundary::may_use(&p, &c);
-        if !theirs && (!p.is_owner() || c.owner.is_some()) {
+        if !theirs && (!rights(&p).manages_shared_apps() || c.owner.is_some()) {
             continue;
         }
         let from_app = added.contains(&c.name) && k.cfg.connectors.iter().all(|f| f.name != c.name);
@@ -1392,7 +1392,7 @@ async fn list(AxState(k): K, h: HeaderMap) -> Response {
         card["for_you"] = json!(theirs);
         let secret = k.connector_secret(&c, &p.id).await.ok().flatten();
         let signed_in = c.credential.is_none() || secret.is_some();
-        if !p.is_owner() {
+        if !rights(&p).manages_shared_apps() {
             out.push(card);
             continue;
         }
@@ -1497,7 +1497,7 @@ async fn detail(AxState(k): K, h: HeaderMap, Path(name): Path<String>) -> Respon
         Ok(p) => p,
         Err(r) => return r,
     };
-    let Some(c) = k.connector(&name).filter(|c| (p.is_owner() && c.owner.is_none()) || crate::boundary::may_use(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
+    let Some(c) = k.connector(&name).filter(|c| may_use(&p, c) || c.owner.is_none() && rights(&p).manages_shared_apps()) else { return err(StatusCode::NOT_FOUND, "no such app") };
     let mut v = card(&k, &c, &p.id).await;
     v["for_you"] = json!(crate::boundary::may_use(&p, &c));
     v["recent"] = json!(k.recent_uses(&c.name, &p.id, 10));

@@ -473,13 +473,7 @@ pub async fn assigned_channel(k: &Kernel, h: &HeaderMap) -> Option<&'static str>
     // Everyone else's, as an admin set it (Operations › Updates).
     let everyone = k.read(|s| s.desktop_channel.clone()).and_then(|c| CHANNELS.iter().copied().find(|x| *x == c)).unwrap_or("production");
     if let Ok(p) = crate::api::who(k, h).await {
-        return Some(if p.is_owner() {
-            "development"
-        } else if p.has_role("tester") {
-            "test"
-        } else {
-            everyone
-        });
+        return Some(crate::people::rights(&p).own_update_channel().unwrap_or(everyone));
     }
     let app = h.get("x-magnus-app").and_then(|v| v.to_str().ok()).and_then(|v| semver::Version::parse(v.trim()).ok());
     match app {

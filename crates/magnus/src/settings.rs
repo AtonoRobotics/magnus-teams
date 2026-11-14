@@ -270,7 +270,8 @@ async fn deletion_requests(State(k): K, h: HeaderMap) -> Response {
         Err(r) => return r,
     };
     let list: Vec<Value> = k.read(|s| {
-        let mut v: Vec<&crate::state::Item> = s.items.values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || p.is_owner())).collect();
+        let mut v: Vec<&crate::state::Item> =
+            s.items.values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || crate::people::rights(&p).decides_deletion_requests())).collect();
         v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         v.into_iter()
             .map(|i| {

@@ -78,12 +78,16 @@ async fn one(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(
 
 /// Only an owner gives or takes the owner role.
 fn owner_only(a: &Admin, role: &str, target_is_owner: bool) -> Option<Response> {
-    ((role == "owner" || target_is_owner) && !a.person.is_owner()).then(|| refuse(StatusCode::FORBIDDEN, "owner_only", "Only an owner gives or takes the owner role."))
+    ((role == "owner" || target_is_owner) && !crate::people::rights(&a.person).may_change_owners())
+        .then(|| refuse(StatusCode::FORBIDDEN, "owner_only", "Only an owner gives or takes the owner role."))
 }
 
 /// Set a role on the record, audited as the console's `role_changed`.
 async fn set_role(k: &Arc<Kernel>, a: &Admin, id: &str, role: &str) -> Response {
-    let before = k.person(id).map(|p| crate::people::Authority::of(&p, crate::accounts::Role::Member).as_str()).map(|r| json!(r));
+    let before = match k.person(id) {
+        Some(p) => Some(json!(k.authority(&p).await.as_str())),
+        None => None,
+    };
     let audit = Audit { action: "role_changed".into(), target: Some(format!("people/{id}")), before, after: Some(json!({ "role": role })) };
     let change = async {
         match k.set_server_role(&a.actor(), id, role).await {
@@ -167,7 +171,7 @@ async fn change(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Pa
     let Some(target) = k.person(&id) else { return refuse(StatusCode::NOT_FOUND, "not_found", "No such person.") };
     if let Some(role) = b.as_object_mut().and_then(|o| o.remove("role")) {
         let Some(role) = role.as_str() else { return refuse(StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.") };
-        if let Some(r) = owner_only(&a, role, target.is_owner()) {
+        if let Some(r) = owner_only(&a, role, crate::people::rights(&target).is_server_owner()) {
             return r;
         }
         let r = set_role(&k, &a, &id, role).await;
@@ -195,7 +199,7 @@ async fn disable(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, P
     if k.last_owner(&id).await {
         return last_owner();
     }
-    if let Some(r) = owner_only(&a, "", k.person(&id).is_some_and(|p| p.is_owner())) {
+    if let Some(r) = owner_only(&a, "", k.person(&id).is_some_and(|p| crate::people::rights(&p).is_server_owner())) {
         return r;
     }
     let audit = Audit { action: "user_disabled".into(), target: Some(format!("people/{id}")), ..Default::default() };

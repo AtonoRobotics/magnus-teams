@@ -94,7 +94,7 @@ async fn delete(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
     let p = person!(k, h);
     let _ = found!(k, p, thread, entry);
     if entry.starts_with("m:") || entry.starts_with("a:") {
-        return crate::trash::trashed(k.trash(&p.id, p.is_owner(), &entry).await);
+        return crate::trash::trashed(k.trash(&p.id, crate::people::rights(&p).moderates_shared_knowledge(), &entry).await);
     }
     match hide(&k, &p.id, &thread, vec![entry]).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

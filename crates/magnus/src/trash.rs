@@ -33,9 +33,9 @@ pub fn router() -> Router<Arc<Kernel>> {
 
 impl Kernel {
     /// Move a person's item to the trash.
-    pub async fn trash(&self, person: &str, owner: bool, item: &str) -> Result<Result<(), NotTrashable>> {
+    pub async fn trash(&self, person: &str, moderator: bool, item: &str) -> Result<Result<(), NotTrashable>> {
         let _one = changing().lock().await;
-        if let Err(why) = self.read(|s| s.may_trash(person, owner, item)) {
+        if let Err(why) = self.read(|s| s.may_trash(person, moderator, item)) {
             return Ok(Err(why));
         }
         self.emit(&format!("person:{person}"), Ev::Trashed { item: item.into(), person: person.into() }).await?;
@@ -195,7 +195,7 @@ async fn list(State(k): K, h: HeaderMap) -> Response {
 async fn put(State(k): K, h: HeaderMap, Json(b): Json<Value>) -> Response {
     let p = person!(k, h);
     let Some(item) = b["item"].as_str() else { return err(StatusCode::BAD_REQUEST, "name the item") };
-    trashed(k.trash(&p.id, p.is_owner(), item).await)
+    trashed(k.trash(&p.id, crate::people::rights(&p).moderates_shared_knowledge(), item).await)
 }
 
 pub(crate) fn trashed(r: Result<Result<(), NotTrashable>>) -> Response {
@@ -242,8 +242,8 @@ async fn empty(State(k): K, h: HeaderMap) -> Response {
 }
 
 impl crate::state::State {
-    /// Whether `person` (`owner` or not) may put `item` in the trash now.
-    pub fn may_trash(&self, person: &str, owner: bool, item: &str) -> Result<(), NotTrashable> {
+    /// Whether `person` (a moderator of shared knowledge or not) may put `item` in the trash now.
+    pub fn may_trash(&self, person: &str, moderator: bool, item: &str) -> Result<(), NotTrashable> {
         use NotTrashable::*;
         let ended = |run: &str| self.runs.get(run).is_none_or(|r| r.ended_at.is_some());
         let mine = match item.split_once(':') {
@@ -274,7 +274,7 @@ impl crate::state::State {
                 // The owner moderates what is shared with groups; an entry
                 // only some people read is theirs, never the owner's to delete.
                 _ => self.knowledge.get(item).is_some_and(|k| {
-                    (owner && k.readers.iter().all(|c| c.iter().any(|r| r.starts_with("group:") || *r == format!("person:{person}"))))
+                    (moderator && k.readers.iter().all(|c| c.iter().any(|r| r.starts_with("group:") || *r == format!("person:{person}"))))
                         || k.author == format!("person:{person}")
                         || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)
                 }),
