@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::seal::{self, KEY_BYTES};
+use magnus_computerd_proto::guest::GuestRequest;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -72,12 +73,12 @@ impl Computers {
         let Some(source) = self.backup_source(id) else { return Ok(json!({ "skipped": "this profile is open, so it is not stored" })) };
         let frozen = self.is_live(id) && !self.is_profile(id) && !matches!(self.status(id)?, State::Paused);
         if frozen {
-            let reply = self.ask_guest(id, uid, &json!({ "op": "freeze" }))?;
+            let reply = self.ask_guest(id, uid, &GuestRequest::Freeze)?;
             ensure!(reply["ok"] == true, "the volume could not be held still: {}", reply["error"].as_str().unwrap_or("no reason given"));
         }
         let stored = self.store_volume(id, &source);
         if frozen {
-            self.ask_guest(id, uid, &json!({ "op": "thaw" }))?;
+            self.ask_guest(id, uid, &GuestRequest::Thaw)?;
         }
         Ok(json!({ "at": stored?, "bytes": self.backup_bytes(id)? }))
     }

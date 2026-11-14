@@ -1,0 +1,16 @@
+{"op":"ping"}
+{"op":"sync"}
+{"op":"zero_free"}
+{"op":"takeover_begin"}
+{"op":"takeover_end"}
+{"op":"takeover_leftovers"}
+{"op":"exec","command":"update-ca-certificates","timeout_s":60}
+{"op":"read","path":"/workspace/a"}
+{"op":"read","path":"/workspace/a","offset":0,"length":1048576}
+{"op":"write","path":"/workspace/a","data_b64":"b25l"}
+{"op":"write","path":"/workspace/a","data_b64":"b25l","append":true}
+{"op":"list","path":"/workspace/"}
+{"op":"erase","path":"/workspace/a"}
+{"op":"freeze"}
+{"op":"thaw"}
+{"op":"reset","unix_seconds":1794000000,"machine_id":"0123456789abcdef0123456789abcdef","hostname":"computer-0a1b2c","mac":"06:00:ac:10:00:02","entropy_b64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}

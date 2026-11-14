@@ -16,6 +16,7 @@ mod leftovers;
 use files::Files;
 
 use base64::Engine;
+use magnus_computerd_proto::guest::GuestRequest;
 use serde_json::{json, Value};
 use std::ffi::CString;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -32,6 +33,9 @@ const VNC_PORT: u16 = 5901;
 const VNC_CONNECT_TRIES: u32 = 50;
 const VNC_CONNECT_WAIT: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_OUT: usize = 200_000;
+/// What a command's own `timeout_s` is held between.
+const MIN_EXEC_TIMEOUT_SECONDS: u64 = 1;
+const MAX_EXEC_TIMEOUT_SECONDS: u64 = 3600;
 /// How long a command's output is still read after it exits.
 const OUTPUT_GRACE: Duration = Duration::from_millis(150);
 const OUTPUT_POLL: Duration = Duration::from_millis(2);
@@ -230,11 +234,9 @@ fn zero_free() -> Value {
 
 /// A restored snapshot shares its clock, machine id, entropy and name with
 /// every other restore of it until this runs. The values come from the host.
-fn reset(req: &Value) -> Value {
-    let seconds = req["unix_seconds"].as_i64().unwrap_or_default();
-    let machine_id = req["machine_id"].as_str().unwrap_or_default();
-    let hostname = req["hostname"].as_str().unwrap_or_default();
-    let Ok(entropy) = base64::engine::general_purpose::STANDARD.decode(req["entropy_b64"].as_str().unwrap_or_default()) else {
+fn reset(unix_seconds: u64, machine_id: &str, hostname: &str, mac: &str, entropy_b64: &str) -> Value {
+    let seconds = i64::try_from(unix_seconds).unwrap_or_default();
+    let Ok(entropy) = base64::engine::general_purpose::STANDARD.decode(entropy_b64) else {
         return json!({ "error": "the entropy is not base64" });
     };
     if seconds <= 0 || machine_id.is_empty() || hostname.is_empty() || entropy.len() < MIN_ENTROPY_BYTES {
@@ -256,7 +258,7 @@ fn reset(req: &Value) -> Value {
     if !matches!(reseeded, Ok(true)) {
         return json!({ "error": "the guest's randomness was not reset" });
     }
-    if !set_mac(req["mac"].as_str().unwrap_or_default()) {
+    if !set_mac(mac) {
         return json!({ "error": "the guest's network identity was not reset" });
     }
     if std::fs::write("/etc/machine-id", format!("{machine_id}\n")).is_err() || std::fs::write("/proc/sys/kernel/hostname", hostname).is_err() {
@@ -350,9 +352,8 @@ fn truncate(mut b: Vec<u8>) -> (String, bool) {
     (String::from_utf8_lossy(&b).into_owned(), cut)
 }
 
-fn exec(req: &Value) -> Value {
-    let command = req["command"].as_str().unwrap_or_default();
-    let timeout = Duration::from_secs(req["timeout_s"].as_u64().unwrap_or(120).clamp(1, 3600));
+fn exec(command: &str, timeout_s: u64) -> Value {
+    let timeout = Duration::from_secs(timeout_s.clamp(MIN_EXEC_TIMEOUT_SECONDS, MAX_EXEC_TIMEOUT_SECONDS));
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c")
         .arg(command)
@@ -455,50 +456,60 @@ fn list_dir(files: &Files, path: &std::path::Path) -> Value {
     json!({ "path": path, "entries": entries })
 }
 
-fn handle(req: Value) -> Value {
+/// A request line, or the answer refusing it: an unknown op or a missing or
+/// mistyped field is a bad request, never an empty path or a zero. A field
+/// the guest does not know is ignored, so a newer sender still reaches it.
+fn parse(line: &str) -> Result<GuestRequest, Value> {
+    serde_json::from_str(line).map_err(|e| json!({ "error": format!("bad request: {e}") }))
+}
+
+/// The answer to one request line.
+fn answer(line: &str) -> Value {
+    parse(line).map_or_else(|refused| refused, handle)
+}
+
+fn handle(req: GuestRequest) -> Value {
     let b64 = base64::engine::general_purpose::STANDARD;
     // Files under /workspace are opened beneath it, never through a link out (files.rs).
     let files = Files::user();
-    let path = || files.resolve(req["path"].as_str().unwrap_or_default());
-    match req["op"].as_str().unwrap_or_default() {
-        "ping" => json!({ "ok": true }),
-        "reset" => reset(&req),
-        "freeze" => freeze(true),
-        "thaw" => freeze(false),
-        "erase" => erase(&files, &path()),
-        "exec" => exec(&req),
-        "write" => {
-            let p = path();
-            let data = match b64.decode(req["data_b64"].as_str().unwrap_or_default()) {
+    match req {
+        GuestRequest::Ping => json!({ "ok": true }),
+        GuestRequest::Reset { unix_seconds, machine_id, hostname, mac, entropy_b64 } => reset(unix_seconds, &machine_id, &hostname, &mac, &entropy_b64),
+        GuestRequest::Freeze => freeze(true),
+        GuestRequest::Thaw => freeze(false),
+        GuestRequest::Erase { path } => erase(&files, &files.resolve(&path)),
+        GuestRequest::Exec { command, timeout_s } => exec(&command, timeout_s),
+        GuestRequest::Write { path, data_b64, append } => {
+            let p = files.resolve(&path);
+            let data = match b64.decode(data_b64) {
                 Ok(d) => d,
                 Err(e) => return json!({ "error": format!("bad base64: {e}") }),
             };
-            match files.write(&p, &data, req["append"] == true) {
+            match files.write(&p, &data, append == Some(true)) {
                 Ok(()) => json!({ "ok": true, "path": p }),
                 Err(e) => json!({ "error": format!("{}: {e}", p.display()) }),
             }
         }
-        "read" => {
-            let p = path();
-            match files.read(&p, req["offset"].as_u64(), req["length"].as_u64()) {
+        GuestRequest::Read { path, offset, length } => {
+            let p = files.resolve(&path);
+            match files.read(&p, offset, length) {
                 Ok(d) => json!({ "data_b64": b64.encode(d), "path": p }),
                 Err(e) => json!({ "error": format!("{}: {e}", p.display()) }),
             }
         }
-        "zero_free" => zero_free(),
+        GuestRequest::ZeroFree => zero_free(),
         // The desktop is up before the boundary, so it is not the session's.
-        "takeover_begin" => {
+        GuestRequest::TakeoverBegin => {
             start_display();
             leftovers::begin(&leftovers::ProcFs, &leftovers::dirs())
         }
-        "takeover_end" => leftovers::end(&leftovers::ProcFs, &leftovers::dirs()),
-        "takeover_leftovers" => leftovers::preview(&leftovers::ProcFs),
-        "list" => list_dir(&files, &path()),
-        "sync" => {
+        GuestRequest::TakeoverEnd => leftovers::end(&leftovers::ProcFs, &leftovers::dirs()),
+        GuestRequest::TakeoverLeftovers => leftovers::preview(&leftovers::ProcFs),
+        GuestRequest::List { path } => list_dir(&files, &files.resolve(&path)),
+        GuestRequest::Sync => {
             unsafe { libc::sync() };
             json!({ "ok": true })
         }
-        other => json!({ "error": format!("unknown op {other}") }),
     }
 }
 
@@ -566,10 +577,7 @@ fn serve() {
             if r.read_line(&mut line).is_err() {
                 return;
             }
-            let resp = match serde_json::from_str::<Value>(&line) {
-                Ok(req) => handle(req),
-                Err(e) => json!({ "error": format!("bad request: {e}") }),
-            };
+            let resp = answer(&line);
             let mut w = &stream;
             let _ = w.write_all(format!("{resp}\n").as_bytes());
         });
@@ -620,6 +628,45 @@ mod tests {
         wait_for_readers(&[held], OUTPUT_GRACE);
         let waited = started.elapsed();
         assert!(waited >= OUTPUT_GRACE && waited < OUTPUT_GRACE * 3, "{waited:?}");
+    }
+
+    /// Every request line the senders write (computerd-proto's tests hold
+    /// each typed request to its line).
+    const GUEST_LINES: &str = include_str!("../../../crates/computerd-proto/guest_lines.jsonl");
+
+    #[test]
+    fn every_line_a_sender_writes_is_understood() {
+        let lines: Vec<&str> = GUEST_LINES.lines().collect();
+        assert!(lines.len() >= 16, "the lines file is missing ops");
+        for line in lines {
+            assert!(parse(line).is_ok(), "{line}: {:?}", parse(line));
+        }
+        // A field from a newer server is ignored, not refused.
+        assert_eq!(parse(r#"{"op":"read","path":"/workspace/a","from_a_newer_server":1}"#), Ok(GuestRequest::read("/workspace/a")));
+    }
+
+    /// Before, each missing field became "" or 0 and the op went ahead: a
+    /// read with no path read "" (/workspace itself), a list with no path
+    /// listed /workspace, a write with no data emptied the file, and an exec
+    /// with no command ran an empty shell and said it succeeded.
+    #[test]
+    fn a_request_missing_a_field_is_refused_not_defaulted() {
+        for line in [
+            r#"{"op":"read"}"#,
+            r#"{"op":"read","pth":"/workspace/a"}"#,
+            r#"{"op":"list"}"#,
+            r#"{"op":"erase"}"#,
+            r#"{"op":"write","path":"/nonexistent/a"}"#,
+            r#"{"op":"exec","timeout_s":5}"#,
+            r#"{"op":"exec","command":"true","timeout_s":"soon"}"#,
+            r#"{"op":"reset","unix_seconds":1}"#,
+            r#"{"op":"no_such_op"}"#,
+            r#"{"path":"/workspace/a"}"#,
+            "not json",
+        ] {
+            let refused = answer(line);
+            assert!(refused["error"].as_str().is_some_and(|e| e.starts_with("bad request: ")), "{line}: {refused}");
+        }
     }
 
     #[test]

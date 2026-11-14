@@ -4,7 +4,7 @@
 //! untrusted, and stays a JSON value for the caller to read.
 
 use anyhow::{anyhow, bail, Context, Result};
-pub(crate) use magnus_computerd_proto::guest::GuestRequest;
+pub(crate) use magnus_computerd_proto::guest::{GuestRequest, MAX_GUEST_REPLY_BYTES};
 pub(crate) use magnus_computerd_proto::Request;
 use serde_json::Value;
 use std::path::Path;
@@ -17,8 +17,6 @@ use tokio::net::UnixStream;
 const REPLY_WAIT: Duration = Duration::from_secs(600);
 const GUEST_WAIT: Duration = Duration::from_secs(60);
 const MAX_REPLY_BYTES: u64 = 1 << 16;
-/// A file read comes back whole, in base64.
-const MAX_GUEST_REPLY_BYTES: u64 = 64 << 20;
 /// Computerd's words when a machine is at its limit of live computers.
 const AT_CAPACITY: &str = "as many computers";
 

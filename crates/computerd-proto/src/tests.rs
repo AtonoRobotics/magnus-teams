@@ -134,7 +134,62 @@ fn guest_requests() -> Vec<(GuestRequest, Value)> {
         ),
         (GuestRequest::List { path: "/workspace/".into() }, json!({ "op": "list", "path": "/workspace/" })),
         (GuestRequest::Erase { path: "/workspace/a".into() }, json!({ "op": "erase", "path": "/workspace/a" })),
+        (GuestRequest::Freeze, json!({ "op": "freeze" })),
+        (GuestRequest::Thaw, json!({ "op": "thaw" })),
+        (
+            GuestRequest::Reset {
+                unix_seconds: 1_794_000_000,
+                machine_id: "0123456789abcdef0123456789abcdef".into(),
+                hostname: "computer-0a1b2c".into(),
+                mac: "06:00:ac:10:00:02".into(),
+                entropy_b64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".into(),
+            },
+            json!({
+                "op": "reset",
+                "unix_seconds": 1_794_000_000u64,
+                "machine_id": "0123456789abcdef0123456789abcdef",
+                "hostname": "computer-0a1b2c",
+                "mac": "06:00:ac:10:00:02",
+                "entropy_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            }),
+        ),
     ]
+}
+
+/// The lines above as they go on the wire, one per request in the same
+/// order. The guest's tests read this file, so the guest is held to accept
+/// every line a sender writes.
+const GUEST_LINES: &str = include_str!("../guest_lines.jsonl");
+
+#[test]
+fn the_guest_lines_file_is_every_guest_request() {
+    let lines: Vec<&str> = GUEST_LINES.lines().collect();
+    let sent: Vec<String> = guest_requests().iter().map(|(r, _)| serde_json::to_string(r).unwrap()).collect();
+    assert_eq!(lines, sent);
+}
+
+#[test]
+fn every_guest_op_has_a_wire_test() {
+    let mut tested: Vec<String> = guest_requests().iter().map(|(_, v)| v["op"].as_str().unwrap().to_string()).collect();
+    tested.sort();
+    tested.dedup();
+    // serde names every op the guest knows when it refuses one it does not.
+    let refused = serde_json::from_value::<GuestRequest>(json!({ "op": "a_request_from_the_future" })).unwrap_err().to_string();
+    let list = refused.split("expected one of").nth(1).expect("serde lists the variants");
+    let mut known: Vec<String> = list.split(',').map(|s| s.split('`').nth(1).expect("a quoted name").to_string()).collect();
+    known.sort();
+    assert_eq!(tested, known, "{refused}");
+}
+
+#[test]
+fn the_guest_ignores_a_field_it_does_not_know_and_refuses_a_missing_one() {
+    let newer = json!({ "op": "read", "path": "/workspace/a", "from_a_newer_server": 1 });
+    assert_eq!(serde_json::from_value::<GuestRequest>(newer).unwrap(), GuestRequest::read("/workspace/a"));
+    for missing in
+        [json!({ "op": "read" }), json!({ "op": "write", "path": "/workspace/a" }), json!({ "op": "exec", "command": "ls" }), json!({ "op": "reset", "unix_seconds": 1 })]
+    {
+        assert!(serde_json::from_value::<GuestRequest>(missing.clone()).is_err(), "{missing}");
+    }
 }
 
 #[test]

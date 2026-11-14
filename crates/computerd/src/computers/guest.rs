@@ -3,8 +3,9 @@
 //! the relay process does, locked in the jail as the VM's user.
 
 use super::*;
+use magnus_computerd_proto::guest::{GuestRequest, MAX_GUEST_REPLY_BYTES};
 use serde_json::Value;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::Stdio;
@@ -13,7 +14,7 @@ const GUEST_ANSWER: Duration = Duration::from_secs(30);
 const GUEST_RETRY: Duration = Duration::from_millis(100);
 
 impl Computers {
-    fn guest_once(&self, id: &ComputerId, uid: u32, req: &Value) -> Result<Value> {
+    fn guest_once(&self, id: &ComputerId, uid: u32, req: &GuestRequest) -> Result<Value> {
         let (mine, theirs) = UnixStream::pair()?;
         mine.set_read_timeout(Some(GUEST_ANSWER))?;
         let out = theirs.try_clone()?;
@@ -29,14 +30,16 @@ impl Computers {
             .context("run the relay")?;
         let answer = (|| {
             let mut to_guest = mine.try_clone()?;
-            let mut from_guest = BufReader::new(mine.try_clone()?);
+            // The guest runs the model's commands: it is not trusted to end its line.
+            let mut from_guest = BufReader::new(mine.try_clone()?.take(MAX_GUEST_REPLY_BYTES));
             let mut line = String::new();
             from_guest.read_line(&mut line)?;
             let ack: Value = serde_json::from_str(&line).context("the relay's answer")?;
             ensure!(ack["ok"] == true, "{}", ack["error"].as_str().unwrap_or("the guest did not answer"));
-            writeln!(to_guest, "{req}")?;
+            writeln!(to_guest, "{}", serde_json::to_string(req)?)?;
             line.clear();
             from_guest.read_line(&mut line)?;
+            ensure!(line.ends_with('\n'), "the guest's answer was cut short");
             serde_json::from_str::<Value>(&line).context("the guest's answer")
         })();
         let _ = relay.kill();
@@ -45,7 +48,7 @@ impl Computers {
     }
 
     /// Keeps trying for a moment: a guest just resumed may still be coming up.
-    pub(super) fn ask_guest(&self, id: &ComputerId, uid: u32, req: &Value) -> Result<Value> {
+    pub(super) fn ask_guest(&self, id: &ComputerId, uid: u32, req: &GuestRequest) -> Result<Value> {
         let started = Instant::now();
         loop {
             match self.guest_once(id, uid, req) {

@@ -1763,6 +1763,7 @@ version = "0.2.5"
 dependencies = [
  "base64 0.22.1",
  "libc",
+ "magnus-computerd-proto",
  "serde_json",
 ]
 
