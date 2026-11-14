@@ -177,7 +177,7 @@ mod tests {
         l.apply(&Change::Member { workspace: "w".into(), person: "bo".into(), role: Role::Member });
         let p = crate::team::knowledge::Project { id: "p".into(), owner: "ann".into(), members: vec!["ann".into()], ..Default::default() };
         l.apply(&Change::Project { workspace: "w".into(), id: "p".into(), def: p });
-        let r = crate::team::routines::Routine { channel: "c".into(), text: "t".into(), every_hours: 1, by: "ann".into(), last_at: None };
+        let r = crate::team::routines::Routine { channel: "c".into(), text: "t".into(), every_hours: 1, by: "ann".into(), last_at: None, ..Default::default() };
         l.apply(&Change::Routine { workspace: "w".into(), id: "r".into(), routine: r });
         l
     }

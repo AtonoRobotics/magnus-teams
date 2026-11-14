@@ -2,6 +2,7 @@
 //! authority, reporting to a channel. It runs in the background and asks
 //! no one, so anything it cannot do without asking does not happen.
 use super::routes::{member, new_id, send, Reply, K};
+use super::routine_sweep::Step;
 use super::{Change, Role, TeamRun};
 use crate::api::err;
 use crate::events::Ev;
@@ -31,11 +32,71 @@ pub struct Routine {
     pub by: String,
     #[serde(default)]
     pub last_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Its firings, oldest first, as the log records them: never written
+    /// with the routine itself, which is the admin's setting.
+    #[serde(skip)]
+    pub fired: Vec<Firing>,
+    /// Why it starts no more runs until it is changed or removed.
+    #[serde(skip)]
+    pub stopped: Option<String>,
+}
+
+/// One of a routine's firings, as `routine_sweep` counts them.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Firing {
+    /// It started this task.
+    Started(String),
+    /// It could not start a run.
+    Failed,
+    /// Its admin changed it: what came before no longer counts toward stopping it.
+    Changed,
 }
 
 impl Routine {
-    fn due(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
-        self.last_at.is_none_or(|at| now - at >= chrono::Duration::hours(self.every_hours))
+    pub(super) fn due(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        let every = crate::cadence::Recurrence::EveryHours(self.every_hours);
+        self.last_at.is_none_or(|at| every.next_after(Some(at), at, crate::cadence::Zone::Server).is_some_and(|t| t <= now))
+    }
+}
+
+/// A routine change applied to its workspace. A firing, a failed one or a
+/// skipped one, counts as the routine's last time, so it is next due one
+/// interval on, as a schedule is.
+pub(super) fn apply(w: &mut super::Workspace, c: &Change) {
+    match c {
+        Change::Routine { id, routine, .. } => {
+            let mut fired = w.routines.remove(id).map(|old| old.fired).unwrap_or_default();
+            if !fired.is_empty() {
+                fired.push(Firing::Changed);
+            }
+            w.routines.insert(id.clone(), Routine { fired, stopped: None, ..routine.clone() });
+        }
+        Change::RoutineRemoved { id, .. } => {
+            w.routines.remove(id);
+        }
+        Change::RoutineRan { id, task, at, .. } => {
+            if let Some(r) = w.routines.get_mut(id) {
+                r.last_at = Some(*at);
+                r.fired.push(Firing::Started(task.clone()));
+            }
+        }
+        Change::RoutineFailed { id, at, .. } => {
+            if let Some(r) = w.routines.get_mut(id) {
+                r.last_at = Some(*at);
+                r.fired.push(Firing::Failed);
+            }
+        }
+        Change::RoutineSkipped { id, at, .. } => {
+            if let Some(r) = w.routines.get_mut(id) {
+                r.last_at = Some(*at);
+            }
+        }
+        Change::RoutineStopped { id, reason, .. } => {
+            if let Some(r) = w.routines.get_mut(id) {
+                r.stopped = Some(reason.clone());
+            }
+        }
+        _ => {}
     }
 }
 
@@ -62,7 +123,7 @@ async fn add(State(k): K, h: HeaderMap, Path(ws): Path<String>, Json(b): Json<Ne
         return err(StatusCode::NOT_FOUND, "no such channel");
     }
     let id = new_id();
-    let routine = Routine { channel: b.channel, text: b.text, every_hours: b.every_hours, by: p.id.clone(), last_at: None };
+    let routine = Routine { channel: b.channel, text: b.text, every_hours: b.every_hours, by: p.id.clone(), ..Default::default() };
     ok_or_return!(send(&k, &p, Change::Routine { workspace: ws, id: id.clone(), routine }).await);
     if let Err(e) = k.run_due_routines().await {
         tracing::warn!("team routines: {e:#}");
@@ -77,40 +138,63 @@ async fn remove(State(k): K, h: HeaderMap, Path((ws, id)): Path<(String, String)
 }
 
 impl Kernel {
+    /// Starts the routines that are due. A routine that cannot start is
+    /// recorded and its admin told, and the rest still start; one whose last
+    /// run is open starts nothing; one whose firings keep failing stops
+    /// (`routine_sweep`).
     pub(super) async fn run_due_routines(self: &Arc<Self>) -> Result<()> {
         let now = chrono::Utc::now();
-        let due: Vec<(String, String, Routine)> = self.read(|s| {
-            s.team
-                .all()
-                .flat_map(|w| {
-                    w.routines
-                        .iter()
-                        .filter(|(_, r)| r.due(now) && w.members.contains_key(&r.by) && crate::halts::holds_new(s, &r.by, true).is_none())
-                        .map(|(id, r)| (w.id.clone(), id.clone(), r.clone()))
-                })
-                .collect()
-        });
-        for (workspace, id, r) in due {
-            let team = TeamRun {
-                workspace: workspace.clone(),
-                channel: r.channel.clone(),
-                thread: None,
-                task: String::new(),
-                requester: r.by.clone(),
-                history: String::new(),
-                sub: false,
-                outside: false,
-            };
-            // A routine is team work too: within the limits, or not yet.
-            let (task, _) = match self.start_team_run("poll", &r.by, r.text.clone(), NewRun { team: Some(team), ..Default::default() }).await {
-                Ok(started) => started,
-                Err(e) if e.is::<super::spend::TeamLimited>() => {
-                    tracing::info!("team routine {id} waits: {e}");
-                    continue;
+        let n = self.cfg.schedules.pause_after_failures;
+        let due = self.read(|s| super::routine_sweep::plan(s, now, n));
+        for d in due {
+            let (workspace, id, r) = (d.workspace, d.id, d.routine);
+            let title = self.read(|s| super::routine_sweep::title(s, &workspace, &r));
+            match d.step {
+                Step::Skip { task, why } => {
+                    self.emit("poll", Ev::Team(Change::RoutineSkipped { workspace, id, task, reason: why, at: now })).await?;
                 }
-                Err(e) => return Err(e),
-            };
-            self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
+                Step::Stop { why } => {
+                    let notice = self.notice_to(
+                        None,
+                        None,
+                        r.by.clone(),
+                        format!("A routine stopped: {title}"),
+                        json!({ "reason": "routine_stopped", "evidence": { "workspace": workspace, "routine": id, "why": why } }),
+                    );
+                    self.emit_all(vec![("poll", Ev::Team(Change::RoutineStopped { workspace, id, reason: why, at: now })), ("poll", notice)]).await?;
+                }
+                Step::Fire => {
+                    let team = TeamRun {
+                        workspace: workspace.clone(),
+                        channel: r.channel.clone(),
+                        thread: None,
+                        task: String::new(),
+                        requester: r.by.clone(),
+                        history: String::new(),
+                        sub: false,
+                        outside: false,
+                    };
+                    // A routine is team work too: within the limits, or not yet.
+                    match self.start_team_run("poll", &r.by, r.text.clone(), NewRun { team: Some(team), ..Default::default() }).await {
+                        Ok((task, _)) => {
+                            self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
+                        }
+                        Err(e) if e.is::<super::spend::TeamLimited>() => tracing::info!("team routine {id} waits: {e}"),
+                        Err(e) => {
+                            tracing::error!("team routine {id}: {e:#}");
+                            let error = format!("{e:#}");
+                            let notice = self.notice_to(
+                                None,
+                                None,
+                                r.by.clone(),
+                                format!("A routine could not start: {title}"),
+                                json!({ "reason": "routine_failed", "evidence": { "workspace": workspace, "routine": id, "error": error } }),
+                            );
+                            self.emit_all(vec![("poll", Ev::Team(Change::RoutineFailed { workspace, id, error, at: now })), ("poll", notice)]).await?;
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
