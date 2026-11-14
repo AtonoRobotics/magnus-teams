@@ -371,18 +371,13 @@ async fn spoken(State(k): K, h: HeaderMap, Path((thread, entry)): Path<(String, 
 impl Kernel {
     async fn write_spoken(&self, run: &crate::state::Run, e: &Value) -> anyhow::Result<String> {
         use magnus_adapter_proto::{Block, Message, Role};
-        // No script past the run's call cap: the answer itself is heard.
-        // (No grant check: grants attach to tasks, and only chat turns are
-        // read aloud, so a run here never carries one. #330.)
-        let calls = self.read(|s| s.runs.get(&run.id).map(|r| r.model_calls)).unwrap_or(0);
-        if calls >= run.config.budget.max_model_calls {
-            return Ok(text_of(e));
-        }
         let shown = if e["view"].is_array() { format!("\n\nShown below the answer: {}", e["view"]) } else { String::new() };
         let msg = Message { role: Role::User, content: vec![Block::Text { text: format!("{}{shown}", text_of(e)) }], state: None };
         let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
         let system = format!("{LISTENING}\n{}", crate::run::CHARACTER);
-        // No dollars for a script: the answer itself is heard as it is.
+        // No script past the run's allowance for an extra call (its calls,
+        // its dollars, the month's or the team's limits): the answer itself
+        // is heard as it is.
         let Some(allowance) = self.aux_max_tokens(&run.id, "spoken script", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
             return Ok(text_of(e));
         };

@@ -12,6 +12,7 @@ use crate::halts;
 use crate::kernel::Kernel;
 use crate::policy::{self, Outcome, ToolFacts};
 use crate::run::admission::{Refusal, HARD_DENIAL};
+use crate::spend::allowance::Spender;
 use crate::state::{Intent, Run, Status};
 use crate::tools::{self, Audience, Label, Risk};
 use crate::vault::redact;
@@ -150,13 +151,6 @@ pub fn may_use(person: &Person, c: &crate::config::Connector) -> bool {
     crate::generated::may_use(person, c)
 }
 
-/// What a run has spent of its action and dollar budget, as a budget stop
-/// tells the person.
-pub fn budget_used(run: &Run) -> String {
-    let b = &run.config.budget;
-    format!("budget used: {} of {} actions, ${:.2} of ${:.2}", run.actions, b.max_actions, run.spent_usd(), b.max_usd)
-}
-
 /// The prompt's tokens from the kernel's bytes: the fallback when the
 /// adapter cannot measure what it would send. The live path asks the
 /// adapter, which drops what it cannot send.
@@ -256,51 +250,6 @@ pub(crate) enum Gate {
 }
 
 impl Kernel {
-    /// An auxiliary model call's output allowance: the full allowance when
-    /// its worst case fits what the run has left, None when it does not —
-    /// the caller skips the call. Auxiliary calls are optional extras
-    /// (verdicts, memory, extractions, spoken scripts), never the run's
-    /// work, so they run whole or not at all: a truncated judgment is
-    /// worse than none, and the run is never suspended for one (#319). An
-    /// estimate the adapter cannot give falls back to the kernel's bytes;
-    /// a quote it cannot give skips: the call would fail anyway.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn aux_max_tokens(
-        &self,
-        run_id: &str,
-        purpose: &str,
-        adapter: &str,
-        model: &str,
-        system: &str,
-        messages: Vec<magnus_adapter_proto::Message>,
-        tools: Vec<magnus_adapter_proto::ToolSpec>,
-        max_tokens: u32,
-    ) -> Option<u32> {
-        let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return None };
-        let left = run.config.budget.max_usd - run.spent_usd();
-        let input_tokens = match self.adapters.estimate_prompt(adapter, model, system, messages.clone(), tools.clone()).await {
-            Ok(n) => n,
-            Err(e) => {
-                tracing::warn!("{purpose} prompt estimate for {run_id}: {e:#}; pricing the kernel's bytes");
-                estimated_input_tokens(system, &messages, &tools)
-            }
-        };
-        let (input_usd, output_usd) = match self.adapters.quote(adapter, model, input_tokens, max_tokens).await {
-            Ok(q) => q,
-            Err(e) => {
-                tracing::warn!("{purpose} quote for {run_id}: {e:#}; skipping");
-                return None;
-            }
-        };
-        match clamp_output_for_budget(left, input_usd, output_usd, max_tokens) {
-            Some(n) if n == max_tokens => Some(n),
-            _ => {
-                tracing::info!("{purpose} for {run_id} skipped: its worst case does not fit what is left");
-                None
-            }
-        }
-    }
-
     async fn record(&self, a: &Action, key: Option<String>, status: &str, text: String, is_error: bool, label: Label, data: Option<Value>) -> Result<Verdict> {
         let sources = facts(self, &a.tool).map(|f| vec![f.app]).unwrap_or_default();
         self.record_from(a, key, status, text, is_error, label, sources, data).await
@@ -412,13 +361,14 @@ impl Kernel {
             }
         }
 
-        // 3. Budget.
-        let b = &run.config.budget;
-        if a.issuer == Issuer::Model && (run.actions >= b.max_actions || run.spent_usd() >= b.max_usd) {
-            let why = budget_used(&run);
-            self.decision(a, "ask", "budget", &why, None).await?;
-            self.suspend_with_notice(&a.run, "budget", format!("Stopped: {why}."), json!({ "actions": run.actions, "usd": run.spent_usd() })).await?;
-            return Ok(Verdict::Suspended);
+        // 3. Budget: the run's allowance for an action, its grant's, the
+        // month's and its team's limits with it (`spend::allowance`).
+        if a.issuer == Issuer::Model {
+            if let Err(stop) = self.allowance(&a.run, Spender::Action) {
+                self.decision(a, "ask", "budget", &stop.why, None).await?;
+                self.suspend_with_notice(&a.run, stop.reason, stop.notice, stop.details).await?;
+                return Ok(Verdict::Suspended);
+            }
         }
 
         // Where it goes, read before anything is decided; none of it reaches the model.

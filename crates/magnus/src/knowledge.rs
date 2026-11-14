@@ -460,10 +460,6 @@ impl Kernel {
     /// owner's rule: only a value that cannot carry instructions is endorsed
     /// without a person).
     async fn extract_value(&self, run: &Run, from: &str, spec: &Value) -> Result<Option<(String, Value)>> {
-        // A paid call: not once the run's grant's budget is spent (#286).
-        if self.grant_spent(&run.id).is_some() {
-            return Ok(None);
-        }
         let Some(e) = self.knowledge_shown(from).await? else { return Ok(None) };
         let (key, kind) = (spec["key"].as_str().unwrap_or_default(), spec["type"].as_str().unwrap_or_default());
         let options: Vec<String> = spec["options"].as_array().into_iter().flatten().filter_map(|o| o.as_str().map(String::from)).collect();
@@ -489,6 +485,7 @@ impl Kernel {
             state: None,
         };
         let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
+        // A paid call: only within the run's allowance for an extra (#286).
         let Some(allowance) = self.aux_max_tokens(&run.id, "knowledge extraction", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
             return Ok(None);
         };

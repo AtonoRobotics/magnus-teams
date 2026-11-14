@@ -40,15 +40,11 @@ fn review_tool(properties: Value, required: &[&str]) -> ToolSpec {
 }
 
 impl Kernel {
-    /// One reviewer call, recorded with its cost. None when the budget is
-    /// spent, its worst case does not fit what is left, or the provider
-    /// failed: the reviewer then says nothing.
+    /// One reviewer call, recorded with its cost. None when the run's
+    /// allowance admits no extra call (its calls, its dollars, its grant's,
+    /// the month's or its team's limits), its worst case does not fit what
+    /// is left, or the provider failed: the reviewer then says nothing.
     pub(crate) async fn reviewer_call(&self, run: &Run, purpose: &str, system: &str, messages: Vec<Message>, tools: Vec<ToolSpec>) -> Result<Option<Vec<Block>>> {
-        let calls = self.read(|s| s.runs.get(&run.id).map(|r| r.model_calls)).unwrap_or(0);
-        // Nor once its grant's budget for the period is spent (#286).
-        if calls >= run.config.budget.max_model_calls || self.grant_spent(&run.id).is_some() {
-            return Ok(None);
-        }
         let (adapter, model) = self.cfg.safety.independent_reviewer().unwrap_or(run.model());
         let (adapter, model) = (adapter.to_string(), model.to_string());
         let Some(allowance) = self.aux_max_tokens(&run.id, "reviewer", &adapter, &model, system, messages.clone(), tools.clone(), run.config.max_tokens).await else {
