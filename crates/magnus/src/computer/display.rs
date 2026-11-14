@@ -34,7 +34,8 @@ const BYTES_PER_KIB: u64 = 1024;
 pub(super) const PROTOCOLS: [&str; 2] = [DEFLATE_PROTOCOL, DISPLAY_PROTOCOL];
 
 /// Each computer's open screens hear when a handback cuts them, so no one
-/// acts on the computer once its cleanup has begun (computer/leftovers.rs).
+/// acts on the computer once its cleanup has begun (computer/leftovers.rs),
+/// and when a new holder takes it, so only the holder has a screen.
 static CUTS: Mutex<Option<HashMap<String, watch::Sender<u64>>>> = Mutex::new(None);
 
 /// Taken before the stream is opened: a cut after this is never missed.
