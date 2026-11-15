@@ -2,7 +2,7 @@
 //! `loop_allowed` say, outcome and words, across a broad table of layer
 //! stacks. The three share one hierarchy rule (only `org` widens); this
 //! table holds each one's own small differences in place while that rule
-//! has one home. The expected answers are in `policy_stack_golden.txt`,
+//! has one home. The expected answers are in `stack_golden.txt`,
 //! one line a case; a mismatch prints every line as it now stands.
 
 use super::*;
@@ -144,7 +144,7 @@ fn answers() -> Vec<String> {
 #[test]
 fn the_layer_stack_answers_as_it_always_has() {
     let now = answers();
-    let golden: Vec<&str> = include_str!("policy_stack_golden.txt").lines().collect();
+    let golden: Vec<&str> = include_str!("stack_golden.txt").lines().collect();
     if now.len() != golden.len() || now.iter().zip(&golden).any(|(a, b)| a != b) {
         let first = now.iter().zip(&golden).position(|(a, b)| a != b);
         println!("----- golden begins -----\n{}\n----- golden ends -----", now.join("\n"));

@@ -1255,7 +1255,7 @@ async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, J
     if let Err(e) = crate::policy::validate(&cedar) {
         return refuse(StatusCode::BAD_REQUEST, format!("the policy does not parse: {e}"));
     }
-    if let Err(why) = crate::policy_layers::tightens_only(&layer, &cedar) {
+    if let Err(why) = crate::policy::layers::tightens_only(&layer, &cedar) {
         return refuse(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     Ok(match k.emit(&format!("person:{}", p.id), Ev::PolicySet { layer, cedar }).await {

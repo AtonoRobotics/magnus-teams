@@ -243,7 +243,7 @@ pub fn check(text: &str) -> Vec<Value> {
 /// person's own layer and their tasks' are theirs alone (the owner,
 /// 2026-11-11), so the admin's editor neither lists nor changes them.
 pub fn layer_ok(_k: &Kernel, layer: &str) -> bool {
-    crate::policy_layers::kept_by_the_server(layer) && layer.len() <= 106
+    crate::policy::layers::kept_by_the_server(layer) && layer.len() <= 106
 }
 
 impl Kernel {
@@ -251,7 +251,7 @@ impl Kernel {
     /// was written), the draft if there is one, and its versions.
     pub fn policy_sets(&self) -> Vec<Value> {
         let (live, drafts, history) = self.read(|s| (s.org.policies().clone(), s.org.policy_drafts().clone(), s.org.policy_history().clone()));
-        let mut layers: Vec<String> = live.keys().chain(drafts.keys()).filter(|l| crate::policy_layers::kept_by_the_server(l)).cloned().collect();
+        let mut layers: Vec<String> = live.keys().chain(drafts.keys()).filter(|l| crate::policy::layers::kept_by_the_server(l)).cloned().collect();
         layers.push("org".into());
         layers.sort();
         layers.dedup();
@@ -282,7 +282,7 @@ impl Kernel {
             return Err((StatusCode::BAD_REQUEST, "a policy set is at most 256 KB".into()));
         }
         let mut problems = cedar.as_deref().map(check).unwrap_or_default();
-        if let Some(Err(why)) = cedar.as_deref().map(|c| crate::policy_layers::tightens_only(layer, c)) {
+        if let Some(Err(why)) = cedar.as_deref().map(|c| crate::policy::layers::tightens_only(layer, c)) {
             problems.push(json!({ "message": why }));
         }
         self.emit(actor, Ev::PolicyDrafted { layer: layer.into(), cedar }).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
@@ -296,7 +296,7 @@ impl Kernel {
             return Err((StatusCode::NOT_FOUND, "no such policy layer".into()));
         }
         let mut problems = check(cedar);
-        if let Err(why) = crate::policy_layers::tightens_only(layer, cedar) {
+        if let Err(why) = crate::policy::layers::tightens_only(layer, cedar) {
             problems.push(json!({ "message": why }));
         }
         if !problems.is_empty() {
@@ -352,17 +352,17 @@ impl Kernel {
         // Only the layers the server keeps: a person's own rules and their
         // tasks' are theirs, and may narrow what this answer says.
         let mut policies: BTreeMap<String, String> = self.read(|s| s.org.policies().clone());
-        policies.retain(|l, _| crate::policy_layers::kept_by_the_server(l));
+        policies.retain(|l, _| crate::policy::layers::kept_by_the_server(l));
         if b["drafts"].as_bool().unwrap_or(false) {
             for (l, d) in self.read(|s| s.org.policy_drafts().clone()) {
-                if crate::policy_layers::kept_by_the_server(&l) {
+                if crate::policy::layers::kept_by_the_server(&l) {
                     policies.insert(l, d);
                 }
             }
         }
         if let Some(over) = b["cedar"].as_object() {
             for (l, c) in over {
-                if let Some(c) = c.as_str().filter(|_| crate::policy_layers::kept_by_the_server(l)) {
+                if let Some(c) = c.as_str().filter(|_| crate::policy::layers::kept_by_the_server(l)) {
                     policies.insert(l.clone(), c.to_string());
                 }
             }

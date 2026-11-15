@@ -85,8 +85,6 @@ pub mod payments;
 pub mod people;
 pub mod person_admin;
 pub mod policy;
-pub mod policy_admin;
-pub mod policy_layers;
 pub mod proactive;
 pub mod public_url;
 pub mod push;

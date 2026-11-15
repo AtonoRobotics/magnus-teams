@@ -283,7 +283,7 @@ impl Kernel {
                 let layer = item.details["layer"].as_str().unwrap_or_default().to_string();
                 let add = item.details["cedar"].as_str().unwrap_or_default();
                 // Accepting cannot loosen what a layer above holds.
-                if let Err(why) = crate::policy_layers::tightens_only(&layer, add) {
+                if let Err(why) = crate::policy::layers::tightens_only(&layer, add) {
                     return Ok(Answer::Invalid(why));
                 }
                 let current =

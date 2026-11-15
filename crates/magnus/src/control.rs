@@ -698,7 +698,7 @@ async fn erase_person(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): ax
 // The agent policy (admin console spec, Security › Agent policy), as the
 // kernel keeps it: sets, drafts, versions, tests.
 
-fn policy_refused((st, m): crate::policy_admin::Refusal) -> Response {
+fn policy_refused((st, m): crate::policy::admin::Refusal) -> Response {
     (st, Json(json!({ "error": m }))).into_response()
 }
 
