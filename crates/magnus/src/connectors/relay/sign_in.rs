@@ -1,11 +1,14 @@
 //! A relayed sign-in: started here, claimed and handed back by the relay.
 
-use super::super::{challenge, fresh_tokens, granted, random, sign_in_target, Client, SignInTarget, PENDING_FOR};
+use super::super::sign_in::{fresh_tokens, granted, Client};
+use super::super::sign_in_target::{sign_in_target, SignInTarget};
+use super::super::PENDING_FOR;
 use super::{now, open, timely, Message, Settings, Signed, B64};
 use crate::api::err;
 use crate::config::Connector;
 use crate::extract::Owner;
 use crate::kernel::Kernel;
+use crate::oauth::{challenge, random};
 use anyhow::{anyhow, bail, Result};
 use axum::extract::State;
 use axum::http::StatusCode;

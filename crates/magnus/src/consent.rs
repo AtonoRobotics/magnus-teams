@@ -235,7 +235,7 @@ type K = AxState<Arc<Kernel>>;
 /// The app as the person may connect it.
 async fn usable(k: &Kernel, h: &HeaderMap, name: &str) -> std::result::Result<(String, Connector), Box<Response>> {
     let p = who(k, h).await.map_err(Box::new)?;
-    match k.connector(name).filter(|c| crate::boundary::may_use(&p, c)) {
+    match k.connector(name).filter(|c| crate::policy::may_use_app(&p, c)) {
         Some(c) => Ok((p.id, c)),
         None => Err(Box::new(err(StatusCode::NOT_FOUND, "no such app"))),
     }

@@ -364,7 +364,7 @@ mod tests {
         }
         match (&m.redirect_uri, &m.handoff) {
             (None, None) => {}
-            (Some(u), None) => assert!(crate::connectors::loopback(u).is_ok(), "{}: its redirect is not a loopback address", m.id),
+            (Some(u), None) => assert!(crate::oauth::loopback(u).is_ok(), "{}: its redirect is not a loopback address", m.id),
             (Some(u), Some(h)) => {
                 assert_eq!(u, crate::connectors::SLACK_OAUTH_CALLBACK, "{}: the https redirect", m.id);
                 assert_eq!(h, crate::connectors::SLACK_HANDOFF, "{}: the handoff", m.id);

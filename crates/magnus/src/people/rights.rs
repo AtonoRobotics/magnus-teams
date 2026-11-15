@@ -95,16 +95,13 @@ impl Rights<'_> {
     /// role's. A task's layer is its person's, which the caller checks with
     /// the task in hand.
     pub fn may_write_policy_layer(&self, layer: &str) -> bool {
-        if let Some(u) = layer.strip_prefix("user/") {
-            return !u.is_empty() && u == self.p.id;
+        use crate::policy::layers::Layer;
+        match Layer::parse(layer) {
+            Some(Layer::User(u)) => u == self.p.id,
+            Some(Layer::Org) => self.is_server_owner(),
+            Some(Layer::Group(g)) => self.is_server_owner() || self.holds(&format!("policy:group:{g}")),
+            Some(Layer::Task(_)) | None => false,
         }
-        if layer == "org" {
-            return self.is_server_owner();
-        }
-        if let Some(g) = layer.strip_prefix("group/") {
-            return !g.is_empty() && (self.is_server_owner() || self.holds(&format!("policy:group:{g}")));
-        }
-        false
     }
 
     /// The app's update channel their own role gives them, or None for the

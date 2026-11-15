@@ -161,7 +161,7 @@ async fn a_relayed_sign_in_connects_and_its_nonce_is_used_once() {
     let answer: Signed = serde_json::from_value(answer).unwrap();
     let Message::Claimed { connector, person, provider, code_verifier, .. } = open(&answer, &f.server_key.lock().unwrap().unwrap()).unwrap() else { panic!("not claimed") };
     assert_eq!((connector.as_str(), person.as_str(), provider.as_str()), ("relayed", "sam", "slack"));
-    assert_eq!(crate::connectors::challenge(&code_verifier.unwrap()), q["code_challenge"], "the verifier is the one the address was challenged with");
+    assert_eq!(crate::oauth::challenge(&code_verifier.unwrap()), q["code_challenge"], "the verifier is the one the address was challenged with");
     assert_eq!(send(&s, "/v1/relay/claim", &signed(RELAY_SEED, &claim_of(&f, &nonce))).await.0, 403, "claimed once");
 
     let good = signed(RELAY_SEED, &handoff_of(&nonce, "relayed", "sam", tokens("access-1", Some("refresh-1"), Some(3600))));
