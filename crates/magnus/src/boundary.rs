@@ -481,7 +481,7 @@ impl Kernel {
         match out {
             Ok((text, is_error, data)) => {
                 let filter = |t: String| if f.connector.as_ref().is_some_and(|c| c.filter_login_codes) { crate::login_codes::strip(&t) } else { t };
-                let (text, data) = crate::attachment::lift(f.connector.as_ref().is_some_and(|c| c.filter_login_codes), text, data, |t| filter(clean(&t)));
+                let (text, data) = crate::attachment::lift(&a.run, f.connector.as_ref().is_some_and(|c| c.filter_login_codes), text, data, |t| filter(clean(&t)));
                 let text = match crate::read_back::applies(a, &f, is_error) {
                     true => format!("{text}\n\n{}", self.read_back(a, &f, shown.as_ref(), data.as_ref()).await?),
                     false => text,

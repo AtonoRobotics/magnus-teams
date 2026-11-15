@@ -270,8 +270,18 @@ fn get_thread(a: &Value, t: &str) -> Result<Value, Failure> {
 fn get_message(a: &Value, t: &str) -> Result<Value, Failure> {
     let raw = gmail("GET", &format!("/messages/{}?format=full", id(a, "message_id")?), t, None)?;
     let mut shown = message(&raw);
-    shown["digest"] = json!(digest(&raw, t)?);
+    if needs_digest(&raw) {
+        shown["digest"] = json!(digest(&raw, t)?);
+    }
     Ok(shown)
+}
+
+/// Only mail the person sends is checked against its draft (send_draft's
+/// read-back reads the sent message), and the digest fetches every
+/// attachment's bytes. A message received is read without them: an
+/// attachment is fetched only when the agent asks for it (get_attachment).
+fn needs_digest(m: &Value) -> bool {
+    m["labelIds"].as_array().into_iter().flatten().any(|l| l == "SENT" || l == "DRAFT")
 }
 
 fn list_drafts(a: &Value, t: &str) -> Result<Value, Failure> {
@@ -524,15 +534,21 @@ fn tools() -> Vec<Tool> {
         ),
         tool(
             "get_thread",
-            "Read a whole thread: each message's sender, recipients, subject, date and text.",
+            "Read a whole thread: each message's sender, recipients, subject, date, text and the names of its attachments (their contents are not fetched).",
             one("thread_id"),
             obj(json!({ "thread_id": st, "messages": { "type": "array", "items": msg } }), &["thread_id", "messages"]),
             get_thread,
         ),
-        tool("get_message", "Read one message: its sender, recipients, subject, date, text and the names of its attachments.", one("message_id"), msg.clone(), get_message),
+        tool(
+            "get_message",
+            "Read one message: its sender, recipients, subject, date, text and the names of its attachments (their contents are not fetched).",
+            one("message_id"),
+            msg.clone(),
+            get_message,
+        ),
         tool(
             "get_attachment",
-            "Fetch one attachment of a message by its file name, to open with open_attachment.",
+            "Fetch one attachment you need to read or use, by its message and file name, then open_attachment to read or look at it, or import_attachment for a clean copy in your workspace. Fetch only the ones the task needs.",
             obj(json!({ "message_id": st, "filename": st }), &["message_id", "filename"]),
             obj(json!({ "message_id": st, "name": st, "media_type": st, "size": n, "data_b64": st }), &["message_id", "name", "data_b64"]),
             get_attachment,
@@ -631,6 +647,11 @@ mod tests {
         let part = part_named(&photo, "image0.jpeg").unwrap();
         assert_eq!(part_bytes(part, "m1", "token").unwrap(), vec![0xFF, 0xD8, 0xFF]);
         assert!(part_named(&photo, "image1.jpeg").is_none());
+        // Reading mail received fetches no attachment; a sent message or a
+        // draft is digested for the send check.
+        assert!(!needs_digest(&json!({ "labelIds": ["INBOX", "UNREAD"] })));
+        assert!(!needs_digest(&json!({})));
+        assert!(needs_digest(&json!({ "labelIds": ["SENT"] })) && needs_digest(&json!({ "labelIds": ["DRAFT"] })));
         assert_eq!(re("Re", "re: Plans"), "re: Plans");
         assert_eq!(re("Re", "Plans"), "Re: Plans");
         assert_eq!(enc("from:a b&c"), "from%3Aa%20b%26c");

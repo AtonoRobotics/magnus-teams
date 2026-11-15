@@ -15,10 +15,14 @@ first, bytes shaped to break a reader) comes with it:
   format of the same family;
 - text, data and code as clean UTF-8, with `.txt` after anything a system
   would run by its name;
+- audio re-encoded to MP3 and video to MP4 (H.264 and AAC) by ffmpeg, the
+  media streams alone (no metadata, chapters, subtitles or attached data);
 - an archive unpacked here (no links, no paths out, limits on count, size
-  and depth), each member rebuilt by these same rules.
-An executable is never imported. Audio, video and other data with no
-rebuild here come in unchanged, never executable.
+  and depth), each member rebuilt by these same rules. A 7z or RAR archive
+  is read one entry at a time to memory (`7z e -so`), so it writes nothing.
+An executable is never imported. Other data with no rebuild here (fonts,
+databases, formats this image does not know) comes in unchanged, never
+executable.
 """
 
 import json
@@ -43,6 +47,10 @@ MAX_SIDE_PX = 4096
 JPEG_QUALITY_PERCENT = 92
 MAX_NAME_CHARS = 80
 TOOL_TIMEOUT_SECONDS = 120
+# Re-encoding a video takes longer than any other rebuild.
+MEDIA_TIMEOUT_SECONDS = 480
+MAX_MEDIA_SECONDS = 3 * 60 * 60
+SEVEN_MIME = {"application/x-7z-compressed", "application/vnd.rar", "application/x-rar", "application/x-rar-compressed"}
 
 TRANSPARENT = {"image/png", "image/gif", "image/webp", "image/bmp", "image/tiff", "image/svg+xml", "image/x-icon", "image/vnd.microsoft.icon"}
 # The format each is saved in: the same family, with no macros.
@@ -119,8 +127,58 @@ def kept(rel, kind, origin):
     files.append({"path": rel, "kind": kind, "from": origin})
 
 
-def run(cmd):
-    return subprocess.run(cmd, capture_output=True, timeout=TOOL_TIMEOUT_SECONDS).returncode == 0
+def run(cmd, timeout=TOOL_TIMEOUT_SECONDS):
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=timeout).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def media(path, rel_dir, stem, origin, m):
+    video = m.startswith("video/")
+    ext = "mp4" if video else "mp3"
+    rel = place(rel_dir, f"{stem}.{ext}")
+    out = os.path.join(OUT, rel)
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-map_metadata", "-1", "-map_chapters", "-1", "-sn", "-dn", "-t", str(MAX_MEDIA_SECONDS)]
+    if video:
+        scale = f"scale='trunc(min({MAX_SIDE_PX},iw)/2)*2':-2"
+        cmd += ["-map", "0:v:0", "-map", "0:a:0?", "-vf", scale, "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart"]
+    else:
+        cmd += ["-vn", "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "2"]
+    if run(cmd + ["-y", out], MEDIA_TIMEOUT_SECONDS) and os.path.getsize(out) > 0:
+        kept(rel, "video" if video else "audio", origin)
+    else:
+        if os.path.exists(out):
+            os.remove(out)
+        skipped.append({"name": origin, "why": f"{'a video' if video else 'audio'} that could not be re-encoded"})
+
+
+def seven_entries(path):
+    """A 7z or RAR archive's files, read to memory one entry at a time:
+    `7z e -so` writes nothing, so no entry can land anywhere or be a link."""
+    listing = subprocess.run(["7z", "l", "-slt", "-p-", path], capture_output=True, text=True, timeout=TOOL_TIMEOUT_SECONDS)
+    if listing.returncode != 0:
+        raise ValueError("unreadable")
+    body = listing.stdout.split("----------", 1)[-1]
+    entries = []
+    for block in body.split("\n\n"):
+        f = dict(line.split(" = ", 1) for line in block.strip().splitlines() if " = " in line)
+        # A folder: `Folder = +`, or a `D` first in its attributes (7z).
+        if "Path" not in f or f.get("Folder") == "+" or f.get("Attributes", "").startswith("D"):
+            continue
+        if " l" in f" {f.get('Attributes', '')}" or "lrwx" in f.get("Attributes", ""):
+            skipped.append({"name": f["Path"], "why": "a link"})
+            continue
+        entries.append((f["Path"], int(f.get("Size") or 0)))
+    if len(entries) > MAX_FILES or sum(s for _, s in entries) > MAX_TOTAL_BYTES:
+        raise ValueError("too big unpacked")
+    out = []
+    for name, _ in entries:
+        r = subprocess.run(["7z", "e", "-so", "-p-", "-spd", path, "--", name], capture_output=True, timeout=TOOL_TIMEOUT_SECONDS)
+        if r.returncode != 0 or len(r.stdout) > MAX_TOTAL_BYTES:
+            raise ValueError("an entry could not be read")
+        out.append((name, r.stdout))
+    return out
 
 
 def picture(path, rel_dir, stem, origin, m):
@@ -205,7 +263,9 @@ def unpack(path, rel_dir, stem, m, origin, depth):
     os.makedirs(dest)
     members = []
     try:
-        if m == "application/zip":
+        if m in SEVEN_MIME:
+            members = seven_entries(path)
+        elif m == "application/zip":
             with zipfile.ZipFile(path) as z:
                 infos = [i for i in z.infolist() if not i.is_dir()]
                 if len(infos) > MAX_FILES or sum(i.file_size for i in infos) > MAX_TOTAL_BYTES:
@@ -261,10 +321,10 @@ def rebuild(path, rel_dir, name, origin, depth):
         pdf(path, rel_dir, stem, origin)
     elif m.startswith(OFFICE_MIME) or (ext in OFFICE and m in ("application/zip", "application/octet-stream", "application/x-ole-storage", "application/CDFV2")):
         office(path, rel_dir, stem, ext, origin, m)
-    elif m in ARCHIVE_MIME:
+    elif m in ARCHIVE_MIME or m in SEVEN_MIME:
         unpack(path, rel_dir, stem, m, origin, depth)
-    elif m in ("application/x-7z-compressed", "application/vnd.rar", "application/x-rar", "application/x-rar-compressed"):
-        skipped.append({"name": origin, "why": "an archive of a kind that cannot be unpacked here (7z, RAR)"})
+    elif m.startswith(("audio/", "video/")) or m == "application/ogg":
+        media(path, rel_dir, stem, origin, m)
     elif m.startswith(TEXT_MIME):
         text(path, rel_dir, name, ext, origin)
     else:

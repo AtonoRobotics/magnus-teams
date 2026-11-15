@@ -622,8 +622,7 @@ impl Kernel {
     pub async fn on_stop(&self, run: &str, terminal: bool) {
         self.leases.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, holder| holder != run);
         if terminal {
-            self.close_run_browsers(run).await;
-            self.sandboxes.destroy(run).await;
+            self.end_run(run).await;
         } else {
             self.sandboxes.stop(run).await;
         }

@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir python-xlib==0.33
 FROM common AS rootfs
 RUN apt-get update && apt-get install -y --no-install-recommends \
       gawk file less zip bzip2 \
+      ffmpeg p7zip-full \
       poppler-utils qpdf ghostscript tesseract-ocr \
       libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-core \
       sqlite3 git jq iproute2 \

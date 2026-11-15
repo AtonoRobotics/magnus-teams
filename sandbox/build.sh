@@ -18,7 +18,9 @@ else
 fi
 
 cargo build --release -p magnus-guest --target x86_64-unknown-linux-musl --manifest-path "$root/Cargo.toml"
-cp "$root/target/x86_64-unknown-linux-musl/release/magnus-guest" "$cache/magnus-guest"
+# Where cargo put it: a build directory of its own when one is set (as
+# ci/on-strix-beta.sh sets one per NAME), as in brokered/build.sh.
+cp "${CARGO_TARGET_DIR:-$root/target}/x86_64-unknown-linux-musl/release/magnus-guest" "$cache/magnus-guest"
 cp "$here/Dockerfile" "$cache/Dockerfile"
 cp "$here/sitecustomize.py" "$cache/sitecustomize.py"
 cp "$here/check_tools.py" "$cache/check_tools.py"

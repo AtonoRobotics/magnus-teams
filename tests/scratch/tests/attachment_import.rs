@@ -20,6 +20,12 @@ use serde_json::json;
 const PHOTO_B64: &str = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDk6KKK5j9PP//Z";
 const DOCM: &[u8] = include_bytes!("../fixtures/attachments/details.docm");
 const ZIP: &[u8] = include_bytes!("../fixtures/attachments/event.zip");
+// Made with ffmpeg and p7zip on Debian bookworm: a second of tone and of
+// test pattern, each titled META-CANARY-..., and a 7z holding a photo with a
+// script after it, a CSV, a script and a link to /etc/passwd.
+const WAV: &[u8] = include_bytes!("../fixtures/attachments/tone.wav");
+const MOV: &[u8] = include_bytes!("../fixtures/attachments/clip.mov");
+const SEVEN: &[u8] = include_bytes!("../fixtures/attachments/bundle.7z");
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_kind_of_file_from_outside_is_imported_clean() {
@@ -34,7 +40,9 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
          grep -qa HIDDEN-IN-ZIP event/photos/image1.jpg && echo FOUND-ZIP-HIDDEN; unzip -l details.docx | grep -qi vba && echo FOUND-MACRO; \
          unzip -p details.docx word/document.xml | grep -q Riverside && echo KEPT-TEXT; \
          find . -type f -perm /111 | grep -q . && echo FOUND-EXECUTABLE; ls /workspace | grep -q escape && echo FOUND-ESCAPE; \
-         find . -type l | grep -q . && echo FOUND-LINK; echo FILES; find . -type f | sort"
+         find . -type l | grep -q . && echo FOUND-LINK; grep -qa META-CANARY tone.mp3 clip.mp4 && echo FOUND-METADATA; \
+         grep -qa HIDDEN-IN-7Z bundle/pics/image2.jpg && echo FOUND-7Z-HIDDEN; echo AUDIO $(file -b tone.mp3); echo VIDEO $(file -b clip.mp4); \
+         echo FILES; find . -type f | sort"
     );
     let model = FakeModel::start(steps(vec![
         tool("open_attachment", json!({ "name": "image0.jpeg" })),
@@ -42,6 +50,9 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
         tool("import_attachment", json!({ "name": "evil.sh" })),
         tool("import_attachment", json!({ "name": "details.docm" })),
         tool("import_attachment", json!({ "name": "event.zip" })),
+        tool("import_attachment", json!({ "name": "tone.wav" })),
+        tool("import_attachment", json!({ "name": "clip.mov" })),
+        tool("import_attachment", json!({ "name": "bundle.7z" })),
         tool("sandbox_exec", json!({ "command": check })),
         complete("Made the flier."),
     ]))
@@ -54,6 +65,9 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
         { "name": "evil.sh", "media_type": "text/x-shellscript", "data_b64": b64.encode(format!("#!/bin/sh\necho {hidden}\n")) },
         { "name": "details.docm", "media_type": "application/vnd.ms-word.document.macroEnabled.12", "data_b64": b64.encode(DOCM) },
         { "name": "event.zip", "media_type": "application/zip", "data_b64": b64.encode(ZIP) },
+        { "name": "tone.wav", "media_type": "audio/wav", "data_b64": b64.encode(WAV) },
+        { "name": "clip.mov", "media_type": "video/quicktime", "data_b64": b64.encode(MOV) },
+        { "name": "bundle.7z", "media_type": "application/x-7z-compressed", "data_b64": b64.encode(SEVEN) },
     ]);
     let (code, made) = alice.post("/v1/tasks", json!({ "text": "Make a flier from the photos and details in this email.", "from_outside": outside })).await;
     assert!(code.is_success(), "{made}");
@@ -79,14 +93,28 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
         assert!(archive.text.contains(left_out), "the archive's {left_out} was not said to be left out: {}", archive.text);
     }
 
-    let listed = result(6).text;
+    let audio = result(6);
+    assert!(!audio.is_error && audio.text.contains("tone.mp3 (audio"), "the audio was not re-encoded: {}", audio.text);
+    let video = result(7);
+    assert!(!video.is_error && video.text.contains("clip.mp4 (video"), "the video was not re-encoded: {}", video.text);
+    let seven = result(8);
+    assert!(!seven.is_error && seven.text.contains("a link"), "the 7z was not unpacked without its link: {}", seven.text);
+
+    let listed = result(9).text;
     assert!(listed.contains("JPEG image data"), "the imported copy is not a JPEG: {listed}");
     assert!(listed.contains("KEPT-TEXT"), "the document lost its text: {listed}");
-    for bad in ["FOUND-HIDDEN", "FOUND-ZIP-HIDDEN", "FOUND-MACRO", "FOUND-EXECUTABLE", "FOUND-ESCAPE", "FOUND-LINK"] {
+    let line = |tag: &str| listed.lines().find(|l| l.starts_with(tag)).unwrap_or_default().to_string();
+    assert!(line("AUDIO").contains("Audio file") || line("AUDIO").contains("MPEG ADTS, layer III"), "the audio is not an MP3: {listed}");
+    assert!(line("VIDEO").contains("ISO Media"), "the video is not an MP4: {listed}");
+    for bad in ["FOUND-HIDDEN", "FOUND-ZIP-HIDDEN", "FOUND-7Z-HIDDEN", "FOUND-METADATA", "FOUND-MACRO", "FOUND-EXECUTABLE", "FOUND-ESCAPE", "FOUND-LINK"] {
         assert!(!listed.contains(bad), "{bad}: something of an original came into the workspace: {listed}");
     }
     let files: Vec<&str> = listed.split("FILES").nth(1).unwrap_or_default().lines().map(str::trim).filter(|l| l.starts_with("./")).collect();
     let want = [
+        "./bundle/hosts.csv",
+        "./bundle/install.sh.txt",
+        "./bundle/pics/image2.jpg",
+        "./clip.mp4",
         "./details.docx",
         "./event/escape.txt",
         "./event/more/nested/guests.csv",
@@ -95,7 +123,51 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
         "./event/setup.sh.txt",
         "./evil.sh.txt",
         "./image0.jpg",
+        "./tone.mp3",
     ];
     assert_eq!(files, want, "the workspace holds other files than the clean copies: {listed}");
     assert_eq!(alice.task(&task).await["taint"]["untrusted"], json!(true), "the run that took in files from outside is not tainted");
+}
+
+/// A fetched attachment is a temporary file (owner, 2026-11-14): its bytes
+/// are never written to the event log or its content, the run reads it
+/// while it works, and when the run ends its bytes are gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fetched_attachment_is_held_only_while_its_run_works() {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let inside = canary("attachment-text");
+    let bytes = b64.encode(format!("Agenda for Saturday: {inside}\n"));
+    let mail = mcp::mail().tool("get_attachment", "Fetch one attachment.", json!({ "type": "object", "properties": {} }), {
+        let bytes = bytes.clone();
+        move |_, _, _| mcp::ok(json!({ "name": "plan.txt", "media_type": "text/plain", "data_b64": bytes }))
+    });
+    let mail = mail.start().await;
+    let model = FakeModel::start(steps(vec![
+        tool("mail__get_attachment", json!({ "message_id": "m1", "filename": "plan.txt" })),
+        tool("open_attachment", json!({ "name": "plan.txt" })),
+        complete("Read the plan."),
+    ]))
+    .await;
+    let computerd = Computerd::start();
+    let spec = Spec::default().computer(&computerd.socket).app("mail", &mail, "public", "private", &[("get_attachment", "read")]).filter_login_codes("mail");
+    let app = Appliance::start(spec, &model).await;
+    let alice = app.api("alice");
+    let task = alice.submit("Read the plan attached to my email.").await;
+    let t = alice.wait_settled(&task).await;
+    assert_eq!(t["status"], "completed", "{t}");
+
+    let fetched = &model.at_turn(1).expect("the run stopped after fetching").last_results()[0];
+    assert!(fetched.text.contains("Attachments from outside: plan.txt") && !fetched.text.contains(&bytes), "the fetch was not lifted: {}", fetched.text);
+    let opened = &model.at_turn(2).expect("the run stopped after opening").last_results()[0];
+    assert!(!opened.is_error && opened.text.contains(&inside), "the run could not read what it fetched: {}", opened.text);
+
+    let admin = app.db.admin().await;
+    let like = format!("%{}%", &bytes[..bytes.len().min(40)]);
+    for table in ["events", "content"] {
+        let rows = admin.query(&format!("SELECT count(*) FROM {table} t WHERE t::text LIKE $1"), &[&like]).await.unwrap();
+        let n: i64 = rows[0].get(0);
+        assert_eq!(n, 0, "the attachment's bytes were written to {table}");
+    }
+    let (code, said) = alice.post(&format!("/v1/tasks/{task}/attachments/plan.txt/save"), json!({})).await;
+    assert_eq!(code.as_u16(), 404, "the attachment's bytes outlived the run: {said}");
 }

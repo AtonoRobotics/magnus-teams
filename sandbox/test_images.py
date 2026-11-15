@@ -23,7 +23,8 @@ SANDBOX_APT = set(
     xvfb xdotool x11-utils x11-xserver-utils x11vnc wmctrl
     xfwm4 xfce4-panel xfdesktop4 xfce4-settings xfconf thunar xfce4-terminal dbus
     fonts-inter fonts-jetbrains-mono papirus-icon-theme librsvg2-bin librsvg2-common libnss3-tools
-    sqlite3 git jq ca-certificates curl iproute2 chromium nodejs""".split()
+    sqlite3 git jq ca-certificates curl iproute2 chromium nodejs
+    ffmpeg p7zip-full""".split()
 )
 SANDBOX_PIP = set(
     """python-docx openpyxl xlsxwriter python-pptx reportlab pypdf pdfplumber pymupdf
@@ -36,9 +37,21 @@ SANDBOX_PIP = set(
 # what it needs with computer_install_app.
 DROPPED_APT = set(
     """poppler-utils qpdf ghostscript tesseract-ocr libreoffice-writer libreoffice-calc
-    libreoffice-impress fonts-noto-core sqlite3 git jq iproute2 gawk file less zip bzip2""".split()
+    libreoffice-impress fonts-noto-core sqlite3 git jq iproute2 gawk file less zip bzip2
+    ffmpeg p7zip-full""".split()
 )
 DROPPED_PIP = SANDBOX_PIP - {"python-xlib==0.33"}
+
+# What rebuilds a file from outside clean (crates/magnus/src/attachment_rebuild.py),
+# run in the per-task sandbox's image, and the package it comes from.
+REBUILDERS = [
+    ('"file"', "file"),
+    ('"convert"', "imagemagick"),
+    ('"pdftocairo"', "poppler-utils"),
+    ('"soffice"', "libreoffice-writer"),
+    ('"ffmpeg"', "ffmpeg"),
+    ('"7z"', "p7zip-full"),
+]
 
 # What runs on a computer, where it is run from, and the package it needs.
 # Each program must still be named in its source, so this list follows them.
@@ -164,6 +177,13 @@ class Images(unittest.TestCase):
         copied = " ".join(copy)
         for f in ("magnus-guest", "sitecustomize.py", "check_tools.py", "browser", "desktop"):
             self.assertIn(f, copied)
+
+    def test_the_sandbox_has_what_rebuilds_a_file_from_outside(self):
+        apt, _, _ = built(self.st, "rootfs")
+        source = read("crates/magnus/src/attachment_rebuild.py")
+        for program, package in REBUILDERS:
+            self.assertIn(program, source, f"the rebuild no longer runs {program}: update this list")
+            self.assertIn(package, apt, f"the rebuild runs {program}, from {package}, which the sandbox image leaves out")
 
     def test_the_images_share_their_common_layers(self):
         self.assertEqual(self.st["computer"]["from"], self.st["rootfs"]["from"])
