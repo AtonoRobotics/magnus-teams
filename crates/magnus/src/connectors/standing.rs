@@ -3,7 +3,7 @@
 
 use super::relay;
 use super::sign_in::{dead_token, granted, Tokens};
-use super::{connection_name, http, refreshing, Standing, OAUTH};
+use super::{connection_name, http, Standing, OAUTH};
 use crate::config::Connector;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -23,7 +23,7 @@ impl Kernel {
             return self.vault.get(org);
         }
         let name = &connection_name(&c.name, person);
-        let _g = refreshing().lock().await;
+        let _g = self.connecting.refresh.lock().await;
         let Some(raw) = self.vault.get(name)? else { return Ok(None) };
         let mut t: Tokens = serde_json::from_str(raw.expose()).context("stored sign-in")?;
         if t.lapsed {

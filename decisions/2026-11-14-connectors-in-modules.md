@@ -13,3 +13,5 @@ The sign-ins waiting for their code were a process-wide map (`pending()`); they 
 - `name`, `audience`, `label` and `token` that are not text, `access_groups` or `blocked_groups` that are not lists of text (non-text entries were dropped), and `system_of_record` that is not true or false (read as false): now 422.
 - A `risk` that is not text was read as null, which stops offering the tool: now 422.
 Missing `audience` and `label` keep their own 400s, which name what they must be.
+
+**Follow-up.** The relay's waiting sign-ins (`relay::sign_in::waiting()`) and the one-refresh-at-a-time lock (`connectors::refreshing()`) were process-wide too. With `SignIns` they are now one kernel field, `connectors::Connecting { sign_ins, relayed, refresh }`, so two servers in one process (the tests run many) neither see each other's sign-ins nor wait on each other's refresh (`relay::tests::two_servers_in_one_process_keep_their_own_sign_ins`). `payments` keeps globals of its own (`payments/routes.rs` `sign_ins()`, `payments/link.rs` `refreshing()`), left for its own change.

@@ -441,7 +441,7 @@ impl Kernel {
         }
         let client = Client { token_endpoint: token, revocation_endpoint: s("revocation_endpoint"), client_id, client_secret, resource, relay: None };
         let iss_required = asm["authorization_response_iss_parameter_supported"] == true;
-        self.sign_ins.wait(
+        self.connecting.sign_ins.wait(
             state.clone(),
             Pending {
                 app: c.name.clone(),
@@ -464,7 +464,7 @@ impl Kernel {
     pub async fn connector_sign_in_complete(&self, app: &str, person: &str, state: &str, code: &str, iss: Option<&str>) -> Result<()> {
         // Taken only by the person who started it: anyone else's attempt
         // leaves it waiting for them.
-        let p = self.sign_ins.take(state, app, person).ok_or_else(|| anyhow!("this sign-in expired or is unknown; start again"))?;
+        let p = self.connecting.sign_ins.take(state, app, person).ok_or_else(|| anyhow!("this sign-in expired or is unknown; start again"))?;
         check_answer_issuer(iss, &p.issuer, p.iss_required)?;
         let c = &p.client;
         let form = token_form(code, &p);

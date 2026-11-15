@@ -37,22 +37,28 @@ struct Waiting {
     at: Instant,
 }
 
-fn waiting() -> &'static Mutex<HashMap<String, Waiting>> {
-    static W: std::sync::OnceLock<Mutex<HashMap<String, Waiting>>> = std::sync::OnceLock::new();
-    W.get_or_init(Default::default)
+/// The relayed sign-ins waiting for their tokens, by nonce: the server's
+/// own, kept on the kernel (`connectors::Connecting`).
+#[derive(Default)]
+pub(crate) struct Waits(Mutex<HashMap<String, Waiting>>);
+
+impl Waits {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Waiting>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 /// Makes a waiting sign-in older, as if started `by` ago.
 #[cfg(test)]
-pub(super) fn age(nonce: &str, by: std::time::Duration) {
-    if let Some(w) = waiting().lock().unwrap_or_else(|e| e.into_inner()).get_mut(nonce) {
+pub(super) fn age(k: &Kernel, nonce: &str, by: std::time::Duration) {
+    if let Some(w) = k.connecting.relayed.lock().get_mut(nonce) {
         w.at = Instant::now().checked_sub(by).unwrap_or(w.at);
     }
 }
 
 #[cfg(test)]
-pub(super) fn is_waiting(nonce: &str) -> bool {
-    waiting().lock().unwrap_or_else(|e| e.into_inner()).contains_key(nonce)
+pub(super) fn is_waiting(k: &Kernel, nonce: &str) -> bool {
+    k.connecting.relayed.lock().contains_key(nonce)
 }
 
 impl Kernel {
@@ -109,7 +115,7 @@ impl Kernel {
         }
         let client = Client { token_endpoint: token, revocation_endpoint: field("revocation_endpoint"), client_id, client_secret: None, resource, relay: Some(provider.clone()) };
         let iss_required = asm["authorization_response_iss_parameter_supported"] == true;
-        let mut w = waiting().lock().unwrap_or_else(|e| e.into_inner());
+        let mut w = self.connecting.relayed.lock();
         w.retain(|_, x| x.at.elapsed() < PENDING_FOR);
         w.insert(nonce, Waiting { app: c.name.clone(), person: person.into(), provider, client, verifier, issuer, iss_required, claimed: false, at: Instant::now() });
         Ok((u.to_string(), state))
@@ -135,7 +141,7 @@ pub(crate) fn claim(k: &Kernel, env: &Signed) -> Result<Signed, String> {
         return Err(format!("issued at {issued_at}, outside the allowed skew"));
     }
     let answer = {
-        let mut m = waiting().lock().unwrap_or_else(|e| e.into_inner());
+        let mut m = k.connecting.relayed.lock();
         let Some(w) = m.get_mut(&nonce).filter(|w| w.at.elapsed() < PENDING_FOR && !w.claimed) else { return Err("the nonce is unknown, expired or already claimed".into()) };
         // The answer must come from the server the sign-in went to (RFC 9207).
         let wrong = match iss.as_deref() {
@@ -173,7 +179,7 @@ pub(crate) async fn handoff(k: &Arc<Kernel>, env: &Signed) -> Result<(), String>
     if !timely(issued_at) {
         return Err(format!("issued at {issued_at}, outside the allowed skew"));
     }
-    let w = waiting().lock().unwrap_or_else(|e| e.into_inner()).remove(&nonce);
+    let w = k.connecting.relayed.lock().remove(&nonce);
     let w = w.filter(|w| w.at.elapsed() < PENDING_FOR).ok_or("the nonce is unknown, expired or used")?;
     if !w.claimed {
         return Err("the nonce was not claimed first".into());
