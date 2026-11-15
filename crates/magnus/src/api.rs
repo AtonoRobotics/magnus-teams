@@ -6,11 +6,11 @@
 
 use crate::api_error::{refuse, ApiResult};
 use crate::config::{Adapter, Person};
-use crate::extract::{Caller, Owner};
+use crate::extract::{Body, Caller, Owner};
 use crate::inbox::{self, Answer};
 use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
 use crate::state::{Run, Status};
-use crate::{events::Ev, people::rights};
+use crate::{api_bodies as req, events::Ev, people::rights};
 use axum::{
     extract::{ConnectInfo, Form, Path, Query, Request, State},
     http::{HeaderMap, Method, StatusCode},
@@ -61,10 +61,6 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     k.accounts.session(token).await.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
 }
 
-pub(crate) async fn developer(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    crate::extract::developer(k, h).await.map_err(IntoResponse::into_response)
-}
-
 /// A browser sends the session cookie on its own, so a change made with the
 /// cookie must also carry a header another site's page cannot set. The
 /// recovery, invitation and join forms are the exception: each is authorized
@@ -78,10 +74,6 @@ async fn cookie_guard(req: Request, next: Next) -> Response {
         return err(StatusCode::FORBIDDEN, "missing x-magnus-client header");
     }
     next.run(req).await
-}
-
-pub(crate) async fn owner(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    crate::extract::owner(k, h).await.map_err(IntoResponse::into_response)
 }
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
@@ -295,7 +287,7 @@ fn cloudflare_of(k: &Kernel) -> Result<crate::devices::Cloudflare, Response> {
 /// made; the private key stays there. Refused through the tunnel, so the
 /// answer never crosses Cloudflare: pair on the appliance's own network,
 /// then the public name accepts the certificate.
-async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Body(b): Body<req::Enroll>) -> ApiResult {
     if k.cfg.client_certs.is_none() {
         return refuse(StatusCode::NOT_FOUND, "this server does not issue device certificates");
     }
@@ -310,7 +302,7 @@ async fn enroll_device(State(k): K, ConnectInfo(peer): ConnectInfo<SocketAddr>, 
     }
     let person = who(&k, &h).await?;
     let cf = cloudflare_of(&k)?;
-    let issued = match k.devices.issue(&cf, &person.id, b["name"].as_str().unwrap_or(""), b["csr"].as_str().unwrap_or("")).await {
+    let issued = match k.devices.issue(&cf, &person.id, &b.name, &b.csr).await {
         Ok(i) => i,
         Err(e) => return Ok(device_error(e)),
     };
@@ -409,14 +401,14 @@ pub(crate) fn on_this_machine(peer: SocketAddr, h: &HeaderMap) -> bool {
 /// machine only, since it asks for no second factor; nobody else's counts.
 /// Without one, only the appliance's own passwords. The check and its
 /// lockout are `password_check`'s; this only answers.
-async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Body(b): Body<req::SignIn>) -> ApiResult {
     use crate::password_check::{Attempt, Checked, Via};
     over_tls(&k, t, peer)?;
-    let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
-    let password = b["password"].as_str().unwrap_or_default();
-    let code = b["code"].as_str().map(str::trim).filter(|c| !c.is_empty());
-    let machine_code = b["machine_code"].as_str().map(str::trim).filter(|c| !c.is_empty());
-    let app = b["client"].as_str() == Some("app");
+    let person = crate::sign_in_name::resolve(&k.accounts, &b.person).await;
+    let password = b.password.as_str();
+    let code = b.code.as_deref().map(str::trim).filter(|c| !c.is_empty());
+    let machine_code = b.machine_code.as_deref().map(str::trim).filter(|c| !c.is_empty());
+    let app = b.client.as_deref() == Some("app");
     if let Some(r) = app.then(|| crate::update::unversioned_app(&h)).flatten() {
         return Ok(r);
     }
@@ -459,11 +451,11 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
 /// one-time password, or any temp the owner set. A wrong temp answers
 /// as a wrong password; choosing activates, as accepting an invite
 /// does. No session opens here — they sign in after, with the new one.
-async fn choose_password(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+async fn choose_password(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Body(b): Body<req::NewPassword>) -> ApiResult {
     over_tls(&k, t, peer)?;
-    let person = crate::sign_in_name::resolve(&k.accounts, b["person"].as_str().unwrap_or_default()).await;
-    let temp = b["password"].as_str().unwrap_or_default();
-    let password = b["new_password"].as_str().unwrap_or_default();
+    let person = crate::sign_in_name::resolve(&k.accounts, &b.person).await;
+    let temp = b.password.as_str();
+    let password = b.new_password.as_str();
     if password.chars().count() < k.cfg.sign_in.min_password_length {
         return refuse(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
@@ -483,16 +475,16 @@ fn code_needed() -> Response {
 
 /// Start a sign-in through the identity provider: the person approves the
 /// code on the provider's page, then polls `/v1/sign-in/device/{flow}`.
-async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+async fn device_start(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Body(b): Body<req::Client>) -> ApiResult {
     over_tls(&k, t, peer)?;
-    if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
+    if let Some(r) = (b.client.as_deref() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
         return Ok(r);
     }
     let Some(o) = k.oidc.get() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
     if !may_begin(&k, peer) {
         return Ok(too_many_begins());
     }
-    Ok(match o.start(b["client"].as_str() == Some("app")).await {
+    Ok(match o.start(b.client.as_deref() == Some("app")).await {
         Ok(s) => Json(json!({
             "flow": s.flow,
             "user_code": s.user_code,
@@ -570,32 +562,32 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
 /// Begin a sign-in in the person's own browser (the app's way): it comes
 /// back to `redirect_uri`, a loopback address on their computer, and the app
 /// finishes it at `/v1/sign-in/browser/finish`.
-async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Body(b): Body<req::BrowserBegin>) -> ApiResult {
     over_tls(&k, t, peer)?;
-    if let Some(r) = (b["client"].as_str() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
+    if let Some(r) = (b.client.as_deref() == Some("app")).then(|| crate::update::unversioned_app(&h)).flatten() {
         return Ok(r);
     }
     let Some(id) = k.identity() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
-    let Some(redirect_uri) = b["redirect_uri"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "name the redirect address") };
+    let Some(redirect_uri) = b.redirect_uri.as_deref() else { return refuse(StatusCode::BAD_REQUEST, "name the redirect address") };
     if !may_begin(&k, peer) {
         return Ok(too_many_begins());
     }
     if let Err(e) = crate::connectors::loopback(redirect_uri) {
         return refuse(StatusCode::BAD_REQUEST, format!("{e:#}"));
     }
-    let hint = b["login_hint"].as_str().map(str::trim).filter(|h| !h.is_empty());
-    Ok(match id.begin(redirect_uri, hint, b["client"].as_str() == Some("app")).await {
+    let hint = b.login_hint.as_deref().map(str::trim).filter(|h| !h.is_empty());
+    Ok(match id.begin(redirect_uri, hint, b.client.as_deref() == Some("app")).await {
         Ok(s) => Json(json!({ "state": s.state, "authorize_url": s.authorize_url, "expires_in": s.expires_in, "label": id.label() })).into_response(),
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     })
 }
 
 /// Finish a browser sign-in with what came back to the loopback address.
-async fn browser_finish(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> ApiResult {
+async fn browser_finish(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Body(b): Body<req::BrowserFinish>) -> ApiResult {
     over_tls(&k, t, peer)?;
     let Some(id) = k.identity() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
-    let (Some(state), Some(code)) = (b["state"].as_str(), b["code"].as_str()) else { return refuse(StatusCode::BAD_REQUEST, "send the state and code that came back") };
-    Ok(match id.finish(state, code, b["iss"].as_str()).await {
+    let (Some(state), Some(code)) = (b.state.as_deref(), b.code.as_deref()) else { return refuse(StatusCode::BAD_REQUEST, "send the state and code that came back") };
+    Ok(match id.finish(state, code, b.iss.as_deref()).await {
         Ok(polled) => provider_answered(&k, t, id.label(), polled, device_of(&k, peer, &h)).await,
         Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     })
@@ -604,10 +596,10 @@ async fn browser_finish(State(k): K, Extension(t): Extension<Transport>, Connect
 /// Accept an invitation: the token with the new password activates the
 /// person, who then signs in normally. A bad, used or expired token, or
 /// one for someone no longer here, answers alike.
-async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(b): Json<Value>) -> ApiResult {
+async fn accept_invite(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Body(b): Body<req::AcceptInvite>) -> ApiResult {
     over_tls(&k, t, peer)?;
-    let token = b["token"].as_str().unwrap_or_default();
-    let password = b["password"].as_str().unwrap_or_default();
+    let token = b.token.as_str();
+    let password = b.password.as_str();
     if password.chars().count() < k.cfg.sign_in.min_password_length {
         return refuse(StatusCode::BAD_REQUEST, format!("a password needs at least {} characters", k.cfg.sign_in.min_password_length));
     }
@@ -1095,7 +1087,7 @@ fn controlled(r: Result<Value, crate::controls::Refused>) -> Response {
 
 /// The person's verdict on an outcome that has ended: right, partly or
 /// wrong, with an optional note. A later verdict replaces it.
-async fn verdict(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
+async fn verdict(State(k): K, Caller(p): Caller, Path(id): Path<String>, Body(b): Body<req::Verdict>) -> ApiResult {
     // An experiment's trials run as the eval people, who have no sign-in of
     // their own: the owner judges them, though they see no one else's tasks.
     let judge = rights(&p).judges_experiments();
@@ -1104,10 +1096,10 @@ async fn verdict(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b)
     if task.person != p.id && !(judge && run.experiment.is_some()) {
         return refuse(StatusCode::FORBIDDEN, "only the person it is for gives a verdict");
     }
-    let Some(v) = b["verdict"].as_str().filter(|v| crate::state::VERDICTS.contains(v)) else {
+    let Some(v) = b.verdict.as_deref().filter(|v| crate::state::VERDICTS.contains(v)) else {
         return refuse(StatusCode::BAD_REQUEST, "verdict is right, partly or wrong");
     };
-    let note = b["note"].as_str().map(str::trim).filter(|n| !n.is_empty()).map(String::from);
+    let note = b.note.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(String::from);
     if note.as_ref().is_some_and(|n| n.chars().count() > crate::compose::MAX_TEXT) {
         return refuse(StatusCode::BAD_REQUEST, format!("the note is longer than {} characters", crate::compose::MAX_TEXT));
     }
@@ -1176,11 +1168,11 @@ async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
 /// The app presented inbox items to its person: record each visible
 /// one opened, first presentation standing (#367). Unknown ids, and
 /// another person's, are ignored, so a stale app never fails the open.
-async fn inbox_opened(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
+async fn inbox_opened(State(k): K, Caller(p): Caller, Body(b): Body<req::Opened>) -> ApiResult {
     let (marked, fresh): (Vec<String>, Vec<String>) = k.read(|s| {
         let mut marked = vec![];
         let mut fresh = vec![];
-        for id in b["ids"].as_array().cloned().unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(String::from)) {
+        for id in b.ids {
             if s.items.get(&id).is_some_and(|i| inbox::visible(s, &p, i)) {
                 marked.push(id.clone());
                 if !s.items_opened.contains_key(&id) {
@@ -1236,7 +1228,7 @@ async fn policies(State(k): K, Caller(p): Caller) -> ApiResult {
     Ok(Json(json!({ "layers": mine, "default_org": crate::policy::DEFAULT_ORG })).into_response())
 }
 
-async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, Json(b): Json<Value>) -> ApiResult {
+async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, Body(b): Body<req::Policy>) -> ApiResult {
     let layer = layer.trim_matches('/').to_string();
     // A task's layer: the task's own, which only narrows, so its person
     // may set it as well as the owner (DECISIONS, Layering).
@@ -1251,7 +1243,7 @@ async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, J
     if !(inbox::may_set_policy(&p, &layer) || task_of.as_deref() == Some(p.id.as_str())) {
         return refuse(StatusCode::FORBIDDEN, "you may not set this layer's policy");
     }
-    let cedar = b["cedar"].as_str().unwrap_or_default().to_string();
+    let cedar = b.cedar;
     if let Err(e) = crate::policy::validate(&cedar) {
         return refuse(StatusCode::BAD_REQUEST, format!("the policy does not parse: {e}"));
     }
@@ -1271,8 +1263,8 @@ async fn secret_names(State(k): K, _: Owner) -> ApiResult {
     })
 }
 
-async fn put_secret(State(k): K, Owner(p): Owner, Path(name): Path<String>, Json(b): Json<Value>) -> ApiResult {
-    let Some(value) = b["value"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "no value") };
+async fn put_secret(State(k): K, Owner(p): Owner, Path(name): Path<String>, Body(b): Body<req::Secret>) -> ApiResult {
+    let Some(value) = b.value.as_deref() else { return refuse(StatusCode::BAD_REQUEST, "no value") };
     if crate::secret_scope::personal(&k, &name) {
         return refuse(StatusCode::FORBIDDEN, crate::secret_scope::REFUSED);
     }
@@ -1476,8 +1468,8 @@ impl Kernel {
     }
 }
 
-async fn kill_switch(State(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
-    Ok(match k.kill_switch(&format!("person:{}", p.id), b["engaged"].as_bool().unwrap_or(true)).await {
+async fn kill_switch(State(k): K, Owner(p): Owner, Body(b): Body<req::KillSwitch>) -> ApiResult {
+    Ok(match k.kill_switch(&format!("person:{}", p.id), b.engaged.unwrap_or(true)).await {
         Ok(v) => Json(v).into_response(),
         Err((st, v)) => (st, Json(v)).into_response(),
     })
@@ -1504,8 +1496,8 @@ async fn adapters(State(k): K, _: Owner) -> ApiResult {
 /// Replace or add an adapter while the kernel runs. The candidate must pass
 /// the conformance suite against the live provider before it takes requests,
 /// unless the owner explicitly skips the gate.
-async fn put_adapter(State(k): K, Owner(p): Owner, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
-    let cfg: Adapter = match serde_json::from_value(json!({ "id": id, "command": b["command"], "settings": b.get("settings").cloned().unwrap_or(json!({})) })) {
+async fn put_adapter(State(k): K, Owner(p): Owner, Path(id): Path<String>, Body(b): Body<req::PutAdapter>) -> ApiResult {
+    let cfg: Adapter = match serde_json::from_value(json!({ "id": id, "command": b.command, "settings": b.settings })) {
         Ok(c) => c,
         Err(e) => return refuse(StatusCode::BAD_REQUEST, format!("bad adapter: {e}")),
     };
@@ -1514,8 +1506,8 @@ async fn put_adapter(State(k): K, Owner(p): Owner, Path(id): Path<String>, Json(
         Err(e) => return refuse(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     };
     let info = json!({ "adapter": candidate.adapter, "version": candidate.version });
-    if b["skip_conformance"].as_bool() != Some(true) {
-        let model = match conformance_model(&k, &id, &b["model"]).await {
+    if b.skip_conformance != Some(true) {
+        let model = match conformance_model(&k, &id, &b.model).await {
             Ok(m) => m,
             Err(m) => return refuse(StatusCode::BAD_GATEWAY, m),
         };
@@ -1552,12 +1544,12 @@ async fn conformance_model(k: &Kernel, id: &str, asked: &Value) -> Result<String
     }
 }
 
-async fn conformance(State(k): K, Owner(p): Owner, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
+async fn conformance(State(k): K, Owner(p): Owner, Path(id): Path<String>, Body(b): Body<req::Conformance>) -> ApiResult {
     let running = match k.adapters.get(&id).await {
         Ok(r) => r,
         Err(e) => return refuse(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     };
-    let model = match conformance_model(&k, &id, &b["model"]).await {
+    let model = match conformance_model(&k, &id, &b.model).await {
         Ok(m) => m,
         Err(m) => return refuse(StatusCode::BAD_GATEWAY, m),
     };
@@ -1662,8 +1654,8 @@ where
 }
 
 /// Speech to text on the appliance. The person reviews the text before sending it.
-async fn transcribe(State(k): K, _: Caller, Json(b): Json<Value>) -> ApiResult {
-    let Some(data) = b["data_b64"].as_str() else { return refuse(StatusCode::BAD_REQUEST, "no audio") };
+async fn transcribe(State(k): K, _: Caller, Body(b): Body<req::Transcribe>) -> ApiResult {
+    let Some(data) = b.data_b64.as_deref() else { return refuse(StatusCode::BAD_REQUEST, "no audio") };
     Ok(match crate::speech::transcribe(k.cfg.speech.as_ref(), &k.cfg.appliance.state_dir, data).await {
         Ok(text) => Json(json!({ "text": text })).into_response(),
         Err(e) => err(StatusCode::SERVICE_UNAVAILABLE, format!("{e:#}")),
@@ -1672,9 +1664,9 @@ async fn transcribe(State(k): K, _: Caller, Json(b): Json<Value>) -> ApiResult {
 
 /// Text to speech on the appliance, so every app and browser hears the same
 /// voice. 503 when no voice is installed: the app then uses its system's own.
-async fn speak(State(k): K, _: Caller, Json(b): Json<Value>) -> ApiResult {
+async fn speak(State(k): K, _: Caller, Body(b): Body<req::Speak>) -> ApiResult {
     let Some(cfg) = &k.cfg.read_aloud else { return refuse(StatusCode::SERVICE_UNAVAILABLE, "no read-aloud voice is installed on this server") };
-    let Some(text) = b["text"].as_str().filter(|t| !t.trim().is_empty()) else { return refuse(StatusCode::BAD_REQUEST, "no text") };
+    let Some(text) = b.text.as_deref().filter(|t| !t.trim().is_empty()) else { return refuse(StatusCode::BAD_REQUEST, "no text") };
     use crate::speech::SpeakError;
     Ok(match crate::speech::speak_limited(cfg, text).await {
         Ok(mp3) => Json(json!({ "media_type": "audio/mpeg", "audio_b64": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, mp3) })).into_response(),
@@ -1703,8 +1695,8 @@ async fn models(State(k): K, h: HeaderMap) -> ApiResult {
 }
 
 /// Choose the model new tasks run on. Running tasks keep their pinned model (K9).
-async fn put_model(State(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
-    let (Some(adapter), Some(model)) = (b["adapter"].as_str(), b["model"].as_str()) else {
+async fn put_model(State(k): K, Owner(p): Owner, Body(b): Body<req::Model>) -> ApiResult {
+    let (Some(adapter), Some(model)) = (b.adapter.as_deref(), b.model.as_deref()) else {
         return refuse(StatusCode::BAD_REQUEST, "adapter and model are required");
     };
     if k.adapters.list().await.iter().all(|(id, _, _)| id != adapter) {

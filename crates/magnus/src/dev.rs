@@ -3,14 +3,16 @@
 //! and only here, behind the developer role (K10, K45).
 
 use crate::anonymize::{Lens, Sight};
-use crate::api::{developer, err, internal, status_str};
+use crate::api::{err, internal, status_str};
+use crate::api_error::{refuse, ApiResult};
 use crate::events::{Ev, ExperimentTag};
+use crate::extract::Developer;
 use crate::kernel::Kernel;
 use crate::state::{Run, State, Status};
 use axum::{
     extract::{Path, Query, State as AxState},
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
@@ -33,15 +35,6 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/dev/policy", get(crate::dev_panels::policy))
         .route("/v1/dev/playbook", get(crate::dev_panels::playbook))
         .route("/v1/dev/modules", get(modules))
-}
-
-macro_rules! dev {
-    ($k:expr, $h:expr) => {
-        match developer(&$k, &$h).await {
-            Ok(p) => p,
-            Err(r) => return r,
-        }
-    };
 }
 
 /// Where a run went wrong, from its log (V2). None for a run that succeeded
@@ -100,8 +93,7 @@ pub struct Module {
 /// The removable modules: what each compensates for, its ablation suite,
 /// whether it is on for the appliance's model and each model set apart, and
 /// how often it acted.
-async fn modules(AxState(k): K, h: HeaderMap) -> Response {
-    let p = dev!(k, h);
+async fn modules(AxState(k): K, Developer(p): Developer) -> ApiResult {
     let lens = k.lens(&p);
     let (a, m) = k.default_model();
     let first = format!("{a}/{m}");
@@ -131,7 +123,7 @@ async fn modules(AxState(k): K, h: HeaderMap) -> Response {
             json!({ "name": md.name, "compensates": md.compensates, "ablation_suite": md.ablation_suite, "models": on, "acted": acted.get(md.name).copied().unwrap_or(0) })
         })
         .collect();
-    Json(json!({ "modules": list, "lost_thresholds": k.cfg.modules.lost })).into_response()
+    Ok(Json(json!({ "modules": list, "lost_thresholds": k.cfg.modules.lost })).into_response())
 }
 
 /// Each removable module on or off for a run, as pinned at its start.
@@ -191,15 +183,11 @@ struct RunQuery {
     limit: Option<usize>,
 }
 
-async fn runs(AxState(k): K, h: HeaderMap, Query(q): Query<RunQuery>) -> Response {
-    let p = dev!(k, h);
+async fn runs(AxState(k): K, Developer(p): Developer, Query(q): Query<RunQuery>) -> ApiResult {
     let lens = k.lens(&p);
     let stall = k.cfg.observability.stall_minutes;
     let ids: Option<BTreeSet<String>> = q.ids.as_ref().map(|i| i.split(',').map(String::from).collect());
-    let w = match k.all_words().await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+    let w = k.all_words().await?;
     let mut list: Vec<Value> = k.read(|s| {
         let mut rs: Vec<&Run> = s.runs.values().collect();
         rs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -212,7 +200,7 @@ async fn runs(AxState(k): K, h: HeaderMap, Query(q): Query<RunQuery>) -> Respons
             .collect()
     });
     list.truncate(q.limit.unwrap_or(500));
-    Json(json!({ "runs": list })).into_response()
+    Ok(Json(json!({ "runs": list })).into_response())
 }
 
 fn clip(s: &str, n: usize) -> String {
@@ -326,18 +314,14 @@ impl Sources {
 /// The run inspector (V1): per step, what the model saw (context by source,
 /// with tokens), what it did, and what the harness did, with who issued each
 /// action (V7). Built from the run's raw events.
-async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let req = dev!(k, h);
+async fn inspect(AxState(k): K, Developer(req): Developer, Path(id): Path<String>) -> ApiResult {
     let lens = k.lens(&req);
     // A run its person has not let developers see is, to them, no run.
-    let Some(run) = k.read(|s| s.runs.get(&id).cloned()).filter(|r| lens.sight(&r.person) != Sight::Hidden) else { return err(StatusCode::NOT_FOUND, "no such run") };
+    let Some(run) = k.read(|s| s.runs.get(&id).cloned()).filter(|r| lens.sight(&r.person) != Sight::Hidden) else { return refuse(StatusCode::NOT_FOUND, "no such run") };
     // Another developer reads the run's shape, not the words of the calls
     // that are its person's alone (#257).
     let redact = req.id != run.person;
-    let events = match k.run_events(&id).await {
-        Ok(e) => e,
-        Err(e) => return internal(e),
-    };
+    let events = k.run_events(&id).await?;
     let tools_now = {
         use sha2::Digest;
         let t = k.tools_for(&run).await;
@@ -492,13 +476,10 @@ async fn inspect(AxState(k): K, h: HeaderMap, Path(id): Path<String>) -> Respons
         }
         out.push(Value::Object(st));
     }
-    let w = match k.all_words().await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+    let w = k.all_words().await?;
     let s = k.read(|s| summary(s, &run, k.cfg.observability.stall_minutes, &w));
     let v = json!({ "run": s, "steps": out, "actions": actions, "records": records, "harness": harness, "events": events.len() });
-    Json(lens.show(lens.sight(&run.person), v)).into_response()
+    Ok(Json(lens.show(lens.sight(&run.person), v)).into_response())
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -508,13 +489,12 @@ struct LogQuery {
 }
 
 /// The full log of one run (V4), with large payloads shortened for reading.
-async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<LogQuery>) -> Response {
-    let req = dev!(k, h);
+async fn raw_log(AxState(k): K, Developer(req): Developer, Path(id): Path<String>, Query(q): Query<LogQuery>) -> ApiResult {
     let lens = k.lens(&req);
     let Some(person) = k.read(|s| s.runs.get(&id).map(|r| r.person.clone())).filter(|p| lens.sight(p) != Sight::Hidden) else {
-        return err(StatusCode::NOT_FOUND, "no such run");
+        return refuse(StatusCode::NOT_FOUND, "no such run");
     };
-    match k.run_events(&id).await {
+    Ok(match k.run_events(&id).await {
         Ok(evs) => {
             let sight = lens.sight(&person);
             let redact = req.id != person;
@@ -542,50 +522,45 @@ async fn raw_log(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): 
             Json(json!({ "events": rows, "total": evs.len() })).into_response()
         }
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// A grader's verdict from the evaluation runner (V2).
-async fn grade(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = dev!(k, h);
+async fn grade(AxState(k): K, Developer(p): Developer, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let lens = k.lens(&p);
     if k.read(|s| s.runs.get(&id).is_none_or(|r| lens.sight(&r.person) == Sight::Hidden)) {
-        return err(StatusCode::NOT_FOUND, "no such run");
+        return refuse(StatusCode::NOT_FOUND, "no such run");
     }
     let (Some(grader), Some(passed)) = (b["grader"].as_str(), b["passed"].as_bool()) else {
-        return err(StatusCode::BAD_REQUEST, "grader and passed are required");
+        return refuse(StatusCode::BAD_REQUEST, "grader and passed are required");
     };
     let ev = Ev::Graded { run: id, grader: grader.into(), passed, score: b["score"].as_f64(), details: b.get("details").cloned().unwrap_or(Value::Null) };
-    match k.emit(&format!("person:{}", p.id), ev).await {
+    Ok(match k.emit(&format!("person:{}", p.id), ev).await {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 /// Start one trial of an experiment case, acting for the developer: a task,
 /// or with `"via": "chat"` a chat message (in a new thread, or in `thread`),
 /// on the appliance's model or the one in `model`. `modules` switches
 /// removable modules on or off for a task trial (their ablation).
-async fn add_trial(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let p = dev!(k, h);
+async fn add_trial(AxState(k): K, Developer(p): Developer, Path(id): Path<String>, Json(b): Json<Value>) -> ApiResult {
     let text = b["text"].as_str().unwrap_or_default().trim().to_string();
-    let (Some(case), Some(trial)) = (b["case"].as_str(), b["trial"].as_u64()) else { return err(StatusCode::BAD_REQUEST, "case and trial are required") };
+    let (Some(case), Some(trial)) = (b["case"].as_str(), b["trial"].as_u64()) else { return refuse(StatusCode::BAD_REQUEST, "case and trial are required") };
     if text.is_empty() {
-        return err(StatusCode::BAD_REQUEST, "the task has no text");
+        return refuse(StatusCode::BAD_REQUEST, "the task has no text");
     }
-    let model = match crate::api::chosen_model(&k, &b).await {
-        Ok(m) => m,
-        Err(r) => return r,
-    };
+    let model = crate::api::chosen_model(&k, &b).await?;
     let mut modules = BTreeMap::new();
     for (name, on) in b["modules"].as_object().into_iter().flatten() {
         let Some(on) = on.as_bool().filter(|_| MODULES.iter().any(|m| m.name == name)) else {
-            return err(StatusCode::BAD_REQUEST, &format!("no removable module {name}, or not true/false"));
+            return refuse(StatusCode::BAD_REQUEST, &format!("no removable module {name}, or not true/false"));
         };
         modules.insert(name.clone(), on);
     }
     if !modules.is_empty() && b["via"] == "chat" {
-        return err(StatusCode::BAD_REQUEST, "module switches apply to task trials");
+        return refuse(StatusCode::BAD_REQUEST, "module switches apply to task trials");
     }
     // The same trial may run once on each model and module setting, to compare them.
     let tag = ExperimentTag { id, case: case.into(), trial: trial as u32 };
@@ -600,20 +575,20 @@ async fn add_trial(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Json(b):
         })
     });
     if dup {
-        return err(StatusCode::CONFLICT, "this trial already exists");
+        return refuse(StatusCode::CONFLICT, "this trial already exists");
     }
     if b["via"] == "chat" {
-        return match k.chat_say(&p.id, text, b["thread"].as_str().map(String::from), model, Some(tag), vec![], None).await {
+        return Ok(match k.chat_say(&p.id, text, b["thread"].as_str().map(String::from), model, Some(tag), vec![], None).await {
             Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task }))).into_response(),
             Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
             Err(e) => internal(e),
-        };
+        });
     }
     let attachments = b["attachments"].as_array().cloned().unwrap_or_default();
-    match k.create_tagged(&format!("person:{}", p.id), &p.id, text, attachments, Some(tag), model, modules).await {
+    Ok(match k.create_tagged(&format!("person:{}", p.id), &p.id, text, attachments, Some(tag), model, modules).await {
         Ok((task, run)) => (StatusCode::CREATED, Json(json!({ "task_id": task, "run_id": run }))).into_response(),
         Err(e) => internal(e),
-    }
+    })
 }
 
 fn choose(n: u64, k: u64) -> f64 {
@@ -655,8 +630,7 @@ pub(crate) fn num(x: f64) -> Value {
     }
 }
 
-async fn experiments(AxState(k): K, h: HeaderMap) -> Response {
-    let p = dev!(k, h);
+async fn experiments(AxState(k): K, Developer(p): Developer) -> ApiResult {
     let lens = k.lens(&p);
     let list: Vec<Value> = k.read(|s| {
         let mut by: BTreeMap<String, Vec<&Run>> = BTreeMap::new();
@@ -675,7 +649,7 @@ async fn experiments(AxState(k): K, h: HeaderMap) -> Response {
             })
             .collect()
     });
-    Json(json!({ "experiments": list })).into_response()
+    Ok(Json(json!({ "experiments": list })).into_response())
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -688,14 +662,10 @@ struct ExpQuery {
 /// One experiment: each configuration across its repeated trials, case by
 /// case, with pass@k and pass^k and their spread, a paired comparison, and
 /// failures tagged by where they went wrong (V2). Every number lists its runs.
-async fn experiment(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<ExpQuery>) -> Response {
-    let p = dev!(k, h);
+async fn experiment(AxState(k): K, Developer(p): Developer, Path(id): Path<String>, Query(q): Query<ExpQuery>) -> ApiResult {
     let lens = k.lens(&p);
     let stall = k.cfg.observability.stall_minutes;
-    let w = match k.all_words().await {
-        Ok(w) => w,
-        Err(e) => return internal(e),
-    };
+    let w = k.all_words().await?;
     let v = k.read(|s| {
         let rs: Vec<&Run> = s.runs.values().filter(|r| r.experiment.as_ref().is_some_and(|t| t.id == id) && lens.sight(&r.person) != Sight::Hidden).collect();
         if rs.is_empty() {
@@ -780,10 +750,10 @@ async fn experiment(AxState(k): K, h: HeaderMap, Path(id): Path<String>, Query(q
         let compared = if requests.is_empty() { Value::Null } else { compare(s, &id, &requests, q.base.as_deref(), &w, &lens) };
         Some(json!({ "id": id, "k": kk, "cases": cases, "configs": configs, "paired": paired, "requests": requests, "compare": compared }))
     });
-    match v {
+    Ok(match v {
         Some(v) => Json(v).into_response(),
         None => err(StatusCode::NOT_FOUND, "no such experiment"),
-    }
+    })
 }
 
 /// A chat trial and what it led to: what the model chose (answer, a

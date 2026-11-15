@@ -8,14 +8,13 @@
 use super::egress::watch;
 use super::{KillMode, Owner, Role, Status};
 use crate::anonymize::{Lens, Sight};
-use crate::api::developer;
+use crate::api_error::ApiResult;
 use crate::config::Person;
 use crate::controls::Refused;
+use crate::extract::Developer;
 use crate::grants::answered;
 use crate::kernel::Kernel;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
-use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
@@ -33,15 +32,6 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/dev/computers/{id}/egress", get(egress))
         .route("/v1/dev/computers/{id}/pause", post(pause))
         .route("/v1/dev/computers/{id}/start", post(start))
-}
-
-macro_rules! dev {
-    ($k:expr, $h:expr) => {
-        match developer(&$k, &$h).await {
-            Ok(p) => p,
-            Err(r) => return r,
-        }
-    };
 }
 
 /// Whether `who` is the person the computer belongs to, who sees full paths.
@@ -127,9 +117,8 @@ impl Kernel {
     }
 }
 
-async fn list(State(k): K, h: HeaderMap) -> Response {
-    let p = dev!(k, h);
-    answered(Ok(k.dev_computers(&p)))
+async fn list(State(k): K, Developer(p): Developer) -> ApiResult {
+    Ok(answered(Ok(k.dev_computers(&p))))
 }
 
 #[derive(Deserialize)]
@@ -141,19 +130,16 @@ struct After {
     limit: Option<i64>,
 }
 
-async fn egress(State(k): K, h: HeaderMap, Path(id): Path<String>, Query(q): Query<After>) -> Response {
-    let p = dev!(k, h);
-    answered(k.dev_egress(&p, &id, q.after, q.limit.unwrap_or(DEFAULT_ROWS)).await)
+async fn egress(State(k): K, Developer(p): Developer, Path(id): Path<String>, Query(q): Query<After>) -> ApiResult {
+    Ok(answered(k.dev_egress(&p, &id, q.after, q.limit.unwrap_or(DEFAULT_ROWS)).await))
 }
 
-async fn pause(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = dev!(k, h);
-    answered(k.dev_pause(&p, &id).await)
+async fn pause(State(k): K, Developer(p): Developer, Path(id): Path<String>) -> ApiResult {
+    Ok(answered(k.dev_pause(&p, &id).await))
 }
 
-async fn start(State(k): K, h: HeaderMap, Path(id): Path<String>) -> Response {
-    let p = dev!(k, h);
-    answered(k.dev_start(&p, &id).await)
+async fn start(State(k): K, Developer(p): Developer, Path(id): Path<String>) -> ApiResult {
+    Ok(answered(k.dev_start(&p, &id).await))
 }
 
 #[cfg(test)]
