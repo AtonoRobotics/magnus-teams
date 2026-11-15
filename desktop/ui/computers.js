@@ -261,7 +261,24 @@ function computerScreen(body, c, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
   body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div><div class="screen-hold" data-hold role="status" hidden><span data-hold-words></span><button data-done-here>I'm done</button></div><p class="screen-caption" data-caption></p></div><p class="small bad" id="display-error" hidden></p></div>`;
   const preview = $("#preview", body);
-  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "" };
+  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "", recording: false, recordedSteps: [] };
+  const toggleRecord = () => {
+    if (!view.recording) {
+      view.recording = true;
+      view.recordedSteps = [];
+      strip();
+      toast("Recording your clicks and typing on the computer…");
+      return;
+    }
+    view.recording = false;
+    const steps = view.recordedSteps.splice(0);
+    strip();
+    if (!steps.length) { toast("No steps were recorded."); return; }
+    const summary = steps.map((s, idx) => `${idx + 1}. ${s}`).join("\n");
+    const prompt = `Learn this workflow from the steps I just demonstrated on the computer and turn it into a repeatable automation:\n${summary}`;
+    if (typeof guideStartTurn === "function") guideStartTurn(prompt);
+    else { App.appSearch = prompt; location.hash = "#/chat/new"; }
+  };
   const take = async () => {
     if (view.holding) return;
     view.holding = true;
@@ -284,11 +301,12 @@ function computerScreen(body, c, alive, opts = {}) {
   const strip = () => {
     const bar = $("[data-screen-bar]", body);
     if (!bar) return;
-    const c = view.c, html = controlStrip(c, view.holding);
+    const c = view.c, html = controlStrip(c, view.holding, view.recording);
     if (html !== view.bar) { view.bar = html; bar.innerHTML = html; }
-    const t = $("[data-take]", body), d = $("[data-done]", body), f = $("[data-full]", body), ask = $("[data-ask-host]", body);
+    const t = $("[data-take]", body), d = $("[data-done]", body), f = $("[data-full]", body), rec = $("[data-record-steps]", body), ask = $("[data-ask-host]", body);
     if (t) t.onclick = take;
     if (d) d.onclick = done;
+    if (rec) rec.onclick = toggleRecord;
     if (f) f.onclick = () => fullScreen($("[data-view]", body));
     if (ask) ask.innerHTML = takeoverAsk(c);
     const veil = view.holding ? "" : screenVeil(c, view.shot), v = $("[data-veil]", body);
@@ -385,10 +403,26 @@ function takeOver(body, id, grant, view, strip) {
   link = Magnus.displayOpen(id, grant.ticket, grant.protocol_prefix, b => rfb.feed(b), reason => { if (!ended) failed(reason || "The connection to the screen ended."); });
   const at = e => { const r = canvas.getBoundingClientRect(); return [Math.round((e.clientX - r.left) * canvas.width / r.width), Math.round((e.clientY - r.top) * canvas.height / r.height)]; };
   const mask = e => (e.buttons & 1) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
-  for (const type of ["mousemove", "mousedown", "mouseup"]) canvas.addEventListener(type, e => { const [x, y] = at(e); rfb.pointer(x, y, mask(e)); e.preventDefault(); });
+  for (const type of ["mousemove", "mousedown", "mouseup"]) canvas.addEventListener(type, e => {
+    const [x, y] = at(e);
+    if (type === "mousedown" && view.recording) view.recordedSteps.push(`Click at (${x}, ${y})`);
+    rfb.pointer(x, y, mask(e)); e.preventDefault();
+  });
   canvas.addEventListener("wheel", e => { const [x, y] = at(e), bit = e.deltaY < 0 ? 8 : 16; rfb.pointer(x, y, bit); rfb.pointer(x, y, 0); e.preventDefault(); }, { passive: false });
   canvas.addEventListener("contextmenu", e => e.preventDefault());
-  for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => { if (rfb.key(e.key, down)) e.preventDefault(); });
+  for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => {
+    if (down && view.recording) {
+      const last = view.recordedSteps.at(-1);
+      if (e.key.length === 1 && last && last.startsWith('Type "') && last.endsWith('"')) {
+        view.recordedSteps[view.recordedSteps.length - 1] = `Type "${last.slice(6, -1)}${e.key}"`;
+      } else if (e.key.length === 1) {
+        view.recordedSteps.push(`Type "${e.key}"`);
+      } else if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) {
+        view.recordedSteps.push(`Press ${e.key}`);
+      }
+    }
+    if (rfb.key(e.key, down)) e.preventDefault();
+  });
   // Handing back keeps the last frame on screen as the preview.
   view.done = async () => {
     if (!(await leave(true))) return;

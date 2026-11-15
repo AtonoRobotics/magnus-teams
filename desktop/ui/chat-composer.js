@@ -21,13 +21,15 @@
  * @param {string} placeholder @param {string} bar what sits at the start of the bar (the model picker, or "Only my Magnus sees this")
  * @param {{ side?: boolean, label?: string, mentions?: boolean }} [o]
  */
+if (typeof UI !== "undefined" && !UI.mic) UI.mic = '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>';
+
 function composer(placeholder, bar, o = {}) {
   const id = n => o.side ? "" : ` id="${n}"`;
   const label = o.side ? `<textarea rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(o.label || placeholder)}" required></textarea>`
     : `<label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}" required></textarea>`;
   return `<form${id("say")} class="say">${label}${o.mentions ? `<div class="say-mentions" role="listbox" aria-label="Mention" hidden></div>` : ""}
     <div class="row small pending"${id("pending")}></div>
-    <div class="say-bar">${bar}<span class="grow"></span>${attachButton("Attach files", true)}<button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
+    <div class="say-bar">${bar}<span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
 }
 
 /** The @word being typed at the caret, if any. @param {string} text @param {number} caret */
@@ -139,7 +141,34 @@ function wireComposer(form, record, conv) {
       if (!rejected) conv.refresh().catch(() => {});
     } finally { record.sending = false; MessageDrafts.changed(); }
   };
-  onLeave(() => { if (active) { read(false); active = false; unsubscribe(); } });
+  const voiceBtn = $("[data-voice-in]", form);
+  let recog = null;
+  const stopVoice = () => {
+    if (recog) { try { recog.stop(); } catch { /* ignore */ } recog = null; }
+    if (voiceBtn) { voiceBtn.classList.remove("recording"); voiceBtn.setAttribute("aria-pressed", "false"); }
+  };
+  if (voiceBtn) voiceBtn.onclick = () => {
+    if (recog) { stopVoice(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { toast("Voice dictation is not supported in this browser."); return; }
+    recog = new SR();
+    recog.continuous = true;
+    recog.interimResults = false;
+    recog.onresult = ev => {
+      let added = "";
+      for (let k = ev.resultIndex; k < ev.results.length; k++) if (ev.results[k].isFinal) added += ev.results[k][0].transcript;
+      if (!added.trim()) return;
+      box.value = (box.value ? `${box.value.trimEnd()} ` : "") + added.trim();
+      box.dispatchEvent(new Event("input"));
+      box.focus();
+    };
+    recog.onerror = () => stopVoice();
+    recog.onend = () => stopVoice();
+    voiceBtn.classList.add("recording");
+    voiceBtn.setAttribute("aria-pressed", "true");
+    try { recog.start(); } catch { stopVoice(); }
+  };
+  onLeave(() => { stopVoice(); if (active) { read(false); active = false; unsubscribe(); } });
   // Only a missing/expired reference is marked unavailable. A connection
   // failure does not silently turn a valid attachment into a missing one.
   if (conv.verify) for (const f of record.files.filter(f => f.state === "ready")) conv.verify(f).catch(err => {

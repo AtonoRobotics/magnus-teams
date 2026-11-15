@@ -394,4 +394,5 @@ details.collapsed-done > summary {
   text-align: center;
 }
 .empty-caught-up strong { display: block; margin-bottom: 4px; font-size: 14.5px; }
+.voice-in.recording { color: var(--bad); background: var(--bad-soft); }
 

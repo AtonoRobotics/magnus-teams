@@ -114,7 +114,7 @@ const DATA_ATTRIBUTES = new Set([
   "agent-mode", "answer", "archive", "attach", "card", "catch-up", "chat-task", "chat-work", "clear-conversation", "close-feedback", "decide", "draft", "entry",
   "feedback-react", "file-download", "jump-latest", "kind", "live", "mention", "menu", "model", "msg-act", "not-now", "notify", "open", "open-thread", "picker",
   "pins", "react", "remove-upload", "reply", "retry-upload", "sched-act", "share-answer", "share-to", "shown", "status", "task", "task-act", "tooltip", "upload",
-  "view", "voice-entry", "whisper", "whisper-share",
+  "view", "voice-entry", "voice-in", "whisper", "whisper-share",
 ]);
 for (const f of ["chat-view.js", "message-controls.js", "chat-composer.js", "personal-chat.js", "team-chat.js", "team-conversation.js"]) {
   for (const [, name] of ui(f).matchAll(/data-([a-z][a-z-]*[a-z])/g)) assert.ok(DATA_ATTRIBUTES.has(name), `${f} uses data-${name}, which is not in the list`);
