@@ -9,13 +9,15 @@
 use crate::api::{err, internal};
 use crate::api_error::{refuse, ApiResult};
 use crate::chat_thread::{Entry, Kind};
+use crate::conversation::personal::Personal;
+use crate::conversation::Conversation;
 use crate::events::{ChatOrigin, Ev};
 use crate::extract::Caller;
 use crate::kernel::{new_id, Kernel, NewRun};
 use crate::tools::Label;
 use axum::extract::{Path, State};
-use axum::http::{header, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -36,11 +38,12 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/directory", get(directory))
 }
 
-/// The person's thread as shown, and where `entry` is in it.
-async fn find(k: &Kernel, person: &str, thread: &str, entry: &str) -> Result<(Vec<Entry>, usize), Response> {
-    let entries = k.thread_entries(person, thread).await.map_err(crate::api::internal)?.ok_or_else(|| err(StatusCode::NOT_FOUND, "no such thread"))?;
-    let at = entries.iter().position(|e| e.has_id() && e.id == entry).ok_or_else(|| err(StatusCode::NOT_FOUND, "no such message"))?;
-    Ok((entries, at))
+/// The person's thread as shown, and where `entry` is in it: a 404 for a
+/// thread that is not theirs (`conversation::personal`).
+async fn find(k: &Kernel, person: &str, thread: &str, entry: &str) -> ApiResult<(Vec<Entry>, usize)> {
+    let c = Personal::open(k, person, thread).await?;
+    let at = c.place(entry)?;
+    Ok((c.entries, at))
 }
 
 async fn hide(k: &Kernel, person: &str, thread: &str, entries: Vec<String>) -> anyhow::Result<()> {
@@ -211,10 +214,7 @@ async fn share(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(Stri
 
 /// The entry as a Markdown file to save on this computer.
 async fn export(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(String, String)>) -> ApiResult {
-    let (entries, at) = find(&k, &p.id, &thread, &entry).await?;
-    let e = &entries[at];
-    Ok(([(header::CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{}\"", e.file_name()))], e.markdown())
-        .into_response())
+    Personal::open(&k, &p.id, &thread).await?.export(&entry)
 }
 
 /// The entry as a Markdown file in the person's library, from this chat.

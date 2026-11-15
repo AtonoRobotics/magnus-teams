@@ -4,9 +4,10 @@ use super::caller::{at, Member};
 use super::chat::{Chat, Origin, Status, Task};
 use super::chat_routes::name_of;
 use super::knowledge::Project;
-use super::routes::{new_id, send, Reply, K};
+use super::routes::{new_id, send, K};
 use super::{Change, Workspace};
 use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::{bail, Result};
@@ -75,11 +76,11 @@ struct Start {
     name: String,
 }
 
-async fn start(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<Start>) -> Reply {
-    match k.start_space(&format!("person:{}", p.id), &ws, &p.id, b.kind, &b.name).await {
+async fn start(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<Start>) -> ApiResult {
+    Ok(match k.start_space(&format!("person:{}", p.id), &ws, &p.id, b.kind, &b.name).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => err(StatusCode::BAD_REQUEST, format!("{e:#}")),
-    }
+    })
 }
 
 fn workspace(k: &Kernel, ws: &str) -> Option<Workspace> {
@@ -116,15 +117,15 @@ fn task_fits(w: &Workspace, person: &str, t: &Task) -> Result<(), &'static str> 
     Ok(())
 }
 
-async fn add_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<NewTask>) -> Reply {
-    let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+async fn add_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<NewTask>) -> ApiResult {
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
     let task = Task { id: new_id(), project: b.project, title: b.title, status: b.status, assignee: b.assignee, from: b.from, by: p.id.clone(), at: Some(chrono::Utc::now()) };
     if let Err(why) = task_fits(&w, &p.id, &task) {
-        return err(StatusCode::BAD_REQUEST, why);
+        return refuse(StatusCode::BAD_REQUEST, why);
     }
     let id = task.id.clone();
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Task { task } }).await);
-    Json(json!({ "id": id })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Task { task } }).await?;
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -140,9 +141,9 @@ struct TaskChange {
     project: Option<String>,
 }
 
-async fn change_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>, Json(b): Json<TaskChange>) -> Reply {
-    let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
-    let Some(mut task) = w.chat.tasks.get(&id).filter(|t| w.in_project(t.project.as_deref(), &p.id)).cloned() else { return err(StatusCode::NOT_FOUND, "no such task") };
+async fn change_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>, Json(b): Json<TaskChange>) -> ApiResult {
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
+    let Some(mut task) = w.chat.tasks.get(&id).filter(|t| w.in_project(t.project.as_deref(), &p.id)).cloned() else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     task.title = b.title.unwrap_or(task.title);
     task.status = b.status.unwrap_or(task.status);
     if let Some(a) = b.assignee {
@@ -152,19 +153,19 @@ async fn change_task(State(k): K, Member { person: p, .. }: Member<at::Member>, 
         task.project = (!project.is_empty()).then_some(project);
     }
     if let Err(why) = task_fits(&w, &p.id, &task) {
-        return err(StatusCode::BAD_REQUEST, why);
+        return refuse(StatusCode::BAD_REQUEST, why);
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Task { task } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::Task { task } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
-async fn remove_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>) -> Reply {
+async fn remove_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
     let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.tasks.get(&id).is_some_and(|t| w.in_project(t.project.as_deref(), &p.id))));
     if !known {
-        return err(StatusCode::NOT_FOUND, "no such task");
+        return refuse(StatusCode::NOT_FOUND, "no such task");
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::TaskRemoved { id } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::TaskRemoved { id } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[derive(Deserialize)]
@@ -172,27 +173,27 @@ struct FileProject {
     project: Option<String>,
 }
 
-async fn file_project(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>, Json(b): Json<FileProject>) -> Reply {
-    let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+async fn file_project(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, name)): Path<(String, String)>, Json(b): Json<FileProject>) -> ApiResult {
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
     if !w.sees_file(&name, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such file");
+        return refuse(StatusCode::NOT_FOUND, "no such file");
     }
     if b.project.as_ref().is_some_and(|id| w.projects.get(id).is_none_or(|d| !d.may_read(&p.id))) {
-        return err(StatusCode::NOT_FOUND, "no such project");
+        return refuse(StatusCode::NOT_FOUND, "no such project");
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project: b.project } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name, project: b.project } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// The right panel: a project's files, tasks, members, channels and the
 /// agent's current work there, or the whole workspace's with no project.
-async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
-    let Some(w) = workspace(&k, &ws) else { return err(StatusCode::NOT_FOUND, "no such workspace") };
+async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> ApiResult {
+    let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
     let project = q.get("project").filter(|s| !s.is_empty()).cloned();
     let def = match &project {
         Some(id) => match w.projects.get(id).filter(|d| d.may_read(&p.id)) {
             Some(d) => Some(d.clone()),
-            None => return err(StatusCode::NOT_FOUND, "no such project"),
+            None => return refuse(StatusCode::NOT_FOUND, "no such project"),
         },
         None => None,
     };
@@ -237,11 +238,11 @@ async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws
     };
     let knowledge = w.entries(project.as_deref()).len();
     let progress = project.as_deref().map(|id| w.progress(id));
-    Json(json!({
+    Ok(Json(json!({
         "project": def, "channels": channels, "files": files, "tasks": tasks, "work": work, "members": people,
         "knowledge": knowledge, "progress": progress.map(|(d, t)| json!({ "done": d, "total": t })), "computer": k.team_computer(&ws),
     }))
-    .into_response()
+    .into_response())
 }
 
 #[cfg(test)]

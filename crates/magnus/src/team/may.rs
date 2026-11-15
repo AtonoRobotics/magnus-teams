@@ -17,9 +17,8 @@
 use super::conversation::AGENT_ID;
 use super::items::{self, TeamItem};
 use super::member_view::{MemberView, Runs, Said};
-use super::routes::Reply;
 use super::Role;
-use crate::api::err;
+use crate::api_error::ApiResult;
 use crate::chat_entry::May;
 use crate::kernel::Kernel;
 use axum::http::StatusCode;
@@ -55,16 +54,11 @@ pub fn may<R: Runs>(v: &MemberView<R>, channel: &str, e: &TeamItem) -> Option<Ma
 }
 
 /// The entry `id` if this member sees it and `allowed` lets them act on it:
-/// a 404 that does not say whether it exists, or a 403 saying `why`.
-pub(super) fn check(k: &Kernel, ws: &str, channel: &str, id: &str, person: &str, allowed: impl Fn(&May) -> bool, why: &str) -> Result<TeamItem, Box<Reply>> {
-    let now = chrono::Utc::now();
-    let Some(e) = k.read(|s| MemberView::of(s, ws, person).and_then(|v| entry(&v, channel, id, now))) else {
-        return Err(Box::new(err(StatusCode::NOT_FOUND, "no such message")));
-    };
-    if !e.may.as_ref().is_some_and(allowed) {
-        return Err(Box::new(err(StatusCode::FORBIDDEN, why)));
-    }
-    Ok(e)
+/// a 404 that does not say whether it exists, or a 403 saying `why`. The
+/// channel as a conversation decides both (`crate::conversation`).
+pub(super) fn check(k: &Kernel, ws: &str, channel: &str, id: &str, person: &str, allowed: impl Fn(&May) -> bool, why: &str) -> ApiResult<TeamItem> {
+    use crate::conversation::{channel as conv, Conversation};
+    conv::read(k, ws, person, channel, &conv::Names::new(), |c| c.act(id, allowed, why))
 }
 
 /// One entry as this member sees it, with what they may do with it.

@@ -29,9 +29,8 @@ pub struct Kernel {
     pub cfg: Config,
     pub(crate) log: Arc<Log>,
     writer: crate::commit::Writer,
-    /// Held while a person's decision is checked and recorded, so an inbox
-    /// item or a chat card is decided once however many answers race in, and
-    /// a change of roles keeps an owner however many race in.
+    /// Held while a person's decision is checked and recorded, so an inbox item or a chat card is decided once
+    /// however many answers race in, and a change of roles keeps an owner however many race in.
     pub(crate) decide: tokio::sync::Mutex<()>,
     /// Held while a person's relationship notes are read and a new version written, so two changes at once never lose one.
     pub(crate) notes: tokio::sync::Mutex<()>,
@@ -53,8 +52,7 @@ pub struct Kernel {
     drivers: Mutex<HashSet<String>>,
     pub(crate) leases: Mutex<HashMap<String, String>>,
     pub(crate) live_tools: tokio::sync::Mutex<HashMap<String, (Instant, Vec<AppTool>)>>,
-    /// Each connection whose app refused Magnus the last time it asked for
-    /// the app's tools, with the app's answer: said in the person's app index.
+    /// Each connection whose app refused Magnus when last asked for its tools, with its answer: said in the person's app index.
     pub(crate) refused_apps: Mutex<HashMap<String, String>>,
     pub live_text: Arc<Live>,
     /// The knowledge base's search index.

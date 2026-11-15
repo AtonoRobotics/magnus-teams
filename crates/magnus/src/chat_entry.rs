@@ -142,6 +142,9 @@ pub struct ChatEntry {
     /// Whom the agent wrote it for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requester: Option<String>,
+    /// Whom the agent wrote it for, by name, as the app shows it.
+    #[serde(rename = "for", skip_serializing_if = "Option::is_none")]
+    pub for_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

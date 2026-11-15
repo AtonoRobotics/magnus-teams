@@ -1,9 +1,9 @@
-crates/magnus/src/accounts.rs 2034
-crates/magnus/src/api.rs 1856
+crates/magnus/src/accounts.rs 900
+crates/magnus/src/api.rs 1848
 crates/magnus/src/boundary.rs 1023
-crates/magnus/src/config.rs 1293
+crates/magnus/src/config.rs 1212
 crates/magnus/src/control.rs 817
-crates/magnus/src/dev.rs 974
+crates/magnus/src/dev.rs 944
 crates/magnus/src/events.rs 1404
 crates/magnus/src/run/mod.rs 892
 crates/magnus/src/state.rs 2248
