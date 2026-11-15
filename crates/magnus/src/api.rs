@@ -581,7 +581,7 @@ async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectI
     if !may_begin(&k, peer) {
         return Ok(too_many_begins());
     }
-    if let Err(e) = crate::connectors::loopback(redirect_uri) {
+    if let Err(e) = crate::oauth::loopback(redirect_uri) {
         return refuse(StatusCode::BAD_REQUEST, format!("{e:#}"));
     }
     let hint = b["login_hint"].as_str().map(str::trim).filter(|h| !h.is_empty());

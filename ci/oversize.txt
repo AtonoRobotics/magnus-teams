@@ -2,7 +2,6 @@ crates/magnus/src/accounts.rs 2034
 crates/magnus/src/api.rs 1856
 crates/magnus/src/boundary.rs 1023
 crates/magnus/src/config.rs 1293
-crates/magnus/src/connectors.rs 1570
 crates/magnus/src/control.rs 817
 crates/magnus/src/dev.rs 974
 crates/magnus/src/events.rs 1404
