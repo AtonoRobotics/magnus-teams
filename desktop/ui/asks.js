@@ -38,6 +38,14 @@ function askContent(d) {
   return `<div class="what">${to.concat(content, fields).join("")}</div>`;
 }
 
+function askSpendGuardrail(i, d) {
+  const inp = d.input && typeof d.input === "object" ? d.input : {};
+  const raw = inp.max_usd ?? inp.amount ?? inp.total ?? inp.price;
+  if (i.tier !== "financial" && raw === undefined) return "";
+  const cap = raw !== undefined ? `Capped at ${typeof raw === "number" ? `$${raw}` : esc(String(raw))}` : "Explicit approval required";
+  return `<p class="consequence small" data-spend-guardrail><strong>Spend guardrail:</strong> ${cap} · Vault-only credentials</p>`;
+}
+
 // The card. `canRespond` is whether this person may answer it.
 function askCard(i, canRespond) {
   const a = i.ask || {};
@@ -48,6 +56,7 @@ function askCard(i, canRespond) {
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
   return `<div class="ask" data-ask="${esc(i.id)}"${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
+    ${askSpendGuardrail(i, d)}
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}
     <details class="ask-content" data-ask-content><summary>See exactly what it would do</summary>${askContent(d)}</details>
     ${buttons}</div>`;

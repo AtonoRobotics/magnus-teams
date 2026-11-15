@@ -64,7 +64,12 @@ function personalChat(thread) {
     hero: {
       title: () => { const name = (App.me?.name || "").trim().split(/\s+/)[0]; return name ? `Hello, ${name}` : "Hello"; },
       subtitle: "What should we work on today?",
-      starters: ["Summarize my unread inbox", "Check my scheduled tasks", "Help me research a topic", "Connect an app"],
+      starters: [
+        "Chief of Staff: Check my unread emails and resolve any schedule conflicts",
+        "Procurement: Research a product, compare supplier prices, and prepare an order for approval",
+        "Operations: Track open threads and follow up on anything stalled for 48 hours",
+        "Engineering: Triage pull requests waiting for my review and summarize CI blockers",
+      ],
     },
     stop: () => listen([]),
     load: async () => {

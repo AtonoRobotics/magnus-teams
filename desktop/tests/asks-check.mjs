@@ -56,4 +56,6 @@ for (const gone of ["Why you are asked", "Approve once", "Approve for an hour", 
   assert.ok(!app.includes(gone), `app.js still has ${gone}`);
 }
 assert.match(ui("index.html"), /<script src="asks\.js"><\/script>/, "the page does not load asks.js");
+const spendCard = sandbox.askCard({ ...item(["allow", "dont_allow"], "once"), tier: "financial", details: { input: { supplier: "Apex", amount: 418 } } }, true);
+assert.match(spendCard, /Spend guardrail:.*\$418.*Vault-only credentials/);
 console.log("asks card ok");
