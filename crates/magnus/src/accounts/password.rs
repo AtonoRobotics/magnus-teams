@@ -3,8 +3,6 @@
 
 use super::{check::counter_of, key, token_hash, Accounts, SignInError, Via};
 use anyhow::{Context, Result};
-use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
-use argon2::Argon2;
 
 impl Accounts {
     /// Change a signed-in person's password. The current one is checked as
@@ -16,7 +14,7 @@ impl Accounts {
     /// one is checked, so it costs no attempt. Answers the ids of the
     /// sessions ended.
     pub async fn change_password(&self, person: &str, current: &str, new: &str, via: Via, keep: &str) -> Result<std::result::Result<Vec<String>, SignInError>> {
-        anyhow::ensure!(new.chars().count() >= self.cfg.min_password_length, "a password needs at least {} characters", self.cfg.min_password_length);
+        super::phc::long_enough(new, self.cfg.min_password_length)?;
         match self.sign_in_counted(person, current, &counter_of(via, &key(person))).await? {
             Ok(()) => {}
             // A temporary password only chooses the first one, and nobody
@@ -25,8 +23,7 @@ impl Accounts {
             Err(e) => return Ok(Err(e)),
         }
         let person = key(person);
-        let salt = SaltString::generate(&mut OsRng);
-        let phc = Argon2::default().hash_password(new.as_bytes(), &salt).map_err(|e| anyhow::anyhow!("hash: {e}"))?.to_string();
+        let phc = super::phc::hash(new)?;
         let mut g = self.client().await?;
         let c = g.as_mut().context("accounts connection")?;
         let tx = c.transaction().await?;

@@ -24,6 +24,87 @@ pub(crate) fn found_at(read: &Value, found: &str) -> bool {
     }
 }
 
+/// How the gate asks whether the person has mailed an address before, a
+/// recipient-provenance source beside the person's own words (#210):
+/// `read` (a read tool of the same app) is called with `input` set to
+/// `query` with `{address}` replaced, through the person's own sign-in,
+/// and the address counts as mailed when `found` (a JSON pointer into
+/// what it returns) is not empty.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
+pub struct SentSearch {
+    pub read: String,
+    pub input: String,
+    pub query: String,
+    pub found: String,
+}
+
+impl SentSearch {
+    /// What is wrong with this declaration, given each tool's risk class:
+    /// it reads with a read tool of the same app, names its input, asks
+    /// about the address, and points at where the answer says found.
+    pub fn fault(&self, risk: impl Fn(&str) -> Option<String>) -> Option<String> {
+        if risk(&self.read).as_deref() != Some("read") {
+            return Some(format!("sent mail is searched with {}, which is not a read tool of the same app", self.read));
+        }
+        if self.input.is_empty() || self.query.is_empty() || self.found.is_empty() {
+            return Some("sent mail names no input, query or found pointer".into());
+        }
+        if !self.query.contains("{address}") {
+            return Some("sent mail's query does not ask about {address}".into());
+        }
+        if !self.found.starts_with('/') {
+            return Some(format!("sent mail's {:?} is not a JSON pointer", self.found));
+        }
+        None
+    }
+}
+
+/// Where an action goes, read at the gate from the object it acts on and
+/// never taken from what the model wrote (approvals spec, Destination
+/// fields): `read` is the app's read tool for that object, called with the
+/// action's `id` field as it is; `recipients` and `content` point (JSON
+/// pointers) into what it returns. The approval card shows them, and an
+/// approval holds only for exactly what they were.
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, PartialEq)]
+pub struct Destination {
+    pub read: String,
+    pub id: String,
+    pub recipients: Vec<String>,
+    #[serde(default)]
+    pub content: Vec<String>,
+    /// Fields the approval holds for but the card does not show: a digest
+    /// of every part of the message, so a change to a part the card does
+    /// not show (an HTML part, an attachment's bytes) asks again (#177).
+    #[serde(default)]
+    pub bound: Vec<String>,
+}
+
+impl Destination {
+    /// What is wrong with this declaration for `tool`, given each tool's
+    /// risk class: it is for a write, it reads with a read tool of the same
+    /// app, and each pointer is one and names its own field.
+    pub fn fault(&self, tool: &str, risk: impl Fn(&str) -> Option<String>) -> Option<String> {
+        let r = risk(tool)?;
+        if r == "read" {
+            return Some(format!("{tool} is a read: it goes nowhere"));
+        }
+        if risk(&self.read).as_deref() != Some("read") {
+            return Some(format!("{tool} reads its destinations with {}, which is not a read tool of the same app", self.read));
+        }
+        if self.id.is_empty() || self.recipients.is_empty() {
+            return Some(format!("{tool} names no id field or no recipients"));
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for p in self.recipients.iter().chain(&self.content).chain(&self.bound) {
+            let name = p.rsplit('/').next().unwrap_or_default();
+            if !p.starts_with('/') || name.is_empty() || !names.insert(name) {
+                return Some(format!("{tool}: {p:?} is not a JSON pointer ending in a field name of its own"));
+            }
+        }
+        None
+    }
+}
+
 impl Kernel {
     /// Read where an action goes from what it acts on, when its tool says
     /// how (a draft's To, Cc and Bcc through `get_draft`, never the model's
