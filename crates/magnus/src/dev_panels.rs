@@ -3,30 +3,17 @@
 //! people its viewer's lens allows (`crate::anonymize`).
 
 use crate::anonymize::{Lens, Sight};
-use crate::api::developer;
+use crate::api_error::ApiResult;
 use crate::dev::{failure, num};
+use crate::extract::Developer;
 use crate::kernel::Kernel;
 use crate::state::{Run, Status};
-use axum::{
-    extract::State as AxState,
-    http::HeaderMap,
-    response::{IntoResponse, Response},
-    Json,
-};
+use axum::{extract::State as AxState, response::IntoResponse, Json};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 type K = AxState<Arc<Kernel>>;
-
-macro_rules! dev {
-    ($k:expr, $h:expr) => {
-        match developer(&$k, &$h).await {
-            Ok(p) => p,
-            Err(r) => return r,
-        }
-    };
-}
 
 /// The ids of the runs `lens` shows at all, and of those it hides.
 pub(crate) fn runs_seen<'a>(lens: &Lens, s: &'a crate::state::State) -> (BTreeSet<&'a str>, BTreeSet<String>) {
@@ -43,8 +30,7 @@ fn rows(m: BTreeMap<String, BTreeSet<String>>) -> Vec<Value> {
 }
 
 /// Live panels (V3). Every number lists the runs behind it (V4).
-pub(crate) async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
-    let p = dev!(k, h);
+pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult {
     let lens = k.lens(&p);
     let stall = k.cfg.observability.stall_minutes;
     let capture = k.capture.lock().unwrap().clone();
@@ -180,7 +166,7 @@ pub(crate) async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
         (json!({ "panels": panels, "runs": all.len(), "at": chrono::Utc::now() }), hidden)
     });
     crate::anonymize::scrub(&mut v, &hidden);
-    Json(v).into_response()
+    Ok(Json(v).into_response())
 }
 
 /// A person's id as `lens` shows it: itself, or a pseudonym.
@@ -202,8 +188,7 @@ fn layer_sight(lens: &Lens, layer: &str) -> Sight {
 
 /// Policy, versioned per layer, with the agent's proposals waiting for the
 /// owner of each layer (A8, K35) and each tool's measured reliability (U5).
-pub(crate) async fn policy(AxState(k): K, h: HeaderMap) -> Response {
-    let p = dev!(k, h);
+pub(crate) async fn policy(AxState(k): K, Developer(p): Developer) -> ApiResult {
     let lens = k.lens(&p);
     let people = k.people().all();
     let (mut v, hidden) = k.read(|s| {
@@ -301,13 +286,12 @@ pub(crate) async fn policy(AxState(k): K, h: HeaderMap) -> Response {
         (json!({ "layers": layers, "proposals": proposals, "scopes": scopes }), hidden)
     });
     crate::anonymize::scrub(&mut v, &hidden);
-    Json(v).into_response()
+    Ok(Json(v).into_response())
 }
 
 /// The agent's playbook items with their measurements (I2, I3): a person's
 /// items as they allow, the rest not at all.
-pub(crate) async fn playbook(AxState(k): K, h: HeaderMap) -> Response {
-    let p = dev!(k, h);
+pub(crate) async fn playbook(AxState(k): K, Developer(p): Developer) -> ApiResult {
     let lens = k.lens(&p);
     let v = k.read(|s| {
         let items: Vec<Value> = s
@@ -340,5 +324,5 @@ pub(crate) async fn playbook(AxState(k): K, h: HeaderMap) -> Response {
             .collect();
         json!({ "version": s.library.playbook_version(), "items": items })
     });
-    Json(v).into_response()
+    Ok(Json(v).into_response())
 }

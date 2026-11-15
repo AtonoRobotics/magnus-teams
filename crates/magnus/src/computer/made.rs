@@ -5,10 +5,11 @@
 //! once. With the server stopped, its start makes it.
 
 use super::Owner;
+use crate::api_error::ApiResult;
 use crate::kernel::Kernel;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::json;
 use std::sync::Arc;
@@ -20,15 +21,15 @@ const TELL_WAIT_SECONDS: u64 = 30;
 
 /// `POST /v1/people/{person}/computer` on the control socket: the person's
 /// computer, made now if they have none.
-pub(crate) async fn make_for_person(State(k): State<Arc<Kernel>>, Path(person): Path<String>) -> Response {
+pub(crate) async fn make_for_person(State(k): State<Arc<Kernel>>, Path(person): Path<String>) -> ApiResult {
     let person = person.trim().to_lowercase();
     if k.person(&person).is_none() {
         // The directory changed outside the server: read it again first.
         if let Err(e) = k.accounts.refresh_people().await {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
+            return Ok((StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response());
         }
     }
-    crate::grants::answered(k.computer_for(&Owner::Person(person)).await.map(|id| json!({ "id": id })))
+    Ok(crate::grants::answered(k.computer_for(&Owner::Person(person)).await.map(|id| json!({ "id": id }))))
 }
 
 /// From `magnus person add`: asks a running server to make the person's
