@@ -261,31 +261,37 @@ function computerScreen(body, c, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
   body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div><div class="screen-hold" data-hold role="status" hidden><span data-hold-words></span><button data-done-here>I'm done</button></div><p class="screen-caption" data-caption></p></div><p class="small bad" id="display-error" hidden></p></div>`;
   const preview = $("#preview", body);
-  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "", recording: false, recordedSteps: [], recordedShots: [] };
+  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "", recording: false, recordedSteps: [] };
+  const reviewRecordedSteps = steps => new Promise(done => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    const text = steps.map((s, idx) => `${idx + 1}. ${typeof s === "string" ? s : `Type [redacted text, ${s.count} char${s.count === 1 ? "" : "s"}]`}`).join("\n");
+    d.innerHTML = `<h3>Review steps before sharing</h3>
+      <p class="small muted">Typed values and screenshots are omitted by default so passwords and private data are never shared. Edit or remove any step below.</p>
+      <textarea data-rec-edit rows="8" style="width:100%;margin:8px 0;"></textarea>
+      <div class="row"><button type="button" data-rec-act="cancel">Discard</button><button type="button" class="primary" data-rec-act="send">Send to Magnus</button></div>`;
+    $("[data-rec-edit]", d).value = text;
+    d.onclick = e => { const b = e.target.closest("[data-rec-act]"); if (b) d.close(b.dataset.recAct); };
+    d.onclose = () => { const val = d.returnValue === "send" ? $("[data-rec-edit]", d).value.trim() : ""; d.remove(); done(val); };
+    document.body.append(d);
+    d.showModal();
+  });
   const toggleRecord = async () => {
     if (!view.recording) {
       view.recording = true;
       view.recordedSteps = [];
-      view.recordedShots = [];
       strip();
-      toast("Recording your clicks and typing on the computer…");
+      toast("Recording clicks and key actions (typed text & screenshots omitted)…");
       return;
     }
     view.recording = false;
     const steps = view.recordedSteps.splice(0);
-    const blobs = view.recordedShots.splice(0);
     strip();
     if (!steps.length) { toast("No steps were recorded."); return; }
-    const fileIds = [];
-    if (blobs.length && typeof upload === "function") {
-      try {
-        const uploaded = await upload(blobs);
-        for (const f of uploaded) if (f?.id) fileIds.push(f.id);
-      } catch { /* proceed with text steps even if snapshot upload fails */ }
-    }
-    const summary = steps.map((s, idx) => `${idx + 1}. ${s}`).join("\n");
-    const prompt = `Learn this workflow from the steps I just demonstrated on the computer and turn it into a repeatable automation:\n${summary}`;
-    if (typeof guideStartTurn === "function") await guideStartTurn(prompt, fileIds);
+    const reviewed = await reviewRecordedSteps(steps);
+    if (!reviewed) { toast("Recording discarded."); return; }
+    const prompt = `Learn this workflow from the steps I demonstrated on the computer and turn it into a repeatable automation:\n${reviewed}`;
+    if (typeof guideStartTurn === "function") await guideStartTurn(prompt);
     else { App.appSearch = prompt; location.hash = "#/chat/new"; }
   };
   const take = async () => {
@@ -416,10 +422,6 @@ function takeOver(body, id, grant, view, strip) {
     const [x, y] = at(e);
     if (type === "mousedown" && view.recording) {
       view.recordedSteps.push(`Click at (${x}, ${y}) on ${canvas.width}x${canvas.height}`);
-      if (view.recordedShots.length < 3 && canvas.toBlob) {
-        const idx = view.recordedSteps.length;
-        canvas.toBlob(b => { if (b) view.recordedShots.push(new File([b], `step-${idx}.png`, { type: "image/png" })); }, "image/png");
-      }
     }
     rfb.pointer(x, y, mask(e)); e.preventDefault();
   });
@@ -428,10 +430,9 @@ function takeOver(body, id, grant, view, strip) {
   for (const [type, down] of [["keydown", true], ["keyup", false]]) canvas.addEventListener(type, e => {
     if (down && view.recording) {
       const last = view.recordedSteps.at(-1);
-      if (e.key.length === 1 && last && last.startsWith('Type "') && last.endsWith('"')) {
-        view.recordedSteps[view.recordedSteps.length - 1] = `Type "${last.slice(6, -1)}${e.key}"`;
-      } else if (e.key.length === 1) {
-        view.recordedSteps.push(`Type "${e.key}"`);
+      if (e.key.length === 1) {
+        if (last && typeof last === "object" && last.type === "type") last.count++;
+        else view.recordedSteps.push({ type: "type", count: 1 });
       } else if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) {
         view.recordedSteps.push(`Press ${e.key}`);
       }
