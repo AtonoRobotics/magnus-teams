@@ -371,19 +371,20 @@ function navigationTree() {
   return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><a href="#/projects" data-open="projects" class="more">All</a></div>
     ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("") || '<p class="small muted pad">No projects yet.</p>'}</div>
     <div class="sect" role="group" aria-label="Conversations"><div class="group"><span>Conversations</span></div>${loose.map(conv).join("") || '<p class="small muted pad">No conversations yet.</p>'}</div>
-    <div class="sect"><a href="#/trash" ${current("#/trash")}>${icon("trash")}<span>Trash</span></a>${isDev() ? `<details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details>` : ""}</div>`;
+    ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
 }
 function nav() {
   const route=location.hash || "#/home", waiting=needsMe();
   const item=Panel.what?.startsWith("item:") ? App.inbox.find(i=>i.id===Panel.what.slice(5)) : null;
-  const active=k=>k==="activity" ? ["activity","tasks","schedules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : route.startsWith("#/library");
+  const active=k=>k==="activity" ? ["activity","tasks","schedules","rules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : route.startsWith("#/library");
   const primary=(k,label,ic,href)=>`<a class="primary-nav${k==="needs" ? " needs" : ""}${active(k) ? " on" : ""}" href="${href}" ${!["apps","computer","teams"].includes(k) ? `data-open="${k}"` : ""} ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}${k==="needs" && waiting.length ? `, ${waiting.length} decisions` : ""}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span>${k==="needs" ? `<span class="pill${waiting.length ? "" : " quiet"}" data-needs-count aria-hidden="true">${waiting.length}</span>` : ""}</a>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
     <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>${guideNavItem(route)}
-    <div class="primary-destinations">${primary("needs","Needs you","bell","#/inbox")}${primary("activity","Activity","tasks","#/activity")}
-      <details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${primary("files","Files","file","#/files")}${primary("apps","Apps","grid","#/library")}${primary("computer","Computers","computer","#/computer")}${primary("teams","Teams","team","#/teams")}${adminNavItem(route)}</div></details></div>
+    <div class="primary-destinations">${primary("needs","Needs you","bell","#/inbox")}${primary("activity","Activity","tasks","#/activity")}</div>
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
+    <details class="nav-workspace" data-key="nav-workspace"><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${primary("files","Files","file","#/files")}${primary("apps","Apps","grid","#/library")}${primary("computer","Computers","computer","#/computer")}${primary("teams","Teams","team","#/teams")}${adminNavItem(route)}</div></details>
+    <div class="sect"><a href="#/trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span>Trash</span></a></div>
     <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings" class="icon-btn${route.startsWith("#/settings") ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
 function sidebar() {
@@ -2051,7 +2052,7 @@ function feedRows(feed) {
 }
 
 function activityLinks(selected="activity") {
-  return `<nav class="activity-views" aria-label="Activity views">${[["activity","Overview"],["tasks","Tasks"],["schedules","Schedules"]].map(([k,l])=>`<a href="#/${k}" data-open="${k}" ${selected===k ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>`;
+  return `<nav class="activity-views" aria-label="Activity views">${[["activity","Overview"],["tasks","Tasks"],["schedules","Schedules"],["rules","Rules"]].map(([k,l])=>`<a href="#/${k}" data-open="${k}" ${selected===k ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>`;
 }
 function activityView(composed) {
   const feed=App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? `<section><h3>Since you were last here</h3>${feedRows(App.feed)}</section>` : "";
@@ -2820,6 +2821,7 @@ const MOVED_TO_ADMIN = { models: "#/admin/models", connectors: "#/admin/connecto
 /** Whether the signed-in person administers here (admin.js knows). */
 const administers = () => typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
 async function openSettingsModal(which) {
+  if (which === "rules") { openPanel("rules", { history: true, focus: true }); return; }
   let d = $("#settings-modal");
   if (!d) {
     d = document.createElement("dialog");
@@ -2830,10 +2832,23 @@ async function openSettingsModal(which) {
     d.addEventListener("click", e => { if (e.target === d) d.close(); });
     d.addEventListener("close", () => { d.remove(); });
   }
+  const MODAL_TABS = [
+    ["account", "Account & Privacy", async el => {
+      el.innerHTML = `<div class="settings-stack"><section data-s="account"></section><section data-s="payments"></section><section data-s="data"></section><section data-s="agreements"></section></div>`;
+      await accountSection($('[data-s="account"]', el));
+      await paymentsSection($('[data-s="payments"]', el));
+      await dataSection($('[data-s="data"]', el));
+      await agreementsSection($('[data-s="agreements"]', el));
+    }],
+    ["appearance", "Appearance", appearanceSection],
+    ["notifications", "Notifications", notificationsSection],
+    ["updates", "Updates", updatesSection],
+  ];
+  const mapKey = k => ["payments", "data", "agreements"].includes(k) ? "account" : k;
   const renderTab = async key => {
-    const sec = SETTINGS.find(x => x[0] === key) || SETTINGS[0];
+    const sec = MODAL_TABS.find(x => x[0] === mapKey(key)) || MODAL_TABS[0];
     d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="primary" data-settings-done>Done</button></div>
-      <nav class="settings-tabs" aria-label="Settings">${SETTINGS.map(([k, label]) =>
+      <nav class="settings-tabs" aria-label="Settings">${MODAL_TABS.map(([k, label]) =>
         `<button type="button" data-settings-tab="${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`).join("")}</nav>
       <div class="settings-body">${administers() ? `<p class="small muted" data-admin-pointer>The server's models, the organisation's connectors, people's roles, server updates and the kill switch are in <a href="#/admin">Admin</a>.</p>` : ""}<section id="setting" data-section="${sec[0]}"></section></div>`;
     $("[data-settings-done]", d).onclick = () => d.close();
