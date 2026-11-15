@@ -369,7 +369,7 @@ function navigationTree() {
   const conv=t=>`<a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(t.title)}"><span class="ttl">${esc(t.title)}</span></a>`;
   const loose=App.threads.filter(t=>!t.project);
   return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><a href="#/projects" data-open="projects" class="more">All</a></div>
-    ${App.projects.map(p=>`<a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}`).join("") || '<p class="small muted pad">No projects yet.</p>'}</div>
+    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("") || '<p class="small muted pad">No projects yet.</p>'}</div>
     <div class="sect" role="group" aria-label="Conversations"><div class="group"><span>Conversations</span></div>${loose.map(conv).join("") || '<p class="small muted pad">No conversations yet.</p>'}</div>
     <div class="sect"><a href="#/trash" ${current("#/trash")}>${icon("trash")}<span>Trash</span></a>${isDev() ? `<details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details>` : ""}</div>`;
 }
@@ -451,8 +451,8 @@ const Workspace = (() => {
     $("[data-rail-search]").onclick=()=>{const dialog=$("#workspace-search");dialog.showModal();$("input",dialog).focus();};
     $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=$("#workspace-search input").value.trim();$("#workspace-search").close();if(q){if(App.workspace)openPanel(`search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
     $("[data-close-search]").onclick=()=>$("#workspace-search").close();
-    const separator=$("#workspace-splitter");separator.onkeydown=e=>{const m=update();let width=m.conversation;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowLeft" ? 1 : -1)*(e.shiftKey ? 48 : 16);else return;e.preventDefault();resize(width);};
-    separator.onpointerdown=e=>{if(e.button!==0)return;const m=update(),x=e.clientX,width=m.conversation;separator.setPointerCapture(e.pointerId);separator.onpointermove=move=>resize(width+x-move.clientX);separator.onpointerup=()=>{separator.onpointermove=null;separator.onpointerup=null;separator.releasePointerCapture(e.pointerId);};};
+    const separator=$("#workspace-splitter");separator.onkeydown=e=>{const m=update();let width=m.conversation;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowRight" ? 1 : -1)*(e.shiftKey ? 48 : 16);else return;e.preventDefault();resize(width);};
+    separator.onpointerdown=e=>{if(e.button!==0)return;const m=update(),x=e.clientX,width=m.conversation;separator.setPointerCapture(e.pointerId);separator.onpointermove=move=>resize(width+move.clientX-x);separator.onpointerup=()=>{separator.onpointermove=null;separator.onpointerup=null;separator.releasePointerCapture(e.pointerId);};};
     if(!installed){installed=true;
       window.addEventListener("resize",()=>{forceExpanded=false;update();closeTree(false);});window.visualViewport?.addEventListener("resize",update);window.visualViewport?.addEventListener("scroll",()=>$(".shell")?.style.setProperty("--workspace-top",`${window.visualViewport?.offsetTop || 0}px`));window.addEventListener("magnus-theme",update);
       document.addEventListener("click",e=>{
@@ -462,7 +462,10 @@ const Workspace = (() => {
         if(destination){if(e.button===0 && !e.ctrlKey && !e.metaKey && !destination.dataset.open && destination.hash!==location.hash)App.routeFocus={opener:destination,composer:destination.hash.startsWith("#/chat/new")};closeTree(false);closeDrawer(false);}
         if(e.target.closest("#navigation-flyout [data-act=sign-out]"))$("nav.side [data-act=sign-out]")?.click();
       });
-      document.addEventListener("keydown",e=>{if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}});
+      document.addEventListener("keydown",e=>{
+        if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}
+        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){e.preventDefault();if(document.body.dataset.navigation==="expanded")$("#q")?.focus();else{const d=$("#workspace-search");if(d&&!d.open){d.showModal();$("input",d)?.focus();}}}
+      });
     }
     update();
   }

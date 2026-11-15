@@ -9,28 +9,28 @@
 
 (function (root) {
   const LIGHT = {
-    bg: "#F3F3F0", side: "#F3F3F0", panel: "#FAFAF8", main: "#FFFFFF", surface: "#FFFFFF", raised: "#F6F6F3",
-    bubble: "#F1F1EE", seg: "#EDEDEA", "seg-on": "#FFFFFF",
-    fg: "#1C1C1E", fg2: "#3F3F44", muted: "#5E5E63", faint: "#5E5E63",
-    line: "#E7E6E2", hair: "#EFEEEA", "line-strong": "#C9C8C2", "btn-border": "#E2E1DC", "button-bg": "#FFFFFF",
-    "row-sel": "rgba(0,0,0,0.06)", search: "rgba(118,118,128,0.12)", "group-head": "#FAFAF8", "row-hi": "#F4F6FE",
+    bg: "#F0F4F9", side: "#F0F4F9", panel: "#F8FAFD", main: "#FFFFFF", surface: "#F8FAFD", raised: "#F3F6FA",
+    bubble: "#EDF2FA", seg: "#E6ECF5", "seg-on": "#FFFFFF",
+    fg: "#1C1C1E", fg2: "#3F3F44", muted: "#5B5E66", faint: "#5B5E66",
+    line: "#E3E8EF", hair: "#ECF0F6", "line-strong": "#C4CBD6", "btn-border": "#DCE2EC", "button-bg": "#FFFFFF",
+    "row-sel": "rgba(15,23,42,0.06)", search: "rgba(15,23,42,0.07)", "group-head": "#F8FAFD", "row-hi": "#EEF3FD",
     ok: "#1A6B3A", "ok-soft": "#E3F4E9", "ok-icon": "#1E7A44", warn: "#8A4200", "warn-soft": "#FFEBD2", "warn-icon": "#9A4A00",
     sch: "#2C43AD", "sch-soft": "#E9EDFC", "approval-bg": "#FFFAF3", "approval-border": "#F2D9B8", bad: "#B42318", "bad-soft": "#FBE7E5",
-    shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.04)", avatar: "#D9D8D2", chev: "#8A8A8F", "pdf-bg": "#FBE7E4", "pdf-fg": "#A23A2C", "panel-edge": "#E7E6E2", "main-edge": "transparent",
-    "t-read": "#5E5E63", "t-reversible": "#2C43AD", "t-irreversible": "#9A4A00", "t-financial": "#B42318",
-    "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#8A4200", "k-proposal": "#4338CA", "k-message": "#5E5E63", "k-tool": "#7C2D12",
+    shadow: "0 2px 6px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.05)", avatar: "#D4DCE8", chev: "#808794", "pdf-bg": "#FBE7E4", "pdf-fg": "#A23A2C", "panel-edge": "#E3E8EF", "main-edge": "transparent",
+    "t-read": "#5B5E66", "t-reversible": "#2C43AD", "t-irreversible": "#9A4A00", "t-financial": "#B42318",
+    "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#8A4200", "k-proposal": "#4338CA", "k-message": "#5B5E66", "k-tool": "#7C2D12",
   };
   const DARK = {
-    bg: "#161618", side: "#161618", panel: "#19191C", main: "#1C1C1F", surface: "#242428", raised: "#2A2A2F",
-    bubble: "#2C2C31", seg: "#2A2A2F", "seg-on": "#3A3A40",
-    fg: "#F2F2F4", fg2: "#D1D1D6", muted: "#A1A1A8", faint: "#A1A1A8",
-    line: "#2E2E33", hair: "#2A2A2F", "line-strong": "#4A4A52", "btn-border": "#3A3A40", "button-bg": "#2A2A2F",
-    "row-sel": "rgba(255,255,255,0.08)", search: "rgba(255,255,255,0.08)", "group-head": "#202024", "row-hi": "#20263A",
+    bg: "#0F1115", side: "#13161C", panel: "#161920", main: "#161920", surface: "#1E222B", raised: "#242936",
+    bubble: "#232836", seg: "#232836", "seg-on": "#2E3444",
+    fg: "#ECEFF4", fg2: "#C8D0DF", muted: "#949EB2", faint: "#949EB2",
+    line: "#272C38", hair: "#222733", "line-strong": "#3E4658", "btn-border": "#303646", "button-bg": "#242936",
+    "row-sel": "rgba(255,255,255,0.08)", search: "rgba(255,255,255,0.08)", "group-head": "#1A1E27", "row-hi": "#1D2436",
     ok: "#86DBA0", "ok-soft": "#16331F", "ok-icon": "#6CCB8A", warn: "#FFBE78", "warn-soft": "#3A2410", "warn-icon": "#FFAA55",
     sch: "#A9BAFF", "sch-soft": "#1D2547", "approval-bg": "#241B10", "approval-border": "#4A3418", bad: "#FF8A80", "bad-soft": "#3A1717",
-    shadow: "0 1px 2px rgba(0,0,0,0.3)", avatar: "#3A3A40", chev: "#7A7A80", "pdf-bg": "#3A1E1A", "pdf-fg": "#FF9D8C", "panel-edge": "#2E2E33", "main-edge": "transparent",
-    "t-read": "#A1A1A8", "t-reversible": "#A9BAFF", "t-irreversible": "#FFAA55", "t-financial": "#FF8A80",
-    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FFBE78", "k-proposal": "#A5B4FC", "k-message": "#A1A1A8", "k-tool": "#FDBA74",
+    shadow: "0 4px 16px rgba(0,0,0,0.32)", avatar: "#323846", chev: "#7A8294", "pdf-bg": "#3A1E1A", "pdf-fg": "#FF9D8C", "panel-edge": "#272C38", "main-edge": "transparent",
+    "t-read": "#949EB2", "t-reversible": "#A9BAFF", "t-irreversible": "#FFAA55", "t-financial": "#FF8A80",
+    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FFBE78", "k-proposal": "#A5B4FC", "k-message": "#949EB2", "k-tool": "#FDBA74",
   };
   // Glass: the chrome's tint (the design canvas's), its blur, the drawn
   // backdrop for systems with no window material, and `system`, the tint

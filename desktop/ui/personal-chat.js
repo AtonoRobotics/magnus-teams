@@ -61,6 +61,11 @@ function personalChat(thread) {
   const transport = personalTransport(thread);
   return {
     hello: "",
+    hero: {
+      title: () => { const name = (App.me?.name || "").trim().split(/\s+/)[0]; return name ? `Hello, ${name}` : "Hello"; },
+      subtitle: "What should we work on today?",
+      starters: ["Summarize my unread inbox", "Check my scheduled tasks", "Help me research a topic", "Connect an app"],
+    },
     stop: () => listen([]),
     load: async () => {
       const r = await Resources.read("Conversation", `/v1/chat/${enc(thread)}`);

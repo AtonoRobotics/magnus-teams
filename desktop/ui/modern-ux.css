@@ -1,0 +1,161 @@
+/* Gemini & Antigravity UI/UX layer: tonal surfaces, capsule composer,
+   pill controls, centered hero empty state, and whisper-quiet chrome. */
+
+/* Borderless header & tonal "New conversation" pill */
+.workspace-bar { border-bottom-color: transparent; }
+.conv-head { padding: 10px 24px; border-bottom-color: transparent; }
+nav.side .new-chat { border: 0; border-radius: 999px; background: var(--seg); font-weight: 550; }
+body[data-navigation="compact"] nav.side .new-chat { width: 44px; padding: 0; justify-content: center; }
+
+/* Clean active pill (no vertical left bar) */
+nav.side a.on::before, .navigation-flyout a.on::before { display: none; }
+nav.side a.on, .navigation-flyout a.on { font-weight: 500; }
+
+/* Tighter desktop sidebar rows (44px preserved on coarse pointers) */
+@media (pointer: fine) {
+  nav.side a.primary-nav { min-height: 36px; }
+}
+
+/* Collapsible project groups in sidebar */
+nav.side .nav-project > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+}
+nav.side .nav-project > summary::-webkit-details-marker { display: none; }
+nav.side .nav-project > summary > a { flex: 1; min-width: 0; }
+
+/* Conversation-left / Artifact-right split mode & smooth rail collapse */
+html[data-motion="full"] .shell { transition: grid-template-columns .18s var(--ease); }
+body[data-workspace=split] .shell { grid-template-columns: var(--nav-width) var(--conversation-width) 16px minmax(560px, 1fr); }
+body[data-workspace=split] .shell > main { grid-column: 2; }
+body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 1px solid var(--line); }
+
+/* Whisper-quiet splitter hairline (keeps 16px track & 44px touch target) */
+#workspace-splitter::after { width: 1px; background: var(--line); transition: background-color .15s ease, width .15s ease; }
+#workspace-splitter:hover::after, #workspace-splitter:focus-visible::after { width: 2px; background: var(--accent); }
+
+/* Floating capsule composer */
+.say {
+  border-radius: 26px;
+  padding: 12px 12px 10px 18px;
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.say:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus, var(--accent));
+  outline-offset: 2px;
+}
+
+/* Pill model selector */
+label.model {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--seg);
+  padding: 0 10px;
+  min-height: 36px;
+}
+label.model select {
+  max-width: 184px;
+  height: 36px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg2);
+  cursor: pointer;
+}
+
+/* Circular context-aware send button */
+button.send {
+  border-radius: 999px;
+  transition: background-color .18s ease, color .18s ease, transform .12s ease;
+}
+button.send.is-empty {
+  background: var(--seg);
+  border-color: transparent;
+  color: var(--muted);
+}
+button.send.is-empty:hover {
+  background: var(--seg);
+  filter: none;
+  color: var(--fg);
+}
+
+/* Gemini-style empty state hero & starter chips */
+.thread:has(.hello-hero) { justify-content: center; }
+.hello-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 18px;
+  padding: 24px 8px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+.hello-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  background: linear-gradient(135deg, var(--accent-text) 0%, var(--fg) 75%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hello-sub {
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted);
+}
+.hello-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+button.hello-chip {
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+button.hello-chip:hover {
+  border-color: var(--accent);
+  background: var(--raised);
+}
+
+/* Quiet message actions on hover-capable devices */
+@media (hover: hover) and (pointer: fine) {
+  .msg-actions { opacity: 0; transition: opacity .15s ease; }
+  .entry:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+}
+
+/* Subtle rounding & tonal polish on agentic cards */
+.reqgroup.chatcard, .tcard {
+  border-radius: 16px;
+  background: var(--surface);
+}
+.msg.me { border-radius: 20px 20px 6px 20px; }
+
+/* Richer drag-and-drop cue */
+section.conv.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--main));
+}
+
+@media (any-pointer: coarse) {
+  label.model, label.model select, button.hello-chip { min-height: 44px; }
+}

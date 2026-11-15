@@ -164,7 +164,9 @@ const ChatView = (() => {
   /** The whole list, as it is drawn. @param {ChatEntry[]} entries @param {ChatViewState} view */
   function listHtml(entries, view) {
     const conv = view.conv, items = entries.map(e => item(e, view)).join("");
-    return `${conv.before?.(view) || ""}${items || (conv.hello ? `<p class="muted hello">${esc(conv.hello)}</p>` : "")}${conv.after?.(view) || ""}`;
+    const empty = conv.hero ? `<div class="hello-hero"><h1 class="hello-title">${esc(conv.hero.title())}</h1><p class="hello-sub">${esc(conv.hero.subtitle)}</p><div class="hello-chips">${conv.hero.starters.map(s => `<button type="button" class="hello-chip">${esc(s)}</button>`).join("")}</div></div>`
+      : conv.hello ? `<p class="muted hello">${esc(conv.hello)}</p>` : "";
+    return `${conv.before?.(view) || ""}${items || empty}${conv.after?.(view) || ""}`;
   }
 
   /** Draw the conversation again, keeping the reader's place. @param {ChatViewState} view */
@@ -204,6 +206,12 @@ const ChatView = (() => {
     };
     onLeave(ReadingAnchors.watch(view.list, view.record));
     view.list.onclick = async ev => {
+      const starter = ev.target.closest(".hello-chip");
+      if (starter) {
+        const box = $("textarea", view.section);
+        if (box) { box.value = starter.textContent; box.dispatchEvent(new Event("input", { bubbles: true })); box.focus(); }
+        return;
+      }
       const b = ev.target.closest("[data-msg-act]");
       if (b) {
         const el = b.closest("[data-entry]"), e = view.entries.find(x => x.id === el?.dataset.entry);

@@ -53,11 +53,13 @@ function wireComposer(form, record, conv) {
   // The record is shared by every composer mounted on this conversation:
   // a send that finishes after the person left and came back updates the
   // one now showing, and a send in flight stays in flight there too.
+  const syncSend = () => send.classList.toggle("is-empty", !box.value.trim() && !record.files.length);
   const show = () => {
     if (!active || !form.isConnected) return;
     if (box.value !== record.text) { box.value = record.text; fit(); }
     paint(pending, chips());
     send.disabled = !!record.sending || record.files.some(f => f.state !== "ready");
+    syncSend();
   };
   const unsubscribe = MessageDrafts.subscribe(show);
   async function startUpload(slot, file) {
@@ -101,7 +103,7 @@ function wireComposer(form, record, conv) {
     menu.innerHTML = choices.map(p => `<button type="button" role="option" data-mention="${esc(p.name)}">${typeof avatar === "function" ? avatar(p.name, p.agent) : ""}${esc(p.name)}${p.agent ? ` <span class="small faint">team agent</span>` : ""}</button>`).join("");
   };
   if (menu) menu.onclick = e => { const b = e.target.closest("[data-mention]"); if (b) { choose(b.dataset.mention); box.focus(); } };
-  box.oninput = () => { read(); fit(); conv.keep?.(box.value); offer(); conv.typed?.(); };
+  box.oninput = () => { read(); fit(); syncSend(); conv.keep?.(box.value); offer(); conv.typed?.(); };
   box.onselect = selected;
   model?.addEventListener("change", read);
   box.onkeydown = e => {
