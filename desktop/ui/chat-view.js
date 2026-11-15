@@ -22,12 +22,17 @@
  * @typedef {{ editing: ?string, sharing: ?string, declining: ?string, people: Array<{ id: string, name: string }>, live: Object<string, string>, [k: string]: any }} ChatUi
  * A mounted view.
  * @typedef {{ conv: ChatConversation, section: HTMLElement, list: HTMLElement, ui: ChatUi, entries: ChatEntry[], revision: number, record?: any, draw: () => Promise<void> }} ChatViewState
- * A conversation, to the view. `people` and `name` make it a conversation
- * of several people; the rest of the multi-user hooks are optional.
+ * What a conversation has beside its items, as the server sends it on both
+ * views (crates/magnus/src/conversation/mod.rs, `Caps`): the view draws from
+ * these, not from which hooks a conversation happens to have.
+ * @typedef {{ several?: boolean, reactions?: boolean, pins?: boolean, threads?: boolean, whisper?: boolean, typing?: boolean }} ConversationCaps
+ * A conversation, to the view. `caps().several` makes it a conversation of
+ * several people, with `name` to say who an id is; the rest of the
+ * multi-user hooks are optional.
  * @typedef {Object} ChatConversation
  * @property {(view: ChatViewState) => Promise<?ChatEntry[]>} load
  * @property {(e: ChatEntry, view: ChatViewState) => ?ControlledMessage} describe what a message is, to its controls
- * @property {() => ControlCaps} caps what the viewer may do here
+ * @property {() => ConversationCaps & ControlCaps} caps what the conversation has, and what the viewer may do here
  * @property {(e: ChatEntry, view: ChatViewState, b: HTMLElement, el: HTMLElement) => Object<string, Function>} actions the controls' adapter
  * @property {string} [hello] what an empty conversation says
  * @property {string} [me] the viewer, in a conversation of several people
@@ -48,7 +53,7 @@
  */
 
 const ChatView = (() => {
-  const several = conv => typeof conv.name === "function";
+  const several = conv => !!conv.caps?.().several && typeof conv.name === "function";
 
   /**
    * The conversation's frame: its head, the items, Jump to latest, the
