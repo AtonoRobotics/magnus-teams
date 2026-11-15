@@ -160,9 +160,8 @@ async function drawKillControl() {
   const server = AdminState.stops.find(s => s.level === "server");
   const more = (await Promise.all(AdminState.levels.map(l => l.active ? l.active().catch(() => []) : []))).flat();
   const release = s => `<button data-kill-release="${esc(s.level)}" data-kill-target="${esc(s.target || "")}">Release${s.level === "server" ? "" : ` ${esc(s.level)} ${esc(s.target || "")}`}</button>`;
-  paint(box, `${server ? `<span class="chip bad">Everything is stopped</span>${release(server)}` : `<button class="danger" data-kill-press="server">Stop everything</button>`}
-    ${AdminState.levels.map(l => `<button data-kill-press="${esc(l.level)}">${esc(l.label)}</button>`).join("")}
-    ${more.map(release).join("")}`);
+  const pressMenu = `<details class="kill-menu"><summary class="danger">Emergency Stop ▾</summary><div class="kill-menu-list">${server ? "" : `<button class="danger" title="Refuses all actions, suspends all tasks, revokes sign-ins and seals the vault" data-kill-press="server">Stop everything</button>`}${AdminState.levels.map(l => `<button data-kill-press="${esc(l.level)}">${esc(l.label)}</button>`).join("")}</div></details>`;
+  paint(box, `${server ? `<span class="chip bad">Everything is stopped</span>${release(server)}` : ""}${pressMenu}${more.map(release).join("")}`);
 }
 
 /** Pressing needs no question and no step-up: stopping is always safe.
@@ -171,8 +170,10 @@ async function drawKillControl() {
 async function onKillClick(e) {
   const press = /** @type {HTMLElement} */ (e.target).closest("[data-kill-press]");
   const free = /** @type {HTMLElement} */ (e.target).closest("[data-kill-release]");
+  const menu = /** @type {HTMLDetailsElement|null} */ (/** @type {HTMLElement} */ (e.target).closest("details.kill-menu"));
   try {
     if (press) {
+      if (menu) menu.open = false;
       const level = press.dataset.killPress;
       const l = AdminState.levels.find(x => x.level === level);
       const chosen = level === "server" ? { target: null, name: "everything" } : await l?.choose();

@@ -1194,10 +1194,10 @@ function banners() {
 function killSwitch(ks) {
   const revoked = Object.entries(ks.revoked || {});
   const state = r => r.at_provider === null || r.at_provider === undefined ? "revoking…" : r.at_provider ? "revoked by the provider" : `removed from the vault; the provider did not confirm (${r.detail || "no answer"})`;
-  return `<div data-kill-switch="${ks.engaged ? "on" : "off"}"><h3>Kill switch</h3>
+  return `<div data-kill-switch="${ks.engaged ? "on" : "off"}"><div class="spread"><h3>Kill switch</h3>${ks.engaged ? `<button type="button" data-overview-kill="release">Release</button>` : `<button type="button" class="danger" data-overview-kill="press">Stop everything</button>`}</div>
     ${ks.engaged
       ? `<p><strong>On.</strong> Every action is refused and every task is suspended. Nothing resumes when it is released; each person continues their own tasks.</p>`
-      : `<p class="small muted">Off. Stop everything from the top bar: it refuses every action, suspends every task, revokes every sign-in at its provider and seals the vault, at once.</p>`}
+      : `<p class="small muted">Off. Pressing stops every task, revokes every sign-in at its provider, and seals the vault at once.</p>`}
     ${(ks.sealed || []).length ? `<h3>Sealed until you turn it off</h3><p class="small muted">API keys and app secrets cannot be revoked from here; if you think one leaked, revoke it in that provider's console.</p>
       <ul class="small" data-sealed>${ks.sealed.map(n => `<li class="mono" data-secret="${esc(n)}">${esc(n)}</li>`).join("")}</ul>` : ""}
     ${revoked.length ? `<h3>Revoked${ks.engaged ? "" : ": connect these again"}</h3><table class="t" data-revoked><tbody>${revoked.map(([n, r]) => `<tr data-secret="${esc(n)}"><td class="mono small">${esc(r.adapter ? `${r.adapter} sign-in` : n)}</td><td class="small">${esc(state(r))}</td></tr>`).join("")}</tbody></table>
@@ -2069,7 +2069,8 @@ function activityView(composed) {
   const recentCount = done.length + other.length + decided.length + (feed ? 1 : 0);
   const next = scheds.filter(s => !s.paused && s.next).sort((a, b) => a.next.localeCompare(b.next))[0];
   const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
-  const compCard = comp ? `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>${esc(comp.name || "Computer")}</strong><div class="small muted">${esc(controlWords(comp, false).pill)}</div></div><div class="row"><button type="button" data-open="computer:${esc(comp.id)}">Pin screen</button><a class="small" href="#/computer/${enc(comp.id)}/screen">Expand</a></div></div></div>` : "";
+  const pauseBtn = comp?.status === "running" ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
+  const compCard = comp ? `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>${esc(comp.name || "Computer")}</strong><div class="small muted">${esc(controlWords(comp, false).pill)}</div></div><div class="row">${pauseBtn}<button type="button" data-open="computer:${esc(comp.id)}">Pin screen</button><a class="small" href="#/computer/${enc(comp.id)}/screen">Expand</a></div></div></div>` : "";
   return `${activityLinks()}
     ${compCard}
     <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Happening now</strong><div class="small muted">${active.length ? `${active.length} active task${active.length === 1 ? "" : "s"}` : "All quiet right now."}</div></div><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length})</a></div>
@@ -3269,6 +3270,20 @@ async function boot() {
       else if (t.closest("[data-panel-back]")) {
         e.preventDefault();
         openPanel(/** @type {HTMLElement} */ (t.closest("[data-panel-back]")).dataset.panelBack || "activity", { history: true, focus: true });
+      }
+      else if (t.closest("[data-pause-computer]")) {
+        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-pause-computer]"));
+        b.disabled = true;
+        try {
+          await Server.computers.pause(b.dataset.pauseComputer);
+          toast("Computer paused and accesses taken back.");
+          await refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+      }
+      else if (t.closest("[data-overview-kill]")) {
+        const act = /** @type {HTMLElement} */ (t.closest("[data-overview-kill]")).dataset.overviewKill;
+        const btn = $(`[data-admin-kill] [data-kill-${act === "release" ? "release" : "press"}="server"]`);
+        if (btn) btn.click();
       }
       else if (t.closest("[data-enable-heartbeat]")) {
         const b = /** @type {HTMLButtonElement} */ (t.closest("[data-enable-heartbeat]"));
