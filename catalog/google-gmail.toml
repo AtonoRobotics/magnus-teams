@@ -1,5 +1,5 @@
 id = "google-gmail"
-version = "1.4.0"
+version = "1.5.0"
 name = "Gmail"
 summary = "Magnus can search and read your email, write drafts and send one when your request needs it, and file, label or trash messages."
 # The Library's card and page (connectors spec, Catalog and connector
@@ -21,7 +21,7 @@ tint = "#B3261E"
 # each person's runs in a microVM of its own that reaches only Gmail's API,
 # and people sign in at Google.
 kind = "brokered"
-endpoint = "sha256:48d5860a9f423ceb37dbff8f87d7ed5ac32b3a6e2baf44fe30b759cd298bafd8"
+endpoint = "sha256:db327392177c0075304e2813d327f1cd0d9fa0220b8b7bc1d35c6f9bca3567ba"
 hosts = ["gmail.googleapis.com"]
 issuer = "https://accounts.google.com"
 # A draft it sends reaches anyone the person writes to. What comes back is
@@ -42,6 +42,9 @@ scopes = ["https://www.googleapis.com/auth/gmail.modify"]
 search_threads = "read"
 get_thread = "read"
 get_message = "read"
+# Its bytes go with the result's data, never the model's text, and open
+# only in a sandbox of their own (`open_attachment`).
+get_attachment = "read"
 list_drafts = "read"
 get_draft = "read"
 list_labels = "read"

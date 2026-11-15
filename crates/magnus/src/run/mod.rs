@@ -272,7 +272,7 @@ impl Kernel {
                 if let Some(r) = run.results.get(&id) {
                     let mut content = vec![Block::Text { text: clip(&r.text) }];
                     if let Some(img) = r.data.as_ref().and_then(|d| d["image_b64"].as_str()) {
-                        content.push(Block::Image { media_type: "image/png".into(), data_b64: img.to_string() });
+                        content.push(Block::Image { media_type: crate::attachment::image_media(img).into(), data_b64: img.to_string() });
                     }
                     user.push(Block::ToolResult { call_id: id, content, is_error: r.is_error });
                 }

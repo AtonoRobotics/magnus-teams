@@ -302,15 +302,7 @@ fn get_draft(a: &Value, t: &str) -> Result<Value, Failure> {
 fn digest(m: &Value, t: &str) -> Result<String, Failure> {
     use sha2::Digest;
     fn walk(part: &Value, mid: &str, t: &str, h: &mut sha2::Sha256) -> Result<(), Failure> {
-        let bytes = match (part["body"]["data"].as_str(), part["body"]["attachmentId"].as_str()) {
-            (Some(d), _) => URL_SAFE.decode(d).or_else(|_| URL_SAFE_NO_PAD.decode(d)).unwrap_or_default(),
-            (None, Some(aid)) => {
-                let a = gmail("GET", &format!("/messages/{mid}/attachments/{aid}"), t, None)?;
-                let d = a["data"].as_str().unwrap_or_default();
-                URL_SAFE.decode(d).or_else(|_| URL_SAFE_NO_PAD.decode(d)).unwrap_or_default()
-            }
-            _ => vec![],
-        };
+        let bytes = part_bytes(part, mid, t)?;
         for field in [part["mimeType"].as_str().unwrap_or_default().as_bytes(), part["filename"].as_str().unwrap_or_default().as_bytes(), &bytes] {
             h.update((field.len() as u64).to_be_bytes());
             h.update(field);
@@ -323,6 +315,37 @@ fn digest(m: &Value, t: &str) -> Result<String, Failure> {
     let mut h = sha2::Sha256::new();
     walk(&m["payload"], m["id"].as_str().unwrap_or_default(), t, &mut h)?;
     Ok(STANDARD.encode(h.finalize()))
+}
+
+/// A part's bytes: in the message, or fetched by its attachment id.
+fn part_bytes(part: &Value, mid: &str, t: &str) -> Result<Vec<u8>, Failure> {
+    let un64 = |d: &str| URL_SAFE.decode(d).or_else(|_| URL_SAFE_NO_PAD.decode(d)).unwrap_or_default();
+    Ok(match (part["body"]["data"].as_str(), part["body"]["attachmentId"].as_str()) {
+        (Some(d), _) => un64(d),
+        (None, Some(aid)) => un64(gmail("GET", &format!("/messages/{mid}/attachments/{aid}"), t, None)?["data"].as_str().unwrap_or_default()),
+        _ => vec![],
+    })
+}
+
+/// The first part of a message with this file name.
+fn part_named<'a>(part: &'a Value, filename: &str) -> Option<&'a Value> {
+    if part["filename"].as_str() == Some(filename) {
+        return Some(part);
+    }
+    part["parts"].as_array().into_iter().flatten().find_map(|p| part_named(p, filename))
+}
+
+/// One attachment's bytes as `data_b64`, found by its file name (an
+/// attachment's id changes from one read to the next). Magnus takes the
+/// bytes out of what the model reads and opens them only in a sandbox of
+/// their own (`open_attachment`).
+fn get_attachment(a: &Value, t: &str) -> Result<Value, Failure> {
+    let mid = id(a, "message_id")?;
+    let name = s(a, "filename");
+    let m = gmail("GET", &format!("/messages/{mid}?format=full"), t, None)?;
+    let part = part_named(&m["payload"], &name).ok_or_else(|| format!("message {mid} has no attachment called {name}"))?;
+    let bytes = part_bytes(part, &mid, t)?;
+    Ok(json!({ "message_id": mid, "name": name, "media_type": part["mimeType"], "size": bytes.len(), "data_b64": STANDARD.encode(bytes) }))
 }
 
 fn create_draft(a: &Value, t: &str) -> Result<Value, Failure> {
@@ -508,6 +531,13 @@ fn tools() -> Vec<Tool> {
         ),
         tool("get_message", "Read one message: its sender, recipients, subject, date, text and the names of its attachments.", one("message_id"), msg.clone(), get_message),
         tool(
+            "get_attachment",
+            "Fetch one attachment of a message by its file name, to open with open_attachment.",
+            obj(json!({ "message_id": st, "filename": st }), &["message_id", "filename"]),
+            obj(json!({ "message_id": st, "name": st, "media_type": st, "size": n, "data_b64": st }), &["message_id", "name", "data_b64"]),
+            get_attachment,
+        ),
+        tool(
             "list_drafts",
             "List the person's drafts.",
             obj(page, &[]),
@@ -596,6 +626,11 @@ mod tests {
         let v = message(&m);
         assert_eq!((v["from"].as_str(), v["subject"].as_str(), v["body"].as_str()), (Some("Bo <bo@example.com>"), Some("Plans"), Some("Hello there")));
         assert_eq!(v["attachments"][0]["filename"], "plan.pdf");
+        // Its bytes are found by its name; an inline part's need no fetch.
+        let photo = json!({ "mimeType": "multipart/mixed", "parts": [{ "mimeType": "text/plain", "body": { "data": URL_SAFE.encode("hi") } }, { "mimeType": "multipart/related", "parts": [{ "mimeType": "image/jpeg", "filename": "image0.jpeg", "body": { "data": URL_SAFE.encode([0xFF, 0xD8, 0xFF]) } }] }] });
+        let part = part_named(&photo, "image0.jpeg").unwrap();
+        assert_eq!(part_bytes(part, "m1", "token").unwrap(), vec![0xFF, 0xD8, 0xFF]);
+        assert!(part_named(&photo, "image1.jpeg").is_none());
         assert_eq!(re("Re", "re: Plans"), "re: Plans");
         assert_eq!(re("Re", "Plans"), "Re: Plans");
         assert_eq!(enc("from:a b&c"), "from%3Aa%20b%26c");
@@ -685,7 +720,7 @@ mod tests {
     #[test]
     fn every_tool_names_its_schemas() {
         let ts = tools();
-        assert_eq!(ts.len(), 26);
+        assert_eq!(ts.len(), 27);
         for t in &ts {
             assert_eq!(t.input["type"], "object", "{}", t.name);
             assert_eq!(t.output["type"], "object", "{}", t.name);

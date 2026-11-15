@@ -329,7 +329,7 @@ impl Kernel {
         let (adapter, model) = spec.split_once('/')?;
         let mut content = vec![Block::Text { text: json!({ "content": text }).to_string() }];
         if let Some(i) = image {
-            content.push(Block::Image { media_type: "image/png".into(), data_b64: i.to_string() });
+            content.push(Block::Image { media_type: crate::attachment::image_media(i).into(), data_b64: i.to_string() });
         }
         let messages = vec![Message { role: Role::User, content, state: None }];
         let out = tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, SCREEN_SYSTEM, messages, vec![screen_tool()], SCREEN_MAX_TOKENS, |_| {}))
