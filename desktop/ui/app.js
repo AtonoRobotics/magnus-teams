@@ -379,7 +379,7 @@ function nav() {
   const active=k=>k==="activity" ? ["activity","tasks","schedules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : route.startsWith("#/library");
   const primary=(k,label,ic,href)=>`<a class="primary-nav${k==="needs" ? " needs" : ""}${active(k) ? " on" : ""}" href="${href}" ${!["apps","computer","teams"].includes(k) ? `data-open="${k}"` : ""} ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}${k==="needs" && waiting.length ? `, ${waiting.length} decisions` : ""}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span>${k==="needs" ? `<span class="pill${waiting.length ? "" : " quiet"}" data-needs-count aria-hidden="true">${waiting.length}</span>` : ""}</a>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>${guideNavItem(route)}
     <div class="primary-destinations">${primary("activity","Activity","tasks","#/activity")}${primary("needs","Needs you","bell","#/inbox")}${primary("files","Files","file","#/files")}${primary("apps","Apps","grid","#/library")}${primary("computer","Computers","computer","#/computer")}${primary("teams","Teams","team","#/teams")}${adminNavItem(route)}</div>
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
@@ -2520,6 +2520,7 @@ function bindConnectorActs(root) {
 function connectorsChanged() {
   const m = /^#\/library(?:\/([^/]+))?$/.exec(location.hash);
   if (m && Lib.main?.isConnected) showLibrary(Lib.main, m[1]);
+  else App.redraw?.();
   drawPanel();
 }
 
@@ -2876,6 +2877,7 @@ async function accountSection(el) {
         <td class="small muted">signed in ${esc(when(x.created))} · until ${esc(new Date(x.expires).toLocaleDateString())}</td>
         <td>${x.current ? "" : `<button class="link" data-act="end" data-id="${esc(x.id)}">Sign out</button>`}</td></tr>`).join("")}</tbody></table>`
         : `<p class="empty">Signed in with an access key; no devices to list.</p>`}
+      <p class="small muted" data-guide-again>Setting up? <a href="#/start">Open the getting started guide</a>: connect your apps, set up team chat and schedule a first workflow.</p>
       ${administers() ? `<p class="small muted" data-roles-moved>People's roles are set in <a href="#/admin/people">Admin › People</a>.</p>` : ""}`);
     const pw = $("[data-password]", el);
     if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); }
@@ -3164,6 +3166,7 @@ async function boot() {
   banners();
   await Notices.poll();
   background = [setInterval(refresh, 3000), setInterval(pollVersions, 30000), setInterval(() => Notices.poll(), 3000)];
+  await guideFirstRun().catch(() => {});
   go();
 }
 

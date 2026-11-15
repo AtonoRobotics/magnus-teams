@@ -60,6 +60,7 @@ jobs:
       - run: node desktop/tests/team-members-check.mjs
       - run: node desktop/tests/subagents-check.mjs
       - run: node desktop/tests/connect-check.mjs
+      - run: node desktop/tests/onboarding-check.mjs
       - run: node desktop/tests/globals-check.mjs
       - run: node desktop/tests/asks-check.mjs
       - run: node desktop/tests/evidence-check.mjs

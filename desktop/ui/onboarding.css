@@ -1,0 +1,44 @@
+/* Getting started (onboarding.js): a page of three steps. */
+.guide { max-width: 760px; margin: 0 auto; padding: 8px 4px 40px; }
+.guide-head h1 { margin-bottom: 6px; }
+.guide-head > p { margin: 0 0 14px; }
+.guide-progress { height: 6px; border-radius: 999px; background: var(--seg); overflow: hidden; }
+.guide-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .5s var(--ease); }
+.guide-head [data-guide-count] { margin: 6px 0 0; color: var(--muted); }
+
+.guide-steps { list-style: none; margin: 22px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.guide-step { display: grid; grid-template-columns: 36px 1fr; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); }
+.guide-step.next { border-color: var(--accent); }
+.guide-step h2 { font-size: 18px; margin: 4px 0 6px; }
+.guide-mark { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 650; background: var(--seg); color: var(--fg2); }
+.guide-step.next .guide-mark { background: var(--accent); color: var(--accent-fg); }
+.guide-step.done .guide-mark { background: var(--ok-soft); color: var(--ok); animation: pop .4s var(--spring); }
+.guide-step.done .guide-mark .ic { width: 22px; height: 22px; }
+.guide-body > :last-child { margin-bottom: 0; }
+.guide-body h3 { font-size: 14px; margin: 16px 0 8px; }
+
+.guide-platforms { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin: 12px 0; }
+.guide-platform { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.guide-platform h3 { margin: 2px 0 8px; }
+.guide-apps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.guide-app { display: flex; align-items: center; gap: 10px; }
+.guide-app .ctile { width: 36px; height: 36px; border-radius: 10px; font-size: 13px; }
+.guide-app-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.guide-app-text .chip { margin-right: 4px; }
+.guide-app .spin { display: inline-block; vertical-align: -2px; margin-right: 4px; width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); animation: lspin .9s linear infinite; }
+.guide-app button { flex: none; }
+
+.guide-form { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.guide-form input { flex: 1; min-width: 220px; }
+.guide-suggestions { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.guide-suggestions button { width: 100%; text-align: left; white-space: normal; line-height: 1.4; padding: 10px 12px; }
+.guide-done-line { margin: 0 0 6px; }
+.guide-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; font-size: 14px; }
+.guide-note.ok { background: var(--ok-soft); color: var(--ok); }
+.guide-note.bad { background: var(--bad-soft); color: var(--bad); }
+.guide-foot { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-progress > span { transition: none; }
+  .guide-step.done .guide-mark { animation: none; }
+}
