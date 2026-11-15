@@ -2819,12 +2819,39 @@ const SETTINGS = [
 const MOVED_TO_ADMIN = { models: "#/admin/models", connectors: "#/admin/connectors", safety: "#/admin/overview" };
 /** Whether the signed-in person administers here (admin.js knows). */
 const administers = () => typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
+async function openSettingsModal(which) {
+  let d = $("#settings-modal");
+  if (!d) {
+    d = document.createElement("dialog");
+    d.id = "settings-modal";
+    d.className = "settings-modal";
+    d.setAttribute("aria-label", "Settings");
+    document.body.append(d);
+    d.addEventListener("click", e => { if (e.target === d) d.close(); });
+    d.addEventListener("close", () => { d.remove(); });
+  }
+  const renderTab = async key => {
+    const sec = SETTINGS.find(x => x[0] === key) || SETTINGS[0];
+    d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="primary" data-settings-done>Done</button></div>
+      <nav class="settings-tabs" aria-label="Settings">${SETTINGS.map(([k, label]) =>
+        `<button type="button" data-settings-tab="${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`).join("")}</nav>
+      <div class="settings-body">${administers() ? `<p class="small muted" data-admin-pointer>The server's models, the organisation's connectors, people's roles, server updates and the kill switch are in <a href="#/admin">Admin</a>.</p>` : ""}<section id="setting" data-section="${sec[0]}"></section></div>`;
+    $("[data-settings-done]", d).onclick = () => d.close();
+    d.querySelectorAll("[data-settings-tab]").forEach(btn => {
+      btn.onclick = () => renderTab(btn.dataset.settingsTab);
+    });
+    d.querySelectorAll('a[href^="#/"]').forEach(a => {
+      a.addEventListener("click", () => d.close());
+    });
+    if (!d.open) d.showModal();
+    await sec[2]($("#setting", d));
+  };
+  await renderTab(which);
+}
+
 route(/^#\/settings(?:\/([a-z]+))?$/, async (main, which) => {
   if (MOVED_TO_ADMIN[which]) { location.hash = administers() ? MOVED_TO_ADMIN[which] : "#/settings"; return; }
-  const sec = SETTINGS.find(x => x[0] === which) || SETTINGS[0];
-  main.innerHTML = `<h1>Settings</h1><nav class="tabs" aria-label="Settings">${SETTINGS.map(([k, label]) =>
-    `<a href="#/settings/${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ` aria-current="page"` : ""}>${esc(label)}</a>`).join("")}</nav>${administers() ? `<p class="small muted" data-admin-pointer>The server's models, the organisation's connectors, people's roles, server updates and the kill switch are in <a href="#/admin">Admin</a>.</p>` : ""}<section id="setting" data-section="${sec[0]}"></section>`;
-  await sec[2]($("#setting", main));
+  await openSettingsModal(which);
 });
 // Where these lived before Settings.
 route(/^#\/models$/, () => { location.hash = administers() ? "#/admin/models" : "#/settings"; });
