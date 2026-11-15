@@ -1316,8 +1316,10 @@ function scheduleButtons(sc, stop = "Stop schedule") {
 function schedulesView() {
   const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
   const list = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
+  const hb = list.find(sc => !sc.ended && /heartbeat/i.test(sc.title || sc.text || ""));
+  const hbCard = `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong><div class="small muted">${hb ? `Every 30 min · ${hb.paused ? "Paused" : `Next run ${esc(until(hb.next))}`}` : "Proactive 30-min check-in for urgent emails, conflicts, or stalled threads."}</div></div>${hb ? `<span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
   const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past schedule${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
-  return header + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
+  return header + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
       <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
       ${scheduleFacts(sc)}
       <div class="small muted" data-last>${scheduleState(sc)}</div>
@@ -3222,10 +3224,19 @@ async function boot() {
   await guideFirstRun().catch(() => {});
   if (!document._wizardBound) {
     document._wizardBound = true;
-    document.addEventListener("click", e => {
+    document.addEventListener("click", async e => {
       const t = /** @type {HTMLElement} */ (e.target);
       if (t.closest("[data-open-discovery]")) { e.preventDefault(); openDiscoveryWizard().catch(() => {}); }
       else if (t.closest("[data-open-setup]")) { e.preventDefault(); openSetupWizard().catch(() => {}); }
+      else if (t.closest("[data-enable-heartbeat]")) {
+        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-enable-heartbeat]"));
+        b.disabled = true;
+        try {
+          await Server.schedules.create({ text: "Heartbeat: Check connected email, calendar, and active threads for anything urgent or stalled. Stay silent unless something needs my attention.", every_minutes: 30 });
+          toast("Heartbeat enabled (every 30 min).");
+          await refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+      }
     });
   }
   go();

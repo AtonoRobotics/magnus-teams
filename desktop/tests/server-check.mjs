@@ -95,6 +95,7 @@ const table = [
   ["connectors.completeSignIn", ["crm", { state: "s", code: "c", iss: "i" }], "POST", "/v1/connectors/crm/sign-in/complete", { state: "s", code: "c", iss: "i" }],
   ["tasks.cancel", ["t 1"], "POST", "/v1/tasks/t%201/cancel", {}],
   ["tasks.resume", ["t1"], "POST", "/v1/tasks/t1/resume", {}],
+  ["schedules.create", [{ text: "Check inbox", daily_at: "08:00" }], "POST", "/v1/schedules", { text: "Check inbox", daily_at: "08:00" }],
   ["schedules.remove", ["s/1"], "DELETE", "/v1/schedules/s%2F1", undefined],
   ["schedules.resume", ["s1"], "POST", "/v1/schedules/s1/resume", {}],
   ["schedules.pause", ["s1"], "POST", "/v1/schedules/s1/pause", {}],

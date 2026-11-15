@@ -372,3 +372,26 @@ dialog.settings-modal::backdrop {
 .admin-section table.t th, .admin-section table.t td { border-bottom: 1px solid var(--line); }
 @media (any-pointer: coarse) { .admin-sub a { min-height: 44px; } }
 
+/* Streamlined Activity & Needs you */
+details.collapsed-done {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+details.collapsed-done > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg2);
+}
+.empty-caught-up {
+  margin-top: 20px;
+  padding: 28px 20px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  text-align: center;
+}
+.empty-caught-up strong { display: block; margin-bottom: 4px; font-size: 14.5px; }
+

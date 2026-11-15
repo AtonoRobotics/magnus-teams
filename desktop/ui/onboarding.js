@@ -329,7 +329,22 @@ async function openDiscoveryWizard() {
       const f = Guide.facts || await guideFacts();
       const chosen = discMatchedProposals(f).filter(p => p.active);
       d.close();
-      await guideStartTurn(`Create schedules and safety rules for these automations:\n${chosen.map(p => `- ${p.title} (${p.badge}) — Safety: ${p.mode}`).join("\n")}${Guide.disc.note ? `\nExtra context: ${Guide.disc.note}` : ""}`);
+      const scheds = chosen.filter(p => p.schedule && typeof Server !== "undefined" && Server.schedules?.create);
+      const onDemand = chosen.filter(p => !p.schedule || typeof Server === "undefined" || !Server.schedules?.create);
+      let created = 0;
+      for (const p of scheds) {
+        try {
+          await Server.schedules.create({ text: `${p.title}: ${p.desc} (Safety: ${p.mode})${Guide.disc.note ? ` Context: ${Guide.disc.note}` : ""}`, ...p.schedule });
+          created++;
+        } catch { onDemand.push(p); }
+      }
+      if (created && typeof refresh === "function") refresh().catch(() => {});
+      if (created && typeof toast === "function") toast(`Created ${created} schedule${created === 1 ? "" : "s"}.`);
+      if (onDemand.length) {
+        await guideStartTurn(`Set up and run:\n${onDemand.map(p => `- ${p.title} (${p.badge}) — Safety: ${p.mode}`).join("\n")}${Guide.disc.note ? `\nExtra context: ${Guide.disc.note}` : ""}`);
+      } else if (created && typeof openPanel === "function") {
+        openPanel("schedules", { history: true, focus: true });
+      }
     }
   };
   await draw();
