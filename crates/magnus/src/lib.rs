@@ -11,6 +11,7 @@ pub mod adapters;
 pub mod admin_app;
 pub mod anonymize;
 pub mod api;
+pub mod api_bodies;
 pub mod api_error;
 pub mod app_tools;
 pub mod apps;

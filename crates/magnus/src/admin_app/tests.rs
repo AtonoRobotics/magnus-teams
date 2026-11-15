@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-pub(super) const PASSWORD: &str = "a-long-admin-password";
+pub(crate) const PASSWORD: &str = "a-long-admin-password";
 
 pub(crate) struct Server {
     pub(crate) k: Arc<Kernel>,
