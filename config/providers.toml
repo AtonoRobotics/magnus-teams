@@ -1,4 +1,4 @@
-# Model adapters for the five supported providers. Append the ones you use to
+# Model adapters for the supported providers. Append the ones you use to
 # the appliance config; `credential` names the vault secret that sign-in fills.
 # Endpoints and prices: docs/research/providers-and-tac.md (2026-10-27).
 
@@ -79,3 +79,18 @@ device_url = "https://auth.x.ai/oauth2/device/code"
 token_url = "https://auth.x.ai/oauth2/token"
 client_id = "b1a00492-073a-47ea-816f-4c329264a828"
 scopes = "openid profile email offline_access grok-cli:access api:access"
+
+# Google Gemini API (OpenAI-compatible Chat Completions and native generateContent images).
+[[adapters]]
+id = "gemini"
+command = ["/opt/magnus/bin/magnus-adapter-openai"]
+[adapters.settings]
+credential = "gemini_api_key"
+api = "chat"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+key_url = "https://aistudio.google.com/apikey"
+auth = { kind = "api_key" }
+image_api = "gemini"
+fixed_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+prices = { "gemini-2.5-pro" = { input = 1.25, output = 10.0, cache_read = 0.125 }, "gemini-2.5-flash-lite" = { input = 0.10, output = 0.40, cache_read = 0.01 }, "gemini-2.5-flash" = { input = 0.30, output = 2.50, cache_read = 0.03 } }
+

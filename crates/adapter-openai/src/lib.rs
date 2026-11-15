@@ -69,7 +69,9 @@ pub(crate) async fn bearer(
 }
 
 pub(crate) fn request(http: &reqwest::Client, settings: &Value, path: &str, token: &str, account: &Option<String>) -> reqwest::RequestBuilder {
-    let mut r = http.post(format!("{}{path}", base(settings))).bearer_auth(token).header("content-type", "application/json");
+    let api_key = settings["auth"]["kind"].as_str().unwrap_or("api_key") == "api_key";
+    let r = http.post(format!("{}{path}", base(settings))).header("content-type", "application/json");
+    let mut r = if api_key && path.ends_with(":generateContent") { r.header("x-goog-api-key", token) } else { r.bearer_auth(token) };
     if let (Some(h), Some(a)) = (settings["auth"]["account_header"].as_str(), account) {
         r = r.header(h, a);
     }
@@ -133,11 +135,13 @@ pub(crate) async fn post_signed_in(
 const BILLING_REFUSALS: [&str; 6] = ["1113", "1309", "1311", "1314", "1315", "billing_error"];
 
 pub(crate) fn classify(status: u16, body: &str) -> (ErrorClass, String) {
-    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let billing = [&v["error"]["type"], &v["error"]["code"]].iter().any(|k| k.as_str().is_some_and(|k| BILLING_REFUSALS.contains(&k)));
+    let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let v = parsed.as_array().and_then(|a| a.first()).unwrap_or(&parsed);
+    let fields = [&v["error"]["type"], &v["error"]["code"], &v["error"]["status"]];
+    let billing = fields.iter().any(|k| k.as_str().is_some_and(|k| BILLING_REFUSALS.contains(&k)));
     let detail =
         v["error"]["message"].as_str().or_else(|| v["message"].as_str()).or_else(|| v["detail"].as_str()).map(String::from).unwrap_or_else(|| body.chars().take(300).collect());
-    let kind = v["error"]["type"].as_str().or_else(|| v["error"]["code"].as_str()).unwrap_or_default().to_string();
+    let kind = fields.iter().find_map(|k| k.as_str()).unwrap_or_default().to_string();
     if billing {
         // InvalidRequest stops at once. A new error class would be logged
         // with each failure, and a kernel rolled back to a release without
@@ -173,6 +177,7 @@ pub(crate) fn retry_after(h: &reqwest::header::HeaderMap, body: &str) -> Option<
 /// it is never counted as free, because a task's budget is the server's
 /// per-task limit and a call nobody priced would pass it unseen.
 pub(crate) fn cost(settings: &Value, model: &str, u: &Usage) -> Option<f64> {
+    let model = model.strip_prefix("models/").unwrap_or(model);
     let prices = settings["prices"].as_object()?;
     let (_, p) = prices.iter().filter(|(k, _)| model.starts_with(k.as_str())).max_by_key(|(k, _)| k.len())?;
     let g = |k: &str| p[k].as_f64().unwrap_or(0.0);
@@ -316,14 +321,17 @@ async fn catalog(http: &reqwest::Client, settings: &Value, credential: Option<St
         Ok(v) => v,
         Err(_) => return sink.error(ErrorClass::Malformed, "the model list is not JSON").await,
     };
+    sink.send(&Event::Catalog { models: parse_catalog(&v, settings) }).await
+}
+
+pub(crate) fn parse_catalog(v: &Value, settings: &Value) -> Vec<ModelInfo> {
     let fixed: Vec<String> = settings["fixed_models"].as_array().into_iter().flatten().filter_map(|m| m.as_str().map(String::from)).collect();
     let list = v["data"].as_array().or_else(|| v["models"].as_array()).cloned().unwrap_or_default();
-    let models = list
-        .iter()
-        .filter_map(|m| m["id"].as_str().or_else(|| m["slug"].as_str()).or_else(|| m.as_str()))
+    list.iter()
+        .filter_map(|m| m["id"].as_str().or_else(|| m["slug"].as_str()).or_else(|| m["name"].as_str()).or_else(|| m.as_str()))
+        .map(|id| id.strip_prefix("models/").unwrap_or(id))
         .map(|id| ModelInfo { id: id.into(), fixed_version: fixed.iter().any(|f| f == id), context_window: None })
-        .collect();
-    sink.send(&Event::Catalog { models }).await
+        .collect()
 }
 
 /// Emit the end of a turn: usage with cost, the served model, done.
@@ -417,5 +425,33 @@ mod billing_tests {
             let body = format!(r#"{{"error":{{"code":"{code}","message":"Limit reached."}}}}"#);
             assert_eq!(classify(429, &body).0, ErrorClass::UsageLimit, "{code}");
         }
+    }
+
+    /// Gemini's `/v1beta/openai` endpoint lists model ids prefixed with
+    /// `models/` and wraps error objects in a single-element JSON array.
+    #[test]
+    fn gemini_catalog_prices_and_errors_are_normalized() {
+        let settings = json!({
+            "fixed_models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+            "prices": {
+                "gemini-2.5-pro": { "input": 1.25, "output": 10.0, "cache_read": 0.125 },
+                "gemini-2.5-flash-lite": { "input": 0.10, "output": 0.40, "cache_read": 0.01 },
+                "gemini-2.5-flash": { "input": 0.30, "output": 2.50, "cache_read": 0.03 },
+            }
+        });
+        let raw = json!({ "object": "list", "data": [{ "id": "models/gemini-2.5-flash" }, { "id": "models/gemini-2.5-flash-lite" }] });
+        let models = parse_catalog(&raw, &settings);
+        assert_eq!(models.len(), 2);
+        assert_eq!((models[0].id.as_str(), models[0].fixed_version), ("gemini-2.5-flash", true));
+        assert_eq!((models[1].id.as_str(), models[1].fixed_version), ("gemini-2.5-flash-lite", true));
+
+        let u = Usage { input_tokens: 1_000_000, output_tokens: 1_000_000, ..zero_usage() };
+        assert_eq!(cost(&settings, "models/gemini-2.5-flash", &u), Some(2.80));
+        assert_eq!(cost(&settings, "gemini-2.5-flash-lite", &u), Some(0.50));
+
+        let body = r#"[{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}]"#;
+        let (class, msg) = classify(400, body);
+        assert_eq!(class, ErrorClass::InvalidRequest);
+        assert!(msg.contains("INVALID_ARGUMENT") && msg.contains("API key not valid"), "{msg}");
     }
 }

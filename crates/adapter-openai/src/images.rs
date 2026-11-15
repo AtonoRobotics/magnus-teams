@@ -9,6 +9,9 @@
 //!   `image_generation` tool forced; the picture is the
 //!   `image_generation_call` item's `result`. `image_host_model` names the
 //!   model that runs the tool.
+//! - `gemini`: POST `{gemini_base}/models/{model}:generateContent` with
+//!   `responseModalities: ["TEXT", "IMAGE"]` (and `inlineData` for an edit);
+//!   the picture is the `inlineData.data` part in `candidates[0].content.parts`.
 //!
 //! A Responses adapter uses `images` unless told otherwise; a Chat one
 //! makes no pictures unless `image_api` is set. The fast picture asks for
@@ -24,7 +27,7 @@ const IMAGE_TIMEOUT: Duration = Duration::from_secs(180);
 const FAST_QUALITY: &str = "medium";
 const PREMIUM_QUALITY: &str = "high";
 const HOST_INSTRUCTIONS: &str = "Make the picture the person describes with the image generation tool. Do not ask questions.";
-pub(crate) const CANNOT: &str = "this adapter cannot make images: set image_api in its settings to \"images\" or \"responses\"";
+pub(crate) const CANNOT: &str = "this adapter cannot make images: set image_api in its settings to \"images\", \"responses\" or \"gemini\"";
 
 /// The provider route for pictures, if this adapter makes them.
 fn route(settings: &Value) -> Option<&str> {
@@ -44,11 +47,11 @@ fn data_url(s: &Picture) -> String {
 }
 
 /// The path and body one picture sends.
-pub(crate) fn request_body(p: &ImageParams) -> Result<(&'static str, Value), String> {
+pub(crate) fn request_body(p: &ImageParams) -> Result<(String, Value), String> {
     match route(&p.settings) {
         Some("images") => Ok(match &p.source {
-            Some(s) => ("/images/edits", json!({ "model": p.model, "prompt": p.prompt, "quality": quality(p), "images": [{ "image_url": data_url(s) }] })),
-            None => ("/images/generations", json!({ "model": p.model, "prompt": p.prompt, "quality": quality(p) })),
+            Some(s) => ("/images/edits".into(), json!({ "model": p.model, "prompt": p.prompt, "quality": quality(p), "images": [{ "image_url": data_url(s) }] })),
+            None => ("/images/generations".into(), json!({ "model": p.model, "prompt": p.prompt, "quality": quality(p) })),
         }),
         Some("responses") => {
             let host = p.settings["image_host_model"].as_str().ok_or("image_api \"responses\" needs image_host_model, the model that runs the image tool")?;
@@ -57,7 +60,7 @@ pub(crate) fn request_body(p: &ImageParams) -> Result<(&'static str, Value), Str
                 content.push(json!({ "type": "input_image", "image_url": data_url(s) }));
             }
             Ok((
-                "/responses",
+                "/responses".into(),
                 json!({
                     "model": host,
                     "instructions": HOST_INSTRUCTIONS,
@@ -69,14 +72,40 @@ pub(crate) fn request_body(p: &ImageParams) -> Result<(&'static str, Value), Str
                 }),
             ))
         }
-        Some(other) => Err(format!("unknown image_api {other:?}: want \"images\" or \"responses\"")),
+        Some("gemini") => {
+            let model = p.model.strip_prefix("models/").unwrap_or(&p.model);
+            let mut parts = vec![json!({ "text": p.prompt })];
+            if let Some(s) = &p.source {
+                parts.push(json!({ "inlineData": { "mimeType": s.media_type, "data": s.data_b64 } }));
+            }
+            Ok((
+                format!("/models/{model}:generateContent"),
+                json!({
+                    "contents": [{ "parts": parts }],
+                    "generationConfig": { "responseModalities": ["TEXT", "IMAGE"] },
+                }),
+            ))
+        }
+        Some(other) => Err(format!("unknown image_api {other:?}: want \"images\", \"responses\" or \"gemini\"")),
         None => Err(CANNOT.into()),
     }
 }
 
-/// The picture in an Images reply.
+/// The picture in an Images or Gemini `generateContent` reply.
 pub(crate) fn in_reply(v: &Value) -> Result<String, (ErrorClass, String)> {
-    v["data"][0]["b64_json"].as_str().map(String::from).ok_or((ErrorClass::Malformed, "the provider returned no image".into()))
+    if let Some(b64) = v["data"][0]["b64_json"].as_str() {
+        return Ok(b64.into());
+    }
+    if let Some(b64) = v["candidates"][0]["content"]["parts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|part| part["inlineData"]["data"].as_str().or_else(|| part["inline_data"]["data"].as_str()))
+        .filter(|s| !s.is_empty())
+    {
+        return Ok(b64.into());
+    }
+    Err((ErrorClass::Malformed, "the provider returned no image".into()))
 }
 
 /// What one Responses stream event says of the picture: it, the failure
@@ -105,6 +134,13 @@ pub async fn make(http: &reqwest::Client, p: ImageParams, sink: &mut Sink) -> an
         Ok(b) => b,
         Err(m) => return sink.error(ErrorClass::InvalidRequest, m).await,
     };
+    let mut settings = p.settings.clone();
+    if route(&settings) == Some("gemini") {
+        let b = crate::base(&settings);
+        if let Some(root) = b.strip_suffix("/openai") {
+            settings["base_url"] = json!(root);
+        }
+    }
     let streamed = path == "/responses";
     let shape = |r: reqwest::RequestBuilder| {
         let r = r.timeout(IMAGE_TIMEOUT);
@@ -114,7 +150,7 @@ pub async fn make(http: &reqwest::Client, p: ImageParams, sink: &mut Sink) -> an
             r
         }
     };
-    let Some(resp) = post_signed_in(http, &p.settings, &p.credential, path, &body, shape, sink).await? else {
+    let Some(resp) = post_signed_in(http, &settings, &p.credential, &path, &body, shape, sink).await? else {
         return Ok(());
     };
     let made = if streamed {
@@ -160,7 +196,7 @@ mod tests {
     fn a_responses_adapter_asks_the_images_route() {
         let codex = json!({ "api": "responses" });
         let (path, body) = request_body(&params(codex.clone(), None, false)).unwrap();
-        assert_eq!((path, body), ("/images/generations", json!({ "model": "gpt-image-2", "prompt": "a red barn", "quality": "medium" })));
+        assert_eq!((path.as_str(), body), ("/images/generations", json!({ "model": "gpt-image-2", "prompt": "a red barn", "quality": "medium" })));
         let (path, body) = request_body(&params(codex, source(), true)).unwrap();
         assert_eq!(path, "/images/edits");
         assert_eq!(body["quality"], "high");
@@ -185,6 +221,84 @@ mod tests {
         assert_eq!(body["tool_choice"], json!({ "type": "image_generation" }));
         assert_eq!((body["stream"].clone(), body["store"].clone()), (json!(true), json!(false)));
         assert_eq!(body["input"][0]["content"][1], json!({ "type": "input_image", "image_url": "data:image/png;base64,AAAA" }));
+    }
+
+    /// The Gemini `generateContent` route makes and edits pictures with
+    /// `responseModalities: ["TEXT", "IMAGE"]` and reads `inlineData.data`.
+    #[test]
+    fn the_gemini_route_makes_and_edits_pictures() {
+        let mut p = params(json!({ "api": "chat", "image_api": "gemini" }), None, false);
+        p.model = "models/gemini-2.5-flash-image".into();
+        let (path, body) = request_body(&p).unwrap();
+        assert_eq!(path, "/models/gemini-2.5-flash-image:generateContent");
+        assert_eq!(body["contents"], json!([{ "parts": [{ "text": "a red barn" }] }]));
+        assert_eq!(body["generationConfig"]["responseModalities"], json!(["TEXT", "IMAGE"]));
+
+        p.source = source();
+        let (_, edit_body) = request_body(&p).unwrap();
+        assert_eq!(edit_body["contents"][0]["parts"][1], json!({ "inlineData": { "mimeType": "image/png", "data": "AAAA" } }));
+
+        let gemini_reply = json!({
+            "candidates": [{
+                "content": { "parts": [{ "text": "Here is your barn." }, { "inlineData": { "mimeType": "image/png", "data": "R0VN" } }] }
+            }]
+        });
+        assert_eq!(in_reply(&gemini_reply).unwrap(), "R0VN");
+    }
+
+    #[tokio::test]
+    async fn gemini_make_strips_openai_suffix_and_sends_x_goog_api_key() {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (r, mut w) = stream.into_split();
+            let mut lines = BufReader::new(r).lines();
+            let req_line = lines.next_line().await.unwrap().unwrap();
+            let mut headers = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                if line.is_empty() {
+                    break;
+                }
+                headers.push(line.to_ascii_lowercase());
+            }
+            let body = r#"{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"R0VN"}}]}}]}"#;
+            let resp = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len());
+            w.write_all(resp.as_bytes()).await.unwrap();
+            (req_line, headers)
+        });
+
+        let dir = std::env::temp_dir().join(format!("magnus-gemini-test-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&dir);
+        let sock_path = dir.clone();
+        tokio::spawn(async move {
+            let http = reqwest::Client::new();
+            let _ = magnus_adapter_proto::serve(&sock_path, move |req, sink| crate::handle(http.clone(), req, sink)).await;
+        });
+        for _ in 0..50 {
+            if dir.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let settings = json!({
+            "api": "chat",
+            "base_url": format!("http://{addr}/v1beta/openai"),
+            "auth": { "kind": "api_key" },
+            "image_api": "gemini",
+        });
+        let p =
+            ImageParams { model: "gemini-2.5-flash-image".into(), settings, credential: Some("test-gemini-key".into()), prompt: "a red barn".into(), source: None, premium: false };
+        let mut call = magnus_adapter_proto::Call::open(&dir, magnus_adapter_proto::Request::Image(p)).await.unwrap();
+        let ev = call.next().await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&dir);
+        assert!(matches!(ev, Event::Image(Picture { ref data_b64, .. }) if data_b64 == "R0VN"), "{ev:?}");
+
+        let (req_line, headers) = server.await.unwrap();
+        assert_eq!(req_line, "POST /v1beta/models/gemini-2.5-flash-image:generateContent HTTP/1.1");
+        assert!(headers.iter().any(|h| h == "x-goog-api-key: test-gemini-key"), "{headers:?}");
+        assert!(!headers.iter().any(|h| h.starts_with("authorization:")), "{headers:?}");
     }
 
     #[test]
