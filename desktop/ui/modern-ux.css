@@ -1,9 +1,12 @@
 /* Gemini & Antigravity UI/UX layer: tonal surfaces, capsule composer,
    pill controls, centered hero empty state, and whisper-quiet chrome. */
 
-/* Borderless header & tonal "New conversation" pill */
+/* Borderless header, machined Forward Triad mark & tonal "New conversation" pill */
 .workspace-bar { border-bottom-color: transparent; }
 .conv-head { padding: 10px 24px; border-bottom-color: transparent; }
+nav.side .brand .logo { display: grid; place-items: center; width: 22px; height: 22px; background: transparent; color: var(--fg); border-radius: 0; }
+nav.side .brand .brand-name { font-weight: 700; letter-spacing: -0.025em; padding-left: 2px; }
+body[data-navigation="compact"] nav.side .brand .logo { display: none; }
 nav.side .new-chat { border: 0; border-radius: 999px; background: var(--seg); font-weight: 550; }
 body[data-navigation="compact"] nav.side .new-chat { width: 44px; padding: 0; justify-content: center; }
 
