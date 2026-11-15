@@ -26,12 +26,12 @@ PALETTES = {
                  "#3F3F44", "#B42318", "#1E7A44", "#9A4A00", "#2C43AD", "#4338CA", "#0F766E", "#808794"],
     },
     "dark": {
-        "bar": "#161920", "line": "#272C38", "win": "#161920", "title": "#161920", "bg": "#0F1115",
-        "fg": "#ECEFF4", "fg2": "#C8D0DF", "muted": "#949EB2", "seg": "#232836", "raised": "#242936",
+        "bar": "#101216", "line": "#20242E", "win": "#101216", "title": "#101216", "bg": "#07080B",
+        "fg": "#ECEFF4", "fg2": "#C8D0DF", "muted": "#949EB2", "seg": "#1A1D25", "raised": "#1C1F28",
         "accent": "#3557D9", "accent_fg": "#FFFFFF", "accent_text": "#9DB1FF", "accent_soft": "#1D2547",
-        "term_bg": "#0F1115", "term_fg": "#C8D0DF", "close_hover": "#3A1717",
-        "ansi": ["#242936", "#FF8A80", "#86DBA0", "#FFBE78", "#9DB1FF", "#C4B5FD", "#5EEAD4", "#C8D0DF",
-                 "#3E4658", "#FF8A80", "#6CCB8A", "#FFAA55", "#A9BAFF", "#A5B4FC", "#5EEAD4", "#ECEFF4"],
+        "term_bg": "#07080B", "term_fg": "#C8D0DF", "close_hover": "#3A1717",
+        "ansi": ["#1C1F28", "#FF8A80", "#86DBA0", "#FFBE78", "#9DB1FF", "#C4B5FD", "#5EEAD4", "#C8D0DF",
+                 "#333948", "#FF8A80", "#6CCB8A", "#FFAA55", "#A9BAFF", "#A5B4FC", "#5EEAD4", "#ECEFF4"],
     },
 }
 

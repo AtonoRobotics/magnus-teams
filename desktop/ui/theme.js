@@ -21,14 +21,14 @@
     "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#8A4200", "k-proposal": "#4338CA", "k-message": "#5B5E66", "k-tool": "#7C2D12",
   };
   const DARK = {
-    bg: "#0F1115", side: "#13161C", panel: "#161920", main: "#161920", surface: "#1E222B", raised: "#242936",
-    bubble: "#232836", seg: "#232836", "seg-on": "#2E3444",
+    bg: "#07080B", side: "#0B0C0F", panel: "#101216", main: "#101216", surface: "#16181F", raised: "#1C1F28",
+    bubble: "#1A1D25", seg: "#1A1D25", "seg-on": "#262A36",
     fg: "#ECEFF4", fg2: "#C8D0DF", muted: "#949EB2", faint: "#949EB2",
-    line: "#272C38", hair: "#222733", "line-strong": "#3E4658", "btn-border": "#303646", "button-bg": "#242936",
-    "row-sel": "rgba(255,255,255,0.08)", search: "rgba(255,255,255,0.08)", "group-head": "#1A1E27", "row-hi": "#1D2436",
+    line: "#20242E", hair: "#1B1E27", "line-strong": "#333948", "btn-border": "#2A2F3D", "button-bg": "#1C1F28",
+    "row-sel": "rgba(255,255,255,0.07)", search: "rgba(255,255,255,0.07)", "group-head": "#13151B", "row-hi": "#161D2E",
     ok: "#86DBA0", "ok-soft": "#16331F", "ok-icon": "#6CCB8A", warn: "#FFBE78", "warn-soft": "#3A2410", "warn-icon": "#FFAA55",
     sch: "#A9BAFF", "sch-soft": "#1D2547", "approval-bg": "#241B10", "approval-border": "#4A3418", bad: "#FF8A80", "bad-soft": "#3A1717",
-    shadow: "0 4px 16px rgba(0,0,0,0.32)", avatar: "#323846", chev: "#7A8294", "pdf-bg": "#3A1E1A", "pdf-fg": "#FF9D8C", "panel-edge": "#272C38", "main-edge": "transparent",
+    shadow: "0 4px 16px rgba(0,0,0,0.4)", avatar: "#2A2F3D", chev: "#7A8294", "pdf-bg": "#3A1E1A", "pdf-fg": "#FF9D8C", "panel-edge": "#20242E", "main-edge": "transparent",
     "t-read": "#949EB2", "t-reversible": "#A9BAFF", "t-irreversible": "#FFAA55", "t-financial": "#FF8A80",
     "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FFBE78", "k-proposal": "#A5B4FC", "k-message": "#949EB2", "k-tool": "#FDBA74",
   };
@@ -46,10 +46,10 @@
       backdrop: "radial-gradient(60% 50% at 12% 18%, #F7C8A6 0%, rgba(247,200,166,0) 70%), radial-gradient(55% 55% at 88% 12%, #AFC2F7 0%, rgba(175,194,247,0) 70%), radial-gradient(60% 60% at 72% 92%, #BFE5D2 0%, rgba(191,229,210,0) 70%), #E4E6EE",
     },
     dark: {
-      system: "rgba(24,24,28,0.86)",
-      side: "rgba(26,26,30,0.58)", panel: "rgba(28,28,32,0.66)", search: "rgba(255,255,255,0.10)", seg: "rgba(255,255,255,0.08)",
+      system: "rgba(16,18,22,0.88)",
+      side: "rgba(18,20,24,0.62)", panel: "rgba(20,22,28,0.70)", search: "rgba(255,255,255,0.09)", seg: "rgba(255,255,255,0.07)",
       "panel-edge": "rgba(255,255,255,0.08)", "main-edge": "rgba(255,255,255,0.06)",
-      "main-shadow": "0 10px 40px rgba(0,0,0,0.45)",
+      "main-shadow": "0 10px 40px rgba(0,0,0,0.5)",
       // The design's muted text over its 10% search field falls to 4.2:1
       // over the wallpaper's darkest color; the placeholder alone is lifted.
       "search-muted": "#B4B4BB",
@@ -60,9 +60,13 @@
   // color of accent text (links, selected labels) on each mode's surfaces.
   const ACCENTS = [
     { id: "blue", label: "Blue", swatch: "#3557D9", light: { accent: "#3557D9", "accent-fg": "#FFFFFF", "accent-text": "#3557D9", "accent-soft": "#E9EDFC" }, dark: { accent: "#3557D9", "accent-fg": "#FFFFFF", "accent-text": "#9DB1FF", "accent-soft": "#1D2547" } },
+    { id: "indigo", label: "Indigo", swatch: "#5B5BD6", light: { accent: "#4F46E5", "accent-fg": "#FFFFFF", "accent-text": "#4338CA", "accent-soft": "#EEF2FF" }, dark: { accent: "#5B5BD6", "accent-fg": "#FFFFFF", "accent-text": "#A5B4FC", "accent-soft": "#1E1F3D" } },
     { id: "teal", label: "Teal", swatch: "#1F7A6D", light: { accent: "#1F7A6D", "accent-fg": "#FFFFFF", "accent-text": "#1F7A6D", "accent-soft": "#EAF6F3" }, dark: { accent: "#1F7A6D", "accent-fg": "#FFFFFF", "accent-text": "#6FD3C1", "accent-soft": "#13302B" } },
+    { id: "emerald", label: "Emerald", swatch: "#15803D", light: { accent: "#15803D", "accent-fg": "#FFFFFF", "accent-text": "#15803D", "accent-soft": "#ECFDF3" }, dark: { accent: "#15803D", "accent-fg": "#FFFFFF", "accent-text": "#6EE7B7", "accent-soft": "#112E22" } },
     { id: "clay", label: "Clay", swatch: "#B4532A", light: { accent: "#B4532A", "accent-fg": "#FFFFFF", "accent-text": "#B4532A", "accent-soft": "#FDF2EC" }, dark: { accent: "#B4532A", "accent-fg": "#FFFFFF", "accent-text": "#F7B394", "accent-soft": "#3A2016" } },
-    { id: "graphite", label: "Graphite", swatch: "#1C1C1E", light: { accent: "#1C1C1E", "accent-fg": "#FFFFFF", "accent-text": "#1C1C1E", "accent-soft": "#EDEDEA" }, dark: { accent: "#E5E5EA", "accent-fg": "#1C1C1E", "accent-text": "#E5E5EA", "accent-soft": "#3A3A40" } },
+    { id: "amber", label: "Amber", swatch: "#B45309", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#B45309", "accent-soft": "#FEF3C7" }, dark: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#FCD34D", "accent-soft": "#33220E" } },
+    { id: "rose", label: "Rose", swatch: "#BE123C", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#FDA4AF", "accent-soft": "#361620" } },
+    { id: "graphite", label: "Graphite", swatch: "#1C1C1E", light: { accent: "#1C1C1E", "accent-fg": "#FFFFFF", "accent-text": "#1C1C1E", "accent-soft": "#EDEDEA" }, dark: { accent: "#E5E5EA", "accent-fg": "#1C1C1E", "accent-text": "#E5E5EA", "accent-soft": "#2A2C34" } },
   ];
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
   const MATERIALS = [["solid", "Solid", "Clean, opaque surfaces"], ["glass", "Glass", "Frosted panels over your wallpaper"]];

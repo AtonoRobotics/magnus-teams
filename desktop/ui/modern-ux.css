@@ -37,12 +37,12 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 #workspace-splitter::after { width: 1px; background: var(--line); transition: background-color .15s ease, width .15s ease; }
 #workspace-splitter:hover::after, #workspace-splitter:focus-visible::after { width: 2px; background: var(--accent); }
 
-/* Floating capsule composer */
+/* Disciplined machined composer */
 .say {
-  border-radius: 26px;
-  padding: 12px 12px 10px 18px;
+  border-radius: 16px;
+  padding: 12px 12px 10px 16px;
   border-color: var(--line-strong);
-  box-shadow: var(--shadow);
+  box-shadow: none;
   transition: border-color .18s ease, box-shadow .18s ease;
 }
 .say:focus-within {
@@ -55,11 +55,12 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 label.model {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  background: var(--seg);
-  padding: 0 10px;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0 8px;
   min-height: 36px;
 }
+label.model:hover { background: var(--row-sel); }
 label.model select {
   max-width: 184px;
   height: 36px;
@@ -69,9 +70,9 @@ label.model select {
   cursor: pointer;
 }
 
-/* Circular context-aware send button */
+/* Context-aware send button */
 button.send {
-  border-radius: 999px;
+  border-radius: 10px;
   transition: background-color .18s ease, color .18s ease, transform .12s ease;
 }
 button.send.is-empty {
@@ -85,55 +86,65 @@ button.send.is-empty:hover {
   color: var(--fg);
 }
 
-/* Gemini-style empty state hero & starter chips */
+/* Serious, calm empty state */
 .thread:has(.hello-hero) { justify-content: center; }
 .hello-hero {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 18px;
+  align-items: flex-start;
+  text-align: left;
+  gap: 14px;
   padding: 24px 8px;
-  max-width: 600px;
+  max-width: 560px;
+  width: 100%;
   margin: 0 auto;
 }
 .hello-title {
   margin: 0;
-  font-size: 30px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.2;
-  background: linear-gradient(135deg, var(--accent-text) 0%, var(--fg) 75%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  line-height: 1.25;
+  color: var(--fg);
 }
 .hello-sub {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--muted);
 }
 .hello-chips {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  flex-direction: column;
+  width: 100%;
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
 }
 button.hello-chip {
-  min-height: 40px;
-  padding: 8px 16px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 500;
+  min-height: 44px;
+  width: 100%;
+  padding: 10px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg2);
+  font-size: 13.5px;
+  font-weight: 450;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   cursor: pointer;
-  transition: border-color .15s ease, background-color .15s ease;
+  transition: background-color .15s ease, color .15s ease;
+}
+button.hello-chip::after {
+  content: "→";
+  color: var(--muted);
+  font-size: 13px;
 }
 button.hello-chip:hover {
-  border-color: var(--accent);
-  background: var(--raised);
+  color: var(--fg);
+  background: var(--row-sel);
 }
 
 /* Quiet message actions on hover-capable devices */
@@ -142,12 +153,57 @@ button.hello-chip:hover {
   .entry:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
 }
 
-/* Subtle rounding & tonal polish on agentic cards */
-.reqgroup.chatcard, .tcard {
-  border-radius: 16px;
-  background: var(--surface);
+/* Unboxed editorial tables, blockquotes, and rich inline artifacts */
+.answer-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
 }
-.msg.me { border-radius: 20px 20px 6px 20px; }
+.answer-body th, .answer-body td {
+  padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.answer-body th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.answer-body blockquote {
+  margin: 10px 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--accent);
+  color: var(--fg2);
+  background: transparent;
+}
+.cmp-bar {
+  height: 2px;
+  width: 100%;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.cmp-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+/* Hairline hierarchy & single focal point for decisions */
+.reqgroup.chatcard, .tcard {
+  border-radius: 12px;
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: none;
+}
+.ask-card {
+  border-radius: 12px;
+  border-color: var(--line-strong);
+}
+.msg.me { border-radius: 16px; }
 
 /* Richer drag-and-drop cue */
 section.conv.dropping {
