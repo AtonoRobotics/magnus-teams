@@ -377,7 +377,7 @@ function navigationTree() {
 function nav() {
   const route=location.hash || "#/home", waiting=needsMe();
   const item=Panel.what?.startsWith("item:") ? App.inbox.find(i=>i.id===Panel.what.slice(5)) : null;
-  const active=k=>k==="activity" ? ["activity","tasks","schedules","rules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : route.startsWith("#/library");
+  const active=k=>k==="activity" ? ["activity","tasks","schedules","rules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : k==="apps" ? route.startsWith("#/library") : k==="computer" ? route.startsWith("#/computer") : k==="teams" ? route.startsWith("#/teams") : false;
   const primary=(k,label,ic,href)=>`<a class="primary-nav${k==="needs" ? " needs" : ""}${active(k) ? " on" : ""}" href="${href}" ${!["apps","computer","teams"].includes(k) ? `data-open="${k}"` : ""} ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}${k==="needs" && waiting.length ? `, ${waiting.length} decisions` : ""}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span>${k==="needs" ? `<span class="pill${waiting.length ? "" : " quiet"}" data-needs-count aria-hidden="true">${waiting.length}</span>` : ""}</a>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
     <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>${guideNavItem(route)}
@@ -2059,27 +2059,33 @@ function activityLinks(selected="activity") {
   return `<nav class="activity-views" aria-label="Activity views">${[["activity","Overview"],["tasks","Tasks"],["schedules","Schedules"],["rules","Rules"]].map(([k,l])=>`<a href="#/${k}" data-open="${k}" ${selected===k ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>`;
 }
 function activityView(composed) {
-  const feed=App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? `<section><h3>Since you were last here</h3>${feedRows(App.feed)}</section>` : "";
-  const other=App.inbox.filter(i=>i.status==="open" && !needsDecision(i));
-  const decided=App.inbox.filter(i=>i.status!=="open").sort((a,b)=>(b.created_at || "").localeCompare(a.created_at || "")).slice(0,15);
-  return `${activityLinks()}${feed}<section><h3>Work</h3>${tasksView()}</section><section><h3>Schedules</h3>${schedulesView()}</section>
-    ${other.length ? `<details data-key="other"><summary>Updates and work waiting on others (${other.length})</summary>${other.map(i=>card(i,composed)).join("")}</details>` : ""}
-    ${decided.length ? `<details data-key="decided"><summary>Resolved decisions (${decided.length})</summary>${decided.map(i=>card(i,composed)).join("")}</details>` : ""}`;
+  const active = App.tasks.filter(t => !ENDED.includes(t.status));
+  const done = App.tasks.filter(t => ENDED.includes(t.status)).slice(0, 10);
+  const scheds = App.schedules.filter(sc => !sc.ended);
+  const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
+  const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
+  const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
+  const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
+  const recentCount = done.length + other.length + decided.length + (feed ? 1 : 0);
+  const next = scheds.filter(s => !s.paused && s.next).sort((a, b) => a.next.localeCompare(b.next))[0];
+  return `${activityLinks()}
+    <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Happening now</strong><div class="small muted">${active.length ? `${active.length} active task${active.length === 1 ? "" : "s"}` : "All quiet right now."}</div></div><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length})</a></div>
+      ${active.length ? `<ul class="tlist" style="margin-top:8px;">${active.slice(0, 6).map(taskRow).join("")}</ul>` : ""}</div>
+    <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Schedules &amp; Heartbeat</strong><div class="small muted">${hb ? `Heartbeat active · ${hb.paused ? "Paused" : `Next ${esc(until(hb.next))}`}` : "Heartbeat off"}${scheds.length ? ` · ${scheds.length} active${next ? `, next ${esc(until(next.next))}` : ""}` : ""}</div></div><div class="row">${hb ? `<span class="chip ok">Heartbeat on</span>` : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}<a class="small" href="#/schedules" data-open="schedules">Manage (${App.schedules.length})</a></div></div></div>
+    ${recentCount ? `<details class="collapsed-done" data-key="overview-recent"><summary>Recent &amp; completed (${done.length} tasks${other.length ? `, ${other.length} updates` : ""}${decided.length ? `, ${decided.length} resolved` : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${done.length ? `<ul class="tlist">${done.map(taskRow).join("")}</ul>` : ""}${other.map(i => card(i, composed)).join("")}${decided.map(i => card(i, composed)).join("")}</details>` : ""}`;
 }
 
 function needsView(composed) {
   const open=needsMe();
+  if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>`;
   const now=open.filter(i=>i.blocking), later=open.filter(i=>!i.blocking);
   const where = i => {
     const t = i.thread && App.threads.find(x => x.thread === i.thread);
     return t ? `<div class="small where">In <a href="#/chat/${enc(t.thread)}">${esc(t.title)}</a></div>` : "";
   };
   const list = items => items.map(i => `<div class="needs-item" data-needs="${esc(i.id)}">${where(i)}${card(i, composed)}</div>`).join("");
-  return `<h3>A task is waiting ${now.length ? `<span class="badge">${now.length}</span>` : ""}</h3>
-    ${now.length ? list(now) : `<p class="empty">No task is waiting on you.</p>`}
-    <h3>When you have a moment</h3>
-    ${later.length ? list(later) : `<p class="empty">Nothing else.</p>`}
-    `;
+  return `${now.length ? `<h3>A task is waiting <span class="badge">${now.length}</span></h3>${list(now)}` : ""}
+    ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}`;
 }
 
 // ---------- Task detail ----------
