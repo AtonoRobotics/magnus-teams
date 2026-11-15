@@ -25,10 +25,12 @@ function ruleForm(r) {
   return `<form data-rule-form="${esc(r?.id || "")}" class="stack">
     <label>In your words <textarea name="words" rows="2" maxlength="2000" placeholder="Ask me before anything is posted in Slack">${esc(r?.words || "")}</textarea></label>
     <div class="row">${RULE_EFFECTS.map(([v, label]) => `<label class="row"><input type="radio" name="effect" value="${v}"${v === effect ? " checked" : ""}> ${esc(label)}</label>`).join("")}</div>
-    <div class="row"><label>App <input name="connector" value="${esc(m?.connector || "")}" placeholder="slack"></label>
-    <label>Action <input name="tool" value="${esc(m?.tool || "")}" placeholder="any"></label></div>
-    <label>To or where, comma separated <input name="destinations" value="${esc((m?.destinations || []).join(", "))}" placeholder="anywhere"></label>
-    <p class="small muted">Allowing needs an app, an action and where it goes. Asking and blocking can cover a whole app.</p>
+    <details class="rule-advanced"><summary class="small muted">Specific app or destination (optional)</summary>
+      <div class="row" style="margin-top:8px"><label>App <input name="connector" value="${esc(m?.connector || "")}" placeholder="slack"></label>
+      <label>Action <input name="tool" value="${esc(m?.tool || "")}" placeholder="any"></label></div>
+      <label style="margin-top:8px">To or where, comma separated <input name="destinations" value="${esc((m?.destinations || []).join(", "))}" placeholder="anywhere"></label>
+      <p class="small muted">Allowing needs an app, an action and where it goes. Asking and blocking can cover a whole app.</p>
+    </details>
     <div class="row"><button class="primary" type="submit">${r ? "Save" : "Add rule"}</button>${r ? `<button type="button" data-rule="cancel">Cancel</button>` : ""}</div>
   </form>`;
 }

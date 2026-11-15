@@ -17,6 +17,12 @@ function askLabel(a, offer) {
 // One field of the exact content, every part of it, nothing shortened.
 function askValue(v) {
   if (v === null || v === undefined) return `<span class="faint">none</span>`;
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const entries = Object.entries(v).filter(([, x]) => x !== null && x !== undefined && typeof x !== "object");
+    if (entries.length && entries.length === Object.keys(v).length) {
+      return `<div class="ask-kv">${entries.map(([k, val]) => `<div><span class="muted">${esc(k.replace(/_/g, " "))}:</span> <span>${esc(String(val))}</span></div>`).join("")}</div>`;
+    }
+  }
   return `<pre>${esc(typeof v === "string" ? v : typeof v === "object" ? JSON.stringify(v, null, 2) : String(v))}</pre>`;
 }
 

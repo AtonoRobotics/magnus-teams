@@ -159,3 +159,46 @@ section.conv.dropping {
 @media (any-pointer: coarse) {
   label.model, label.model select, button.hello-chip { min-height: 44px; }
 }
+
+/* Collapsible Workspace group in sidebar */
+nav.side .nav-workspace > summary.nav-group-head {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  user-select: none;
+}
+nav.side .nav-workspace > summary.nav-group-head::-webkit-details-marker { display: none; }
+nav.side .nav-workspace-items { display: flex; flex-direction: column; gap: 2px; }
+body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head { display: none; }
+
+/* Pill-style Activity view switcher */
+.activity-views {
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 999px;
+  background: var(--seg);
+  margin-bottom: 12px;
+}
+.activity-views a {
+  min-height: 32px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--fg2);
+  text-decoration: none;
+}
+.activity-views a[aria-current=page] {
+  background: var(--seg-on);
+  color: var(--fg);
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,.1);
+}
+@media (any-pointer: coarse) { .activity-views a { min-height: 44px; } }
+
+/* Human-readable Ask preview & optional Rule fields */
+.ask-kv { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rule-advanced > summary { cursor: pointer; padding: 4px 0; }
