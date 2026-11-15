@@ -13,7 +13,7 @@ use crate::state::{Schedule, State};
 /// The thread a schedule's runs post to, and where a run's outcome wakes
 /// the agent.
 pub fn of(s: &State, sc: &Schedule) -> String {
-    let here = |t: &&String| !s.trash.gone(*t);
+    let here = |t: &&String| !s.trash.gone(t);
     sc.thread.as_ref().filter(here).cloned().unwrap_or_else(|| crate::chat::schedule_thread(&sc.id))
 }
 

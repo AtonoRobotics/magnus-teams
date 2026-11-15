@@ -99,7 +99,7 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
                     (run, origin)
                 }
                 _ => {
-                    let task = entry.split_once(':').map(|(_, t)| t).filter(|t| !s.trash.contains(*t)).and_then(|t| s.tasks.get(t)).filter(|t| t.person == person)?;
+                    let task = entry.split_once(':').map(|(_, t)| t).filter(|t| !s.trash.contains(t)).and_then(|t| s.tasks.get(t)).filter(|t| t.person == person)?;
                     let run = s.runs.get(&task.run_id)?;
                     // A result goes with the answer that started its task (review of #252).
                     let origin = task.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| s.runs.get(f)).map(|o| format!("a:{}", o.task));
