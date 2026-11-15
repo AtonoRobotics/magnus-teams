@@ -405,10 +405,9 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.library.canonical_fields());
     v.extend(s.inbox.canonical_fields());
     v.extend(s.identity.canonical_fields());
+    v.extend(s.trash.canonical_fields());
+    v.extend(s.erasures.canonical_fields());
     v.extend([
-        ("erasures", d(&s.erasures)),
-        ("trash", d(&s.trash)),
-        ("removed_threads", d(&s.removed_threads)),
         ("openers", d(&s.openers)),
         ("admin_settings", d(&s.admin_settings)),
         ("tools.consents", d(&s.tools.consents)),

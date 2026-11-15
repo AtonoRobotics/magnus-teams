@@ -220,7 +220,7 @@ impl State {
         }
         let r = self.runs.get(run).filter(|r| r.config.module(crate::outcomes::MODULE))?;
         let thread = self.tasks.get(&r.task).and_then(|t| t.chat.as_ref()).filter(|c| !c.turn).map(|c| c.thread.as_str())?;
-        if self.trash.contains_key(thread) || self.removed_threads.contains_key(thread) {
+        if self.trash.gone(thread) {
             return None;
         }
         Some(if kind == RunKind::Scheduled { OutcomeReturn::ToScheduleThread } else { OutcomeReturn::ToConversation })

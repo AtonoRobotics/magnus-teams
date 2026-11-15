@@ -393,14 +393,14 @@ pub(crate) struct RecentRun {
 /// taint into every later run of theirs. It stops once their text fills
 /// `budget`.
 pub(crate) fn recent_runs(s: &crate::state::State, person: &str, except: Option<&str>, before: DateTime<Utc>, budget: usize) -> Vec<RecentRun> {
-    let shown = |thread: &str, id: String| !s.thread_extras.hidden(thread).is_some_and(|h| h.contains(&id)) && !s.trash.contains_key(&id);
+    let shown = |thread: &str, id: String| !s.thread_extras.hidden(thread).is_some_and(|h| h.contains(&id)) && !s.trash.contains(&id);
     let mut eligible: Vec<(DateTime<Utc>, &Task, &Run)> = s
         .tasks
         .values()
         .filter(|t| t.person == person)
         .filter_map(|t| {
             let c = t.chat.as_ref().filter(|c| Some(c.thread.as_str()) != except)?;
-            if s.trash.contains_key(&c.thread) || s.removed_threads.contains_key(&c.thread) {
+            if s.trash.gone(&c.thread) {
                 return None;
             }
             let r = s.runs.get(&t.run_id).filter(|r| !r.untrusted && !r.private)?;

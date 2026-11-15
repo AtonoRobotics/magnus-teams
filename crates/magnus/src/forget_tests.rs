@@ -170,7 +170,6 @@ fn parts(s: &State) -> Vec<(&'static str, String)> {
         ("thread_extras", format!("{:?}", s.thread_extras)),
         ("watch", format!("{:?}", s.watch)),
         ("trash", format!("{:?}", s.trash)),
-        ("removed_threads", format!("{:?}", s.removed_threads)),
         ("openers", format!("{:?}", s.openers)),
         ("draft_sources", format!("{:?}", s.draft_sources)),
         ("attachments", format!("{:?}", s.attachments)),

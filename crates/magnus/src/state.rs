@@ -13,21 +13,25 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod apps;
 pub mod arrangements;
+pub mod erasure;
 pub mod identity;
 pub mod inbox;
 pub mod library;
 pub mod org;
 pub mod server_ops;
 pub mod thread_extras;
+pub mod trash;
 pub mod vault;
 pub mod watch;
 pub use apps::ConnectorSetting;
 pub use arrangements::{Answer, CardState, Commitment, CommitmentStep, Grant, GrantAction, Schedule};
+pub use erasure::Erasure;
 pub use inbox::{Approval, Item};
 pub use library::{BundleDoc, KnowledgeEntry, LibFile, MemoryEntry, PlaybookItem, Project};
 pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
 pub use thread_extras::{Branch, Disagreement};
+pub use trash::{NotTrashable, TitleFrom, Trashed};
 pub use vault::Revoked;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -321,105 +325,6 @@ pub struct DraftSources {
     pub participants: Vec<String>,
 }
 
-/// An item in the trash: out of every view until it is restored or removed.
-#[derive(Clone, Debug)]
-pub struct Trashed {
-    pub person: String,
-    /// Its title, when the state has it; else `title_from` says where it is
-    /// recalled from.
-    pub title: String,
-    pub title_from: Option<TitleFrom>,
-    pub at: DateTime<Utc>,
-    held: Held,
-}
-
-/// Where a trashed item's title is recalled from: the event that holds a
-/// task's words, its title (else its text), or its text alone.
-#[derive(Clone, Copy, Debug)]
-pub enum TitleFrom {
-    Title(i64),
-    Text(i64),
-}
-
-impl TitleFrom {
-    pub fn seq(&self) -> i64 {
-        match self {
-            TitleFrom::Title(s) | TitleFrom::Text(s) => *s,
-        }
-    }
-
-    /// The title, from the recalled content of `seq()`.
-    pub fn title(&self, words: &Value) -> String {
-        let text = words["text"].as_str().unwrap_or_default();
-        match self {
-            TitleFrom::Title(_) => words["title"].as_str().filter(|t| !t.is_empty()).unwrap_or(text).to_string(),
-            TitleFrom::Text(_) => text.to_string(),
-        }
-    }
-}
-
-/// What a trashed item took out of the state, to put back if restored. A
-/// chat message or answer takes nothing: its thread leaves it out.
-#[derive(Clone, Debug)]
-enum Held {
-    Task(Box<Task>, Option<Box<Run>>, Vec<Item>),
-    Thread { id: String, turns: Vec<(Task, Option<Run>)>, branch: Option<Branch> },
-    Entry { thread: String },
-    File(Box<LibFile>),
-    Project(Project),
-    Memory(MemoryEntry),
-    Knowledge(Box<KnowledgeEntry>),
-}
-
-impl Trashed {
-    /// A trashed memory's record: its content is recalled, not kept.
-    pub fn memory(&self) -> Option<&MemoryEntry> {
-        match &self.held {
-            Held::Memory(m) => Some(m),
-            _ => None,
-        }
-    }
-
-    pub fn kind(&self) -> &'static str {
-        match self.held {
-            Held::Task(..) => "task",
-            Held::Thread { .. } => "conversation",
-            Held::Entry { .. } => "message",
-            Held::File(_) => "file",
-            Held::Project(_) => "project",
-            Held::Memory(_) => "memory",
-            Held::Knowledge(_) => "knowledge",
-        }
-    }
-
-    /// The thread a trashed message or answer was in.
-    pub fn thread(&self) -> Option<&str> {
-        match &self.held {
-            Held::Entry { thread } => Some(thread),
-            _ => None,
-        }
-    }
-}
-
-/// Why an item cannot go to the trash.
-#[derive(Debug, PartialEq)]
-pub enum NotTrashable {
-    /// No such item of the person's.
-    NotFound,
-    /// A task still running: cancel it first, so a crash can resume it (C3).
-    Running,
-}
-
-/// A person erased with content: the removal that took it, their provider
-/// subject then (the console's name for them), and whether a backup still
-/// holds it.
-#[derive(Clone, Debug)]
-pub struct Erasure {
-    pub removal: i64,
-    pub subject: Option<String>,
-    pub pending: bool,
-}
-
 /// Debug, so a test can look through all of it for what erasing a person
 /// left behind (`forget_tests.rs`).
 #[derive(Default, Debug)]
@@ -436,11 +341,8 @@ pub struct State {
     pub legal: crate::legal::Ledger,
     pub push: crate::push::Ledger,
     pub halts: crate::halts::Ledger,
-    /// Trashed items by id.
-    pub trash: BTreeMap<String, Trashed>,
-    /// Conversations removed from the trash, each with whose it was, so
-    /// erasing them forgets it.
-    pub removed_threads: HashMap<String, String>,
+    /// The trash, and the conversations removed from it for good.
+    pub trash: trash::Trash,
     pub tasks: BTreeMap<String, Task>,
     pub runs: HashMap<String, Run>,
     /// Items, approvals and the proactive loop's marks.
@@ -460,7 +362,7 @@ pub struct State {
     /// The server's updates and backups.
     pub server_ops: server_ops::ServerOps,
     /// Each person erased with content, by their id then.
-    pub erasures: BTreeMap<String, Erasure>,
+    pub erasures: erasure::Erasures,
     /// The apps the owner added, their settings, credentials and registrations.
     pub apps: apps::Apps,
     /// Hidden entries, reactions, disagreements and branches.
@@ -595,166 +497,6 @@ impl State {
         self.charge(run, at, usd);
     }
 
-    /// Take an item out of every view, into the trash.
-    fn take(&mut self, item: &str) -> Option<(String, Option<TitleFrom>, Held)> {
-        if let Some((_, task)) = item.split_once(':') {
-            let t = self.tasks.get(task)?;
-            let thread = t.chat.as_ref()?.thread.clone();
-            // A message's title is what the person said, recalled when listed.
-            let opener = t.chat.as_ref().and_then(|c| c.opener.as_deref()).map(crate::openers::title);
-            let (title, from) = match item.starts_with("m:") {
-                // Magnus's own opening: its text is the appliance's, not theirs.
-                true if opener.is_some() => (opener.unwrap_or_default(), None),
-                true => (String::new(), Some(TitleFrom::Text(t.seq))),
-                false => (self.runs.get(&t.run_id).and_then(|r| r.summary.clone()).unwrap_or_default(), None),
-            };
-            return Some((title, from, Held::Entry { thread }));
-        }
-        if item.starts_with("task_") {
-            let t = self.tasks.remove(item)?;
-            let r = self.runs.remove(&t.run_id).map(Box::new);
-            let items = self.inbox.take_items_of(item);
-            return Some((String::new(), Some(TitleFrom::Title(t.seq)), Held::Task(Box::new(t), r, items)));
-        }
-        if item.starts_with("thread_") {
-            let ids: Vec<String> = self.tasks.values().filter(|t| t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).map(|t| t.task_id.clone()).collect();
-            let mut turns: Vec<(Task, Option<Run>)> = ids
-                .iter()
-                .filter_map(|id| self.tasks.remove(id))
-                .map(|t| {
-                    let r = self.runs.remove(&t.run_id);
-                    (t, r)
-                })
-                .collect();
-            turns.sort_by_key(|(t, _)| t.created_at);
-            let branch = self.thread_extras.take_branch(item);
-            // A conversation's title is its first message, recalled when
-            // listed; one Magnus opened is called what the app calls it, not
-            // by the appliance's instruction (review of #274).
-            let (title, from) = match turns.first() {
-                Some((t, _)) => match t.chat.as_ref().and_then(|c| c.opener.as_deref()) {
-                    Some(o) => (crate::openers::title(o), None),
-                    None => (String::new(), Some(TitleFrom::Text(t.seq))),
-                },
-                None => (branch.as_ref()?.title.clone(), None),
-            };
-            return Some((title, from, Held::Thread { id: item.into(), turns, branch }));
-        }
-        if let Some(f) = self.library.take_file(item) {
-            return Some((f.name.clone(), None, Held::File(Box::new(f))));
-        }
-        if let Some(p) = self.library.take_project(item) {
-            return Some((p.name.clone(), None, Held::Project(p)));
-        }
-        // Its title in the trash is its fact, recalled when listed.
-        if let Some(m) = self.library.take_memory(item) {
-            return Some((String::new(), None, Held::Memory(m)));
-        }
-        let k = self.library.take_knowledge(item)?;
-        Some((k.title.clone(), None, Held::Knowledge(Box::new(k))))
-    }
-
-    /// Which events hold a trashed item's own content. A task's or a
-    /// conversation's runs keep what they made that is an item of its own:
-    /// files they delivered, memories and playbook items they wrote.
-    /// `fact` is a trashed memory's fact, recalled by the caller.
-    pub fn holding(&self, item: &str, fact: Option<&str>) -> Option<crate::log::Holding> {
-        use crate::log::Holding;
-        const OWN: [&str; 3] = ["output", "memory", "playbook"];
-        let named = |kinds: Vec<&'static str>, field: &'static str, id: &str| Holding { kinds, field, id: id.into(), ..Default::default() };
-        // What belongs to a task but carries no run: its verdict's note and
-        // the person's answers to its cards.
-        let theirs = |task: &str, items: &mut dyn Iterator<Item = &Item>| -> Vec<(&'static str, &'static str, String)> {
-            let mut m = vec![("verdict", "task", task.to_string())];
-            m.extend(items.map(|i| ("item_resolved", "id", i.id.clone())));
-            m
-        };
-        let items_of = |task: &str| self.inbox.items().values().filter(|i| i.task.as_deref() == Some(task)).cloned().collect::<Vec<_>>();
-        Some(match &self.trash.get(item)?.held {
-            Held::Task(t, _, items) => Holding { runs: vec![t.run_id.clone()], except: OWN.to_vec(), matches: theirs(&t.task_id, &mut items.iter()), ..Default::default() },
-            Held::Thread { id, turns, .. } => {
-                let mut matches: Vec<_> = turns.iter().flat_map(|(t, _)| theirs(&t.task_id, &mut items_of(&t.task_id).iter())).collect();
-                // The reasons the person gave declining the cards in it.
-                let cards = turns.iter().filter_map(|(_, r)| r.as_ref()).flat_map(|r| r.results.values().filter_map(|x| x.data.as_ref()?["card"].as_str().map(String::from)));
-                matches.extend(cards.map(|c| ("card_declined", "card", c)));
-                Holding { runs: turns.iter().map(|(t, _)| t.run_id.clone()).collect(), except: OWN.to_vec(), matches, ..named(vec!["thread_branched"], "thread", id) }
-            }
-            Held::Entry { .. } => match item.split_once(':')? {
-                ("m", task) => named(vec!["task_created"], "task", task),
-                (_, task) => Holding {
-                    runs: vec![self.tasks.get(task)?.run_id.clone()],
-                    except: [&OWN[..], &["task_created"]].concat(),
-                    matches: theirs(task, &mut items_of(task).iter()),
-                    ..Default::default()
-                },
-            },
-            Held::File(_) => named(vec!["file_uploaded", "output"], "id", item),
-            Held::Project(_) => named(vec!["project_set"], "id", item),
-            // A memory and where it was written: the call that wrote it, and
-            // the reply that made the call (the run's model, or the memory
-            // pass), found by the fact's text in that run.
-            Held::Memory(m) => {
-                let fact = fact.unwrap_or_default();
-                let text = serde_json::to_string(fact).unwrap_or_default();
-                let text = text.trim_matches('"').to_string();
-                let containing =
-                    ["intent", "tool_result", "model_reply", "memory_pass"].into_iter().map(|k| (k, m.run.clone(), text.clone())).filter(|_| !fact.trim().is_empty()).collect();
-                Holding { containing, ..named(vec!["memory"], "id", item) }
-            }
-            Held::Knowledge(_) => named(vec!["knowledge_added"], "id", item),
-        })
-    }
-
-    /// A trashed item back where it was.
-    /// Which erasures a backup still holds, after a scrub's record: each
-    /// change is in the audit, as the console names the person (#195).
-    fn erasures_pending(&mut self, e: &Event) {
-        let pending = self.server_ops.scrub_pending().cloned();
-        for (person, er) in self.erasures.iter_mut() {
-            let now = pending.as_ref().is_some_and(|p| p.from < er.removal && er.removal <= p.through);
-            if now == er.pending {
-                continue;
-            }
-            er.pending = now;
-            let (action, after) = match &pending {
-                Some(p) if now => ("user_erasure_incomplete", serde_json::json!({ "backups": p.files, "detail": p.detail })),
-                _ => ("user_erasure_completed", serde_json::json!({ "backups": "every backup kept is rewritten without their content" })),
-            };
-            let target = er.subject.clone().unwrap_or_else(|| person.clone());
-            self.org.note_audit(e, serde_json::json!({ "kind": "admin_action", "admin": "kernel", "name": "Magnus", "action": action, "target": target, "source": null, "before": null, "after": after }));
-        }
-    }
-
-    fn put_back(&mut self, held: Held) {
-        match held {
-            Held::Task(t, r, items) => {
-                if let Some(r) = r {
-                    self.runs.insert(r.id.clone(), *r);
-                }
-                for i in items {
-                    self.inbox.put_item(i);
-                }
-                self.tasks.insert(t.task_id.clone(), *t);
-            }
-            Held::Thread { id, turns, branch } => {
-                for (t, r) in turns {
-                    if let Some(r) = r {
-                        self.runs.insert(r.id.clone(), r);
-                    }
-                    self.tasks.insert(t.task_id.clone(), t);
-                }
-                if let Some(b) = branch {
-                    self.thread_extras.put_branch(id, b);
-                }
-            }
-            Held::Entry { .. } => {}
-            Held::File(f) => self.library.put_file(*f),
-            Held::Project(p) => self.library.put_project(p),
-            Held::Memory(m) => self.library.put_memory(m),
-            Held::Knowledge(k) => self.library.put_knowledge(*k),
-        }
-    }
-
     /// A person's file, or a delivered file of a task they may see.
     pub fn file_for(&self, person: &str, owner: bool, id: &str) -> Option<&LibFile> {
         self.library.files().get(id).filter(|f| f.person == person || (owner && f.run.is_some()))
@@ -871,30 +613,24 @@ impl State {
             | Ev::CardAccepted { .. } => self.arrangements.fold(e, self.identity.preferences()),
             Ev::Trashed { item, person } => {
                 if let Some((title, title_from, held)) = self.take(item) {
-                    self.trash.insert(item.clone(), Trashed { person: person.clone(), title, title_from, at: e.at, held });
+                    self.trash.put(item.clone(), Trashed { person: person.clone(), title, title_from, at: e.at, held });
                 }
             }
             Ev::Restored { item } => {
-                if let Some(t) = self.trash.remove(item) {
+                if let Some(t) = self.trash.take(item) {
                     self.put_back(t.held);
                 }
             }
             Ev::Removed { item, .. } => {
                 // A person's erasure: their subject is still bound here.
                 if let Some(p) = item.strip_prefix("person:") {
-                    self.erasures.insert(p.to_string(), Erasure { removal: e.seq, subject: self.identity.subject(p).map(str::to_string), pending: false });
+                    self.erasures.record(p, e.seq, self.identity.subject(p).map(str::to_string));
                 }
                 if let Some(task) = item.strip_prefix(crate::team::upkeep::NOTES) {
                     self.team.drop_notes(task);
                 }
-                match self.trash.remove(item).map(|t| (t.person, t.held)) {
-                    Some((_, Held::Entry { thread })) => {
-                        self.thread_extras.hide(thread, item.clone());
-                    }
-                    Some((person, Held::Thread { id, .. })) => {
-                        self.removed_threads.insert(id, person);
-                    }
-                    _ => {}
+                if let Some(thread) = self.trash.remove(item) {
+                    self.thread_extras.hide(thread, item.clone());
                 }
             }
             Ev::FileUploaded { .. }

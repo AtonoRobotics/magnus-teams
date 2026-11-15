@@ -13,7 +13,7 @@ use crate::state::{Schedule, State};
 /// The thread a schedule's runs post to, and where a run's outcome wakes
 /// the agent.
 pub fn of(s: &State, sc: &Schedule) -> String {
-    let here = |t: &&String| !s.trash.contains_key(*t) && !s.removed_threads.contains_key(*t);
+    let here = |t: &&String| !s.trash.gone(*t);
     sc.thread.as_ref().filter(here).cloned().unwrap_or_else(|| crate::chat::schedule_thread(&sc.id))
 }
 
@@ -48,7 +48,7 @@ mod tests {
     fn a_removed_conversation_sends_the_runs_to_the_schedules_own_thread() {
         let mut s = State::default();
         set(&mut s, 1, "sc1", json!("th_gone"));
-        s.removed_threads.insert("th_gone".into(), "alice".into());
+        s.trash.mark_removed("th_gone", "alice");
         assert_eq!(of(&s, &s.arrangements.schedules()["sc1"]), "schedule-sc1");
     }
 

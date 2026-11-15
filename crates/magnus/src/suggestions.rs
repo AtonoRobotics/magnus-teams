@@ -84,14 +84,14 @@ pub(crate) fn cards_of(s: &Projection, person: &str) -> Vec<Card> {
     let mut out = vec![];
     for r in s.runs.values().filter(|r| r.person == person) {
         let Some(c) = s.tasks.get(&r.task).filter(|t| t.is_chat_turn()).and_then(|t| t.chat.as_ref()) else { continue };
-        if s.trash.contains_key(&c.thread) || s.removed_threads.contains_key(&c.thread) {
+        if s.trash.gone(&c.thread) {
             continue;
         }
         for (call, res) in &r.results {
             let Some(d) = res.data.as_ref().filter(|d| d["card"].is_string() && !d["connector"].is_string()) else { continue };
             let id = d["card"].as_str().unwrap_or_default().to_string();
             let entry = format!("c:{id}");
-            if s.trash.contains_key(&entry) || s.thread_extras.hidden(&c.thread).is_some_and(|h| h.contains(&entry)) {
+            if s.trash.contains(&entry) || s.thread_extras.hidden(&c.thread).is_some_and(|h| h.contains(&entry)) {
                 continue;
             }
             let at = r.intents.values().find(|i| &i.call_id == call).map_or(r.created_at, |i| i.at);
@@ -318,7 +318,7 @@ impl Kernel {
                 }
             }
             (None, Some(task)) => {
-                let found = self.read(|s| s.tasks.get(task).filter(|t| t.person == run.person && !s.trash.contains_key(task)).map(|t| (t.clone(), s.runs.get(&t.run_id).cloned())));
+                let found = self.read(|s| s.tasks.get(task).filter(|t| t.person == run.person && !s.trash.contains(task)).map(|t| (t.clone(), s.runs.get(&t.run_id).cloned())));
                 let Some((t, r)) = found else { return Ok(Err(format!("names the task {task}, which is no task of this person's. A retry with it will not help"))) };
                 Ok(Ok(json!({ "task": task, "title": self.task_title(&t, r.as_ref()).await?, "shows": shows })))
             }

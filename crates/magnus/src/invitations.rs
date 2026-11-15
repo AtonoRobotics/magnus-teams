@@ -44,7 +44,7 @@ pub fn derive_id(email: &str) -> Option<String> {
 /// not reach someone new.
 pub fn free_id(k: &Kernel, email: &str) -> Option<String> {
     let base = derive_id(email)?;
-    let held = |id: &str| k.person(id).is_some() || k.read(|s| s.erasures.contains_key(id));
+    let held = |id: &str| k.person(id).is_some() || k.read(|s| s.erasures.contains(id));
     std::iter::once(base.clone()).chain((2..=MAX_ID_SUFFIX).map(|n| format!("{base}-{n}"))).find(|id| id.len() <= MAX_PERSON_ID_CHARS && !held(id))
 }
 

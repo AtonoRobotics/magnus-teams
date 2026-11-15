@@ -77,8 +77,8 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
         .filter_map(|((thread, entry), history)| {
             let (reaction, at) = history.iter().rev().find(|(_, at)| *at < before)?;
             let reaction = reaction.as_ref()?;
-            let hidden = |id: &str| s.trash.contains_key(id) || s.thread_extras.hidden(thread).is_some_and(|h| h.contains(id));
-            if s.trash.contains_key(thread) || s.removed_threads.contains_key(thread) || hidden(entry) {
+            let hidden = |id: &str| s.trash.contains(id) || s.thread_extras.hidden(thread).is_some_and(|h| h.contains(id));
+            if s.trash.gone(thread) || hidden(entry) {
                 return None;
             }
             // Started tasks read their turn's run, named in the entry; a
@@ -89,17 +89,17 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
                     // by run; either way it goes with its originating
                     // answer, as the thread shows it (#353).
                     let run = s.runs.get(id).or_else(|| s.tasks.get(id).and_then(|t| s.runs.get(&t.run_id)))?;
-                    s.tasks.get(&run.task).filter(|t| t.person == person && !s.trash.contains_key(&t.task_id))?;
+                    s.tasks.get(&run.task).filter(|t| t.person == person && !s.trash.contains(&t.task_id))?;
                     (run, Some(format!("a:{}", run.task)))
                 }
                 Some(("c", id)) => {
                     let run = card_runs.get(id).copied()?;
-                    let task = s.tasks.get(&run.task).filter(|t| t.person == person && !s.trash.contains_key(&t.task_id))?;
+                    let task = s.tasks.get(&run.task).filter(|t| t.person == person && !s.trash.contains(&t.task_id))?;
                     let origin = task.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| s.runs.get(f)).map(|o| format!("a:{}", o.task));
                     (run, origin)
                 }
                 _ => {
-                    let task = entry.split_once(':').map(|(_, t)| t).filter(|t| !s.trash.contains_key(*t)).and_then(|t| s.tasks.get(t)).filter(|t| t.person == person)?;
+                    let task = entry.split_once(':').map(|(_, t)| t).filter(|t| !s.trash.contains(*t)).and_then(|t| s.tasks.get(t)).filter(|t| t.person == person)?;
                     let run = s.runs.get(&task.run_id)?;
                     // A result goes with the answer that started its task (review of #252).
                     let origin = task.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| s.runs.get(f)).map(|o| format!("a:{}", o.task));
