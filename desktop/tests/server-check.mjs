@@ -370,6 +370,29 @@ const stepUpRefusal = () => refused(403, { error: "step_up" });
   await assert.rejects(Server.tasks.resume("t"), e => e.message === "already running", "a refused change is not an unknown one");
 }
 
+// A server that cannot read the session (its database, say) answers 503: not
+// a sign-out. The error carries the server's message, the person stays signed
+// in, and nothing opens sign-in; only a 401 ends a session
+// (decisions/2026-11-14-a-database-fault-is-not-a-sign-out.md).
+{
+  const unread = "The server could not check your sign-in just now. You are still signed in; try again in a moment.";
+  const App = { me: { id: "sam" }, appliance: "a", sessionGeneration: 1, seq: 1 };
+  let signIn = 0;
+  const { Server } = loadServer({ "GET /v1/workspaces": refused(503, { error: unread }), "POST /v1/workspaces": refused(503, { error: unread }) }, { App, signInScreen: () => { signIn++; } });
+  await assert.rejects(Server.workspaces.list(), e => e.status === 503 && e.message === unread);
+  await assert.rejects(Server.workspaces.create("Ops"), e => e.status === 503 && e.message === `Outcome not confirmed. ${unread}`);
+  assert.equal(signIn, 0, "a 503 opened sign-in");
+  assert.equal(App.me?.id, "sam", "a 503 dropped the person");
+  for (const [at, line] of [...app.matchAll(/signInScreen\("Your session ended[^\n]*/g)].map(m => [m.index, m[0]]))
+    assert.match(app.slice(Math.max(0, at - 120), at), /status\s*===\s*401/, `app.js ends a session on more than a 401: ${line}`);
+  const start = app.slice(app.indexOf("async function start()"));
+  assert.ok(start.indexOf("r.unavailable") > 0 && start.indexOf("r.unavailable") < start.indexOf("signInScreen("), "app start opens sign-in when the server could not answer");
+  assert.match(bridge, /r\.status >= 500\) return \{ unavailable/, "the browser's restore reads a 503 as signed out");
+  const restore = read("desktop/src-tauri/src/lib.rs").split("async fn restore(")[1].split("\n}\n")[0];
+  const fault = restore.slice(restore.indexOf("is_server_error()"));
+  assert.ok(restore.includes("is_server_error()") && !fault.slice(0, fault.indexOf("Ok(r) =>")).includes("clear_token"), "the app's restore clears the session on a server fault");
+}
+
 // A read answered after the person, the server or the view changed belongs to no view on screen.
 {
   const App = { me: { id: "sam" }, appliance: "a", sessionGeneration: 1, seq: 1 };

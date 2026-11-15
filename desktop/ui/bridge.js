@@ -116,6 +116,8 @@ const webBridge = {
   kind: "web",
   async restore() {
     const r = await fetch("/v1/me", { credentials: "same-origin" });
+    // The server could not answer: the session cookie stands, so not sign-in.
+    if (r.status >= 500) return { unavailable: (await r.json().catch(() => null))?.error || `The server answered ${r.status}.` };
     if (!r.ok) return null;
     return { person: await r.json(), appliance: location.origin };
   },

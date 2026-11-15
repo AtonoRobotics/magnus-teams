@@ -4,7 +4,7 @@
 //! answers and policy arrive only here, a channel the agent cannot reach (its
 //! sandbox has no network and no tool calls this API).
 
-use crate::api_error::{refuse, ApiResult};
+use crate::api_error::{refuse, session_unread, ApiResult};
 use crate::config::{Adapter, Person};
 use crate::extract::{Body, Caller, Owner};
 use crate::inbox::{self, Answer};
@@ -58,7 +58,7 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     if let Some(p) = k.cfg.person_by_token(token) {
         return k.person(&p.id).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"));
     }
-    k.accounts.session(token).await.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
+    k.accounts.session(token).await.map_err(session_unread)?.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
 }
 
 /// A browser sends the session cookie on its own, so a change made with the

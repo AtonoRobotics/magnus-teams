@@ -62,6 +62,8 @@ pub mod rules;
 mod sections_tests;
 pub mod security;
 pub mod server_channel;
+#[cfg(test)]
+mod session_fault_tests;
 pub mod settings;
 pub mod settings_gate;
 #[cfg(test)]

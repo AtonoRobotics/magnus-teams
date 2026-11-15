@@ -71,10 +71,12 @@ impl Accounts {
     /// here at once, and a re-added id never inherits ended sessions
     /// (#469). A live session's last-seen stamp is refreshed, at most
     /// once a minute, so idle sessions end without a write on every
-    /// request.
-    pub async fn session(&self, token: &str) -> Option<Session> {
-        let mut g = self.client().await.ok()?;
-        let c = g.as_mut()?;
+    /// request. None only when there is no such session; a store that
+    /// cannot answer is an error, never a signed-out person (decision
+    /// `2026-11-14-a-database-fault-is-not-a-sign-out.md`).
+    pub async fn session(&self, token: &str) -> Result<Option<Session>> {
+        let mut g = self.client().await.context("reach the account store")?;
+        let c = g.as_mut().context("accounts connection")?;
         let _ = self.fresh_local(c).await;
         let policy = self.ttl_policy(c).await;
         let r = c
@@ -85,12 +87,12 @@ impl Accounts {
                 &[&token_hash(token)],
             )
             .await
-            .ok()
-            .flatten()?;
+            .context("read the session")?;
+        let Some(r) = r else { return Ok(None) };
         // Judged on the store's own clock, read with the row.
         let life = rules::SessionRow { expires: r.get("expires"), seen: r.get("seen"), status: r.get::<_, Option<String>>("status").map(|s| Status::parse(&s)), now: r.get("now") };
         if !rules::session_live(&life, &policy) {
-            return None;
+            return Ok(None);
         }
         let session = session_of(&r);
         // Best-effort: a stamp that cannot be written does not end a live
@@ -98,7 +100,7 @@ impl Accounts {
         if rules::needs_restamp(&life) {
             let _ = c.execute("UPDATE public.account_sessions SET seen = now() WHERE hash = $1", &[&token_hash(token)]).await;
         }
-        Some(session)
+        Ok(Some(session))
     }
 
     /// A person's live sessions, newest first, each with whether it is the

@@ -3187,10 +3187,22 @@ function stop() {
   for (const k of Object.keys(drafts)) delete drafts[k];
 }
 
+/** The server is there but could not answer (its database, say). The session
+ * is kept, so this is not sign-in: say so, and try again on request
+ * (decisions/2026-11-14-a-database-fault-is-not-a-sign-out.md).
+ * @param {string} message */
+function unavailableScreen(message) {
+  stop();
+  document.body.innerHTML = `<div class="signin"><h1>Magnus</h1><h3>The server cannot answer just now</h3>
+    <p class="muted">${esc(message)}</p><div class="row"><button class="primary" data-act="retry-start">Try again</button></div></div>`;
+  $("[data-act=retry-start]")?.addEventListener("click", () => start(), { once: true });
+}
+
 async function start() {
   try {
     const r = await Magnus.restore();
     if (r && r.update_required) return updateRequiredScreen(r.update_required);
+    if (r && r.unavailable) return unavailableScreen(r.unavailable);
     if (r && r.person) { App.me = r.person; App.appliance = r.appliance; return boot(); }
     signInScreen(r && r.note);
   } catch (e) { signInScreen(e.message || String(e)); }
