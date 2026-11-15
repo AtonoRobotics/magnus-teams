@@ -258,7 +258,7 @@ impl Kernel {
                     }
                     "edit" | "retire" => {
                         let id = s("item");
-                        let mine = self.read(|st| st.playbook.get(&id).is_some_and(|i| i.person == run.person && i.retired.is_none()));
+                        let mine = self.read(|st| st.library.playbook().get(&id).is_some_and(|i| i.person == run.person && i.retired.is_none()));
                         if !mine {
                             return Ok((format!("There is no live playbook item {id:?}. A retry with the same id will not help."), true, None));
                         }
@@ -280,7 +280,7 @@ impl Kernel {
     pub(crate) fn project_file(&self, run: &str, name: &str) -> Option<crate::state::LibFile> {
         self.read(|s| {
             let t = s.with_authority(run)?;
-            t.project.as_ref()?.files.iter().filter_map(|id| s.files.get(id)).filter(|f| f.name == name).last().cloned()
+            t.project.as_ref()?.files.iter().filter_map(|id| s.library.files().get(id)).filter(|f| f.name == name).last().cloned()
         })
     }
 }

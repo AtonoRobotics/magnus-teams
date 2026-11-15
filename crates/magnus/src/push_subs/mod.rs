@@ -124,7 +124,7 @@ impl Kernel {
         let people = self.people().ids();
         for (c, kind) in &apps {
             for person in &people {
-                let want = !self.read(|s| s.turned_off.contains(person)) && self.connected(c, person) && !self.lapsed(c, person);
+                let want = !self.read(|s| s.identity.is_turned_off(person)) && self.connected(c, person) && !self.lapsed(c, person);
                 let (have, failed) = self.read(|s| (s.push.sub(person, &c.name), s.push.failed(person, &c.name)));
                 let st = step(want, have.as_ref(), failed, base.as_deref(), now);
                 if st != Step::Keep {

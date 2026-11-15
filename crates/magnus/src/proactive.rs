@@ -150,31 +150,32 @@ impl crate::kernel::Kernel {
             if self.read(|s| crate::halts::may_proceed(s, &start, crate::halts::Phase::Start).is_some() || s.reviewing(&person)) {
                 continue;
             }
-            let prefs = self.read(|s| s.preferences.get(&person).cloned().unwrap_or(serde_json::Value::Null));
+            let prefs = self.read(|s| s.identity.preferences_of(&person).cloned().unwrap_or(serde_json::Value::Null));
             let st = settings(&self.cfg.proactive, &prefs);
             let m = minutes_at(now, st.tz);
             let today = day_key(now, st.tz);
-            let (last, overnight) = self.read(|s| (s.reviews_last.get(&person).cloned(), s.reviews_overnight.get(&person).cloned()));
+            let (last, overnight) = self.read(|s| (s.inbox.reviews_last().get(&person).cloned(), s.inbox.reviews_overnight().get(&person).cloned()));
             // One sweep starts at most one review per person: an event
             // first (it is marked, so the cadence cannot starve it, and it
             // is the more urgent), else the periodic one (#381).
             let event: Option<(String, Option<Ended>)> = self.read(|s| {
-                for sc in s.schedules.values().filter(|sc| sc.person == person && sc.paused.is_none()) {
+                for sc in s.arrangements.schedules().values().filter(|sc| sc.person == person && sc.paused.is_none()) {
                     if sc.next_due().is_some_and(|d| d > now && d <= now + chrono::Duration::minutes(st.every_minutes as i64))
-                        && !s.wake_marks.get(&format!("{person}:schedule {}", sc.id)).is_some_and(|d| d == &today)
+                        && !s.inbox.wake_marks().get(&format!("{person}:schedule {}", sc.id)).is_some_and(|d| d == &today)
                     {
                         return Some((schedule_reason(&sc.id), None));
                     }
                 }
-                for c in s.commitments.values().filter(|c| c.person == person && c.status == "open") {
+                for c in s.arrangements.commitments().values().filter(|c| c.person == person && c.status == "open") {
                     if c.by.as_deref().and_then(crate::commitments::due).is_some_and(|d| d > now && d <= now + chrono::Duration::hours(24))
-                        && !s.wake_marks.get(&format!("{person}:commitment {}", c.id)).is_some_and(|d| d == &today)
+                        && !s.inbox.wake_marks().get(&format!("{person}:commitment {}", c.id)).is_some_and(|d| d == &today)
                     {
                         return Some((commitment_reason(&c.id), None));
                     }
                 }
-                for i in s.items.values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()) {
-                    if now.signed_duration_since(i.created_at).num_minutes() >= 30 && !s.wake_marks.get(&format!("{person}:approval {}", i.id)).is_some_and(|d| d == &today) {
+                for i in s.inbox.items().values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()) {
+                    if now.signed_duration_since(i.created_at).num_minutes() >= 30 && !s.inbox.wake_marks().get(&format!("{person}:approval {}", i.id)).is_some_and(|d| d == &today)
+                    {
                         return Some((approval_reason(&i.id), None));
                     }
                 }
@@ -199,7 +200,7 @@ impl crate::kernel::Kernel {
                         if now.signed_duration_since(ended).num_seconds() < 30 {
                             return None;
                         }
-                        if s.wake_marks.contains_key(&format!("{person}:task {}", t.task_id)) {
+                        if s.inbox.wake_marks().contains_key(&format!("{person}:task {}", t.task_id)) {
                             return None;
                         }
                         let label = Label { untrusted: r.untrusted, private: r.private };
@@ -324,7 +325,7 @@ impl crate::kernel::Kernel {
         if !self.cfg.proactive.on {
             return false;
         }
-        if self.read(|s| s.reviewing(person) || ended.as_ref().is_some_and(|e| s.wake_marks.contains_key(&format!("{person}:task {}", e.task)))) {
+        if self.read(|s| s.reviewing(person) || ended.as_ref().is_some_and(|e| s.inbox.wake_marks().contains_key(&format!("{person}:task {}", e.task)))) {
             return false;
         }
         self.start_review(person, reason, ended).await
@@ -442,7 +443,8 @@ impl crate::kernel::Kernel {
                 .map(|t| (t.person.clone(), t.seq))
                 .collect::<Vec<_>>();
             let schedules = s
-                .schedules
+                .arrangements
+                .schedules()
                 .values()
                 .filter(|sc| sc.person == person)
                 .map(|sc| {
@@ -457,7 +459,8 @@ impl crate::kernel::Kernel {
                     )
                 })
                 .collect::<Vec<_>>();
-            let approvals = s.items.values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()).map(|i| i.summary.clone()).collect::<Vec<_>>();
+            let approvals =
+                s.inbox.items().values().filter(|i| i.person == person && i.kind == "approval" && i.resolution.is_none()).map(|i| i.summary.clone()).collect::<Vec<_>>();
             let disagreements = s
                 .thread_extras
                 .disagreements()
@@ -466,7 +469,8 @@ impl crate::kernel::Kernel {
                 .map(|d| format!("{} -> {}", d.position.chars().take(120).collect::<String>(), d.decision))
                 .collect::<Vec<_>>();
             let commitments = s
-                .commitments
+                .arrangements
+                .commitments()
                 .values()
                 .filter(|c| c.person == person && c.status == "open")
                 .map(|c| {
@@ -516,7 +520,7 @@ impl crate::kernel::Kernel {
     /// Now, or when quiet ends while it is quiet: when an observation or
     /// interruption may ask for attention (#237).
     pub fn notify_due(&self, person: &str) -> DateTime<Utc> {
-        let prefs = self.read(|s| s.preferences.get(person).cloned().unwrap_or(serde_json::Value::Null));
+        let prefs = self.read(|s| s.identity.preferences_of(person).cloned().unwrap_or(serde_json::Value::Null));
         let st = settings(&self.cfg.proactive, &prefs);
         let now = Utc::now();
         quiet_ends_at(now, st.tz, st.quiet).unwrap_or(now)
@@ -533,7 +537,7 @@ impl crate::kernel::Kernel {
     }
 
     pub async fn interrupt_for(&self, run: &crate::state::Run, what: &str, why: &str, call_id: &str) -> anyhow::Result<(String, bool)> {
-        let prefs = self.read(|s| s.preferences.get(&run.person).cloned().unwrap_or(serde_json::Value::Null));
+        let prefs = self.read(|s| s.identity.preferences_of(&run.person).cloned().unwrap_or(serde_json::Value::Null));
         let st = settings(&self.cfg.proactive, &prefs);
         let now = Utc::now();
         if let Some(denied) = self.loop_deny(run, "interrupt", None) {
@@ -573,7 +577,7 @@ impl crate::kernel::Kernel {
             return Ok((format!("Outside working hours: queued as observation {item}; it pings at {}.", at.with_timezone(&st.tz).format("%H:%M")), false));
         }
         let today = day_key(now, st.tz);
-        let n = self.read(|s| s.interrupts.get(&run.person).filter(|(d, _)| *d == today).map(|(_, n)| *n).unwrap_or(0));
+        let n = self.read(|s| s.inbox.interrupts().get(&run.person).filter(|(d, _)| *d == today).map(|(_, n)| *n).unwrap_or(0));
         if n >= st.per_day {
             // As above: the fallback is an observation, gated on
             // suggest (#402).

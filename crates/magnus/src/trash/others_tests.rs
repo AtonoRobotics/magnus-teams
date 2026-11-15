@@ -28,7 +28,7 @@ async fn the_owner_does_not_delete_a_persons_own_knowledge() {
     let sam = s.token("sam").await;
     let (st, v) = s.post(&sam, "/v1/trash", json!({ "item": "kb_own" })).await;
     assert_eq!(st, 404, "the owner trashed mo's own entry: {v}");
-    assert!(s.k.read(|st| st.knowledge.contains_key("kb_own")), "mo's entry is gone");
+    assert!(s.k.read(|st| st.library.knowledge().contains_key("kb_own")), "mo's entry is gone");
     assert!(!s.get(&sam, "/v1/trash").await.1.to_string().contains("kb_own title"), "mo's entry's title reached the owner's trash");
     // What is shared with a group stays the owner's to moderate, and mo's
     // own stays mo's to delete (the move itself needs the knowledge index,

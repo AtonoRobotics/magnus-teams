@@ -49,8 +49,8 @@ impl Erased {
         Erased {
             person: person.to_string(),
             runs: s.runs.values().filter(|r| r.person == person).map(|r| r.id.clone()).collect(),
-            items: s.items.values().filter(|i| i.person == person).map(|i| i.id.clone()).collect(),
-            files: s.files.iter().filter(|(_, f)| f.person == person).map(|(id, _)| id.clone()).collect(),
+            items: s.inbox.items().values().filter(|i| i.person == person).map(|i| i.id.clone()).collect(),
+            files: s.library.files().iter().filter(|(_, f)| f.person == person).map(|(id, _)| id.clone()).collect(),
             tasks,
             threads,
         }
@@ -102,6 +102,10 @@ impl State {
             org,
             thread_extras,
             apps,
+            arrangements,
+            library,
+            inbox,
+            identity,
             tools,
             spend,
             catalog,
@@ -110,36 +114,10 @@ impl State {
             removed_threads,
             tasks,
             runs,
-            items,
-            approvals,
-            signed_in_before,
-            last_sign_in,
-            home_last_open,
-            items_opened,
-            items_resolved_at,
             openers,
-            turned_off,
-            provider_rights,
-            subjects,
-            roles_set,
-            preferences,
-            schedules,
-            grants,
-            commitments,
-            cards,
             stopped_by_person,
             draft_sources,
-            reviews_last,
-            reviews_overnight,
-            interrupts,
-            review_runs,
-            wake_marks,
-            memory,
             attachments,
-            files,
-            projects,
-            moved,
-            bundle,
             // Kept: the record of what was done and of the erasure itself
             // (#195), the organisation's own settings, apps, policies and
             // knowledge, and the server's own condition. None of it is the
@@ -147,16 +125,10 @@ impl State {
             // their apps' records are harmless once the id is never given
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             erasures: _,
-            data_private: _,
             admin_settings: _,
-            knowledge: _,
-            playbook: _,
-            // A path counts its versions on through any removal.
-            bundle_last: _,
-            playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 21] = [
+        let parts: [&mut dyn Forget; 25] = [
             computers,
             payments,
             rules,
@@ -175,6 +147,10 @@ impl State {
             org,
             thread_extras,
             apps,
+            arrangements,
+            library,
+            inbox,
+            identity,
             tools,
             spend,
             catalog,
@@ -184,57 +160,15 @@ impl State {
         }
         tasks.retain(|_, t| t.person != p);
         runs.retain(|_, r| r.person != p);
-        items.retain(|_, i| i.person != p && i.run.as_ref().is_none_or(|r| !who.runs.contains(r)));
-        // Their items' opened and resolved marks go with the items (#412).
-        items_opened.retain(|id, _| !who.items.contains(id));
-        items_resolved_at.retain(|id, _| !who.items.contains(id));
         stopped_by_person.retain(|r| !who.runs.contains(r));
-        schedules.retain(|_, x| x.person != p);
-        // Their grants: none covers whoever is next known by their name.
-        grants.retain(|_, g| g.person != p);
-        // Their commitments, whose words went with theirs (#236).
-        commitments.retain(|_, c| c.person != p);
-        memory.retain(|m| m.person != p);
-        // Their own documents (their relationship memory among them) and
-        // their versions, whose content went with theirs (org-context.md,
-        // the owner's ruling on erasure).
-        bundle.retain(|_, d| d.owner_user.as_deref() != Some(p));
-        turned_off.remove(p);
-        files.retain(|_, f| f.person != p);
-        projects.retain(|_, x| x.person != p);
         trash.retain(|_, t| t.person != p);
-        // What they moved, hid and removed of their own conversations.
-        moved.retain(|id, _| !who.tasks.contains(id) && !who.files.contains(id) && !who.threads.contains(id));
+        // What they removed of their own conversations.
         removed_threads.retain(|t| !who.threads.contains(t));
-        preferences.remove(p);
-        // Their answers to cards, a decline's reason among them.
-        cards.retain(|_, c| c.person.as_deref() != Some(p));
         // What their drafts were written from.
         draft_sources.retain(|_, d| d.person != p);
-        // The proactive loop's scheduling for them.
-        reviews_last.remove(p);
-        reviews_overnight.remove(p);
-        interrupts.remove(p);
-        review_runs.retain(|_, x| x != p);
-        wake_marks.retain(|k, _| k.split_once(':').is_some_and(|(x, _)| x != p));
         // What their tasks had attached goes too.
         attachments.retain(|t, _| !who.tasks.contains(t));
-        subjects.remove(p);
-        last_sign_in.remove(p);
-        signed_in_before.remove(p);
         openers.retain(|(x, _)| x != p);
-        // Their home mark: whoever is next known by their name starts
-        // fresh (#412).
-        home_last_open.remove(p);
-        // The rights they held go with them: whoever is next known by their
-        // name starts from the organisation's config.
-        roles_set.remove(p);
-        provider_rights.remove(p);
-        // So do the approvals given for their actions: none covers whoever
-        // is next known by their name (#191). Those they gave others stay,
-        // as given; the gate still asks whether their approver may give a
-        // lasting one.
-        approvals.retain(|a| a.person != p);
     }
 }
 

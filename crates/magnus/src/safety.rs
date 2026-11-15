@@ -249,7 +249,8 @@ impl Kernel {
         }
         let Some(step) = run.replies.last().map(|r| r.step) else { return Ok(None) };
         let decided = self.read(|s| {
-            s.items
+            s.inbox
+                .items()
                 .values()
                 .find(|i| i.kind == MONITOR_ITEM && i.run.as_deref() == Some(&run.id) && i.details["step"] == json!(step))
                 .map(|i| (i.resolution.clone(), i.summary.clone()))

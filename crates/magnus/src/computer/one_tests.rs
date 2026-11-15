@@ -311,13 +311,13 @@ async fn several_computers_become_the_one_used_last_and_the_person_is_told() {
         assert!(destroyed.iter().any(|r| r["id"] == json!(gone) && r["delete_volume"] == true), "{gone} was not deleted");
     }
     assert!(!destroyed.iter().any(|r| r["id"] == json!(b)), "the kept computer's volume was touched");
-    let notices: Vec<crate::state::Item> = s.k.read(|st| st.items.values().filter(|i| i.person == "mo" && i.details["reason"] == "one_computer").cloned().collect());
+    let notices: Vec<crate::state::Item> = s.k.read(|st| st.inbox.items().values().filter(|i| i.person == "mo" && i.details["reason"] == "one_computer").cloned().collect());
     assert_eq!(notices.len(), 1, "the person was not told, or told twice");
     assert!(notices[0].summary.contains("2 other computers were removed") && notices[0].summary.contains("30 days"), "{}", notices[0].summary);
     assert_eq!(notices[0].details["kept"], json!(b));
     s.k.reconcile_computers().await;
     assert_eq!(s.asked("destroy").len(), destroyed.len(), "the next start deleted again");
-    let told = s.k.read(|st| st.items.values().filter(|i| i.details["reason"] == "one_computer").count());
+    let told = s.k.read(|st| st.inbox.items().values().filter(|i| i.details["reason"] == "one_computer").count());
     assert_eq!(told, 1, "the person was told again");
     s.done().await;
 }

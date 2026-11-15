@@ -156,7 +156,9 @@ pub(crate) fn recent_lines(recent: &[(chrono::DateTime<chrono::Utc>, String)]) -
 impl Kernel {
     /// The person's notes and the version they are at (0: none yet).
     pub async fn relationship(&self, person: &str) -> anyhow::Result<(Vec<String>, u32)> {
-        let Some(d) = self.read(|s| s.bundle.get(&path(person)).filter(|d| d.scope == "user" && d.owner_user.as_deref() == Some(person)).cloned()) else { return Ok((vec![], 0)) };
+        let Some(d) = self.read(|s| s.library.bundle().get(&path(person)).filter(|d| d.scope == "user" && d.owner_user.as_deref() == Some(person)).cloned()) else {
+            return Ok((vec![], 0));
+        };
         let c = self.log.contents(&[d.seq()]).await?.remove(&d.seq()).unwrap_or_default();
         Ok((notes_of(c["body"].as_str().unwrap_or_default()), d.version()))
     }

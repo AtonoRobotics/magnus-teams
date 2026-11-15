@@ -108,7 +108,8 @@ impl Kernel {
             // A run waiting for review has no summary yet: its report is on
             // the review card.
             let answer = run.summary.clone().or_else(|| {
-                s.items
+                s.inbox
+                    .items()
                     .values()
                     .filter(|i| i.run.as_deref() == Some(run.id.as_str()) && i.kind == "review")
                     .max_by_key(|i| i.created_at)

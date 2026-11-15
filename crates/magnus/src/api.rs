@@ -418,7 +418,7 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
     let label = provider.as_ref().map(|i| i.label()).unwrap_or_default();
     // The first time, the provider's own page signs them in: it can walk
     // them through what a new account needs.
-    if provider.is_some() && machine_code.is_none() && !k.read(|s| s.signed_in_before.contains(&person)) {
+    if provider.is_some() && machine_code.is_none() && !k.read(|s| s.identity.signed_in_before(&person)) {
         let page = crate::identity::Polled::UseBrowser(format!("The first time, sign in on the {label} page that just opened in your browser."));
         return Ok(provider_answered(&k, t, label, page, device).await);
     }
@@ -525,7 +525,7 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
             // rulings, 2026-11-01).
             if let Some(sub) = rights.subject.clone() {
                 let _decide = k.decide.lock().await;
-                match k.read(|s| s.subjects.get(&person).cloned()) {
+                match k.read(|s| s.identity.subject(&person).map(str::to_string)) {
                     Some(bound) if bound != sub => {
                         tracing::warn!("identity: an account at {label} other than {person}'s signed in as {person}; refused");
                         return err(
@@ -715,7 +715,7 @@ async fn versions(State(k): K, _: Caller) -> ApiResult {
             "instructions": crate::run::instructions_version(),
             "chat_instructions": crate::run::chat_instructions_version(),
             "model": s.org.model().as_ref().map(|(a, m)| format!("{a}/{m}")),
-            "playbook": s.playbook_version,
+            "playbook": s.library.playbook_version(),
             "latest_seq": s.org.version_changes().last().map(|c| c.0),
             "changes": changes,
         })
@@ -745,7 +745,7 @@ pub(crate) fn title_of(task: &crate::state::Task, run: Option<&Run>, words: &cra
 
 /// Whether the task waits on an inbox item this person can answer.
 fn needs(s: &crate::state::State, p: &Person, run: &Run) -> bool {
-    run.status == Status::Suspended && s.items.values().any(|i| i.run.as_deref() == Some(run.id.as_str()) && i.resolution.is_none() && inbox::may_respond(s, p, i))
+    run.status == Status::Suspended && s.inbox.items().values().any(|i| i.run.as_deref() == Some(run.id.as_str()) && i.resolution.is_none() && inbox::may_respond(s, p, i))
 }
 
 /// A task in a list: what it is, where it stands, whether it needs this
@@ -761,7 +761,7 @@ pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crat
     v["waiting_item"] = json!(r.waiting_item);
     v["ended_at"] = json!(r.ended_at);
     // A scheduled run's sub-agents are grouped under its schedule.
-    v["group"] = if let Some(sc) = s.authority(&t.run_id).and_then(|a| a.schedule.as_ref()).and_then(|id| s.schedules.get(id)) {
+    v["group"] = if let Some(sc) = s.authority(&t.run_id).and_then(|a| a.schedule.as_ref()).and_then(|id| s.arrangements.schedules().get(id)) {
         json!({ "kind": "schedule", "id": sc.id, "title": words.title(sc.seq).unwrap_or_else(|| words.text(sc.seq).to_string()) })
     } else if let Some((c, turn)) =
         t.chat.as_ref().and_then(|c| c.from_run.as_ref().and_then(|f| s.runs.get(f)).and_then(|r| s.tasks.get(&r.task)).map(|turn| (c, crate::outcomes::person_turn(s, turn))))
@@ -818,14 +818,14 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         v["plan_version"] = json!(run.plan_version);
         v["outcome_view"] = run.outcome_view.clone().unwrap_or(Value::Null);
         // Only here, never in a list's rows: those are built under the state lock.
-        v["files"] = json!(k.read(|s| task.files.iter().filter_map(|id| s.files.get(id)).map(|f| crate::library::file_json(s, f, words)).collect::<Vec<_>>()));
+        v["files"] = json!(k.read(|s| task.files.iter().filter_map(|id| s.library.files().get(id)).map(|f| crate::library::file_json(s, f, words)).collect::<Vec<_>>()));
         v["project"] = k.read(|s| crate::library::project_ref(s, &task.task_id));
         v["preview"] = json!({ "chars": crate::compose::PREVIEW_CHARS, "rows": crate::compose::MAX_ROWS });
         v["spoken"] = json!(run.spoken);
         v["ended_at"] = json!(run.ended_at);
         v["waiting_item"] = json!(run.waiting_item);
         v["config"] = json!({ "harness": run.config.harness, "instructions": run.config.instructions, "playbook": run.config.playbook });
-        v["open_items"] = json!(k.read(|s| s.items.values().filter(|i| i.run.as_deref() == Some(&run.id) && i.resolution.is_none()).map(|i| i.id.clone()).collect::<Vec<_>>()));
+        v["open_items"] = json!(k.read(|s| s.inbox.open_for_run(&run.id).map(|i| i.id.clone()).collect::<Vec<_>>()));
     }
     v
 }
@@ -1121,7 +1121,7 @@ async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
     let words = k.person_words(&p.id).await?;
     let now = chrono::Utc::now();
     let (since, mut ended, mut arrived, mut decided, mut observations) = k.read(|s| {
-        let since = s.home_last_open.get(&p.id).cloned().unwrap_or(now - chrono::Duration::hours(24));
+        let since = s.identity.home_last_open(&p.id).unwrap_or(now - chrono::Duration::hours(24));
         let mut ended: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut arrived: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut decided: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
@@ -1133,13 +1133,13 @@ async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
                 }
             }
         }
-        for i in s.items.values().filter(|i| inbox::visible(s, &p, i)) {
+        for i in s.inbox.items().values().filter(|i| inbox::visible(s, &p, i)) {
             let row = inbox::render(s, &p, i);
             if i.created_at > since {
                 arrived.push((i.created_at, row.clone()));
             }
-            if i.resolution.is_some() && s.items_resolved_at.get(&i.id).is_some_and(|a| *a > since) {
-                decided.push((s.items_resolved_at[&i.id], row.clone()));
+            if i.resolution.is_some() && s.inbox.items_resolved_at().get(&i.id).is_some_and(|a| *a > since) {
+                decided.push((s.inbox.items_resolved_at()[&i.id], row.clone()));
             }
             if i.resolution.is_none() && (i.kind == "observation" || i.kind == "interrupt") {
                 observations.push((i.created_at, row));
@@ -1173,9 +1173,9 @@ async fn inbox_opened(State(k): K, Caller(p): Caller, Body(b): Body<req::Opened>
         let mut marked = vec![];
         let mut fresh = vec![];
         for id in b.ids {
-            if s.items.get(&id).is_some_and(|i| inbox::visible(s, &p, i)) {
+            if s.inbox.items().get(&id).is_some_and(|i| inbox::visible(s, &p, i)) {
                 marked.push(id.clone());
-                if !s.items_opened.contains_key(&id) {
+                if !s.inbox.items_opened().contains_key(&id) {
                     fresh.push(id);
                 }
             }
@@ -1191,7 +1191,7 @@ async fn inbox_opened(State(k): K, Caller(p): Caller, Body(b): Body<req::Opened>
 }
 
 async fn inbox_list(State(k): K, Caller(p): Caller) -> ApiResult {
-    let mut items: Vec<Value> = k.read(|s| s.items.values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
+    let mut items: Vec<Value> = k.read(|s| s.inbox.items().values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
     // An approval for an app's action carries the app's card, as the person
     // whose task it is stands with it (connectors spec: the same card in the
     // Library, in chat, in a task and in approvals).
@@ -1603,7 +1603,7 @@ async fn memory(State(k): K, Caller(p): Caller) -> ApiResult {
 
 /// Forget one of the person's own memories.
 async fn forget(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
-    if !k.read(|s| s.memory.iter().any(|m| m.id == id && m.person == p.id)) {
+    if !k.read(|s| s.library.memory().iter().any(|m| m.id == id && m.person == p.id)) {
         return refuse(StatusCode::NOT_FOUND, "no such memory");
     }
     Ok(crate::trash::trashed(k.trash(&p.id, rights(&p).moderates_shared_knowledge(), &id).await))
@@ -1711,9 +1711,8 @@ async fn put_model(State(k): K, Owner(p): Owner, Body(b): Body<req::Model>) -> A
 async fn schedules(State(k): K, Caller(p): Caller) -> ApiResult {
     let words = k.person_words(&p.id).await?;
     let list: Vec<Value> = k.read(|s| {
-        s.schedules
-            .values()
-            .filter(|x| x.person == p.id)
+        s.arrangements
+            .schedules_of(&p.id)
             .map(|x| {
                 // Its runs, newest first; the last result is the newest that ended.
                 let mut runs: Vec<(&crate::state::Task, &Run)> =
@@ -1736,7 +1735,7 @@ async fn schedules(State(k): K, Caller(p): Caller) -> ApiResult {
                     "budget": crate::task_budget::scheduled(&k.cfg.budget, x.budget.as_ref()),
                     "skipped": x.skipped.as_ref().map(|(at, task, why)| json!({ "at": at, "task": task, "why": why })),
                     "last": last, "last_failed": last_failed, "failures": failures, "runs": rows,
-                    "project": s.project_of(&x.id).filter(|_| x.person == p.id).and_then(|id| s.projects.get(&id)).map(|p| json!({ "id": p.id, "name": p.name })),
+                    "project": s.project_of(&x.id).filter(|_| x.person == p.id).and_then(|id| s.library.projects().get(&id)).map(|p| json!({ "id": p.id, "name": p.name })),
                 })
             })
             .collect()

@@ -50,7 +50,7 @@ impl Kernel {
             return Err((StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.".into()));
         }
         let Some(p) = self.person(id) else { return Err((StatusCode::NOT_FOUND, "not_found", "No such person.".into())) };
-        if self.read(|s| s.provider_rights.get(id).is_some_and(|(_, r)| r.is_some())) {
+        if self.read(|s| s.identity.provider_set_roles(id)) {
             return Err((StatusCode::CONFLICT, "provider", "The identity provider names this person's roles: change them there.".into()));
         }
         let _decide = self.decide.lock().await;

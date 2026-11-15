@@ -39,7 +39,7 @@ pub(crate) fn request_schema(_: &dyn Fn(&str) -> String) -> Value {
 
 /// The run's open request, if it has one.
 pub(super) fn open_request<'a>(s: &'a State, run: &str) -> Option<&'a Item> {
-    s.items.values().find(|i| i.kind == REQUEST_KIND && i.resolution.is_none() && i.run.as_deref() == Some(run))
+    s.inbox.items().values().find(|i| i.kind == REQUEST_KIND && i.resolution.is_none() && i.run.as_deref() == Some(run))
 }
 
 /// The request the agent makes, checked: a reason the spec names and a short why.
@@ -74,7 +74,8 @@ pub(super) fn cause_of(item: &Item) -> String {
 /// The open requests a handback answers: those of the runs it resumes, and
 /// any made on this computer.
 pub(super) fn answered_by_handback(s: &State, computer: &str, runs: &[String]) -> Vec<String> {
-    s.items
+    s.inbox
+        .items()
         .values()
         .filter(|i| i.kind == REQUEST_KIND && i.resolution.is_none())
         .filter(|i| i.details["computer"] == json!(computer) || i.run.as_ref().is_some_and(|r| runs.contains(r)))
@@ -94,7 +95,8 @@ pub(super) fn driving(s: &State, c: &Computer) -> Value {
         (None, false) => "no_one",
     };
     let request = s
-        .items
+        .inbox
+        .items()
         .values()
         .find(|i| i.kind == REQUEST_KIND && i.resolution.is_none() && i.details["computer"] == json!(c.id))
         .map(|i| json!({ "item": i.id, "reason": i.details["reason"], "why": i.details["why"], "run": i.run, "task": i.task, "at": i.created_at }));
@@ -247,7 +249,7 @@ mod tests {
         assert!(open_request(&s, "r1").is_some(), "the run is not waiting on its request");
         let d = driving(&s, &computer(&s));
         assert_eq!((d["request"]["item"].clone(), d["request"]["reason"].clone()), (json!("i1"), json!("passkey")), "{d}");
-        let Some(i) = s.items.get("i1") else { panic!("no item") };
+        let Some(i) = s.inbox.items().get("i1") else { panic!("no item") };
         assert_eq!(cause_of(i), "the agent asked: passkey");
         assert_eq!(answered_by_handback(&s, "c", &[]), vec!["i1".to_string()]);
         assert_eq!(answered_by_handback(&s, "other", &["r1".to_string()]), vec!["i1".to_string()]);

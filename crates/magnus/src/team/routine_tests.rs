@@ -28,7 +28,7 @@ async fn a_routine_that_cannot_start_is_told_and_the_rest_still_start() {
     let fired = |ws: &str| s.k.read(|st| st.team.workspace(ws).unwrap().routines[&format!("r_{ws}")].fired.clone());
     assert_eq!(fired("w1"), vec![Firing::Failed], "the failed firing was not recorded");
     assert!(matches!(fired("w2").as_slice(), [Firing::Started(_)]), "a routine after a failing one did not start: {:?}", fired("w2"));
-    let told = s.k.read(|st| st.items.values().filter(|i| i.person == "ana" && i.details["reason"] == "routine_failed").count());
+    let told = s.k.read(|st| st.inbox.items().values().filter(|i| i.person == "ana" && i.details["reason"] == "routine_failed").count());
     assert_eq!(told, 1, "the routine's admin was not told it could not start");
     s.done().await;
 }
