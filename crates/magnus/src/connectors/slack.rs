@@ -1,18 +1,13 @@
 //! Slack's sign-in, whose one registered redirect is an https address:
 //! the browser comes to the server, which sends it on to the desktop app.
 
-use super::sign_in::pending;
-use super::{PENDING_FOR, SLACK_HANDOFF, SLACK_OAUTH_CALLBACK};
-use axum::extract::Query;
+use super::SLACK_HANDOFF;
+use crate::kernel::Kernel;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
-
-/// Whether `state` is a Slack sign-in still waiting, started with the
-/// registered https redirect. The pending entry stays: the desktop finishes it.
-pub(crate) fn slack_sign_in_open(state: &str) -> bool {
-    pending().lock().unwrap_or_else(|e| e.into_inner()).get(state).is_some_and(|p| p.app == "slack" && p.redirect_uri == SLACK_OAUTH_CALLBACK && p.at.elapsed() < PENDING_FOR)
-}
+use std::sync::Arc;
 
 /// The desktop's loopback address with only this sign-in's answer. The code
 /// is not written anywhere else.
@@ -33,8 +28,8 @@ pub(crate) fn slack_handoff_url(state: &str, code: Option<&str>, iss: Option<&st
 
 /// Slack's browser comes here. A waiting sign-in is sent on to the desktop
 /// app; anything else is an empty 404. The code is not logged.
-pub(crate) async fn slack_oauth_callback(Query(q): Query<HashMap<String, String>>) -> Response {
-    let Some(state) = q.get("state").map(String::as_str).filter(|s| slack_sign_in_open(s)) else {
+pub(crate) async fn slack_oauth_callback(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let Some(state) = q.get("state").map(String::as_str).filter(|s| k.sign_ins.slack_open(s)) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let loc = slack_handoff_url(state, q.get("code").map(String::as_str), q.get("iss").map(String::as_str), q.get("error").map(String::as_str));

@@ -37,6 +37,7 @@ pub struct Kernel {
     pub(crate) notes: tokio::sync::Mutex<()>,
     pub vault: Arc<Vault>,
     pub(crate) relay_keys: crate::connectors::relay::Keys, // This server's key with the relay, held once read.
+    pub(crate) sign_ins: crate::connectors::SignIns,       // The apps' sign-ins waiting for their code.
     pub accounts: crate::accounts::Accounts,
     /// Computers paired with this appliance, and the certificates Cloudflare issued for them. Empty until device certificates are configured.
     pub devices: crate::devices::Devices,
@@ -154,6 +155,7 @@ impl Kernel {
             mcp: Mcp::new()?.allowing_private(cfg.web.allow_private_networks),
             adapters,
             relay_keys: crate::connectors::relay::Keys::at_boot(cfg.relay.as_ref(), &vault),
+            sign_ins: Default::default(),
             vault,
             accounts,
             devices,

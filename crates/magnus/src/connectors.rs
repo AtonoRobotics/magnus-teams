@@ -28,6 +28,7 @@ mod standing;
 
 pub use admin::{org_credential, OrgCredential, Refusal};
 pub use routes::router;
+pub(crate) use sign_in::SignIns;
 pub use standing::revoke;
 
 pub const OAUTH: &str = "oauth";

@@ -11,7 +11,7 @@ use crate::oauth::{challenge, loopback, random};
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// A sign-in waiting for its code.
@@ -152,9 +152,119 @@ pub(crate) fn dead_token(v: &Value) -> bool {
     v["ok"] == false && matches!(v["error"].as_str(), Some("invalid_refresh_token" | "invalid_grant" | "token_revoked" | "invalid_auth" | "token_expired" | "account_inactive"))
 }
 
-pub(crate) fn pending() -> &'static Mutex<HashMap<String, Pending>> {
-    static P: OnceLock<Mutex<HashMap<String, Pending>>> = OnceLock::new();
-    P.get_or_init(Default::default)
+/// The sign-ins waiting for their code, by their state: the server's own,
+/// kept on the kernel.
+#[derive(Default)]
+pub(crate) struct SignIns(Mutex<HashMap<String, Pending>>);
+
+impl SignIns {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Pending>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Keep a sign-in until its code comes back, dropping any left
+    /// unfinished too long.
+    fn wait(&self, state: String, p: Pending) {
+        let mut m = self.lock();
+        m.retain(|_, x| x.at.elapsed() < PENDING_FOR);
+        m.insert(state, p);
+    }
+
+    /// The sign-in `state` names, taken only by the person who started it,
+    /// for the app they started it for: anyone else's attempt leaves it
+    /// waiting for them. None, too, once it is older than `PENDING_FOR`.
+    fn take(&self, state: &str, app: &str, person: &str) -> Option<Pending> {
+        let mut m = self.lock();
+        let p = match m.get(state) {
+            Some(p) if p.app == app && p.person == person => m.remove(state),
+            _ => None,
+        };
+        p.filter(|p| p.at.elapsed() < PENDING_FOR)
+    }
+
+    /// Whether `state` is a Slack sign-in still waiting, started with the
+    /// registered https redirect. It stays: the desktop finishes it.
+    pub(crate) fn slack_open(&self, state: &str) -> bool {
+        self.lock().get(state).is_some_and(|p| p.app == "slack" && p.redirect_uri == SLACK_OAUTH_CALLBACK && p.at.elapsed() < PENDING_FOR)
+    }
+}
+
+/// What a sign-in's address asks of the authorization server.
+pub(crate) struct Authorize<'a> {
+    pub(crate) endpoint: &'a str,
+    pub(crate) redirect_uri: &'a str,
+    pub(crate) state: &'a str,
+    /// The PKCE verifier, when the sign-in sends a challenge (RFC 7636).
+    pub(crate) verifier: Option<&'a str>,
+    /// The resource indicator (RFC 8707); empty for none.
+    pub(crate) resource: &'a str,
+    pub(crate) scopes: &'a [String],
+}
+
+/// The scopes a sign-in asks for: exactly what the app's manifest names,
+/// where it names any, else what its metadata lists; and the more access
+/// the app asked of this person's sign-in.
+pub(crate) fn scopes_asked(manifest: &[String], listed: &[String], wanted: &[String]) -> Vec<String> {
+    let mut scopes = if manifest.is_empty() { listed.to_vec() } else { manifest.to_vec() };
+    for w in wanted {
+        if !scopes.contains(w) {
+            scopes.push(w.clone());
+        }
+    }
+    scopes
+}
+
+/// The address the person's browser opens to sign in, for `client_id`.
+pub(crate) fn authorize_url(a: &Authorize, client_id: &str) -> Result<url::Url> {
+    let mut u = url::Url::parse(a.endpoint)?;
+    let mut q = u.query_pairs_mut();
+    q.append_pair("response_type", "code").append_pair("client_id", client_id).append_pair("redirect_uri", a.redirect_uri).append_pair("state", a.state);
+    if let Some(v) = a.verifier {
+        q.append_pair("code_challenge", &challenge(v)).append_pair("code_challenge_method", "S256");
+    }
+    if !a.resource.is_empty() {
+        q.append_pair("resource", a.resource);
+    }
+    if !a.scopes.is_empty() {
+        q.append_pair("scope", &a.scopes.join(" "));
+    }
+    // A refresh token that lasts (Google gives one only when asked for
+    // offline access).
+    if a.endpoint.starts_with("https://accounts.google.com/") {
+        q.append_pair("access_type", "offline").append_pair("prompt", "consent");
+    }
+    drop(q);
+    Ok(u)
+}
+
+/// The answer must come from the server the sign-in went to (RFC 9207):
+/// otherwise the code and verifier would go to this one's token endpoint
+/// for another server's code (a mix-up). A server that says it names
+/// itself must have.
+pub(crate) fn check_answer_issuer(iss: Option<&str>, issuer: &str, required: bool) -> Result<()> {
+    match iss {
+        Some(i) if !crate::issuers::same(i, issuer) => bail!("the sign-in was answered by {i}, not {issuer}; start again"),
+        None if required => bail!("{issuer} says it names itself in its answer, and this answer names no one; start again"),
+        _ => Ok(()),
+    }
+}
+
+/// The token request for a sign-in's code: the verifier only when the
+/// sign-in sent a challenge, the resource only when there is one, and the
+/// client's secret only when it has one.
+pub(crate) fn token_form(code: &str, p: &Pending) -> Vec<(&'static str, String)> {
+    let c = &p.client;
+    let mut form = vec![("grant_type", "authorization_code".to_string()), ("code", code.to_string()), ("redirect_uri", p.redirect_uri.clone()), ("client_id", c.client_id.clone())];
+    if p.pkce {
+        form.push(("code_verifier", p.verifier.clone()));
+    }
+    if !c.resource.is_empty() {
+        form.push(("resource", c.resource.clone()));
+    }
+    if let Some(s) = &c.client_secret {
+        form.push(("client_secret", s.clone()));
+    }
+    form
 }
 
 /// How long a refused registration waits before trying again: what the server's `Retry-After` asks,
@@ -314,35 +424,9 @@ impl Kernel {
         let verifier = random();
         let state = random();
         let wanted = self.wanted_scopes(c, person);
-        let address = |client_id: &str| -> Result<url::Url> {
-            let mut u = url::Url::parse(&authorize)?;
-            let mut q = u.query_pairs_mut();
-            q.append_pair("response_type", "code").append_pair("client_id", client_id).append_pair("redirect_uri", redirect_uri).append_pair("state", &state);
-            if c.pkce {
-                q.append_pair("code_challenge", &challenge(&verifier)).append_pair("code_challenge_method", "S256");
-            }
-            if !resource.is_empty() {
-                q.append_pair("resource", &resource);
-            }
-            // Exactly what the app's manifest asks for, where it names it.
-            let mut scopes = if c.scopes.is_empty() { scopes.clone() } else { c.scopes.clone() };
-            // More access the app asked of this person's sign-in.
-            for w in wanted.iter().cloned() {
-                if !scopes.contains(&w) {
-                    scopes.push(w);
-                }
-            }
-            if !scopes.is_empty() {
-                q.append_pair("scope", &scopes.join(" "));
-            }
-            // A refresh token that lasts (Google gives one only when asked
-            // for offline access).
-            if authorize.starts_with("https://accounts.google.com/") {
-                q.append_pair("access_type", "offline").append_pair("prompt", "consent");
-            }
-            drop(q);
-            Ok(u)
-        };
+        let scopes = scopes_asked(&c.scopes, &scopes, &wanted);
+        let ask = Authorize { endpoint: &authorize, redirect_uri, state: &state, verifier: c.pkce.then_some(verifier.as_str()), resource: &resource, scopes: &scopes };
+        let address = |client_id: &str| authorize_url(&ask, client_id);
         let mut u = address(&client_id)?;
         if fresh {
             until_client_known(u.as_str()).await;
@@ -356,10 +440,8 @@ impl Kernel {
             }
         }
         let client = Client { token_endpoint: token, revocation_endpoint: s("revocation_endpoint"), client_id, client_secret, resource, relay: None };
-        let mut p = pending().lock().unwrap_or_else(|e| e.into_inner());
-        p.retain(|_, x| x.at.elapsed() < PENDING_FOR);
         let iss_required = asm["authorization_response_iss_parameter_supported"] == true;
-        p.insert(
+        self.sign_ins.wait(
             state.clone(),
             Pending {
                 app: c.name.clone(),
@@ -382,38 +464,10 @@ impl Kernel {
     pub async fn connector_sign_in_complete(&self, app: &str, person: &str, state: &str, code: &str, iss: Option<&str>) -> Result<()> {
         // Taken only by the person who started it: anyone else's attempt
         // leaves it waiting for them.
-        let p = {
-            let mut m = pending().lock().unwrap_or_else(|e| e.into_inner());
-            match m.get(state) {
-                Some(p) if p.app == app && p.person == person => m.remove(state),
-                _ => None,
-            }
-        };
-        let p = p.filter(|p| p.at.elapsed() < PENDING_FOR).ok_or_else(|| anyhow!("this sign-in expired or is unknown; start again"))?;
-        // The answer must come from the server the sign-in went to (RFC
-        // 9207): otherwise the code and verifier would go to this one's token
-        // endpoint for another server's code (a mix-up).
-        match iss {
-            Some(i) if !crate::issuers::same(i, &p.issuer) => bail!("the sign-in was answered by {i}, not {}; start again", p.issuer),
-            None if p.iss_required => bail!("{} says it names itself in its answer, and this answer names no one; start again", p.issuer),
-            _ => {}
-        }
+        let p = self.sign_ins.take(state, app, person).ok_or_else(|| anyhow!("this sign-in expired or is unknown; start again"))?;
+        check_answer_issuer(iss, &p.issuer, p.iss_required)?;
         let c = &p.client;
-        let mut form = vec![
-            ("grant_type", "authorization_code".to_string()),
-            ("code", code.to_string()),
-            ("redirect_uri", p.redirect_uri.clone()),
-            ("client_id", c.client_id.clone()),
-            ("code_verifier", p.verifier.clone()),
-            ("resource", c.resource.clone()),
-        ];
-        form.retain(|(k, v)| *k != "resource" || !v.is_empty());
-        if !p.pkce {
-            form.retain(|(k, _)| *k != "code_verifier");
-        }
-        if let Some(s) = &c.client_secret {
-            form.push(("client_secret", s.clone()));
-        }
+        let form = token_form(code, &p);
         let r = crate::token_endpoint::post(&http(), &c.token_endpoint, &form).send().await?;
         if !r.status().is_success() {
             let status = r.status();
@@ -439,3 +493,7 @@ impl Kernel {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "sign_in_tests.rs"]
+mod tests;
