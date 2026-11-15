@@ -92,3 +92,26 @@ pub(super) fn partition_layer(text: &str, side: Side) -> Result<String> {
     }
     Ok(out)
 }
+
+/// The permit-everything rule a tool call's evaluation adds to a lower
+/// layer, so the layer denies only if one of its own forbids matched.
+const TOOL_PERMIT_ALL: &str = "permit(principal, action, resource);";
+
+/// The same for a control: the tool boundary's unqualified blanket bears on
+/// tool calls only, so control names its actions.
+const CONTROL_PERMIT_ALL: &str =
+    "permit(principal, action in [Action::\"cancel_task\", Action::\"pause_schedule\", Action::\"resume_schedule\", Action::\"edit_schedule\", Action::\"cancel_schedule\"], resource);";
+
+/// The same for the loop's actions.
+const LOOP_PERMIT_ALL: &str = "permit(principal, action in [Action::\"suggest\", Action::\"interrupt\", Action::\"act\"], resource);";
+
+impl Side {
+    /// The rule added to each layer below `org` for this side's requests.
+    pub(super) fn permit_all(self) -> &'static str {
+        match self {
+            Side::Tool => TOOL_PERMIT_ALL,
+            Side::Control => CONTROL_PERMIT_ALL,
+            Side::Loop => LOOP_PERMIT_ALL,
+        }
+    }
+}
