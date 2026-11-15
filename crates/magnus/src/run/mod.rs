@@ -177,7 +177,7 @@ impl Kernel {
             let refs: Vec<(String, String, usize)> = task
                 .as_ref()
                 .and_then(|t| t.project.as_ref())
-                .map(|p| p.files.iter().filter_map(|id| s.files.get(id)).map(|f| (f.name.clone(), f.media_type.clone(), f.size)).collect())
+                .map(|p| p.files.iter().filter_map(|id| s.library.files().get(id)).map(|f| (f.name.clone(), f.media_type.clone(), f.size)).collect())
                 .unwrap_or_default();
             (task, files, refs)
         });

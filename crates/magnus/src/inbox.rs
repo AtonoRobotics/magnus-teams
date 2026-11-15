@@ -362,7 +362,7 @@ impl Kernel {
                             verifier_model: self.cfg.verifier.model.clone(),
                             instructions: crate::run::instructions_version(),
                             harness: crate::kernel::HARNESS_VERSION.into(),
-                            playbook: self.read(|s| s.playbook_version),
+                            playbook: self.read(|s| s.library.playbook_version()),
                         },
                         experiment: None,
                         chat: None,
@@ -380,7 +380,7 @@ impl Kernel {
             // who endorsed it, from which card, is in the log.
             ("endorsement", "endorse") => {
                 let entry = item.details["entry"].as_str().unwrap_or_default().to_string();
-                if self.read(|s| s.knowledge.get(&entry).map(|e| e.integrity.clone())).is_none() {
+                if self.read(|s| s.library.knowledge().get(&entry).map(|e| e.integrity.clone())).is_none() {
                     return Ok(Answer::Invalid("the entry no longer exists".into()));
                 }
                 evs.push((&actor, resolve(None)));

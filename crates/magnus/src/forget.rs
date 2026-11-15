@@ -50,7 +50,7 @@ impl Erased {
             person: person.to_string(),
             runs: s.runs.values().filter(|r| r.person == person).map(|r| r.id.clone()).collect(),
             items: s.items.values().filter(|i| i.person == person).map(|i| i.id.clone()).collect(),
-            files: s.files.iter().filter(|(_, f)| f.person == person).map(|(id, _)| id.clone()).collect(),
+            files: s.library.files().iter().filter(|(_, f)| f.person == person).map(|(id, _)| id.clone()).collect(),
             tasks,
             threads,
         }
@@ -103,6 +103,7 @@ impl State {
             thread_extras,
             apps,
             arrangements,
+            library,
             tools,
             spend,
             catalog,
@@ -131,12 +132,7 @@ impl State {
             interrupts,
             review_runs,
             wake_marks,
-            memory,
             attachments,
-            files,
-            projects,
-            moved,
-            bundle,
             // Kept: the record of what was done and of the erasure itself
             // (#195), the organisation's own settings, apps, policies and
             // knowledge, and the server's own condition. None of it is the
@@ -146,14 +142,9 @@ impl State {
             erasures: _,
             data_private: _,
             admin_settings: _,
-            knowledge: _,
-            playbook: _,
-            // A path counts its versions on through any removal.
-            bundle_last: _,
-            playbook_version: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 22] = [
+        let parts: [&mut dyn Forget; 23] = [
             computers,
             payments,
             rules,
@@ -173,6 +164,7 @@ impl State {
             thread_extras,
             apps,
             arrangements,
+            library,
             tools,
             spend,
             catalog,
@@ -187,17 +179,9 @@ impl State {
         items_opened.retain(|id, _| !who.items.contains(id));
         items_resolved_at.retain(|id, _| !who.items.contains(id));
         stopped_by_person.retain(|r| !who.runs.contains(r));
-        memory.retain(|m| m.person != p);
-        // Their own documents (their relationship memory among them) and
-        // their versions, whose content went with theirs (org-context.md,
-        // the owner's ruling on erasure).
-        bundle.retain(|_, d| d.owner_user.as_deref() != Some(p));
         turned_off.remove(p);
-        files.retain(|_, f| f.person != p);
-        projects.retain(|_, x| x.person != p);
         trash.retain(|_, t| t.person != p);
-        // What they moved, hid and removed of their own conversations.
-        moved.retain(|id, _| !who.tasks.contains(id) && !who.files.contains(id) && !who.threads.contains(id));
+        // What they removed of their own conversations.
         removed_threads.retain(|t| !who.threads.contains(t));
         preferences.remove(p);
         // What their drafts were written from.

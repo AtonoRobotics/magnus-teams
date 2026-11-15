@@ -212,7 +212,7 @@ impl Kernel {
         for ev in evs {
             crate::typed_secrets::mask_event(ev);
             if let Ev::BundleWritten { path, version, .. } = ev {
-                let n = last.get(path.as_str()).copied().unwrap_or_else(|| s.bundle_last.get(path.as_str()).copied().unwrap_or(0)) + 1;
+                let n = last.get(path.as_str()).copied().unwrap_or_else(|| s.library.bundle_last().get(path.as_str()).copied().unwrap_or(0)) + 1;
                 last.insert(path.clone(), n);
                 *version = n;
             }
@@ -534,13 +534,13 @@ impl Kernel {
                 crate::run::instructions_version()
             },
             harness: HARNESS_VERSION.into(),
-            playbook: self.read(|s| s.playbook_version),
+            playbook: self.read(|s| s.library.playbook_version()),
         };
         // The project's instructions and reference files as they stand now.
         let project = o.project.as_ref().and_then(|id| {
             self.read(|s| {
-                let p = s.projects.get(id).filter(|p| p.person == person)?;
-                let mut files: Vec<&crate::state::LibFile> = s.files.values().filter(|f| f.person == person && s.project_of(&f.id).as_deref() == Some(id)).collect();
+                let p = s.library.projects().get(id).filter(|p| p.person == person)?;
+                let mut files: Vec<&crate::state::LibFile> = s.library.files().values().filter(|f| f.person == person && s.project_of(&f.id).as_deref() == Some(id)).collect();
                 files.sort_by_key(|f| f.at);
                 Some(crate::events::ProjectContext {
                     id: p.id.clone(),

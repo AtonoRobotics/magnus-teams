@@ -170,12 +170,12 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
     let v = k.read(|s| {
         let mut failed: Vec<&crate::state::Run> = s.runs.values().filter(|r| r.status == Status::Failed).collect();
         failed.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
-        let knowledge = s.knowledge.values().filter(|e| e.at > day && !e.author.starts_with("person:")).count();
-        let memory = s.memory.iter().filter(|m| m.at > day).count();
+        let knowledge = s.library.knowledge().values().filter(|e| e.at > day && !e.author.starts_with("person:")).count();
+        let memory = s.library.memory().iter().filter(|m| m.at > day).count();
         // Agents' changes to the org context bundle (admin console spec,
         // Overview: "agent knowledge changes in the last 24 hours").
-        let bundle = s.bundle.values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).filter(|v| v.2 > day && !v.3.starts_with("human:")).count();
-        let last_change = s.bundle.values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).map(|v| v.1).max();
+        let bundle = s.library.bundle().values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).filter(|v| v.2 > day && !v.3.starts_with("human:")).count();
+        let last_change = s.library.bundle().values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).map(|v| v.1).max();
         json!({
             "version": crate::update::version(), "log_up": log_up, "kill_switch": s.vault.kill_switch(),
             "running_tasks": s.runs.values().filter(|r| r.status == Status::Running).count(),

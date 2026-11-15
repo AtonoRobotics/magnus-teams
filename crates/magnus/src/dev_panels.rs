@@ -128,7 +128,7 @@ pub(crate) async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
         panels.push(panel("cache_hit_rate", "Prompt cache hit rate", num(rate), "of input tokens", ids(&|r| r.tokens.input > 0), vec![]));
 
         let mut mem: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let memory: Vec<_> = s.memory.iter().filter(|m| seen.contains(m.run.as_str())).collect();
+        let memory: Vec<_> = s.library.memory().iter().filter(|m| seen.contains(m.run.as_str())).collect();
         for m in &memory {
             let l = match (m.label.untrusted, m.label.private) {
                 (true, true) => "private+untrusted",
@@ -310,7 +310,8 @@ pub(crate) async fn playbook(AxState(k): K, h: HeaderMap) -> Response {
     let lens = k.lens(&p);
     let v = k.read(|s| {
         let items: Vec<Value> = s
-            .playbook
+            .library
+            .playbook()
             .values()
             .filter_map(|i| {
                 let sight = lens.sight(&i.person);
@@ -336,7 +337,7 @@ pub(crate) async fn playbook(AxState(k): K, h: HeaderMap) -> Response {
                 )
             })
             .collect();
-        json!({ "version": s.playbook_version, "items": items })
+        json!({ "version": s.library.playbook_version(), "items": items })
     });
     Json(v).into_response()
 }

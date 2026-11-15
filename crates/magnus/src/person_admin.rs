@@ -140,7 +140,7 @@ impl Kernel {
             ("chats", Some(id)) => json!({ "thread": id, "entries": self.thread_entries(&target.id, id).await.map_err(failed)?.ok_or_else(none)? }),
             ("files", None) => json!(self.read(|s| crate::library::files_matching(s, target, &[], &Default::default(), None, &words))),
             ("files", Some(id)) => {
-                let f = self.read(|s| s.files.get(id).filter(|f| f.person == target.id).cloned()).ok_or_else(none)?;
+                let f = self.read(|s| s.library.files().get(id).filter(|f| f.person == target.id).cloned()).ok_or_else(none)?;
                 let info = self.read(|s| crate::library::file_json(s, &f, &words));
                 let bytes = self.file_bytes(&f).await.map_err(failed)?.unwrap_or_default();
                 let text = (f.media_type.starts_with("text/") || ["application/json", "application/xml", "application/csv"].contains(&f.media_type.as_str()))

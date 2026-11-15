@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod apps;
 pub mod arrangements;
+pub mod library;
 pub mod org;
 pub mod server_ops;
 pub mod thread_extras;
@@ -20,6 +21,7 @@ pub mod vault;
 pub mod watch;
 pub use apps::ConnectorSetting;
 pub use arrangements::{Answer, CardState, Commitment, CommitmentStep, Grant, GrantAction, Schedule};
+pub use library::{BundleDoc, KnowledgeEntry, LibFile, MemoryEntry, PlaybookItem, Project};
 pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
 pub use thread_extras::{Branch, Disagreement};
@@ -288,39 +290,6 @@ pub struct Verdict {
 /// The verdicts a person can give, best first.
 pub const VERDICTS: [&str; 4] = ["right", "partly", "wrong", "undone"];
 
-/// A file in a person's library: one they uploaded, or one a task delivered.
-#[derive(Clone, Debug)]
-pub struct LibFile {
-    pub id: String,
-    pub person: String,
-    pub name: String,
-    pub media_type: String,
-    pub size: usize,
-    pub at: DateTime<Utc>,
-    /// An upload (it can be given to a task or message), not a file a run delivered.
-    pub uploaded: bool,
-    /// The event that holds its content (the upload, or the run's output):
-    /// its bytes are recalled from there for its person when a request
-    /// needs them, never kept here (recall only, step 5).
-    pub seq: i64,
-    /// The run that delivered it.
-    pub run: Option<String>,
-    /// The chat thread it was uploaded in.
-    pub thread: Option<String>,
-    /// Its content's taint: an upload is private and untrusted; a delivered
-    /// file has the taint its run had when it delivered it.
-    pub label: Label,
-}
-
-#[derive(Clone, Debug)]
-pub struct Project {
-    pub id: String,
-    pub person: String,
-    pub name: String,
-    pub instructions: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
-
 impl Task {
     /// A chat turn: answered in the thread, not listed as a task.
     pub fn is_chat_turn(&self) -> bool {
@@ -371,97 +340,6 @@ pub struct Approval {
     pub risk: Option<String>,
     /// Where the approved action went; None for approvals from before.
     pub destinations: Option<Vec<String>>,
-}
-
-/// A knowledge entry's record. What it says (its text, source, evidence
-/// and value) is not kept here: it is read from the content store when the
-/// entry is indexed, and every reader reads it from the index, as the
-/// readers its row security allows (recall only, step 6). The title stays
-/// until step 3 settles the titles shown in lists.
-#[derive(Clone, Debug, Serialize)]
-pub struct KnowledgeEntry {
-    pub id: String,
-    pub title: String,
-    pub readers: Vec<Vec<String>>,
-    pub integrity: String,
-    pub author: String,
-    pub run: Option<String>,
-    pub endorsed: Option<Value>,
-    /// The last share, by whom and when: who widened the readers.
-    pub shared: Option<Value>,
-    pub at: DateTime<Utc>,
-    /// The last event that changed it, so the index knows it is current.
-    pub version: i64,
-    /// The event that added it: where its content is.
-    pub seq: i64,
-}
-
-#[derive(Clone, Debug)]
-/// A remembered fact's record. What it says (the fact and its topic) is
-/// not kept here: it is recalled from the content store, for its person,
-/// when a request needs it (recall only, step 4).
-pub struct MemoryEntry {
-    pub id: String,
-    pub person: String,
-    pub run: String,
-    pub label: Label,
-    pub sources: Vec<String>,
-    /// The memory pass, or None for the run's own model.
-    pub by: Option<String>,
-    pub at: DateTime<Utc>,
-    /// The event that wrote it: where its content is recalled from.
-    pub seq: i64,
-}
-
-/// A document in the org context bundle, as the kernel guards it: where it
-/// is, whose, its versions, and what it lists as sources. Its frontmatter
-/// and body are in the content store (`bundle.rs`).
-#[derive(Clone, Debug)]
-pub struct BundleDoc {
-    pub path: String,
-    pub kind: String,
-    pub scope: String,
-    pub owner_user: Option<String>,
-    pub label: Label,
-    pub sources: Vec<String>,
-    /// Each version: its number, the event holding it, when and by whom.
-    pub versions: Vec<(u32, i64, DateTime<Utc>, String)>,
-    /// The person whose run wrote the current version, under whose grant
-    /// its sources were read.
-    pub writer: Option<String>,
-    /// Principals (`person:<id>`, `group:<id>`) the writer shared the
-    /// current version with, besides; cleared by every new version, so a
-    /// share covers only the text seen (#299).
-    pub shared: Vec<String>,
-    /// Shared with everyone (as `shared`, for the current version).
-    pub shared_everyone: bool,
-    /// Who shared the current version.
-    pub shared_by: Option<String>,
-}
-
-impl BundleDoc {
-    pub fn version(&self) -> u32 {
-        self.versions.last().map_or(0, |v| v.0)
-    }
-    pub fn seq(&self) -> i64 {
-        self.versions.last().map_or(0, |v| v.1)
-    }
-}
-
-/// One item of the agent's playbook (I2).
-#[derive(Clone, Debug)]
-pub struct PlaybookItem {
-    pub id: String,
-    pub person: String,
-    pub text: String,
-    pub addresses: Option<String>,
-    /// The run that added it, and the runs that edited it.
-    pub runs: Vec<String>,
-    pub label: Label,
-    /// Playbook version at which the item was added, and retired.
-    pub added: u64,
-    pub retired: Option<u64>,
-    pub added_at: DateTime<Utc>,
 }
 
 /// What a scoped drafting step wrote from: the threads (none for a new
@@ -662,25 +540,10 @@ pub struct State {
     pub spend: crate::spend::Ledger,
     pub catalog: crate::catalog_withdrawal::Ledger,
     pub admin_settings: crate::admin_app::settings::Settings,
-    pub memory: Vec<MemoryEntry>,
-    /// The company knowledge base; its searchable index is in Postgres.
-    pub knowledge: HashMap<String, KnowledgeEntry>,
+    /// Files, projects, knowledge, memory, the playbook and the bundle.
+    pub library: library::Library,
     /// Files attached to each task, by task id.
     pub attachments: HashMap<String, Vec<Value>>,
-    /// Every person's library, by file id.
-    pub files: BTreeMap<String, LibFile>,
-    pub projects: BTreeMap<String, Project>,
-    /// Items the person moved into a project (Some) or out of one (None).
-    pub moved: HashMap<String, Option<String>>,
-    pub playbook: BTreeMap<String, PlaybookItem>,
-    /// The org context bundle, by path.
-    pub bundle: BTreeMap<String, BundleDoc>,
-    /// The last version number each path was written with, kept through a
-    /// removal: a path written again counts on, so (path, version) names
-    /// one version in the log.
-    pub bundle_last: HashMap<String, u32>,
-    /// Increments with every playbook change (I3).
-    pub playbook_version: u64,
     pub last_seq: i64,
 }
 
@@ -722,13 +585,13 @@ impl State {
     /// first message's; a delivered file in its task's; a file uploaded in
     /// chat in its thread's.
     pub fn project_of(&self, item: &str) -> Option<String> {
-        if let Some(p) = self.moved.get(item) {
-            return p.clone().filter(|p| self.projects.contains_key(p));
+        if let Some(p) = self.library.moved().get(item) {
+            return p.clone().filter(|p| self.library.projects().contains_key(p));
         }
         if let Some(t) = self.tasks.get(item) {
             return t.project.as_ref().map(|p| p.id.clone());
         }
-        if let Some(f) = self.files.get(item) {
+        if let Some(f) = self.library.files().get(item) {
             if let Some(task) = f.run.as_ref().and_then(|r| self.runs.get(r)).map(|r| r.task.clone()) {
                 return self.project_of(&task);
             }
@@ -841,18 +704,17 @@ impl State {
             };
             return Some((title, from, Held::Thread { id: item.into(), turns, branch }));
         }
-        if let Some(f) = self.files.remove(item) {
+        if let Some(f) = self.library.take_file(item) {
             return Some((f.name.clone(), None, Held::File(Box::new(f))));
         }
-        if let Some(p) = self.projects.remove(item) {
+        if let Some(p) = self.library.take_project(item) {
             return Some((p.name.clone(), None, Held::Project(p)));
         }
-        if let Some(i) = self.memory.iter().position(|m| m.id == item) {
-            // Its title in the trash is its fact, recalled when listed.
-            let m = self.memory.remove(i);
+        // Its title in the trash is its fact, recalled when listed.
+        if let Some(m) = self.library.take_memory(item) {
             return Some((String::new(), None, Held::Memory(m)));
         }
-        let k = self.knowledge.remove(item)?;
+        let k = self.library.take_knowledge(item)?;
         Some((k.title.clone(), None, Held::Knowledge(Box::new(k))))
     }
 
@@ -950,25 +812,16 @@ impl State {
                 }
             }
             Held::Entry { .. } => {}
-            Held::File(f) => {
-                self.files.insert(f.id.clone(), *f);
-            }
-            Held::Project(p) => {
-                self.projects.insert(p.id.clone(), p);
-            }
-            Held::Memory(m) => {
-                let at = self.memory.partition_point(|x| x.at <= m.at);
-                self.memory.insert(at, m);
-            }
-            Held::Knowledge(k) => {
-                self.knowledge.insert(k.id.clone(), *k);
-            }
+            Held::File(f) => self.library.put_file(*f),
+            Held::Project(p) => self.library.put_project(p),
+            Held::Memory(m) => self.library.put_memory(m),
+            Held::Knowledge(k) => self.library.put_knowledge(*k),
         }
     }
 
     /// A person's file, or a delivered file of a task they may see.
     pub fn file_for(&self, person: &str, owner: bool, id: &str) -> Option<&LibFile> {
-        self.files.get(id).filter(|f| f.person == person || (owner && f.run.is_some()))
+        self.library.files().get(id).filter(|f| f.person == person || (owner && f.run.is_some()))
     }
 
     pub fn apply(&mut self, e: &Event) {
@@ -1107,7 +960,6 @@ impl State {
             | Ev::CardDeclined { .. }
             | Ev::CardDeferred { .. }
             | Ev::CardAccepted { .. } => self.arrangements.fold(e, &self.preferences),
-            Ev::MemoryForgotten { id } => self.memory.retain(|m| &m.id != id),
             Ev::Trashed { item, person } => {
                 if let Some((title, title_from, held)) = self.take(item) {
                     self.trash.insert(item.clone(), Trashed { person: person.clone(), title, title_from, at: e.at, held });
@@ -1136,37 +988,21 @@ impl State {
                     _ => {}
                 }
             }
-            Ev::KnowledgeAdded { id, title, readers, integrity, author, run, .. } => {
-                self.knowledge.insert(
-                    id.clone(),
-                    KnowledgeEntry {
-                        id: id.clone(),
-                        title: title.clone(),
-                        readers: readers.clone(),
-                        integrity: integrity.clone(),
-                        author: author.clone(),
-                        run: run.clone(),
-                        endorsed: None,
-                        shared: None,
-                        at: e.at,
-                        version: e.seq,
-                        seq: e.seq,
-                    },
-                );
-            }
-            Ev::KnowledgeShared { id, readers, by } => {
-                if let Some(k) = self.knowledge.get_mut(id) {
-                    k.readers = readers.clone();
-                    k.shared = Some(serde_json::json!({ "by": by, "at": e.at }));
-                    k.version = e.seq;
-                }
-            }
-            Ev::KnowledgeEndorsed { id, by, item, note } => {
-                if let Some(k) = self.knowledge.get_mut(id) {
-                    k.integrity = "company".into();
-                    k.endorsed = Some(serde_json::json!({ "by": by, "item": item, "note": note, "at": e.at }));
-                    k.version = e.seq;
-                }
+            Ev::FileUploaded { .. }
+            | Ev::ProjectSet { .. }
+            | Ev::Moved { .. }
+            | Ev::KnowledgeAdded { .. }
+            | Ev::KnowledgeShared { .. }
+            | Ev::KnowledgeEndorsed { .. }
+            | Ev::Memory { .. }
+            | Ev::MemoryForgotten { .. }
+            | Ev::BundleWritten { .. }
+            | Ev::BundleShared { .. }
+            | Ev::BundleRemoved { .. } => self.library.fold(e, &self.runs),
+            // Each playbook change is a new version, noticed (U5).
+            Ev::Playbook { .. } => {
+                self.library.fold(e, &self.runs);
+                self.org.note_version(e, "playbook", format!("v{}", self.library.playbook_version()));
             }
             Ev::ScheduleFired { id, task } => {
                 // A run its schedule created was counted when it was created
@@ -1417,47 +1253,6 @@ impl State {
                     r.plan_version = *version;
                 }
             }
-            Ev::Playbook { item, op, person, run, text, addresses, label } => {
-                self.playbook_version += 1;
-                let v = self.playbook_version;
-                self.org.note_version(e, "playbook", format!("v{v}"));
-                match op.as_str() {
-                    "add" => {
-                        self.playbook.insert(
-                            item.clone(),
-                            PlaybookItem {
-                                id: item.clone(),
-                                person: person.clone(),
-                                text: text.clone().unwrap_or_default(),
-                                addresses: addresses.clone(),
-                                runs: vec![run.clone()],
-                                label: *label,
-                                added: v,
-                                retired: None,
-                                added_at: e.at,
-                            },
-                        );
-                    }
-                    "edit" => {
-                        if let Some(i) = self.playbook.get_mut(item) {
-                            if let Some(t) = text {
-                                i.text = t.clone();
-                            }
-                            if addresses.is_some() {
-                                i.addresses = addresses.clone();
-                            }
-                            i.runs.push(run.clone());
-                            i.label = i.label.join(*label);
-                        }
-                    }
-                    "retire" => {
-                        if let Some(i) = self.playbook.get_mut(item) {
-                            i.retired = Some(v);
-                        }
-                    }
-                    _ => {}
-                }
-            }
             Ev::Verdict { task, person, verdict, note } => {
                 let trial = self.tasks.get(task).and_then(|t| self.runs.get(&t.run_id)).is_some_and(|r| r.experiment.is_some());
                 if let Some(t) = self.tasks.get_mut(task).filter(|t| &t.person == person || trial) {
@@ -1649,96 +1444,17 @@ impl State {
                         thread: None,
                         label: Label { untrusted: r.untrusted, private: r.private },
                     };
-                    self.files.insert(id.clone(), f);
+                    // The run delivered it: a file in its person's library.
+                    self.library.put_file(f);
                 }
             }
-            Ev::FileUploaded { id, person, name, media_type, data_b64, thread } => {
-                let f = LibFile {
-                    id: id.clone(),
-                    person: person.clone(),
-                    name: name.clone(),
-                    media_type: media_type.clone(),
-                    size: data_b64.len() * 3 / 4,
-                    at: e.at,
-                    uploaded: true,
-                    seq: e.seq,
-                    run: None,
-                    thread: thread.clone(),
-                    label: Label { untrusted: true, private: true },
-                };
-                self.files.insert(id.clone(), f);
-            }
-            Ev::ProjectSet { id, person, name, instructions } => {
-                let created_at = self.projects.get(id).map_or(e.at, |p| p.created_at);
-                self.projects.insert(id.clone(), Project { id: id.clone(), person: person.clone(), name: name.clone(), instructions: instructions.clone(), created_at });
-            }
-            Ev::Moved { item, project } => {
-                self.moved.insert(item.clone(), project.clone());
-            }
-            Ev::BundleWritten { path, version, doc_kind: kind, scope, owner_user, actor, run, label, sources, writer: named, .. } => {
-                let writer = named.clone().or_else(|| run.as_ref().and_then(|r| self.runs.get(r)).map(|r| r.person.clone()));
-                let d = self.bundle.entry(path.clone()).or_insert_with(|| BundleDoc {
-                    path: path.clone(),
-                    kind: kind.clone(),
-                    scope: scope.clone(),
-                    owner_user: owner_user.clone(),
-                    label: *label,
-                    sources: vec![],
-                    versions: vec![],
-                    writer: None,
-                    shared: vec![],
-                    shared_everyone: false,
-                    shared_by: None,
-                });
-                // An admin's edit (no run, no writer named) keeps the writer
-                // whose run read its sources (K2).
-                if run.is_some() || named.is_some() {
-                    d.writer = writer;
-                }
-                d.kind = kind.clone();
-                d.scope = scope.clone();
-                d.owner_user = owner_user.clone();
-                d.label = *label;
-                d.sources = sources.clone();
-                d.versions.push((*version, e.seq, e.at, actor.clone()));
-                // A new version is new text: an earlier share does not cover it.
-                d.shared.clear();
-                d.shared_everyone = false;
-                d.shared_by = None;
-                let last = self.bundle_last.entry(path.clone()).or_default();
-                *last = (*last).max(*version);
-            }
-            Ev::BundleShared { path, add, everyone, by } => {
-                if let Some(d) = self.bundle.get_mut(path) {
-                    for p in add {
-                        if !d.shared.contains(p) {
-                            d.shared.push(p.clone());
-                        }
-                    }
-                    d.shared_everyone |= *everyone;
-                    d.shared_by = Some(by.clone());
-                }
-            }
-            Ev::BundleRemoved { path } => {
-                self.bundle.remove(path);
-            }
-            Ev::Memory { id, person, run, label, sources, by, .. } => self.memory.push(MemoryEntry {
-                id: id.clone(),
-                person: person.clone(),
-                run: run.clone(),
-                label: *label,
-                sources: sources.clone(),
-                by: by.clone(),
-                at: e.at,
-                seq: e.seq,
-            }),
         }
         crate::outcomes::observe(self, e);
     }
 
     /// The person's playbook items that were live at playbook version `v`.
     pub fn playbook_at(&self, person: &str, v: u64) -> Vec<&PlaybookItem> {
-        self.playbook.values().filter(|i| i.person == person && i.added <= v && i.retired.is_none_or(|r| r > v)).collect()
+        self.library.playbook_at(person, v)
     }
 
     pub fn open_item_for_run(&self, run: &str, kind: &str) -> Option<&Item> {

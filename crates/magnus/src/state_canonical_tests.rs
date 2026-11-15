@@ -286,19 +286,11 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.thread_extras.canonical_fields());
     v.extend(s.apps.canonical_fields());
     v.extend(s.arrangements.canonical_fields());
+    v.extend(s.library.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
-        ("playbook_version", d(&s.playbook_version)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
         ("tools.consents", d(&s.tools.consents)),
-        ("files", d(&s.files)),
-        ("projects", d(&s.projects)),
-        ("moved", d(&s.moved)),
-        ("knowledge", d(&s.knowledge)),
-        ("memory", d(&s.memory)),
-        ("playbook", d(&s.playbook)),
-        ("bundle", d(&s.bundle)),
-        ("bundle_last", d(&s.bundle_last)),
         ("runs.outputs", d(&s.runs.iter().map(|(id, r)| (id, &r.outputs)).collect::<std::collections::BTreeMap<_, _>>())),
         ("tasks.schedule", d(&s.tasks.iter().map(|(id, t)| (id, &t.schedule)).collect::<Vec<_>>())),
     ]);

@@ -147,7 +147,7 @@ impl Kernel {
             let files: Vec<EntryFile> = self.read(|s| {
                 t.files
                     .iter()
-                    .filter_map(|id| s.files.get(id))
+                    .filter_map(|id| s.library.files().get(id))
                     .map(|f| EntryFile { id: f.id.clone(), name: f.name.clone(), media_type: Some(f.media_type.clone()), size: Some(f.size) })
                     .collect()
             });

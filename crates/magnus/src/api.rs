@@ -723,7 +723,7 @@ async fn versions(State(k): K, _: Caller) -> ApiResult {
             "instructions": crate::run::instructions_version(),
             "chat_instructions": crate::run::chat_instructions_version(),
             "model": s.org.model().as_ref().map(|(a, m)| format!("{a}/{m}")),
-            "playbook": s.playbook_version,
+            "playbook": s.library.playbook_version(),
             "latest_seq": s.org.version_changes().last().map(|c| c.0),
             "changes": changes,
         })
@@ -826,7 +826,7 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         v["plan_version"] = json!(run.plan_version);
         v["outcome_view"] = run.outcome_view.clone().unwrap_or(Value::Null);
         // Only here, never in a list's rows: those are built under the state lock.
-        v["files"] = json!(k.read(|s| task.files.iter().filter_map(|id| s.files.get(id)).map(|f| crate::library::file_json(s, f, words)).collect::<Vec<_>>()));
+        v["files"] = json!(k.read(|s| task.files.iter().filter_map(|id| s.library.files().get(id)).map(|f| crate::library::file_json(s, f, words)).collect::<Vec<_>>()));
         v["project"] = k.read(|s| crate::library::project_ref(s, &task.task_id));
         v["preview"] = json!({ "chars": crate::compose::PREVIEW_CHARS, "rows": crate::compose::MAX_ROWS });
         v["spoken"] = json!(run.spoken);
@@ -1611,7 +1611,7 @@ async fn memory(State(k): K, Caller(p): Caller) -> ApiResult {
 
 /// Forget one of the person's own memories.
 async fn forget(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
-    if !k.read(|s| s.memory.iter().any(|m| m.id == id && m.person == p.id)) {
+    if !k.read(|s| s.library.memory().iter().any(|m| m.id == id && m.person == p.id)) {
         return refuse(StatusCode::NOT_FOUND, "no such memory");
     }
     Ok(crate::trash::trashed(k.trash(&p.id, rights(&p).moderates_shared_knowledge(), &id).await))
@@ -1743,7 +1743,7 @@ async fn schedules(State(k): K, Caller(p): Caller) -> ApiResult {
                     "budget": crate::task_budget::scheduled(&k.cfg.budget, x.budget.as_ref()),
                     "skipped": x.skipped.as_ref().map(|(at, task, why)| json!({ "at": at, "task": task, "why": why })),
                     "last": last, "last_failed": last_failed, "failures": failures, "runs": rows,
-                    "project": s.project_of(&x.id).filter(|_| x.person == p.id).and_then(|id| s.projects.get(&id)).map(|p| json!({ "id": p.id, "name": p.name })),
+                    "project": s.project_of(&x.id).filter(|_| x.person == p.id).and_then(|id| s.library.projects().get(&id)).map(|p| json!({ "id": p.id, "name": p.name })),
                 })
             })
             .collect()
