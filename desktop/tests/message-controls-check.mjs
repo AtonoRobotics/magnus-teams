@@ -111,12 +111,12 @@ const sandbox = {
   document: { addEventListener: () => {} }, location: { hash: "" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["server.js", "message-controls.js", "chat-view.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["server.js", "message-controls.js", "chat-view.js", "personal-chat.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, MessageControls };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
-const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
 const { Team, TeamChat } = sandbox.__x;
 Team.home = { me: "sam", role: "member", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1" }], projects: [] };
 TeamChat.refresh = async () => {};
@@ -129,4 +129,21 @@ for (const [act, route, body_] of [["save", "save", {}], ["share-send", "share",
   await sandbox.__x.MessageControls.run(act, conv.actions(answer, view, { disabled: false }, {}));
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["POST", `/v1/workspaces/w/channels/c1/messages/agent%3At1/${route}`, body_], `${act} did not go to the server`);
 }
+
+// One adapter for both conversations, each with its own transport: the two
+// transports have the same keys, and every control has an adapter method.
+const personalT = sandbox.personalTransport("th1"), teamT = sandbox.teamTransport(state, sandbox.teamReader(state, null));
+assert.deepEqual(Object.keys(personalT).sort(), Object.keys(teamT).sort(), "the two conversations' actions tables differ");
+const adapter = sandbox.__x.MessageControls.adapter(answer, view, { disabled: false }, {}, teamT);
+const every = { mine: true, agent: false, readable: true, may: { edit: true, retry: true, feedback: true, share: true, save: true, task: true, pin: true, delete: true } };
+for (const c of [...controls(every, { canReadAloud: true }), ...controls({ ...every, mine: false, agent: true }, { canReadAloud: true, reading: true })]) {
+  assert.equal(typeof adapter[MessageControls.method(c.act)], "function", `no adapter method for ${c.act}`);
+}
+for (const a of ["share-send", "share-cancel", "edit-send", "edit-cancel"]) assert.equal(typeof adapter[MessageControls.method(a)], "function", `no adapter method for ${a}`);
+// What each delete says is its own: a team message is gone for everyone,
+// and nothing promises it back; a personal one waits in the trash.
+assert.match(teamT.deleting, /for everyone/);
+assert.doesNotMatch(teamT.deleting, /trash|restor|undo/i, "a team message's delete promises it can be restored");
+assert.match(teamT.deleting, /cannot be brought back/);
+assert.match(personalT.deleting, /trash/);
 console.log("message controls ok");

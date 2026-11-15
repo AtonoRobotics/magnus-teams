@@ -43,6 +43,7 @@ pub mod connectors;
 pub mod consent;
 pub mod control;
 pub mod controls;
+pub mod conversation;
 pub mod desktop;
 pub mod desktop_routes;
 pub mod dev;

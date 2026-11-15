@@ -971,7 +971,7 @@ async fn chat_thread(State(k): K, Caller(p): Caller, Path(thread): Path<String>)
     Ok(match k.thread_entries(&p.id, &thread).await {
         // Their reactions shown on Magnus's messages: to them alone, not in
         // the thread as anyone else may read it.
-        Ok(Some(entries)) => Json(json!({ "thread": thread, "entries": k.read(|s| crate::reactions::marked(s, &p.id, &thread, entries)) })).into_response(),
+        Ok(Some(entries)) => Json(crate::conversation::personal::view(&thread, k.read(|s| crate::reactions::marked(s, &p.id, &thread, entries)))).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => internal(e),
     })

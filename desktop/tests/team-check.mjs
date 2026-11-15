@@ -27,7 +27,7 @@ vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globa
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
-const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
 const { Team, TeamChat } = sandbox.__x;
 
 // Places and links.
@@ -117,7 +117,7 @@ assert.match(mine, /data-msg-act="edit"/, "my own message cannot be edited");
 assert.match(mine, / · edited/);
 assert.match(draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", may: { edit: true } }, { ui: { editing: "m2" } }), /msg me editing[^]*data-msg-act="edit-send"/, "a team message is not edited as a personal one is");
 assert.doesNotMatch(draw({ id: "m3", sender: "leo", text: "hi", thread: null, at: "", may: { share: true } }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks the server refuses");
-assert.match(draw({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }), /class="previews"[^]*class="fprev"[^]*plan\.pdf[^]*data-team-download="plan.pdf"/, "a dropped file does not show as a personal chat's file does");
+assert.match(draw({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }), /class="previews"[^]*class="fprev"[^]*plan\.pdf[^]*data-file-download="plan.pdf"/, "a dropped file does not show as a personal chat's file does");
 assert.match(draw({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { s: { files: { "shot.png": "data:image/png;base64,AA" } } }), /<img alt="" src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
 
 // Sending: what the composer sends to a channel. The composer is the

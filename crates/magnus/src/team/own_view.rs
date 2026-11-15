@@ -5,9 +5,9 @@
 use super::caller::{at, Member};
 use super::chat::Chat;
 use super::member_view::MemberView;
-use super::routes::{has_channel, send, Reply, K};
+use super::routes::{has_channel, send, K};
 use super::{Change, Message, Workspace};
-use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -80,21 +80,21 @@ impl Kernel {
 /// owners and admins moderate its channels: "The teams admin can moderate
 /// and delete it only from teams" (the owner, 2026-11-11). A direct
 /// conversation is its people's alone.
-pub(super) async fn unsend(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
+pub(super) async fn unsend(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>) -> ApiResult {
     // The agent's answer is drawn from its request's result, not kept as a
     // message: it is found by its request (owner, 2026-11-13: deleting one
     // said "no such message").
     let now = chrono::Utc::now();
     // Who may: who wrote it, whom the agent wrote it for, and the
     // workspace's admins outside a direct conversation (`may`).
-    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.delete, "only who wrote a message, or the workspace's admins, delete it"));
+    super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.delete, "only who wrote a message, or the workspace's admins, delete it")?;
     let Some(m) = k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| m.as_message()))) else {
-        return err(StatusCode::NOT_FOUND, "no such message");
+        return refuse(StatusCode::NOT_FOUND, "no such message");
     };
     if let Err(e) = k.unsend(&actor(&p), &ws, &channel, &m).await {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
+        return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
     }
-    Json(json!({ "ok": true })).into_response()
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 fn actor(p: &Person) -> String {
@@ -107,27 +107,27 @@ struct Archive {
 }
 
 /// Put a conversation away, or bring it back. Only the caller's list changes.
-async fn archive(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Archive>) -> Reply {
+async fn archive(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Archive>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let chat = Chat::Archived { channel, person: p.id.clone(), on: b.on, at: chrono::Utc::now() };
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// Delete a direct conversation from the caller's own list and view. The
 /// other people in it keep theirs; it comes back, from then on only, when
 /// someone writes in it again. A channel is the workspace's, so it is put
 /// away instead.
-async fn clear(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> Reply {
+async fn clear(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.direct.contains_key(&channel))) {
-        return err(StatusCode::BAD_REQUEST, "only a direct conversation is deleted for one person; put a channel away instead");
+        return refuse(StatusCode::BAD_REQUEST, "only a direct conversation is deleted for one person; put a channel away instead");
     }
     let chat = Chat::Cleared { channel, person: p.id.clone(), at: chrono::Utc::now() };
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }

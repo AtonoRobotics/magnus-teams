@@ -28,8 +28,11 @@ pub struct Due {
 }
 
 /// The routines due at `now` and what each does. `stop_after_failures` is
-/// the count that pauses a person's schedule; 0 never stops one.
+/// the count that pauses a person's schedule; 0 never stops one. A routine
+/// keeps only its latest firings, so one stops at that many at most.
 pub fn plan(s: &State, now: DateTime<Utc>, stop_after_failures: u32) -> Vec<Due> {
+    let kept = u32::try_from(super::routines::MAX_FIRINGS_KEPT).unwrap_or(u32::MAX);
+    let stop_after_failures = stop_after_failures.min(kept);
     s.team
         .all()
         .flat_map(|w| {
@@ -177,5 +180,35 @@ mod tests {
         r.text = "Sum up the week.".into();
         ev(&mut s, Ev::Team(Change::Routine { workspace: "w".into(), id: "r".into(), routine: r }));
         assert_eq!(steps(&s, now), vec![Step::Fire], "a changed routine stayed stopped");
+    }
+
+    /// A routine keeps its latest firings only, however long it runs, and
+    /// still stops: at the configured count, or at what it keeps when that
+    /// is more. One changed keeps only its last run, which may be open.
+    #[test]
+    fn a_routine_keeps_few_firings_and_still_stops() {
+        use super::super::routines::MAX_FIRINGS_KEPT;
+        let now = Utc::now();
+        let mut s = routine();
+        let kept = |s: &State| s.team.workspace("w").unwrap().routines["r"].fired.clone();
+        for n in 0..3 * MAX_FIRINGS_KEPT {
+            let task = format!("t{n}");
+            ran(&mut s, &task, now - chrono::Duration::hours(1));
+            json_ev(&mut s, json!({ "kind": "completed", "run": format!("run_{task}"), "summary": "ok" }));
+        }
+        assert_eq!(kept(&s).len(), MAX_FIRINGS_KEPT, "every firing is kept");
+        for _ in 0..MAX_FIRINGS_KEPT {
+            could_not_start(&mut s, now - chrono::Duration::hours(1));
+        }
+        assert_eq!(kept(&s).len(), MAX_FIRINGS_KEPT);
+        let many = u32::try_from(MAX_FIRINGS_KEPT).unwrap() * 2;
+        assert!(matches!(plan(&s, now, many).pop().map(|d| d.step), Some(Step::Stop { .. })), "a count above what is kept never stops it");
+        assert!(matches!(plan(&s, now, STOP_AFTER).pop().map(|d| d.step), Some(Step::Stop { .. })), "it no longer stops at the configured count");
+        ran(&mut s, "open", now - chrono::Duration::hours(1));
+        let mut r = s.team.workspace("w").unwrap().routines["r"].clone();
+        r.text = "Sum up the week.".into();
+        ev(&mut s, Ev::Team(Change::Routine { workspace: "w".into(), id: "r".into(), routine: r }));
+        assert_eq!(kept(&s), vec![Firing::Started("open".into()), Firing::Changed], "a change kept what no longer counts");
+        assert!(matches!(steps(&s, now).pop(), Some(Step::Skip { task, .. }) if task == "open"), "a change forgot its open run");
     }
 }

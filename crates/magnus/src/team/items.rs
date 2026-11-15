@@ -125,6 +125,24 @@ pub fn timeline<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamI
     items
 }
 
+/// A message's words without its files' lines: the files travel as `files`.
+pub fn words(text: &str) -> String {
+    text.split('\n').filter(|l| !l.starts_with("📎 ")).collect::<Vec<_>>().join("\n")
+}
+
+/// Items as they leave for the app: the words without the files' lines, and
+/// whom the agent's answer or work is for by name (`for`). The app drew both
+/// itself before; an older one finds the same fields it read then.
+pub fn for_the_app(items: Vec<TeamItem>, names: &BTreeMap<String, String>) -> Vec<TeamItem> {
+    items
+        .into_iter()
+        .map(|i| {
+            let for_name = i.requester.as_ref().filter(|_| matches!(i.kind, "answer" | "tasks")).map(|r| names.get(r).cloned().unwrap_or_else(|| r.clone()));
+            ChatEntry { text: words(&i.text), for_name, ..i }
+        })
+        .collect()
+}
+
 /// What was said in a channel, for this person: its messages and the
 /// agent's answers, in order, nothing deleted.
 pub fn said<R: Runs>(v: &MemberView<R>, channel: &str, now: At) -> Vec<TeamItem> {
@@ -154,6 +172,21 @@ mod tests {
         let quiet = serde_json::to_value(bare("answer", "a1".into(), AGENT_ID.into(), None, "done".into(), None, at())).unwrap_or_default();
         assert_eq!(quiet["kind"], "answer");
         assert!(quiet.get("files").is_none(), "an item with no files says it has some");
+    }
+
+    /// The app is sent the words without the files' lines, and whom an
+    /// answer or work is for by name; a person's message is for no one.
+    #[test]
+    fn the_app_is_sent_words_and_whom_an_answer_is_for() {
+        let names: BTreeMap<String, String> = [("mo".to_string(), "Mo".to_string())].into();
+        let said = bare("message", "m1".into(), "sam".into(), None, "see this\n📎 plan.pdf\nand that".into(), None, at());
+        let answer = bare("answer", "a1".into(), AGENT_ID.into(), Some("mo".into()), "done".into(), None, at());
+        let out = for_the_app(vec![said, answer], &names);
+        assert_eq!(out[0].text, "see this\nand that", "a file's line is still in the words");
+        assert_eq!(out[0].files.as_ref().map(Vec::len), Some(1), "the files went with the lines");
+        assert_eq!(out[0].for_name, None, "a person's message is for someone");
+        let v = out[1].value();
+        assert_eq!((&v["for"], &v["requester"]), (&serde_json::json!("Mo"), &serde_json::json!("mo")), "{v}");
     }
 
     /// Work the agent began itself is the personal chat's `tasks` entry, its

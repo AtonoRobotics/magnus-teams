@@ -1,9 +1,9 @@
 //! A person's own agent in a thread. It sees the thread as data, and what it
 //! says reaches only its owner until they post it.
 use super::caller::{at, Member};
-use super::routes::{new_id, send, Reply, K};
+use super::routes::{new_id, send, K};
 use super::{Change, Message};
-use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
 use crate::state::Run;
@@ -78,7 +78,7 @@ fn whisper_label(others: bool) -> Label {
 }
 
 /// Only the owner's own whispers, whatever their role here.
-async fn mine(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> Reply {
+async fn mine(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     let view: Vec<Value> = k.read(|s| {
         s.team
             .whispers_by(&ws, &channel, &p.id)
@@ -89,38 +89,38 @@ async fn mine(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws
             })
             .collect()
     });
-    Json(view).into_response()
+    Ok(Json(view).into_response())
 }
 
 /// The owner's explicit share: the one way a whisper reaches the thread.
-async fn share(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, task)): Path<(String, String)>) -> Reply {
+async fn share(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, task)): Path<(String, String)>) -> ApiResult {
     let found = k.read(|s| s.team.whisper_of(&task).filter(|w| w.workspace == ws && w.owner == p.id).cloned());
-    let Some(w) = found else { return err(StatusCode::NOT_FOUND, "you have no such whisper") };
+    let Some(w) = found else { return refuse(StatusCode::NOT_FOUND, "you have no such whisper") };
     if w.shared {
-        return err(StatusCode::CONFLICT, "already posted");
+        return refuse(StatusCode::CONFLICT, "already posted");
     }
     let text = k.read(|s| s.tasks.get(&task).and_then(|t| s.runs.get(&t.run_id)).filter(|r| r.status.terminal()).and_then(|r| r.summary.clone()));
-    let Some(text) = text else { return err(StatusCode::CONFLICT, "it has not finished") };
+    let Some(text) = text else { return refuse(StatusCode::CONFLICT, "it has not finished") };
     let message = Message { id: new_id(), sender: p.id.clone(), text, thread: w.thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
-    ok_or_return!(send(&k, &p, Change::Message { workspace: ws.clone(), channel: w.channel.clone(), message }).await);
-    ok_or_return!(send(&k, &p, Change::WhisperShared { workspace: ws, task }).await);
-    Json(json!({ "id": id })).into_response()
+    send(&k, &p, Change::Message { workspace: ws.clone(), channel: w.channel.clone(), message }).await?;
+    send(&k, &p, Change::WhisperShared { workspace: ws, task }).await?;
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
 /// The requester's explicit share of a team answer that only they could
 /// read: it reaches the thread as their own message, once.
-async fn share_answer(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, task)): Path<(String, String)>) -> Reply {
+async fn share_answer(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, task)): Path<(String, String)>) -> ApiResult {
     let found = k.read(|s| s.team.run_of(&task).filter(|r| r.workspace == ws && r.requester == p.id && !r.sub).cloned());
-    let Some(r) = found else { return err(StatusCode::NOT_FOUND, "you asked for no such answer") };
+    let Some(r) = found else { return refuse(StatusCode::NOT_FOUND, "you asked for no such answer") };
     let text = k.read(|s| s.tasks.get(&task).and_then(|t| s.runs.get(&t.run_id)).filter(|run| run.status.terminal()).and_then(|run| run.summary.clone()));
-    let Some(text) = text else { return err(StatusCode::CONFLICT, "it has not finished") };
+    let Some(text) = text else { return refuse(StatusCode::CONFLICT, "it has not finished") };
     let posted = k.read(|s| s.team.workspace(&ws).and_then(|w| w.channels.get(&r.channel)).is_some_and(|c| c.messages.iter().any(|m| m.sender == p.id && m.text == text)));
     if posted || !super::routes::has_channel(&k, &ws, &r.channel, &p.id) {
-        return err(StatusCode::CONFLICT, "already posted, or the thread is no longer yours to post in");
+        return refuse(StatusCode::CONFLICT, "already posted, or the thread is no longer yours to post in");
     }
     let message = Message { id: new_id(), sender: p.id.clone(), text, thread: r.thread.clone(), at: chrono::Utc::now() };
     let id = message.id.clone();
-    ok_or_return!(send(&k, &p, Change::Message { workspace: ws, channel: r.channel, message }).await);
-    Json(json!({ "id": id })).into_response()
+    send(&k, &p, Change::Message { workspace: ws, channel: r.channel, message }).await?;
+    Ok(Json(json!({ "id": id })).into_response())
 }

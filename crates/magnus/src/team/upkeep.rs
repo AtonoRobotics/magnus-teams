@@ -2,9 +2,9 @@
 //! things properly when someone or something goes.
 use super::agent::{held_dir, volume_dir};
 use super::caller::{at, Member};
-use super::routes::{send, Reply, K};
+use super::routes::{send, K};
 use super::Change;
-use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
 use crate::computer::{Owner, ONE_AT_A_TIME};
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -96,16 +96,16 @@ struct Ceiling {
     mode: crate::local::Mode,
 }
 
-async fn set_ceiling(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<Ceiling>) -> Reply {
-    ok_or_return!(send(&k, &p, Change::LocalCeiling { workspace: ws, mode: b.mode }).await);
-    Json(json!({ "ok": true })).into_response()
+async fn set_ceiling(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<Ceiling>) -> ApiResult {
+    send(&k, &p, Change::LocalCeiling { workspace: ws, mode: b.mode }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 /// A thread's working notes, while its tasks last, for those who see the
 /// thread only (spec rev 142: visible to the members of that thread).
-async fn notes(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> Reply {
+async fn notes(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if !super::routes::has_channel(&k, &ws, &channel, &p.id) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let view: Vec<Value> = k.read(|s| {
         s.team
@@ -115,12 +115,12 @@ async fn notes(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((w
             .flat_map(|r| s.team.notes(&r.task).iter().map(|n| json!({ "task": r.task, "thread": r.thread, "text": n.text, "by": n.by, "at": n.at })))
             .collect()
     });
-    Json(view).into_response()
+    Ok(Json(view).into_response())
 }
 
 /// Who asked, what acted and where, for every request here, and who changed
 /// what in the workspace.
-async fn audit(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> Reply {
+async fn audit(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> ApiResult {
     let runs: Vec<Value> = k.read(|s| {
         s.team
             .runs_of(&ws)
@@ -134,14 +134,14 @@ async fn audit(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> Rep
     });
     let rows = match k.log.of_kinds(&["team"], AUDIT_CHANGES).await {
         Ok(rows) => rows,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
+        Err(e) => return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     };
     let changes: Vec<Value> = rows
         .into_iter()
         .filter(|(_, _, _, b)| b["workspace"] == json!(ws))
         .map(|(seq, at, actor, b)| json!({ "seq": seq, "at": at, "actor": actor, "change": b["change"], "id": b["id"] }))
         .collect();
-    Json(json!({ "runs": runs, "changes": changes })).into_response()
+    Ok(Json(json!({ "runs": runs, "changes": changes })).into_response())
 }
 
 impl Kernel {
