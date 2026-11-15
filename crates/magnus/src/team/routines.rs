@@ -2,10 +2,10 @@
 //! authority, reporting to a channel. It runs in the background and asks
 //! no one, so anything it cannot do without asking does not happen.
 use super::caller::{at, Member};
-use super::routes::{new_id, send, Reply, K};
+use super::routes::{new_id, send, K};
 use super::routine_sweep::Step;
 use super::{Change, TeamRun};
-use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
 use anyhow::Result;
@@ -23,6 +23,11 @@ const ROUTINE_TICK: Duration = Duration::from_secs(60);
 const MIN_ROUTINE_HOURS: i64 = 1;
 const MAX_ROUTINE_HOURS: i64 = 24 * 30;
 const MAX_ROUTINE_CHARS: usize = 4000;
+/// How many of a routine's latest firings are kept. The stop rule reads
+/// back from the latest to the first that did not fail, so it counts at
+/// most this many in a row (`routine_sweep` stops at this many when the
+/// configured count is higher); older firings are forgotten.
+pub(super) const MAX_FIRINGS_KEPT: usize = 32;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Routine {
@@ -66,8 +71,11 @@ impl Routine {
 pub(super) fn apply(w: &mut super::Workspace, c: &Change) {
     match c {
         Change::Routine { id, routine, .. } => {
-            let mut fired = w.routines.remove(id).map(|old| old.fired).unwrap_or_default();
-            if !fired.is_empty() {
+            // What came before a change no longer counts toward stopping
+            // it: only its last run is kept, which may still be open.
+            let before = w.routines.remove(id).map(|old| old.fired).unwrap_or_default();
+            let mut fired: Vec<Firing> = before.iter().rev().find(|f| matches!(f, Firing::Started(_))).cloned().into_iter().collect();
+            if !before.is_empty() {
                 fired.push(Firing::Changed);
             }
             w.routines.insert(id.clone(), Routine { fired, stopped: None, ..routine.clone() });
@@ -78,13 +86,13 @@ pub(super) fn apply(w: &mut super::Workspace, c: &Change) {
         Change::RoutineRan { id, task, at, .. } => {
             if let Some(r) = w.routines.get_mut(id) {
                 r.last_at = Some(*at);
-                r.fired.push(Firing::Started(task.clone()));
+                fire(r, Firing::Started(task.clone()));
             }
         }
         Change::RoutineFailed { id, at, .. } => {
             if let Some(r) = w.routines.get_mut(id) {
                 r.last_at = Some(*at);
-                r.fired.push(Firing::Failed);
+                fire(r, Firing::Failed);
             }
         }
         Change::RoutineSkipped { id, at, .. } => {
@@ -101,6 +109,15 @@ pub(super) fn apply(w: &mut super::Workspace, c: &Change) {
     }
 }
 
+/// A firing kept, and the oldest forgotten past `MAX_FIRINGS_KEPT`. No run
+/// it started is lost while open: a routine fires again only once its last
+/// run has ended.
+fn fire(r: &mut Routine, f: Firing) {
+    r.fired.push(f);
+    let over = r.fired.len().saturating_sub(MAX_FIRINGS_KEPT);
+    r.fired.drain(..over);
+}
+
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new().route("/v1/workspaces/{ws}/routines", post(add)).route("/v1/workspaces/{ws}/routines/{id}", delete(remove))
 }
@@ -112,28 +129,28 @@ struct NewRoutine {
     every_hours: i64,
 }
 
-async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> Reply {
+async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> ApiResult {
     if !(MIN_ROUTINE_HOURS..=MAX_ROUTINE_HOURS).contains(&b.every_hours) {
-        return err(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
+        return refuse(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
     }
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_ROUTINE_CHARS {
-        return err(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
+        return refuse(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
     }
     if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.channels.contains_key(&b.channel))) {
-        return err(StatusCode::NOT_FOUND, "no such channel");
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let id = new_id();
     let routine = Routine { channel: b.channel, text: b.text, every_hours: b.every_hours, by: p.id.clone(), ..Default::default() };
-    ok_or_return!(send(&k, &p, Change::Routine { workspace: ws, id: id.clone(), routine }).await);
+    send(&k, &p, Change::Routine { workspace: ws, id: id.clone(), routine }).await?;
     if let Err(e) = k.run_due_routines().await {
         tracing::warn!("team routines: {e:#}");
     }
-    Json(json!({ "id": id })).into_response()
+    Ok(Json(json!({ "id": id })).into_response())
 }
 
-async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>) -> Reply {
-    ok_or_return!(send(&k, &p, Change::RoutineRemoved { workspace: ws, id }).await);
-    Json(json!({ "ok": true })).into_response()
+async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
+    send(&k, &p, Change::RoutineRemoved { workspace: ws, id }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 impl Kernel {
