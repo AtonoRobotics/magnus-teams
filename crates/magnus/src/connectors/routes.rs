@@ -171,7 +171,7 @@ async fn detail(AxState(k): K, Caller(p): Caller, Path(name): Path<String>) -> A
 }
 
 /// Add an app by its MCP address.
-async fn add(AxState(k): K, Owner(p): Owner, Json(b): Json<Value>) -> ApiResult {
+async fn add(AxState(k): K, Owner(p): Owner, Body(b): Body<requests::AddConnector>) -> ApiResult {
     Ok(answer(k.add_connector(&format!("person:{}", p.id), &b).await, StatusCode::CREATED))
 }
 
@@ -185,9 +185,9 @@ async fn remove(AxState(k): K, Owner(p): Owner, Path(name): Path<String>) -> Api
 }
 
 /// Classify one tool: its risk class, or null to stop offering it.
-async fn classify(AxState(k): K, Owner(p): Owner, Path((name, tool)): Path<(String, String)>, Json(b): Json<Value>) -> ApiResult {
+async fn classify(AxState(k): K, Owner(p): Owner, Path((name, tool)): Path<(String, String)>, Body(b): Body<requests::Classify>) -> ApiResult {
     added(&k, &name)?;
-    let risk = b["risk"].as_str().map(String::from);
+    let risk = b.risk;
     if risk.as_deref().is_some_and(|r| crate::tools::Risk::parse(r).is_none()) {
         return refuse(StatusCode::BAD_REQUEST, "risk is read, reversible_write, irreversible, financial or prohibited");
     }
@@ -247,3 +247,7 @@ async fn disconnect(AxState(k): K, Caller(p): Caller, Path(name): Path<String>) 
         Err(e) => internal(e),
     })
 }
+
+#[cfg(test)]
+#[path = "routes_tests.rs"]
+mod tests;

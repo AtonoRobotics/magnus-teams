@@ -19,7 +19,7 @@ use std::time::Duration;
 mod admin;
 mod discovery;
 pub(crate) mod relay;
-mod requests;
+pub(crate) mod requests;
 mod routes;
 mod sign_in;
 mod sign_in_target;

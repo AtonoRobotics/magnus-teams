@@ -641,7 +641,10 @@ async fn connectors(State(k): State<Arc<Kernel>>) -> Response {
 
 async fn add_connector(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
     let Some(actor) = actor(&b) else { return no_actor() };
-    done(k.add_connector(&actor, &b).await)
+    match serde_json::from_value::<crate::connectors::requests::AddConnector>(b) {
+        Ok(add) => done(k.add_connector(&actor, &add).await),
+        Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": format!("{e}") }))).into_response(),
+    }
 }
 
 async fn connector_settings(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {

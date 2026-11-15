@@ -3,6 +3,7 @@
 //! credentials.
 
 use super::discovery::{asks_sign_in, discover, own_name};
+use super::requests::AddConnector;
 use super::routes::name_from;
 use super::standing::revoke;
 use super::{credential_name, is_sign_in_of, title, OAUTH};
@@ -105,9 +106,9 @@ impl Kernel {
 
     /// Add an app by its MCP address, as `actor`. Whether it needs a
     /// sign-in is asked of the app itself.
-    pub async fn add_connector(&self, actor: &str, b: &Value) -> Result<Value, Refusal> {
-        let s = |f: &str| b[f].as_str().map(str::trim).unwrap_or_default().to_string();
-        let (mut name, url, audience, label) = (s("name"), s("url"), s("audience"), s("label"));
+    pub(crate) async fn add_connector(&self, actor: &str, b: &AddConnector) -> Result<Value, Refusal> {
+        let s = |f: &str| f.trim().to_string();
+        let (mut name, url, audience, label) = (s(&b.name), s(&b.url), s(&b.audience), s(&b.label));
         let taken = |n: &str| self.all_connectors().iter().any(|(c, _)| c.name == n) || crate::tools::builtin_apps().contains(&n) || n.starts_with(crate::desktop::APP_PREFIX);
         // Never a key or token in the address, checked before the app is asked.
         match url::Url::parse(&url) {
@@ -145,7 +146,7 @@ impl Kernel {
         // Never a key, token or client details: people sign in to an app
         // with their own accounts, and nobody types one into Magnus
         // (connectors spec, Remote MCP connectors and Client registration).
-        if !s("token").is_empty() || !b["client_id"].is_null() {
+        if b.token.as_deref().is_some_and(|t| !t.trim().is_empty()) || b.client_id.as_ref().is_some_and(|c| !c.is_null()) {
             return Err(refusal(StatusCode::BAD_REQUEST, "Magnus never takes a key, token or client details for an app: each person signs in to it with their own account"));
         }
         let oauth = match asks_sign_in(&url).await {
@@ -178,9 +179,9 @@ impl Kernel {
             credential: oauth.then(|| credential_name(&name)),
             audience,
             label,
-            access_groups: b["access_groups"].as_array().into_iter().flatten().filter_map(|g| g.as_str().map(String::from)).collect(),
-            blocked_groups: b["blocked_groups"].as_array().into_iter().flatten().filter_map(|g| g.as_str().map(String::from)).collect(),
-            system_of_record: b["system_of_record"].as_bool().unwrap_or(false),
+            access_groups: b.access_groups.clone(),
+            blocked_groups: b.blocked_groups.clone(),
+            system_of_record: b.system_of_record,
             idempotency: "none".into(),
             tools: Default::default(),
             auth: oauth.then(|| OAUTH.to_string()),
