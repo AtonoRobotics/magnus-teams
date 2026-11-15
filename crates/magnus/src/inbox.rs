@@ -18,19 +18,14 @@ pub enum Answer {
     Invalid(String),
 }
 
-/// May `p` set policy for `layer`? (E7: separate from approving.) A
-/// person's own layer is theirs alone; see `people::Rights::may_write_policy_layer`.
-pub fn may_set_policy(p: &Person, layer: &str) -> bool {
-    crate::people::rights(p).may_write_policy_layer(layer)
-}
-
 pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
     match i.kind.as_str() {
         // An ask goes to the requester and its card shows only to them
         // (spec rev 145, Approvals): never to the server's owner or an
         // approver role, whose work it is not.
         "approval" => i.person == p.id,
-        "policy_proposal" => may_set_policy(p, i.details["layer"].as_str().unwrap_or_default()),
+        // Setting policy is separate from approving (E7).
+        "policy_proposal" => crate::people::rights(p).may_write_policy_layer(i.details["layer"].as_str().unwrap_or_default()),
         crate::consent::APP_TOOLS => crate::people::rights(p).decides_app_tools(),
         "deletion_request" => crate::people::rights(p).decides_deletion_requests(),
         // A message shared with someone is theirs alone, the owner's too.

@@ -6,6 +6,7 @@
 //! the rules that decided it, Apply, and every version kept to roll back
 //! to.
 
+use super::layers::{Layer, MAX_LAYER_NAME_BYTES};
 use crate::config::Person;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -239,11 +240,16 @@ pub fn check(text: &str) -> Vec<Value> {
     out
 }
 
-/// A layer an admin may read and write: the organisation's or a group's. A
-/// person's own layer and their tasks' are theirs alone (the owner,
-/// 2026-11-11), so the admin's editor neither lists nor changes them.
-pub fn layer_ok(_k: &Kernel, layer: &str) -> bool {
-    crate::policy::layers::kept_by_the_server(layer) && layer.len() <= 106
+/// A layer an admin may read and write: the organisation's or a group's,
+/// by a name of at most `MAX_LAYER_NAME_BYTES`. A person's own layer and
+/// their tasks' are theirs alone (the owner, 2026-11-11), so the admin's
+/// editor neither lists nor changes them.
+fn editable(layer: &str) -> bool {
+    layer.len() <= MAX_LAYER_NAME_BYTES && kept(layer)
+}
+
+fn kept(layer: &str) -> bool {
+    Layer::parse(layer).is_some_and(Layer::kept_by_the_server)
 }
 
 impl Kernel {
@@ -251,7 +257,7 @@ impl Kernel {
     /// was written), the draft if there is one, and its versions.
     pub fn policy_sets(&self) -> Vec<Value> {
         let (live, drafts, history) = self.read(|s| (s.org.policies().clone(), s.org.policy_drafts().clone(), s.org.policy_history().clone()));
-        let mut layers: Vec<String> = live.keys().chain(drafts.keys()).filter(|l| crate::policy::layers::kept_by_the_server(l)).cloned().collect();
+        let mut layers: Vec<String> = live.keys().chain(drafts.keys()).filter(|l| kept(l)).cloned().collect();
         layers.push("org".into());
         layers.sort();
         layers.dedup();
@@ -275,7 +281,7 @@ impl Kernel {
     /// Keep a draft of a layer (None: drop it). Nothing is in force until
     /// it is applied.
     pub async fn policy_draft(&self, actor: &str, layer: &str, cedar: Option<String>) -> Result<Value, Refusal> {
-        if !layer_ok(self, layer) {
+        if !editable(layer) {
             return Err((StatusCode::NOT_FOUND, "no such policy layer: org, group/<name>, user/<person> or task/<task>".into()));
         }
         if cedar.as_ref().is_some_and(|c| c.len() > 256 * 1024) {
@@ -292,7 +298,7 @@ impl Kernel {
     /// Put a layer's policy in force, as `actor`: only one that parses and
     /// fits the schema. Its draft goes.
     pub async fn policy_apply(&self, actor: &str, layer: &str, cedar: &str) -> Result<Value, Refusal> {
-        if !layer_ok(self, layer) {
+        if !editable(layer) {
             return Err((StatusCode::NOT_FOUND, "no such policy layer".into()));
         }
         let mut problems = check(cedar);
@@ -316,7 +322,7 @@ impl Kernel {
 
     /// Every version of a layer, newest first.
     pub fn policy_history(&self, layer: &str) -> Vec<Value> {
-        if !layer_ok(self, layer) {
+        if !editable(layer) {
             return vec![];
         }
         let mut v: Vec<Value> = self.read(|s| {
@@ -352,17 +358,17 @@ impl Kernel {
         // Only the layers the server keeps: a person's own rules and their
         // tasks' are theirs, and may narrow what this answer says.
         let mut policies: BTreeMap<String, String> = self.read(|s| s.org.policies().clone());
-        policies.retain(|l, _| crate::policy::layers::kept_by_the_server(l));
+        policies.retain(|l, _| kept(l));
         if b["drafts"].as_bool().unwrap_or(false) {
             for (l, d) in self.read(|s| s.org.policy_drafts().clone()) {
-                if crate::policy::layers::kept_by_the_server(&l) {
+                if kept(&l) {
                     policies.insert(l, d);
                 }
             }
         }
         if let Some(over) = b["cedar"].as_object() {
             for (l, c) in over {
-                if let Some(c) = c.as_str().filter(|_| crate::policy::layers::kept_by_the_server(l)) {
+                if let Some(c) = c.as_str().filter(|_| kept(l)) {
                     policies.insert(l.clone(), c.to_string());
                 }
             }

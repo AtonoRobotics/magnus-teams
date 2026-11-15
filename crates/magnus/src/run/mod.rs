@@ -599,7 +599,7 @@ impl Kernel {
             "propose_policy" => {
                 let layer = input["layer"].as_str().unwrap_or_default().to_string();
                 let cedar = input["cedar"].as_str().unwrap_or_default().to_string();
-                let layer_ok = crate::policy::proposable(&layer, &run.person);
+                let layer_ok = crate::policy::layers::Layer::parse(&layer).is_some_and(|l| l.proposable_by(&run.person));
                 match (layer_ok, crate::policy::validate(&cedar)) {
                     (true, Ok(())) => {
                         if let Err(why) = crate::policy::layers::tightens_only(&layer, &cedar) {

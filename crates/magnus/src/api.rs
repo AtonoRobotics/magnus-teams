@@ -9,6 +9,7 @@ use crate::config::{Adapter, Person};
 use crate::extract::{Caller, Owner};
 use crate::inbox::{self, Answer};
 use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
+use crate::policy::layers::Layer;
 use crate::state::{Run, Status};
 use crate::{events::Ev, people::rights};
 use axum::{
@@ -1227,10 +1228,16 @@ async fn respond(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b)
 async fn policies(State(k): K, Caller(p): Caller) -> ApiResult {
     let all = k.read(|s| s.org.policies().clone());
     // The layers of their own tasks, which they may set (`put_policy`).
-    let own_task = |l: &str| l.strip_prefix("task/").is_some_and(|t| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id)));
+    let own_task = |t: &str| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id));
     let mine: serde_json::Map<String, Value> = all
         .into_iter()
-        .filter(|(l, _)| inbox::may_set_policy(&p, l) || l == "org" || l == &format!("user/{}", p.id) || p.groups.iter().any(|g| l == &format!("group/{g}")) || own_task(l))
+        .filter(|(l, _)| match Layer::parse(l) {
+            Some(Layer::Org) => true,
+            Some(Layer::Group(g)) => rights(&p).may_write_policy_layer(l) || p.groups.iter().any(|x| x == g),
+            Some(Layer::User(u)) => u == p.id,
+            Some(Layer::Task(t)) => own_task(t),
+            None => false,
+        })
         .map(|(l, c)| (l, Value::String(c)))
         .collect();
     Ok(Json(json!({ "layers": mine, "default_org": crate::policy::DEFAULT_ORG })).into_response())
@@ -1240,15 +1247,20 @@ async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, J
     let layer = layer.trim_matches('/').to_string();
     // A task's layer: the task's own, which only narrows, so its person
     // may set it as well as the owner (DECISIONS, Layering).
-    let task_of = layer.strip_prefix("task/").and_then(|t| k.read(|s| s.tasks.get(t).map(|t| t.person.clone())));
-    let valid = layer == "org"
-        || layer.strip_prefix("user/").is_some_and(|u| k.people().exists(u))
-        || layer.strip_prefix("group/").is_some_and(|g| !g.is_empty() && !g.contains('/'))
-        || task_of.is_some();
+    let mut task_of = None;
+    let valid = match Layer::parse(&layer) {
+        Some(Layer::Org | Layer::Group(_)) => true,
+        Some(Layer::User(u)) => k.people().exists(u),
+        Some(Layer::Task(t)) => {
+            task_of = k.read(|s| s.tasks.get(t).map(|t| t.person.clone()));
+            task_of.is_some()
+        }
+        None => false,
+    };
     if !valid {
         return refuse(StatusCode::NOT_FOUND, "no such policy layer");
     }
-    if !(inbox::may_set_policy(&p, &layer) || task_of.as_deref() == Some(p.id.as_str())) {
+    if !(rights(&p).may_write_policy_layer(&layer) || task_of.as_deref() == Some(p.id.as_str())) {
         return refuse(StatusCode::FORBIDDEN, "you may not set this layer's policy");
     }
     let cedar = b["cedar"].as_str().unwrap_or_default().to_string();
