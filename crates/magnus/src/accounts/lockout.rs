@@ -7,6 +7,7 @@
 use super::Policy;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::BTreeMap;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 /// How long a permanent lockout is recorded for: nobody's lock outlives
 /// the century, and an admin's enable clears it anyway.
@@ -19,6 +20,13 @@ pub(super) struct Failures {
     pub(super) n: u32,
     pub(super) first: DateTime<Utc>,
     pub(super) until: Option<DateTime<Utc>>,
+}
+
+/// The counters behind their lock. A panic while it was held cannot leave
+/// a counter half-written (each change is one map operation), so a
+/// poisoned lock is taken as it stands rather than failing every sign-in.
+pub(super) fn counters(m: &Mutex<Lockout>) -> MutexGuard<'_, Lockout> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Every counter's failures.
@@ -236,5 +244,18 @@ mod tests {
         l.failed(C, t0(), &p);
         assert_eq!(l.locked(C, t0(), &p), Some(t0() + mins(1)), "zero failures or minutes did not read as one");
         assert_eq!(l.locked("local:ada", t0(), &p), None, "one counter's lock held another");
+    }
+
+    #[test]
+    fn a_poisoned_lock_still_counts() {
+        let m = Mutex::new(Lockout::default());
+        let _ = std::panic::catch_unwind(|| {
+            let _held = m.lock().unwrap();
+            panic!("a panic while the counters are held");
+        });
+        assert!(m.is_poisoned());
+        let p = rules(1, 5, 15);
+        counters(&m).failed(C, t0(), &p);
+        assert_eq!(counters(&m).locked(C, t0(), &p), Some(t0() + mins(5)), "a poisoned lock stopped counting");
     }
 }

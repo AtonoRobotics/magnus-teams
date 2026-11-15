@@ -20,7 +20,7 @@
 //!   wrong password, never a yes.
 
 use super::credentials::Credentials;
-use super::lockout::Lockout;
+use super::lockout::{counters, Lockout};
 use super::{key, Accounts, Policy, SignInError, Status};
 use crate::identity::{Identity, Polled};
 use anyhow::{Context, Result};
@@ -148,18 +148,18 @@ impl Accounts {
     /// Reads the cached rules; async auth entries refresh them first.
     pub(super) fn locked(&self, person: &str) -> Option<DateTime<Utc>> {
         let p = self.policy.lock().unwrap().1;
-        self.failures.lock().unwrap().locked(&key(person), Utc::now(), &p)
+        counters(&self.failures).locked(&key(person), Utc::now(), &p)
     }
 
     /// Count a wrong password (`Lockout::failed`). Only for people of this
     /// appliance, so guessing names cannot grow the table.
     pub(super) fn failed(&self, person: &str) {
         let p = self.policy.lock().unwrap().1;
-        self.failures.lock().unwrap().failed(&key(person), Utc::now(), &p);
+        counters(&self.failures).failed(&key(person), Utc::now(), &p);
     }
 
     pub(super) fn succeeded(&self, person: &str) {
-        self.failures.lock().unwrap().succeeded(&key(person));
+        counters(&self.failures).succeeded(&key(person));
     }
 
     /// Clear every counter of a person: their own and each scope's. A
@@ -167,7 +167,7 @@ impl Accounts {
     /// them, including out of a permanent lockout.
     pub(super) fn clear_counters(&self, person: &str) {
         let person = key(person);
-        let mut f = self.failures.lock().unwrap();
+        let mut f = counters(&self.failures);
         for c in [person.clone(), Self::network_counter(&person), Self::local_counter(&person), Self::console_counter(&person), Self::backup_counter(&person)] {
             f.clear(&key(&c));
         }
@@ -256,21 +256,21 @@ pub(super) struct Checker<'a, C: Credentials + ?Sized> {
 
 impl<C: Credentials + ?Sized> Checker<'_, C> {
     fn locked(&self, counter: &str) -> Option<DateTime<Utc>> {
-        self.lockout.lock().unwrap().locked(&key(counter), Utc::now(), &self.policy)
+        counters(self.lockout).locked(&key(counter), Utc::now(), &self.policy)
     }
 
     fn failed(&self, counter: &str) {
-        self.lockout.lock().unwrap().failed(&key(counter), Utc::now(), &self.policy);
+        counters(self.lockout).failed(&key(counter), Utc::now(), &self.policy);
     }
 
     fn succeeded(&self, counter: &str) {
-        self.lockout.lock().unwrap().succeeded(&key(counter));
+        counters(self.lockout).succeeded(&key(counter));
     }
 
     /// Take back one counted attempt: one counted before its answer came,
     /// whose answer said nothing about the password (the provider was down).
     fn forgive(&self, counter: &str) {
-        self.lockout.lock().unwrap().forgive(&key(counter));
+        counters(self.lockout).forgive(&key(counter));
     }
 
     pub(super) async fn check_password(&self, keeper: &Keeper, a: &Attempt<'_>) -> Result<Checked> {
