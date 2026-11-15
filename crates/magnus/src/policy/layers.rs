@@ -13,6 +13,7 @@
 //! on every boundary action, the rule of two, the hard denials) is compiled
 //! into the kernel and in no layer.
 
+use crate::config::Person;
 use cedar_policy::{Effect, PolicySet};
 use std::str::FromStr;
 
@@ -73,6 +74,20 @@ impl<'a> Layer<'a> {
             Layer::Org | Layer::Group(_) => true,
             Layer::User(u) => u == person,
             Layer::Task(_) => false,
+        }
+    }
+}
+
+impl Layer<'_> {
+    /// Whether `p` reads this layer among the rules that bear on them: the
+    /// organisation's, their groups' and any group's they keep, their own,
+    /// and their own tasks' (`own_task`). Another person's is theirs.
+    pub fn shown_to(self, p: &Person, own_task: impl Fn(&str) -> bool) -> bool {
+        match self {
+            Layer::Org => true,
+            Layer::Group(g) => p.groups.iter().any(|x| x == g) || crate::people::rights(p).may_write_policy_layer(&format!("group/{g}")),
+            Layer::User(u) => u == p.id,
+            Layer::Task(t) => own_task(t),
         }
     }
 }

@@ -202,6 +202,15 @@ pub enum Outcome {
     Deny { reason: String, rule: Option<String> },
 }
 
+/// Whether a person may use one of the organisation's apps at all: it is
+/// theirs (none built for someone else), they are in one of the groups it
+/// is for (none named: everyone), and in none it is blocked for.
+pub fn may_use_app(person: &Person, c: &crate::config::Connector) -> bool {
+    let theirs = c.owner.as_ref().is_none_or(|o| *o == person.id);
+    let allowed = c.access_groups.is_empty() || c.access_groups.iter().any(|g| person.groups.contains(g));
+    theirs && allowed && !c.blocked_groups.iter().any(|g| person.groups.contains(g))
+}
+
 /// Parse a layer's policy text, so a bad policy is refused when written.
 pub fn validate(cedar: &str) -> Result<()> {
     PolicySet::from_str(cedar).map_err(|e| anyhow!("{e}"))?;
@@ -514,6 +523,33 @@ mod tests {
         // An app's name is quoted, never read as policy.
         let odd = grant_cedar("carol", &["crm\" }; permit(principal, action, resource); //".into()], &[]).unwrap();
         assert!(!grant_covers(&odd, &carol, &other).unwrap());
+    }
+
+    fn app(allow: &[&str], block: &[&str]) -> crate::config::Connector {
+        serde_json::from_value(
+            serde_json::json!({ "name": "gmail", "url": "https://x.test/mcp", "audience": "public", "label": "private", "access_groups": allow, "blocked_groups": block }),
+        )
+        .unwrap()
+    }
+
+    fn in_groups(groups: &[&str]) -> Person {
+        serde_json::from_value(serde_json::json!({ "id": "p", "groups": groups })).unwrap()
+    }
+
+    #[test]
+    fn an_app_is_for_its_groups_and_never_for_the_groups_it_is_blocked_for() {
+        let (staff, finance, both, none) = (in_groups(&["staff"]), in_groups(&["finance"]), in_groups(&["staff", "finance"]), in_groups(&[]));
+        // No rule: everyone.
+        assert!([&staff, &finance, &both, &none].iter().all(|p| may_use_app(p, &app(&[], &[]))));
+        // Allowed for staff only.
+        let a = app(&["staff"], &[]);
+        assert!(may_use_app(&staff, &a) && may_use_app(&both, &a) && !may_use_app(&finance, &a) && !may_use_app(&none, &a));
+        // Blocked for finance: a block wins over an allow.
+        let a = app(&["staff"], &["finance"]);
+        assert!(may_use_app(&staff, &a) && !may_use_app(&both, &a) && !may_use_app(&finance, &a));
+        // Blocked only: everyone else.
+        let a = app(&[], &["finance"]);
+        assert!(may_use_app(&staff, &a) && may_use_app(&none, &a) && !may_use_app(&both, &a));
     }
 }
 

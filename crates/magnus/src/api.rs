@@ -1229,17 +1229,8 @@ async fn policies(State(k): K, Caller(p): Caller) -> ApiResult {
     let all = k.read(|s| s.org.policies().clone());
     // The layers of their own tasks, which they may set (`put_policy`).
     let own_task = |t: &str| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id));
-    let mine: serde_json::Map<String, Value> = all
-        .into_iter()
-        .filter(|(l, _)| match Layer::parse(l) {
-            Some(Layer::Org) => true,
-            Some(Layer::Group(g)) => rights(&p).may_write_policy_layer(l) || p.groups.iter().any(|x| x == g),
-            Some(Layer::User(u)) => u == p.id,
-            Some(Layer::Task(t)) => own_task(t),
-            None => false,
-        })
-        .map(|(l, c)| (l, Value::String(c)))
-        .collect();
+    let mine: serde_json::Map<String, Value> =
+        all.into_iter().filter(|(l, _)| Layer::parse(l).is_some_and(|l| l.shown_to(&p, own_task))).map(|(l, c)| (l, Value::String(c))).collect();
     Ok(Json(json!({ "layers": mine, "default_org": crate::policy::DEFAULT_ORG })).into_response())
 }
 
@@ -1247,15 +1238,12 @@ async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, J
     let layer = layer.trim_matches('/').to_string();
     // A task's layer: the task's own, which only narrows, so its person
     // may set it as well as the owner (DECISIONS, Layering).
-    let mut task_of = None;
-    let valid = match Layer::parse(&layer) {
-        Some(Layer::Org | Layer::Group(_)) => true,
+    let parsed = Layer::parse(&layer);
+    let task_of = if let Some(Layer::Task(t)) = parsed { k.read(|s| s.tasks.get(t).map(|t| t.person.clone())) } else { None };
+    let valid = match parsed {
         Some(Layer::User(u)) => k.people().exists(u),
-        Some(Layer::Task(t)) => {
-            task_of = k.read(|s| s.tasks.get(t).map(|t| t.person.clone()));
-            task_of.is_some()
-        }
-        None => false,
+        Some(Layer::Task(_)) => task_of.is_some(),
+        other => other.is_some(),
     };
     if !valid {
         return refuse(StatusCode::NOT_FOUND, "no such policy layer");

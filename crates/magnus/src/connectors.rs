@@ -964,7 +964,7 @@ pub fn suggested_risk(annotations: &Value) -> &'static str {
 // end, and which only their runs use.
 
 use crate::api::{err, internal};
-use crate::{boundary::may_use, events::Ev, people::rights};
+use crate::{events::Ev, people::rights, policy::may_use_app};
 use axum::{
     extract::{Path, Query, State as AxState},
     http::StatusCode,
@@ -1369,7 +1369,7 @@ async fn list(AxState(k): K, Caller(p): Caller) -> ApiResult {
         // An app blocked for the person's groups, or for groups they are
         // not in, is not in their Library (connectors spec, Org policy).
         // The owner still manages it in Settings, marked as not theirs.
-        let theirs = crate::boundary::may_use(&p, &c);
+        let theirs = crate::policy::may_use_app(&p, &c);
         if !theirs && (!rights(&p).manages_shared_apps() || c.owner.is_some()) {
             continue;
         }
@@ -1479,11 +1479,11 @@ async fn card(k: &Kernel, c: &Connector, person: &str) -> Value {
 /// One app's card for the person asking, with the last things Magnus did
 /// through it for them (from the event log).
 async fn detail(AxState(k): K, Caller(p): Caller, Path(name): Path<String>) -> ApiResult {
-    let Some(c) = k.connector(&name).filter(|c| may_use(&p, c) || c.owner.is_none() && rights(&p).manages_shared_apps()) else {
+    let Some(c) = k.connector(&name).filter(|c| may_use_app(&p, c) || c.owner.is_none() && rights(&p).manages_shared_apps()) else {
         return refuse(StatusCode::NOT_FOUND, "no such app");
     };
     let mut v = card(&k, &c, &p.id).await;
-    v["for_you"] = json!(crate::boundary::may_use(&p, &c));
+    v["for_you"] = json!(crate::policy::may_use_app(&p, &c));
     v["recent"] = json!(k.recent_uses(&c.name, &p.id, 10));
     Ok(Json(v).into_response())
 }
@@ -1522,7 +1522,7 @@ async fn classify(AxState(k): K, Owner(p): Owner, Path((name, tool)): Path<(Stri
 /// account; the sign-in is theirs alone.
 async fn sign_in(AxState(k): K, Caller(p): Caller, Path(name): Path<String>, Body(b): Body<requests::SignIn>) -> ApiResult {
     let Some(c) = k.connector(&name).filter(|c| c.auth.as_deref() == Some(OAUTH)) else { return refuse(StatusCode::NOT_FOUND, "no app by that name signs in") };
-    if !crate::boundary::may_use(&p, &c) {
+    if !crate::policy::may_use_app(&p, &c) {
         return refuse(StatusCode::FORBIDDEN, "your organisation has not made this app available to you");
     }
     if k.read(|s| s.vault.kill_switch()) {

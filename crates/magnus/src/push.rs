@@ -271,7 +271,7 @@ async fn receive(State(k): K, Path((app, person, given)): Path<(String, String, 
 /// has none (a provider cannot reach a network address); `automatic` says
 /// Magnus subscribes for the person by itself.
 async fn address(State(k): K, Caller(p): Caller, Path(name): Path<String>) -> Response {
-    let Some(c) = k.connector(&name).filter(|c| crate::boundary::may_use(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
+    let Some(c) = k.connector(&name).filter(|c| crate::policy::may_use_app(&p, c)) else { return err(StatusCode::NOT_FOUND, "no such app") };
     if c.watch.is_empty() {
         return err(StatusCode::NOT_FOUND, "Magnus does not watch anything in this app");
     }

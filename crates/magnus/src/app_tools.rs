@@ -6,9 +6,9 @@
 //! puts its card in front of them, saying what it is for. Only the person
 //! signs in: Magnus never connects an app itself.
 
-use crate::boundary::may_use;
 use crate::config::{Connector, Person};
 use crate::kernel::Kernel;
+use crate::policy::may_use_app;
 use serde_json::{json, Value};
 
 /// Longest reason an offered card gives.
@@ -21,7 +21,7 @@ impl Kernel {
     pub fn apps_of(&self, person: &Person) -> Vec<(Connector, State)> {
         self.connectors()
             .into_iter()
-            .filter(|c| may_use(person, c))
+            .filter(|c| may_use_app(person, c))
             .map(|c| {
                 let state = if self.lapsed(&c, &person.id) {
                     State::Lapsed

@@ -82,13 +82,6 @@ pub fn specs() -> Vec<ToolSpec> {
     }]
 }
 
-/// Whether this person may use this connector at all.
-pub fn may_use(person: &crate::config::Person, c: &Connector) -> bool {
-    let theirs = c.owner.as_ref().is_none_or(|o| *o == person.id);
-    let allowed = c.access_groups.is_empty() || c.access_groups.iter().any(|g| person.groups.contains(g));
-    theirs && allowed && !c.blocked_groups.iter().any(|g| person.groups.contains(g))
-}
-
 fn checked_name(name: &str) -> bool {
     !name.is_empty() && !name.contains("__") && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
