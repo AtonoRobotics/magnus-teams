@@ -590,3 +590,7 @@ mod tests {
         assert!(!grant_covers(&odd, &carol, &other).unwrap());
     }
 }
+
+#[cfg(test)]
+#[path = "policy_stack_tests.rs"]
+mod stack_tests;
