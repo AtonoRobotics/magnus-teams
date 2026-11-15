@@ -41,15 +41,17 @@ rsync -rlpD --checksum --delete -e "$ssh_" --exclude .git --exclude target/ --ex
 # follow, so the copy gets its own repository holding this checkout's HEAD:
 # its index is the commit, and the copied files are the working tree.
 git -C "$root" bundle create - HEAD 2>/dev/null | $ssh_ "$host" "cat > $dir.bundle && cd $dir && rm -rf .git && git init -q && git fetch -q ../$name.bundle HEAD && git reset -q FETCH_HEAD && rm ../$name.bundle"
-# The sandbox's guest kernel and image are built, not checked in, and every
-# checkout shares one copy (decisions/2026-11-09-scratch-suites-on-strix-beta.md).
-# A checkout that has them refreshes it; without them a task's contract checks
-# cannot run, and every scratch test with a task fails.
-guest=magnus-teams-ci/sandbox-out
-if [ -f "$root/sandbox/out/rootfs.ext4" ] && [ -f "$root/sandbox/out/vmlinux" ]; then
-  $ssh_ "$host" "mkdir -p $guest"
-  rsync -a --sparse -e "$ssh_" "$root/sandbox/out/vmlinux" "$root/sandbox/out/rootfs.ext4" "$host:$guest/"
-fi
+# The sandbox's guest kernel and image are built, not checked in. Each run
+# uses the image of its own committed sandbox sources, as a release does
+# (sandbox/image.sh): built on Strix Beta the first time those sources are
+# seen, kept by their hash under ~/magnus-teams-ci/sandbox-images (the newest
+# four), and shared by every run with the same sources
+# (decisions/2026-11-14-strix-runs-use-their-own-sandbox-image.md). A change
+# to sandbox/ is in the image once it is committed. Without an image a task's
+# contract checks cannot run, and every scratch test with a task fails, so a
+# failed build stops the run.
+images=magnus-teams-ci/sandbox-images
+image_log=/tmp/magnus-teams-image-$name.log
 # The command, quoted for the remote shell.
 cmd=
 for a in "$@"; do cmd="$cmd '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
@@ -61,4 +63,4 @@ case "$1 ${2:-}" in "cargo test") cmd="cargo build --workspace --bins &&$cmd" ;;
 # info and incremental caches made each NAME's build directory 80-95 GB,
 # which is what filled the disk (decisions/2026-11-13-strix-capacity.md).
 gc="STRIX_GC_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres sh \$HOME/$dir/ci/strix-gc.sh $name"
-exec $ssh_ "$host" "$gc; (export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/targets/$name CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only MAGNUS_GUEST_KERNEL=\$HOME/$guest/vmlinux MAGNUS_GUEST_ROOTFS=\$HOME/$guest/rootfs.ext4; cd $dir && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && $cmd); rc=\$?; touch \$HOME/magnus-teams-ci/.used/$name; rm -f \$HOME/magnus-teams-ci/.running/$name; $gc; exit \$rc"
+exec $ssh_ "$host" "$gc; (export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/targets/$name CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only; cd $dir && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && { img=\$(MAGNUS_SANDBOX_STORE=\$HOME/$images MAGNUS_SANDBOX_KEEP=4 sandbox/image.sh 2>$image_log) || { echo 'the sandbox image did not build:' >&2; tail -20 $image_log >&2; exit 1; }; } && echo \"sandbox image: \$(basename \$img)\" >&2 && export MAGNUS_GUEST_KERNEL=\$img/vmlinux MAGNUS_GUEST_ROOTFS=\$img/rootfs.ext4 && $cmd); rc=\$?; touch \$HOME/magnus-teams-ci/.used/$name; rm -f \$HOME/magnus-teams-ci/.running/$name; $gc; exit \$rc"

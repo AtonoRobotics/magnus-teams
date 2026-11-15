@@ -59,7 +59,9 @@ remove() {
 # Every NAME, idle ones only, least recently used first.
 idle=$(
   { ls -1 "$root/targets"; ls -1 "$root"; } 2>/dev/null | sort -u | while read -r n; do
-    case $n in targets | sandbox-out | *.bundle | "$current") continue ;; esac
+    # Not NAMEs: the build directories, the sandbox images (sandbox/image.sh
+    # keeps its own newest four) and the shared image from before them.
+    case $n in targets | sandbox-images | sandbox-out | *.bundle | "$current") continue ;; esac
     [ -d "$root/$n" ] || [ -d "$root/targets/$n" ] || continue
     running "$n" && continue
     echo "$(last_used "$n") $n"

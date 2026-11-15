@@ -13,7 +13,8 @@ gone() { [ ! -e "$1/$2" ] && [ ! -e "$1/targets/$2" ] || { echo "FAIL: $2 should
 kept() { [ -d "$1/$2" ] || [ -d "$1/targets/$2" ] || { echo "FAIL: $2 should be kept"; fail=1; }; }
 
 # Plenty of room: only NAMEs idle for over a day go.
-r=$t/idle; mkdir -p "$r/.running" "$r/sandbox-out"
+r=$t/idle; mkdir -p "$r/.running" "$r/sandbox-out" "$r/sandbox-images/0123456789abcdef"
+touch -d "48 hours ago" "$r/sandbox-images" "$r/sandbox-out"
 name "$r" old "48 hours ago"
 name "$r" recent "1 hour ago"
 name "$r" current "72 hours ago"
@@ -25,6 +26,7 @@ STRIX_GC_ROOT=$r STRIX_GC_FREE_GB=$t/free-idle sh "$here/strix-gc.sh" current 2>
 gone "$r" old; gone "$r" died; gone "$r" legacy
 kept "$r" recent; kept "$r" current; kept "$r" busy
 [ -d "$r/sandbox-out" ] || { echo "FAIL: the shared guest image was removed"; fail=1; }
+[ -d "$r/sandbox-images/0123456789abcdef" ] || { echo "FAIL: the sandbox image store was removed"; fail=1; }
 
 # Low on room: idle NAMEs go least recently used first, until there is room
 # (each removal frees 100 GB in this stand-in), and never the current or a
