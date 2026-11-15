@@ -317,3 +317,32 @@ fn what_a_member_may_do_travels_with_each_entry() {
         assert_eq!(words(may(who, channel, id)), want, "{who} on {id} in {channel}");
     }
 }
+
+/// An answer built from data only its requester may see puts its words on
+/// the wire for no one else: not in the channel as the app is sent it, not
+/// in its thread, not found by id to share, save or export.
+#[test]
+fn a_private_answer_never_leaves_for_anyone_but_its_requester() {
+    use crate::conversation::channel::{Channel, Names};
+    use crate::conversation::Conversation;
+    let mut x = World::new();
+    x.say("c", "m1", "mo", "@Magnus what is my salary", None, 1);
+    x.answered("c", "t1", "mo", Some("m1"), "SECRET 90k", true, 2);
+    let names = Names::new();
+    let now = x.at(10);
+    let sent = |who: &str, thread: Option<&str>| {
+        let c = Channel { view: x.view(who), channel: "c", thread, now, names: &names };
+        let found = c.find("agent:t1").map(|e| (c.text(&e), c.may(&e)));
+        (serde_json::to_string(&super::items::for_the_app(c.entries(), &names)).unwrap_or_default(), found)
+    };
+    for who in ["sam", "ana"] {
+        for thread in [None, Some("m1")] {
+            let (wire, found) = sent(who, thread);
+            assert!(!wire.contains("SECRET"), "{who} was sent mo's private answer: {wire}");
+            let (text, may) = found.unwrap_or_default();
+            assert!(!text.contains("SECRET"), "{who} found mo's private answer by id");
+            assert!(may.is_none_or(|m| !m.share && !m.save), "{who} may pass mo's private answer on");
+        }
+    }
+    assert!(sent("mo", None).0.contains("SECRET"), "its requester does not see their own answer");
+}

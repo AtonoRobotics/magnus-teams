@@ -10,6 +10,7 @@ use super::chat::{Chat, Invite};
 use super::routes::{new_id, send, Reply, K};
 use super::{Change, Role};
 use crate::api::{err, who};
+use crate::api_error::{refuse, ApiResult};
 use crate::config::Person;
 use crate::events::Ev;
 use crate::invitations::{free_id, holder, invite_link, invite_path, Delivery};
@@ -121,24 +122,24 @@ struct NewInvite {
 
 /// By email: someone the server already knows joins at once; anyone else
 /// gets an account invitation by email. Without an email, a link.
-async fn invite(State(k): K, Member { person: p, role: mine, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> Reply {
+async fn invite(State(k): K, Member { person: p, role: mine, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> ApiResult {
     let role = b.role.unwrap_or(Role::Member);
     if role > mine {
-        return err(StatusCode::FORBIDDEN, "you cannot give a role above your own");
+        return refuse(StatusCode::FORBIDDEN, "you cannot give a role above your own");
     }
-    let Some(email) = b.email.map(|e| e.trim().to_lowercase()).filter(|e| !e.is_empty()) else { return by_link(&k, &p, ws, role).await };
+    let Some(email) = b.email.map(|e| e.trim().to_lowercase()).filter(|e| !e.is_empty()) else { return Ok(by_link(&k, &p, ws, role).await) };
     if !crate::invitations::valid_email(&email) {
-        return err(StatusCode::BAD_REQUEST, "that is not an email address");
+        return refuse(StatusCode::BAD_REQUEST, "that is not an email address");
     }
     if let Some(person) = holder(&k, &email) {
         let already = k.read(|s| s.team.role(&ws, &person)).is_some();
         if !already {
-            ok_or_return!(send(&k, &p, Change::Member { workspace: ws, person: person.clone(), role }).await);
+            send(&k, &p, Change::Member { workspace: ws, person: person.clone(), role }).await?;
         }
-        return Json(json!({ "added": person, "already": already })).into_response();
+        return Ok(Json(json!({ "added": person, "already": already })).into_response());
     }
     let name = b.name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty() && n.chars().count() <= MAX_NAME_CHARS);
-    newcomer(&k, &p, ws, role, email, name).await
+    Ok(newcomer(&k, &p, ws, role, email, name).await)
 }
 
 /// Someone new to the server: their account invitation, bound to this

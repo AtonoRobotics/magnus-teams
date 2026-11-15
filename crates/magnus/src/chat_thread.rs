@@ -322,7 +322,7 @@ pub(crate) fn sub_agents_entry(s: &State, turn: &Task, r: &Run, w: &Words) -> Op
 }
 
 #[cfg(test)]
-mod golden_tests;
+pub(crate) mod golden_tests;
 
 #[cfg(test)]
 mod tests;

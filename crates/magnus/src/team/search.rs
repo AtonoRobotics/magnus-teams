@@ -2,7 +2,8 @@
 //! limited to what the person searching may see.
 use super::caller::{at, Member};
 use super::member_view::{MemberView, Runs};
-use super::routes::{Reply, K};
+use super::routes::K;
+use crate::api_error::ApiResult;
 use crate::kernel::Kernel;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -62,10 +63,10 @@ pub fn find<R: Runs>(v: &MemberView<R>, query: &str) -> Value {
     json!({ "messages": messages, "files": files, "tasks": tasks, "knowledge": knowledge })
 }
 
-async fn search(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> Reply {
+async fn search(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(q): Query<HashMap<String, String>>) -> ApiResult {
     let query = q.get("q").cloned().unwrap_or_default();
     let out = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| find(&v, &query)));
-    Json(out.unwrap_or_else(|| json!({}))).into_response()
+    Ok(Json(out.unwrap_or_else(|| json!({}))).into_response())
 }
 
 #[cfg(test)]
