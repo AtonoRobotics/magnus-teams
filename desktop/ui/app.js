@@ -1316,12 +1316,13 @@ function scheduleButtons(sc, stop = "Stop schedule") {
 function schedulesView() {
   const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
   const list = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
-  return list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
+  const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past schedule${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
+  return header + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
       <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
       ${scheduleFacts(sc)}
       <div class="small muted" data-last>${scheduleState(sc)}</div>
       ${sc.runs.some(r => r.needs_you) ? `<ul class="tlist">${sc.runs.filter(r => r.needs_you).map(taskRow).join("")}</ul>` : ""}</div>`).join("")
-    : offered("No schedules yet. Ask in a conversation for something done every day or every week.");
+    : offered("No schedules yet. Ask in a conversation for something done every day or every week."));
 }
 
 // One schedule: what it does, when, how its runs went, and a way to stop it.
@@ -3216,6 +3217,14 @@ async function boot() {
   await Notices.poll();
   background = [setInterval(refresh, 3000), setInterval(pollVersions, 30000), setInterval(() => Notices.poll(), 3000)];
   await guideFirstRun().catch(() => {});
+  if (!document._wizardBound) {
+    document._wizardBound = true;
+    document.addEventListener("click", e => {
+      const t = /** @type {HTMLElement} */ (e.target);
+      if (t.closest("[data-open-discovery]")) { e.preventDefault(); openDiscoveryWizard().catch(() => {}); }
+      else if (t.closest("[data-open-setup]")) { e.preventDefault(); openSetupWizard().catch(() => {}); }
+    });
+  }
   go();
 }
 
