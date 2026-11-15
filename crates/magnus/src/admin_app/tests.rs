@@ -86,6 +86,13 @@ impl Server {
         admin.batch_execute(&format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.db)).await.unwrap();
     }
 
+    /// A connection to this server's own database, to break or mend it.
+    pub(crate) async fn store(&self) -> tokio_postgres::Client {
+        let mut u = url::Url::parse(&pg()).unwrap();
+        u.set_path(&format!("/{}", self.db));
+        crate::log::connect(u.as_str()).await.unwrap()
+    }
+
     pub(crate) async fn token(&self, person: &str) -> String {
         self.k.accounts.open_session(person, "browser", None).await.unwrap().1
     }

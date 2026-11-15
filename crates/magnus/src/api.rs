@@ -4,11 +4,12 @@
 //! answers and policy arrive only here, a channel the agent cannot reach (its
 //! sandbox has no network and no tool calls this API).
 
-use crate::api_error::{refuse, ApiResult};
+use crate::api_error::{refuse, session_unread, ApiResult};
 use crate::config::{Adapter, Person};
 use crate::extract::{Body, Caller, Owner};
 use crate::inbox::{self, Answer};
 use crate::kernel::{new_id, Kernel, HARNESS_VERSION};
+use crate::policy::layers::Layer;
 use crate::state::{Run, Status};
 use crate::{api_bodies as req, events::Ev, people::rights};
 use axum::{
@@ -58,7 +59,7 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     if let Some(p) = k.cfg.person_by_token(token) {
         return k.person(&p.id).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"));
     }
-    k.accounts.session(token).await.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
+    k.accounts.session(token).await.map_err(session_unread)?.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
 }
 
 /// A browser sends the session cookie on its own, so a change made with the
@@ -572,7 +573,7 @@ async fn browser_begin(State(k): K, Extension(t): Extension<Transport>, ConnectI
     if !may_begin(&k, peer) {
         return Ok(too_many_begins());
     }
-    if let Err(e) = crate::connectors::loopback(redirect_uri) {
+    if let Err(e) = crate::oauth::loopback(redirect_uri) {
         return refuse(StatusCode::BAD_REQUEST, format!("{e:#}"));
     }
     let hint = b.login_hint.as_deref().map(str::trim).filter(|h| !h.is_empty());
@@ -1219,12 +1220,9 @@ async fn respond(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b)
 async fn policies(State(k): K, Caller(p): Caller) -> ApiResult {
     let all = k.read(|s| s.org.policies().clone());
     // The layers of their own tasks, which they may set (`put_policy`).
-    let own_task = |l: &str| l.strip_prefix("task/").is_some_and(|t| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id)));
-    let mine: serde_json::Map<String, Value> = all
-        .into_iter()
-        .filter(|(l, _)| inbox::may_set_policy(&p, l) || l == "org" || l == &format!("user/{}", p.id) || p.groups.iter().any(|g| l == &format!("group/{g}")) || own_task(l))
-        .map(|(l, c)| (l, Value::String(c)))
-        .collect();
+    let own_task = |t: &str| k.read(|s| s.tasks.get(t).is_some_and(|t| t.person == p.id));
+    let mine: serde_json::Map<String, Value> =
+        all.into_iter().filter(|(l, _)| Layer::parse(l).is_some_and(|l| l.shown_to(&p, own_task))).map(|(l, c)| (l, Value::String(c))).collect();
     Ok(Json(json!({ "layers": mine, "default_org": crate::policy::DEFAULT_ORG })).into_response())
 }
 
@@ -1232,22 +1230,24 @@ async fn put_policy(State(k): K, Caller(p): Caller, Path(layer): Path<String>, B
     let layer = layer.trim_matches('/').to_string();
     // A task's layer: the task's own, which only narrows, so its person
     // may set it as well as the owner (DECISIONS, Layering).
-    let task_of = layer.strip_prefix("task/").and_then(|t| k.read(|s| s.tasks.get(t).map(|t| t.person.clone())));
-    let valid = layer == "org"
-        || layer.strip_prefix("user/").is_some_and(|u| k.people().exists(u))
-        || layer.strip_prefix("group/").is_some_and(|g| !g.is_empty() && !g.contains('/'))
-        || task_of.is_some();
+    let parsed = Layer::parse(&layer);
+    let task_of = if let Some(Layer::Task(t)) = parsed { k.read(|s| s.tasks.get(t).map(|t| t.person.clone())) } else { None };
+    let valid = match parsed {
+        Some(Layer::User(u)) => k.people().exists(u),
+        Some(Layer::Task(_)) => task_of.is_some(),
+        other => other.is_some(),
+    };
     if !valid {
         return refuse(StatusCode::NOT_FOUND, "no such policy layer");
     }
-    if !(inbox::may_set_policy(&p, &layer) || task_of.as_deref() == Some(p.id.as_str())) {
+    if !(rights(&p).may_write_policy_layer(&layer) || task_of.as_deref() == Some(p.id.as_str())) {
         return refuse(StatusCode::FORBIDDEN, "you may not set this layer's policy");
     }
     let cedar = b.cedar;
     if let Err(e) = crate::policy::validate(&cedar) {
         return refuse(StatusCode::BAD_REQUEST, format!("the policy does not parse: {e}"));
     }
-    if let Err(why) = crate::policy_layers::tightens_only(&layer, &cedar) {
+    if let Err(why) = crate::policy::layers::tightens_only(&layer, &cedar) {
         return refuse(StatusCode::UNPROCESSABLE_ENTITY, why);
     }
     Ok(match k.emit(&format!("person:{}", p.id), Ev::PolicySet { layer, cedar }).await {

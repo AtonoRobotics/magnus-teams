@@ -201,7 +201,7 @@ pub(crate) async fn policy(AxState(k): K, Developer(p): Developer) -> ApiResult 
         let layers: Vec<Value> = layers
             .into_iter()
             .filter_map(|(layer, versions)| {
-                let owners: Vec<String> = people.iter().filter(|p| crate::inbox::may_set_policy(p, &layer)).map(|p| named(&lens, &p.id)).collect();
+                let owners: Vec<String> = people.iter().filter(|p| crate::people::rights(p).may_write_policy_layer(&layer)).map(|p| named(&lens, &p.id)).collect();
                 let current = s.org.policies().get(&layer).cloned().or_else(|| (layer == "org").then(|| crate::policy::DEFAULT_ORG.to_string()));
                 let v = json!({ "layer": layer, "versions": versions, "current": current, "default": layer == "org" && !s.org.policies().contains_key("org"), "owners": owners });
                 match layer_sight(&lens, &layer) {
@@ -227,7 +227,7 @@ pub(crate) async fn policy(AxState(k): K, Developer(p): Developer) -> ApiResult 
                     "run": i.run, "created_at": i.created_at,
                     "status": if i.resolution.is_some() { "decided" } else { "waiting" },
                     "decision": i.resolution.as_ref().map(|r| json!({ "decision": r.0, "by": named(&lens, &r.3) })),
-                    "waiting_for": people.iter().filter(|p| crate::inbox::may_set_policy(p, layer)).map(|p| named(&lens, &p.id)).collect::<Vec<_>>(),
+                    "waiting_for": people.iter().filter(|p| crate::people::rights(p).may_write_policy_layer(layer)).map(|p| named(&lens, &p.id)).collect::<Vec<_>>(),
                 });
                 lens.show(lens.sight(&i.person), v)
             })

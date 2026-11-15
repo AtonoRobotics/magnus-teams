@@ -11,6 +11,17 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 
+/// What a person is told when their session could not be read.
+pub(crate) const SESSION_UNREAD: &str = "The server could not check your sign-in just now. You are still signed in; try again in a moment.";
+
+/// A session the store could not read: 503, and the session stands, so the
+/// app keeps it and tries again. A database fault is not a sign-out
+/// (`2026-11-14-a-database-fault-is-not-a-sign-out.md`).
+pub(crate) fn session_unread(e: anyhow::Error) -> Response {
+    tracing::error!("a session could not be read: {e:#}");
+    err(StatusCode::SERVICE_UNAVAILABLE, SESSION_UNREAD)
+}
+
 /// A refusal: `{"error": msg}` with `code`.
 pub(crate) fn err(code: StatusCode, msg: impl Into<String>) -> Response {
     (code, Json(json!({ "error": msg.into() }))).into_response()

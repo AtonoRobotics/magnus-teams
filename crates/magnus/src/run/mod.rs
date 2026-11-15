@@ -599,10 +599,10 @@ impl Kernel {
             "propose_policy" => {
                 let layer = input["layer"].as_str().unwrap_or_default().to_string();
                 let cedar = input["cedar"].as_str().unwrap_or_default().to_string();
-                let layer_ok = crate::policy::proposable(&layer, &run.person);
+                let layer_ok = crate::policy::layers::Layer::parse(&layer).is_some_and(|l| l.proposable_by(&run.person));
                 match (layer_ok, crate::policy::validate(&cedar)) {
                     (true, Ok(())) => {
-                        if let Err(why) = crate::policy_layers::tightens_only(&layer, &cedar) {
+                        if let Err(why) = crate::policy::layers::tightens_only(&layer, &cedar) {
                             self.result(rid, call_id, format!("{why} A retry with the same text will not help."), true).await?;
                         } else if let Some(denied) = self.loop_deny(run, "suggest", None) {
                             self.result(rid, call_id, format!("{denied}. A retry will not help."), true).await?;

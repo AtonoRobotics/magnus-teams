@@ -1,7 +1,7 @@
 //! Where a connector is signed in to, as its transport says: the one rule
 //! the direct sign-in and the relay's both follow.
 
-use super::{asks_sign_in, discover, server_metadata};
+use super::discovery::{asks_sign_in, discover, server_metadata};
 use crate::config::Connector;
 use anyhow::{bail, Result};
 use serde_json::Value;
