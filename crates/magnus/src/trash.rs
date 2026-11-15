@@ -249,17 +249,17 @@ impl crate::state::State {
                 return if turns.iter().all(|t| ended(&t.run_id)) { Ok(()) } else { Err(Running) };
             }
             _ => match () {
-                _ if self.files.get(item).is_some_and(|f| f.person == person) => true,
-                _ if self.projects.get(item).is_some_and(|p| p.person == person) => true,
-                _ if self.memory.iter().any(|m| m.id == item && m.person == person) => {
+                _ if self.library.files().get(item).is_some_and(|f| f.person == person) => true,
+                _ if self.library.projects().get(item).is_some_and(|p| p.person == person) => true,
+                _ if self.library.memory().iter().any(|m| m.id == item && m.person == person) => {
                     // Deleting a memory deletes where it was written in its
                     // run, so the run must have ended (invariant 3).
-                    let run = self.memory.iter().find(|m| m.id == item).map(|m| m.run.clone()).unwrap_or_default();
+                    let run = self.library.memory().iter().find(|m| m.id == item).map(|m| m.run.clone()).unwrap_or_default();
                     return if ended(&run) { Ok(()) } else { Err(Running) };
                 }
                 // The owner moderates what is shared with groups; an entry
                 // only some people read is theirs, never the owner's to delete.
-                _ => self.knowledge.get(item).is_some_and(|k| {
+                _ => self.library.knowledge().get(item).is_some_and(|k| {
                     (moderator && k.readers.iter().all(|c| c.iter().any(|r| r.starts_with("group:") || *r == format!("person:{person}"))))
                         || k.author == format!("person:{person}")
                         || k.author.strip_prefix("agent:").and_then(|r| self.runs.get(r)).is_some_and(|r| r.person == person)

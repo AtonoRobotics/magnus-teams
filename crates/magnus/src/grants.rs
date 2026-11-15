@@ -92,7 +92,7 @@ pub fn spent_for_run(s: &Projection, run: &str, now: DateTime<Utc>) -> Option<Sp
     s.runs.get(run).filter(|r| !r.past_grant)?;
     let top = s.authority(run)?;
     s.runs.get(&top.run_id).filter(|r| !r.past_grant)?;
-    let g = top.grant.as_ref().and_then(|g| s.grants.get(g))?;
+    let g = top.grant.as_ref().and_then(|g| s.arrangements.grants().get(g))?;
     let spent = spent(s, g, now);
     (spent >= g.max_usd).then(|| Spent { grant: g.id.clone(), spent, max: g.max_usd, period: g.period.clone() })
 }
@@ -194,7 +194,7 @@ impl Kernel {
     pub fn grant_for_task(&self, person: &str, id: &str) -> Result<(Grant, f64), String> {
         let now = Utc::now();
         let found = self.read(|s| {
-            s.grants.get(id).filter(|g| g.person == person).cloned().map(|g| {
+            s.arrangements.grants().get(id).filter(|g| g.person == person).cloned().map(|g| {
                 let spent = spent(s, &g, now);
                 (g, spent)
             })
@@ -212,7 +212,7 @@ impl Kernel {
 
     /// A grant of `who`'s own, live.
     fn own_grant(&self, who: &Person, id: &str) -> Result<Grant, Refused> {
-        let g = self.read(|s| s.grants.get(id).filter(|g| g.person == who.id).cloned()).ok_or(Refused::NotFound("grant"))?;
+        let g = self.read(|s| s.arrangements.grants().get(id).filter(|g| g.person == who.id).cloned()).ok_or(Refused::NotFound("grant"))?;
         if g.revoked.is_some() {
             return Err(Refused::Conflict("the grant was revoked".into()));
         }
@@ -243,7 +243,7 @@ impl Kernel {
     /// what still asks, and the actions taken under it (latest first).
     pub async fn grants_json(&self, person: &str) -> anyhow::Result<Value> {
         let now = Utc::now();
-        let mut gs: Vec<(Grant, f64)> = self.read(|s| s.grants.values().filter(|g| g.person == person).map(|g| (g.clone(), spent(s, g, now))).collect());
+        let mut gs: Vec<(Grant, f64)> = self.read(|s| s.arrangements.grants().values().filter(|g| g.person == person).map(|g| (g.clone(), spent(s, g, now))).collect());
         gs.sort_by_key(|(g, _)| (g.revoked.is_some(), std::cmp::Reverse(g.at)));
         let w = self.words(gs.iter().map(|(g, _)| (person.to_string(), g.seq))).await?;
         let titles: std::collections::HashMap<String, String> = {
@@ -275,8 +275,9 @@ impl Kernel {
     /// A title whose words came from a run that read outside content is
     /// not shown.
     pub(crate) async fn grant_section(&self, run: &crate::state::Run) -> anyhow::Result<String> {
-        let gs: Vec<Grant> =
-            self.read(|s| s.grants.values().filter(|g| g.person == run.person && g.at < run.created_at && g.revoked.is_none_or(|r| r > run.created_at)).cloned().collect());
+        let gs: Vec<Grant> = self.read(|s| {
+            s.arrangements.grants().values().filter(|g| g.person == run.person && g.at < run.created_at && g.revoked.is_none_or(|r| r > run.created_at)).cloned().collect()
+        });
         if gs.is_empty() {
             return Ok(String::new());
         }

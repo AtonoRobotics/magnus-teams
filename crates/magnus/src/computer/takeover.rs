@@ -180,7 +180,7 @@ impl Kernel {
             return Some(super::driving::REQUEST_REASON);
         }
         let form = |i: &crate::state::Item| i.kind == "secure_form" && i.resolution.is_none() && i.run.as_deref() == Some(run.id.as_str());
-        self.read(|s| s.items.values().any(form)).then_some("secure_form")
+        self.read(|s| s.inbox.items().values().any(form)).then_some("secure_form")
     }
 
     /// Whether a person holds the screen of the computer this run is using.
@@ -246,7 +246,7 @@ impl Kernel {
             let (cause, runs) = self.read(|s| {
                 let on_it = runs_on(s, &c.owner).filter(|r| !r.status.terminal());
                 let (waiting, active): (Vec<_>, Vec<_>) = on_it.partition(|r| r.status == crate::state::Status::Suspended);
-                let asked = waiting.iter().find_map(|r| s.items.values().find(|i| i.run.as_deref() == Some(r.id.as_str()) && i.resolution.is_none()));
+                let asked = waiting.iter().find_map(|r| s.inbox.items().values().find(|i| i.run.as_deref() == Some(r.id.as_str()) && i.resolution.is_none()));
                 let cause = match (asked, waiting.is_empty() && active.is_empty()) {
                     (Some(item), _) => super::driving::cause_of(item),
                     (None, true) => "nothing was running".to_string(),

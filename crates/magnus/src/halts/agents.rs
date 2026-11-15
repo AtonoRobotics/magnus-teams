@@ -59,7 +59,8 @@ fn agent_row(s: &State, id: &str, name: &str, person: Option<&str>) -> Value {
     now.sort_by_key(|r| r.created_at);
     let schedules: Vec<Value> = match person {
         Some(p) => s
-            .schedules
+            .arrangements
+            .schedules()
             .values()
             .filter(|x| x.person == p && x.ended.is_none())
             .map(|x| json!({ "id": x.id, "next": x.next_due(), "last_fired": x.last_fired, "paused": x.paused.is_some() || x.paused_on.is_some(), "asked_by": { "kind": "person", "person": p } }))

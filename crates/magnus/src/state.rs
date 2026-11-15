@@ -12,12 +12,19 @@ use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod apps;
+pub mod arrangements;
+pub mod identity;
+pub mod inbox;
+pub mod library;
 pub mod org;
 pub mod server_ops;
 pub mod thread_extras;
 pub mod vault;
 pub mod watch;
 pub use apps::ConnectorSetting;
+pub use arrangements::{Answer, CardState, Commitment, CommitmentStep, Grant, GrantAction, Schedule};
+pub use inbox::{Approval, Item};
+pub use library::{BundleDoc, KnowledgeEntry, LibFile, MemoryEntry, PlaybookItem, Project};
 pub use org::PolicyVersion;
 pub use server_ops::{ScrubPending, Update};
 pub use thread_extras::{Branch, Disagreement};
@@ -286,39 +293,6 @@ pub struct Verdict {
 /// The verdicts a person can give, best first.
 pub const VERDICTS: [&str; 4] = ["right", "partly", "wrong", "undone"];
 
-/// A file in a person's library: one they uploaded, or one a task delivered.
-#[derive(Clone, Debug)]
-pub struct LibFile {
-    pub id: String,
-    pub person: String,
-    pub name: String,
-    pub media_type: String,
-    pub size: usize,
-    pub at: DateTime<Utc>,
-    /// An upload (it can be given to a task or message), not a file a run delivered.
-    pub uploaded: bool,
-    /// The event that holds its content (the upload, or the run's output):
-    /// its bytes are recalled from there for its person when a request
-    /// needs them, never kept here (recall only, step 5).
-    pub seq: i64,
-    /// The run that delivered it.
-    pub run: Option<String>,
-    /// The chat thread it was uploaded in.
-    pub thread: Option<String>,
-    /// Its content's taint: an upload is private and untrusted; a delivered
-    /// file has the taint its run had when it delivered it.
-    pub label: Label,
-}
-
-#[derive(Clone, Debug)]
-pub struct Project {
-    pub id: String,
-    pub person: String,
-    pub name: String,
-    pub instructions: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
-
 impl Task {
     /// A chat turn: answered in the thread, not listed as a task.
     pub fn is_chat_turn(&self) -> bool {
@@ -338,258 +312,6 @@ impl Task {
 /// for them. Anything else about it is its own plumbing (owner, 2026-11-07).
 pub const BACKGROUND_OUTPUTS: [&str; 6] = ["observation", "interrupt", "suggestion", "schedule_proposal", "task_proposal", "message"];
 
-#[derive(Clone, Debug)]
-pub struct Item {
-    pub id: String,
-    pub kind: String,
-    pub task: Option<String>,
-    pub run: Option<String>,
-    pub person: String,
-    pub summary: String,
-    pub details: Value,
-    pub created_at: DateTime<Utc>,
-    pub resolution: Option<(String, Option<String>, Option<String>, String)>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Approval {
-    pub id: String,
-    pub person: String,
-    pub task: String,
-    pub tool: String,
-    pub input_hash: Option<String>,
-    pub scope: String,
-    pub until: Option<DateTime<Utc>>,
-    pub used: bool,
-    pub by: String,
-    /// Why the approval was asked for: the rule, or `unknown_outcome`.
-    pub reason: Option<String>,
-    /// The risk class the action had when it was approved (its item's): an
-    /// approval covers only that class.
-    pub risk: Option<String>,
-    /// Where the approved action went; None for approvals from before.
-    pub destinations: Option<Vec<String>>,
-}
-
-/// A knowledge entry's record. What it says (its text, source, evidence
-/// and value) is not kept here: it is read from the content store when the
-/// entry is indexed, and every reader reads it from the index, as the
-/// readers its row security allows (recall only, step 6). The title stays
-/// until step 3 settles the titles shown in lists.
-#[derive(Clone, Debug, Serialize)]
-pub struct KnowledgeEntry {
-    pub id: String,
-    pub title: String,
-    pub readers: Vec<Vec<String>>,
-    pub integrity: String,
-    pub author: String,
-    pub run: Option<String>,
-    pub endorsed: Option<Value>,
-    /// The last share, by whom and when: who widened the readers.
-    pub shared: Option<Value>,
-    pub at: DateTime<Utc>,
-    /// The last event that changed it, so the index knows it is current.
-    pub version: i64,
-    /// The event that added it: where its content is.
-    pub seq: i64,
-}
-
-#[derive(Clone, Debug)]
-/// A remembered fact's record. What it says (the fact and its topic) is
-/// not kept here: it is recalled from the content store, for its person,
-/// when a request needs it (recall only, step 4).
-pub struct MemoryEntry {
-    pub id: String,
-    pub person: String,
-    pub run: String,
-    pub label: Label,
-    pub sources: Vec<String>,
-    /// The memory pass, or None for the run's own model.
-    pub by: Option<String>,
-    pub at: DateTime<Utc>,
-    /// The event that wrote it: where its content is recalled from.
-    pub seq: i64,
-}
-
-/// A document in the org context bundle, as the kernel guards it: where it
-/// is, whose, its versions, and what it lists as sources. Its frontmatter
-/// and body are in the content store (`bundle.rs`).
-#[derive(Clone, Debug)]
-pub struct BundleDoc {
-    pub path: String,
-    pub kind: String,
-    pub scope: String,
-    pub owner_user: Option<String>,
-    pub label: Label,
-    pub sources: Vec<String>,
-    /// Each version: its number, the event holding it, when and by whom.
-    pub versions: Vec<(u32, i64, DateTime<Utc>, String)>,
-    /// The person whose run wrote the current version, under whose grant
-    /// its sources were read.
-    pub writer: Option<String>,
-    /// Principals (`person:<id>`, `group:<id>`) the writer shared the
-    /// current version with, besides; cleared by every new version, so a
-    /// share covers only the text seen (#299).
-    pub shared: Vec<String>,
-    /// Shared with everyone (as `shared`, for the current version).
-    pub shared_everyone: bool,
-    /// Who shared the current version.
-    pub shared_by: Option<String>,
-}
-
-impl BundleDoc {
-    pub fn version(&self) -> u32 {
-        self.versions.last().map_or(0, |v| v.0)
-    }
-    pub fn seq(&self) -> i64 {
-        self.versions.last().map_or(0, |v| v.1)
-    }
-}
-
-/// One item of the agent's playbook (I2).
-#[derive(Clone, Debug)]
-pub struct PlaybookItem {
-    pub id: String,
-    pub person: String,
-    pub text: String,
-    pub addresses: Option<String>,
-    /// The run that added it, and the runs that edited it.
-    pub runs: Vec<String>,
-    pub label: Label,
-    /// Playbook version at which the item was added, and retired.
-    pub added: u64,
-    pub retired: Option<u64>,
-    pub added_at: DateTime<Utc>,
-}
-
-/// A schedule's record. What its runs are asked (its text), its title and
-/// scope are recalled from the event `seq` names, as a task's are.
-#[derive(Clone, Debug)]
-pub struct Schedule {
-    pub id: String,
-    pub person: String,
-    pub every_minutes: Option<u32>,
-    pub daily_at: Option<String>,
-    pub created: DateTime<Utc>,
-    pub last_fired: Option<DateTime<Utc>>,
-    pub budget: Option<crate::config::Budget>,
-    pub card: Option<String>,
-    pub label: Label,
-    /// The event that set it: where its words are recalled from.
-    pub seq: i64,
-    /// Firings that could not start a task: when, and why.
-    pub failures: Vec<(DateTime<Utc>, String)>,
-    pub until: Option<DateTime<Utc>>,
-    pub max_runs: Option<u32>,
-    /// Runs it has started.
-    pub started: u32,
-    /// The latest firing that started nothing, because the last run was
-    /// still open: when, which task, why.
-    pub skipped: Option<(DateTime<Utc>, String, String)>,
-    /// Why it stopped starting runs, until its person resumes it.
-    pub paused: Option<String>,
-    /// The task whose run it is paused on, waiting on a person.
-    pub paused_on: Option<String>,
-    /// An admin suspended it: only an admin lifts it.
-    pub paused_by_admin: bool,
-    /// From when failures count toward pausing it again.
-    pub resumed: Option<DateTime<Utc>>,
-    /// Why it is over, once it is: an ended schedule stays, marked.
-    pub ended: Option<String>,
-    /// The conversation it was set up in, if any: where its runs post (`schedule_thread::of`).
-    pub thread: Option<String>,
-    /// The zone its daily time is read in: its person's, kept current as
-    /// they change it, else the server's (`cadence::Zone::of_preferences`).
-    pub zone: crate::cadence::Zone,
-}
-
-/// A person's standing authority over a category of their own work
-/// (#235). Its title is recalled from the event `seq` names (the latest
-/// setting), as a schedule's words are.
-#[derive(Clone, Debug)]
-pub struct Grant {
-    pub id: String,
-    pub person: String,
-    pub apps: Vec<String>,
-    /// Exclusions the person lifted: `send`, `irreversible`.
-    pub allow: Vec<String>,
-    /// `day`, `week` or `month`.
-    pub period: String,
-    pub max_usd: f64,
-    /// The policy the kernel wrote from these: what it covers.
-    pub cedar: String,
-    /// The card it was first set from.
-    pub card: Option<String>,
-    /// The taint of the words of its title, when not the person's own.
-    pub label: Label,
-    pub seq: i64,
-    /// When it was set first, and by whom (as the log names them).
-    pub at: DateTime<Utc>,
-    pub by: String,
-    /// When it was last edited.
-    pub edited: Option<DateTime<Utc>>,
-    pub revoked: Option<DateTime<Utc>>,
-    /// The actions taken under it, oldest first.
-    pub actions: Vec<GrantAction>,
-    /// What its tasks' model calls cost, as each was charged: kept with the
-    /// grant, so deleting a task gives none of it back (review of #278).
-    pub charges: Vec<(DateTime<Utc>, f64)>,
-}
-
-/// An action a grant covered.
-#[derive(Clone, Debug, Serialize)]
-pub struct GrantAction {
-    pub tool: String,
-    pub task: String,
-    pub run: String,
-    pub call_id: String,
-    pub at: DateTime<Utc>,
-}
-
-/// Something the person or Magnus said they would do (#236). Its words
-/// (what, for whom, the quote, notes) are recalled from its events, by
-/// `steps`; the rest is here. Overdue is never stored: it is open with
-/// `by` past (`commitments::overdue`).
-#[derive(Clone, Debug)]
-pub struct Commitment {
-    pub id: String,
-    pub person: String,
-    /// `person` or `magnus`.
-    pub who: String,
-    pub source: Value,
-    /// The taint of the run that recorded it.
-    pub label: Label,
-    /// When it was recorded, and by whom (as the log names them).
-    pub at: DateTime<Utc>,
-    pub by_actor: String,
-    /// When it last changed.
-    pub changed: DateTime<Utc>,
-    /// Its recording event.
-    pub seq: i64,
-    pub status: String,
-    pub by: Option<String>,
-    /// Each event of it, oldest first, with its status and date after it:
-    /// what it was as a run that started at any point saw it.
-    pub steps: Vec<CommitmentStep>,
-}
-
-#[derive(Clone, Debug)]
-pub struct CommitmentStep {
-    pub seq: i64,
-    pub status: String,
-    pub by: Option<String>,
-}
-
-impl Commitment {
-    /// Its status and date as they stood before the event `seq`, and the
-    /// events that made it so; None when it was recorded after.
-    pub fn before(&self, seq: i64) -> Option<(&str, Option<&str>, Vec<i64>)> {
-        let steps: Vec<&CommitmentStep> = self.steps.iter().filter(|s| s.seq < seq).collect();
-        let last = steps.last()?;
-        Some((last.status.as_str(), last.by.as_deref(), steps.iter().map(|s| s.seq).collect()))
-    }
-}
-
 /// What a scoped drafting step wrote from: the threads (none for a new
 /// draft) and their participants' addresses (#178).
 #[derive(Clone, Debug, PartialEq)]
@@ -597,29 +319,6 @@ pub struct DraftSources {
     pub person: String,
     pub threads: Vec<String>,
     pub participants: Vec<String>,
-}
-
-/// The person's answer to a card proposed in chat (a schedule or a
-/// suggestion), when they gave it and whose card it was.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CardState {
-    pub answer: Answer,
-    pub at: DateTime<Utc>,
-    pub person: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Answer {
-    /// Accepted: the schedule it made.
-    Confirmed(String),
-    /// Accepted: the task it started.
-    Started(String),
-    /// Accepted: the grant it set (#235).
-    Granted(String),
-    /// "Not now".
-    Later,
-    /// Declined, with their reason.
-    Declined(Option<String>),
 }
 
 /// An item in the trash: out of every view until it is restored or removed.
@@ -743,100 +442,44 @@ pub struct State {
     pub removed_threads: HashSet<String>,
     pub tasks: BTreeMap<String, Task>,
     pub runs: HashMap<String, Run>,
-    pub items: BTreeMap<String, Item>,
-    pub approvals: Vec<Approval>,
+    /// Items, approvals and the proactive loop's marks.
+    pub inbox: inbox::Inbox,
     /// The organisation's settings, the admin audit and version notices.
     pub org: org::OrgSettings,
     /// Secrets' names and the kill switch.
     pub vault: vault::Ledger,
-    /// Everyone who has ever signed in here. Someone not in it signs in the
-    /// first time on the identity provider's own page, which can walk them
-    /// through what their account still needs (a new password, two-factor).
-    pub signed_in_before: HashSet<String>,
-    /// When each person last signed in here (the console's Users list).
-    pub last_sign_in: HashMap<String, DateTime<Utc>>,
-    /// When each person last opened the app's home: the feed starts
-    /// here (#367).
-    pub home_last_open: HashMap<String, DateTime<Utc>>,
+    /// Sign-ins, subjects, rights, roles, privacy, preferences and the
+    /// home mark: the facts `people::rights` reads.
+    pub identity: identity::Identity,
     /// Watched reads' baselines and poll clocks (#369, #406).
     pub watch: watch::Watch,
-    /// When each inbox item was first presented to its person (#367).
-    pub items_opened: HashMap<String, DateTime<Utc>>,
-    /// When each inbox item was decided, for the feed (#367).
-    pub items_resolved_at: HashMap<String, DateTime<Utc>>,
     /// The conversations Magnus opened, by person then task: each starts
     /// once ever, so deleting one does not start it again (review of #274).
     pub openers: std::collections::BTreeSet<(String, String)>,
-    /// People turned off at the identity provider or by an admin, until
-    /// they sign in again: their apps answer no calls for them.
-    pub turned_off: std::collections::BTreeSet<String>,
     /// The server's updates and backups.
     pub server_ops: server_ops::ServerOps,
     /// Each person erased with content, by their id then.
     pub erasures: BTreeMap<String, Erasure>,
     /// The apps the owner added, their settings, credentials and registrations.
     pub apps: apps::Apps,
-    /// Groups and roles from the identity provider, per person, as of their
-    /// latest sign-in.
-    pub provider_rights: HashMap<String, (Option<Vec<String>>, Option<Vec<String>>)>,
-    /// The identity provider account (`sub`) each person is bound to.
-    pub subjects: HashMap<String, String>,
-    /// Roles the owner set in Settings, by person.
-    pub roles_set: HashMap<String, Vec<String>>,
-    /// Whether people's data is private from the admin (by default it is not).
-    pub data_private: bool,
-    /// Each person's own settings, by person.
-    pub preferences: HashMap<String, Value>,
     /// Hidden entries, reactions, disagreements and branches.
     pub thread_extras: thread_extras::ThreadExtras,
-    pub schedules: BTreeMap<String, Schedule>,
-    /// Each person's grants (#235), revoked ones among them, by id.
-    pub grants: BTreeMap<String, Grant>,
-    /// Each person's commitment ledger (#236), by id.
-    pub commitments: BTreeMap<String, Commitment>,
-    /// Cards from chat (schedules and suggestions) the person answered, by
-    /// card id: with the cards in their turns' results, the suggestion
-    /// ledger (`suggestions::ledger`).
-    pub cards: HashMap<String, CardState>,
+    /// Schedules, grants, commitments and answered cards.
+    pub arrangements: arrangements::Arrangements,
     /// Runs a person stopped, as against the system.
     pub stopped_by_person: HashSet<String>,
     /// Drafts written by scoped steps, by draft id: the threads whose
     /// content they may hold and who is entitled to it (#178).
     pub draft_sources: HashMap<String, DraftSources>,
-    /// The proactive loop's scheduling, by person (#237): the last review
-    /// wake, the day of the last overnight review, and today's delivered
-    /// interruptions (day, count).
-    pub reviews_last: HashMap<String, DateTime<Utc>>,
-    pub reviews_overnight: HashMap<String, String>,
-    pub interrupts: HashMap<String, (String, u32)>,
-    /// Review runs still going, run to person: one per person at a time.
-    pub review_runs: HashMap<String, String>,
-    /// One-a-day wake marks (a coming-up schedule, a due commitment).
-    pub wake_marks: HashMap<String, String>,
     /// App tool definitions as screened, those held back, and who connected which app through its connect screen (spec rev 140).
     pub tools: crate::tool_gate::Ledger,
     pub spend: crate::spend::Ledger,
     pub catalog: crate::catalog_withdrawal::Ledger,
     pub admin_settings: crate::admin_app::settings::Settings,
-    pub memory: Vec<MemoryEntry>,
-    /// The company knowledge base; its searchable index is in Postgres.
-    pub knowledge: HashMap<String, KnowledgeEntry>,
+    /// Files, projects, knowledge, memory, the playbook and the bundle.
+    pub library: library::Library,
     /// Files attached to each task, by task id.
     pub attachments: HashMap<String, Vec<Value>>,
-    /// Every person's library, by file id.
-    pub files: BTreeMap<String, LibFile>,
-    pub projects: BTreeMap<String, Project>,
-    /// Items the person moved into a project (Some) or out of one (None).
-    pub moved: HashMap<String, Option<String>>,
-    pub playbook: BTreeMap<String, PlaybookItem>,
-    /// The org context bundle, by path.
-    pub bundle: BTreeMap<String, BundleDoc>,
-    /// The last version number each path was written with, kept through a
-    /// removal: a path written again counts on, so (path, version) names
-    /// one version in the log.
-    pub bundle_last: HashMap<String, u32>,
-    /// Increments with every playbook change (I3).
-    pub playbook_version: u64,
     pub last_seq: i64,
 }
 
@@ -861,9 +504,9 @@ impl State {
             Ev::KnowledgeAdded { .. } | Ev::Playbook { .. } => return None,
             // An org document is nobody's; a person's own is theirs.
             Ev::BundleWritten { owner_user, .. } => return owner_user.clone(),
-            Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.items.get(id).map(|i| i.person.clone()),
+            Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.inbox.items().get(id).map(|i| i.person.clone()),
             Ev::Team(c) => return self.team.content_owner(c),
-            Ev::ScheduleEnded { id, .. } => return self.schedules.get(id).map(|s| s.person.clone()),
+            Ev::ScheduleEnded { id, .. } => return self.arrangements.schedules().get(id).map(|s| s.person.clone()),
             _ => {}
         }
         if let Some(p) = serde_json::to_value(ev).ok().and_then(|v| v["person"].as_str().map(String::from)) {
@@ -878,13 +521,13 @@ impl State {
     /// first message's; a delivered file in its task's; a file uploaded in
     /// chat in its thread's.
     pub fn project_of(&self, item: &str) -> Option<String> {
-        if let Some(p) = self.moved.get(item) {
-            return p.clone().filter(|p| self.projects.contains_key(p));
+        if let Some(p) = self.library.moved().get(item) {
+            return p.clone().filter(|p| self.library.projects().contains_key(p));
         }
         if let Some(t) = self.tasks.get(item) {
             return t.project.as_ref().map(|p| p.id.clone());
         }
-        if let Some(f) = self.files.get(item) {
+        if let Some(f) = self.library.files().get(item) {
             if let Some(task) = f.run.as_ref().and_then(|r| self.runs.get(r)).map(|r| r.task.clone()) {
                 return self.project_of(&task);
             }
@@ -921,10 +564,16 @@ impl State {
         })
     }
 
+    /// The schedule a task was started by, while it is still set.
+    pub fn task_schedule(&self, task: &str) -> Option<(String, Schedule)> {
+        let id = self.tasks.get(task)?.schedule.clone()?;
+        self.arrangements.schedules().get(&id).map(|x| (id.clone(), x.clone()))
+    }
+
     /// How many of a schedule's latest firings in a row failed (since it was
     /// last resumed): runs that ended failed, and firings that started none.
     pub fn failures_in_a_row(&self, schedule: &str) -> u32 {
-        let Some(sc) = self.schedules.get(schedule) else { return 0 };
+        let Some(sc) = self.arrangements.schedules().get(schedule) else { return 0 };
         let since = sc.resumed.unwrap_or(sc.created);
         let mut ends: Vec<(DateTime<Utc>, bool)> = sc.failures.iter().filter(|(at, _)| *at >= since).map(|(at, _)| (*at, true)).collect();
         ends.extend(
@@ -963,8 +612,7 @@ impl State {
         if item.starts_with("task_") {
             let t = self.tasks.remove(item)?;
             let r = self.runs.remove(&t.run_id).map(Box::new);
-            let ids: Vec<String> = self.items.values().filter(|i| i.task.as_deref() == Some(item)).map(|i| i.id.clone()).collect();
-            let items = ids.iter().filter_map(|id| self.items.remove(id)).collect();
+            let items = self.inbox.take_items_of(item);
             return Some((String::new(), Some(TitleFrom::Title(t.seq)), Held::Task(Box::new(t), r, items)));
         }
         if item.starts_with("thread_") {
@@ -991,18 +639,17 @@ impl State {
             };
             return Some((title, from, Held::Thread { id: item.into(), turns, branch }));
         }
-        if let Some(f) = self.files.remove(item) {
+        if let Some(f) = self.library.take_file(item) {
             return Some((f.name.clone(), None, Held::File(Box::new(f))));
         }
-        if let Some(p) = self.projects.remove(item) {
+        if let Some(p) = self.library.take_project(item) {
             return Some((p.name.clone(), None, Held::Project(p)));
         }
-        if let Some(i) = self.memory.iter().position(|m| m.id == item) {
-            // Its title in the trash is its fact, recalled when listed.
-            let m = self.memory.remove(i);
+        // Its title in the trash is its fact, recalled when listed.
+        if let Some(m) = self.library.take_memory(item) {
             return Some((String::new(), None, Held::Memory(m)));
         }
-        let k = self.knowledge.remove(item)?;
+        let k = self.library.take_knowledge(item)?;
         Some((k.title.clone(), None, Held::Knowledge(Box::new(k))))
     }
 
@@ -1021,7 +668,7 @@ impl State {
             m.extend(items.map(|i| ("item_resolved", "id", i.id.clone())));
             m
         };
-        let items_of = |task: &str| self.items.values().filter(|i| i.task.as_deref() == Some(task)).cloned().collect::<Vec<_>>();
+        let items_of = |task: &str| self.inbox.items().values().filter(|i| i.task.as_deref() == Some(task)).cloned().collect::<Vec<_>>();
         Some(match &self.trash.get(item)?.held {
             Held::Task(t, _, items) => Holding { runs: vec![t.run_id.clone()], except: OWN.to_vec(), matches: theirs(&t.task_id, &mut items.iter()), ..Default::default() },
             Held::Thread { id, turns, .. } => {
@@ -1084,7 +731,7 @@ impl State {
                     self.runs.insert(r.id.clone(), *r);
                 }
                 for i in items {
-                    self.items.insert(i.id.clone(), i);
+                    self.inbox.put_item(i);
                 }
                 self.tasks.insert(t.task_id.clone(), *t);
             }
@@ -1100,25 +747,16 @@ impl State {
                 }
             }
             Held::Entry { .. } => {}
-            Held::File(f) => {
-                self.files.insert(f.id.clone(), *f);
-            }
-            Held::Project(p) => {
-                self.projects.insert(p.id.clone(), p);
-            }
-            Held::Memory(m) => {
-                let at = self.memory.partition_point(|x| x.at <= m.at);
-                self.memory.insert(at, m);
-            }
-            Held::Knowledge(k) => {
-                self.knowledge.insert(k.id.clone(), *k);
-            }
+            Held::File(f) => self.library.put_file(*f),
+            Held::Project(p) => self.library.put_project(p),
+            Held::Memory(m) => self.library.put_memory(m),
+            Held::Knowledge(k) => self.library.put_knowledge(*k),
         }
     }
 
     /// A person's file, or a delivered file of a task they may see.
     pub fn file_for(&self, person: &str, owner: bool, id: &str) -> Option<&LibFile> {
-        self.files.get(id).filter(|f| f.person == person || (owner && f.run.is_some()))
+        self.library.files().get(id).filter(|f| f.person == person || (owner && f.run.is_some()))
     }
 
     pub fn apply(&mut self, e: &Event) {
@@ -1189,179 +827,47 @@ impl State {
                     r.lost_since = r.replies.len() as u32;
                 }
             }
-            Ev::SubjectBound { person, subject } => match subject {
-                Some(sub) => {
-                    self.subjects.insert(person.clone(), sub.clone());
-                }
-                None => {
-                    self.subjects.remove(person);
-                }
-            },
-            Ev::RightsFromProvider { person, groups, roles } => {
-                self.provider_rights.insert(person.clone(), (groups.clone(), roles.clone()));
-            }
-            Ev::DataAccessSet { private } => self.data_private = *private,
-            Ev::PersonDataRead { .. } => {}
+            Ev::SubjectBound { .. }
+            | Ev::RightsFromProvider { .. }
+            | Ev::DataAccessSet { .. }
+            | Ev::PersonDataRead { .. }
+            | Ev::RolesSet { .. }
+            | Ev::SignedIn { .. }
+            | Ev::SignedOut { .. }
+            | Ev::PasswordChanged { .. }
+            | Ev::DevicePaired { .. }
+            | Ev::DeviceRevoked { .. }
+            | Ev::HomeOpened { .. }
+            | Ev::PersonTurnedOff { .. } => self.identity.fold(&e.ev, e.at),
             // Every per-person part forgets them (`forget.rs`).
             Ev::PersonErased { person } => self.forget_person(person),
-            Ev::RolesSet { person, roles } => {
-                self.roles_set.insert(person.clone(), roles.clone());
-            }
-            Ev::PreferencesSet { person, prefs } => {
-                let p = self.preferences.entry(person.clone()).or_insert_with(|| serde_json::json!({}));
-                if let (Some(p), Some(new)) = (p.as_object_mut(), prefs.as_object()) {
-                    for (k, v) in new {
-                        p.insert(k.clone(), v.clone());
-                    }
-                }
+            Ev::PreferencesSet { person, .. } => {
+                self.identity.fold(&e.ev, e.at);
                 // Daily times follow the person's zone (owner, 2026-11-14).
-                let zone = crate::cadence::Zone::of_preferences(self.preferences.get(person));
-                self.schedules.values_mut().filter(|x| x.person == *person).for_each(|x| x.zone = zone);
+                self.arrangements.set_zone(person, self.identity.zone(person));
             }
             Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
                 self.thread_extras.fold(&e.ev, e.at)
             }
-            Ev::SignedIn { person, .. } => {
-                self.signed_in_before.insert(person.clone());
-                self.last_sign_in.insert(person.clone(), e.at);
-                // Signed in again: the provider has them back.
-                self.turned_off.remove(person);
-            }
-            Ev::HomeOpened { person } => {
-                self.home_last_open.insert(person.clone(), e.at);
-            }
             Ev::WatchedSeen { person, app, tool, ids, full } => self.watch.fold_seen(person, app, tool, ids, *full),
             Ev::WatchPolled { person, app, tool } => self.watch.fold_polled(person, app, tool, e.at),
-            Ev::ItemOpened { id } => {
-                // First presentation stands: opened is when it was
-                // first seen, and the app reports it on every open.
-                self.items_opened.entry(id.clone()).or_insert(e.at);
-            }
-            Ev::SignedOut { .. } | Ev::PasswordChanged { .. } | Ev::DevicePaired { .. } | Ev::DeviceRevoked { .. } => {}
-            Ev::PersonTurnedOff { person, .. } => {
-                self.turned_off.insert(person.clone());
-            }
-            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, thread, .. } => {
-                self.schedules.insert(
-                    id.clone(),
-                    Schedule {
-                        id: id.clone(),
-                        zone: crate::cadence::Zone::of_preferences(self.preferences.get(person)),
-                        person: person.clone(),
-                        every_minutes: *every_minutes,
-                        daily_at: daily_at.clone(),
-                        created: e.at,
-                        last_fired: None,
-                        budget: budget.clone(),
-                        card: card.clone(),
-                        label: label.unwrap_or_default(),
-                        seq: e.seq,
-                        failures: vec![],
-                        until: *until,
-                        max_runs: *max_runs,
-                        started: 0,
-                        skipped: None,
-                        paused: None,
-                        paused_on: None,
-                        paused_by_admin: false,
-                        resumed: None,
-                        ended: None,
-                        thread: thread.clone(),
-                    },
-                );
-                if let Some(c) = card {
-                    self.cards.insert(c.clone(), CardState { answer: Answer::Confirmed(id.clone()), at: e.at, person: Some(person.clone()) });
-                }
-            }
-            Ev::GrantSet { id, person, apps, allow, period, max_usd, card, cedar, label, .. } => {
-                let g = self.grants.entry(id.clone()).or_insert_with(|| Grant {
-                    id: id.clone(),
-                    person: person.clone(),
-                    apps: vec![],
-                    allow: vec![],
-                    period: String::new(),
-                    max_usd: 0.0,
-                    cedar: String::new(),
-                    card: card.clone(),
-                    label: Label::PRINCIPAL,
-                    seq: e.seq,
-                    at: e.at,
-                    by: e.actor.clone(),
-                    edited: None,
-                    revoked: None,
-                    actions: vec![],
-                    charges: vec![],
-                });
-                if g.seq != e.seq {
-                    g.edited = Some(e.at);
-                }
-                g.apps = apps.clone();
-                g.allow = allow.clone();
-                g.period = period.clone();
-                g.max_usd = *max_usd;
-                g.cedar = cedar.clone();
-                g.label = label.unwrap_or_default();
-                g.seq = e.seq;
-                // A card accepted sets it; a proposal handled with it is
-                // answered by the task it started, which follows.
-                if let Some(c) = card.as_ref().filter(|c| !self.cards.contains_key(*c)) {
-                    self.cards.insert(c.clone(), CardState { answer: Answer::Granted(id.clone()), at: e.at, person: Some(person.clone()) });
-                }
-            }
-            Ev::GrantRevoked { id, .. } => {
-                if let Some(g) = self.grants.get_mut(id).filter(|g| g.revoked.is_none()) {
-                    g.revoked = Some(e.at);
-                }
-            }
-            Ev::GrantUsed { grant, task, run, call_id, tool } => {
-                if let Some(g) = self.grants.get_mut(grant) {
-                    g.actions.push(GrantAction { tool: tool.clone(), task: task.clone(), run: run.clone(), call_id: call_id.clone(), at: e.at });
-                }
-            }
-            Ev::CommitmentRecorded { id, person, who, by, source, label, .. } => {
-                let by = by.clone().filter(|b| !b.is_empty());
-                self.commitments.entry(id.clone()).or_insert_with(|| Commitment {
-                    id: id.clone(),
-                    person: person.clone(),
-                    who: who.clone(),
-                    source: source.clone(),
-                    label: *label,
-                    at: e.at,
-                    by_actor: e.actor.clone(),
-                    changed: e.at,
-                    seq: e.seq,
-                    status: "open".into(),
-                    by: by.clone(),
-                    steps: vec![CommitmentStep { seq: e.seq, status: "open".into(), by }],
-                });
-            }
-            Ev::CommitmentChanged { id, person, by, status, .. } => {
-                if let Some(c) = self.commitments.get_mut(id).filter(|c| &c.person == person) {
-                    if let Some(b) = by {
-                        c.by = Some(b.clone()).filter(|b| !b.is_empty());
-                    }
-                    if let Some(s) = status {
-                        c.status = s.clone();
-                    }
-                    c.changed = e.at;
-                    c.steps.push(CommitmentStep { seq: e.seq, status: c.status.clone(), by: c.by.clone() });
-                }
-            }
-            Ev::CommitmentRemoved { id, person } => {
-                if self.commitments.get(id).is_some_and(|c| &c.person == person) {
-                    self.commitments.remove(id);
-                }
-            }
-            Ev::CardDeclined { card, person, reason } => {
-                self.cards.insert(card.clone(), CardState { answer: Answer::Declined(reason.clone()), at: e.at, person: person.clone() });
-            }
-            Ev::CardDeferred { card, person } => {
-                self.cards.insert(card.clone(), CardState { answer: Answer::Later, at: e.at, person: person.clone() });
-            }
-            Ev::CardAccepted { card, person, task } => {
-                self.cards.insert(card.clone(), CardState { answer: Answer::Started(task.clone()), at: e.at, person: Some(person.clone()) });
-            }
-            Ev::MemoryForgotten { id } => self.memory.retain(|m| &m.id != id),
+            Ev::ScheduleSet { .. }
+            | Ev::ScheduleRemoved { .. }
+            | Ev::ScheduleEnded { .. }
+            | Ev::ScheduleSkipped { .. }
+            | Ev::SchedulePaused { .. }
+            | Ev::ScheduleChanged { .. }
+            | Ev::ScheduleResumed { .. }
+            | Ev::ScheduleFailed { .. }
+            | Ev::GrantSet { .. }
+            | Ev::GrantRevoked { .. }
+            | Ev::GrantUsed { .. }
+            | Ev::CommitmentRecorded { .. }
+            | Ev::CommitmentChanged { .. }
+            | Ev::CommitmentRemoved { .. }
+            | Ev::CardDeclined { .. }
+            | Ev::CardDeferred { .. }
+            | Ev::CardAccepted { .. } => self.arrangements.fold(e, self.identity.preferences()),
             Ev::Trashed { item, person } => {
                 if let Some((title, title_from, held)) = self.take(item) {
                     self.trash.insert(item.clone(), Trashed { person: person.clone(), title, title_from, at: e.at, held });
@@ -1375,7 +881,7 @@ impl State {
             Ev::Removed { item, .. } => {
                 // A person's erasure: their subject is still bound here.
                 if let Some(p) = item.strip_prefix("person:") {
-                    self.erasures.insert(p.to_string(), Erasure { removal: e.seq, subject: self.subjects.get(p).cloned(), pending: false });
+                    self.erasures.insert(p.to_string(), Erasure { removal: e.seq, subject: self.identity.subject(p).map(str::to_string), pending: false });
                 }
                 if let Some(task) = item.strip_prefix(crate::team::upkeep::NOTES) {
                     self.team.drop_notes(task);
@@ -1390,107 +896,27 @@ impl State {
                     _ => {}
                 }
             }
-            Ev::KnowledgeAdded { id, title, readers, integrity, author, run, .. } => {
-                self.knowledge.insert(
-                    id.clone(),
-                    KnowledgeEntry {
-                        id: id.clone(),
-                        title: title.clone(),
-                        readers: readers.clone(),
-                        integrity: integrity.clone(),
-                        author: author.clone(),
-                        run: run.clone(),
-                        endorsed: None,
-                        shared: None,
-                        at: e.at,
-                        version: e.seq,
-                        seq: e.seq,
-                    },
-                );
-            }
-            Ev::KnowledgeShared { id, readers, by } => {
-                if let Some(k) = self.knowledge.get_mut(id) {
-                    k.readers = readers.clone();
-                    k.shared = Some(serde_json::json!({ "by": by, "at": e.at }));
-                    k.version = e.seq;
-                }
-            }
-            Ev::KnowledgeEndorsed { id, by, item, note } => {
-                if let Some(k) = self.knowledge.get_mut(id) {
-                    k.integrity = "company".into();
-                    k.endorsed = Some(serde_json::json!({ "by": by, "item": item, "note": note, "at": e.at }));
-                    k.version = e.seq;
-                }
-            }
-            Ev::ScheduleRemoved { id, .. } => {
-                self.schedules.remove(id);
-            }
-            Ev::ScheduleEnded { id, reason, .. } => {
-                // It stays, marked with why: its card says it ended, with
-                // its latest run. Only a cancelled one is gone (#264). The
-                // end is terminal: no pause outlives it.
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.ended = Some(reason.clone());
-                    s.paused = None;
-                    s.paused_on = None;
-                    s.paused_by_admin = false;
-                }
-            }
-            Ev::ScheduleSkipped { id, task, reason } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.last_fired = Some(e.at);
-                    s.skipped = Some((e.at, task.clone(), reason.clone()));
-                }
-            }
-            Ev::SchedulePaused { id, reason, task, admin, .. } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.paused = Some(reason.clone());
-                    s.paused_on = task.clone();
-                    s.paused_by_admin = *admin;
-                }
-            }
-            Ev::ScheduleChanged { id, every_minutes, daily_at, until, max_runs, .. } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.every_minutes = *every_minutes;
-                    s.daily_at = daily_at.clone();
-                    s.until = *until;
-                    s.max_runs = *max_runs;
-                    // A new end puts an ended one back: edits only move the
-                    // end forward, so it runs again (#264).
-                    s.ended = None;
-                }
-            }
-            Ev::ScheduleResumed { id, .. } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.paused = None;
-                    s.paused_by_admin = false;
-                    // Failures count afresh only after a person resumes a
-                    // schedule paused for them.
-                    if s.paused_on.take().is_none() {
-                        s.resumed = Some(e.at);
-                    }
-                    // The next run is due from now, not from long ago.
-                    s.last_fired = Some(e.at);
-                }
-            }
-            // A firing that failed still counts as fired: the next one is due as usual.
-            Ev::ScheduleFailed { id, reason } => {
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.last_fired = Some(e.at);
-                    s.failures.push((e.at, reason.clone()));
-                }
+            Ev::FileUploaded { .. }
+            | Ev::ProjectSet { .. }
+            | Ev::Moved { .. }
+            | Ev::KnowledgeAdded { .. }
+            | Ev::KnowledgeShared { .. }
+            | Ev::KnowledgeEndorsed { .. }
+            | Ev::Memory { .. }
+            | Ev::MemoryForgotten { .. }
+            | Ev::BundleWritten { .. }
+            | Ev::BundleShared { .. }
+            | Ev::BundleRemoved { .. } => self.library.fold(e, &self.runs),
+            // Each playbook change is a new version, noticed (U5).
+            Ev::Playbook { .. } => {
+                self.library.fold(e, &self.runs);
+                self.org.note_version(e, "playbook", format!("v{}", self.library.playbook_version()));
             }
             Ev::ScheduleFired { id, task } => {
                 // A run its schedule created was counted when it was created
                 // (below), so a firing lost after it never lets one more run.
                 let counted = self.tasks.get(task).is_some_and(|t| t.schedule.as_deref() == Some(id.as_str()));
-                if let Some(s) = self.schedules.get_mut(id) {
-                    s.last_fired = Some(e.at);
-                    if !counted {
-                        s.started += 1;
-                    }
-                    s.skipped = None;
-                }
+                self.arrangements.fired(id, counted, e.at);
                 if let Some(t) = self.tasks.get_mut(task) {
                     t.schedule = Some(id.clone());
                 }
@@ -1509,13 +935,11 @@ impl State {
                 // So do the person's open commitments, which its context
                 // carries as they stand now (#236): words read in a mailbox
                 // do not enter a clean run untainted.
-                let pb = self.commitments.values().filter(|c| &c.person == person && c.status == "open").fold(pb, |l, c| l.join(c.label));
+                let pb = self.arrangements.commitments().values().filter(|c| &c.person == person && c.status == "open").fold(pb, |l, c| l.join(c.label));
                 let uploads = !attachments.is_empty() || !files.is_empty();
                 // A schedule's run counts against it as it is created.
-                if let Some(s) = e.actor.strip_prefix("schedule:").and_then(|id| self.schedules.get_mut(id)) {
-                    s.last_fired = Some(e.at);
-                    s.started += 1;
-                    s.skipped = None;
+                if let Some(id) = e.actor.strip_prefix("schedule:") {
+                    self.arrangements.started(id, e.at);
                 }
                 if !attachments.is_empty() {
                     self.attachments.insert(task.clone(), attachments.clone());
@@ -1737,47 +1161,6 @@ impl State {
                     r.plan_version = *version;
                 }
             }
-            Ev::Playbook { item, op, person, run, text, addresses, label } => {
-                self.playbook_version += 1;
-                let v = self.playbook_version;
-                self.org.note_version(e, "playbook", format!("v{v}"));
-                match op.as_str() {
-                    "add" => {
-                        self.playbook.insert(
-                            item.clone(),
-                            PlaybookItem {
-                                id: item.clone(),
-                                person: person.clone(),
-                                text: text.clone().unwrap_or_default(),
-                                addresses: addresses.clone(),
-                                runs: vec![run.clone()],
-                                label: *label,
-                                added: v,
-                                retired: None,
-                                added_at: e.at,
-                            },
-                        );
-                    }
-                    "edit" => {
-                        if let Some(i) = self.playbook.get_mut(item) {
-                            if let Some(t) = text {
-                                i.text = t.clone();
-                            }
-                            if addresses.is_some() {
-                                i.addresses = addresses.clone();
-                            }
-                            i.runs.push(run.clone());
-                            i.label = i.label.join(*label);
-                        }
-                    }
-                    "retire" => {
-                        if let Some(i) = self.playbook.get_mut(item) {
-                            i.retired = Some(v);
-                        }
-                    }
-                    _ => {}
-                }
-            }
             Ev::Verdict { task, person, verdict, note } => {
                 let trial = self.tasks.get(task).and_then(|t| self.runs.get(&t.run_id)).is_some_and(|r| r.experiment.is_some());
                 if let Some(t) = self.tasks.get_mut(task).filter(|t| &t.person == person || trial) {
@@ -1825,7 +1208,7 @@ impl State {
             // loses the race to the run's own end changes nothing, nor does
             // the run's end after a cancel.
             Ev::Completed { run, summary, view, spoken } => {
-                self.review_runs.remove(run);
+                self.inbox.run_ended(run);
                 if let Some(r) = self.runs.get_mut(run).filter(|r| !r.status.terminal()) {
                     r.status = Status::Completed;
                     r.summary = Some(summary.clone());
@@ -1837,7 +1220,7 @@ impl State {
                 }
             }
             Ev::Failed { run, reason, .. } => {
-                self.review_runs.remove(run);
+                self.inbox.run_ended(run);
                 if let Some(r) = self.runs.get_mut(run).filter(|r| !r.status.terminal()) {
                     r.status = Status::Failed;
                     r.summary = Some(reason.clone());
@@ -1847,7 +1230,7 @@ impl State {
                 }
             }
             Ev::Cancelled { run, .. } => {
-                self.review_runs.remove(run);
+                self.inbox.run_ended(run);
                 if let Some(r) = self.runs.get_mut(run).filter(|r| !r.status.terminal()) {
                     if e.actor.starts_with("person:") {
                         self.stopped_by_person.insert(run.clone());
@@ -1858,89 +1241,12 @@ impl State {
                     r.first_stop.get_or_insert(e.at);
                 }
             }
-            Ev::Item { id, item_kind, task, run, person, summary, details } => {
-                self.items.insert(
-                    id.clone(),
-                    Item {
-                        id: id.clone(),
-                        kind: item_kind.clone(),
-                        task: task.clone(),
-                        run: run.clone(),
-                        person: person.clone(),
-                        summary: summary.clone(),
-                        details: details.clone(),
-                        created_at: e.at,
-                        // A retired review of tool descriptions waits on no one
-                        // now: definitions are screened (spec rev 140).
-                        resolution: crate::consent::RETIRED_KINDS
-                            .contains(&item_kind.as_str())
-                            .then(|| ("superseded".into(), None, Some(crate::consent::RETIRED_TEXT.into()), "kernel".into())),
-                    },
-                );
-                // A delivered interruption counts against the person's day
-                // (#237); observations and notices never do.
-                if item_kind == "interrupt" {
-                    let tz = self.preferences.get(person).map(crate::proactive::tz_of).unwrap_or(chrono_tz::Tz::UTC);
-                    let today = crate::proactive::day_key(e.at, tz);
-                    self.interrupts
-                        .entry(person.clone())
-                        .and_modify(|(day, n)| {
-                            if *day == today {
-                                *n += 1
-                            } else {
-                                *day = today.clone();
-                                *n = 1
-                            }
-                        })
-                        .or_insert((today, 1));
-                }
-            }
-            Ev::ReviewWoken { run, person, reason, .. } => {
-                self.reviews_last.insert(person.clone(), e.at);
-                self.review_runs.insert(run.clone(), person.clone());
-                if reason == "overnight" {
-                    let tz = self.preferences.get(person).map(crate::proactive::tz_of).unwrap_or(chrono_tz::Tz::UTC);
-                    self.reviews_overnight.insert(person.clone(), crate::proactive::day_key(e.at, tz));
-                }
-                for (prefix, suffix) in [("schedule ", " coming up"), ("commitment ", " due"), ("approval ", " waiting"), ("task ", " done"), ("task ", " failed")] {
-                    if let Some(id) = reason.strip_prefix(prefix).and_then(|r| r.strip_suffix(suffix)) {
-                        let tz = self.preferences.get(person).map(crate::proactive::tz_of).unwrap_or(chrono_tz::Tz::UTC);
-                        self.wake_marks.insert(format!("{person}:{prefix}{id}"), crate::proactive::day_key(e.at, tz));
-                    }
-                }
-            }
-            Ev::ItemResolved { id, decision, scope, text } => {
-                self.items_resolved_at.insert(id.clone(), e.at);
-                if let Some(i) = self.items.get_mut(id) {
-                    i.resolution = Some((decision.clone(), scope.clone(), text.clone(), e.actor.clone()));
-                    // A stopped run's notice put away: the run waits on no
-                    // card now, so its own Resume (or Cancel) is what is left.
-                    if decision == "dismiss" {
-                        if let Some(r) = i.run.as_ref().and_then(|r| self.runs.get_mut(r)).filter(|r| r.waiting_item.as_deref() == Some(id.as_str())) {
-                            r.waiting_item = None;
-                        }
-                    }
-                }
-            }
-            Ev::Approval { id, item, person, task, tool, input_hash, scope, until, reason, risk, destinations } => self.approvals.push(Approval {
-                id: id.clone(),
-                person: person.clone(),
-                task: task.clone(),
-                tool: tool.clone(),
-                input_hash: input_hash.clone(),
-                scope: scope.clone(),
-                until: *until,
-                used: false,
-                by: e.actor.clone(),
-                reason: reason.clone(),
-                // Approvals written before the event kept it read it from
-                // their item; with that deleted, they ask again.
-                risk: risk.clone().or_else(|| self.items.get(item).and_then(|i| i.details["risk"].as_str()).map(String::from)),
-                destinations: destinations.clone(),
-            }),
-            Ev::ApprovalUsed { id, .. } => {
-                if let Some(a) = self.approvals.iter_mut().find(|a| &a.id == id) {
-                    a.used = true;
+            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval { .. } | Ev::ApprovalUsed { .. } | Ev::ReviewWoken { .. } => self.inbox.fold(e, self.identity.preferences()),
+            // A stopped run's notice put away: the run waits on no card
+            // now, so its own Resume (or Cancel) is what is left.
+            Ev::ItemResolved { id, .. } => {
+                if let Some(r) = self.inbox.resolve(e).and_then(|r| self.runs.get_mut(&r)).filter(|r| r.waiting_item.as_deref() == Some(id.as_str())) {
+                    r.waiting_item = None;
                 }
             }
             Ev::Wait { run, until } => {
@@ -1969,100 +1275,21 @@ impl State {
                         thread: None,
                         label: Label { untrusted: r.untrusted, private: r.private },
                     };
-                    self.files.insert(id.clone(), f);
+                    // The run delivered it: a file in its person's library.
+                    self.library.put_file(f);
                 }
             }
-            Ev::FileUploaded { id, person, name, media_type, data_b64, thread } => {
-                let f = LibFile {
-                    id: id.clone(),
-                    person: person.clone(),
-                    name: name.clone(),
-                    media_type: media_type.clone(),
-                    size: data_b64.len() * 3 / 4,
-                    at: e.at,
-                    uploaded: true,
-                    seq: e.seq,
-                    run: None,
-                    thread: thread.clone(),
-                    label: Label { untrusted: true, private: true },
-                };
-                self.files.insert(id.clone(), f);
-            }
-            Ev::ProjectSet { id, person, name, instructions } => {
-                let created_at = self.projects.get(id).map_or(e.at, |p| p.created_at);
-                self.projects.insert(id.clone(), Project { id: id.clone(), person: person.clone(), name: name.clone(), instructions: instructions.clone(), created_at });
-            }
-            Ev::Moved { item, project } => {
-                self.moved.insert(item.clone(), project.clone());
-            }
-            Ev::BundleWritten { path, version, doc_kind: kind, scope, owner_user, actor, run, label, sources, writer: named, .. } => {
-                let writer = named.clone().or_else(|| run.as_ref().and_then(|r| self.runs.get(r)).map(|r| r.person.clone()));
-                let d = self.bundle.entry(path.clone()).or_insert_with(|| BundleDoc {
-                    path: path.clone(),
-                    kind: kind.clone(),
-                    scope: scope.clone(),
-                    owner_user: owner_user.clone(),
-                    label: *label,
-                    sources: vec![],
-                    versions: vec![],
-                    writer: None,
-                    shared: vec![],
-                    shared_everyone: false,
-                    shared_by: None,
-                });
-                // An admin's edit (no run, no writer named) keeps the writer
-                // whose run read its sources (K2).
-                if run.is_some() || named.is_some() {
-                    d.writer = writer;
-                }
-                d.kind = kind.clone();
-                d.scope = scope.clone();
-                d.owner_user = owner_user.clone();
-                d.label = *label;
-                d.sources = sources.clone();
-                d.versions.push((*version, e.seq, e.at, actor.clone()));
-                // A new version is new text: an earlier share does not cover it.
-                d.shared.clear();
-                d.shared_everyone = false;
-                d.shared_by = None;
-                let last = self.bundle_last.entry(path.clone()).or_default();
-                *last = (*last).max(*version);
-            }
-            Ev::BundleShared { path, add, everyone, by } => {
-                if let Some(d) = self.bundle.get_mut(path) {
-                    for p in add {
-                        if !d.shared.contains(p) {
-                            d.shared.push(p.clone());
-                        }
-                    }
-                    d.shared_everyone |= *everyone;
-                    d.shared_by = Some(by.clone());
-                }
-            }
-            Ev::BundleRemoved { path } => {
-                self.bundle.remove(path);
-            }
-            Ev::Memory { id, person, run, label, sources, by, .. } => self.memory.push(MemoryEntry {
-                id: id.clone(),
-                person: person.clone(),
-                run: run.clone(),
-                label: *label,
-                sources: sources.clone(),
-                by: by.clone(),
-                at: e.at,
-                seq: e.seq,
-            }),
         }
         crate::outcomes::observe(self, e);
     }
 
     /// The person's playbook items that were live at playbook version `v`.
     pub fn playbook_at(&self, person: &str, v: u64) -> Vec<&PlaybookItem> {
-        self.playbook.values().filter(|i| i.person == person && i.added <= v && i.retired.is_none_or(|r| r > v)).collect()
+        self.library.playbook_at(person, v)
     }
 
     pub fn open_item_for_run(&self, run: &str, kind: &str) -> Option<&Item> {
-        self.items.values().find(|i| i.run.as_deref() == Some(run) && i.kind == kind && i.resolution.is_none())
+        self.inbox.items().values().find(|i| i.run.as_deref() == Some(run) && i.kind == kind && i.resolution.is_none())
     }
 }
 
@@ -2085,11 +1312,11 @@ mod tests {
         let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 1, "max_actions": 1, "max_usd": 1.0 }, "verifier": false, "instructions": "", "harness": "" });
         s.apply(&ev(2, "schedule:s1", json!({ "kind": "task_created", "task": "t1", "run": "r1", "person": "alice", "text": "Say hi.", "config": config })));
         // The firing itself was lost: the schedule is still out of runs.
-        assert_eq!(s.schedules["s1"].started, 1);
-        assert!(s.schedules["s1"].next_due().is_none(), "a lost firing let the schedule run again");
+        assert_eq!(s.arrangements.schedules()["s1"].started, 1);
+        assert!(s.arrangements.schedules()["s1"].next_due().is_none(), "a lost firing let the schedule run again");
         // And when the firing is recorded, it is not counted twice.
         s.apply(&ev(3, "kernel", json!({ "kind": "schedule_fired", "id": "s1", "task": "t1" })));
-        assert_eq!(s.schedules["s1"].started, 1);
+        assert_eq!(s.arrangements.schedules()["s1"].started, 1);
     }
 
     /// An admin's suspension marks the schedule until a resume clears it;
@@ -2099,12 +1326,12 @@ mod tests {
         let mut s = State::default();
         s.apply(&ev(1, "person:alice", json!({ "kind": "schedule_set", "id": "s1", "person": "alice", "text": "Say hi.", "every_minutes": 60, "max_runs": 1 })));
         s.apply(&ev(2, "kernel", json!({ "kind": "schedule_paused", "id": "s1", "reason": "its last 3 runs failed" })));
-        assert!(!s.schedules["s1"].paused_by_admin, "an old pause replayed as an admin's suspension");
+        assert!(!s.arrangements.schedules()["s1"].paused_by_admin, "an old pause replayed as an admin's suspension");
         s.apply(&ev(3, "kernel", json!({ "kind": "schedule_resumed", "id": "s1" })));
         s.apply(&ev(4, "admin:root", json!({ "kind": "schedule_paused", "id": "s1", "reason": "Suspended by Root, an admin", "admin": true })));
-        assert!(s.schedules["s1"].paused_by_admin, "the suspension left no mark");
+        assert!(s.arrangements.schedules()["s1"].paused_by_admin, "the suspension left no mark");
         s.apply(&ev(5, "admin:root", json!({ "kind": "schedule_resumed", "id": "s1" })));
-        assert!(!s.schedules["s1"].paused_by_admin, "the resume kept the mark");
+        assert!(!s.arrangements.schedules()["s1"].paused_by_admin, "the resume kept the mark");
     }
 
     /// A model call the provider charged for and then failed (a reply it
@@ -2216,16 +1443,16 @@ mod tests {
         s.apply(&ev(1, "person:alice", json!({ "kind": "schedule_set", "id": "s1", "person": "alice", "text": "Say hi.", "every_minutes": 60, "max_runs": 1 })));
         s.apply(&ev(2, "person:alice", json!({ "kind": "schedule_paused", "id": "s1", "reason": "Paused by you" })));
         s.apply(&ev(3, "kernel", json!({ "kind": "schedule_ended", "id": "s1", "reason": "it ran 1 time, as set" })));
-        let sc = s.schedules.get("s1").expect("an ended schedule was removed");
+        let sc = s.arrangements.schedules().get("s1").expect("an ended schedule was removed");
         assert_eq!(sc.ended.as_deref(), Some("it ran 1 time, as set"), "the end kept no reason");
         assert!(sc.paused.is_none(), "the end kept the pause");
         assert!(sc.finished(chrono::Utc::now()).is_none(), "an ended schedule finishes again");
         // An edit puts it back: a new end, no mark.
         s.apply(&ev(4, "person:alice", json!({ "kind": "schedule_changed", "id": "s1", "every_minutes": 60, "daily_at": null, "until": null, "max_runs": 2 })));
-        assert!(s.schedules["s1"].ended.is_none(), "the edit kept the end mark");
+        assert!(s.arrangements.schedules()["s1"].ended.is_none(), "the edit kept the end mark");
         // Cancelling removes it, as before.
         s.apply(&ev(5, "person:alice", json!({ "kind": "schedule_removed", "id": "s1" })));
-        assert!(!s.schedules.contains_key("s1"), "a cancelled schedule stayed");
+        assert!(!s.arrangements.schedules().contains_key("s1"), "a cancelled schedule stayed");
     }
 
     /// Erasure drops watched baselines, home marks and opened marks
@@ -2238,11 +1465,14 @@ mod tests {
         s.apply(&ev(3, "person:bob", json!({ "kind": "item", "id": "i1", "item_kind": "approval", "task": null, "run": null, "person": "bob" })));
         s.apply(&ev(4, "person:bob", json!({ "kind": "item_opened", "id": "i1" })));
         s.apply(&ev(5, "person:bob", json!({ "kind": "item_resolved", "id": "i1", "decision": "approved" })));
-        assert!(!s.watch.is_empty() && !s.home_last_open.is_empty() && !s.items_opened.is_empty() && !s.items_resolved_at.is_empty(), "the setup left nothing to erase");
+        assert!(
+            !s.watch.is_empty() && s.identity.has_home_marks() && !s.inbox.items_opened().is_empty() && !s.inbox.items_resolved_at().is_empty(),
+            "the setup left nothing to erase"
+        );
         s.apply(&ev(6, "kernel", json!({ "kind": "person_erased", "person": "bob" })));
         assert!(s.watch.is_empty(), "the erased baseline stayed: {:?}", s.watch);
-        assert!(!s.home_last_open.contains_key("bob"), "the erased home mark stayed");
-        assert!(!s.items_opened.contains_key("i1"), "the erased opened mark stayed");
-        assert!(!s.items_resolved_at.contains_key("i1"), "the erased resolved mark stayed");
+        assert!(s.identity.home_last_open("bob").is_none(), "the erased home mark stayed");
+        assert!(!s.inbox.items_opened().contains_key("i1"), "the erased opened mark stayed");
+        assert!(!s.inbox.items_resolved_at().contains_key("i1"), "the erased resolved mark stayed");
     }
 }

@@ -32,7 +32,7 @@ pub enum Step {
 
 /// Schedules past their end or out of runs.
 pub fn ends(s: &State, now: DateTime<Utc>) -> Vec<Step> {
-    s.schedules.values().filter_map(|x| x.finished(now).map(|why| Step::End { schedule: x.clone(), why })).collect()
+    s.arrangements.schedules().values().filter_map(|x| x.finished(now).map(|why| Step::End { schedule: x.clone(), why })).collect()
 }
 
 /// A schedule whose run waits on a person pauses until that person answers
@@ -41,7 +41,7 @@ pub fn ends(s: &State, now: DateTime<Utc>) -> Vec<Step> {
 pub fn holds(s: &State) -> Vec<Step> {
     let mut hold = vec![];
     let mut release = vec![];
-    for x in s.schedules.values() {
+    for x in s.arrangements.schedules().values() {
         match (s.held_by_person(&x.id), &x.paused_on) {
             (Some((task, why)), None) if x.paused.is_none() && x.ended.is_none() => hold.push(Step::Hold { schedule: x.clone(), task, why }),
             (None, Some(_)) => release.push(Step::Release { id: x.id.clone() }),
@@ -121,7 +121,7 @@ impl Kernel {
                 // here. Only a schedule still paused on a run that no
                 // longer waits goes on (#318).
                 let ended = self.read(|s| s.held_by_person(&id).is_none());
-                let held_pause = self.read(|s| s.schedules.get(&id).is_some_and(|x| x.paused_on.is_some()));
+                let held_pause = self.read(|s| s.arrangements.schedules().get(&id).is_some_and(|x| x.paused_on.is_some()));
                 if ended && held_pause {
                     let _ = self.emit("kernel", Ev::ScheduleResumed { id, source: None, turn: None }).await;
                 }
@@ -158,7 +158,7 @@ impl Kernel {
                 // spec: cancelling stops future runs and any run in flight;
                 // pausing stops future runs). No await stands between this
                 // recheck and the creation below.
-                if !self.read(|s| s.schedules.get(&sc.id).is_some_and(|x| x.paused.is_none() && x.ended.is_none())) {
+                if !self.read(|s| s.arrangements.schedules().get(&sc.id).is_some_and(|x| x.paused.is_none() && x.ended.is_none())) {
                     return;
                 }
                 let o = NewRun {

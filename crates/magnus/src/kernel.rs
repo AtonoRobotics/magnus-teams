@@ -212,7 +212,7 @@ impl Kernel {
         for ev in evs {
             crate::typed_secrets::mask_event(ev);
             if let Ev::BundleWritten { path, version, .. } = ev {
-                let n = last.get(path.as_str()).copied().unwrap_or_else(|| s.bundle_last.get(path.as_str()).copied().unwrap_or(0)) + 1;
+                let n = last.get(path.as_str()).copied().unwrap_or_else(|| s.library.bundle_last().get(path.as_str()).copied().unwrap_or(0)) + 1;
                 last.insert(path.clone(), n);
                 *version = n;
             }
@@ -319,10 +319,10 @@ impl Kernel {
     pub async fn end_turned_off(&self) -> usize {
         let Some(id) = self.identity() else { return 0 };
         let mut people = self.accounts.signed_in().await;
-        people.extend(self.read(|s| s.schedules.values().filter(|x| x.next_due().is_some()).map(|x| x.person.clone()).collect::<Vec<_>>()));
+        people.extend(self.read(|s| s.arrangements.schedules().values().filter(|x| x.next_due().is_some()).map(|x| x.person.clone()).collect::<Vec<_>>()));
         let mut ended = 0;
         for person in people {
-            let sub = self.read(|s| s.subjects.get(&person).cloned());
+            let sub = self.read(|s| s.identity.subject(&person).map(str::to_string));
             match id.active(&person, sub.as_deref()).await {
                 Ok(true) => {}
                 Ok(false) => {
@@ -343,7 +343,7 @@ impl Kernel {
         let mut ended = 0;
         // Their apps answer no calls for them from now; the sign-ins stay in
         // the vault, unused, for when they are back (connectors spec, Isolation).
-        if !self.read(|s| s.turned_off.contains(person)) {
+        if !self.read(|s| s.identity.is_turned_off(person)) {
             self.tell(vec![("kernel", Ev::PersonTurnedOff { person: person.to_string(), why: why.to_string() })]).await;
         }
         match self.accounts.end_all(person).await {
@@ -359,7 +359,7 @@ impl Kernel {
             }
             Err(e) => tracing::error!("ending {person}'s sessions: {e:#}"),
         }
-        let schedules: Vec<crate::state::Schedule> = self.read(|s| s.schedules.values().filter(|x| x.person == person && x.next_due().is_some()).cloned().collect());
+        let schedules: Vec<crate::state::Schedule> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person && x.next_due().is_some()).cloned().collect());
         for sc in schedules {
             let title = self.schedule_title_for_notice(&sc).await;
             let notice = self.notice_to(
@@ -534,13 +534,13 @@ impl Kernel {
                 crate::run::instructions_version()
             },
             harness: HARNESS_VERSION.into(),
-            playbook: self.read(|s| s.playbook_version),
+            playbook: self.read(|s| s.library.playbook_version()),
         };
         // The project's instructions and reference files as they stand now.
         let project = o.project.as_ref().and_then(|id| {
             self.read(|s| {
-                let p = s.projects.get(id).filter(|p| p.person == person)?;
-                let mut files: Vec<&crate::state::LibFile> = s.files.values().filter(|f| f.person == person && s.project_of(&f.id).as_deref() == Some(id)).collect();
+                let p = s.library.projects().get(id).filter(|p| p.person == person)?;
+                let mut files: Vec<&crate::state::LibFile> = s.library.files().values().filter(|f| f.person == person && s.project_of(&f.id).as_deref() == Some(id)).collect();
                 files.sort_by_key(|f| f.at);
                 Some(crate::events::ProjectContext {
                     id: p.id.clone(),

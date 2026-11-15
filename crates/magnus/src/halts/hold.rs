@@ -134,7 +134,7 @@ pub fn may_proceed(s: &State, who: &Subject, phase: Phase) -> Option<Hold> {
     if phase == Phase::Start && s.halts.paused.contains_key(&who.agent) {
         return Some(Hold::Paused { agent: who.agent.clone(), person: who.person.clone() });
     }
-    if phase != Phase::Continue && s.turned_off.contains(&who.person) {
+    if phase != Phase::Continue && s.identity.is_turned_off(&who.person) {
         return Some(Hold::TurnedOff(who.person.clone()));
     }
     None

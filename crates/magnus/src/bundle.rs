@@ -440,7 +440,7 @@ impl Kernel {
     /// or everyone (#299): widening only, recorded as theirs. A new version
     /// clears it, so a share covers only the text seen.
     pub async fn bundle_share(&self, person: &str, path: &str, groups: &[String], everyone: bool) -> Result<serde_json::Value, String> {
-        let Some(d) = self.read(|s| s.bundle.get(path).cloned()) else {
+        let Some(d) = self.read(|s| s.library.bundle().get(path).cloned()) else {
             return Err(format!("{path}: no such document, or not one the person can see"));
         };
         if d.scope != "org" {
@@ -454,14 +454,14 @@ impl Kernel {
         }
         let add: Vec<String> = groups.iter().map(|g| format!("group:{g}")).collect();
         self.emit(&format!("person:{person}"), Ev::BundleShared { path: path.into(), add, everyone, by: person.into() }).await.map_err(|e| format!("{e:#}"))?;
-        let d = self.read(|s| s.bundle.get(path).cloned()).ok_or_else(|| format!("{path}: no such document"))?;
+        let d = self.read(|s| s.library.bundle().get(path).cloned()).ok_or_else(|| format!("{path}: no such document"))?;
         Ok(serde_json::json!({ "path": path, "version": d.version(), "shared": d.shared, "everyone": d.shared_everyone, "by": person }))
     }
 
     /// A document for `person`: its frontmatter and body, links to what
     /// they cannot see removed, and the taint it was written under.
     pub async fn bundle_read(&self, person: &str, path: &str) -> anyhow::Result<Option<(Value, String, Label, u32)>> {
-        let Some(d) = self.read(|s| s.bundle.get(path).cloned()) else { return Ok(None) };
+        let Some(d) = self.read(|s| s.library.bundle().get(path).cloned()) else { return Ok(None) };
         if !self.bundle_visible(person, &d) {
             return Ok(None);
         }
@@ -473,7 +473,7 @@ impl Kernel {
     /// A body with every link to a document `person` cannot see removed
     /// (`strip_hidden`, K2).
     pub fn without_hidden_links(&self, person: &str, body: &str) -> String {
-        strip_hidden(body, |target| self.read(|s| s.bundle.get(target).cloned()).is_some_and(|d| !self.bundle_visible(person, &d)))
+        strip_hidden(body, |target| self.read(|s| s.library.bundle().get(target).cloned()).is_some_and(|d| !self.bundle_visible(person, &d)))
     }
 
     /// Write a version of a document for `person`'s run: checked first, and
@@ -486,13 +486,13 @@ impl Kernel {
         if user.as_deref().is_some_and(|u| u != user_segment(person)) {
             return Err(format!("{path}: another person's document"));
         }
-        let existing = self.read(|s| s.bundle.get(path).cloned());
+        let existing = self.read(|s| s.library.bundle().get(path).cloned());
         if existing.as_ref().is_some_and(|d| !self.bundle_visible(person, d)) {
             return Err(format!("{path}: a document you cannot see"));
         }
         // An entity is checked against its type document as it is now.
         let tslug = path.trim_start_matches('/').split('/').nth(1).unwrap_or_default().to_string();
-        let tdoc = match (kind, self.read(|s| s.bundle.get(&format!("/types/{tslug}.md")).cloned())) {
+        let tdoc = match (kind, self.read(|s| s.library.bundle().get(&format!("/types/{tslug}.md")).cloned())) {
             ("entity", Some(d)) => self.log.contents(&[d.seq()]).await.map_err(|e| format!("{e:#}"))?.remove(&d.seq()).map(|c| c["frontmatter"].clone()),
             _ => None,
         };
@@ -576,7 +576,7 @@ impl Kernel {
     /// Documents `person` can see whose path, title, description or body
     /// has every word of `query`, optionally only some kinds.
     pub async fn bundle_search(&self, person: &str, query: &str, kinds: &[String], limit: usize) -> anyhow::Result<(Vec<Value>, Label)> {
-        let docs: Vec<crate::state::BundleDoc> = self.read(|s| s.bundle.values().cloned().collect());
+        let docs: Vec<crate::state::BundleDoc> = self.read(|s| s.library.bundle().values().cloned().collect());
         let seen: Vec<crate::state::BundleDoc> = docs.into_iter().filter(|d| (kinds.is_empty() || kinds.contains(&d.kind)) && self.bundle_visible(person, d)).collect();
         let contents = self.log.contents(&seen.iter().map(|d| d.seq()).collect::<Vec<_>>()).await?;
         let words: Vec<String> = query.to_lowercase().split_whitespace().map(String::from).collect();

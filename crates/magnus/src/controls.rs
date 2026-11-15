@@ -108,7 +108,7 @@ fn controlled_task(s: &Projection, who: &Person, authority: Authority, id: &str)
 
 /// One schedule's row by id for `who` to control (#265).
 fn controlled_schedule(s: &Projection, who: &Person, authority: Authority, id: &str) -> Option<Value> {
-    s.schedules.get(id).filter(|x| may_control(who, authority, &x.person)).map(|x| schedule_row(s, x))
+    s.arrangements.schedules().get(id).filter(|x| may_control(who, authority, &x.person)).map(|x| schedule_row(s, x))
 }
 
 impl Kernel {
@@ -131,7 +131,7 @@ impl Kernel {
     /// The schedules `who` controls.
     pub async fn schedules_for(&self, who: &Person) -> Vec<Value> {
         let authority = self.authority(who).await;
-        self.read(|s| s.schedules.values().filter(|x| may_control(who, authority, &x.person)).map(|x| schedule_row(s, x)).collect())
+        self.read(|s| s.arrangements.schedules().values().filter(|x| may_control(who, authority, &x.person)).map(|x| schedule_row(s, x)).collect())
     }
 
     /// One task by id, however old: the list's row, and what its run did
@@ -226,7 +226,7 @@ impl Kernel {
     }
 
     async fn schedule_owned(&self, who: &Person, id: &str, op: &str) -> Result<crate::state::Schedule, Refused> {
-        let sc = self.read(|s| s.schedules.get(id).cloned()).ok_or(Refused::NotFound("schedule"))?;
+        let sc = self.read(|s| s.arrangements.schedules().get(id).cloned()).ok_or(Refused::NotFound("schedule"))?;
         control_check(self, who, op, "Schedule", id, &sc.person, "schedule").await?;
         Ok(sc)
     }

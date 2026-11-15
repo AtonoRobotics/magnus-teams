@@ -42,8 +42,8 @@ fn card_label(s: &State, card: Option<&CardState>) -> &'static str {
         Answer::Later => return "not now",
         Answer::Declined(_) => return "dismissed",
         Answer::Started(task) => task_regretted(s, task),
-        Answer::Confirmed(schedule) => !s.schedules.contains_key(schedule),
-        Answer::Granted(grant) => s.grants.get(grant).is_none_or(|g| g.revoked.is_some()),
+        Answer::Confirmed(schedule) => !s.arrangements.schedules().contains_key(schedule),
+        Answer::Granted(grant) => s.arrangements.grants().get(grant).is_none_or(|g| g.revoked.is_some()),
     };
     if regretted {
         "accepted, later regretted"
@@ -57,7 +57,7 @@ fn suggestions(s: &State, seen: Seen) -> Value {
     for r in s.runs.values().filter(|r| seen(&r.id)) {
         for data in r.results.values().filter_map(|res| res.data.as_ref()) {
             if let (Some(id), false) = (data["card"].as_str(), data["connector"].is_string()) {
-                tally.add(card_label(s, s.cards.get(id)).to_string(), &r.id);
+                tally.add(card_label(s, s.arrangements.cards().get(id)).to_string(), &r.id);
             }
         }
     }
@@ -115,7 +115,7 @@ fn contested_actions(s: &State, seen: Seen) -> Value {
 fn approved_unchanged(s: &State, seen: Seen) -> Value {
     let mut tally = Tally::default();
     let (mut asked, mut unchanged) = (0, 0);
-    for i in s.items.values().filter(|i| i.kind == "approval" && i.run.as_deref().is_some_and(seen)) {
+    for i in s.inbox.items().values().filter(|i| i.kind == "approval" && i.run.as_deref().is_some_and(seen)) {
         asked += 1;
         let (Some(run), Some((decision, _, text, _))) = (&i.run, &i.resolution) else { continue };
         if decision == "approve" && text.as_deref().is_none_or(str::is_empty) {

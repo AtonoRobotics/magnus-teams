@@ -120,7 +120,7 @@ impl Kernel {
         v.sort_by_key(|x| std::cmp::Reverse(x.1 .1));
         v.into_iter()
             .map(|(id, (started, updated, first))| {
-                let project = self.read(|s| s.project_of(&id).and_then(|p| s.projects.get(&p)).map(|p| json!({ "id": p.id, "name": p.name })));
+                let project = self.read(|s| s.project_of(&id).and_then(|p| s.library.projects().get(&p)).map(|p| json!({ "id": p.id, "name": p.name })));
                 let mut t = json!({ "thread": id, "title": first.chars().take(80).collect::<String>(), "started_at": started, "updated_at": updated, "project": project });
                 if let Some((o, turn)) = opened.get(&id) {
                     t["opener"] = json!({ "app": o.app, "app_title": o.app_title });
@@ -275,7 +275,7 @@ impl Kernel {
             (false, "dismiss") => "decline",
             (false, d) => d,
         };
-        if self.read(|s| s.cards.contains_key(card)) {
+        if self.read(|s| s.arrangements.cards().contains_key(card)) {
             return Ok(Err(CardRefusal::Decided));
         }
         // The card's words are the model's, carrying the turn's taint; a
@@ -291,7 +291,7 @@ impl Kernel {
                 };
                 // A change to one of theirs keeps its id, while it is still theirs and live.
                 let id = match d["replaces"].as_str() {
-                    Some(r) if self.read(|s| s.grants.get(r).is_some_and(|g| g.person == person && g.revoked.is_none())) => r.to_string(),
+                    Some(r) if self.read(|s| s.arrangements.grants().get(r).is_some_and(|g| g.person == person && g.revoked.is_none())) => r.to_string(),
                     Some(r) => return Ok(Err(CardRefusal::Invalid(format!("the grant it changes ({r}) was revoked; ask Magnus for a new one")))),
                     None => crate::kernel::new_id("grant"),
                 };

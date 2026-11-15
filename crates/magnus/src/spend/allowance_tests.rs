@@ -149,7 +149,7 @@ fn a_spent_grant_stops_every_spender_until_its_person_resumes_past_it() {
     let mut w = world(json!({ "grant": "g1" }));
     ev(&mut w, 11, "person:ada", json!({ "kind": "grant_set", "id": "g1", "person": "ada", "apps": ["notes"], "period": "week", "max_usd": 2.0, "cedar": "" }));
     assert_eq!(answers(&w, "r1"), ["ok"; 3]);
-    w.grants.get_mut("g1").unwrap().charges.push((now(), 2.0));
+    w.arrangements.grants_mut().get_mut("g1").unwrap().charges.push((now(), 2.0));
     assert_eq!(answers(&w, "r1"), ["grant_budget"; 3]);
     let stop = allowance(&w, "r1", Spender::Step, now()).unwrap_err();
     assert_eq!(stop.notice, "Stopped: the grant g1 has spent its $2.00 for this week ($2.00).");

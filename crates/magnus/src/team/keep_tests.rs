@@ -32,7 +32,7 @@ async fn hold(s: &Server, ws: &str, name: &str, text: &str) {
 /// The text of each file in mo's own library called `name`.
 async fn in_library(s: &Server, name: &str) -> Vec<String> {
     use base64::Engine;
-    let ids: Vec<String> = s.k.read(|st| st.files.values().filter(|f| f.person == "mo" && f.name == name).map(|f| f.id.clone()).collect());
+    let ids: Vec<String> = s.k.read(|st| st.library.files().values().filter(|f| f.person == "mo" && f.name == name).map(|f| f.id.clone()).collect());
     let rows = s.k.log.of_kinds(&["file_uploaded"], 500).await.unwrap();
     let seqs: Vec<i64> = rows.iter().map(|(seq, _, _, _)| *seq).collect();
     let bodies = s.k.log.contents(&seqs).await.unwrap();

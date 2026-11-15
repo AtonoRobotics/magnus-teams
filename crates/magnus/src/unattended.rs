@@ -58,7 +58,7 @@ pub fn schedule(k: Arc<Kernel>) {
 impl Kernel {
     pub(crate) async fn expire_unattended_asks(self: &Arc<Self>, now: DateTime<Utc>) -> Result<()> {
         let _decide = self.decide.lock().await;
-        let due: Vec<Item> = self.read(|s| s.items.values().filter(|i| due(s, i, now)).cloned().collect());
+        let due: Vec<Item> = self.read(|s| s.inbox.items().values().filter(|i| due(s, i, now)).cloned().collect());
         for item in due {
             let run = item.run.clone().unwrap_or_default();
             let call_id = item.details["call_id"].as_str().unwrap_or_default().to_string();
