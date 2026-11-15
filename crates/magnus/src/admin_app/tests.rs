@@ -122,6 +122,25 @@ fn the_window_is_five_minutes() {
     assert!(!super::guard::fresh(now + chrono::Duration::seconds(1), now), "a step-up from the future held");
 }
 
+/// Recording one session's step-up never takes another's away: a step-up
+/// stamped earlier but recorded later (two admins confirming at once), or
+/// one already lapsed, keeps every other session's that still holds. The
+/// prune dropped any step-up newer than the one recorded, so a concurrent
+/// step-up, or a test marking a lapsed one, signed every admin out of their
+/// step-up (`workspaces_tests`, `pressing_is_free_and_releasing_steps_up`).
+#[test]
+fn recording_a_step_up_keeps_every_other_that_holds() {
+    let (a, b, c) = ("step-up-keeps-a", "step-up-keeps-b", "step-up-keeps-c");
+    let now = Utc::now();
+    mark(a, now);
+    mark(b, now - chrono::Duration::seconds(1));
+    assert!(super::guard::stepped_up_until(a).is_some(), "an earlier step-up recorded later took a newer one away");
+    mark(c, now - chrono::Duration::seconds(ADMIN_STEP_UP_SECONDS));
+    assert!(super::guard::stepped_up_until(a).is_some(), "a lapsed step-up took a live one away");
+    assert!(super::guard::stepped_up_until(b).is_some());
+    assert!(super::guard::stepped_up_until(c).is_none(), "a lapsed step-up held");
+}
+
 #[test]
 fn only_pressing_a_kill_switch_skips_the_step_up() {
     use super::guard::needs_step_up;

@@ -49,10 +49,11 @@ pub fn fresh(at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
 }
 
 /// Record that the session holding `credential` confirmed its password `at`,
-/// and forget every step-up that has lapsed.
+/// and forget every step-up that had lapsed by then. One stamped after `at`
+/// stays: another admin may have confirmed in between.
 pub(crate) fn mark(credential: &str, at: DateTime<Utc>) {
     let mut m = STEPPED_UP.lock().unwrap_or_else(|e| e.into_inner());
-    m.retain(|_, t| fresh(*t, at));
+    m.retain(|_, t| at - *t < window());
     m.insert(key(credential), at);
 }
 
