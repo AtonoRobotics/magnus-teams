@@ -65,10 +65,10 @@ async fn revoking_a_device_ends_its_sessions_and_a_session_without_one_still_loa
     let (_, other) = accounts.open_session("ada", "app", Some("dev_other")).await.unwrap();
     let ended = accounts.end_device("dev_this").await.unwrap();
     assert_eq!(ended.len(), 1);
-    assert!(accounts.session(&token).await.is_none(), "the revoked device's session was still live");
-    assert_eq!(accounts.session(&other).await.unwrap().device.as_deref(), Some("dev_other"));
+    assert!(matches!(accounts.session(&token).await, Ok(None)), "the revoked device's session was still live");
+    assert_eq!(accounts.session(&other).await.ok().flatten().unwrap().device.as_deref(), Some("dev_other"));
     let (_, plain) = accounts.open_session("ada", "app", None).await.unwrap();
-    assert!(accounts.session(&plain).await.unwrap().device.is_none(), "a session with no device did not load");
+    assert!(accounts.session(&plain).await.ok().flatten().unwrap().device.is_none(), "a session with no device did not load");
 }
 
 /// Enrolling a second factor asks for the code afterwards: the right
@@ -187,7 +187,7 @@ async fn disabled_refuses_and_ends_sessions() {
     let counter = Accounts::network_counter("ada");
     let ended = accounts.set_status("ada", Status::Disabled).await.unwrap();
     assert_eq!(ended, vec![session.id.clone()], "disabling did not end the live session");
-    assert!(accounts.session(&token).await.is_none(), "the session survived disabling");
+    assert!(matches!(accounts.session(&token).await, Ok(None)), "the session survived disabling");
     assert!(matches!(accounts.sign_in_counted_with_code("ada", "a-long-password", None, &counter).await, Ok(Err(SignInError::Rejected))), "a disabled person signed in");
     accounts.set_status("ada", Status::Active).await.unwrap();
     assert!(matches!(accounts.sign_in_counted_with_code("ada", "a-long-password", None, &counter).await, Ok(Ok(()))), "re-enabling did not restore sign-in");
@@ -217,12 +217,12 @@ async fn disabling_elsewhere_revokes_live_sessions() {
     let server = Accounts::open(&url, cfg()).await.unwrap();
     server.set_password("ada", "a-long-password").await.unwrap();
     let (_, token) = server.open_session("ada", "app", None).await.unwrap();
-    assert!(server.session(&token).await.is_some(), "the session did not resolve before disabling");
+    assert!(matches!(server.session(&token).await, Ok(Some(_))), "the session did not resolve before disabling");
     let cli = Accounts::open(&url, cfg()).await.unwrap();
     cli.set_status("ada", Status::Disabled).await.unwrap();
-    assert!(server.session(&token).await.is_none(), "the session survived a disabling from another handle");
+    assert!(matches!(server.session(&token).await, Ok(None)), "the session survived a disabling from another handle");
     cli.set_status("ada", Status::Active).await.unwrap();
-    assert!(server.session(&token).await.is_none(), "re-enabling resurrected the ended session");
+    assert!(matches!(server.session(&token).await, Ok(None)), "re-enabling resurrected the ended session");
     let counter = Accounts::network_counter("ada");
     assert!(matches!(server.sign_in_counted_with_code("ada", "a-long-password", None, &counter).await, Ok(Ok(()))), "re-enabling did not restore sign-in");
 }
@@ -237,12 +237,12 @@ async fn removal_elsewhere_ends_sessions_and_readding_resurrects_nothing() {
     server.add_person("ada", "Ada", None).await.unwrap();
     server.set_password("ada", "a-long-password").await.unwrap();
     let (_, token) = server.open_session("ada", "app", None).await.unwrap();
-    assert!(server.session(&token).await.is_some(), "the session did not resolve before removal");
+    assert!(matches!(server.session(&token).await, Ok(Some(_))), "the session did not resolve before removal");
     let cli = Accounts::open(&url, cfg()).await.unwrap();
     cli.remove_person("ada").await.unwrap();
-    assert!(server.session(&token).await.is_none(), "the session survived a removal from another handle");
+    assert!(matches!(server.session(&token).await, Ok(None)), "the session survived a removal from another handle");
     cli.add_person("ada", "A New Ada", None).await.unwrap();
-    assert!(server.session(&token).await.is_none(), "re-adding the id resurrected the ended session");
+    assert!(matches!(server.session(&token).await, Ok(None)), "re-adding the id resurrected the ended session");
     assert!(server.sessions_of("ada", &token).await.is_empty(), "the store still holds the ended session");
 }
 
@@ -676,7 +676,7 @@ async fn reset_round_trip_sets_clears_and_consumes() {
     let (person, ended) = accounts.confirm_reset(&first.token, "ada-new-password").await.unwrap().expect("the token did not confirm");
     assert_eq!(person, "ada");
     assert_eq!(ended, vec![session.id.clone()], "confirming did not end the live session");
-    assert!(accounts.session(&token).await.is_none(), "the session survived confirming");
+    assert!(matches!(accounts.session(&token).await, Ok(None)), "the session survived confirming");
     assert!(matches!(accounts.sign_in_counted_with_code("ada", "ada-new-password", None, &counter).await, Ok(Ok(()))), "the new password does not sign in without a code");
     assert!(matches!(accounts.sign_in_counted_with_code("ada", "ada-old-password", None, &counter).await, Ok(Err(_))), "the old password still signs in");
     assert_eq!(accounts.confirm_reset(&first.token, "ada-newer-password").await.unwrap(), None, "the token worked twice");
@@ -733,17 +733,17 @@ async fn sessions_last_the_rules_longest_and_end_when_idle() {
     accounts.set_policy(p).await.unwrap();
     let (s, token) = accounts.open_session("ada", "app", None).await.unwrap();
     assert!((s.expires - chrono::Utc::now()).num_hours() >= 7, "the session is short: {}", s.expires);
-    assert!(accounts.session(&token).await.is_some(), "a fresh session is not live");
+    assert!(matches!(accounts.session(&token).await, Ok(Some(_))), "a fresh session is not live");
     // Idle past the rules: over.
     let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
     tokio::spawn(async move {
         let _ = conn.await;
     });
     client.execute("UPDATE public.account_sessions SET seen = now() - '31 minutes'::interval", &[]).await.unwrap();
-    assert!(accounts.session(&token).await.is_none(), "an idle session is still live");
+    assert!(matches!(accounts.session(&token).await, Ok(None)), "an idle session is still live");
     // Used again, the stamp moves.
     client.execute("UPDATE public.account_sessions SET seen = now() - '90 seconds'::interval", &[]).await.unwrap();
-    assert!(accounts.session(&token).await.is_some(), "a lately used session is not live");
+    assert!(matches!(accounts.session(&token).await, Ok(Some(_))), "a lately used session is not live");
     let seen: chrono::DateTime<chrono::Utc> = client.query_one("SELECT seen FROM public.account_sessions", &[]).await.unwrap().get(0);
     assert!((chrono::Utc::now() - seen).num_seconds() < 90, "the last-seen stamp did not move: {seen}");
 }
