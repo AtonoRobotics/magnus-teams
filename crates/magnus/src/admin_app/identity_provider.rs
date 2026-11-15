@@ -53,7 +53,7 @@ impl Slot {
     /// config's in place rather than stopping the server.
     pub fn at_boot(cfg: &Config, s: &crate::state::State, vault: Arc<crate::vault::Vault>) -> anyhow::Result<Slot> {
         let configured = cfg.sign_in.oidc.clone().map(|o| Provider::new(o, vault.clone())).transpose()?;
-        let p = match &s.admin_settings.identity_provider {
+        let p = match &s.org.admin().identity_provider {
             None => configured,
             Some(None) => None,
             Some(Some(v)) => match oidc_of(v).map_err(anyhow::Error::msg).and_then(|o| Provider::new(o, vault.clone())) {
@@ -130,7 +130,7 @@ fn checked(k: &Kernel, b: &Value) -> Result<(Value, Provider), String> {
 
 /// The settings in use, as the form shows them.
 fn shown(k: &Kernel) -> Value {
-    if let Some(chosen) = k.read(|s| s.admin_settings.identity_provider.clone()) {
+    if let Some(chosen) = k.read(|s| s.org.admin().identity_provider.clone()) {
         return json!({ "source": "owner", "settings": chosen });
     }
     match &k.cfg.sign_in.oidc {

@@ -660,9 +660,7 @@ pub fn status(k: &Kernel) -> Value {
     let copy = k.read(|s| s.server_ops.last_copy().cloned()).map(|(file, ok, detail, at)| json!({ "file": file, "copied": ok, "detail": detail, "at": at }));
     let c = &k.cfg.backup;
     // Backups that still hold removed content, erased people's among it (#195).
-    let pending = k.read(|s| {
-        s.server_ops.scrub_pending().cloned().map(|p| json!({ "files": p.files, "detail": p.detail, "since": p.at, "erasures": s.erasures.values().filter(|e| e.pending).count() }))
-    });
+    let pending = k.read(|s| s.server_ops.scrub_pending().cloned().map(|p| json!({ "files": p.files, "detail": p.detail, "since": p.at, "erasures": s.erasures.pending() })));
     json!({ "dir": dir, "every_hours": c.every_hours, "keep_days": k.backup_keep_days(), "copy_to": c.copy_to, "on_appliance_disk": c.dir.is_none(), "latest": last, "copy": copy, "files": files, "scrub_pending": pending })
 }
 

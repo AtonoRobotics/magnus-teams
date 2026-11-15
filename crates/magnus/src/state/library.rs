@@ -168,6 +168,10 @@ impl crate::forget::Forget for Library {
         let p = who.person.as_str();
         self.memory.retain(|m| m.person != p);
         self.bundle.retain(|_, d| d.owner_user.as_deref() != Some(p));
+        // Their own documents' version counts too: their id is never given
+        // again, so no one writes under their folder after them.
+        let theirs = format!("/users/{}/", crate::bundle::user_segment(p));
+        self.bundle_last.retain(|path, _| !path.starts_with(&theirs));
         self.files.retain(|_, f| f.person != p);
         self.projects.retain(|_, x| x.person != p);
         self.moved.retain(|id, _| !who.tasks.contains(id) && !who.files.contains(id) && !who.threads.contains(id));
