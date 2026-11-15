@@ -44,7 +44,7 @@ pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult
         // Interventions per task: decisions a person had to make.
         let mut by_kind: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut interventions = 0usize;
-        for i in s.items.values() {
+        for i in s.inbox.items().values() {
             if let (Some(run), true) = (&i.run, ["approval", "question", "review", "notice"].contains(&i.kind.as_str()) && i.run.as_deref().is_some_and(|r| seen.contains(r))) {
                 interventions += 1;
                 by_kind.entry(i.kind.clone()).or_default().insert(run.clone());
@@ -83,7 +83,7 @@ pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult
 
         let mut scopes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut granted = 0usize;
-        for a in &s.approvals {
+        for a in s.inbox.approvals() {
             let run = s.tasks.get(&a.task).map(|t| t.run_id.clone()).unwrap_or_default();
             if !seen.contains(run.as_str()) {
                 continue;
@@ -114,7 +114,7 @@ pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult
         panels.push(panel("cache_hit_rate", "Prompt cache hit rate", num(rate), "of input tokens", ids(&|r| r.tokens.input > 0), vec![]));
 
         let mut mem: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let memory: Vec<_> = s.memory.iter().filter(|m| seen.contains(m.run.as_str())).collect();
+        let memory: Vec<_> = s.library.memory().iter().filter(|m| seen.contains(m.run.as_str())).collect();
         for m in &memory {
             let l = match (m.label.untrusted, m.label.private) {
                 (true, true) => "private+untrusted",
@@ -148,7 +148,7 @@ pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult
             rows(fail),
         ));
 
-        let reviews = ids(&|r| s.items.values().any(|i| i.kind == "review" && i.run.as_deref() == Some(&r.id)));
+        let reviews = ids(&|r| s.inbox.items().values().any(|i| i.kind == "review" && i.run.as_deref() == Some(&r.id)));
         panels.push(panel("review_load", "Review cards (criteria without a check)", json!(reviews.len()), "runs", reviews, vec![]));
 
         let mut recent: Vec<u64> = capture.recent.iter().copied().collect();
@@ -216,7 +216,8 @@ pub(crate) async fn policy(AxState(k): K, Developer(p): Developer) -> ApiResult 
             })
             .collect();
         let proposals: Vec<Value> = s
-            .items
+            .inbox
+            .items()
             .values()
             .filter(|i| i.kind == "policy_proposal")
             .filter_map(|i| {
@@ -294,7 +295,8 @@ pub(crate) async fn playbook(AxState(k): K, Developer(p): Developer) -> ApiResul
     let lens = k.lens(&p);
     let v = k.read(|s| {
         let items: Vec<Value> = s
-            .playbook
+            .library
+            .playbook()
             .values()
             .filter_map(|i| {
                 let sight = lens.sight(&i.person);
@@ -320,7 +322,7 @@ pub(crate) async fn playbook(AxState(k): K, Developer(p): Developer) -> ApiResul
                 )
             })
             .collect();
-        json!({ "version": s.playbook_version, "items": items })
+        json!({ "version": s.library.playbook_version(), "items": items })
     });
     Ok(Json(v).into_response())
 }

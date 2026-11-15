@@ -40,3 +40,13 @@ time, a commit each.
   backups and scrubs; the product says server, not appliance), vault, org
   settings, thread extras, connectors. Identity waits: authorization work is
   under way beside it.
+- Second batch, each after its own pin extension: arrangements (schedules,
+  grants, commitments, cards), the library (files, projects, moves,
+  knowledge, memory, the playbook, the bundle), the inbox with the
+  proactive loop's marks, then identity (sign-ins, subjects, rights from the
+  provider, roles, data privacy, preferences, the home mark). A domain that
+  reads another's facts gets them read-only from the router: arrangements
+  and the inbox take identity's preferences, and an erasure's record takes
+  the subject from identity. Identity holds folded facts only; what a
+  person may do is still answered by `people::rights` alone. Trash and
+  erasure, and the work itself (runs and tasks), stay in the state for now.

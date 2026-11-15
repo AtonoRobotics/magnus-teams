@@ -138,7 +138,7 @@ fn sign_in(k: &Kernel, app: &str, person: &str, revoke_at: &str) {
 }
 
 fn notices(k: &Kernel, person: &str, app: &str) -> usize {
-    k.read(|s| s.items.values().filter(|i| i.kind == "notice" && i.person == person && i.details["connector"] == app && i.details["withdrawn"] == true).count())
+    k.read(|s| s.inbox.items().values().filter(|i| i.kind == "notice" && i.person == person && i.details["connector"] == app && i.details["withdrawn"] == true).count())
 }
 
 /// Withdrawing GitHub takes it out of every Library and run, revokes Mo's

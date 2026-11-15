@@ -50,7 +50,7 @@ impl Kernel {
         // Its runs post in the conversation the work came from (owner, 2026-11-10).
         let thread = top.chat.as_ref().map(|c| c.thread.clone());
         let (card, id) = (derived("card", key), derived("sched", key));
-        if !self.read(|s| s.schedules.contains_key(&id)) {
+        if !self.read(|s| s.arrangements.schedules().contains_key(&id)) {
             let set = Ev::ScheduleSet {
                 id: id.clone(),
                 person: task.person.clone(),

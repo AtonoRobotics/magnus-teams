@@ -273,7 +273,7 @@ impl Kernel {
     pub async fn sync_knowledge(&self) -> Result<()> {
         let have = self.knowledge.versions().await?;
         let want = self.cfg.knowledge.embeddings.as_ref().map(|e| e.model.clone());
-        let entries: Vec<KnowledgeEntry> = self.read(|s| s.knowledge.values().cloned().collect());
+        let entries: Vec<KnowledgeEntry> = self.read(|s| s.library.knowledge().values().cloned().collect());
         // Entries in the trash or removed are no longer in the state.
         for id in have.keys().filter(|id| !entries.iter().any(|e| &e.id == *id)) {
             self.knowledge.drop_entry(id).await?;
@@ -306,16 +306,16 @@ impl Kernel {
     /// An entry as it is shown, with what it says read from the content
     /// store; None without the entry or its content.
     async fn knowledge_shown(&self, id: &str) -> Result<Option<Value>> {
-        let Some(e) = self.read(|s| s.knowledge.get(id).cloned()) else { return Ok(None) };
+        let Some(e) = self.read(|s| s.library.knowledge().get(id).cloned()) else { return Ok(None) };
         Ok(self.knowledge.content(&e).await?.map(|says| shown(&e, &says)))
     }
 
     /// Index an entry as the state now has it, or take it out if it has none.
     pub(crate) async fn index_id(&self, id: &str) -> Result<()> {
-        if !self.read(|s| s.knowledge.contains_key(id)) {
+        if !self.read(|s| s.library.knowledge().contains_key(id)) {
             return self.knowledge.drop_entry(id).await;
         }
-        match self.read(|s| s.knowledge.get(id).cloned()) {
+        match self.read(|s| s.library.knowledge().get(id).cloned()) {
             Some(e) => self.index_entry(&e).await,
             None => Ok(()),
         }
@@ -689,7 +689,7 @@ async fn add(State(k): State<Arc<Kernel>>, Caller(p): Caller, Json(b): Json<Valu
 /// Ask the people with the role to make an entry a company fact. Anyone who
 /// may read it may ask.
 async fn request_endorsement(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>) -> Response {
-    let Some(e) = k.read(|s| s.knowledge.get(&id).cloned()).filter(|e| can_read(&p, &e.readers)) else {
+    let Some(e) = k.read(|s| s.library.knowledge().get(&id).cloned()).filter(|e| can_read(&p, &e.readers)) else {
         return err(StatusCode::NOT_FOUND, "no such entry");
     };
     if e.integrity == "company" {
@@ -705,7 +705,7 @@ async fn request_endorsement(State(k): State<Arc<Kernel>>, Caller(p): Caller, Pa
 /// recorded as theirs. Anyone who may read it may share it, after seeing
 /// its text.
 async fn share(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let Some(e) = k.read(|s| s.knowledge.get(&id).cloned()).filter(|e| can_read(&p, &e.readers)) else {
+    let Some(e) = k.read(|s| s.library.knowledge().get(&id).cloned()).filter(|e| can_read(&p, &e.readers)) else {
         return err(StatusCode::NOT_FOUND, "no such entry");
     };
     if e.readers.is_empty() {

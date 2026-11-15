@@ -200,7 +200,7 @@ impl Kernel {
         let classed = |tool: &str, risk: &str| ("kernel", Ev::ToolClassified { connector: c.name.clone(), tool: tool.into(), risk: Some(risk.into()) });
         let mut evs: Vec<(&str, Ev)> = new.iter().filter(|(_, r)| first || *r == "read").map(|(t, r)| classed(t, r)).collect();
         let writes: Vec<&(String, &str)> = new.iter().filter(|(_, r)| !first && *r != "read").collect();
-        let open = self.read(|s| s.items.values().any(|i| i.kind == APP_TOOLS && i.resolution.is_none() && i.details["app"] == c.name.as_str()));
+        let open = self.read(|s| s.inbox.items().values().any(|i| i.kind == APP_TOOLS && i.resolution.is_none() && i.details["app"] == c.name.as_str()));
         if !writes.is_empty() && !open {
             let name = c.title.clone().unwrap_or_else(|| title(&c.name));
             let names: Vec<String> = writes.iter().map(|(t, _)| plain(t)).collect();

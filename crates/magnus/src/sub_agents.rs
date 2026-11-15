@@ -229,8 +229,8 @@ impl State {
     /// and to every run above it, whose budget it spends too.
     pub(crate) fn charge(&mut self, run: &str, at: DateTime<Utc>, usd: f64) {
         let grant = self.authority(run).and_then(|t| t.grant.clone());
-        if let Some(g) = grant.and_then(|g| self.grants.get_mut(&g)) {
-            g.charges.push((at, usd));
+        if let Some(g) = grant {
+            self.arrangements.charge_grant(&g, at, usd);
         }
         let mut below = run.to_string();
         for _ in 0..MAX_DEPTH {
@@ -423,7 +423,7 @@ mod tests {
         let mut s = scheduled_run_with_sub_agents();
         let usage = json!({ "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.75 });
         ev(&mut s, 9, "model", json!({ "kind": "model_reply", "run": "r2", "step": 1, "usage": usage, "served_model": "m", "stop": "end_turn" }));
-        assert_eq!(s.grants["g1"].charges.iter().map(|(_, usd)| *usd).sum::<f64>(), 0.75, "the sub-agent's call was not charged to its parent's grant");
+        assert_eq!(s.arrangements.grants()["g1"].charges.iter().map(|(_, usd)| *usd).sum::<f64>(), 0.75, "the sub-agent's call was not charged to its parent's grant");
         assert_eq!((s.runs["rt"].sub_usd, s.runs["r1"].sub_usd, s.runs["r2"].sub_usd), (0.75, 0.75, 0.0));
         assert_eq!((s.runs["rt"].spent_usd(), s.runs["r2"].spent_usd()), (0.75, 0.75));
         assert_eq!(s.runs["rt"].usd, 0.0, "the parent's own calls now hold its sub-agent's");

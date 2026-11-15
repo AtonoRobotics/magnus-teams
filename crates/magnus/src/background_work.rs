@@ -31,7 +31,8 @@ impl State {
     /// A review waiting on an ask holds nothing: what does not depend on the
     /// ask goes on, new events included.
     pub fn reviewing(&self, person: &str) -> bool {
-        self.review_runs
+        self.inbox
+            .review_runs()
             .iter()
             .filter(|(_, p)| p.as_str() == person)
             .any(|(run, _)| !self.runs.get(run).is_some_and(|r| r.status == Status::Suspended && r.reason.as_deref() == Some("approval")))
@@ -61,7 +62,8 @@ impl State {
             .collect();
         let asks = |i: &crate::state::Item| i.kind == "approval" && i.run.as_deref().is_some_and(|r| self.background_asks(r));
         let items: Vec<String> = self
-            .items
+            .inbox
+            .items()
             .values()
             .filter(|i| i.resolution.is_none() && bg(&i.task) && !crate::state::BACKGROUND_OUTPUTS.contains(&i.kind.as_str()) && !asks(i))
             .map(|i| i.id.clone())

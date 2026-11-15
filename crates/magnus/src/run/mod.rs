@@ -177,7 +177,7 @@ impl Kernel {
             let refs: Vec<(String, String, usize)> = task
                 .as_ref()
                 .and_then(|t| t.project.as_ref())
-                .map(|p| p.files.iter().filter_map(|id| s.files.get(id)).map(|f| (f.name.clone(), f.media_type.clone(), f.size)).collect())
+                .map(|p| p.files.iter().filter_map(|id| s.library.files().get(id)).map(|f| (f.name.clone(), f.media_type.clone(), f.size)).collect())
                 .unwrap_or_default();
             (task, files, refs)
         });
@@ -519,7 +519,7 @@ impl Kernel {
         use sha2::Digest;
         let call = details["call_id"].as_str().unwrap_or_default().to_string();
         let id = if call.is_empty() { new_id("item") } else { format!("item_{}", &hex::encode(sha2::Sha256::digest(format!("{}\n{call}\n{kind}", run.id).as_bytes()))[..32]) };
-        if self.read(|s| s.items.contains_key(&id)) {
+        if self.read(|s| s.inbox.items().contains_key(&id)) {
             return (id, None);
         }
         details["taint"] = json!({ "untrusted": run.untrusted, "private": run.private });
@@ -624,9 +624,7 @@ impl Kernel {
                     (_, Err(e)) => self.result(rid, call_id, format!("The policy does not parse: {e}. A retry with the same text will not help."), true).await?,
                 }
             }
-            "end_schedule" => match self
-                .read(|s| s.tasks.get(&run.task).and_then(|t| t.schedule.clone()).filter(|id| s.schedules.contains_key(id)).map(|id| (id.clone(), s.schedules[&id].clone())))
-            {
+            "end_schedule" => match self.read(|s| s.task_schedule(&run.task)) {
                 Some((id, sc)) => {
                     let reason = input["reason"].as_str().map(str::trim).filter(|r| !r.is_empty()).unwrap_or("its run ended it").to_string();
                     let title = self.schedule_title(&sc).await?;

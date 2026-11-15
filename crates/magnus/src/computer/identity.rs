@@ -397,7 +397,8 @@ impl Kernel {
     /// Every run waiting on this sign-in carries on.
     async fn finish_forms(self: &Arc<Self>, who: &Person, id: &str) -> Result<(), Refused> {
         let open: Vec<(String, Option<String>)> = self.read(|s| {
-            s.items
+            s.inbox
+                .items()
                 .values()
                 .filter(|i| i.kind == "secure_form" && i.resolution.is_none() && i.person == who.id && i.details["identity"] == json!(id))
                 .map(|i| (i.id.clone(), i.run.clone()))

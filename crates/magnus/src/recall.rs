@@ -75,7 +75,7 @@ impl crate::kernel::Kernel {
     /// with what it says recalled for them. A fact the content store does
     /// not give them (deleted, or not theirs) is left out.
     pub async fn remembered(&self, person: &str, keep: impl Fn(&crate::state::MemoryEntry) -> bool) -> Result<Vec<Remembered>> {
-        let entries: Vec<crate::state::MemoryEntry> = self.read(|s| s.memory.iter().filter(|m| m.person == person && keep(m)).cloned().collect());
+        let entries: Vec<crate::state::MemoryEntry> = self.read(|s| s.library.memory().iter().filter(|m| m.person == person && keep(m)).cloned().collect());
         let seqs: Vec<i64> = entries.iter().map(|m| m.seq).collect();
         let content = self.recall.content(person, &seqs).await?;
         Ok(entries
@@ -108,7 +108,7 @@ impl crate::kernel::Kernel {
     /// The files a run's task was given, with their content recalled for
     /// the task's person, as `{name, media_type, data_b64}`.
     pub async fn given_files(&self, task: &str) -> Result<Vec<Value>> {
-        let given: Vec<crate::state::LibFile> = self.read(|s| s.tasks.get(task).into_iter().flat_map(|t| &t.files).filter_map(|id| s.files.get(id)).cloned().collect());
+        let given: Vec<crate::state::LibFile> = self.read(|s| s.tasks.get(task).into_iter().flat_map(|t| &t.files).filter_map(|id| s.library.files().get(id)).cloned().collect());
         let mut out = vec![];
         for f in given {
             if let Some(data) = self.file_b64(&f).await? {
@@ -125,7 +125,8 @@ impl crate::kernel::Kernel {
         if terms.is_empty() {
             return Ok(HashMap::new());
         }
-        let files: Vec<(String, i64, String)> = self.read(|s| s.files.values().filter(|f| f.person == person).map(|f| (f.id.clone(), f.seq, f.media_type.clone())).collect());
+        let files: Vec<(String, i64, String)> =
+            self.read(|s| s.library.files().values().filter(|f| f.person == person).map(|f| (f.id.clone(), f.seq, f.media_type.clone())).collect());
         let seqs: Vec<i64> = files.iter().map(|(_, seq, _)| *seq).collect();
         let content = self.recall.content(person, &seqs).await?;
         Ok(files
@@ -198,7 +199,7 @@ impl crate::kernel::Kernel {
     pub async fn person_words(&self, person: &str) -> Result<Words> {
         let seqs: Vec<(String, i64)> = self.read(|s| {
             let tasks = s.tasks.values().filter(|t| t.person == person).map(|t| t.seq);
-            let schedules = s.schedules.values().filter(|x| x.person == person).map(|x| x.seq);
+            let schedules = s.arrangements.schedules().values().filter(|x| x.person == person).map(|x| x.seq);
             tasks.chain(schedules).map(|seq| (person.to_string(), seq)).collect()
         });
         self.words(seqs).await

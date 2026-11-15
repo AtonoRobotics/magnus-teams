@@ -182,7 +182,7 @@ impl Kernel {
     /// The app's watches the person can use now: the app is on, they are
     /// connected, their sign-in has not lapsed and they are not turned off.
     fn push_watches(&self, person: &str, app: &str) -> Vec<Watch> {
-        if self.read(|s| s.turned_off.contains(person)) {
+        if self.read(|s| s.identity.is_turned_off(person)) {
             return vec![];
         }
         self.connectors().into_iter().find(|c| c.name == app).filter(|c| self.connected(c, person) && !self.lapsed(c, person)).map(|c| c.watch).unwrap_or_default()

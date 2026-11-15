@@ -65,7 +65,7 @@ async fn pressed(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path((task, in
                 return Some(c.clone());
             }
             // A deliverable waiting on the person's review is on its card.
-            s.items.values().find(|i| i.task.as_deref() == Some(&task) && i.resolution.is_none()).and_then(|i| i.details["view"].get(index).cloned())
+            s.inbox.items().values().find(|i| i.task.as_deref() == Some(&task) && i.resolution.is_none()).and_then(|i| i.details["view"].get(index).cloned())
         }),
     };
     let Some(c) = component.filter(|c| c["type"] == "action" || c["type"] == "form") else { return err(StatusCode::NOT_FOUND, "no such action") };

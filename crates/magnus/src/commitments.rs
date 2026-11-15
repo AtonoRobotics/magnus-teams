@@ -156,7 +156,7 @@ impl Kernel {
 
     /// The person's commitments with their words, as they stand.
     async fn ledger(&self, person: &str) -> anyhow::Result<Vec<(Commitment, Wording)>> {
-        let cs: Vec<Commitment> = self.read(|s| s.commitments.values().filter(|c| c.person == person).cloned().collect());
+        let cs: Vec<Commitment> = self.read(|s| s.arrangements.commitments().values().filter(|c| c.person == person).cloned().collect());
         let of: Vec<(String, Vec<i64>)> = cs.iter().map(|c| (c.id.clone(), c.steps.iter().map(|s| s.seq).collect())).collect();
         let mut w = self.wordings(person, &of).await?;
         Ok(cs
@@ -232,7 +232,7 @@ impl Kernel {
         let no = |why: String| Ok((format!("Not recorded: {why}. Record only what someone clearly said they will do, quoting their exact words."), true, None));
         let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) else { anyhow::bail!("no such run") };
         let id = crate::chat::derived("cmt", key);
-        if self.read(|s| s.commitments.contains_key(&id)) {
+        if self.read(|s| s.arrangements.commitments().contains_key(&id)) {
             return Ok((format!("Recorded as {id}."), false, Some(json!({ "id": id }))));
         }
         let s = |k: &str| a.input[k].as_str().map(one_line).filter(|t| !t.is_empty());
@@ -256,8 +256,14 @@ impl Kernel {
             Ok(s) => s,
             Err(why) => return no(why),
         };
-        let open: Vec<(String, Vec<i64>)> = self
-            .read(|s| s.commitments.values().filter(|c| c.person == run.person && c.status == "open").map(|c| (c.id.clone(), c.steps.iter().map(|x| x.seq).collect())).collect());
+        let open: Vec<(String, Vec<i64>)> = self.read(|s| {
+            s.arrangements
+                .commitments()
+                .values()
+                .filter(|c| c.person == run.person && c.status == "open")
+                .map(|c| (c.id.clone(), c.steps.iter().map(|x| x.seq).collect()))
+                .collect()
+        });
         let words = self.wordings(&run.person, &open).await?;
         if let Some((same, _)) = words.iter().find(|(_, w)| norm(&w.what) == norm(&what)) {
             return Ok((format!("Not recorded: {same} is already open with the same what. Update that one instead."), true, None));
@@ -287,7 +293,7 @@ impl Kernel {
             Some(st @ ("done" | "released")) => st.to_string(),
             _ => return Ok(("Not changed: status is done or released.".into(), true, None)),
         };
-        let open: Vec<String> = self.read(|s| s.commitments.values().filter(|c| c.person == person && c.status == "open").map(|c| c.id.clone()).collect());
+        let open: Vec<String> = self.read(|s| s.arrangements.commitments().values().filter(|c| c.person == person && c.status == "open").map(|c| c.id.clone()).collect());
         if !open.iter().any(|o| o == id) {
             let list = if open.is_empty() { "none".into() } else { open.join(", ") };
             return Ok((format!("Not changed: {id} is no open commitment of this person's (the open ones: {list})."), true, None));
@@ -303,7 +309,8 @@ impl Kernel {
     pub(crate) async fn commitment_section(&self, run: &Run) -> anyhow::Result<String> {
         let Some(at) = self.read(|s| s.tasks.get(&run.task).map(|t| t.seq)) else { return Ok(String::new()) };
         let mut open: Vec<(Commitment, Option<String>, Vec<i64>)> = self.read(|s| {
-            s.commitments
+            s.arrangements
+                .commitments()
                 .values()
                 .filter(|c| c.person == run.person)
                 .filter_map(|c| c.before(at).filter(|(st, _, _)| *st == "open").map(|(_, by, seqs)| (c.clone(), by.map(String::from), seqs)))
@@ -357,7 +364,7 @@ impl Kernel {
 
     /// A commitment of `who`'s own: anyone else's is not found, whoever asks.
     fn own_commitment(&self, who: &Person, id: &str) -> Result<Commitment, Refused> {
-        self.read(|s| s.commitments.get(id).filter(|c| c.person == who.id).cloned()).ok_or(Refused::NotFound("commitment"))
+        self.read(|s| s.arrangements.commitments().get(id).filter(|c| c.person == who.id).cloned()).ok_or(Refused::NotFound("commitment"))
     }
 
     /// The person corrects one of theirs: what `b` gives replaces what it

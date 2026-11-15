@@ -137,7 +137,7 @@ async fn switch_state(State(k): State<Arc<Kernel>>) -> Response {
     let running = k.sandboxes.running().await;
     Json(k.read(|s| {
         let halted = crate::halts::halted_runs(s).count();
-        let held = if s.vault.kill_switch() { s.schedules.values().filter(|x| x.next_due().is_some()).count() } else { 0 };
+        let held = if s.vault.kill_switch() { s.arrangements.schedules().values().filter(|x| x.next_due().is_some()).count() } else { 0 };
         json!({
             "engaged": s.vault.kill_switch(),
             "by": s.vault.kill_switch_by().map(|(who, _)| who), "at": s.vault.kill_switch_by().map(|(_, at)| at),
@@ -170,12 +170,12 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
     let v = k.read(|s| {
         let mut failed: Vec<&crate::state::Run> = s.runs.values().filter(|r| r.status == Status::Failed).collect();
         failed.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
-        let knowledge = s.knowledge.values().filter(|e| e.at > day && !e.author.starts_with("person:")).count();
-        let memory = s.memory.iter().filter(|m| m.at > day).count();
+        let knowledge = s.library.knowledge().values().filter(|e| e.at > day && !e.author.starts_with("person:")).count();
+        let memory = s.library.memory().iter().filter(|m| m.at > day).count();
         // Agents' changes to the org context bundle (admin console spec,
         // Overview: "agent knowledge changes in the last 24 hours").
-        let bundle = s.bundle.values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).filter(|v| v.2 > day && !v.3.starts_with("human:")).count();
-        let last_change = s.bundle.values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).map(|v| v.1).max();
+        let bundle = s.library.bundle().values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).filter(|v| v.2 > day && !v.3.starts_with("human:")).count();
+        let last_change = s.library.bundle().values().filter(|d| d.scope == "org").flat_map(|d| d.versions.iter()).map(|v| v.1).max();
         json!({
             "version": crate::update::version(), "log_up": log_up, "kill_switch": s.vault.kill_switch(),
             "running_tasks": s.runs.values().filter(|r| r.status == Status::Running).count(),
@@ -192,7 +192,7 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
 /// provider still binds people, else the id itself when it is a person here
 /// (#508: the console now addresses local ids).
 fn person_of(k: &Kernel, sub: &str) -> Option<String> {
-    k.read(|s| s.subjects.iter().find(|(_, v)| v.as_str() == sub).map(|(p, _)| p.clone())).or_else(|| k.person(sub).map(|p| p.id.clone()))
+    k.read(|s| s.identity.subjects().iter().find(|(_, v)| v.as_str() == sub).map(|(p, _)| p.clone())).or_else(|| k.person(sub).map(|p| p.id.clone()))
 }
 
 /// Each person known here, by their provider `sub`: when they last signed
@@ -200,7 +200,7 @@ fn person_of(k: &Kernel, sub: &str) -> Option<String> {
 /// people themselves are the identity provider's).
 async fn people(State(k): State<Arc<Kernel>>) -> Response {
     let bound: Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)> =
-        k.read(|s| s.subjects.iter().map(|(p, sub)| (p.clone(), sub.clone(), s.last_sign_in.get(p).copied())).collect());
+        k.read(|s| s.identity.subjects().iter().map(|(p, sub)| (p.clone(), sub.clone(), s.identity.last_sign_in(p))).collect());
     let mut out = serde_json::Map::new();
     for (p, sub, at) in bound {
         out.insert(sub, json!({ "last_sign_in": at, "sessions": k.accounts.sessions_of(&p, "").await.len() }));
@@ -223,7 +223,7 @@ async fn admin_person_row(k: &Kernel, id: &str) -> Value {
     let p = k.person(id);
     let email = k.accounts.local_person(id).and_then(|l| l.email);
     let (role, status) = tokio::join!(k.accounts.role(id), k.accounts.status(id));
-    let at = k.read(|s| s.last_sign_in.get(id).copied());
+    let at = k.read(|s| s.identity.last_sign_in(id));
     let sessions = k.accounts.sessions_of(id, "").await.len();
     json!({
         "id": id,
@@ -320,7 +320,7 @@ async fn admin_disable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): ax
     if k.person(&id).is_none() {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
     }
-    let due = k.read(|s| s.schedules.values().filter(|x| x.person == id && x.next_due().is_some()).count());
+    let due = k.read(|s| s.arrangements.schedules().values().filter(|x| x.person == id && x.next_due().is_some()).count());
     let ended = match k.accounts.set_status(&id, crate::accounts::Status::Disabled).await {
         Ok(ended) => ended,
         Err(e) => {

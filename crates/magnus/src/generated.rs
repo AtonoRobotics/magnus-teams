@@ -359,7 +359,8 @@ impl Kernel {
         let revoked = token_revoked(self.revoke_all(c).await);
         let actor = format!("person:{person}");
         let (grants, rules) = self.read(|s| {
-            let grants: Vec<String> = s.grants.values().filter(|g| g.person == person && g.revoked.is_none() && g.apps.contains(&c.name)).map(|g| g.id.clone()).collect();
+            let grants: Vec<String> =
+                s.arrangements.grants().values().filter(|g| g.person == person && g.revoked.is_none() && g.apps.contains(&c.name)).map(|g| g.id.clone()).collect();
             let rules: Vec<String> = s.rules.of(person).into_iter().filter(|r| r.compiled.as_ref().is_some_and(|x| x.connector == c.name)).map(|r| r.id).collect();
             (grants, rules)
         });

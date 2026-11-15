@@ -72,7 +72,7 @@ fn origin(s: &St, f: &LibFile, w: &crate::recall::Words) -> Value {
 }
 
 pub(crate) fn project_ref(s: &St, item: &str) -> Value {
-    s.project_of(item).and_then(|p| s.projects.get(&p)).map_or(Value::Null, |p| json!({ "id": p.id, "name": p.name }))
+    s.project_of(item).and_then(|p| s.library.projects().get(&p)).map_or(Value::Null, |p| json!({ "id": p.id, "name": p.name }))
 }
 
 /// `w` holds the recalled words of the file's person's tasks
@@ -110,7 +110,8 @@ async fn list(State(k): K, Caller(p): Caller, Query(q): Query<HashMap<String, St
 /// (`Kernel::file_texts`).
 pub(crate) fn files_matching(s: &St, p: &Person, terms: &[String], texts: &HashMap<String, String>, want: Option<&str>, w: &crate::recall::Words) -> Vec<Value> {
     let mut v: Vec<(&LibFile, Value)> = s
-        .files
+        .library
+        .files()
         .values()
         .filter(|f| f.person == p.id)
         .map(|f| (f, file_json(s, f, w)))
@@ -146,7 +147,7 @@ async fn upload(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Respons
     }
     let project = b["project"].as_str().map(String::from);
     if let Some(id) = &project {
-        if !k.read(|s| s.projects.get(id).is_some_and(|x| x.person == p.id)) {
+        if !k.read(|s| s.library.projects().get(id).is_some_and(|x| x.person == p.id)) {
             return err(StatusCode::NOT_FOUND, "no such project");
         }
     }
@@ -158,7 +159,7 @@ async fn upload(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Respons
                 }
             }
             let words = k.person_words(&p.id).await.unwrap_or_default();
-            let v = k.read(|s| s.files.get(&id).map(|f| file_json(s, f, &words)));
+            let v = k.read(|s| s.library.files().get(&id).map(|f| file_json(s, f, &words)));
             (StatusCode::CREATED, Json(v.unwrap_or(json!({ "id": id })))).into_response()
         }
         Ok(Err(r)) => r,
@@ -189,7 +190,7 @@ pub(crate) async fn add_file(k: &Kernel, p: &Person, b: &Value, thread: Option<S
 pub(crate) fn given_files(k: &Kernel, p: &Person, b: &Value) -> Result<Vec<String>, Response> {
     let ids: Vec<String> = b["files"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect();
     for id in &ids {
-        match k.read(|s| s.files.get(id).filter(|f| f.person == p.id).map(|f| f.uploaded)) {
+        match k.read(|s| s.library.files().get(id).filter(|f| f.person == p.id).map(|f| f.uploaded)) {
             None => return Err(err(StatusCode::NOT_FOUND, format!("no such file {id}"))),
             Some(false) => return Err(err(StatusCode::BAD_REQUEST, "only uploaded files can be given to a task or message; to use a delivered file, put it in a project")),
             Some(true) => {}
@@ -201,7 +202,7 @@ pub(crate) fn given_files(k: &Kernel, p: &Person, b: &Value) -> Result<Vec<Strin
 /// A project of the person's named in a request (`project`), if any.
 pub(crate) fn chosen_project(k: &Kernel, p: &Person, b: &Value) -> Result<Option<String>, Response> {
     let Some(id) = b["project"].as_str() else { return Ok(None) };
-    if k.read(|s| s.projects.get(id).is_some_and(|x| x.person == p.id)) {
+    if k.read(|s| s.library.projects().get(id).is_some_and(|x| x.person == p.id)) {
         Ok(Some(id.into()))
     } else {
         Err(err(StatusCode::NOT_FOUND, "no such project"))
@@ -214,7 +215,7 @@ async fn info(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Respons
         Ok(w) => w,
         Err(e) => return internal(e),
     };
-    match k.read(|s| s.files.get(&id).filter(|f| f.person == p.id).map(|f| file_json(s, f, &words))) {
+    match k.read(|s| s.library.files().get(&id).filter(|f| f.person == p.id).map(|f| file_json(s, f, &words))) {
         Some(mut v) => {
             v["preview"] = json!({ "chars": crate::compose::PREVIEW_CHARS, "rows": crate::compose::MAX_ROWS });
             Json(v).into_response()
@@ -224,7 +225,7 @@ async fn info(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Respons
 }
 
 async fn download(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
-    let Some(f) = k.read(|s| s.files.get(&id).filter(|f| f.person == p.id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such file") };
+    let Some(f) = k.read(|s| s.library.files().get(&id).filter(|f| f.person == p.id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such file") };
     // Recalled for the person, through their wall.
     let bytes = match k.file_bytes(&f).await {
         Ok(Some(b)) => b,
@@ -266,14 +267,14 @@ fn project_json(s: &St, p: &crate::state::Project) -> Value {
         "id": p.id, "name": p.name, "instructions": p.instructions, "created_at": p.created_at,
         "counts": {
             "tasks": s.tasks.values().filter(|t| t.person == p.person && !t.is_chat_turn() && inside(&t.task_id)).count(),
-            "files": s.files.values().filter(|f| f.person == p.person && inside(&f.id)).count(),
-            "schedules": s.schedules.values().filter(|x| x.person == p.person && inside(&x.id)).count(),
+            "files": s.library.files().values().filter(|f| f.person == p.person && inside(&f.id)).count(),
+            "schedules": s.arrangements.schedules().values().filter(|x| x.person == p.person && inside(&x.id)).count(),
         },
     })
 }
 
 async fn projects(State(k): K, Caller(p): Caller) -> Response {
-    let v: Vec<Value> = k.read(|s| s.projects.values().filter(|x| x.person == p.id).map(|x| project_json(s, x)).collect());
+    let v: Vec<Value> = k.read(|s| s.library.projects().values().filter(|x| x.person == p.id).map(|x| project_json(s, x)).collect());
     Json(json!({ "projects": v })).into_response()
 }
 
@@ -292,7 +293,9 @@ async fn new_project(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Re
 
 /// A project with everything in it: chats, tasks, schedules and files.
 async fn project(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Response {
-    let Some(mut v) = k.read(|s| s.projects.get(&id).filter(|x| x.person == p.id).map(|x| project_json(s, x))) else { return err(StatusCode::NOT_FOUND, "no such project") };
+    let Some(mut v) = k.read(|s| s.library.projects().get(&id).filter(|x| x.person == p.id).map(|x| project_json(s, x))) else {
+        return err(StatusCode::NOT_FOUND, "no such project");
+    };
     let threads: Vec<Value> = match k.threads(&p.id).await {
         Ok(t) => t.into_iter().filter(|t| t["project"]["id"] == id.as_str()).collect(),
         Err(e) => return internal(e),
@@ -310,12 +313,13 @@ async fn project(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Resp
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| crate::api::task_row(&k, s, &p, t, r, &words)))
             .collect();
         let schedules: Vec<Value> = s
-            .schedules
+            .arrangements
+            .schedules()
             .values()
             .filter(|x| x.person == p.id && inside(&x.id))
             .map(|x| json!({ "id": x.id, "title": words.title(x.seq).unwrap_or_else(|| words.text(x.seq).to_string()), "text": words.text(x.seq), "next": x.next_due() }))
             .collect();
-        let mut files: Vec<&LibFile> = s.files.values().filter(|f| f.person == p.id && inside(&f.id)).collect();
+        let mut files: Vec<&LibFile> = s.library.files().values().filter(|f| f.person == p.id && inside(&f.id)).collect();
         files.sort_by(|a, b| b.at.cmp(&a.at));
         (tasks, schedules, files.into_iter().map(|f| file_json(s, f, &words)).collect::<Vec<_>>())
     });
@@ -329,7 +333,7 @@ async fn project(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Resp
 /// The person renames a project or changes its instructions. Tasks already
 /// running keep the instructions they started with.
 async fn set_project(State(k): K, Caller(p): Caller, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    let Some(cur) = k.read(|s| s.projects.get(&id).filter(|x| x.person == p.id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such project") };
+    let Some(cur) = k.read(|s| s.library.projects().get(&id).filter(|x| x.person == p.id).cloned()) else { return err(StatusCode::NOT_FOUND, "no such project") };
     let name = match b.get("name") {
         Some(n) => match n.as_str().map(str::trim).filter(|n| !n.is_empty()) {
             Some(n) => n.to_string(),
@@ -349,13 +353,13 @@ async fn set_project(State(k): K, Caller(p): Caller, Path(id): Path<String>, Jso
 async fn move_item(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
     let item = b["item"].as_str().unwrap_or_default().to_string();
     let project = match b["project"].as_str() {
-        Some(id) if !k.read(|s| s.projects.get(id).is_some_and(|x| x.person == p.id)) => return err(StatusCode::NOT_FOUND, "no such project"),
+        Some(id) if !k.read(|s| s.library.projects().get(id).is_some_and(|x| x.person == p.id)) => return err(StatusCode::NOT_FOUND, "no such project"),
         x => x.map(String::from),
     };
     let mine = k.read(|s| {
         s.tasks.get(&item).is_some_and(|t| t.person == p.id && !t.is_chat_turn())
-            || s.schedules.get(&item).is_some_and(|x| x.person == p.id)
-            || s.files.get(&item).is_some_and(|f| f.person == p.id)
+            || s.arrangements.schedules().get(&item).is_some_and(|x| x.person == p.id)
+            || s.library.files().get(&item).is_some_and(|f| f.person == p.id)
     }) || k.has_thread(&p.id, &item);
     if !mine {
         return err(StatusCode::NOT_FOUND, "no such task, chat, schedule or file");

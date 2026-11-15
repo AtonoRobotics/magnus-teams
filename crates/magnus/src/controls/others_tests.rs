@@ -32,14 +32,14 @@ async fn an_admin_stops_someone_elses_work_and_changes_none_of_it() {
         assert!(matches!(k.edit_schedule(who, "sched_a", &json!({ "every_minutes": 5 }), None).await, Err(Refused::NotFound(_))), "{} changed mo's schedule", who.id);
         assert!(matches!(k.cancel_schedule(who, "sched_a", None).await, Err(Refused::NotFound(_))), "{} deleted mo's schedule", who.id);
     }
-    assert!(k.read(|st| st.schedules.get("sched_a").is_some_and(|x| x.every_minutes == Some(60) && x.ended.is_none())), "mo's schedule changed");
+    assert!(k.read(|st| st.arrangements.schedules().get("sched_a").is_some_and(|x| x.every_minutes == Some(60) && x.ended.is_none())), "mo's schedule changed");
     k.pause_schedule(&ana, "sched_a", None).await.unwrap();
     assert!(matches!(k.resume_schedule(&ana, "sched_a", None).await, Err(Refused::Denied(_))), "an admin resumed what was only paused");
     k.resume_schedule(&mo, "sched_a", None).await.unwrap();
     let (task, _) = k.create_run("person:mo", "mo", "draft the letter".into(), vec![], crate::kernel::NewRun::default()).await.unwrap();
     let stopped = k.cancel_task(&sam, &task, None).await.unwrap();
     assert_eq!(stopped, json!({ "cancelled": task }), "the owner was shown what mo's task did");
-    let told: Vec<String> = k.read(|st| st.items.values().filter(|i| i.person == "mo" && i.kind == "notice").map(|i| i.summary.clone()).collect());
+    let told: Vec<String> = k.read(|st| st.inbox.items().values().filter(|i| i.person == "mo" && i.kind == "notice").map(|i| i.summary.clone()).collect());
     assert!(told.iter().any(|t| t == "Sam stopped your task"), "mo was not told their task was stopped: {told:?}");
     assert!(told.iter().any(|t| t.starts_with("Paused by Ana")), "mo was not told their schedule was paused: {told:?}");
     // Their own stays theirs to change.
