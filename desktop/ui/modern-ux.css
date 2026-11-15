@@ -228,7 +228,12 @@ nav.side .nav-workspace > summary.nav-group-head {
   font-weight: 600;
   color: var(--muted);
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
+nav.side .nav-workspace > summary.nav-group-head::after { content: "▸"; font-size: 11px; }
+nav.side .nav-workspace[open] > summary.nav-group-head::after { content: "▾"; }
 nav.side .nav-workspace > summary.nav-group-head::-webkit-details-marker { display: none; }
 nav.side .nav-workspace-items { display: flex; flex-direction: column; gap: 2px; }
 body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head { display: none; }
