@@ -14,8 +14,8 @@
  * A request's work is a personal task row, with whom it is for and where it shows.
  * @typedef {{ task_id: string, title: string, text: string, status: "running"|"suspended"|"completed"|"failed"|"cancelled", waiting_on: ?string, status_line: ?string, requester: string, steps: number, doing: ?string, long: boolean, thread: ?string, started: string }} TeamWork
  * @typedef {{ id: string, name: string, media_type?: string, size?: number }} TeamFile
- * @typedef {{ id: string, kind: "message"|"answer"|"tasks"|"deleted", files?: TeamFile[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, tasks?: TeamWork[], from_run?: string, task?: string, task_id?: string, private?: boolean, deleted?: boolean, may?: May }} TeamMessage
- * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string> }} TeamView
+ * @typedef {{ id: string, kind: "message"|"answer"|"tasks"|"deleted", files?: TeamFile[], sender: string, requester?: ?string, text: string, thread: ?string, at: string, edited?: boolean, pinned?: boolean, reactions?: Object<string, string[]>, replies?: number, last_reply?: string, work?: TeamWork, tasks?: TeamWork[], from_run?: string, task?: string, task_id?: string, private?: boolean, deleted?: boolean, may?: May, for?: string }} TeamMessage
+ * @typedef {{ messages: TeamMessage[], typing: string[], names: Object<string, string>, caps?: ConversationCaps }} TeamView
  * Who is reading, to read a channel's items into the chat view's kinds.
  * @typedef {{ me: string, ws: string, channel: string, name: (id: string) => string, inThread?: boolean }} TeamReader
  */
@@ -60,17 +60,15 @@ function teamWork(w, r) {
 /**
  * A channel's item as the chat view's entry. The server sends the personal
  * chat's entry (a person's message, the agent's answer, the tasks it began
- * with no words yet, or a deleted message's place) with the files it carries;
- * here only the words lose their 📎 lines and names are put to ids. Work the
- * agent began itself is drawn as the chat view's work card.
+ * with no words yet, or a deleted message's place): its words without the
+ * files' lines, its files, and whom an answer is for by name (`for`). Here
+ * only work is drawn as the chat view's work card.
  * @param {TeamMessage} m @param {TeamReader} r @returns {ChatEntry}
  */
 function teamEntry(m, r) {
   if (m.kind === "deleted") return { id: m.id, kind: "deleted", at: m.at, sender: m.sender, replies: m.replies, thread: m.thread };
-  const text = String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n");
   const work = m.work || (m.kind === "tasks" ? m.tasks?.[0] : undefined);
-  return { id: m.id, kind: m.kind === "tasks" ? "work" : m.kind, at: m.at, sender: m.sender, text, files: m.files || [], edited: m.edited, pinned: m.pinned, may: m.may, reactions: m.reactions, replies: m.replies, last_reply: m.last_reply,
-    thread: m.thread, task_id: m.task_id || m.task, private: m.private, requester: m.requester, for: m.kind !== "message" && m.requester ? r.name(m.requester) : undefined, work: work ? teamWork(work, r) : undefined };
+  return { ...m, kind: m.kind === "tasks" ? "work" : m.kind, files: m.files || [], work: work ? teamWork(work, r) : undefined };
 }
 
 /** Who a partial @mention could be: the team agent first, then people. */

@@ -15,10 +15,12 @@ use super::agent::volume_dir;
 use super::caller::{at, Member};
 use super::chat::Chat;
 use super::chat_routes::{direct_between, name_of};
-use super::member_view::{MemberView, ANSWER_PREFIX};
-use super::routes::{new_id, post_and_ask, send, Reply, K};
+use super::member_view::ANSWER_PREFIX;
+use super::routes::{new_id, post_and_ask, send, K};
 use super::{Change, File, Message, Workspace};
-use crate::api::err;
+use crate::api_error::{refuse, ApiError, ApiResult};
+use crate::chat_entry::May;
+use crate::conversation::{channel as conv, Conversation, NO_SUCH_MESSAGE};
 use crate::kernel::Kernel;
 use crate::message_file;
 use axum::extract::{Path, State};
@@ -42,6 +44,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 
 /// A message as the member sees it, with what the routes here need.
 struct Found {
+    /// Who wrote it, by name.
     author: String,
     text: String,
     at: chrono::DateTime<chrono::Utc>,
@@ -51,23 +54,25 @@ struct Found {
     workspace: Workspace,
 }
 
-/// The message with words that this person sees, or a 404 that does not say
-/// whether it exists.
-fn found(k: &Kernel, ws: &str, channel: &str, id: &str, person: &str) -> Result<Found, Box<Reply>> {
-    let now = chrono::Utc::now();
-    let f = k.read(|s| {
-        let v = MemberView::of(s, ws, person)?;
-        let m = v.message(channel, id, now).filter(|m| !m.text().is_empty())?;
-        Some(Found {
-            author: m.author().to_string(),
-            text: m.text().to_string(),
-            at: m.at(),
-            task: m.task().map(String::from),
-            project: v.workspace().channels.get(channel).and_then(|c| c.project.clone()),
-            workspace: v.workspace().clone(),
+/// The message with words that this person sees and `allowed` lets them act
+/// on: a 404 that does not say whether it exists, else a 403 saying `why`.
+fn found(k: &Kernel, ws: &str, channel: &str, id: &str, person: &str, allowed: impl Fn(&May) -> bool, why: &str) -> ApiResult<Found> {
+    let names = conv::names(k, ws);
+    conv::read(k, ws, person, channel, &names, |c| {
+        let e = c.act(id, allowed, why)?;
+        if c.text(&e).is_empty() {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, NO_SUCH_MESSAGE));
+        }
+        let w = c.view.workspace();
+        Ok(Found {
+            author: c.speaker_name(&e),
+            text: c.text(&e),
+            at: c.said_at(&e).unwrap_or(c.now),
+            task: e.task.clone(),
+            project: w.channels.get(channel).and_then(|ch| ch.project.clone()),
+            workspace: w.clone(),
         })
-    });
-    f.ok_or_else(|| Box::new(err(StatusCode::NOT_FOUND, "no such message")))
+    })
 }
 
 /// What only its requester may see stays with them.
@@ -93,32 +98,30 @@ struct ShareTo {
 
 /// Send the message, quoted, to another member in a direct conversation.
 /// One from a project's channel goes only to the project's people.
-async fn share(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<ShareTo>) -> Reply {
-    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.share, PRIVATE));
-    let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
+async fn share(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>, Json(b): Json<ShareTo>) -> ApiResult {
+    let m = found(&k, &ws, &channel, &id, &p.id, |m| m.share, PRIVATE)?;
     let w = &m.workspace;
     if b.person == p.id || !w.members.contains_key(&b.person) {
-        return err(StatusCode::NOT_FOUND, "no such member");
+        return refuse(StatusCode::NOT_FOUND, "no such member");
     }
     if !w.in_project(m.project.as_deref(), &b.person) {
-        return err(StatusCode::FORBIDDEN, format!("{} is not in this channel's project", name_of(&k, &b.person)));
+        return refuse(StatusCode::FORBIDDEN, format!("{} is not in this channel's project", name_of(&k, &b.person)));
     }
     let mut people = vec![p.id.clone(), b.person.clone()];
     people.sort();
-    let dm = ok_or_return!(direct_between(&k, &p, w, people, false).await);
-    let message = Message { id: new_id(), sender: p.id.clone(), text: quoted(&name_of(&k, &m.author), &m.text), thread: None, at: chrono::Utc::now() };
+    let dm = direct_between(&k, &p, w, people, false).await?;
+    let message = Message { id: new_id(), sender: p.id.clone(), text: quoted(&m.author, &m.text), thread: None, at: chrono::Utc::now() };
     let posted = message.id.clone();
-    ok_or_return!(send(&k, &p, Change::Message { workspace: ws, channel: dm.clone(), message }).await);
-    (StatusCode::CREATED, Json(json!({ "channel": dm, "id": posted }))).into_response()
+    send(&k, &p, Change::Message { workspace: ws, channel: dm.clone(), message }).await?;
+    Ok((StatusCode::CREATED, Json(json!({ "channel": dm, "id": posted }))).into_response())
 }
 
 /// Save the message as a Markdown file in the workspace's files, which the
 /// whole team (or the channel's project) sees.
-async fn save(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.save, PRIVATE));
-    let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
-    let Some(name) = free_name(&m.workspace, &message_file::file_name(&m.text)) else { return err(StatusCode::CONFLICT, "too many files have that name") };
-    let body = message_file::markdown(&name_of(&k, &m.author), &message_file::at_text(m.at), &m.text);
+async fn save(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>) -> ApiResult {
+    let m = found(&k, &ws, &channel, &id, &p.id, |m| m.save, PRIVATE)?;
+    let Some(name) = free_name(&m.workspace, &message_file::file_name(&m.text)) else { return refuse(StatusCode::CONFLICT, "too many files have that name") };
+    let body = message_file::markdown(&m.author, &message_file::at_text(m.at), &m.text);
     let dir = volume_dir(&k, &ws);
     if let Err(e) = async {
         tokio::fs::create_dir_all(&dir).await?;
@@ -126,25 +129,25 @@ async fn save(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((w
     }
     .await
     {
-        return err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
+        return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"));
     }
     let file = File { name: name.clone(), size: body.len() as u64, by: p.id.clone() };
-    ok_or_return!(send(&k, &p, Change::File { workspace: ws.clone(), file }).await);
+    send(&k, &p, Change::File { workspace: ws.clone(), file }).await?;
     if m.project.is_some() {
-        ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name: name.clone(), project: m.project } }).await);
+        send(&k, &p, Change::Chat { workspace: ws, chat: Chat::FileIn { name: name.clone(), project: m.project } }).await?;
     }
-    (StatusCode::CREATED, Json(json!({ "name": name }))).into_response()
+    Ok((StatusCode::CREATED, Json(json!({ "name": name }))).into_response())
 }
 
 /// Ask the agent the same request again, where it was asked: who asked
 /// posts their words again, and the agent takes them on.
-async fn retry(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>) -> Reply {
-    let m = ok_or_return!(found(&k, &ws, &channel, &id, &p.id));
-    let Some(task) = m.task.as_deref().filter(|_| id.starts_with(ANSWER_PREFIX)) else { return err(StatusCode::BAD_REQUEST, "only the agent's answer is asked again") };
-    ok_or_return!(super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.retry, "only who asked asks again"));
+async fn retry(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, channel, id)): Path<(String, String, String)>) -> ApiResult {
+    let m = found(&k, &ws, &channel, &id, &p.id, |_| true, "")?;
+    let Some(task) = m.task.as_deref().filter(|_| id.starts_with(ANSWER_PREFIX)) else { return refuse(StatusCode::BAD_REQUEST, "only the agent's answer is asked again") };
+    super::may::check(&k, &ws, &channel, &id, &p.id, |m| m.retry, "only who asked asks again")?;
     let asked = m.workspace.chat.asked.get(task).and_then(|a| m.workspace.channels.get(&channel)?.messages.iter().find(|x| &x.id == a && !x.text.is_empty()).cloned());
-    let Some(asked) = asked.filter(|a| !m.workspace.chat.unsent.contains(&a.id)) else { return err(StatusCode::CONFLICT, "the request is no longer here to ask again") };
-    post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, None).await
+    let Some(asked) = asked.filter(|a| !m.workspace.chat.unsent.contains(&a.id)) else { return refuse(StatusCode::CONFLICT, "the request is no longer here to ask again") };
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, asked.thread, asked.text, true, None).await)
 }
 
 #[cfg(test)]

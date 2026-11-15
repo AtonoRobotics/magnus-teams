@@ -28,7 +28,7 @@ vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globa
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
-const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
 const { Team, Notices, ChatView } = sandbox.__x;
 
 const home = {

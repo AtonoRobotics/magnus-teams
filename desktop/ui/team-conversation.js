@@ -49,15 +49,25 @@ function teamComposer(s, thread) {
 }
 
 /**
- * React and Reply in thread: a channel's own controls, first in the row.
- * @param {ChatEntry} e @param {boolean} inThread
+ * What a channel has beside its items, as the server says (`caps` on its
+ * view). An older server's view does not say, and a channel has all of it.
+ * @param {any} s TeamChat's state @returns {ConversationCaps}
  */
-function teamLead(e, inThread) {
+function teamCaps(s) {
+  return s.view?.caps || { several: true, reactions: true, pins: true, threads: true, whisper: Team.home.role !== "guest", typing: true };
+}
+
+/**
+ * React and Reply in thread: a channel's own controls, first in the row,
+ * each where the channel has it.
+ * @param {ChatEntry} e @param {boolean} inThread @param {ConversationCaps} [caps]
+ */
+function teamLead(e, inThread, caps = { reactions: true, threads: true }) {
   const button = (a, label, attrs, cls = "icon") => `<button class="${cls}" ${attrs} aria-label="${label}" data-tooltip="${label}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[a]}</svg></button>`;
   const reactId = `team-react-${enc(e.id)}`;
   const react = `<div class="message-menu-wrap">${button("great", "Add a reaction", `data-menu="${esc(reactId)}" aria-haspopup="menu" aria-expanded="false" aria-controls="${esc(reactId)}"`, "icon menu-trigger")}
     <div id="${esc(reactId)}" class="action-menu reactions" role="menu" aria-label="Reactions" aria-orientation="horizontal" hidden>${TEAM_QUICK_REACTIONS.map(x => `<button role="menuitem" tabindex="-1" data-react="${x}" aria-label="React ${x}">${x}</button>`).join("")}</div></div>`;
-  return react + (inThread ? "" : button("reply", "Reply in thread", "data-reply"));
+  return (caps.reactions ? react : "") + (inThread || !caps.threads ? "" : button("reply", "Reply in thread", "data-reply"));
 }
 
 /**
@@ -76,7 +86,7 @@ function teamExtras(e, r, count) {
  * @param {any} s TeamChat's state @param {?string} thread @returns {ChatConversation}
  */
 function teamConversation(s, thread) {
-  const r = teamReader(s, thread);
+  const r = teamReader(s, thread), transport = teamTransport(s, r);
   const channel = () => Team.home.channels.find(x => x.id === s.channel);
   const replies = () => s.view.messages.filter(m => m.thread === thread);
   return {
@@ -104,77 +114,61 @@ function teamConversation(s, thread) {
       const agent = e.kind === "answer";
       return { mine: e.sender === Team.home.me, agent, readable: agent, pinned: !!e.pinned, may: e.may };
     },
-    caps: () => ({}),
+    caps: () => teamCaps(s),
     file: f => {
       const img = s.files[f.name];
-      return `<div class="fprev"><span class="glimpse" aria-hidden="true">${img ? `<img alt="" src="${esc(img)}">` : icon("file")}</span><span class="fchip"><span>${esc(f.name)}</span> <button class="link small" data-team-download="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span></div>`;
+      return `<div class="fprev"><span class="glimpse" aria-hidden="true">${img ? `<img alt="" src="${esc(img)}">` : icon("file")}</span><span class="fchip"><span>${esc(f.name)}</span> <button class="link small" data-file-download="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span></div>`;
     },
-    lead: e => e.kind === "deleted" ? "" : teamLead(e, !!thread),
-    extras: e => teamExtras(e, r, thread && e.id === thread ? replies().length : undefined),
+    lead: e => e.kind === "deleted" ? "" : teamLead(e, !!thread, teamCaps(s)),
+    extras: e => teamExtras(teamCaps(s).reactions ? e : { ...e, reactions: {} }, r, thread && e.id === thread ? replies().length : undefined),
     note: e => e.private && e.requester === Team.home.me && e.task_id ? `<div class="small faint private-note">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(e.task_id)}">Post it to the thread</button></div>` : "",
     before: () => !thread && s.unreadAtOpen >= TEAM_CATCH_UP_AFTER && Team.home.role !== "guest" ? `<button type="button" class="chip run" data-catch-up>Catch me up: ${s.unreadAtOpen} new</button>` : "",
-    after: () => thread ? "" : s.whispers.filter(w => !w.shared && !s.hidden.has(w.task)).map(w => `<div class="entry them" data-whisper="${esc(w.task)}"><div class="msg magnus whisper"><div class="small faint byline"><strong>Your Magnus</strong> · only you can see this</div><div class="pre">${esc(w.text || "Working on it…")}</div>${w.done && w.text ? `<div class="row"><button class="primary" data-share="${esc(w.task)}">Share</button><button data-not-now="${esc(w.task)}">Not now</button></div>` : ""}</div></div>`).join(""),
+    after: () => thread ? "" : s.whispers.filter(w => !w.shared && !s.hidden.has(w.task)).map(w => `<div class="entry them" data-whisper="${esc(w.task)}"><div class="msg magnus whisper"><div class="small faint byline"><strong>Your Magnus</strong> · only you can see this</div><div class="pre">${esc(w.text || "Working on it…")}</div>${w.done && w.text ? `<div class="row"><button class="primary" data-whisper-share="${esc(w.task)}">Share</button><button data-not-now="${esc(w.task)}">Not now</button></div>` : ""}</div></div>`).join(""),
     status: () => {
-      const typing = thread ? [] : s.view.typing || [];
+      const typing = thread || !teamCaps(s).typing ? [] : s.view.typing || [];
       return typing.length ? `${esc(typing.join(", "))} ${typing.length === 1 ? "is" : "are"} ${typing.includes(Team.home.agent.name) && typing.length === 1 ? "working" : "typing"}…` : "";
     },
-    actions: (e, view, b, el) => teamActions(s, r, e, view, b, el),
+    actions: (e, view, b, el) => MessageControls.adapter(e, view, b, el, transport),
     click: (ev, view) => teamClick(s, ev, view),
   };
 }
 
 /**
- * What a message's controls do, in the team's terms (message-controls.js
- * runs them). Share, Save to Files and Retry are the server's: it finds the
- * message as this person sees it and keeps the workspace's rules.
+ * Where a channel's message actions go: the workspace's routes, which find
+ * the message as this person sees it and keep the workspace's rules.
+ * Delete takes a message away for everyone, and it cannot be brought back;
+ * Edit changes it in place, marked edited; Share quotes it to another
+ * member of the workspace; Branch quotes it into a new private chat, unsent;
+ * Save puts it in the workspace's files; reactions are emoji everyone sees.
+ * @param {any} s TeamChat's state @param {TeamReader} r @returns {ChatTransport}
  */
-function teamActions(s, r, e, view, b, el) {
-  const home = Team.home, ui = view.ui, id = e.id, at = `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/messages/${enc(id)}`;
-  const who = e.sender === "agent" ? home.agent.name : r.name(e.sender), text = String(e.text || "");
+function teamTransport(s, r) {
+  const home = () => Team.home, at = id => `/v1/workspaces/${enc(s.ws)}/channels/${enc(s.channel)}/messages/${enc(id)}`;
+  const who = e => e.sender === "agent" ? home().agent.name : r.name(e.sender);
+  const asked = x => { if (x.agent) toast(`${home().agent.name} is on it.`); if (x.limited) toast(x.limited, 8000); };
   return {
-    copy: async () => { await copyText(text); toast("Copied."); },
+    text: e => String(e.text || ""),
+    resend: (e, text) => Server.messages.edit(s.ws, s.channel, e.id, [text, ...(e.files || []).map(f => `📎 ${f.name}`)].join("\n")),
+    retry: async e => asked(await Server.messages.retry(s.ws, s.channel, e.id)),
+    branch: e => { App.appSearch = `From the team chat, ${who(e)} wrote:\n${String(e.text || "").split("\n").map(l => `> ${l}`).join("\n")}\n\n`; location.hash = "#/chat/new"; },
+    people: async () => home().members.filter(x => x.id !== home().me),
+    nobody: "Nobody else is in this workspace.",
+    share: (e, to) => Server.messages.share(s.ws, s.channel, e.id, to),
+    exportPath: e => `${at(e.id)}/export`,
+    exportName: e => `${teamFileStem(who(e), e.at)}.md`,
+    save: e => Server.messages.save(s.ws, s.channel, e.id),
     // No team route writes a spoken script: the answer is read as written.
-    listen: () => readAloud(text, `team:${id}`),
-    hush: () => hush(),
-    edit: () => { drafts[`edit-${id}`] = text; ui.editing = id; return view.draw(); },
-    editCancel: () => { ui.editing = null; return view.draw(); },
-    editSend: async () => {
-      const typed = $(`#edit-${CSS.escape(id)}`, view.section).value.trim();
-      if (!typed) return toast("Write the message first.");
-      b.disabled = true;
-      await Server.messages.edit(s.ws, s.channel, id, [typed, ...(e.files || []).map(f => `📎 ${f.name}`)].join("\n"));
-      ui.editing = null; delete drafts[`edit-${id}`]; await TeamChat.refresh();
-    },
-    retry: async () => {
-      b.disabled = true;
-      const x = await Server.messages.retry(s.ws, s.channel, id);
-      if (x.agent) toast(`${home.agent.name} is on it.`);
-      if (x.limited) toast(x.limited, 8000);
-      await TeamChat.refresh();
-    },
-    branch: () => { App.appSearch = `From the team chat, ${who} wrote:\n${text.split("\n").map(l => `> ${l}`).join("\n")}\n\n`; location.hash = "#/chat/new"; },
-    share: () => { ui.people = home.members.filter(x => x.id !== home.me); if (!ui.people.length) return toast("Nobody else is in this workspace."); ui.sharing = id; return view.draw(); },
-    shareCancel: () => { ui.sharing = null; return view.draw(); },
-    shareSend: async () => {
-      const to = $("[data-share-to]", el)?.value;
-      if (!to) return;
-      b.disabled = true;
-      await Server.messages.share(s.ws, s.channel, id, to);
-      ui.sharing = null; toast(`Shared with ${home.members.find(x => x.id === to)?.name || to}.`); return view.draw();
-    },
-    export: async () => toast(`Saved ${await Magnus.download(`${at}/export`, `${teamFileStem(who, e.at)}.md`)}`),
-    save: async () => { await Server.messages.save(s.ws, s.channel, id); toast("Saved to Files."); },
-    task: async () => {
-      const c = home.channels.find(x => x.id === s.channel);
-      await Server.workspaces.addTask(s.ws, { title: firstLine(text).slice(0, 200), project: c?.project || undefined, from: { channel: s.channel, message: id } });
+    script: e => String(e.text || ""),
+    feedback: e => ({ task: e.task_id, verdict: null }),
+    task: async e => {
+      const c = home().channels.find(x => x.id === s.channel);
+      await Server.workspaces.addTask(s.ws, { title: firstLine(String(e.text || "")).slice(0, 200), project: c?.project || undefined, from: { channel: s.channel, message: e.id } });
       toast("Added to the board."); TeamPanel.refresh();
     },
-    pin: async () => { await Server.messages.pin(s.ws, s.channel, id, !e.pinned); await TeamChat.refresh(); },
-    feedback: () => ({ task: e.task_id, verdict: null, focus: () => $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, view.section) }),
-    delete: async () => {
-      if (!await ask("Delete this message for everyone? It cannot be brought back.", "Delete")) return;
-      await Server.messages.remove(s.ws, s.channel, id); await TeamChat.refresh();
-    },
+    pin: e => Server.messages.pin(s.ws, s.channel, e.id, !e.pinned),
+    deleting: "Delete this message for everyone? It cannot be brought back.",
+    remove: e => Server.messages.remove(s.ws, s.channel, e.id),
+    after: () => TeamChat.refresh(),
   };
 }
 
@@ -183,9 +177,9 @@ async function teamClick(s, ev, view) {
   const t = ev.target, home = Team.home, base = `/v1/workspaces/${enc(s.ws)}`;
   const run = async f => { try { await f(); } catch (err) { toast(err.message); } };
   if (t.closest("[data-catch-up]")) { s.unreadAtOpen = 0; return run(() => TeamChat.send(`@${home.agent.name} catch me up on what I missed here`, null)); }
-  if (t.closest("[data-team-download]")) { const n = t.closest("[data-team-download]").dataset.teamDownload; return run(() => Magnus.download(`${base}/files/${enc(n)}`, n)); }
+  if (t.closest("[data-file-download]")) { const n = t.closest("[data-file-download]").dataset.fileDownload; return run(() => Magnus.download(`${base}/files/${enc(n)}`, n)); }
   if (t.closest("[data-share-answer]")) return run(async () => { await Server.workspaces.shareAnswer(s.ws, t.closest("[data-share-answer]").dataset.shareAnswer); await TeamChat.refresh(); });
-  if (t.closest("[data-share]")) return run(async () => { await Server.workspaces.shareWhisper(s.ws, t.closest("[data-share]").dataset.share); await TeamChat.refresh(); });
+  if (t.closest("[data-whisper-share]")) return run(async () => { await Server.workspaces.shareWhisper(s.ws, t.closest("[data-whisper-share]").dataset.whisperShare); await TeamChat.refresh(); });
   if (t.closest("[data-not-now]")) { s.hidden.add(t.closest("[data-not-now]").dataset.notNow); return view.draw(); }
   if (t.closest("[data-open-thread]")) { ev.preventDefault(); location.hash = teamHref(s.ws, { kind: "channel", id: s.channel, thread: t.closest("[data-open-thread]").dataset.openThread }); return; }
   const msg = t.closest("[data-entry]")?.dataset.entry, e = view.entries.find(x => x.id === msg);

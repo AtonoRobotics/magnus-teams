@@ -3,8 +3,9 @@
 //! role is above theirs; and a workspace always keeps an owner, so its owner
 //! goes only by handing ownership on first or by deleting the workspace.
 use super::caller::{at, Member};
-use super::routes::{Reply, K};
+use super::routes::K;
 use super::{Change, Role, Workspace};
+use crate::api_error::ApiResult;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::Result;
@@ -65,7 +66,7 @@ impl Kernel {
 
 /// The people on this server who are not in the workspace yet, for an
 /// owner or admin to add: names only, never their addresses.
-async fn candidates(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> Reply {
+async fn candidates(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> ApiResult {
     let inside: BTreeSet<String> = k.read(|s| s.team.workspace(&ws).map(|w| w.members.keys().cloned().collect()).unwrap_or_default());
     let out: Vec<Value> = k
         .named_people()
@@ -73,5 +74,5 @@ async fn candidates(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -
         .filter(|(id, _)| !inside.contains(id))
         .map(|(id, name)| json!({ "id": id, "name": if name.is_empty() { id.clone() } else { name } }))
         .collect();
-    Json(out).into_response()
+    Ok(Json(out).into_response())
 }

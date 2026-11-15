@@ -38,8 +38,6 @@ function personalComposer() {
  * @returns {ChatConversation & { stop: () => void }}
  */
 function personalChat(thread) {
-  const path = (id, act) => `/v1/chat/${enc(thread)}/entries/${enc(id)}/${act}`;
-  const entry = (id, act, body) => Server.chat.entry(thread, id, act, body);
   // An answer being written shows as it streams; `ui.live` holds its text so far.
   const listening = {};
   /** @param {ChatEntry[]} entries @param {ChatViewState} [view] */
@@ -56,12 +54,19 @@ function personalChat(thread) {
     });
     for (const id of Object.keys(listening)) if (!running.has(id)) { listening[id](); delete listening[id]; if (view) delete view.ui.live[id]; }
   };
+  // What the thread has beside its entries, as the server says: one person
+  // and Magnus, so nothing several people add.
+  /** @type {ConversationCaps} */
+  let caps = {};
+  const transport = personalTransport(thread);
   return {
     hello: "",
     stop: () => listen([]),
     load: async () => {
-      const entries = await Resources.read("Conversation", `/v1/chat/${enc(thread)}`, "entries");
-      return entries && App.thread === thread ? entries : null;
+      const r = await Resources.read("Conversation", `/v1/chat/${enc(thread)}`);
+      if (!r || App.thread !== thread) return null;
+      caps = r.caps || {};
+      return r.entries;
     },
     prepare: async (entries, view) => {
       // A decision the thread now waits on, not read yet: read the inbox first.
@@ -97,45 +102,48 @@ function personalChat(thread) {
       const mine = e.kind === "message";
       return { mine, agent: !mine, readable: e.kind === "answer", may: e.may };
     },
-    caps: () => ({}),
-    actions: (e, view, b, el) => {
-      const id = e.id, ui = view.ui, draw = view.draw, main = view.section;
-      return {
-        copy: async () => { await copyText(entryText(e)); toast("Copied."); },
-        edit: () => { drafts[`edit-${id}`] = e.text; ui.editing = id; return draw(); },
-        editCancel: () => { ui.editing = null; return draw(); },
-        editSend: async () => {
-          const text = $(`#edit-${CSS.escape(id)}`, main).value.trim();
-          if (!text) return toast("Write the message first.");
-          b.disabled = true; await entry(id, "resend", { text }); ui.editing = null; delete drafts[`edit-${id}`]; return draw();
-        },
-        retry: async () => { b.disabled = true; await entry(id, "resend"); return draw(); },
-        branch: async () => { const r = await entry(id, "branch"); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; },
-        share: async () => { ui.people = (await Server.directory()).people; if (!ui.people.length) return toast("Nobody else is on this server."); ui.sharing = id; return draw(); },
-        shareCancel: () => { ui.sharing = null; return draw(); },
-        shareSend: async () => {
-          const to = $("[data-share-to]", el).value;
-          b.disabled = true; await entry(id, "share", { person: to }); ui.sharing = null;
-          toast(`Shared with ${ui.people.find(p => p.id === to)?.name || to}.`); return draw();
-        },
-        export: async () => toast(`Saved ${await Magnus.download(path(id, "export"), safeName(e))}`),
-        save: async () => { await entry(id, "save"); toast("Saved to Files."); },
-        listen: () => readAloud(entry(id, "spoken").then(r => r.script), id),
-        hush: () => hush(),
-        feedback: () => ({
-          task: e.task_id, verdict: e.verdict, reaction: e.reaction,
-          react: async a => { await entry(id, "reaction", { reaction: e.reaction === a ? null : a }); await draw(); },
-          focus: () => $(`[data-entry="${CSS.escape(id)}"] .menu-trigger`, main),
-        }),
-        task: async () => { const r = await entry(id, "task"); toast("Started a task."); await refresh(); return r; },
-        delete: async () => {
-          if (!await ask("Delete this message? It leaves this chat and what Magnus reads next, and waits in the trash until it is gone for good.", "Delete")) return;
-          await entry(id, "delete"); await draw();
-          const heading = $("#conv-head h1"); if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
-        },
-      };
-    },
+    caps: () => caps,
+    actions: (e, view, b, el) => MessageControls.adapter(e, view, b, el, transport),
     click: (e, view) => personalCardClick(e, view),
+  };
+}
+
+/**
+ * Where the personal chat's message actions go: its own routes. Delete puts
+ * a message in the person's trash, where it can be restored; Edit resends,
+ * and what came after leaves the thread; Share reaches someone on this
+ * server through their inbox; Branch makes a new thread on the server; Save
+ * puts it in the person's Files; a reaction is their private verdict.
+ * @param {?string} thread @returns {ChatTransport}
+ */
+function personalTransport(thread) {
+  const path = (id, act) => `/v1/chat/${enc(thread)}/entries/${enc(id)}/${act}`;
+  const entry = (id, act, body) => Server.chat.entry(thread, id, act, body);
+  return {
+    text: e => entryText(e),
+    resend: (e, text) => entry(e.id, "resend", { text }),
+    retry: e => entry(e.id, "resend"),
+    branch: async e => { const r = await entry(e.id, "branch"); toast("Branched into a new chat."); location.hash = `#/chat/${enc(r.thread)}`; },
+    people: async () => (await Server.directory()).people,
+    nobody: "Nobody else is on this server.",
+    share: (e, to) => entry(e.id, "share", { person: to }),
+    exportPath: e => path(e.id, "export"),
+    exportName: e => safeName(e),
+    save: e => entry(e.id, "save"),
+    script: e => entry(e.id, "spoken").then(r => r.script),
+    feedback: (e, view) => ({
+      task: e.task_id, verdict: e.verdict, reaction: e.reaction,
+      react: async a => { await entry(e.id, "reaction", { reaction: e.reaction === a ? null : a }); await view.draw(); },
+    }),
+    task: async e => { const r = await entry(e.id, "task"); toast("Started a task."); await refresh(); return r; },
+    pin: async () => { throw new Error("Nothing is pinned in your own chat."); },
+    deleting: "Delete this message? It leaves this chat and what Magnus reads next, and waits in the trash until it is gone for good.",
+    remove: e => entry(e.id, "delete"),
+    after: async (view, act) => {
+      await view.draw();
+      if (act !== "delete") return;
+      const heading = $("#conv-head h1"); if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    },
   };
 }
 
