@@ -70,7 +70,13 @@ def wallpaper_svg(mode):
 
 
 def star_svg(color):
-    return f'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="{color}" d="{STAR}"/></svg>\n'
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 64 64" fill="none">'
+        f'<polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="{color}" fill-opacity="0.55"/>'
+        f'<polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="{color}"/>'
+        f'<polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="{color}" fill-opacity="0.55"/>'
+        '</svg>\n'
+    )
 
 
 def gtk_css(mode):
