@@ -124,7 +124,6 @@ impl State {
             // person's: a policy layer naming them is the admins' rule, and
             // their apps' records are harmless once the id is never given
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
-            admin_settings: _,
             last_seq: _,
         } = self;
         let parts: [&mut dyn Forget; 27] = [

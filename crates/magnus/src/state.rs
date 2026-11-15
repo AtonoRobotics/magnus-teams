@@ -378,7 +378,6 @@ pub struct State {
     pub tools: crate::tool_gate::Ledger,
     pub spend: crate::spend::Ledger,
     pub catalog: crate::catalog_withdrawal::Ledger,
-    pub admin_settings: crate::admin_app::settings::Settings,
     /// Files, projects, knowledge, memory, the playbook and the bundle.
     pub library: library::Library,
     /// Files attached to each task, by task id.
@@ -532,7 +531,7 @@ impl State {
             Ev::Legal(c) => self.legal.apply(c),
             Ev::Push(c) => self.push.apply(c),
             Ev::Halt(c) => self.halts.apply(c, &e.actor, e.at),
-            Ev::AdminSetting(c) => self.admin_settings.apply(c),
+            Ev::AdminSetting(c) => self.org.fold_admin(c),
             Ev::Handback { run, step, image_b64 } => self.add_frame(run, *step, image_b64),
             Ev::BackupMade { .. }
             | Ev::UpdateStarted { .. }

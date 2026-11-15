@@ -49,6 +49,10 @@ pub struct OrgSettings {
     audit: Vec<AuditEntry>,
     /// Model and harness changes, for version notices (U5).
     version_changes: Vec<VersionChange>,
+    /// What an admin set for the whole workspace in the Admin section: its
+    /// rules, Auto Review, the server's channel, retention and the identity
+    /// provider.
+    admin: crate::admin_app::settings::Settings,
 }
 
 /// The organisation's own settings and record are nobody's: a policy layer
@@ -59,6 +63,15 @@ impl crate::forget::Forget for OrgSettings {
 }
 
 impl OrgSettings {
+    pub(crate) fn fold_admin(&mut self, c: &crate::admin_app::settings::Change) {
+        self.admin.apply(c);
+    }
+
+    /// What an admin set for the whole workspace.
+    pub fn admin(&self) -> &crate::admin_app::settings::Settings {
+        &self.admin
+    }
+
     /// The policy, module, provider, channel, console, model, adapter,
     /// boot and admin action kinds. `State::apply` routes no other kind here.
     pub(crate) fn fold(&mut self, e: &Event) {
@@ -181,6 +194,7 @@ impl OrgSettings {
     #[cfg(test)]
     pub(crate) fn canonical_fields(&self) -> Vec<(&'static str, String)> {
         vec![
+            ("admin_settings", format!("{:?}", self.admin)),
             ("policies", format!("{:?}", self.policies)),
             ("policy_history", format!("{:?}", self.policy_history)),
             ("policy_drafts", format!("{:?}", self.policy_drafts)),

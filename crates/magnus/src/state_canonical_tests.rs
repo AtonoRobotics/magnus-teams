@@ -409,7 +409,6 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.erasures.canonical_fields());
     v.extend([
         ("openers", d(&s.openers)),
-        ("admin_settings", d(&s.admin_settings)),
         ("tools.consents", d(&s.tools.consents)),
         ("runs.outputs", d(&s.runs.iter().map(|(id, r)| (id, &r.outputs)).collect::<std::collections::BTreeMap<_, _>>())),
         ("runs.waiting_item", d(&s.runs.iter().map(|(id, r)| (id, &r.waiting_item)).collect::<std::collections::BTreeMap<_, _>>())),
