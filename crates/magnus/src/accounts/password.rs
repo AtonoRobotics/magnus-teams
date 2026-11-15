@@ -68,8 +68,8 @@ mod tests {
         let reset = accounts.request_reset("ada@example.com").await.unwrap().expect("a recovery link for ada");
         let Ok(ended) = accounts.change_password("ada", OLD, NEW, super::super::Via::Network, &here).await.unwrap() else { panic!("the right current password was refused") };
         assert_eq!(ended, vec![gone.id], "the other session did not end");
-        assert!(accounts.session(&here).await.is_some(), "the session that changed the password ended");
-        assert!(accounts.session(&there).await.is_none(), "another session outlived the change");
+        assert!(matches!(accounts.session(&here).await, Ok(Some(_))), "the session that changed the password ended");
+        assert!(matches!(accounts.session(&there).await, Ok(None)), "another session outlived the change");
         assert!(accounts.sign_in("ada", NEW).await.unwrap().is_ok(), "the new password does not sign in");
         assert!(matches!(accounts.sign_in("ada", OLD).await.unwrap(), Err(SignInError::Rejected)), "the old password still signs in");
         assert!(!accounts.reset_live(&reset.token).await, "a recovery link from before the change still works");
@@ -94,7 +94,7 @@ mod tests {
             "a locked counter still changed the password"
         );
         assert!(matches!(accounts.sign_in("ada", OLD).await.unwrap(), Err(SignInError::Locked(_))), "sign-in was not locked by the same counter");
-        assert!(accounts.session(&here).await.is_some(), "a refused change ended the session");
+        assert!(matches!(accounts.session(&here).await, Ok(Some(_))), "a refused change ended the session");
     }
 
     /// A new password under the length is refused before the current one is
@@ -110,7 +110,7 @@ mod tests {
             assert!(e.to_string().contains("at least"), "{e:#}");
         }
         assert!(accounts.locked(&counter).is_none(), "a short new password counted as a wrong one");
-        assert!(accounts.session(&there).await.is_some(), "a refused change ended another session");
+        assert!(matches!(accounts.session(&there).await, Ok(Some(_))), "a refused change ended another session");
         assert!(accounts.sign_in("ada", OLD).await.unwrap().is_ok(), "a refused change replaced the password");
     }
 }

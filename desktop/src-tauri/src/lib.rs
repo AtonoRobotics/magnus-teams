@@ -163,6 +163,12 @@ async fn restore(app: State<'_, App>) -> Res<Value> {
         }
         // The appliance no longer accepts this version; the updater still can reach it.
         Ok(r) if r.status().as_u16() == 426 => Ok(json!({ "update_required": body_of(r).await.1, "appliance": url })),
+        // The server could not answer (its database, say): the session is
+        // kept, and the page says so instead of asking to sign in again.
+        Ok(r) if r.status().is_server_error() => {
+            let (s, b) = body_of(r).await;
+            Ok(json!({ "unavailable": message(&b, s), "appliance": url }))
+        }
         Ok(r) => {
             let (s, b) = body_of(r).await;
             Ok(json!({ "note": message(&b, s) }))

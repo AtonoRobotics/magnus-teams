@@ -103,7 +103,7 @@ pub(crate) async fn app_session(k: &Kernel, h: &HeaderMap) -> Result<Person, Api
     let p = who(k, h).await?;
     let token = credential(h).unwrap_or_default();
     let bearer = h.get("authorization").and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("Bearer "));
-    match k.accounts.session(token).await {
+    match k.accounts.session(token).await.map_err(crate::api_error::session_unread)? {
         Some(s) if bearer && s.client == "app" => Ok(p),
         _ => Err(err(StatusCode::FORBIDDEN, "only the Magnus app on that computer does this").into()),
     }
