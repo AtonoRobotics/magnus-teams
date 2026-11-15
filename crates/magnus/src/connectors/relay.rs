@@ -29,7 +29,7 @@ mod sign_in;
 mod tests;
 
 pub(crate) use client::{refresh, revoke};
-pub(crate) use sign_in::router;
+pub(crate) use sign_in::{router, Waits};
 
 /// The relay's callback, the one redirect providers are given (remote
 /// access and relay, section 1).

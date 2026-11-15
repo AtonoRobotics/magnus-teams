@@ -195,7 +195,7 @@ async fn a_handoff_that_is_not_right_is_refused_and_nothing_is_kept() {
     // Signed with another key: refused, and the sign-in still waits for the real one.
     let nonce = claimed(&s, &f, "sam").await;
     assert_eq!(send(&s, "/v1/relay/handoff", &signed(OTHER_SEED, &handoff_of(&nonce, "relayed", "sam", t()))).await.0, 403);
-    assert!(is_waiting(&nonce), "a forged handoff does not use the nonce up");
+    assert!(is_waiting(&s.k, &nonce), "a forged handoff does not use the nonce up");
 
     // Its body changed after signing.
     let mut tampered = signed(RELAY_SEED, &handoff_of(&nonce, "relayed", "sam", t()));
@@ -219,13 +219,13 @@ async fn a_handoff_that_is_not_right_is_refused_and_nothing_is_kept() {
 
     // For another person, then for another app: each uses its nonce up.
     assert_eq!(send(&s, "/v1/relay/handoff", &signed(RELAY_SEED, &handoff_of(&nonce, "relayed", "mo", t()))).await.0, 403);
-    assert!(!is_waiting(&nonce));
+    assert!(!is_waiting(&s.k, &nonce));
     let nonce = claimed(&s, &f, "sam").await;
     assert_eq!(send(&s, "/v1/relay/handoff", &signed(RELAY_SEED, &handoff_of(&nonce, "slack", "sam", t()))).await.0, 403);
 
     // A nonce past its time.
     let nonce = claimed(&s, &f, "sam").await;
-    age(&nonce, PENDING_FOR + PAST_EXPIRY);
+    age(&s.k, &nonce, PENDING_FOR + PAST_EXPIRY);
     assert_eq!(send(&s, "/v1/relay/handoff", &signed(RELAY_SEED, &handoff_of(&nonce, "relayed", "sam", t()))).await.0, 403);
 
     // Handed off without being claimed first.
@@ -269,6 +269,32 @@ async fn a_relayed_sign_in_refreshes_and_revokes_through_the_relay() {
     assert!(s.k.connector_secret(&c, "mo").await.unwrap().is_none());
     assert!(s.k.lapsed(&c, "mo"));
     s.done().await;
+}
+
+/// Two servers in one process keep their own sign-ins in flight: neither
+/// finishes nor sees the other's waiting sign-ins, relayed or direct, and
+/// neither waits on the other's refresh. (They were process-wide maps.)
+#[tokio::test]
+async fn two_servers_in_one_process_keep_their_own_sign_ins() {
+    let ((a, _fa), (b, _fb)) = (relayed().await, relayed().await);
+    let (nonce, _) = begin(&a, "sam").await;
+    assert!(is_waiting(&a.k, &nonce), "the server that began it lost it");
+    assert!(!is_waiting(&b.k, &nonce), "another server sees this one's relayed sign-in");
+
+    let f = fake().await;
+    let (c, d) = (server_with(&connector(&f), |_| Router::new()).await, server_with(&connector(&f), |_| Router::new()).await);
+    crate::registrations::provision(&c.k.vault, "slack", None, Some("provisioned-secret")).unwrap();
+    let app = c.k.connector("relayed").unwrap();
+    let (_, state) = c.k.connector_sign_in(&app, "sam", "http://127.0.0.1:9/callback").await.unwrap();
+    let e = d.k.connector_sign_in_complete("relayed", "sam", &state, "code", None).await.unwrap_err().to_string();
+    assert!(e.contains("expired or is unknown"), "another server took this one's sign-in: {e}");
+
+    let held = a.k.connecting.refresh.lock().await;
+    assert!(b.k.connecting.refresh.try_lock().is_ok(), "one server's refresh held up another's");
+    drop(held);
+    for s in [a, b, c, d] {
+        s.done().await;
+    }
 }
 
 #[tokio::test]

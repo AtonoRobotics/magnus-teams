@@ -29,7 +29,7 @@ pub(crate) fn slack_handoff_url(state: &str, code: Option<&str>, iss: Option<&st
 /// Slack's browser comes here. A waiting sign-in is sent on to the desktop
 /// app; anything else is an empty 404. The code is not logged.
 pub(crate) async fn slack_oauth_callback(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    let Some(state) = q.get("state").map(String::as_str).filter(|s| k.sign_ins.slack_open(s)) else {
+    let Some(state) = q.get("state").map(String::as_str).filter(|s| k.connecting.sign_ins.slack_open(s)) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let loc = slack_handoff_url(state, q.get("code").map(String::as_str), q.get("iss").map(String::as_str), q.get("error").map(String::as_str));

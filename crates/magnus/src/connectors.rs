@@ -13,7 +13,6 @@
 use crate::config::Connector;
 use crate::kernel::Kernel;
 use serde_json::{json, Value};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 mod admin;
@@ -28,7 +27,7 @@ mod standing;
 
 pub use admin::{org_credential, OrgCredential, Refusal};
 pub use routes::router;
-pub(crate) use sign_in::SignIns;
+use sign_in::SignIns;
 pub use standing::revoke;
 
 pub const OAUTH: &str = "oauth";
@@ -128,10 +127,14 @@ pub(crate) const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// A refused registration's first wait in seconds, doubled for each try after up to the third.
 pub(crate) const BACKOFF_FIRST_SECS: u64 = 1;
 
-/// One refresh at a time: apps that rotate refresh tokens accept each once.
-pub(crate) fn refreshing() -> &'static tokio::sync::Mutex<()> {
-    static R: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    R.get_or_init(Default::default)
+/// The apps' sign-ins in flight on one server, kept on its kernel: its own
+/// waiting for their code, the relay's waiting for their tokens, and the
+/// one refresh at a time (apps that rotate refresh tokens accept each once).
+#[derive(Default)]
+pub(crate) struct Connecting {
+    pub(crate) sign_ins: SignIns,
+    pub(crate) relayed: relay::Waits,
+    pub(crate) refresh: tokio::sync::Mutex<()>,
 }
 
 pub(crate) fn http() -> reqwest::Client {

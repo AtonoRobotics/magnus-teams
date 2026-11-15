@@ -116,32 +116,37 @@ mod tests {
     /// request does when its client hangs up, is still applied: the state
     /// keeps up with the log, and the next write follows on without the
     /// gap that would restart the server.
+    ///
+    /// The append is held in the database (the table locked from another
+    /// connection) while the caller is dropped, so the drop always comes
+    /// mid-write, however loaded the machine: the test once let the write
+    /// run and raced to drop it, and lost the race under load.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_write_whose_caller_is_dropped_is_still_applied() {
         let (admin, name, url) = log_db().await;
         let w = Writer::new(Log::open(&url).await.unwrap(), State::default(), None);
         let c = crate::log::connect(&url).await.unwrap();
         let in_db = || async { c.query_one("SELECT count(*) FROM public.events", &[]).await.unwrap().get::<_, i64>(0) };
+        let held = crate::log::connect(&url).await.unwrap();
+        held.batch_execute("BEGIN; LOCK TABLE public.events IN EXCLUSIVE MODE").await.unwrap();
         let mut write = Box::pin(w.write(|_| boot()));
-        // Drive the write by hand until the database holds the event, then
-        // drop it there: the append is committed and only the apply is left,
-        // as when a client hangs up between the two.
         let waker = std::task::Waker::noop();
-        // The database is asked before each poll, so the poll that would
-        // collect the answer and apply it never comes once it is there.
-        let mut done = write.as_mut().poll(&mut TaskContext::from_waker(waker)).is_ready();
+        assert!(write.as_mut().poll(&mut TaskContext::from_waker(waker)).is_pending(), "the write finished with the log locked");
+        // The append is waiting on the lock: the write is mid-way.
+        let waits = "SELECT count(*) FROM pg_locks l JOIN pg_class t ON l.relation = t.oid WHERE t.relname = 'events' AND NOT l.granted";
+        let mut waiting = 0i64;
         for _ in 0..500 {
-            if done {
+            waiting = c.query_one(waits, &[]).await.unwrap().get(0);
+            if waiting > 0 {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            if in_db().await == 1 {
-                break;
-            }
-            done = write.as_mut().poll(&mut TaskContext::from_waker(waker)).is_ready();
         }
-        assert!(!done, "the write finished before it could be dropped");
+        assert_eq!(waiting, 1, "the append never reached the database");
+        assert!(write.as_mut().poll(&mut TaskContext::from_waker(waker)).is_pending(), "the write finished with the log locked");
         drop(write);
+        assert_eq!(in_db().await, 0, "the append went through the lock");
+        held.batch_execute("COMMIT").await.unwrap();
         let mut in_log = 0i64;
         for _ in 0..200 {
             in_log = in_db().await;
@@ -156,6 +161,7 @@ mod tests {
         assert_eq!(next[0].seq, 2);
         drop(in_db);
         drop(c);
+        drop(held);
         drop(w);
         admin.batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)")).await.unwrap();
     }
