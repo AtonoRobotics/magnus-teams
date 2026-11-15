@@ -6,6 +6,5 @@ crates/magnus/src/control.rs 817
 crates/magnus/src/dev.rs 944
 crates/magnus/src/events.rs 1404
 crates/magnus/src/run/mod.rs 890
-crates/magnus/src/state.rs 1214
 tests/scratch/tests/app.rs 814
 tests/scratch/tests/desktop_app.rs 1034

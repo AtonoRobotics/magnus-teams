@@ -50,3 +50,17 @@ time, a commit each.
   the subject from identity. Identity holds folded facts only; what a
   person may do is still answered by `people::rights` alone. Trash and
   erasure, and the work itself (runs and tasks), stay in the state for now.
+- Third batch: the trash and the erasures each fold in their own
+  projection; taking an item out and putting it back stay orchestrations on
+  the state, through each domain's take and put. The admin's workspace
+  settings fold with the organisation's (`OrgSettings::admin`). The work
+  (tasks, runs, the runs a person stopped, drafts' sources, attachments and
+  the conversations Magnus opened) is relocated, not encapsulated: its types
+  and folds live in `state::work`, and its fields stay on the state as
+  `pub(crate)`. Reason: about 450 reads in about 90 files take them in
+  place; renaming each read buys no safety the folds do not already give,
+  and it would collide with every change landing beside this one. The
+  folds take only the fields they write, so a run's fold cannot reach
+  another domain. `openers` goes with the work because a task's creation
+  writes it. The state's own tests moved to `state/tests.rs`, and
+  `state.rs` leaves `ci/oversize.txt`.
