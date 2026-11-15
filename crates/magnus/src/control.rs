@@ -192,7 +192,7 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
 /// provider still binds people, else the id itself when it is a person here
 /// (#508: the console now addresses local ids).
 fn person_of(k: &Kernel, sub: &str) -> Option<String> {
-    k.read(|s| s.subjects.iter().find(|(_, v)| v.as_str() == sub).map(|(p, _)| p.clone())).or_else(|| k.person(sub).map(|p| p.id.clone()))
+    k.read(|s| s.identity.subjects().iter().find(|(_, v)| v.as_str() == sub).map(|(p, _)| p.clone())).or_else(|| k.person(sub).map(|p| p.id.clone()))
 }
 
 /// Each person known here, by their provider `sub`: when they last signed
@@ -200,7 +200,7 @@ fn person_of(k: &Kernel, sub: &str) -> Option<String> {
 /// people themselves are the identity provider's).
 async fn people(State(k): State<Arc<Kernel>>) -> Response {
     let bound: Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)> =
-        k.read(|s| s.subjects.iter().map(|(p, sub)| (p.clone(), sub.clone(), s.last_sign_in.get(p).copied())).collect());
+        k.read(|s| s.identity.subjects().iter().map(|(p, sub)| (p.clone(), sub.clone(), s.identity.last_sign_in(p))).collect());
     let mut out = serde_json::Map::new();
     for (p, sub, at) in bound {
         out.insert(sub, json!({ "last_sign_in": at, "sessions": k.accounts.sessions_of(&p, "").await.len() }));
@@ -223,7 +223,7 @@ async fn admin_person_row(k: &Kernel, id: &str) -> Value {
     let p = k.person(id);
     let email = k.accounts.local_person(id).and_then(|l| l.email);
     let (role, status) = tokio::join!(k.accounts.role(id), k.accounts.status(id));
-    let at = k.read(|s| s.last_sign_in.get(id).copied());
+    let at = k.read(|s| s.identity.last_sign_in(id));
     let sessions = k.accounts.sessions_of(id, "").await.len();
     json!({
         "id": id,

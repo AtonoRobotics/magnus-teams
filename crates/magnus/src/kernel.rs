@@ -322,7 +322,7 @@ impl Kernel {
         people.extend(self.read(|s| s.arrangements.schedules().values().filter(|x| x.next_due().is_some()).map(|x| x.person.clone()).collect::<Vec<_>>()));
         let mut ended = 0;
         for person in people {
-            let sub = self.read(|s| s.subjects.get(&person).cloned());
+            let sub = self.read(|s| s.identity.subject(&person).map(str::to_string));
             match id.active(&person, sub.as_deref()).await {
                 Ok(true) => {}
                 Ok(false) => {
@@ -343,7 +343,7 @@ impl Kernel {
         let mut ended = 0;
         // Their apps answer no calls for them from now; the sign-ins stay in
         // the vault, unused, for when they are back (connectors spec, Isolation).
-        if !self.read(|s| s.turned_off.contains(person)) {
+        if !self.read(|s| s.identity.is_turned_off(person)) {
             self.tell(vec![("kernel", Ev::PersonTurnedOff { person: person.to_string(), why: why.to_string() })]).await;
         }
         match self.accounts.end_all(person).await {

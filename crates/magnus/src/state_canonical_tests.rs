@@ -364,21 +364,13 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.arrangements.canonical_fields());
     v.extend(s.library.canonical_fields());
     v.extend(s.inbox.canonical_fields());
+    v.extend(s.identity.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
         ("tools.consents", d(&s.tools.consents)),
         ("runs.outputs", d(&s.runs.iter().map(|(id, r)| (id, &r.outputs)).collect::<std::collections::BTreeMap<_, _>>())),
         ("runs.waiting_item", d(&s.runs.iter().map(|(id, r)| (id, &r.waiting_item)).collect::<std::collections::BTreeMap<_, _>>())),
-        ("signed_in_before", d(&s.signed_in_before)),
-        ("last_sign_in", d(&s.last_sign_in)),
-        ("home_last_open", d(&s.home_last_open)),
-        ("turned_off", d(&s.turned_off)),
-        ("provider_rights", d(&s.provider_rights)),
-        ("subjects", d(&s.subjects)),
-        ("roles_set", d(&s.roles_set)),
-        ("data_private", d(&s.data_private)),
-        ("preferences", d(&s.preferences)),
         ("tasks.schedule", d(&s.tasks.iter().map(|(id, t)| (id, &t.schedule)).collect::<Vec<_>>())),
     ]);
     v

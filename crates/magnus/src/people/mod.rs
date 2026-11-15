@@ -138,7 +138,7 @@ impl People<'_> {
     pub fn get(&self, id: &str) -> Option<Person> {
         let k = self.k;
         let p = resolve(&k.cfg.people, &k.accounts, id)?;
-        let o = k.read(|s| Overlay { roles: s.roles_set.get(id).cloned(), provider: s.provider_rights.get(id).cloned() });
+        let o = k.read(|s| Overlay { roles: s.identity.roles_set(id).cloned(), provider: s.identity.provider_rights(id).cloned() });
         let mut p = overlaid(p, o);
         crate::legal::testers_group(k, &mut p);
         Some(p)

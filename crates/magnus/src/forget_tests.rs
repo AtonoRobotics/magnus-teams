@@ -99,7 +99,7 @@ fn parts(s: &State) -> Vec<(&'static str, String)> {
         ("tasks", format!("{:?}", s.tasks)),
         ("runs", format!("{:?}", s.runs)),
         ("items", format!("{:?}", s.inbox.items())),
-        ("signed_in_before", format!("{:?}", s.signed_in_before)),
+        ("identity", format!("{:?}", s.identity)),
         ("moved", format!("{:?}", s.library.moved())),
         ("vault", format!("{:?}", s.vault)),
         ("stopped_by_person", format!("{:?}", s.stopped_by_person)),

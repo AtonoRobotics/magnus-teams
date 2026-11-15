@@ -22,7 +22,7 @@ type K = State<Arc<Kernel>>;
 /// wait; problem reports leave the appliance only with consent.
 pub fn preferences(k: &Kernel, person: &str) -> Value {
     let mut p = json!({ "notify_blocking": true, "notify_batched": false, "notify_agent_changes": true, "feedback_consent": false, "timezone": "UTC", "working_hours": { "start": "09:00", "end": "17:00" }, "quiet_hours": { "start": "22:00", "end": "07:00" }, "review_every_minutes": k.cfg.proactive.review_every_minutes, "interruptions_per_day": k.cfg.proactive.interruptions_per_day });
-    if let Some(set) = k.read(|s| s.preferences.get(person).cloned()) {
+    if let Some(set) = k.read(|s| s.identity.preferences_of(person).cloned()) {
         for (key, v) in set.as_object().into_iter().flatten() {
             p[key] = v.clone();
         }
@@ -92,15 +92,15 @@ async fn people(State(k): K, _: Owner) -> ApiResult {
         .filter_map(|c| {
             let p = k.person(&c.id)?;
             let from = k.read(|s| {
-                if s.provider_rights.get(&c.id).is_some_and(|(_, r)| r.is_some()) {
+                if s.identity.provider_set_roles(&c.id) {
                     "provider"
-                } else if s.roles_set.contains_key(&c.id) {
+                } else if s.identity.roles_set(&c.id).is_some() {
                     "settings"
                 } else {
                     "config"
                 }
             });
-            let bound = k.read(|s| s.subjects.contains_key(&c.id));
+            let bound = k.read(|s| s.identity.subject(&c.id).is_some());
             Some(json!({ "id": p.id, "name": p.name, "groups": p.groups, "roles": p.roles, "roles_from": from, "account_bound": bound }))
         })
         .collect();
@@ -116,7 +116,7 @@ async fn set_roles(State(k): K, Owner(me): Owner, Path(id): Path<String>, Json(b
     if k.cfg.person(&id).is_none() {
         return refuse(StatusCode::NOT_FOUND, "no such person");
     }
-    if k.read(|s| s.provider_rights.get(&id).is_some_and(|(_, r)| r.is_some())) {
+    if k.read(|s| s.identity.provider_set_roles(&id)) {
         return refuse(StatusCode::CONFLICT, "the identity provider names this person's roles; change them there");
     }
     // Checked and recorded under the decision lock: two owners taking the
@@ -157,7 +157,7 @@ async fn clear_account(State(k): K, Owner(me): Owner, Path(id): Path<String>) ->
         return refuse(StatusCode::NOT_FOUND, "no such person");
     }
     let _decide = k.decide.lock().await;
-    if !k.read(|s| s.subjects.contains_key(&id)) {
+    if !k.read(|s| s.identity.subject(&id).is_some()) {
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
     // Whoever signs in as them next gets everything of theirs: they are told.

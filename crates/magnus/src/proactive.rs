@@ -150,7 +150,7 @@ impl crate::kernel::Kernel {
             if self.read(|s| crate::halts::may_proceed(s, &start, crate::halts::Phase::Start).is_some() || s.reviewing(&person)) {
                 continue;
             }
-            let prefs = self.read(|s| s.preferences.get(&person).cloned().unwrap_or(serde_json::Value::Null));
+            let prefs = self.read(|s| s.identity.preferences_of(&person).cloned().unwrap_or(serde_json::Value::Null));
             let st = settings(&self.cfg.proactive, &prefs);
             let m = minutes_at(now, st.tz);
             let today = day_key(now, st.tz);
@@ -520,7 +520,7 @@ impl crate::kernel::Kernel {
     /// Now, or when quiet ends while it is quiet: when an observation or
     /// interruption may ask for attention (#237).
     pub fn notify_due(&self, person: &str) -> DateTime<Utc> {
-        let prefs = self.read(|s| s.preferences.get(person).cloned().unwrap_or(serde_json::Value::Null));
+        let prefs = self.read(|s| s.identity.preferences_of(person).cloned().unwrap_or(serde_json::Value::Null));
         let st = settings(&self.cfg.proactive, &prefs);
         let now = Utc::now();
         quiet_ends_at(now, st.tz, st.quiet).unwrap_or(now)
@@ -537,7 +537,7 @@ impl crate::kernel::Kernel {
     }
 
     pub async fn interrupt_for(&self, run: &crate::state::Run, what: &str, why: &str, call_id: &str) -> anyhow::Result<(String, bool)> {
-        let prefs = self.read(|s| s.preferences.get(&run.person).cloned().unwrap_or(serde_json::Value::Null));
+        let prefs = self.read(|s| s.identity.preferences_of(&run.person).cloned().unwrap_or(serde_json::Value::Null));
         let st = settings(&self.cfg.proactive, &prefs);
         let now = Utc::now();
         if let Some(denied) = self.loop_deny(run, "interrupt", None) {

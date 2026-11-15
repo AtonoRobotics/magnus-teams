@@ -105,6 +105,7 @@ impl State {
             arrangements,
             library,
             inbox,
+            identity,
             tools,
             spend,
             catalog,
@@ -113,15 +114,7 @@ impl State {
             removed_threads,
             tasks,
             runs,
-            signed_in_before,
-            last_sign_in,
-            home_last_open,
             openers,
-            turned_off,
-            provider_rights,
-            subjects,
-            roles_set,
-            preferences,
             stopped_by_person,
             draft_sources,
             attachments,
@@ -132,11 +125,10 @@ impl State {
             // their apps' records are harmless once the id is never given
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             erasures: _,
-            data_private: _,
             admin_settings: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 24] = [
+        let parts: [&mut dyn Forget; 25] = [
             computers,
             payments,
             rules,
@@ -158,6 +150,7 @@ impl State {
             arrangements,
             library,
             inbox,
+            identity,
             tools,
             spend,
             catalog,
@@ -168,26 +161,14 @@ impl State {
         tasks.retain(|_, t| t.person != p);
         runs.retain(|_, r| r.person != p);
         stopped_by_person.retain(|r| !who.runs.contains(r));
-        turned_off.remove(p);
         trash.retain(|_, t| t.person != p);
         // What they removed of their own conversations.
         removed_threads.retain(|t| !who.threads.contains(t));
-        preferences.remove(p);
         // What their drafts were written from.
         draft_sources.retain(|_, d| d.person != p);
         // What their tasks had attached goes too.
         attachments.retain(|t, _| !who.tasks.contains(t));
-        subjects.remove(p);
-        last_sign_in.remove(p);
-        signed_in_before.remove(p);
         openers.retain(|(x, _)| x != p);
-        // Their home mark: whoever is next known by their name starts
-        // fresh (#412).
-        home_last_open.remove(p);
-        // The rights they held go with them: whoever is next known by their
-        // name starts from the organisation's config.
-        roles_set.remove(p);
-        provider_rights.remove(p);
     }
 }
 

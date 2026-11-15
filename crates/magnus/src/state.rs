@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub mod apps;
 pub mod arrangements;
+pub mod identity;
 pub mod inbox;
 pub mod library;
 pub mod org;
@@ -447,40 +448,20 @@ pub struct State {
     pub org: org::OrgSettings,
     /// Secrets' names and the kill switch.
     pub vault: vault::Ledger,
-    /// Everyone who has ever signed in here. Someone not in it signs in the
-    /// first time on the identity provider's own page, which can walk them
-    /// through what their account still needs (a new password, two-factor).
-    pub signed_in_before: HashSet<String>,
-    /// When each person last signed in here (the console's Users list).
-    pub last_sign_in: HashMap<String, DateTime<Utc>>,
-    /// When each person last opened the app's home: the feed starts
-    /// here (#367).
-    pub home_last_open: HashMap<String, DateTime<Utc>>,
+    /// Sign-ins, subjects, rights, roles, privacy, preferences and the
+    /// home mark: the facts `people::rights` reads.
+    pub identity: identity::Identity,
     /// Watched reads' baselines and poll clocks (#369, #406).
     pub watch: watch::Watch,
     /// The conversations Magnus opened, by person then task: each starts
     /// once ever, so deleting one does not start it again (review of #274).
     pub openers: std::collections::BTreeSet<(String, String)>,
-    /// People turned off at the identity provider or by an admin, until
-    /// they sign in again: their apps answer no calls for them.
-    pub turned_off: std::collections::BTreeSet<String>,
     /// The server's updates and backups.
     pub server_ops: server_ops::ServerOps,
     /// Each person erased with content, by their id then.
     pub erasures: BTreeMap<String, Erasure>,
     /// The apps the owner added, their settings, credentials and registrations.
     pub apps: apps::Apps,
-    /// Groups and roles from the identity provider, per person, as of their
-    /// latest sign-in.
-    pub provider_rights: HashMap<String, (Option<Vec<String>>, Option<Vec<String>>)>,
-    /// The identity provider account (`sub`) each person is bound to.
-    pub subjects: HashMap<String, String>,
-    /// Roles the owner set in Settings, by person.
-    pub roles_set: HashMap<String, Vec<String>>,
-    /// Whether people's data is private from the admin (by default it is not).
-    pub data_private: bool,
-    /// Each person's own settings, by person.
-    pub preferences: HashMap<String, Value>,
     /// Hidden entries, reactions, disagreements and branches.
     pub thread_extras: thread_extras::ThreadExtras,
     /// Schedules, grants, commitments and answered cards.
@@ -846,52 +827,30 @@ impl State {
                     r.lost_since = r.replies.len() as u32;
                 }
             }
-            Ev::SubjectBound { person, subject } => match subject {
-                Some(sub) => {
-                    self.subjects.insert(person.clone(), sub.clone());
-                }
-                None => {
-                    self.subjects.remove(person);
-                }
-            },
-            Ev::RightsFromProvider { person, groups, roles } => {
-                self.provider_rights.insert(person.clone(), (groups.clone(), roles.clone()));
-            }
-            Ev::DataAccessSet { private } => self.data_private = *private,
-            Ev::PersonDataRead { .. } => {}
+            Ev::SubjectBound { .. }
+            | Ev::RightsFromProvider { .. }
+            | Ev::DataAccessSet { .. }
+            | Ev::PersonDataRead { .. }
+            | Ev::RolesSet { .. }
+            | Ev::SignedIn { .. }
+            | Ev::SignedOut { .. }
+            | Ev::PasswordChanged { .. }
+            | Ev::DevicePaired { .. }
+            | Ev::DeviceRevoked { .. }
+            | Ev::HomeOpened { .. }
+            | Ev::PersonTurnedOff { .. } => self.identity.fold(&e.ev, e.at),
             // Every per-person part forgets them (`forget.rs`).
             Ev::PersonErased { person } => self.forget_person(person),
-            Ev::RolesSet { person, roles } => {
-                self.roles_set.insert(person.clone(), roles.clone());
-            }
-            Ev::PreferencesSet { person, prefs } => {
-                let p = self.preferences.entry(person.clone()).or_insert_with(|| serde_json::json!({}));
-                if let (Some(p), Some(new)) = (p.as_object_mut(), prefs.as_object()) {
-                    for (k, v) in new {
-                        p.insert(k.clone(), v.clone());
-                    }
-                }
+            Ev::PreferencesSet { person, .. } => {
+                self.identity.fold(&e.ev, e.at);
                 // Daily times follow the person's zone (owner, 2026-11-14).
-                self.arrangements.set_zone(person, crate::cadence::Zone::of_preferences(self.preferences.get(person)));
+                self.arrangements.set_zone(person, self.identity.zone(person));
             }
             Ev::ChatHidden { .. } | Ev::Reacted { .. } | Ev::DisagreementRecorded { .. } | Ev::DisagreementOutcome { .. } | Ev::ThreadBranched { .. } => {
                 self.thread_extras.fold(&e.ev, e.at)
             }
-            Ev::SignedIn { person, .. } => {
-                self.signed_in_before.insert(person.clone());
-                self.last_sign_in.insert(person.clone(), e.at);
-                // Signed in again: the provider has them back.
-                self.turned_off.remove(person);
-            }
-            Ev::HomeOpened { person } => {
-                self.home_last_open.insert(person.clone(), e.at);
-            }
             Ev::WatchedSeen { person, app, tool, ids, full } => self.watch.fold_seen(person, app, tool, ids, *full),
             Ev::WatchPolled { person, app, tool } => self.watch.fold_polled(person, app, tool, e.at),
-            Ev::SignedOut { .. } | Ev::PasswordChanged { .. } | Ev::DevicePaired { .. } | Ev::DeviceRevoked { .. } => {}
-            Ev::PersonTurnedOff { person, .. } => {
-                self.turned_off.insert(person.clone());
-            }
             Ev::ScheduleSet { .. }
             | Ev::ScheduleRemoved { .. }
             | Ev::ScheduleEnded { .. }
@@ -908,7 +867,7 @@ impl State {
             | Ev::CommitmentRemoved { .. }
             | Ev::CardDeclined { .. }
             | Ev::CardDeferred { .. }
-            | Ev::CardAccepted { .. } => self.arrangements.fold(e, &self.preferences),
+            | Ev::CardAccepted { .. } => self.arrangements.fold(e, self.identity.preferences()),
             Ev::Trashed { item, person } => {
                 if let Some((title, title_from, held)) = self.take(item) {
                     self.trash.insert(item.clone(), Trashed { person: person.clone(), title, title_from, at: e.at, held });
@@ -922,7 +881,7 @@ impl State {
             Ev::Removed { item, .. } => {
                 // A person's erasure: their subject is still bound here.
                 if let Some(p) = item.strip_prefix("person:") {
-                    self.erasures.insert(p.to_string(), Erasure { removal: e.seq, subject: self.subjects.get(p).cloned(), pending: false });
+                    self.erasures.insert(p.to_string(), Erasure { removal: e.seq, subject: self.identity.subject(p).map(str::to_string), pending: false });
                 }
                 if let Some(task) = item.strip_prefix(crate::team::upkeep::NOTES) {
                     self.team.drop_notes(task);
@@ -1282,7 +1241,7 @@ impl State {
                     r.first_stop.get_or_insert(e.at);
                 }
             }
-            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval { .. } | Ev::ApprovalUsed { .. } | Ev::ReviewWoken { .. } => self.inbox.fold(e, &self.preferences),
+            Ev::Item { .. } | Ev::ItemOpened { .. } | Ev::Approval { .. } | Ev::ApprovalUsed { .. } | Ev::ReviewWoken { .. } => self.inbox.fold(e, self.identity.preferences()),
             // A stopped run's notice put away: the run waits on no card
             // now, so its own Resume (or Cancel) is what is left.
             Ev::ItemResolved { id, .. } => {
@@ -1507,12 +1466,12 @@ mod tests {
         s.apply(&ev(4, "person:bob", json!({ "kind": "item_opened", "id": "i1" })));
         s.apply(&ev(5, "person:bob", json!({ "kind": "item_resolved", "id": "i1", "decision": "approved" })));
         assert!(
-            !s.watch.is_empty() && !s.home_last_open.is_empty() && !s.inbox.items_opened().is_empty() && !s.inbox.items_resolved_at().is_empty(),
+            !s.watch.is_empty() && s.identity.has_home_marks() && !s.inbox.items_opened().is_empty() && !s.inbox.items_resolved_at().is_empty(),
             "the setup left nothing to erase"
         );
         s.apply(&ev(6, "kernel", json!({ "kind": "person_erased", "person": "bob" })));
         assert!(s.watch.is_empty(), "the erased baseline stayed: {:?}", s.watch);
-        assert!(!s.home_last_open.contains_key("bob"), "the erased home mark stayed");
+        assert!(s.identity.home_last_open("bob").is_none(), "the erased home mark stayed");
         assert!(!s.inbox.items_opened().contains_key("i1"), "the erased opened mark stayed");
         assert!(!s.inbox.items_resolved_at().contains_key("i1"), "the erased resolved mark stayed");
     }

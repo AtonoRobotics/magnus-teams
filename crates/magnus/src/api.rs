@@ -426,7 +426,7 @@ async fn sign_in(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(pe
     let label = provider.as_ref().map(|i| i.label()).unwrap_or_default();
     // The first time, the provider's own page signs them in: it can walk
     // them through what a new account needs.
-    if provider.is_some() && machine_code.is_none() && !k.read(|s| s.signed_in_before.contains(&person)) {
+    if provider.is_some() && machine_code.is_none() && !k.read(|s| s.identity.signed_in_before(&person)) {
         let page = crate::identity::Polled::UseBrowser(format!("The first time, sign in on the {label} page that just opened in your browser."));
         return Ok(provider_answered(&k, t, label, page, device).await);
     }
@@ -533,7 +533,7 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
             // rulings, 2026-11-01).
             if let Some(sub) = rights.subject.clone() {
                 let _decide = k.decide.lock().await;
-                match k.read(|s| s.subjects.get(&person).cloned()) {
+                match k.read(|s| s.identity.subject(&person).map(str::to_string)) {
                     Some(bound) if bound != sub => {
                         tracing::warn!("identity: an account at {label} other than {person}'s signed in as {person}; refused");
                         return err(
@@ -1129,7 +1129,7 @@ async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
     let words = k.person_words(&p.id).await?;
     let now = chrono::Utc::now();
     let (since, mut ended, mut arrived, mut decided, mut observations) = k.read(|s| {
-        let since = s.home_last_open.get(&p.id).cloned().unwrap_or(now - chrono::Duration::hours(24));
+        let since = s.identity.home_last_open(&p.id).unwrap_or(now - chrono::Duration::hours(24));
         let mut ended: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut arrived: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut decided: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
