@@ -28,7 +28,9 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
 /// (`connector_<app>__<person>`) and from the connect screens they accepted.
 pub fn connected(vault: &[String], consents: &BTreeMap<String, BTreeSet<String>>, app: &str) -> Vec<String> {
     let prefix = format!("{}__", crate::connectors::credential_name(app));
-    let mut people: BTreeSet<String> = vault.iter().filter_map(|n| n.strip_prefix(&prefix)).filter(|p| !p.is_empty()).map(String::from).collect();
+    // A workspace's own sign-in is shown with its workspace, not as a person.
+    let mut people: BTreeSet<String> =
+        vault.iter().filter_map(|n| n.strip_prefix(&prefix)).filter(|p| !p.is_empty() && !crate::team::sign_in::is_workspace_owner(p)).map(String::from).collect();
     people.extend(consents.get(app).into_iter().flatten().cloned());
     people.into_iter().collect()
 }
@@ -58,7 +60,9 @@ async fn list(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -> R
                 .map(|p| json!({ "id": p.clone(), "name": k.person(&p).map(|x| x.name).filter(|n| !n.is_empty()).unwrap_or(p) }))
                 .collect();
             c["connected_by"] = json!(people);
-            c["workspaces"] = json!(grants.iter().filter(|g| g.0 == name).map(|g| json!({ "id": g.1, "name": g.2, "roles": g.3 })).collect::<Vec<_>>());
+            let signed_in = |ws: &str| vault.contains(&crate::connectors::connection_name(&name, &crate::team::sign_in::owner_key(ws)));
+            c["workspaces"] =
+                json!(grants.iter().filter(|g| g.0 == name).map(|g| json!({ "id": g.1, "name": g.2, "roles": g.3, "signed_in": signed_in(&g.1) })).collect::<Vec<_>>());
         }
     }
     Json(v).into_response()

@@ -329,7 +329,7 @@ impl Kernel {
         if let Some(c) = &f.connector {
             // Compare the live definition with the pin right before acting, so
             // a definition changed after it was listed cannot run (B10).
-            let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
+            let person = self.app_owner(&run, c);
             if !self.connected(c, &person) {
                 return self
                     .deny(
@@ -412,8 +412,8 @@ impl Kernel {
         if let Some((_, why)) = self.halt_of(&a.run, Some(&a.tool)) {
             return self.deny(a, "credentials", &why, false, None).await;
         }
-        // The person's own sign-in, never anyone else's.
-        let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
+        // The person's own sign-in, or in a team thread the workspace's, never anyone else's.
+        let person = f.connector.as_ref().map_or_else(|| run.person.clone(), |c| self.app_owner(&run, c));
         // Taken before the sign-in is: a brokered call that waits while its
         // microVM is stopped (Disconnect, deletion, the kill switch) sees it
         // was, and sends nothing with the token it holds.
@@ -811,7 +811,7 @@ impl Kernel {
         if let Some(c) = &f.connector {
             // A person turned off has no apps until they are back; a switch
             // pulled since the gate's last look holds the call too.
-            let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
+            let person = self.read(|s| s.runs.get(&a.run).cloned()).map(|r| self.app_owner(&r, c)).unwrap_or_default();
             if let Some(h) = self.read(|s| s.runs.get(&a.run).and_then(|r| halts::may_proceed(s, &halts::Subject::of_run(s, r, Some(&a.tool)), halts::Phase::Call))) {
                 let why = match h {
                     halts::Hold::TurnedOff(_) => format!("{}, so their apps answer no calls for them until they are back", h.said()),
@@ -838,7 +838,7 @@ impl Kernel {
                     // wake a review. Only watched tools pay for the
                     // answer's clone (#369). The app's own watches, the
                     // catalog's included.
-                    if !o.is_error && c.watch.iter().any(|w| w.tool == f.remote) {
+                    if !o.is_error && c.watch.iter().any(|w| w.tool == f.remote) && !crate::team::sign_in::is_workspace_owner(&person) {
                         let data = o.structured.clone().or_else(|| serde_json::from_str(&o.text).ok()).unwrap_or(Value::Null);
                         self.note_watched(&person, &f.app, &f.remote, &c.watch, &data).await;
                     }
@@ -857,7 +857,7 @@ impl Kernel {
                 // Remote MCP connectors: a scope challenge becomes a card
                 // asking for it). Nothing happened at the app.
                 Err(crate::apps::CallError::NeedsScope(scopes)) => {
-                    let person = self.read(|s| s.runs.get(&a.run).map(|r| r.person.clone())).unwrap_or_default();
+                    let person = self.read(|s| s.runs.get(&a.run).cloned()).map(|r| self.app_owner(&r, c)).unwrap_or_default();
                     if let Err(e) = self.want_scopes(&c.name, &person, &scopes) {
                         return Err(CallFailure::NotDone(format!("{} wants more access, which could not be kept: {e:#}", f.app)));
                     }

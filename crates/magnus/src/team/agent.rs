@@ -95,7 +95,7 @@ pub(crate) fn refusal(s: &State, run: &Run, tool: &str, shared_apps: &BTreeSet<S
             None => Some(format!("{app} is not granted to this workspace, and a member's own apps do not serve a team thread")),
             Some(roles) if !roles.contains(&role) => Some(format!("{app} is not open to the {role:?} role in this workspace, so the team agent cannot use it for {}", t.requester)),
             Some(_) if !shared_apps.contains(app) => {
-                Some(format!("{app} acts through each person's own sign-in, and a team thread never uses a member's own sign-in; the workspace has no sign-in of its own for it"))
+                Some(format!("{app} acts through a sign-in, a team thread never uses a member's own sign-in, and the workspace has none for it yet: a Team Admin connects it for the workspace on the workspace's People page"))
             }
             Some(_) => None,
         };
@@ -132,9 +132,7 @@ impl Kernel {
         let w = self.read(|s| s.team.workspace(&t.workspace).cloned())?;
         let mut text =
             format!("You are the team agent of the workspace \"{}\", working for {} in a team thread. Nothing personal to any member is available here.", w.name, t.requester);
-        if !w.connectors.is_empty() {
-            text.push_str(&format!("\nThe workspace's apps: {}.", w.connectors.keys().cloned().collect::<Vec<_>>().join(", ")));
-        }
+        text.push_str(&self.workspace_apps(&t.workspace, &w));
         let project = w.channels.get(&t.channel).and_then(|c| c.project.clone()).filter(|p| w.may_read(Some(p), &t.requester));
         let mut bases = vec![("The workspace's knowledge base", w.entries(None))];
         if let Some(p) = &project {

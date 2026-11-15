@@ -12,14 +12,14 @@ pub(super) struct Registration {
 /// A person's sign-in to an app: where the provider sends them back, the
 /// app's own page when they name none.
 #[derive(Deserialize)]
-pub(super) struct SignIn {
+pub(crate) struct SignIn {
     #[serde(default)]
     pub redirect_uri: String,
 }
 
 /// The provider's answer to a sign-in, as the app passes it on.
 #[derive(Deserialize)]
-pub(super) struct SignInComplete {
+pub(crate) struct SignInComplete {
     pub state: Option<String>,
     pub code: Option<String>,
     pub iss: Option<String>,

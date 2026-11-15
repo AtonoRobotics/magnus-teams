@@ -119,7 +119,9 @@ impl Kernel {
         let Some(rf) = rf else { return Err(Refused::Unknown) };
         let Some(c) = rf.connector.clone() else { return Err(Refused::Unknown) };
         let run_id = run.map_or("", |r| r.id.as_str());
-        self.check_pin(&c, &rf, &r.person.id, run_id).await.map_err(|(why, _)| Refused::Pin(why))?;
+        // Whose sign-in it reads through: in a team thread, the workspace's (team/sign_in.rs).
+        let owner = run.map_or_else(|| r.person.id.clone(), |w| self.app_owner(w, &c));
+        self.check_pin(&c, &rf, &owner, run_id).await.map_err(|(why, _)| Refused::Pin(why))?;
         let judged = judge(&self.read(|s| s.org.policies().clone()), r.person, &rf, run)?;
         if let Some(w) = &r.within {
             let audited = Action {
@@ -143,14 +145,14 @@ impl Kernel {
             Judged::Ask(rule) => return Err(Refused::Asks(rule)),
         }
         let secret = match &c.credential {
-            Some(_) => match self.connector_secret(&c, &r.person.id).await {
+            Some(_) => match self.connector_secret(&c, &owner).await {
                 Ok(Some(s)) => Some(s),
                 Ok(None) => return Err(Refused::NotConnected),
                 Err(e) => return Err(Refused::Secret(format!("{e:#}"))),
             },
             None => None,
         };
-        let out = self.connector_call(&c, &r.person.id, r.app, secret.as_ref().map(|s| s.expose()), r.read, &r.args).await.map_err(Refused::Call)?;
+        let out = self.connector_call(&c, &owner, r.app, secret.as_ref().map(|s| s.expose()), r.read, &r.args).await.map_err(Refused::Call)?;
         if out.is_error {
             return Err(Refused::Failed(out.text));
         }

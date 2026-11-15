@@ -88,6 +88,7 @@ async fn home(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pa
         "agent": { "id": AGENT_ID, "name": AGENT_NAME },
         "members": members, "channels": channels, "projects": projects,
         "computer": k.team_computer(&ws), "spend": super::spend::summary(&w, &spent),
+        "apps": k.workspace_app_list(&w),
     }))
     .into_response())
 }

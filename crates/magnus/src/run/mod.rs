@@ -405,19 +405,19 @@ impl Kernel {
         let Some(person) = self.person(&run.person) else { return specs };
         let team = self.run_kind(&run.id).in_team();
         for c in self.connectors() {
-            // A team run never lists, let alone uses, a member's own sign-in.
-            if team && crate::team::signs_in_per_person(&c) {
+            // A team run acts through the workspace's own sign-in, never a member's (team::sign_in).
+            let owner = self.app_owner(run, &c);
+            if team && crate::team::signs_in_per_person(&c) && owner == run.person {
                 continue;
             }
-            // An app people sign in to is offered only to a run whose
-            // person has signed in to it themselves.
-            if !self.connected(&c, &run.person) || self.lapsed(&c, &run.person) {
+            // An app people sign in to is offered only once its owner signed in.
+            if !self.connected(&c, &owner) || self.lapsed(&c, &owner) {
                 continue;
             }
-            let live = self.live_app_tools(&c, &run.person).await;
+            let live = self.live_app_tools(&c, &owner).await;
             // An app refusing Magnus its tools offers none, not even those
             // pinned before: the index says it refuses (app_tools.rs).
-            if live.is_none() && self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&crate::connectors::connection_name(&c.name, &run.person)) {
+            if live.is_none() && self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&crate::connectors::connection_name(&c.name, &owner)) {
                 continue;
             }
             // Tools a third-party server added since it was connected.

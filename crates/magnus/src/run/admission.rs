@@ -81,20 +81,29 @@ impl<'a> Admission<'a> {
 
 impl Kernel {
     /// What the admission rule reads from outside the log.
-    pub(crate) fn admission_setting(&self) -> Setting {
-        let shared_apps = self.connectors().into_iter().filter(|c| !crate::team::signs_in_per_person(c)).map(|c| c.name).collect();
+    /// The apps a team thread may act through: those with no sign-in of a
+    /// person's, and, in the workspace `run` was asked in, those it holds a
+    /// sign-in of its own to (`team::sign_in`).
+    pub(crate) fn admission_setting(&self, run: &Run) -> Setting {
+        let workspace = self.team_of(&run.task).map(|t| t.workspace);
+        let shared_apps = self
+            .connectors()
+            .into_iter()
+            .filter(|c| !crate::team::signs_in_per_person(c) || workspace.as_deref().is_some_and(|w| self.workspace_signed_in(w, c)))
+            .map(|c| c.name)
+            .collect();
         Setting { shared_apps, computers: self.cfg.computer.is_some() }
     }
 
     /// Whether `run` may use `tool` now (`Admission::admits`).
     pub(crate) fn admits(&self, run: &Run, tool: &str) -> Result<(), Refusal> {
-        let setting = self.admission_setting();
+        let setting = self.admission_setting(run);
         self.read(|s| Admission::new(s, run, &setting).admits(tool))
     }
 
     /// The tools of `specs` `run` may use now.
     pub(crate) fn admitted(&self, run: &Run, specs: Vec<ToolSpec>) -> Vec<ToolSpec> {
-        let setting = self.admission_setting();
+        let setting = self.admission_setting(run);
         self.read(|s| Admission::new(s, run, &setting).filter(specs))
     }
 }

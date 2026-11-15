@@ -40,7 +40,46 @@ function teamPeopleHtml(home, candidates) {
     <h2>In ${esc(home.name)}</h2>${admin ? "" : `<p class="small faint">A Team Admin adds and removes people here.</p>`}
     <ul class="team-people">${home.members.map(row).join("")}
       <li>${avatar(home.agent.name, true)}<span>${esc(home.agent.name)}</span><span class="small faint">team agent, in every channel</span></li></ul>
+    ${admin ? teamAppsHtml(home) : ""}
     ${admin ? `<h2>Delete this workspace</h2><p class="small faint">Its channels, messages, files, projects and computer are deleted for everyone, from backups too within 30 days. This cannot be undone.</p><button class="danger" data-delete-workspace>Delete workspace</button>` : ""}</div>`;
+}
+
+/** The roles each choice of who may use an app grants it to. */
+const APP_ROLES = { off: [], members: ["member", "admin", "owner"], admins: ["admin", "owner"] };
+
+/** The workspace's apps, for its Team Admins: which the team agent may use,
+ * for whom, and, for an app people sign in to, the team's own sign-in. A
+ * member's own sign-in never serves a team thread. @param {TeamHome} home */
+function teamAppsHtml(home) {
+  const apps = home.apps || [];
+  if (!apps.length) return "";
+  const who = a => !a.roles.length ? "off" : a.roles.includes("member") ? "members" : "admins";
+  const choices = [["off", "Not in this workspace"], ["members", "Members and admins"], ["admins", "Team Admins only"]];
+  const row = a => {
+    const w = who(a);
+    const pick = `<select data-app-roles aria-label="Who may have the agent use ${esc(a.title)}">${choices.map(([v, l]) => `<option value="${v}"${v === w ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+    const sign = !a.signs_in || w === "off" ? "" : a.signed_in
+      ? `<span class="small faint">Connected for the workspace</span><button class="link" data-app-disconnect>Disconnect</button>`
+      : `<button data-app-connect>Connect for the workspace</button>`;
+    return `<li data-app="${esc(a.name)}" data-title="${esc(a.title)}"><span>${esc(a.title)}</span>${pick}${sign}</li>`;
+  };
+  return `<section data-team-apps><h2>Apps</h2><p class="small faint">What the team agent may use here. An app people sign in to is connected with the team's own account, never a member's: whoever may use it here acts through that account.</p>
+    <ul class="team-people">${apps.map(row).join("")}</ul></section>`;
+}
+
+/** A Team Admin signs an app in for the workspace, as a person connects
+ * their own from the Library: the browser, then the sign-in caught here. */
+async function connectWorkspaceApp(ws, name, title) {
+  if (!Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
+  try {
+    const caught = await Magnus.loopbackOpen(null);
+    const r = await Server.workspaces.appSignIn(ws, name, caught);
+    Magnus.openExternal(r.authorize_url).catch(() => {});
+    const got = await Magnus.loopbackWait();
+    if (got.state !== r.state) throw new Error("That sign-in came back for another request. Try again.");
+    await Server.workspaces.appSignInComplete(ws, name, { state: got.state, code: got.code, iss: got.iss });
+    toast(`${title} is connected for the workspace.`);
+  } catch (err) { toast(err.body?.message || err.message); }
 }
 
 /** Members, their roles and invites, for whoever may change them. */
@@ -52,7 +91,12 @@ async function teamPeople(center, side, ws) {
   bindInvite(center, ws);
   const again = async () => { await loadHome(ws); return teamPeople(center, side, ws); };
   const who = e => e.target.closest("[data-member]");
+  const app = e => e.target.closest("[data-app]");
   center.onchange = async e => {
+    if (e.target.matches("[data-app-roles]")) {
+      try { await Server.workspaces.grantApp(ws, app(e).dataset.app, APP_ROLES[e.target.value] || []); toast("Changed."); } catch (err) { toast(err.message); }
+      return again();
+    }
     if (!e.target.matches("[data-role]")) return;
     try { await Server.workspaces.setMember(ws, who(e).dataset.member, e.target.value); toast("Changed."); } catch (err) { toast(err.message); }
     await again();
@@ -74,6 +118,17 @@ async function teamPeople(center, side, ws) {
       try { await Server.workspaces.removeMember(ws, home.me); leftWorkspaceQuietly(ws); toast(`You left ${home.name}.`); } catch (err) { toast(err.message); }
     }
     if (e.target.closest("[data-delete-workspace]")) await deleteWorkspace(home);
+    if (e.target.closest("[data-app-connect]")) {
+      const a = app(e);
+      await connectWorkspaceApp(ws, a.dataset.app, a.dataset.title);
+      await again();
+    }
+    if (e.target.closest("[data-app-disconnect]")) {
+      const a = app(e);
+      if (!(await ask(`Disconnect ${a.dataset.title} from ${home.name}? The team agent loses it at once. Members' own connections are not touched.`, "Disconnect"))) return;
+      try { await Server.workspaces.appDisconnect(ws, a.dataset.app); toast("Disconnected."); } catch (err) { toast(err.body?.message || err.message); }
+      await again();
+    }
   };
 }
 

@@ -57,6 +57,7 @@ mod routine_sweep;
 mod routine_tests;
 pub(crate) mod routines;
 mod search;
+pub(crate) mod sign_in;
 pub mod spend;
 #[cfg(test)]
 mod spend_tests;

@@ -333,6 +333,13 @@ const Server = (() => {
       /** Add a member, or change their role. @param {Id} w @param {Id} who @param {string} role */
       setMember: (w, who, role) => post(`${ws(w)}/members`, { person: who, role }),
       removeMember: (/** @type {Id} */ w, /** @type {Id} */ who) => del(`${ws(w)}/members/${enc(who)}`),
+      /** Grant an app to the workspace for these roles; none takes it away. @param {Id} w @param {string} app @param {string[]} roles */
+      grantApp: (w, app, roles) => post(`${ws(w)}/connectors`, { app, roles }),
+      /** Start the workspace's own sign-in to an app (a Team Admin's). @param {Id} w @param {string} app @param {string} redirect_uri */
+      appSignIn: (w, app, redirect_uri) => post(`${ws(w)}/connectors/${enc(app)}/sign-in`, { redirect_uri }),
+      /** @param {Id} w @param {string} app @param {{state: string, code: string, iss?: string}} body */
+      appSignInComplete: (w, app, body) => post(`${ws(w)}/connectors/${enc(app)}/sign-in/complete`, body),
+      appDisconnect: (/** @type {Id} */ w, /** @type {string} */ app) => del(`${ws(w)}/connectors/${enc(app)}/connection`),
       /** @param {Id} w @param {{title: string, project?: Id, status?: string, from?: any}} body */
       addTask: (w, body) => post(`${ws(w)}/tasks`, body),
       updateTask: (/** @type {Id} */ w, /** @type {Id} */ id, /** @type {any} */ body) => put(`${ws(w)}/tasks/${enc(id)}`, body),

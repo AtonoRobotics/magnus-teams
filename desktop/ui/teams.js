@@ -17,7 +17,8 @@ const teamRoleLabel = r => ({ owner: "Team Admin (owner)", admin: "Team Admin", 
  * @typedef {{ id: string, name: string, project: ?string, mode: "mentions"|"when_helpful", notify: "all"|"mentions"|"off", unread: number, mentions: number, direct: ?{ people: string[], agent: boolean }, archived?: boolean, deleted?: boolean }} TeamChannel
  * @typedef {{ id: string, name: string, owner: string, members: string[], progress: { done: number, total: number }, channels: string[] }} TeamProject
  * @typedef {{ spent_usd: number, limit_usd: ?number, channels: Object<string, { spent_usd: number, limit_usd: ?number }> }} TeamSpend
- * @typedef {{ id: string, name: string, role: string, me: string, me_name: string, agent: { id: string, name: string }, members: TeamMember[], channels: TeamChannel[], projects: TeamProject[], computer: ?string, spend?: TeamSpend }} TeamHome
+ * @typedef {{ name: string, title: string, roles: string[], signs_in: boolean, signed_in: boolean }} TeamApp
+ * @typedef {{ id: string, name: string, role: string, me: string, me_name: string, agent: { id: string, name: string }, members: TeamMember[], channels: TeamChannel[], projects: TeamProject[], computer: ?string, spend?: TeamSpend, apps?: TeamApp[] }} TeamHome
  * @typedef {{ kind: "channel"|"project"|"activity"|"search"|"people", id?: string, thread?: string, tab?: string, q?: string }} TeamPlace
  */
 

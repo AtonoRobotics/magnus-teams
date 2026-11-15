@@ -39,6 +39,10 @@ impl Kernel {
     /// After an app is connected: its first connection by this person,
     /// never a reconnection.
     pub fn open_after_connect(self: &Arc<Self>, person: &str, app: &str) {
+        // A workspace's sign-in has no Magnus chat of its own to open in.
+        if crate::team::sign_in::is_workspace_owner(person) {
+            return;
+        }
         if self.read(|s| s.apps.connections(person, app)) == Some(1) {
             self.open(person, Some(app));
         }
