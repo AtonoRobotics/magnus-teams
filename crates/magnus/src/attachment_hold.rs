@@ -68,11 +68,10 @@ pub fn held(run: &str, name: &str) -> Option<String> {
     held_at(run, name, Instant::now())
 }
 
+/// A read drops nothing: bytes past their hour read as gone, and the next
+/// hold prunes them. So no read can take another run's bytes with it.
 fn held_at(run: &str, name: &str, now: Instant) -> Option<String> {
-    with(|held| {
-        prune(held, now);
-        held.iter().rev().find(|h| h.run == run && h.name == name).map(|h| h.data_b64.clone())
-    })
+    with(|held| held.iter().rev().find(|h| h.run == run && h.name == name && now.saturating_duration_since(h.at) < HELD_FOR).map(|h| h.data_b64.clone()))
 }
 
 /// A run has ended: what it fetched goes with it.
@@ -105,5 +104,16 @@ mod tests {
         hold_at("run-hold-2", vec![photo("a.jpeg")], then);
         assert!(held_at("run-hold-2", "a.jpeg", then + HELD_FOR / 2).is_some());
         assert_eq!(held_at("run-hold-2", "a.jpeg", then + HELD_FOR), None, "it outlived its hour");
+    }
+
+    /// A read with a later clock answers for its own run only: it took the
+    /// whole store with it, and another run's bytes went before their hour.
+    #[test]
+    fn a_late_read_leaves_another_runs_bytes() {
+        let now = Instant::now();
+        hold_at("run-hold-3", vec![photo("b.jpeg")], now);
+        assert_eq!(held_at("run-hold-4", "x.jpeg", now + HELD_FOR * 2), None);
+        assert_eq!(held("run-hold-3", "b.jpeg").as_deref(), Some("SEVMTE8="), "a read of another run dropped these bytes");
+        release("run-hold-3");
     }
 }
