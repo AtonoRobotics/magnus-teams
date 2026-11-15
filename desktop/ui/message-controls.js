@@ -20,6 +20,27 @@
  * What the Feedback dialog needs: the task to judge, the verdict so far,
  * and, where a surface has them, quick reactions.
  * @typedef {{ task?: ?string, verdict?: any, reaction?: ?string, react?: (a: string) => Promise<any>, focus?: () => any }} FeedbackOptions
+ * Where a conversation's message actions go: the personal chat's routes or
+ * the team's. Each conversation gives every one of these, so the two tables
+ * have the same keys; what an action means there is its own (decisions/2026-11-14-one-conversation.md).
+ * @typedef {Object} ChatTransport
+ * @property {(e: any) => string} text the words Copy takes
+ * @property {(e: any, text: string) => Promise<any>} resend Edit's send
+ * @property {(e: any) => Promise<any>} retry
+ * @property {(e: any) => any} branch
+ * @property {() => Promise<Array<{ id: string, name: string }>>} people whom it may be shared with
+ * @property {string} nobody what Share says when there is no one
+ * @property {(e: any, to: string) => Promise<any>} share
+ * @property {(e: any) => string} exportPath
+ * @property {(e: any) => string} exportName
+ * @property {(e: any) => Promise<any>} save
+ * @property {(e: any) => Promise<string>|string} script what Read aloud reads
+ * @property {(e: any, view: any) => FeedbackOptions} feedback
+ * @property {(e: any) => Promise<any>} task
+ * @property {(e: any) => Promise<any>} pin
+ * @property {string} deleting what Delete asks first
+ * @property {(e: any) => Promise<any>} remove
+ * @property {(view: any, act?: string) => Promise<any>} after draws again once an action is done
  */
 const MessageControls = (() => {
   /** Actions whose adapter method is named otherwise. */
@@ -116,6 +137,48 @@ const MessageControls = (() => {
     return d;
   }
 
-  return { controls, html, shareRow, run, feedback, method };
+  /**
+   * The one adapter both conversations' controls run on: what the view keeps
+   * (the edit box, whom to share with), the words it says, and a transport
+   * for where each action goes.
+   * @param {any} e the entry @param {any} view the chat view @param {HTMLElement} b the control @param {HTMLElement} el the entry's element @param {ChatTransport} t
+   * @returns {Object<string, Function>}
+   */
+  function adapter(e, view, b, el, t) {
+    const id = e.id, ui = view.ui, find = q => $(q, view.section);
+    return {
+      copy: async () => { await copyText(t.text(e)); toast("Copied."); },
+      listen: () => readAloud(t.script(e), view.conv.voice ? view.conv.voice(e) : id),
+      hush: () => hush(),
+      edit: () => { drafts[`edit-${id}`] = e.text || ""; ui.editing = id; return view.draw(); },
+      editCancel: () => { ui.editing = null; return view.draw(); },
+      editSend: async () => {
+        const typed = (find(`#edit-${CSS.escape(id)}`)?.value || "").trim();
+        if (!typed) return toast("Write the message first.");
+        b.disabled = true; await t.resend(e, typed); ui.editing = null; delete drafts[`edit-${id}`]; return t.after(view, "edit");
+      },
+      retry: async () => { b.disabled = true; await t.retry(e); return t.after(view, "retry"); },
+      branch: () => t.branch(e),
+      share: async () => { ui.people = await t.people(); if (!ui.people.length) return toast(t.nobody); ui.sharing = id; return view.draw(); },
+      shareCancel: () => { ui.sharing = null; return view.draw(); },
+      shareSend: async () => {
+        const to = $("[data-share-to]", el)?.value;
+        if (!to) return;
+        b.disabled = true; await t.share(e, to); ui.sharing = null;
+        toast(`Shared with ${ui.people.find(p => p.id === to)?.name || to}.`); return view.draw();
+      },
+      export: async () => toast(`Saved ${await Magnus.download(t.exportPath(e), t.exportName(e))}`),
+      save: async () => { await t.save(e); toast("Saved to Files."); },
+      task: () => t.task(e),
+      pin: async () => { await t.pin(e); return t.after(view, "pin"); },
+      feedback: () => ({ ...t.feedback(e, view), focus: () => find(`[data-entry="${CSS.escape(id)}"] .menu-trigger`) }),
+      delete: async () => {
+        if (!await ask(t.deleting, "Delete")) return;
+        await t.remove(e); return t.after(view, "delete");
+      },
+    };
+  }
+
+  return { controls, html, shareRow, run, feedback, method, adapter };
 })();
 if (typeof module !== "undefined") module.exports = MessageControls;

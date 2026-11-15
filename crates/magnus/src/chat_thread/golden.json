@@ -241,7 +241,15 @@
           "delete": true
         }
       }
-    ]
+    ],
+    "caps": {
+      "several": false,
+      "reactions": false,
+      "pins": false,
+      "threads": false,
+      "whisper": false,
+      "typing": false
+    }
   },
   "th2": {
     "thread": "th2",
@@ -286,7 +294,15 @@
           "delete": true
         }
       }
-    ]
+    ],
+    "caps": {
+      "several": false,
+      "reactions": false,
+      "pins": false,
+      "threads": false,
+      "whisper": false,
+      "typing": false
+    }
   },
   "branch": {
     "thread": "<branch>",
@@ -469,7 +485,15 @@
         },
         "copied": true
       }
-    ]
+    ],
+    "caps": {
+      "several": false,
+      "reactions": false,
+      "pins": false,
+      "threads": false,
+      "whisper": false,
+      "typing": false
+    }
   },
   "old_branch": {
     "thread": "old-branch",
@@ -529,6 +553,14 @@
           "delete": true
         }
       }
-    ]
+    ],
+    "caps": {
+      "several": false,
+      "reactions": false,
+      "pins": false,
+      "threads": false,
+      "whisper": false,
+      "typing": false
+    }
   }
 }

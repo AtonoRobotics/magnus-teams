@@ -7,9 +7,9 @@
 //! even mid-task, when it is lowered or overrun.
 use super::caller::{at, Member};
 use super::chat::Chat;
-use super::routes::{has_channel, send, Reply, K};
+use super::routes::{has_channel, send, K};
 use super::{Change, Workspace};
-use crate::api::err;
+use crate::api_error::{refuse, ApiResult};
 use crate::kernel::{Kernel, NewRun};
 use crate::state::State;
 use axum::extract::{Path, State as Ax};
@@ -194,17 +194,17 @@ struct Limit {
 }
 
 /// Only an owner sets a limit, for the workspace or one of its channels.
-async fn set_limit(Ax(k): K, Member { person: p, .. }: Member<at::Owner>, Path(ws): Path<String>, Json(b): Json<Limit>) -> Reply {
+async fn set_limit(Ax(k): K, Member { person: p, .. }: Member<at::Owner>, Path(ws): Path<String>, Json(b): Json<Limit>) -> ApiResult {
     if b.usd.is_some_and(|u| !u.is_finite() || !(0.0..=MAX_LIMIT_USD).contains(&u)) {
-        return err(StatusCode::BAD_REQUEST, "a limit is an amount of dollars from 0 up");
+        return refuse(StatusCode::BAD_REQUEST, "a limit is an amount of dollars from 0 up");
     }
     if let Some(c) = &b.channel {
         if !has_channel(&k, &ws, c, &p.id) {
-            return err(StatusCode::NOT_FOUND, "no such channel");
+            return refuse(StatusCode::NOT_FOUND, "no such channel");
         }
     }
-    ok_or_return!(send(&k, &p, Change::Chat { workspace: ws, chat: Chat::SpendLimit { channel: b.channel, usd: b.usd } }).await);
-    Json(json!({ "ok": true })).into_response()
+    send(&k, &p, Change::Chat { workspace: ws, chat: Chat::SpendLimit { channel: b.channel, usd: b.usd } }).await?;
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 #[cfg(test)]

@@ -26,7 +26,7 @@ vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globa
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
-const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files }; };
+const served = m => { const files = m.files || String(m.text || "").split("\n").filter(l => l.startsWith("📎 ")).map(l => l.slice(2).trim()).map(name => ({ id: name, name })); const kind = m.kind || (m.deleted ? "deleted" : m.sender !== "agent" ? "message" : m.text ? "answer" : "tasks"); return kind === "tasks" && m.work ? { ...m, kind, files, work: undefined, tasks: [m.work], from_run: m.work.task_id } : { ...m, kind, files, text: String(m.text || "").split("\n").filter(l => !l.startsWith("📎 ")).join("\n"), task_id: m.task_id ?? m.task, for: m.for ?? (kind === "answer" && m.requester ? m.requester[0].toUpperCase() + m.requester.slice(1) : undefined) }; };
 const { ChatView, Team } = sandbox.__x;
 Team.home = { id: "w", role: "member", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }], channels: [{ id: "c1", name: "general", direct: null }], projects: [] };
 const state = { ws: "w", channel: "c1", view: { messages: [], names: {} }, files: {}, pinsOnly: false, whispers: [], hidden: new Set(), unreadAtOpen: 0, typedAt: 0 };
@@ -90,6 +90,36 @@ const began = sandbox.teamEntry({ id: "work:t5", kind: "tasks", sender: "agent",
   tasks: [{ task_id: "t5", title: "Following up", text: "Following up", status: "running", waiting_on: null, status_line: null, requester: "dana", steps: 1, doing: null, long: false, thread: null }] }, reader);
 assert.equal(began.kind, "work", "a tasks entry from the team is not drawn as the work card");
 assert.equal(began.work?.id, "t5", "a tasks entry's row is not the work row");
+
+// What a conversation has beside its items is the server's `caps`: the view
+// draws names, reactions, threads and typing from them, not from which
+// hooks a conversation happens to have.
+const quiet = { ...state, view: { messages: [], names: {}, typing: ["Dana"], caps: { several: false, reactions: false, pins: false, threads: false, whisper: false, typing: false } } };
+const told1 = sandbox.teamConversation(quiet, null);
+assert.ok(!ChatView.several(told1), "a conversation the server says has one person is drawn with several");
+const quietHtml = draw(told1, sandbox.teamEntry(served({ id: "m9", sender: "dana", text: "hi", thread: null, at: "" }), reader));
+assert.doesNotMatch(quietHtml, /data-react|data-reply|team-avatar/, "reactions, threads or names drawn where the server says there are none");
+assert.equal(told1.status({}), "", "who is typing shows where the server says it does not");
+const loud = { ...quiet, view: { ...quiet.view, caps: { several: true, reactions: true, pins: true, threads: true, whisper: true, typing: true } } };
+const told2 = sandbox.teamConversation(loud, null);
+assert.ok(ChatView.several(told2));
+assert.match(draw(told2, sandbox.teamEntry(served({ id: "m9", sender: "dana", text: "hi", thread: null, at: "" }), reader)), /data-react[^]*data-reply/, "a channel's reactions and threads are not drawn");
+assert.match(told2.status({}), /Dana is typing/);
+// An older server sends no caps: a channel is still a conversation of several.
+assert.ok(ChatView.several(team), "a channel from a server that sends no caps lost its people");
+
+// Every data-* attribute the chat's files draw or read is one of these,
+// each with one meaning: a whisper's Share is not the message control's.
+const DATA_ATTRIBUTES = new Set([
+  "agent-mode", "answer", "archive", "attach", "card", "catch-up", "chat-task", "chat-work", "clear-conversation", "close-feedback", "decide", "draft", "entry",
+  "feedback-react", "file-download", "jump-latest", "kind", "live", "mention", "menu", "model", "msg-act", "not-now", "notify", "open", "open-thread", "picker",
+  "pins", "react", "remove-upload", "reply", "retry-upload", "sched-act", "share-answer", "share-to", "shown", "status", "task", "task-act", "tooltip", "upload",
+  "view", "voice-entry", "whisper", "whisper-share",
+]);
+for (const f of ["chat-view.js", "message-controls.js", "chat-composer.js", "personal-chat.js", "team-chat.js", "team-conversation.js"]) {
+  for (const [, name] of ui(f).matchAll(/data-([a-z][a-z-]*[a-z])/g)) assert.ok(DATA_ATTRIBUTES.has(name), `${f} uses data-${name}, which is not in the list`);
+  assert.doesNotMatch(ui(f), /data-share[=\]"]|data-team-download|dataset\.share\b|dataset\.teamDownload/, `${f} still uses a renamed attribute`);
+}
 
 // The one view and the one composer: no team copy of either is left.
 for (const f of ["team-chat.js", "team-conversation.js"]) {

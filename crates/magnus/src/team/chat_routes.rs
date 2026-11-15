@@ -11,10 +11,9 @@ use super::routes::{has_channel, new_id, send, Reply, K};
 use super::{presence, Change, Workspace};
 use crate::api_error::{refuse, ApiResult};
 use crate::config::Person;
+use crate::conversation::{channel as conv, Conversation, NO_SUCH_MESSAGE};
 use crate::kernel::Kernel;
-use crate::message_file;
 use axum::extract::{Path, State};
-use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
@@ -102,30 +101,30 @@ pub(super) fn when(item: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>
 /// has the personal chat's message controls, Export among them (owner,
 /// 2026-11-13).
 async fn export(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel, id)): Path<(String, String, String)>) -> ApiResult {
-    let now = chrono::Utc::now();
-    let found = k.read(|s| MemberView::of(s, &ws, &p.id).and_then(|v| v.message(&channel, &id, now).map(|m| (m.author().to_string(), m.at(), m.text().to_string()))));
-    let Some((by, at, text)) = found.filter(|(_, _, t)| !t.is_empty()) else { return refuse(StatusCode::NOT_FOUND, "no such message") };
-    let body = message_file::markdown(&name_of(&k, &by), &message_file::at_text(at), &text);
-    let name = message_file::file_name(&text);
-    Ok(([(CONTENT_TYPE, "text/markdown; charset=utf-8".to_string()), (CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], body).into_response())
+    let names = conv::names(&k, &ws);
+    conv::read(&k, &ws, &p.id, &channel, &names, |c| {
+        c.entry(&id).and_then(|e| if c.text(&e).is_empty() { refuse(StatusCode::NOT_FOUND, NO_SUCH_MESSAGE) } else { c.export(&e.id) })
+    })
 }
 
 /// A channel as it reads now: messages with their reactions, edits, pins
 /// and reply counts; the agent's work and answers; who is typing.
-async fn view(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
+async fn view(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     presence::seen(&ws, &p.id);
     let now = chrono::Utc::now();
-    let items = k.read(|s| MemberView::of(s, &ws, &p.id).map(|v| items::timeline(&v, &channel, now)).unwrap_or_default());
+    let none = conv::Names::new();
+    let items = k.read(|s| MemberView::of(s, &ws, &p.id).map(|view| conv::Channel { view, channel: &channel, thread: None, now, names: &none }.entries()).unwrap_or_default());
     let working = k.read(|s| s.team.runs_in(&ws, &channel).iter().any(|r| s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)).is_some_and(|run| !run.status.terminal())));
     let mut typing: Vec<String> = presence::typing_in(&ws, &channel).into_iter().filter(|t| t != &p.id).map(|t| name_of(&k, &t)).collect();
     if working {
         typing.push(AGENT_NAME.to_string());
     }
     let names: BTreeMap<String, String> = items.iter().flat_map(|i| i.sender.iter().chain(i.requester.as_ref())).map(|id| (id.clone(), name_of(&k, id))).collect();
-    Ok(Json(json!({ "messages": items, "typing": typing, "names": names })).into_response())
+    let caps = conv::Channel::<crate::state::State>::caps_for(role);
+    Ok(Json(json!({ "messages": items::for_the_app(items, &names), "typing": typing, "names": names, "caps": caps })).into_response())
 }
 
 #[derive(Deserialize)]
