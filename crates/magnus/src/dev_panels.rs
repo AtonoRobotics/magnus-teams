@@ -58,7 +58,7 @@ pub(crate) async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
         // Interventions per task: decisions a person had to make.
         let mut by_kind: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut interventions = 0usize;
-        for i in s.items.values() {
+        for i in s.inbox.items().values() {
             if let (Some(run), true) = (&i.run, ["approval", "question", "review", "notice"].contains(&i.kind.as_str()) && i.run.as_deref().is_some_and(|r| seen.contains(r))) {
                 interventions += 1;
                 by_kind.entry(i.kind.clone()).or_default().insert(run.clone());
@@ -97,7 +97,7 @@ pub(crate) async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
 
         let mut scopes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut granted = 0usize;
-        for a in &s.approvals {
+        for a in s.inbox.approvals() {
             let run = s.tasks.get(&a.task).map(|t| t.run_id.clone()).unwrap_or_default();
             if !seen.contains(run.as_str()) {
                 continue;
@@ -162,7 +162,7 @@ pub(crate) async fn metrics(AxState(k): K, h: HeaderMap) -> Response {
             rows(fail),
         ));
 
-        let reviews = ids(&|r| s.items.values().any(|i| i.kind == "review" && i.run.as_deref() == Some(&r.id)));
+        let reviews = ids(&|r| s.inbox.items().values().any(|i| i.kind == "review" && i.run.as_deref() == Some(&r.id)));
         panels.push(panel("review_load", "Review cards (criteria without a check)", json!(reviews.len()), "runs", reviews, vec![]));
 
         let mut recent: Vec<u64> = capture.recent.iter().copied().collect();
@@ -231,7 +231,8 @@ pub(crate) async fn policy(AxState(k): K, h: HeaderMap) -> Response {
             })
             .collect();
         let proposals: Vec<Value> = s
-            .items
+            .inbox
+            .items()
             .values()
             .filter(|i| i.kind == "policy_proposal")
             .filter_map(|i| {

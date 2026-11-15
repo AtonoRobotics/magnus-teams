@@ -331,20 +331,12 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.apps.canonical_fields());
     v.extend(s.arrangements.canonical_fields());
     v.extend(s.library.canonical_fields());
+    v.extend(s.inbox.canonical_fields());
     v.extend([
         ("erasures", d(&s.erasures)),
         ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
         ("tools.consents", d(&s.tools.consents)),
         ("runs.outputs", d(&s.runs.iter().map(|(id, r)| (id, &r.outputs)).collect::<std::collections::BTreeMap<_, _>>())),
-        ("items", d(&s.items)),
-        ("items_opened", d(&s.items_opened)),
-        ("items_resolved_at", d(&s.items_resolved_at)),
-        ("approvals", d(&s.approvals)),
-        ("reviews_last", d(&s.reviews_last)),
-        ("reviews_overnight", d(&s.reviews_overnight)),
-        ("interrupts", d(&s.interrupts)),
-        ("review_runs", d(&s.review_runs)),
-        ("wake_marks", d(&s.wake_marks)),
         ("runs.waiting_item", d(&s.runs.iter().map(|(id, r)| (id, &r.waiting_item)).collect::<std::collections::BTreeMap<_, _>>())),
         ("tasks.schedule", d(&s.tasks.iter().map(|(id, t)| (id, &t.schedule)).collect::<Vec<_>>())),
     ]);

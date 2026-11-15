@@ -663,7 +663,7 @@ impl Kernel {
         let dests = self.destinations_of(a, f, shown);
         let lookup = matches!(f.app.as_str(), "web" | "browser") && f.connector.is_none();
         // An approved destination is remembered (spec rev 140, What still asks).
-        let remembered = |d: &String| self.read(|s| crate::asks::remembered(&s.approvals, &run.person, d));
+        let remembered = |d: &String| self.read(|s| crate::asks::remembered(&s.inbox.approvals(), &run.person, d));
         let theirs = match shown {
             _ if transmits && untrusted && private && !dests.is_empty() && dests.iter().all(remembered) => true,
             Some(s) if transmits && untrusted && private => {

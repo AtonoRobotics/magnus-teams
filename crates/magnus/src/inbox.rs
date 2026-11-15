@@ -100,7 +100,7 @@ pub fn render(s: &State, p: &Person, i: &Item) -> Value {
         "details": if i.kind == "approval" { crate::asks::without_reasoning(&i.details) } else { i.details.clone() },
         "ask": (i.kind == "approval").then(|| crate::asks::card(s, p, i)),
         "created_at": i.created_at,
-        "opened_at": s.items_opened.get(&i.id),
+        "opened_at": s.inbox.items_opened().get(&i.id),
         "status": if i.resolution.is_some() { "resolved" } else { "open" },
         "resolution": i.resolution.as_ref().map(|(d, s, t, by)| json!({ "decision": d, "scope": s, "text": t, "by": by })),
         "can_respond": i.resolution.is_none() && may_respond(s, p, i),
@@ -113,7 +113,7 @@ pub fn render(s: &State, p: &Person, i: &Item) -> Value {
 impl Kernel {
     pub async fn respond(self: &Arc<Self>, p: &Person, item_id: &str, body: &Value) -> Result<Answer> {
         let _decide = self.decide.lock().await;
-        let Some(item) = self.read(|s| s.items.get(item_id).cloned()) else { return Ok(Answer::NotFound) };
+        let Some(item) = self.read(|s| s.inbox.items().get(item_id).cloned()) else { return Ok(Answer::NotFound) };
         if !self.read(|s| visible(s, p, &item)) {
             return Ok(Answer::NotFound);
         }

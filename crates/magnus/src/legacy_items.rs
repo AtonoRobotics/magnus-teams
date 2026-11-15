@@ -51,7 +51,7 @@ impl Kernel {
     /// Retire every open item of a retired kind, each in one write with
     /// what its run is told. Run once at startup, before runs are driven.
     pub async fn retire_legacy_items(self: &Arc<Self>) -> Result<usize> {
-        let open: Vec<(Item, Retired)> = self.read(|s| s.items.values().filter_map(|i| retiring(i).map(|r| (i.clone(), r))).collect());
+        let open: Vec<(Item, Retired)> = self.read(|s| s.inbox.items().values().filter_map(|i| retiring(i).map(|r| (i.clone(), r))).collect());
         let n = open.len();
         for (item, what) in open {
             let run = item.run.clone().unwrap_or_default();

@@ -519,7 +519,7 @@ impl Kernel {
         use sha2::Digest;
         let call = details["call_id"].as_str().unwrap_or_default().to_string();
         let id = if call.is_empty() { new_id("item") } else { format!("item_{}", &hex::encode(sha2::Sha256::digest(format!("{}\n{call}\n{kind}", run.id).as_bytes()))[..32]) };
-        if self.read(|s| s.items.contains_key(&id)) {
+        if self.read(|s| s.inbox.items().contains_key(&id)) {
             return (id, None);
         }
         details["taint"] = json!({ "untrusted": run.untrusted, "private": run.private });

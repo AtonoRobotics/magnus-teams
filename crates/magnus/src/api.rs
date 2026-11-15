@@ -753,7 +753,7 @@ pub(crate) fn title_of(task: &crate::state::Task, run: Option<&Run>, words: &cra
 
 /// Whether the task waits on an inbox item this person can answer.
 fn needs(s: &crate::state::State, p: &Person, run: &Run) -> bool {
-    run.status == Status::Suspended && s.items.values().any(|i| i.run.as_deref() == Some(run.id.as_str()) && i.resolution.is_none() && inbox::may_respond(s, p, i))
+    run.status == Status::Suspended && s.inbox.items().values().any(|i| i.run.as_deref() == Some(run.id.as_str()) && i.resolution.is_none() && inbox::may_respond(s, p, i))
 }
 
 /// A task in a list: what it is, where it stands, whether it needs this
@@ -833,7 +833,7 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         v["ended_at"] = json!(run.ended_at);
         v["waiting_item"] = json!(run.waiting_item);
         v["config"] = json!({ "harness": run.config.harness, "instructions": run.config.instructions, "playbook": run.config.playbook });
-        v["open_items"] = json!(k.read(|s| s.items.values().filter(|i| i.run.as_deref() == Some(&run.id) && i.resolution.is_none()).map(|i| i.id.clone()).collect::<Vec<_>>()));
+        v["open_items"] = json!(k.read(|s| s.inbox.open_for_run(&run.id).map(|i| i.id.clone()).collect::<Vec<_>>()));
     }
     v
 }
@@ -1141,13 +1141,13 @@ async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
                 }
             }
         }
-        for i in s.items.values().filter(|i| inbox::visible(s, &p, i)) {
+        for i in s.inbox.items().values().filter(|i| inbox::visible(s, &p, i)) {
             let row = inbox::render(s, &p, i);
             if i.created_at > since {
                 arrived.push((i.created_at, row.clone()));
             }
-            if i.resolution.is_some() && s.items_resolved_at.get(&i.id).is_some_and(|a| *a > since) {
-                decided.push((s.items_resolved_at[&i.id], row.clone()));
+            if i.resolution.is_some() && s.inbox.items_resolved_at().get(&i.id).is_some_and(|a| *a > since) {
+                decided.push((s.inbox.items_resolved_at()[&i.id], row.clone()));
             }
             if i.resolution.is_none() && (i.kind == "observation" || i.kind == "interrupt") {
                 observations.push((i.created_at, row));
@@ -1181,9 +1181,9 @@ async fn inbox_opened(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> A
         let mut marked = vec![];
         let mut fresh = vec![];
         for id in b["ids"].as_array().cloned().unwrap_or_default().into_iter().filter_map(|v| v.as_str().map(String::from)) {
-            if s.items.get(&id).is_some_and(|i| inbox::visible(s, &p, i)) {
+            if s.inbox.items().get(&id).is_some_and(|i| inbox::visible(s, &p, i)) {
                 marked.push(id.clone());
-                if !s.items_opened.contains_key(&id) {
+                if !s.inbox.items_opened().contains_key(&id) {
                     fresh.push(id);
                 }
             }
@@ -1199,7 +1199,7 @@ async fn inbox_opened(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> A
 }
 
 async fn inbox_list(State(k): K, Caller(p): Caller) -> ApiResult {
-    let mut items: Vec<Value> = k.read(|s| s.items.values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
+    let mut items: Vec<Value> = k.read(|s| s.inbox.items().values().filter(|i| inbox::visible(s, &p, i)).map(|i| inbox::render(s, &p, i)).collect());
     // An approval for an app's action carries the app's card, as the person
     // whose task it is stands with it (connectors spec: the same card in the
     // Library, in chat, in a task and in approvals).

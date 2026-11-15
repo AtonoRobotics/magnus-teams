@@ -115,7 +115,7 @@ fn contested_actions(s: &State, seen: Seen) -> Value {
 fn approved_unchanged(s: &State, seen: Seen) -> Value {
     let mut tally = Tally::default();
     let (mut asked, mut unchanged) = (0, 0);
-    for i in s.items.values().filter(|i| i.kind == "approval" && i.run.as_deref().is_some_and(seen)) {
+    for i in s.inbox.items().values().filter(|i| i.kind == "approval" && i.run.as_deref().is_some_and(seen)) {
         asked += 1;
         let (Some(run), Some((decision, _, text, _))) = (&i.run, &i.resolution) else { continue };
         if decision == "approve" && text.as_deref().is_none_or(str::is_empty) {

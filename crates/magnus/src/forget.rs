@@ -49,7 +49,7 @@ impl Erased {
         Erased {
             person: person.to_string(),
             runs: s.runs.values().filter(|r| r.person == person).map(|r| r.id.clone()).collect(),
-            items: s.items.values().filter(|i| i.person == person).map(|i| i.id.clone()).collect(),
+            items: s.inbox.items().values().filter(|i| i.person == person).map(|i| i.id.clone()).collect(),
             files: s.library.files().iter().filter(|(_, f)| f.person == person).map(|(id, _)| id.clone()).collect(),
             tasks,
             threads,
@@ -104,6 +104,7 @@ impl State {
             apps,
             arrangements,
             library,
+            inbox,
             tools,
             spend,
             catalog,
@@ -112,13 +113,9 @@ impl State {
             removed_threads,
             tasks,
             runs,
-            items,
-            approvals,
             signed_in_before,
             last_sign_in,
             home_last_open,
-            items_opened,
-            items_resolved_at,
             openers,
             turned_off,
             provider_rights,
@@ -127,11 +124,6 @@ impl State {
             preferences,
             stopped_by_person,
             draft_sources,
-            reviews_last,
-            reviews_overnight,
-            interrupts,
-            review_runs,
-            wake_marks,
             attachments,
             // Kept: the record of what was done and of the erasure itself
             // (#195), the organisation's own settings, apps, policies and
@@ -144,7 +136,7 @@ impl State {
             admin_settings: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 23] = [
+        let parts: [&mut dyn Forget; 24] = [
             computers,
             payments,
             rules,
@@ -165,6 +157,7 @@ impl State {
             apps,
             arrangements,
             library,
+            inbox,
             tools,
             spend,
             catalog,
@@ -174,10 +167,6 @@ impl State {
         }
         tasks.retain(|_, t| t.person != p);
         runs.retain(|_, r| r.person != p);
-        items.retain(|_, i| i.person != p && i.run.as_ref().is_none_or(|r| !who.runs.contains(r)));
-        // Their items' opened and resolved marks go with the items (#412).
-        items_opened.retain(|id, _| !who.items.contains(id));
-        items_resolved_at.retain(|id, _| !who.items.contains(id));
         stopped_by_person.retain(|r| !who.runs.contains(r));
         turned_off.remove(p);
         trash.retain(|_, t| t.person != p);
@@ -186,12 +175,6 @@ impl State {
         preferences.remove(p);
         // What their drafts were written from.
         draft_sources.retain(|_, d| d.person != p);
-        // The proactive loop's scheduling for them.
-        reviews_last.remove(p);
-        reviews_overnight.remove(p);
-        interrupts.remove(p);
-        review_runs.retain(|_, x| x != p);
-        wake_marks.retain(|k, _| k.split_once(':').is_some_and(|(x, _)| x != p));
         // What their tasks had attached goes too.
         attachments.retain(|t, _| !who.tasks.contains(t));
         subjects.remove(p);
@@ -205,11 +188,6 @@ impl State {
         // name starts from the organisation's config.
         roles_set.remove(p);
         provider_rights.remove(p);
-        // So do the approvals given for their actions: none covers whoever
-        // is next known by their name (#191). Those they gave others stay,
-        // as given; the gate still asks whether their approver may give a
-        // lasting one.
-        approvals.retain(|a| a.person != p);
     }
 }
 

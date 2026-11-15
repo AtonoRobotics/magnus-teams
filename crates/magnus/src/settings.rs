@@ -232,7 +232,7 @@ async fn request_deletion(State(k): K, Caller(p): Caller, Json(b): Json<Value>) 
 async fn deletion_requests(State(k): K, Caller(p): Caller) -> ApiResult {
     let list: Vec<Value> = k.read(|s| {
         let mut v: Vec<&crate::state::Item> =
-            s.items.values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || crate::people::rights(&p).decides_deletion_requests())).collect();
+            s.inbox.items().values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || crate::people::rights(&p).decides_deletion_requests())).collect();
         v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         v.into_iter()
             .map(|i| {
@@ -259,7 +259,7 @@ mod tests {
         assert_eq!(s.post(&sam, "/v1/admin/step-up", json!({ "password": "a-long-admin-password" })).await.0, 200);
         let (st, v) = s.call(&sam, reqwest::Method::DELETE, "/v1/people/mo/account", None).await;
         assert_eq!(st, 204, "{v}");
-        let told = s.k.read(|st| st.items.values().any(|i| i.person == "mo" && i.kind == "notice" && i.details["reason"] == "account_unbound"));
+        let told = s.k.read(|st| st.inbox.items().values().any(|i| i.person == "mo" && i.kind == "notice" && i.details["reason"] == "account_unbound"));
         assert!(told, "mo was not told their account was unbound");
         s.done().await;
     }

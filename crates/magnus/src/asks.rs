@@ -345,9 +345,9 @@ impl Kernel {
             let thread = |task: &str| s.tasks.get(task).and_then(|t| t.chat.as_ref()).filter(|c| c.turn).map(|c| c.thread.clone());
             let mut tasks = s.lineage(&run.id);
             let threads: Vec<String> = tasks.iter().filter_map(|t| thread(t)).collect();
-            tasks.extend(s.approvals.iter().filter(|ap| thread(&ap.task).is_some_and(|t| threads.contains(&t))).map(|ap| ap.task.clone()));
+            tasks.extend(s.inbox.approvals().iter().filter(|ap| thread(&ap.task).is_some_and(|t| threads.contains(&t))).map(|ap| ap.task.clone()));
             let q = Query { person: &run.person, tasks: &tasks, tool: &a.tool, risk: f.risk.as_str(), hash, reason, destinations: dests, now: chrono::Utc::now() };
-            s.approvals.iter().filter(|ap| covers(ap, &q)).cloned().collect()
+            s.inbox.approvals().iter().filter(|ap| covers(ap, &q)).cloned().collect()
         });
         // An approval stands for the work only when the person whose work it
         // is gave it (spec rev 145, Approvals: an ask goes to the requester).
@@ -452,7 +452,8 @@ impl Kernel {
         }
         self.decision(a, "ask", "approval", why, Some(rule.into())).await?;
         let open = self.read(|s| {
-            s.items
+            s.inbox
+                .items()
                 .values()
                 .find(|i| i.run.as_deref() == Some(&a.run) && i.kind == "approval" && i.resolution.is_none() && i.details["call_id"] == a.call_id.as_str())
                 .map(|i| i.id.clone())
