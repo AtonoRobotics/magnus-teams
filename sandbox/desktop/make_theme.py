@@ -17,21 +17,21 @@ import sys
 # The app's tokens (desktop/ui/theme.js LIGHT and DARK, the blue accent).
 PALETTES = {
     "light": {
-        "bar": "#FAFAF8", "line": "#E7E6E2", "win": "#FFFFFF", "title": "#FAFAF8", "bg": "#F3F3F0",
-        "fg": "#1C1C1E", "fg2": "#3F3F44", "muted": "#5E5E63", "seg": "#EDEDEA", "raised": "#F6F6F3",
+        "bar": "#F8FAFD", "line": "#E3E8EF", "win": "#FFFFFF", "title": "#F8FAFD", "bg": "#F0F4F9",
+        "fg": "#1C1C1E", "fg2": "#3F3F44", "muted": "#5B5E66", "seg": "#E6ECF5", "raised": "#F3F6FA",
         "accent": "#3557D9", "accent_fg": "#FFFFFF", "accent_text": "#3557D9", "accent_soft": "#E9EDFC",
         "term_bg": "#FFFFFF", "term_fg": "#1C1C1E", "close_hover": "#FBE7E5",
         # black red green yellow blue magenta cyan white, then the bright ones
-        "ansi": ["#1C1C1E", "#B42318", "#1A6B3A", "#8A4200", "#3557D9", "#6D28D9", "#0F766E", "#5E5E63",
-                 "#3F3F44", "#B42318", "#1E7A44", "#9A4A00", "#2C43AD", "#4338CA", "#0F766E", "#8A8A8F"],
+        "ansi": ["#1C1C1E", "#B42318", "#1A6B3A", "#8A4200", "#3557D9", "#6D28D9", "#0F766E", "#5B5E66",
+                 "#3F3F44", "#B42318", "#1E7A44", "#9A4A00", "#2C43AD", "#4338CA", "#0F766E", "#808794"],
     },
     "dark": {
-        "bar": "#19191C", "line": "#2E2E33", "win": "#1C1C1F", "title": "#19191C", "bg": "#161618",
-        "fg": "#F2F2F4", "fg2": "#D1D1D6", "muted": "#A1A1A8", "seg": "#2A2A2F", "raised": "#2A2A2F",
+        "bar": "#161920", "line": "#272C38", "win": "#161920", "title": "#161920", "bg": "#0F1115",
+        "fg": "#ECEFF4", "fg2": "#C8D0DF", "muted": "#949EB2", "seg": "#232836", "raised": "#242936",
         "accent": "#3557D9", "accent_fg": "#FFFFFF", "accent_text": "#9DB1FF", "accent_soft": "#1D2547",
-        "term_bg": "#161618", "term_fg": "#D1D1D6", "close_hover": "#3A1717",
-        "ansi": ["#2A2A2F", "#FF8A80", "#86DBA0", "#FFBE78", "#9DB1FF", "#C4B5FD", "#5EEAD4", "#D1D1D6",
-                 "#4A4A52", "#FF8A80", "#6CCB8A", "#FFAA55", "#A9BAFF", "#A5B4FC", "#5EEAD4", "#F2F2F4"],
+        "term_bg": "#0F1115", "term_fg": "#C8D0DF", "close_hover": "#3A1717",
+        "ansi": ["#242936", "#FF8A80", "#86DBA0", "#FFBE78", "#9DB1FF", "#C4B5FD", "#5EEAD4", "#C8D0DF",
+                 "#3E4658", "#FF8A80", "#6CCB8A", "#FFAA55", "#A9BAFF", "#A5B4FC", "#5EEAD4", "#ECEFF4"],
     },
 }
 
