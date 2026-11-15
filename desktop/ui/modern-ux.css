@@ -199,6 +199,13 @@ body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head
 }
 @media (any-pointer: coarse) { .activity-views a { min-height: 44px; } }
 
-/* Human-readable Ask preview & optional Rule fields */
+/* Human-readable Ask preview, over-grant safeguard, & optional Rule fields */
 .ask-kv { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.ask-answers button[data-offer="allow_always"] {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  font-weight: 500;
+}
+.ask-answers button[data-offer="allow_always"]:hover { color: var(--fg); }
 .rule-advanced > summary { cursor: pointer; padding: 4px 0; }

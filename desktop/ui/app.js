@@ -1307,7 +1307,8 @@ function scheduleFacts(sc) {
 // schedule is its one control (#452).
 function scheduleButtons(sc, stop = "Stop schedule") {
   if (sc.ended) return `<button data-act="delete-schedule" data-id="${esc(sc.id)}">Delete schedule</button>`;
-  return `${sc.paused && !sc.paused_on ? `<button data-act="resume-schedule" data-id="${esc(sc.id)}">Resume</button>` : ""}<button data-act="stop-schedule" data-id="${esc(sc.id)}">${stop}</button>`;
+  const toggle = sc.paused ? (!sc.paused_on ? `<button data-act="resume-schedule" data-id="${esc(sc.id)}">Resume</button>` : "") : `<button data-act="pause-schedule" data-id="${esc(sc.id)}">Pause</button>`;
+  return `${toggle}<button data-act="stop-schedule" data-id="${esc(sc.id)}">${stop}</button>`;
 }
 
 // Schedules, soonest first, ended last: each opens beside the conversation.
@@ -2031,7 +2032,8 @@ async function respond(btn, root) {
   try {
     await Server.inbox.answer(id, body);
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
-    toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
+    if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Settings → Rules.", 5000);
+    else toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
 }
@@ -2638,6 +2640,7 @@ function wirePanel() {
         case "delete-schedule":
           if (!await ask("Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks.", "Delete schedule")) return;
           await Server.schedules.remove(id); toast("The schedule is deleted."); break;
+        case "pause-schedule": await Server.schedules.pause(id); toast("Schedule paused."); break;
         case "resume-schedule": await Server.schedules.resume(id); toast("Schedule resumed."); break;
         case "connect": connectApp(a.dataset.app).catch(err => toast(err.message)); return;
         case "connect-page": await Magnus.openExternal(a.dataset.url); return;
