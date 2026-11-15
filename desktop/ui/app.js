@@ -2923,6 +2923,7 @@ function appearanceSection(el) {
         `<span class="mprev ${k}" aria-hidden="true"><span class="ms"></span><span class="mm"></span></span><span class="mt"><span class="ml">${esc(l)}</span><span class="small muted">${esc(hint)}</span></span>`, "material")).join("")}</div>
       ${p.material === "glass" && look.material !== "glass" ? `<p class="small muted" data-look-note>Your computer asks for less transparency, so Magnus stays solid.</p>` : ""}
       <h3 id="acc-h">Accent color</h3><div class="swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${a.swatch};background:${a.swatch}`)).join("")}</div>
+      <label class="row small" style="margin-top:8px;"><span>Custom color</span><input type="color" data-custom-accent value="${esc(/^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : "#3557D9")}" aria-label="Custom accent color"><span class="mono muted">${esc(/^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : "")}</span></label>
       <h3 id="mot-h">Motion</h3><div class="seg" role="radiogroup" aria-labelledby="mot-h">${Theme.MOTIONS.map(([k, l]) => radio("motion", k, l)).join("")}</div>
       <p class="small muted" data-motion-hint>${esc(Theme.MOTION_HINTS[p.motion])}${look.motion !== p.motion ? " Your computer asks for reduced motion, so Magnus uses quick fades." : ""}</p>
       <p class="small faint">Magnus also follows your computer's settings for reduced motion and reduced transparency.</p></div>`);
@@ -2938,6 +2939,10 @@ function appearanceSection(el) {
     if (!b) return;
     b.focus({ preventScroll: true });
     Theme.set({ [b.dataset.look]: b.dataset.value });
+  };
+  el.onchange = e => {
+    const inp = e.target.closest("[data-custom-accent]");
+    if (inp) Theme.set({ accent: inp.value });
   };
   const changed = () => { if (el.isConnected) redraw(); };
   window.addEventListener("magnus-theme", changed);

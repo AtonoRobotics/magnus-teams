@@ -80,6 +80,17 @@
   // Which chrome surfaces may be glass; every other surface is solid.
   const GLASS_SURFACES = ["side", "panel"];
 
+  const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
+  const mixHex = (a, b, w) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - w) + parseInt(b.slice(i, i + 2), 16) * w).toString(16).padStart(2, "0")).join("");
+  function customAccentTokens(hex, mode) {
+    const bg = (mode === "dark" ? DARK : LIGHT).main;
+    const fg = contrast(hex, "#FFFFFF") >= contrast(hex, "#111113") ? "#FFFFFF" : "#111113";
+    let text = hex;
+    const target = mode === "dark" ? "#FFFFFF" : "#111113";
+    for (let step = 1; step <= 10 && contrast(text, bg) < 4.5; step++) text = mixHex(hex, target, step * 0.08);
+    return { accent: hex, "accent-fg": fg, "accent-text": text, "accent-soft": mixHex(hex, mode === "dark" ? "#14161D" : "#FFFFFF", mode === "dark" ? 0.8 : 0.88) };
+  }
+
   // The look in effect: the person's choices, as far as the system allows.
   // `os`: { dark, reduceMotion, reduceTransparency }.
   function effective(prefs, os) {
@@ -88,8 +99,8 @@
     const glass = p.material === "glass" && !os.reduceTransparency;
     const order = ["off", "reduced", "full"];
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
-    const accent = ACCENTS.find(a => a.id === p.accent) || ACCENTS[0];
-    return { mode: dark ? "dark" : "light", material: glass ? "glass" : "solid", motion, accent: accent.id };
+    const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
+    return { mode: dark ? "dark" : "light", material: glass ? "glass" : "solid", motion, accent };
   }
 
   // Every token of a look, by CSS variable name (without the dashes).
@@ -105,7 +116,8 @@
       Object.assign(t, GLASS[look.mode]);
       t.blur = "blur(40px) saturate(170%)"; t["main-gap"] = "10px"; t["main-radius"] = "18px";
     }
-    Object.assign(t, (ACCENTS.find(a => a.id === look.accent) || ACCENTS[0])[look.mode]);
+    const preset = ACCENTS.find(a => a.id === look.accent);
+    Object.assign(t, preset ? preset[look.mode] : isHex(look.accent) ? customAccentTokens(look.accent, look.mode) : ACCENTS[0][look.mode]);
     // The search field's placeholder and icon: muted, unless the look lifts it.
     t["search-muted"] = (look.material === "glass" && GLASS[look.mode]["search-muted"]) || t.muted;
     return t;
@@ -129,7 +141,7 @@
     return {
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
       material: member(v.material, MATERIALS.map(x => x[0]), DEFAULTS.material),
-      accent: member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
+      accent: isHex(v.accent) ? v.accent : member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
       navigation: member(v.navigation, ["expanded", "compact"], LAYOUT.navigation),
       conversationWidthPx: Number.isFinite(v.conversationWidthPx) ? Math.max(360, Math.min(560, v.conversationWidthPx)) : LAYOUT.conversationWidthPx,
