@@ -102,7 +102,7 @@ impl Kernel {
     /// again at the next round.
     pub async fn purge_trash(&self) -> Result<usize> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(self.trash_keep_days() as i64);
-        let due: Vec<String> = self.read(|s| s.trash.iter().filter(|(_, t)| t.at <= cutoff).map(|(id, _)| id.clone()).collect());
+        let due: Vec<String> = self.read(|s| s.trash.items().iter().filter(|(_, t)| t.at <= cutoff).map(|(id, _)| id.clone()).collect());
         let mut removed = 0;
         let mut failed = vec![];
         for item in &due {
@@ -155,18 +155,19 @@ async fn list(State(k): K, Caller(p): Caller) -> ApiResult {
     let keep = chrono::Duration::days(k.trash_keep_days() as i64);
     // A trashed memory's title is its fact, and a task's, a message's or a
     // conversation's is what the person asked: recalled for the person.
-    let seqs: Vec<i64> = k.read(|s| s.trash.values().filter(|t| t.person == p.id).filter_map(|t| t.memory().map(|m| m.seq)).collect());
+    let seqs: Vec<i64> = k.read(|s| s.trash.items().values().filter(|t| t.person == p.id).filter_map(|t| t.memory().map(|m| m.seq)).collect());
     let facts = match k.recall.content(&p.id, &seqs).await {
         Ok(c) => c,
         Err(e) => return Ok(crate::api::internal(e)),
     };
-    let asked: Vec<(String, i64)> = k.read(|s| s.trash.values().filter(|t| t.person == p.id).filter_map(|t| t.title_from.map(|f| (p.id.clone(), f.seq()))).collect());
+    let asked: Vec<(String, i64)> = k.read(|s| s.trash.items().values().filter(|t| t.person == p.id).filter_map(|t| t.title_from.map(|f| (p.id.clone(), f.seq()))).collect());
     let words = match k.words(asked).await {
         Ok(w) => w,
         Err(e) => return Ok(crate::api::internal(e)),
     };
     let mut items: Vec<Value> = k.read(|s| {
         s.trash
+            .items()
             .iter()
             .filter(|(_, t)| t.person == p.id)
             .map(|(id, t)| {
@@ -219,7 +220,7 @@ async fn remove_now(State(k): K, Caller(p): Caller, Path(item): Path<String>) ->
 
 /// Remove everything in the person's trash now, when space is needed sooner.
 async fn empty(State(k): K, Caller(p): Caller) -> ApiResult {
-    let items: Vec<String> = k.read(|s| s.trash.iter().filter(|(_, t)| t.person == p.id).map(|(id, _)| id.clone()).collect());
+    let items: Vec<String> = k.read(|s| s.trash.items().iter().filter(|(_, t)| t.person == p.id).map(|(id, _)| id.clone()).collect());
     for item in &items {
         k.remove_content(&format!("person:{}", p.id), item).await?;
     }

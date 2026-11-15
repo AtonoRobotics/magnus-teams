@@ -338,6 +338,137 @@ fn sequence() -> Vec<(&'static str, Value)> {
         ("kernel", json!({ "kind": "person_turned_off", "person": "hana", "why": "admin" })),
         ("admin:root", json!({ "kind": "removed", "item": "person:hana", "seqs": [] })),
         ("admin:root", json!({ "kind": "person_erased", "person": "hana" })),
+        // Trash and erasure: openers, entries and threads removed for good, notes, and the admin's settings.
+        (
+            "kernel",
+            json!({ "kind": "task_created", "task": "t-open", "run": "r-open", "person": "alice", "text": "Hello.", "config": config, "chat": { "thread": "thread_o", "turn": true, "opener": { "app": "mail" } } }),
+        ),
+        (
+            "person:alice",
+            json!({ "kind": "task_created", "task": "t-o2", "run": "r-o2", "person": "alice", "text": "Hi back.", "config": config, "chat": { "thread": "thread_o", "turn": true } }),
+        ),
+        (
+            "person:alice",
+            json!({ "kind": "task_created", "task": "t-r1", "run": "r-r1", "person": "alice", "text": "Gone.", "config": config, "chat": { "thread": "thread_r", "turn": true } }),
+        ),
+        ("person:alice", json!({ "kind": "trashed", "item": "m:t-o2", "person": "alice" })),
+        ("person:alice", json!({ "kind": "trashed", "item": "a:t-o2", "person": "alice" })),
+        ("person:alice", json!({ "kind": "restored", "item": "a:t-o2" })),
+        ("kernel", json!({ "kind": "removed", "item": "m:t-o2", "seqs": [] })),
+        ("person:alice", json!({ "kind": "trashed", "item": "thread_r", "person": "alice" })),
+        ("kernel", json!({ "kind": "removed", "item": "thread_r", "seqs": [] })),
+        ("person:alice", json!({ "kind": "trashed", "item": "m:t-open", "person": "alice" })),
+        ("kernel", json!({ "kind": "removed", "item": "notes:t-alice", "seqs": [] })),
+        ("kernel", json!({ "kind": "removed", "item": "nothing-here", "seqs": [] })),
+        (
+            "admin:root",
+            json!({ "kind": "admin_setting", "change": "rule", "id": "w1", "rule": { "effect": "ask", "connector": "mail", "tool": "send", "destinations": ["x@y.example"], "words": "Ask first.", "by": "root" } }),
+        ),
+        ("admin:root", json!({ "kind": "admin_setting", "change": "rule", "id": "w2", "rule": { "effect": "block", "connector": "crm" } })),
+        ("admin:root", json!({ "kind": "admin_setting", "change": "rule_removed", "id": "w2" })),
+        ("admin:root", json!({ "kind": "admin_setting", "change": "auto_review", "acts": true })),
+        ("admin:root", json!({ "kind": "admin_setting", "change": "server_channel", "channel": "beta" })),
+        ("admin:root", json!({ "kind": "admin_setting", "change": "retention", "trash_days": 14, "backup_days": 60 })),
+        ("admin:root", json!({ "kind": "admin_setting", "change": "identity_provider", "provider": { "issuer": "https://id.example" } })),
+        (
+            "person:ivy",
+            json!({ "kind": "task_created", "task": "t-ivy", "run": "r-ivy", "person": "ivy", "text": "Hi.", "config": config, "chat": { "thread": "thread_i", "turn": true, "opener": {} } }),
+        ),
+        ("person:ivy", json!({ "kind": "trashed", "item": "thread_i", "person": "ivy" })),
+        ("admin:root", json!({ "kind": "removed", "item": "person:ivy", "seqs": [] })),
+        ("admin:root", json!({ "kind": "person_erased", "person": "ivy" })),
+        ("kernel", json!({ "kind": "backup_scrub_pending", "from": 300, "through": 400, "files": ["b3"], "detail": "offline" })),
+        // The work: a task's run through every step, its ends, and what runs record beside them.
+        (
+            "person:alice",
+            json!({ "kind": "task_created", "task": "t-w", "run": "r-w", "person": "alice", "text": "Work.", "config": config, "attachments": [{ "name": "a.pdf" }], "files": ["f2"], "label": { "untrusted": true, "private": false }, "experiment": { "id": "exp-1", "case": "c1", "trial": 1 }, "grant": "g1" }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "model_call", "run": "r-w", "step": 1, "attempt": 0, "context": { "through_seq": 3, "instructions": "i", "tools_hash": "h", "relationship": 2 } }),
+        ),
+        (
+            "model",
+            json!({ "kind": "model_reply", "run": "r-w", "step": 1, "blocks": [{ "type": "text", "text": "On it." }, { "type": "tool_call", "id": "c1", "name": "mail__send", "input": { "to": "a@b.example" } }], "state": { "k": 1 }, "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 }, "served_model": "m", "stop": "tool_use" }),
+        ),
+        ("kernel", json!({ "kind": "notice", "run": "r-w", "step": 1, "text": "Heads up." })),
+        (
+            "kernel",
+            json!({ "kind": "intent", "run": "r-w", "call_id": "c1", "step_id": "s1", "key": "k1", "tool": "mail__send", "input": { "to": "a@b.example" }, "issuer": "model" }),
+        ),
+        ("kernel", json!({ "kind": "decision", "run": "r-w", "call_id": "c1", "tool": "mail__send", "outcome": "allow", "stage": "policy", "reason": "ok", "rule": "r1" })),
+        (
+            "kernel",
+            json!({ "kind": "tool_result", "run": "r-w", "call_id": "c1", "key": "k1", "status": "ok", "text": "sent", "is_error": false, "label": { "untrusted": true, "private": true }, "data": { "card": "c-x" }, "sources": ["mail"] }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "tool_result", "run": "r-w", "call_id": "c2", "status": "ok", "text": "checked", "is_error": false, "label": { "untrusted": true, "private": true }, "check": true }),
+        ),
+        ("kernel", json!({ "kind": "tool_result", "run": "r-w", "call_id": "", "status": "error", "is_error": true, "label": { "untrusted": false, "private": true } })),
+        ("kernel", json!({ "kind": "contract", "run": "r-w", "version": 1, "contract": { "done": "sent" } })),
+        ("kernel", json!({ "kind": "work_started", "run": "r-w" })),
+        ("kernel", json!({ "kind": "contract_frozen", "run": "r-w", "version": 1 })),
+        ("person:alice", json!({ "kind": "contract", "run": "r-w", "version": 2, "contract": { "done": "sent twice" }, "approved_by": "alice" })),
+        ("kernel", json!({ "kind": "plan", "run": "r-w", "version": 1, "plan": { "steps": ["send"] } })),
+        ("kernel", json!({ "kind": "verification", "run": "r-w", "criterion": "sent", "passed": false, "evidence": { "why": "bounced" }, "by": "verifier" })),
+        ("kernel", json!({ "kind": "verification", "run": "r-w", "criterion": "sent", "passed": true, "by": "verifier" })),
+        (
+            "kernel",
+            json!({ "kind": "verifier_reply", "run": "r-w", "purpose": "check", "model": "m", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "reviewer_reply", "run": "r-w", "purpose": "send", "model": "m", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "reviewer_reply", "run": "r-w", "purpose": "other", "model": "m", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "memory_pass", "run": "r-w", "model": "m", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "spoken_written", "run": "r-w", "model": "m", "script": "Done, spoken.", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "knowledge_extraction", "run": "r-w", "model": "m", "reply": "none", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "kernel",
+            json!({ "kind": "draft_scoped", "run": "r-w", "person": "alice", "draft": "dr1", "threads": ["thread_2"], "participants": ["a@b.example"], "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        (
+            "model",
+            json!({ "kind": "model_error", "run": "r-w", "step": 2, "attempt": 0, "class": "unavailable", "message": "down", "usage": { "input_tokens": 3, "output_tokens": 1, "cache_read_tokens": 2, "cache_write_tokens": 1, "cost_usd": 0.25 } }),
+        ),
+        ("model", json!({ "kind": "model_error", "run": "r-w", "step": 2, "attempt": 1, "class": "malformed", "message": "garbled" })),
+        ("kernel", json!({ "kind": "context_reset", "run": "r-w", "from": 0, "to": 1, "signal": "long", "note": "cut" })),
+        ("kernel", json!({ "kind": "escalated", "run": "r-w", "adapter": "b", "model": "big", "signal": "stuck" })),
+        ("kernel", json!({ "kind": "suspended", "run": "r-w", "reason": "grant_budget", "item": "iw" })),
+        ("kernel", json!({ "kind": "wait", "run": "r-w", "until": "2026-11-15T09:00:00Z" })),
+        ("kernel", json!({ "kind": "budget_extended", "run": "r-w", "budget": { "max_model_calls": 9, "max_actions": 9, "max_usd": 9.0 } })),
+        ("person:alice", json!({ "kind": "resumed", "run": "r-w" })),
+        ("kernel", json!({ "kind": "handback", "run": "r-w", "step": 3, "image_b64": "aW1n" })),
+        ("kernel", json!({ "kind": "handback", "run": "r-w", "step": 4, "image_b64": "" })),
+        ("kernel", json!({ "kind": "graded", "run": "r-w", "grader": "g", "passed": true, "score": 0.9, "details": { "n": 1 } })),
+        ("kernel", json!({ "kind": "suspended", "run": "r-w", "reason": "timer" })),
+        ("kernel", json!({ "kind": "completed", "run": "r-w", "summary": "Sent.", "view": { "kind": "card" }, "spoken": "Sent it." })),
+        ("kernel", json!({ "kind": "suspended", "run": "r-w", "reason": "late" })),
+        ("kernel", json!({ "kind": "failed", "run": "r-w", "reason": "late", "by": "kernel" })),
+        ("person:carl", json!({ "kind": "verdict", "task": "t-w", "person": "carl", "verdict": "right", "note": "trial" })),
+        ("person:alice", json!({ "kind": "verdict", "task": "t-w", "person": "alice", "verdict": "partly", "note": "almost" })),
+        ("person:alice", json!({ "kind": "task_created", "task": "t-w2", "run": "r-w2", "person": "alice", "text": "Stop me.", "config": config })),
+        ("person:carl", json!({ "kind": "verdict", "task": "t-w2", "person": "carl", "verdict": "wrong" })),
+        ("person:alice", json!({ "kind": "cancelled", "run": "r-w2" })),
+        ("kernel", json!({ "kind": "cancelled", "run": "r-w2" })),
+        ("person:alice", json!({ "kind": "task_created", "task": "t-w3", "run": "r-w3", "person": "alice", "text": "Stopped for me.", "config": config })),
+        ("kernel", json!({ "kind": "cancelled", "run": "r-w3", "source": "kill" })),
+        ("kernel", json!({ "kind": "failed", "run": "r-w3", "reason": "after", "by": "kernel" })),
+        ("kernel", json!({ "kind": "notice", "run": "r-none", "step": 1, "text": "Lost." })),
     ]
 }
 
@@ -365,12 +496,18 @@ fn fields(s: &State) -> Vec<(&'static str, String)> {
     v.extend(s.library.canonical_fields());
     v.extend(s.inbox.canonical_fields());
     v.extend(s.identity.canonical_fields());
+    v.extend(s.trash.canonical_fields());
+    v.extend(s.erasures.canonical_fields());
     v.extend([
-        ("erasures", d(&s.erasures)),
-        ("trash", d(&s.trash.keys().collect::<Vec<_>>())),
+        ("openers", d(&s.openers)),
         ("tools.consents", d(&s.tools.consents)),
         ("runs.outputs", d(&s.runs.iter().map(|(id, r)| (id, &r.outputs)).collect::<std::collections::BTreeMap<_, _>>())),
         ("runs.waiting_item", d(&s.runs.iter().map(|(id, r)| (id, &r.waiting_item)).collect::<std::collections::BTreeMap<_, _>>())),
+        ("tasks", d(&s.tasks)),
+        ("runs", d(&s.runs)),
+        ("stopped_by_person", d(&s.stopped_by_person)),
+        ("draft_sources", d(&s.draft_sources)),
+        ("attachments", d(&s.attachments)),
         ("tasks.schedule", d(&s.tasks.iter().map(|(id, t)| (id, &t.schedule)).collect::<Vec<_>>())),
     ]);
     v

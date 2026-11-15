@@ -106,12 +106,12 @@ impl State {
             library,
             inbox,
             identity,
+            trash,
+            erasures,
             tools,
             spend,
             catalog,
             // The person's own records.
-            trash,
-            removed_threads,
             tasks,
             runs,
             openers,
@@ -124,11 +124,9 @@ impl State {
             // person's: a policy layer naming them is the admins' rule, and
             // their apps' records are harmless once the id is never given
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
-            erasures: _,
-            admin_settings: _,
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 25] = [
+        let parts: [&mut dyn Forget; 27] = [
             computers,
             payments,
             rules,
@@ -151,6 +149,8 @@ impl State {
             library,
             inbox,
             identity,
+            trash,
+            erasures,
             tools,
             spend,
             catalog,
@@ -161,9 +161,6 @@ impl State {
         tasks.retain(|_, t| t.person != p);
         runs.retain(|_, r| r.person != p);
         stopped_by_person.retain(|r| !who.runs.contains(r));
-        trash.retain(|_, t| t.person != p);
-        // What they removed of their own conversations.
-        removed_threads.retain(|t| !who.threads.contains(t));
         // What their drafts were written from.
         draft_sources.retain(|_, d| d.person != p);
         // What their tasks had attached goes too.

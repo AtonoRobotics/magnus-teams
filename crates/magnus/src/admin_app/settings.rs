@@ -99,14 +99,14 @@ impl crate::kernel::Kernel {
     /// Whether Auto Review clears an action alone: the admin's setting, else
     /// the config's.
     pub fn auto_review_acts(&self) -> bool {
-        self.read(|s| s.admin_settings.auto_review).unwrap_or(self.cfg.auto_review.delegate)
+        self.read(|s| s.org.admin().auto_review).unwrap_or(self.cfg.auto_review.delegate)
     }
 
     /// A person's rules as the boundary checks them: their own, and every
     /// workspace rule compiled for them. A workspace rule that no longer
     /// compiles covers nothing.
     pub fn rules_for(&self, person: &str) -> Vec<crate::rules::Rule> {
-        let (mut own, workspace) = self.read(|s| (s.rules.of(person), s.admin_settings.rules.clone()));
+        let (mut own, workspace) = self.read(|s| (s.rules.of(person), s.org.admin().rules.clone()));
         own.extend(workspace.into_iter().map(|(id, w)| workspace_rule(person, &id, &w)));
         own
     }

@@ -47,12 +47,12 @@ impl Kernel {
     /// How long a deleted item waits in the trash: the admin's setting, else
     /// the config's.
     pub fn trash_keep_days(&self) -> u32 {
-        self.read(|s| s.admin_settings.retention.map(|r| r.0)).unwrap_or(self.cfg.trash.keep_days)
+        self.read(|s| s.org.admin().retention.map(|r| r.0)).unwrap_or(self.cfg.trash.keep_days)
     }
 
     /// How long each backup is kept: the admin's setting, else the config's.
     pub fn backup_keep_days(&self) -> u32 {
-        self.read(|s| s.admin_settings.retention.map(|r| r.1)).unwrap_or(self.cfg.backup.keep_days)
+        self.read(|s| s.org.admin().retention.map(|r| r.1)).unwrap_or(self.cfg.backup.keep_days)
     }
 
     /// Remove what the windows no longer keep: the trash past its window,
@@ -68,7 +68,7 @@ impl Kernel {
 pub fn shown(k: &Kernel) -> Value {
     json!({
         "trash_days": k.trash_keep_days(), "backup_days": k.backup_keep_days(),
-        "set_here": k.read(|s| s.admin_settings.retention.is_some()),
+        "set_here": k.read(|s| s.org.admin().retention.is_some()),
         "min_days": RETENTION_DAYS_MIN, "trash_days_max": TRASH_DAYS_MAX, "backup_days_max": BACKUP_DAYS_MAX,
     })
 }

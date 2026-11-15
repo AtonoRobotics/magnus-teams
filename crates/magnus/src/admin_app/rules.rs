@@ -40,7 +40,7 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
 }
 
 async fn list(State(k): State<Arc<Kernel>>) -> Response {
-    let (rules, set) = k.read(|s| (s.admin_settings.rules.clone(), s.admin_settings.auto_review));
+    let (rules, set) = k.read(|s| (s.org.admin().rules.clone(), s.org.admin().auto_review));
     let rows: Vec<Value> = rules.into_iter().map(|(id, r)| json!({ "id": id, "rule": r })).collect();
     Json(json!({ "rules": rows, "auto_review": { "acts": k.auto_review_acts(), "set_here": set.is_some(), "config": k.cfg.auto_review.delegate } })).into_response()
 }
@@ -67,7 +67,7 @@ fn rule_of(a: &Admin, b: &Value) -> Result<WorkspaceRule, Response> {
 }
 
 async fn set(k: &Arc<Kernel>, a: &Admin, id: String, rule: WorkspaceRule, created: bool) -> Response {
-    let before = k.read(|s| s.admin_settings.rules.get(&id).cloned()).map(|r| json!(r));
+    let before = k.read(|s| s.org.admin().rules.get(&id).cloned()).map(|r| json!(r));
     let audit = Audit { action: "workspace_rule_set".into(), target: Some(format!("rules/{id}")), before, after: Some(json!(rule)) };
     let change = async {
         match k.emit(&a.actor(), Ev::AdminSetting(Change::Rule { id: id.clone(), rule: rule.clone() })).await {
@@ -83,14 +83,14 @@ async fn add(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Json(
         Ok(r) => r,
         Err(r) => return r,
     };
-    if k.read(|s| s.admin_settings.rules.len()) >= WORKSPACE_RULES_MAX {
+    if k.read(|s| s.org.admin().rules.len()) >= WORKSPACE_RULES_MAX {
         return refuse(StatusCode::CONFLICT, "too_many", "The workspace has as many rules as it may keep: remove one first.");
     }
     set(&k, &a, uuid::Uuid::new_v4().simple().to_string(), rule, true).await
 }
 
 async fn edit(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>, Json(b): Json<Value>) -> Response {
-    if k.read(|s| !s.admin_settings.rules.contains_key(&id)) {
+    if k.read(|s| !s.org.admin().rules.contains_key(&id)) {
         return refuse(StatusCode::NOT_FOUND, "not_found", "No such rule.");
     }
     match rule_of(&a, &b) {
@@ -100,7 +100,7 @@ async fn edit(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path
 }
 
 async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>) -> Response {
-    let Some(before) = k.read(|s| s.admin_settings.rules.get(&id).cloned()) else { return refuse(StatusCode::NOT_FOUND, "not_found", "No such rule.") };
+    let Some(before) = k.read(|s| s.org.admin().rules.get(&id).cloned()) else { return refuse(StatusCode::NOT_FOUND, "not_found", "No such rule.") };
     let audit = Audit { action: "workspace_rule_removed".into(), target: Some(format!("rules/{id}")), before: Some(json!(before)), after: None };
     let change = async {
         match k.emit(&a.actor(), Ev::AdminSetting(Change::RuleRemoved { id: id.clone() })).await {

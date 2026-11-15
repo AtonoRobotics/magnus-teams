@@ -48,7 +48,7 @@ fn release_in(cfg: &Config, channel: &str) -> Option<Value> {
 
 /// The channel the server follows, as an admin set it.
 pub fn chosen(k: &Kernel) -> &'static str {
-    k.read(|s| s.admin_settings.server_channel.clone()).and_then(|c| CHANNELS.iter().copied().find(|x| *x == c)).unwrap_or(DEFAULT_SERVER_CHANNEL)
+    k.read(|s| s.org.admin().server_channel.clone()).and_then(|c| CHANNELS.iter().copied().find(|x| *x == c)).unwrap_or(DEFAULT_SERVER_CHANNEL)
 }
 
 /// Where the server takes its next release from: its channel's directory,

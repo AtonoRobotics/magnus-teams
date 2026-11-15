@@ -22,7 +22,7 @@ impl Kernel {
     /// A conversation in the trash or removed from it. The tasks it started
     /// stay, and name it still.
     pub(crate) fn thread_gone(&self, thread: &str) -> bool {
-        self.read(|s| s.trash.contains_key(thread) || s.removed_threads.contains(thread))
+        self.read(|s| s.trash.gone(thread))
     }
 
     /// A thread's turns and tasks, in the order they were created.
@@ -107,7 +107,7 @@ impl Kernel {
         let (hidden, trashed) = self.read(|s| {
             (
                 s.thread_extras.hidden(thread).cloned().unwrap_or_default(),
-                s.trash.iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>(),
+                s.trash.items().iter().filter(|(_, t)| t.thread() == Some(thread)).map(|(id, _)| id.clone()).collect::<HashSet<String>>(),
             )
         });
         // What a hidden answer started is hidden with it, whenever it shows
