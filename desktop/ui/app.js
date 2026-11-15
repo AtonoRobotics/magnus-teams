@@ -2831,7 +2831,10 @@ async function openSettingsModal(which) {
     d.setAttribute("aria-label", "Settings");
     document.body.append(d);
     d.addEventListener("click", e => { if (e.target === d) d.close(); });
-    d.addEventListener("close", () => { d.remove(); });
+    d.addEventListener("close", () => {
+      d.remove();
+      if (location.hash.startsWith("#/settings")) location.hash = App.lastNonSettingsHash || "#/home";
+    });
   }
   const MODAL_TABS = [
     ["account", "Account & Privacy", async el => {
