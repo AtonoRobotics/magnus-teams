@@ -70,23 +70,41 @@ assert.match(setupDlg.innerHTML, /Research product, contact suppliers (?:&amp;|&
 assert.match(setupDlg.innerHTML, /data-wiz-open-disc/);
 assert.match(setupDlg.innerHTML, /data-wiz-launch="complex"/);
 
-// 3. Automation Discovery Wizard opens separately and shows 3 tiers + safety modes.
+// 3. Automation Discovery Wizard filters by selected focus & connected apps honestly.
+let sentChat = null;
+sandbox.Server.chat = { send: async body => { sentChat = body; return { thread: "th-disc-1" }; } };
 await G.openDiscoveryWizard();
 const discDlg = sandbox.document.getElementById("discovery-wizard-modal");
 assert.ok(discDlg && discDlg.open, "Discovery Wizard modal did not open");
 assert.match(discDlg.innerHTML, /Where should Magnus look for work to take off your plate\?/);
 
+// With 0 connected apps and only Engineering selected: only Engineering plans appear, gated on GitHub.
+G.Guide.disc.focus = new Set(["eng"]);
 G.Guide.disc.step = 2;
 await G.openDiscoveryWizard();
-assert.match(discDlg.innerHTML, /Here is what Magnus found you can automate/);
+assert.match(discDlg.innerHTML, /Suggested automations for your focus/);
+assert.match(discDlg.innerHTML, /Daily PR Review Queue/);
+assert.doesNotMatch(discDlg.innerHTML, /Inbox Triage/);
+assert.match(discDlg.innerHTML, /Requires GitHub connected/);
 
 G.Guide.disc.step = 3;
 await G.openDiscoveryWizard();
+assert.match(discDlg.innerHTML, /Needs GitHub/);
+assert.match(discDlg.innerHTML, /data-disc-activate disabled/);
+
+// When Gmail is connected and inbox focus is selected, Inbox Triage is ready and selectable.
+G.Guide.facts = { connectors: [app("google-gmail", "Gmail", "connected")], workspaces: [], schedules: [], threads: [] };
+G.Guide.disc.focus = new Set(["inbox"]);
+await G.openDiscoveryWizard();
 assert.match(discDlg.innerHTML, /Inbox Triage (?:&amp;|&#38;) Schedule Conflict Resolver/);
-assert.match(discDlg.innerHTML, /Ask before external actions/);
-assert.match(discDlg.innerHTML, /data-disc-activate/);
+assert.match(discDlg.innerHTML, /Start Selected \(1\)/);
+
+await G.guideStartTurn("Create schedule");
+assert.equal(sentChat.text, "Create schedule");
+assert.equal(G.location.hash, "#/chat/th-disc-1");
 
 // 4. guideFirstRun opens Setup Wizard once for newcomers without redirecting away from home.
+G.location.hash = "";
 setupDlg.close();
 opened.length = 0;
 delete stored["guide-opened"];

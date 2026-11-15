@@ -51,9 +51,11 @@ const WIZARD_TIERS = {
 };
 
 const DISCOVERY_PROPOSALS = [
-  { id: "d-inbox", tier: "simple", badge: "Simple · Weekdays 7:45 AM", cls: "ok", title: "Inbox Triage & Schedule Conflict Resolver", desc: "Checks overnight email for meeting requests, resolves calendar overlaps with 2 open options, and prepares reply drafts.", mode: "ask", on: true },
-  { id: "d-procure", tier: "complex", badge: "Multi-Step · On Demand", cls: "warn", title: "Product Research, Supplier Quotes & Order Placement", desc: "Researches specs & pricing, emails verified suppliers for quotes, builds a comparison table, and pauses for approval before ordering.", mode: "ask", on: true },
-  { id: "d-followup", tier: "long", badge: "Long-Running · Every 4h (14 days)", cls: "sch", title: "Continuous Vendor & Deliverable Follow-Up", desc: "Watches open threads for stalled replies (>48h), drafts polite follow-ups, updates your live status brief, and escalates blockers.", mode: "draft", on: true },
+  { id: "d-inbox", focus: "inbox", requires: ["google-gmail", "microsoft-outlook", "google-calendar", "microsoft-calendar"], needsLabel: "Gmail/Outlook", tier: "simple", badge: "Simple · Weekdays 7:45 AM", cls: "ok", title: "Inbox Triage & Schedule Conflict Resolver", desc: "Checks overnight email for meeting requests, resolves calendar overlaps with 2 open options, and prepares reply drafts.", mode: "ask", on: true },
+  { id: "d-procure", focus: "vendors", requires: [], needsLabel: "", tier: "complex", badge: "Multi-Step · On Demand", cls: "warn", title: "Product Research, Supplier Quotes & Order Placement", desc: "Researches specs & pricing, drafts supplier quote requests, builds a comparison table, and pauses for approval before ordering.", mode: "ask", on: true },
+  { id: "d-followup", focus: "followup", requires: ["google-gmail", "microsoft-outlook", "slack"], needsLabel: "Email or Slack", tier: "long", badge: "Long-Running · Every 4h (14 days)", cls: "sch", title: "Continuous Vendor & Deliverable Follow-Up", desc: "Watches open threads for stalled replies (>48h), drafts polite follow-ups, updates your live status brief, and escalates blockers.", mode: "draft", on: true },
+  { id: "d-eng-pr", focus: "eng", requires: ["github"], needsLabel: "GitHub", tier: "simple", badge: "Simple · Weekdays 9:00 AM", cls: "ok", title: "Daily PR Review Queue & Blocker Triage", desc: "Ranks pull requests waiting on your review by age, CI status, and release impact without touching code.", mode: "draft", on: true },
+  { id: "d-eng-ci", focus: "eng", requires: ["github"], needsLabel: "GitHub", tier: "long", badge: "Long-Running · Daily", cls: "sch", title: "CI Failure & Flaky Test Watcher", desc: "Tracks recurring CI failures across recent runs, groups root causes, and prepares draft issues for your 1-click confirmation.", mode: "ask", on: false },
 ];
 
 const Guide = {
@@ -221,15 +223,40 @@ async function openSetupWizard() {
   if (!d.open) d.showModal();
 }
 
+/** Filter discovery templates by selected focus areas and check connected app readiness. @param {any} f */
+function discMatchedProposals(f) {
+  const conn = (f.connectors || []).filter((/** @type {any} */ c) => c.state === "connected").map((/** @type {any} */ c) => c.name);
+  const focus = Guide.disc.focus;
+  return Guide.disc.items
+    .filter(p => !focus.size || focus.has(p.focus))
+    .map(p => {
+      const ready = !p.requires.length || p.requires.some(r => conn.some(cn => cn.startsWith(r)));
+      return { ...p, ready, active: p.on && ready };
+    });
+}
+
+/** Start an agent discovery or schedule creation turn immediately (falls back to draft if offline). @param {string} text */
+async function guideStartTurn(text) {
+  save("guide-asked", text);
+  if (typeof Server !== "undefined" && Server.chat?.send) {
+    try {
+      const res = await Server.chat.send({ text });
+      if (res?.thread) { location.hash = `#/chat/${enc(res.thread)}`; return; }
+    } catch { /* fall through to pre-filled new chat */ }
+  }
+  guideAsk(text);
+}
+
 function discStepHtml(f) {
   const st = Guide.disc.step, connected = (f.connectors || []).filter((/** @type {any} */ c) => c.state === "connected");
+  const matched = discMatchedProposals(f);
   if (st === 1) {
     const focusBtn = (k, title, sub) => `<button type="button" class="wiz-focus${Guide.disc.focus.has(k) ? " on" : ""}" data-disc-focus="${k}"><strong>${title}</strong><span>${sub}</span></button>`;
     return `<h2>Where should Magnus look for work to take off your plate?</h2>
-      <p class="wiz-sub">Magnus inspects recent patterns read-only to find repetitive tasks, multi-step workflows, and long-running follow-ups you can automate safely.</p>
+      <p class="wiz-sub">Pick your focus areas and connected apps. Magnus will tailor suggested automations—or run a live scan in a new conversation.</p>
       <div class="wiz-grid-2">
         <div class="wiz-card"><strong>Connected Apps (Read-Only)</strong><span class="small muted">Nothing is modified or sent during discovery.</span>
-          ${connected.length ? connected.map((/** @type {any} */ c) => `<div class="spread" style="padding:6px 0;border-bottom:1px solid var(--hair);"><span>${esc(c.title)}</span><span class="chip ok">Connected</span></div>`).join("") : `<p class="small muted">No apps connected yet—Magnus can still propose general workflows.</p>`}
+          ${connected.length ? connected.map((/** @type {any} */ c) => `<div class="spread" style="padding:6px 0;border-bottom:1px solid var(--hair);"><span>${esc(c.title)}</span><span class="chip ok">Connected</span></div>`).join("") : `<p class="small muted">No apps connected yet. Connect one in Apps, or pick a web/research workflow.</p>`}
         </div>
         <div class="wiz-card"><strong>Focus Areas</strong><span class="small muted">Pick where you want to reclaim time, or add a note below.</span>
           <div class="wiz-grid-2" style="margin-bottom:4px;">${focusBtn("inbox", "Inbox & Calendar", "Triage, conflicts, prep")}${focusBtn("vendors", "Purchasing & Vendors", "Research, RFQs, best price")}${focusBtn("followup", "Ongoing Follow-Ups", "Nudge silent threads")}${focusBtn("eng", "Engineering", "PR queues, CI blockers")}</div>
@@ -238,31 +265,32 @@ function discStepHtml(f) {
       </div>`;
   }
   if (st === 2) {
-    return `<h2>Here is what Magnus found you can automate</h2>
-      <p class="wiz-sub">Opportunities grouped from quick daily hygiene to multi-week autonomous tracking.</p>
-      <div class="wiz-trust" style="margin-bottom:14px;"><span><strong>Discovery scan ready</strong> · Read-only pattern check across your workspace</span><span class="chip ok">3 high-leverage workflows</span></div>
+    const readyCount = matched.filter(p => p.ready).length;
+    const statusText = connected.length
+      ? `${matched.length} suggested template${matched.length === 1 ? "" : "s"} for your focus (${readyCount} ready with your connected apps)`
+      : `No apps connected yet · ${matched.length} template${matched.length === 1 ? "" : "s"} matched to your focus (${readyCount} ready without app sign-in)`;
+    return `<h2>Suggested automations for your focus</h2>
+      <p class="wiz-sub">Matched to your selected areas (${[...Guide.disc.focus].join(", ") || "all"}) and currently connected apps.</p>
+      <div class="wiz-trust" style="margin-bottom:14px;"><span>${esc(statusText)}</span><button type="button" data-disc-custom>Ask Magnus to scan live</button></div>
       <div class="wiz-grid-3">
-        <div class="wiz-card"><span class="chip ok" style="align-self:flex-start;">Simple · Daily</span><strong>Email &amp; calendar conflicts</strong><span class="small muted">Spot scheduling emails &amp; overlapping invites every weekday morning.</span></div>
-        <div class="wiz-card"><span class="chip warn" style="align-self:flex-start;">Multi-Step · Execution</span><strong>Research, quotes &amp; ordering</strong><span class="small muted">Compare suppliers, request quotes, and pause for your 1-click order OK.</span></div>
-        <div class="wiz-card"><span class="chip sch" style="align-self:flex-start;">Long-Running · Continuous</span><strong>Stalled thread &amp; vendor tracker</strong><span class="small muted">Watch open threads for weeks, draft 48h nudges, and escalate blockers.</span></div>
-      </div>
-      <div class="wiz-trust"><span>Want Magnus to design a custom automation from scratch?</span><button type="button" data-disc-custom>Explore custom task with Magnus</button></div>`;
+        ${matched.map(p => `<div class="wiz-card"><span class="chip ${p.cls}" style="align-self:flex-start;">${esc(p.badge)}</span><strong>${esc(p.title)}</strong><span class="small muted">${esc(p.desc)}</span>${p.ready ? `<span class="small" style="color:var(--ok);">Ready</span>` : `<span class="small" style="color:var(--warn);">Requires ${esc(p.needsLabel)} connected</span>`}</div>`).join("")}
+      </div>`;
   }
-  const items = Guide.disc.items.filter(p => Guide.disc.filter === "all" || p.tier === Guide.disc.filter);
+  const items = matched.filter(p => Guide.disc.filter === "all" || p.tier === Guide.disc.filter);
   const fBtn = (k, label) => `<button type="button" class="wiz-pill${Guide.disc.filter === k ? " on" : ""}" data-disc-filter="${k}">${label}</button>`;
-  return `<h2>Review safety rules &amp; activate automations</h2>
-    <p class="wiz-sub">Every automation starts with clear guardrails. Choose which tasks to hand over and how much autonomy each gets.</p>
-    <div class="wiz-stepper" style="margin-bottom:12px;">${fBtn("all", "All (3)")}${fBtn("simple", "Simple")}${fBtn("complex", "Multi-Step")}${fBtn("long", "Long-Running")}</div>
-    ${items.map(p => `<div class="wiz-prop${p.on ? " on" : ""}">
-      <div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;"><span class="chip ${p.cls}">${esc(p.badge)}</span><strong>${esc(p.title)}</strong></div>
+  return `<h2>Review safety rules &amp; start automations</h2>
+    <p class="wiz-sub">Every automation starts with clear guardrails. Starting sends these directly to Magnus to schedule and confirm.</p>
+    <div class="wiz-stepper" style="margin-bottom:12px;">${fBtn("all", `Matched (${matched.length})`)}${fBtn("simple", "Simple")}${fBtn("complex", "Multi-Step")}${fBtn("long", "Long-Running")}</div>
+    ${items.length ? items.map(p => `<div class="wiz-prop${p.active ? " on" : ""}">
+      <div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;"><span class="chip ${p.cls}">${esc(p.badge)}</span><strong>${esc(p.title)}</strong>${!p.ready ? `<span class="chip warn">Needs ${esc(p.needsLabel)}</span>` : ""}</div>
         <p class="small muted" style="margin:0 0 8px;">${esc(p.desc)}</p>
         <label class="small">Safety mode: <select data-disc-mode="${esc(p.id)}">
           <option value="ask"${p.mode === "ask" ? " selected" : ""}>Ask before external actions (Recommended)</option>
           <option value="draft"${p.mode === "draft" ? " selected" : ""}>Prepare drafts &amp; briefs only</option>
           <option value="auto"${p.mode === "auto" ? " selected" : ""}>Auto-run within threshold</option>
         </select></label></div>
-      <button type="button" class="${p.on ? "primary" : ""}" data-disc-toggle="${esc(p.id)}">${p.on ? "Selected" : "Select"}</button>
-    </div>`).join("")}`;
+      <button type="button" class="${p.active ? "primary" : ""}" data-disc-toggle="${esc(p.id)}" ${p.ready ? "" : "disabled title=\"Connect required app first\""}>${p.active ? "Selected" : p.ready ? "Select" : "Needs app"}</button>
+    </div>`).join("") : `<p class="empty">No templates match this filter. Switch filters or click "Ask Magnus to scan live".</p>`}`;
 }
 
 async function openDiscoveryWizard() {
@@ -270,12 +298,12 @@ async function openDiscoveryWizard() {
   const draw = async () => {
     const f = Guide.facts || await guideFacts();
     Guide.facts = f;
-    const st = Guide.disc.step, count = Guide.disc.items.filter(p => p.on).length;
+    const st = Guide.disc.step, count = discMatchedProposals(f).filter(p => p.active).length;
     const pill = (n, label) => `<button type="button" class="wiz-pill${st === n ? " on" : ""}${st > n ? " done" : ""}" data-disc-step="${n}"><span class="num">${n}</span>${label}</button>`;
-    paint(d, `<div class="wiz-head"><div class="wiz-stepper">${pill(1, "Scope & Focus")}${pill(2, "What Magnus Found")}${pill(3, "Safety & Activate")}</div><button type="button" class="link" data-disc-close>Close</button></div>
+    paint(d, `<div class="wiz-head"><div class="wiz-stepper">${pill(1, "Scope & Focus")}${pill(2, "Suggested Plans")}${pill(3, "Safety & Start")}</div><button type="button" class="link" data-disc-close>Close</button></div>
       <div class="wiz-body">${discStepHtml(f)}</div>
       <div class="wiz-foot"><span class="small muted">Step ${st} of 3 · All actions logged in Activity</span>
-        <div class="wiz-actions">${st > 1 ? `<button type="button" data-disc-step="${st - 1}">Back</button>` : ""}${st < 3 ? `<button type="button" class="primary" data-disc-step="${st + 1}">${st === 1 ? "Scan for Automations" : "Review Safety Rules"}</button>` : `<button type="button" class="primary" data-disc-activate ${count ? "" : "disabled"}>Activate Selected (${count})</button>`}</div>
+        <div class="wiz-actions">${st > 1 ? `<button type="button" data-disc-step="${st - 1}">Back</button>` : ""}${st < 3 ? `<button type="button" class="primary" data-disc-step="${st + 1}">${st === 1 ? "See Matching Plans" : "Review Safety Rules"}</button>` : `<button type="button" class="primary" data-disc-activate ${count ? "" : "disabled"}>Start Selected (${count})</button>`}</div>
       </div>`);
   };
   d.oninput = e => { const ta = /** @type {HTMLElement} */ (e.target).closest("[data-disc-note]"); if (ta) Guide.disc.note = /** @type {HTMLTextAreaElement} */ (ta).value; };
@@ -285,7 +313,7 @@ async function openDiscoveryWizard() {
     const item = Guide.disc.items.find(p => p.id === sel.dataset.discMode);
     if (item) item.mode = sel.value;
   };
-  d.onclick = e => {
+  d.onclick = async e => {
     const t = /** @type {HTMLElement} */ (e.target);
     if (t.closest("[data-disc-close]")) { d.close(); return; }
     const st = t.closest("[data-disc-step]");
@@ -296,11 +324,12 @@ async function openDiscoveryWizard() {
     if (fil) { Guide.disc.filter = fil.dataset.discFilter; draw(); return; }
     const tog = t.closest("[data-disc-toggle]");
     if (tog) { const it = Guide.disc.items.find(p => p.id === tog.dataset.discToggle); if (it) it.on = !it.on; draw(); return; }
-    if (t.closest("[data-disc-custom]")) { d.close(); guideAsk(`Help me discover what repetitive work I can automate safely. Focus: ${[...Guide.disc.focus].join(", ")}.${Guide.disc.note ? ` Context: ${Guide.disc.note}` : ""}`); return; }
+    if (t.closest("[data-disc-custom]")) { d.close(); await guideStartTurn(`Inspect my connected apps read-only and propose specific automations I can hand off safely. Focus: ${[...Guide.disc.focus].join(", ")}.${Guide.disc.note ? ` Context: ${Guide.disc.note}` : ""}`); return; }
     if (t.closest("[data-disc-activate]")) {
-      const chosen = Guide.disc.items.filter(p => p.on);
+      const f = Guide.facts || await guideFacts();
+      const chosen = discMatchedProposals(f).filter(p => p.active);
       d.close();
-      guideAsk(`Set up these automations with their safety modes:\n${chosen.map(p => `- ${p.title} (${p.badge}) — Safety: ${p.mode}`).join("\n")}${Guide.disc.note ? `\nExtra context: ${Guide.disc.note}` : ""}`);
+      await guideStartTurn(`Create schedules and safety rules for these automations:\n${chosen.map(p => `- ${p.title} (${p.badge}) — Safety: ${p.mode}`).join("\n")}${Guide.disc.note ? `\nExtra context: ${Guide.disc.note}` : ""}`);
     }
   };
   await draw();
