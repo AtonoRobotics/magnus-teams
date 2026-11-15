@@ -185,7 +185,7 @@ fn an_admin_relaxes_it_for_a_group() {
 fn a_person_can_only_tighten_it() {
     let f = facts("desktop_blender", "run_python").unwrap();
     let loosen = r#"permit(principal, action == Action::"execute", resource in App::"desktop_blender");"#;
-    assert!(crate::policy_layers::tightens_only("user/mo", loosen).is_err(), "a person's permit was accepted");
+    assert!(crate::policy::layers::tightens_only("user/mo", loosen).is_err(), "a person's permit was accepted");
     let policies = BTreeMap::from([("user/mo".to_string(), loosen.to_string())]);
     let out = decide(&policies, &person("mo", &[]), None, &ToolFacts::from(&f), false, false).unwrap();
     assert!(matches!(out, Outcome::Ask { .. }), "a person's own permit loosened the ask: {out:?}");

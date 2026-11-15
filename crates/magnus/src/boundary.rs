@@ -143,13 +143,7 @@ pub(crate) fn is_reviewed_send(a: &Action, f: &Facts) -> bool {
 }
 
 pub fn has_rights(person: &Person, f: &Facts) -> bool {
-    f.connector.as_ref().is_none_or(|c| may_use(person, c))
-}
-
-/// Whether a person may use one of the organisation's apps: in one of the
-/// groups it is for (none named: everyone), and in none it is blocked for.
-pub fn may_use(person: &Person, c: &crate::config::Connector) -> bool {
-    crate::generated::may_use(person, c)
+    f.connector.as_ref().is_none_or(|c| crate::policy::may_use_app(person, c))
 }
 
 /// The prompt's tokens from the kernel's bytes: the fallback when the
@@ -1008,8 +1002,7 @@ mod transport_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_output_for_budget, may_use};
-    use crate::config::{Connector, Person};
+    use super::clamp_output_for_budget;
 
     /// $10 a million output tokens, the 16000-token allowance: the full
     /// allowance when it fits, fewer when only fewer fit, none when the
@@ -1026,32 +1019,5 @@ mod tests {
         assert_eq!(clamp_output_for_budget(0.001, 0.01, 0.16, 16000), None);
         // Free output (or unpriced): the full allowance while the prompt fits.
         assert_eq!(clamp_output_for_budget(0.05, 0.01, 0.0, 16000), Some(16000));
-    }
-
-    fn app(allow: &[&str], block: &[&str]) -> Connector {
-        serde_json::from_value(
-            serde_json::json!({ "name": "gmail", "url": "https://x.test/mcp", "audience": "public", "label": "private", "access_groups": allow, "blocked_groups": block }),
-        )
-        .unwrap()
-    }
-
-    fn in_groups(groups: &[&str]) -> Person {
-        serde_json::from_value(serde_json::json!({ "id": "p", "groups": groups })).unwrap()
-    }
-
-    #[test]
-    fn an_app_is_for_its_groups_and_never_for_the_groups_it_is_blocked_for() {
-        let (staff, finance, both, none) = (in_groups(&["staff"]), in_groups(&["finance"]), in_groups(&["staff", "finance"]), in_groups(&[]));
-        // No rule: everyone.
-        assert!([&staff, &finance, &both, &none].iter().all(|p| may_use(p, &app(&[], &[]))));
-        // Allowed for staff only.
-        let a = app(&["staff"], &[]);
-        assert!(may_use(&staff, &a) && may_use(&both, &a) && !may_use(&finance, &a) && !may_use(&none, &a));
-        // Blocked for finance: a block wins over an allow.
-        let a = app(&["staff"], &["finance"]);
-        assert!(may_use(&staff, &a) && !may_use(&both, &a) && !may_use(&finance, &a));
-        // Blocked only: everyone else.
-        let a = app(&[], &["finance"]);
-        assert!(may_use(&staff, &a) && may_use(&none, &a) && !may_use(&both, &a));
     }
 }

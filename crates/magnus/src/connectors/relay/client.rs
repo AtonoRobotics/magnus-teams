@@ -1,9 +1,10 @@
 //! Asking the relay to refresh or revoke a relayed sign-in's tokens: the
 //! request signed with this server's key, the answer with the relay's.
 
-use super::super::{http, random};
+use super::super::http;
 use super::{now, open, timely, Message, Refreshed, Settings, Signed};
 use crate::kernel::Kernel;
+use crate::oauth::random;
 use anyhow::{bail, Context, Result};
 use std::future::Future;
 

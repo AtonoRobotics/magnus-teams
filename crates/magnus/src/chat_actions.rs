@@ -186,7 +186,7 @@ async fn share(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(Stri
         (tools, sources, private)
     });
     let mut barred: Vec<String> = tools.iter().filter_map(|t| crate::boundary::facts(&k, t)).filter(|f| !crate::boundary::has_rights(&to, f)).map(|f| f.app).collect();
-    barred.extend(sources.iter().filter_map(|app| k.connector(app)).filter(|c| !crate::boundary::may_use(&to, c)).map(|c| c.name.clone()));
+    barred.extend(sources.iter().filter_map(|app| k.connector(app)).filter(|c| !crate::policy::may_use_app(&to, c)).map(|c| c.name.clone()));
     if private_knowledge {
         barred.push("knowledge entries not everyone may read".into());
     }

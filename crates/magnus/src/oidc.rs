@@ -240,12 +240,12 @@ impl Provider {
     /// Begin a sign-in in the person's browser that comes back to
     /// `redirect_uri`, a loopback address on their computer.
     pub async fn begin(&self, redirect_uri: &str, login_hint: Option<&str>, app: bool) -> Result<Begun> {
-        crate::connectors::loopback(redirect_uri)?;
+        crate::oauth::loopback(redirect_uri)?;
         let now = Utc::now();
         self.room(now)?;
         let d = self.discovery().await?;
         let endpoint = d.authorization_endpoint.as_deref().ok_or_else(|| anyhow!("{} does not offer the authorization code grant", self.label()))?;
-        let (verifier, state, nonce) = (crate::connectors::random(), crate::connectors::random(), crate::connectors::random());
+        let (verifier, state, nonce) = (crate::oauth::random(), crate::oauth::random(), crate::oauth::random());
         let mut u = url::Url::parse(endpoint)?;
         u.query_pairs_mut()
             .append_pair("client_id", &self.cfg.client_id)
@@ -254,7 +254,7 @@ impl Provider {
             .append_pair("scope", &self.cfg.scope)
             .append_pair("state", &state)
             .append_pair("nonce", &nonce)
-            .append_pair("code_challenge", &crate::connectors::challenge(&verifier))
+            .append_pair("code_challenge", &crate::oauth::challenge(&verifier))
             .append_pair("code_challenge_method", "S256");
         if let Some(h) = login_hint {
             u.query_pairs_mut().append_pair("login_hint", h);
@@ -477,8 +477,8 @@ impl Provider {
         self.room(now)?;
         let d = self.discovery().await?;
         let endpoint = d.device_authorization_endpoint.as_deref().ok_or_else(|| anyhow!("{} does not offer the device-code grant", self.label()))?;
-        let verifier = crate::connectors::random();
-        let challenge = crate::connectors::challenge(&verifier);
+        let verifier = crate::oauth::random();
+        let challenge = crate::oauth::challenge(&verifier);
         let r = self
             .http
             .post(endpoint)

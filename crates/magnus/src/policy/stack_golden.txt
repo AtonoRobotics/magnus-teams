@@ -1,0 +1,1369 @@
+defaults | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+defaults | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+defaults | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+defaults | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+defaults | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+defaults | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+defaults | loop act mail__list | Ok(org:policy0)
+defaults | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+defaults | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+defaults | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+defaults | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+defaults | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+defaults | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+defaults | loop act mail__send | Ok(org:policy0)
+defaults | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+defaults | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+defaults | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+defaults | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+defaults | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+defaults | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+defaults | loop act crm__pay | Ok(org:policy0)
+defaults | loop suggest u=false | Ok(org:policy0)
+defaults | loop suggest u=true | Ok(org:policy0)
+defaults | loop interrupt u=false | Ok(org:policy0)
+defaults | loop interrupt u=true | Ok(org:policy0)
+defaults | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+defaults | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+defaults | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+defaults | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+defaults | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+defaults | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+defaults | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+defaults | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+defaults | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+defaults | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+defaults | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+defaults | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org empty | decide mail__list u=false p=false task=None | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty | decide mail__list u=true p=false task=None | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty | decide mail__list u=false p=true task=None | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty | loop act mail__list | Ok(org:policy0)
+org empty | decide mail__send u=false p=false task=None | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty | decide mail__send u=true p=false task=None | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty | decide mail__send u=false p=true task=None | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty | loop act mail__send | Ok(org:policy0)
+org empty | decide crm__pay u=false p=false task=None | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty | decide crm__pay u=true p=false task=None | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty | decide crm__pay u=false p=true task=None | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty | loop act crm__pay | Ok(org:policy0)
+org empty | loop suggest u=false | Ok(org:policy0)
+org empty | loop suggest u=true | Ok(org:policy0)
+org empty | loop interrupt u=false | Ok(org:policy0)
+org empty | loop interrupt u=true | Ok(org:policy0)
+org empty | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org empty | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org empty | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org empty | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org empty | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org empty | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org empty | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org empty | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org empty | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org empty | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org empty | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org empty | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org permit all | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org permit all | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org permit all | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org permit all | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | loop act mail__list | Ok(org:policy0)
+org permit all | decide mail__send u=false p=false task=None | Allow { rule: "org:policy0" }
+org permit all | decide mail__send u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | decide mail__send u=true p=false task=None | Allow { rule: "org:policy0" }
+org permit all | decide mail__send u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | decide mail__send u=false p=true task=None | Allow { rule: "org:policy0" }
+org permit all | decide mail__send u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | loop act mail__send | Ok(org:policy0)
+org permit all | decide crm__pay u=false p=false task=None | Allow { rule: "org:policy0" }
+org permit all | decide crm__pay u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | decide crm__pay u=true p=false task=None | Allow { rule: "org:policy0" }
+org permit all | decide crm__pay u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | decide crm__pay u=false p=true task=None | Allow { rule: "org:policy0" }
+org permit all | decide crm__pay u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org permit all | loop act crm__pay | Ok(org:policy0)
+org permit all | loop suggest u=false | Ok(org:policy0)
+org permit all | loop suggest u=true | Ok(org:policy0)
+org permit all | loop interrupt u=false | Ok(org:policy0)
+org permit all | loop interrupt u=true | Ok(org:policy0)
+org permit all | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org permit all | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org permit all | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org permit all | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org permit all | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org permit all | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org permit all | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org permit all | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org permit all | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org permit all | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org permit all | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org permit all | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org ask only | decide mail__list u=false p=false task=None | Ask { rule: "org:policy0" }
+org ask only | decide mail__list u=false p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | decide mail__list u=true p=false task=None | Ask { rule: "org:policy0" }
+org ask only | decide mail__list u=true p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | decide mail__list u=false p=true task=None | Ask { rule: "org:policy0" }
+org ask only | decide mail__list u=false p=true task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | loop act mail__list | Ok(org:policy0)
+org ask only | decide mail__send u=false p=false task=None | Ask { rule: "org:policy0" }
+org ask only | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | decide mail__send u=true p=false task=None | Ask { rule: "org:policy0" }
+org ask only | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | decide mail__send u=false p=true task=None | Ask { rule: "org:policy0" }
+org ask only | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | loop act mail__send | Ok(org:policy0)
+org ask only | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy0" }
+org ask only | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy0" }
+org ask only | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy0" }
+org ask only | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only | loop act crm__pay | Ok(org:policy0)
+org ask only | loop suggest u=false | Ok(org:policy0)
+org ask only | loop suggest u=true | Ok(org:policy0)
+org ask only | loop interrupt u=false | Ok(org:policy0)
+org ask only | loop interrupt u=true | Ok(org:policy0)
+org ask only | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org ask only | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org ask only | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org ask only | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org ask only | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org ask only | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org ask only | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org ask only | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org ask only | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org ask only | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org ask only | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org ask only | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids send | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids send | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids send | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org forbids send | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids send | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids send | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids send | loop act mail__list | Ok(org:policy0)
+org forbids send | decide mail__send u=false p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids send | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids send | decide mail__send u=true p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids send | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids send | decide mail__send u=false p=true task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids send | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids send | loop act mail__send | Ok(org:policy0)
+org forbids send | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids send | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids send | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids send | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send | loop act crm__pay | Ok(org:policy0)
+org forbids send | loop suggest u=false | Ok(org:policy0)
+org forbids send | loop suggest u=true | Ok(org:policy0)
+org forbids send | loop interrupt u=false | Ok(org:policy0)
+org forbids send | loop interrupt u=true | Ok(org:policy0)
+org forbids send | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids send | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids send | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids send | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids send | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids send | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids send | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids send | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids send | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids send | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids send | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids send | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids send execute | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids send execute | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids send execute | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org forbids send execute | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids send execute | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids send execute | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids send execute | loop act mail__list | Ok(org:policy0)
+org forbids send execute | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids send execute | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send execute | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids send execute | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send execute | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids send execute | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send execute | loop act mail__send | Ok(org:policy0)
+org forbids send execute | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids send execute | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send execute | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids send execute | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send execute | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids send execute | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids send execute | loop act crm__pay | Ok(org:policy0)
+org forbids send execute | loop suggest u=false | Ok(org:policy0)
+org forbids send execute | loop suggest u=true | Ok(org:policy0)
+org forbids send execute | loop interrupt u=false | Ok(org:policy0)
+org forbids send execute | loop interrupt u=true | Ok(org:policy0)
+org forbids send execute | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids send execute | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids send execute | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids send execute | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids send execute | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids send execute | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids send execute | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids send execute | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids send execute | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids send execute | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids send execute | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids send execute | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids untrusted | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids untrusted | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids untrusted | decide mail__list u=true p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__list for carol", rule: Some("org:policy2") }
+org forbids untrusted | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__list for carol", rule: Some("org:policy2") }
+org forbids untrusted | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids untrusted | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids untrusted | loop act mail__list | Ok(org:policy0)
+org forbids untrusted | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids untrusted | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids untrusted | decide mail__send u=true p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids untrusted | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org forbids untrusted | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids untrusted | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids untrusted | loop act mail__send | Ok(org:policy0)
+org forbids untrusted | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids untrusted | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids untrusted | decide crm__pay u=true p=false task=None | Deny { reason: "policy rule org:policy2 forbids crm__pay for carol", rule: Some("org:policy2") }
+org forbids untrusted | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids crm__pay for carol", rule: Some("org:policy2") }
+org forbids untrusted | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids untrusted | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids untrusted | loop act crm__pay | Ok(org:policy0)
+org forbids untrusted | loop suggest u=false | Ok(org:policy0)
+org forbids untrusted | loop suggest u=true | Ok(org:policy0)
+org forbids untrusted | loop interrupt u=false | Ok(org:policy0)
+org forbids untrusted | loop interrupt u=true | Ok(org:policy0)
+org forbids untrusted | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids untrusted | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids untrusted | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids untrusted | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids untrusted | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids untrusted | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids untrusted | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids untrusted | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids untrusted | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids untrusted | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids untrusted | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids untrusted | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids everything | decide mail__list u=false p=false task=None | Deny { reason: "policy rule org:policy0 forbids mail__list for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids mail__list for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__list u=true p=false task=None | Deny { reason: "policy rule org:policy0 forbids mail__list for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids mail__list for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__list u=false p=true task=None | Deny { reason: "policy rule org:policy0 forbids mail__list for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids mail__list for carol", rule: Some("org:policy0") }
+org forbids everything | loop act mail__list | Ok(org:policy0)
+org forbids everything | decide mail__send u=false p=false task=None | Deny { reason: "policy rule org:policy0 forbids mail__send for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids mail__send for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__send u=true p=false task=None | Deny { reason: "policy rule org:policy0 forbids mail__send for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids mail__send for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__send u=false p=true task=None | Deny { reason: "policy rule org:policy0 forbids mail__send for carol", rule: Some("org:policy0") }
+org forbids everything | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids mail__send for carol", rule: Some("org:policy0") }
+org forbids everything | loop act mail__send | Ok(org:policy0)
+org forbids everything | decide crm__pay u=false p=false task=None | Deny { reason: "policy rule org:policy0 forbids crm__pay for carol", rule: Some("org:policy0") }
+org forbids everything | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids crm__pay for carol", rule: Some("org:policy0") }
+org forbids everything | decide crm__pay u=true p=false task=None | Deny { reason: "policy rule org:policy0 forbids crm__pay for carol", rule: Some("org:policy0") }
+org forbids everything | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids crm__pay for carol", rule: Some("org:policy0") }
+org forbids everything | decide crm__pay u=false p=true task=None | Deny { reason: "policy rule org:policy0 forbids crm__pay for carol", rule: Some("org:policy0") }
+org forbids everything | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "policy rule org:policy0 forbids crm__pay for carol", rule: Some("org:policy0") }
+org forbids everything | loop act crm__pay | Ok(org:policy0)
+org forbids everything | loop suggest u=false | Ok(org:policy0)
+org forbids everything | loop suggest u=true | Ok(org:policy0)
+org forbids everything | loop interrupt u=false | Ok(org:policy0)
+org forbids everything | loop interrupt u=true | Ok(org:policy0)
+org forbids everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids cancel | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids cancel | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids cancel | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org forbids cancel | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids cancel | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids cancel | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids cancel | loop act mail__list | Ok(org:policy0)
+org forbids cancel | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids cancel | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids cancel | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids cancel | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids cancel | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids cancel | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids cancel | loop act mail__send | Ok(org:policy0)
+org forbids cancel | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids cancel | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids cancel | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids cancel | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids cancel | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids cancel | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids cancel | loop act crm__pay | Ok(org:policy0)
+org forbids cancel | loop suggest u=false | Ok(org:policy0)
+org forbids cancel | loop suggest u=true | Ok(org:policy0)
+org forbids cancel | loop interrupt u=false | Ok(org:policy0)
+org forbids cancel | loop interrupt u=true | Ok(org:policy0)
+org forbids cancel | control carol cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for carol (rule org:policy0))
+org forbids cancel | control carol cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for carol (rule org:policy0))
+org forbids cancel | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy2)
+org forbids cancel | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids cancel | control dave cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for dave (rule org:policy0))
+org forbids cancel | control dave cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for dave (rule org:policy0))
+org forbids cancel | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy2)
+org forbids cancel | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy4)
+org forbids cancel | control alice cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for alice (rule org:policy0))
+org forbids cancel | control alice cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for alice (rule org:policy0))
+org forbids cancel | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy2)
+org forbids cancel | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy4)
+org forbids admin cancel | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids admin cancel | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids admin cancel | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org forbids admin cancel | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids admin cancel | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids admin cancel | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids admin cancel | loop act mail__list | Ok(org:policy0)
+org forbids admin cancel | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids admin cancel | loop act mail__send | Ok(org:policy0)
+org forbids admin cancel | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids admin cancel | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids admin cancel | loop act crm__pay | Ok(org:policy0)
+org forbids admin cancel | loop suggest u=false | Ok(org:policy0)
+org forbids admin cancel | loop suggest u=true | Ok(org:policy0)
+org forbids admin cancel | loop interrupt u=false | Ok(org:policy0)
+org forbids admin cancel | loop interrupt u=true | Ok(org:policy0)
+org forbids admin cancel | control carol cancel_task Task/t1 of carol | Ok(org:policy1)
+org forbids admin cancel | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids admin cancel | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy2)
+org forbids admin cancel | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids admin cancel | control dave cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for dave (rule org:policy0))
+org forbids admin cancel | control dave cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for dave (rule org:policy0))
+org forbids admin cancel | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy2)
+org forbids admin cancel | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy4)
+org forbids admin cancel | control alice cancel_task Task/t1 of carol | Ok(org:policy1)
+org forbids admin cancel | control alice cancel_task Task/t2 of bob | Ok(org:policy1)
+org forbids admin cancel | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy2)
+org forbids admin cancel | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy4)
+org forbids suggest | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids suggest | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids suggest | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org forbids suggest | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids suggest | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids suggest | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids suggest | loop act mail__list | Ok(org:policy1)
+org forbids suggest | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids suggest | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids suggest | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids suggest | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids suggest | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids suggest | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids suggest | loop act mail__send | Ok(org:policy1)
+org forbids suggest | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids suggest | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids suggest | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids suggest | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids suggest | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids suggest | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids suggest | loop act crm__pay | Ok(org:policy1)
+org forbids suggest | loop suggest u=false | Forbidden(policy forbids suggest for carol (rule org:policy0))
+org forbids suggest | loop suggest u=true | Forbidden(policy forbids suggest for carol (rule org:policy0))
+org forbids suggest | loop interrupt u=false | Ok(org:policy1)
+org forbids suggest | loop interrupt u=true | Ok(org:policy1)
+org forbids suggest | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids suggest | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids suggest | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids suggest | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids suggest | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids suggest | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids suggest | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids suggest | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids suggest | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids suggest | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids suggest | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids suggest | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids act mail | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+org forbids act mail | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids act mail | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+org forbids act mail | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids act mail | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+org forbids act mail | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+org forbids act mail | loop act mail__list | Forbidden(policy forbids act for carol (rule org:policy0))
+org forbids act mail | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids act mail | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids act mail | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids act mail | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids act mail | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids act mail | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids act mail | loop act mail__send | Forbidden(policy forbids act for carol (rule org:policy0))
+org forbids act mail | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org forbids act mail | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids act mail | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org forbids act mail | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids act mail | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org forbids act mail | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org forbids act mail | loop act crm__pay | Ok(org:policy1)
+org forbids act mail | loop suggest u=false | Ok(org:policy1)
+org forbids act mail | loop suggest u=true | Ok(org:policy1)
+org forbids act mail | loop interrupt u=false | Ok(org:policy1)
+org forbids act mail | loop interrupt u=true | Ok(org:policy1)
+org forbids act mail | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids act mail | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org forbids act mail | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids act mail | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org forbids act mail | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids act mail | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids act mail | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids act mail | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org forbids act mail | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org forbids act mail | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org forbids act mail | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org forbids act mail | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org mixed | decide mail__list u=false p=false task=None | Ask { rule: "org:policy1" }
+org mixed | decide mail__list u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | decide mail__list u=true p=false task=None | Ask { rule: "org:policy1" }
+org mixed | decide mail__list u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | decide mail__list u=false p=true task=None | Ask { rule: "org:policy1" }
+org mixed | decide mail__list u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | loop act mail__list | Forbidden(policy forbids act for carol (rule org:policy0))
+org mixed | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+org mixed | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+org mixed | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+org mixed | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | loop act mail__send | Forbidden(policy forbids act for carol (rule org:policy0))
+org mixed | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+org mixed | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+org mixed | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+org mixed | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+org mixed | loop act crm__pay | Ok(org:policy1)
+org mixed | loop suggest u=false | Ok(org:policy1)
+org mixed | loop suggest u=true | Ok(org:policy1)
+org mixed | loop interrupt u=false | Ok(org:policy1)
+org mixed | loop interrupt u=true | Ok(org:policy1)
+org mixed | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org mixed | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org mixed | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org mixed | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org mixed | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org mixed | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org mixed | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org mixed | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org mixed | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org mixed | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org mixed | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org mixed | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids send | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+staff forbids send | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids send | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+staff forbids send | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids send | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+staff forbids send | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids send | loop act mail__list | Ok(org:policy0)
+staff forbids send | decide mail__send u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids send | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids send | decide mail__send u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids send | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids send | decide mail__send u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids send | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids send | loop act mail__send | Ok(org:policy0)
+staff forbids send | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff forbids send | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids send | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff forbids send | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids send | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff forbids send | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids send | loop act crm__pay | Ok(org:policy0)
+staff forbids send | loop suggest u=false | Ok(org:policy0)
+staff forbids send | loop suggest u=true | Ok(org:policy0)
+staff forbids send | loop interrupt u=false | Ok(org:policy0)
+staff forbids send | loop interrupt u=true | Ok(org:policy0)
+staff forbids send | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids send | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+staff forbids send | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids send | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff forbids send | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids send | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+staff forbids send | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids send | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids send | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids send | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+staff forbids send | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids send | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff permits all | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+staff permits all | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff permits all | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+staff permits all | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff permits all | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+staff permits all | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+staff permits all | loop act mail__list | Ok(org:policy0)
+staff permits all | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+staff permits all | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff permits all | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+staff permits all | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff permits all | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+staff permits all | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff permits all | loop act mail__send | Ok(org:policy0)
+staff permits all | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff permits all | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff permits all | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff permits all | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff permits all | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff permits all | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff permits all | loop act crm__pay | Ok(org:policy0)
+staff permits all | loop suggest u=false | Ok(org:policy0)
+staff permits all | loop suggest u=true | Ok(org:policy0)
+staff permits all | loop interrupt u=false | Ok(org:policy0)
+staff permits all | loop interrupt u=true | Ok(org:policy0)
+staff permits all | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+staff permits all | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+staff permits all | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff permits all | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff permits all | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+staff permits all | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+staff permits all | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff permits all | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff permits all | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+staff permits all | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+staff permits all | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff permits all | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids everything | decide mail__list u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__list for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__list for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__list u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__list for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__list for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__list u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__list for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__list for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | loop act mail__list | Ok(org:policy0)
+staff forbids everything | decide mail__send u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__send u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__send u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | loop act mail__send | Ok(org:policy0)
+staff forbids everything | decide crm__pay u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids crm__pay for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids crm__pay for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide crm__pay u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids crm__pay for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids crm__pay for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide crm__pay u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids crm__pay for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids crm__pay for carol", rule: Some("group/staff:policy0") }
+staff forbids everything | loop act crm__pay | Ok(org:policy0)
+staff forbids everything | loop suggest u=false | Ok(org:policy0)
+staff forbids everything | loop suggest u=true | Ok(org:policy0)
+staff forbids everything | loop interrupt u=false | Ok(org:policy0)
+staff forbids everything | loop interrupt u=true | Ok(org:policy0)
+staff forbids everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+staff forbids everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff forbids everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+staff forbids everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+staff forbids everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids cancel | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+staff forbids cancel | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids cancel | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+staff forbids cancel | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids cancel | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+staff forbids cancel | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids cancel | loop act mail__list | Ok(org:policy0)
+staff forbids cancel | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+staff forbids cancel | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids cancel | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+staff forbids cancel | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids cancel | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+staff forbids cancel | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids cancel | loop act mail__send | Ok(org:policy0)
+staff forbids cancel | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff forbids cancel | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids cancel | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff forbids cancel | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids cancel | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff forbids cancel | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids cancel | loop act crm__pay | Ok(org:policy0)
+staff forbids cancel | loop suggest u=false | Ok(org:policy0)
+staff forbids cancel | loop suggest u=true | Ok(org:policy0)
+staff forbids cancel | loop interrupt u=false | Ok(org:policy0)
+staff forbids cancel | loop interrupt u=true | Ok(org:policy0)
+staff forbids cancel | control carol cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for carol (rule group/staff:policy0))
+staff forbids cancel | control carol cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for carol (rule group/staff:policy0))
+staff forbids cancel | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids cancel | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff forbids cancel | control dave cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for dave (rule group/staff:policy0))
+staff forbids cancel | control dave cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for dave (rule group/staff:policy0))
+staff forbids cancel | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids cancel | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids cancel | control alice cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for alice (rule group/staff:policy0))
+staff forbids cancel | control alice cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for alice (rule group/staff:policy0))
+staff forbids cancel | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids cancel | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids suggest | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+staff forbids suggest | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids suggest | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+staff forbids suggest | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids suggest | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+staff forbids suggest | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+staff forbids suggest | loop act mail__list | Ok(org:policy0)
+staff forbids suggest | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+staff forbids suggest | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids suggest | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+staff forbids suggest | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids suggest | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+staff forbids suggest | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids suggest | loop act mail__send | Ok(org:policy0)
+staff forbids suggest | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff forbids suggest | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids suggest | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff forbids suggest | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids suggest | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff forbids suggest | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff forbids suggest | loop act crm__pay | Ok(org:policy0)
+staff forbids suggest | loop suggest u=false | Forbidden(policy forbids suggest for carol (rule group/staff:policy0))
+staff forbids suggest | loop suggest u=true | Forbidden(policy forbids suggest for carol (rule group/staff:policy0))
+staff forbids suggest | loop interrupt u=false | Ok(org:policy0)
+staff forbids suggest | loop interrupt u=true | Ok(org:policy0)
+staff forbids suggest | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids suggest | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+staff forbids suggest | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids suggest | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff forbids suggest | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids suggest | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+staff forbids suggest | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids suggest | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff forbids suggest | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+staff forbids suggest | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+staff forbids suggest | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff forbids suggest | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff mixed | decide mail__list u=false p=false task=None | Ask { rule: "org:policy1" }
+staff mixed | decide mail__list u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | decide mail__list u=true p=false task=None | Ask { rule: "org:policy1" }
+staff mixed | decide mail__list u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | decide mail__list u=false p=true task=None | Ask { rule: "org:policy1" }
+staff mixed | decide mail__list u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | loop act mail__list | Forbidden(policy forbids act for carol (rule group/staff:policy0))
+staff mixed | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+staff mixed | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+staff mixed | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+staff mixed | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | loop act mail__send | Forbidden(policy forbids act for carol (rule group/staff:policy0))
+staff mixed | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff mixed | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff mixed | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff mixed | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff mixed | loop act crm__pay | Ok(org:policy0)
+staff mixed | loop suggest u=false | Ok(org:policy0)
+staff mixed | loop suggest u=true | Ok(org:policy0)
+staff mixed | loop interrupt u=false | Ok(org:policy0)
+staff mixed | loop interrupt u=true | Ok(org:policy0)
+staff mixed | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+staff mixed | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+staff mixed | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff mixed | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff mixed | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+staff mixed | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+staff mixed | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff mixed | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff mixed | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+staff mixed | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+staff mixed | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff mixed | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+other group forbids everything | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+other group forbids everything | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+other group forbids everything | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+other group forbids everything | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+other group forbids everything | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+other group forbids everything | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+other group forbids everything | loop act mail__list | Ok(org:policy0)
+other group forbids everything | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+other group forbids everything | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+other group forbids everything | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+other group forbids everything | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+other group forbids everything | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+other group forbids everything | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+other group forbids everything | loop act mail__send | Ok(org:policy0)
+other group forbids everything | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+other group forbids everything | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+other group forbids everything | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+other group forbids everything | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+other group forbids everything | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+other group forbids everything | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+other group forbids everything | loop act crm__pay | Ok(org:policy0)
+other group forbids everything | loop suggest u=false | Ok(org:policy0)
+other group forbids everything | loop suggest u=true | Ok(org:policy0)
+other group forbids everything | loop interrupt u=false | Ok(org:policy0)
+other group forbids everything | loop interrupt u=true | Ok(org:policy0)
+other group forbids everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+other group forbids everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+other group forbids everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+other group forbids everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+other group forbids everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+other group forbids everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+other group forbids everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+other group forbids everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+other group forbids everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+other group forbids everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+other group forbids everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+other group forbids everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids send | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+user forbids send | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids send | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+user forbids send | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids send | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+user forbids send | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids send | loop act mail__list | Ok(org:policy0)
+user forbids send | decide mail__send u=false p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids send | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids send | decide mail__send u=true p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids send | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids send | decide mail__send u=false p=true task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids send | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids send | loop act mail__send | Ok(org:policy0)
+user forbids send | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids send | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids send | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+user forbids send | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids send | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids send | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids send | loop act crm__pay | Ok(org:policy0)
+user forbids send | loop suggest u=false | Ok(org:policy0)
+user forbids send | loop suggest u=true | Ok(org:policy0)
+user forbids send | loop interrupt u=false | Ok(org:policy0)
+user forbids send | loop interrupt u=true | Ok(org:policy0)
+user forbids send | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids send | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+user forbids send | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids send | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+user forbids send | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids send | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids send | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids send | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids send | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids send | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids send | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids send | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids untrusted | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+user forbids untrusted | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids untrusted | decide mail__list u=true p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+user forbids untrusted | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+user forbids untrusted | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+user forbids untrusted | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids untrusted | loop act mail__list | Ok(org:policy0)
+user forbids untrusted | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids untrusted | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids untrusted | decide mail__send u=true p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids untrusted | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__send for carol", rule: Some("user/carol:policy0") }
+user forbids untrusted | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids untrusted | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids untrusted | loop act mail__send | Ok(org:policy0)
+user forbids untrusted | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids untrusted | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids untrusted | decide crm__pay u=true p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+user forbids untrusted | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+user forbids untrusted | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids untrusted | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids untrusted | loop act crm__pay | Ok(org:policy0)
+user forbids untrusted | loop suggest u=false | Ok(org:policy0)
+user forbids untrusted | loop suggest u=true | Ok(org:policy0)
+user forbids untrusted | loop interrupt u=false | Ok(org:policy0)
+user forbids untrusted | loop interrupt u=true | Ok(org:policy0)
+user forbids untrusted | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids untrusted | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+user forbids untrusted | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids untrusted | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+user forbids untrusted | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids untrusted | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids untrusted | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids untrusted | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids untrusted | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids untrusted | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids untrusted | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids untrusted | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids cancel | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+user forbids cancel | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids cancel | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+user forbids cancel | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids cancel | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+user forbids cancel | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids cancel | loop act mail__list | Ok(org:policy0)
+user forbids cancel | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids cancel | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids cancel | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+user forbids cancel | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids cancel | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids cancel | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids cancel | loop act mail__send | Ok(org:policy0)
+user forbids cancel | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids cancel | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids cancel | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+user forbids cancel | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids cancel | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids cancel | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids cancel | loop act crm__pay | Ok(org:policy0)
+user forbids cancel | loop suggest u=false | Ok(org:policy0)
+user forbids cancel | loop suggest u=true | Ok(org:policy0)
+user forbids cancel | loop interrupt u=false | Ok(org:policy0)
+user forbids cancel | loop interrupt u=true | Ok(org:policy0)
+user forbids cancel | control carol cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for carol (rule user/carol:policy0))
+user forbids cancel | control carol cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for carol (rule user/carol:policy0))
+user forbids cancel | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids cancel | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+user forbids cancel | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids cancel | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids cancel | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids cancel | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids cancel | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids cancel | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids cancel | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids cancel | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids act mail | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+user forbids act mail | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids act mail | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+user forbids act mail | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids act mail | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+user forbids act mail | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+user forbids act mail | loop act mail__list | Forbidden(policy forbids act for carol (rule user/carol:policy0))
+user forbids act mail | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids act mail | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids act mail | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+user forbids act mail | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids act mail | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids act mail | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids act mail | loop act mail__send | Forbidden(policy forbids act for carol (rule user/carol:policy0))
+user forbids act mail | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+user forbids act mail | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids act mail | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+user forbids act mail | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids act mail | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+user forbids act mail | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+user forbids act mail | loop act crm__pay | Ok(org:policy0)
+user forbids act mail | loop suggest u=false | Ok(org:policy0)
+user forbids act mail | loop suggest u=true | Ok(org:policy0)
+user forbids act mail | loop interrupt u=false | Ok(org:policy0)
+user forbids act mail | loop interrupt u=true | Ok(org:policy0)
+user forbids act mail | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids act mail | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+user forbids act mail | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids act mail | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+user forbids act mail | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids act mail | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids act mail | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids act mail | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user forbids act mail | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+user forbids act mail | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+user forbids act mail | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user forbids act mail | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+another user forbids everything | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+another user forbids everything | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+another user forbids everything | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+another user forbids everything | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+another user forbids everything | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+another user forbids everything | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+another user forbids everything | loop act mail__list | Ok(org:policy0)
+another user forbids everything | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+another user forbids everything | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+another user forbids everything | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+another user forbids everything | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+another user forbids everything | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+another user forbids everything | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+another user forbids everything | loop act mail__send | Ok(org:policy0)
+another user forbids everything | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+another user forbids everything | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+another user forbids everything | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+another user forbids everything | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+another user forbids everything | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+another user forbids everything | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+another user forbids everything | loop act crm__pay | Ok(org:policy0)
+another user forbids everything | loop suggest u=false | Ok(org:policy0)
+another user forbids everything | loop suggest u=true | Ok(org:policy0)
+another user forbids everything | loop interrupt u=false | Ok(org:policy0)
+another user forbids everything | loop interrupt u=true | Ok(org:policy0)
+another user forbids everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+another user forbids everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+another user forbids everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+another user forbids everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+another user forbids everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+another user forbids everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+another user forbids everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+another user forbids everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+another user forbids everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+another user forbids everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+another user forbids everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+another user forbids everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+task forbids send | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+task forbids send | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+task forbids send | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+task forbids send | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+task forbids send | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+task forbids send | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+task forbids send | loop act mail__list | Ok(org:policy0)
+task forbids send | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+task forbids send | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+task forbids send | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+task forbids send | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+task forbids send | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+task forbids send | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+task forbids send | loop act mail__send | Ok(org:policy0)
+task forbids send | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+task forbids send | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+task forbids send | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+task forbids send | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+task forbids send | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+task forbids send | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+task forbids send | loop act crm__pay | Ok(org:policy0)
+task forbids send | loop suggest u=false | Ok(org:policy0)
+task forbids send | loop suggest u=true | Ok(org:policy0)
+task forbids send | loop interrupt u=false | Ok(org:policy0)
+task forbids send | loop interrupt u=true | Ok(org:policy0)
+task forbids send | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+task forbids send | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+task forbids send | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+task forbids send | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+task forbids send | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+task forbids send | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+task forbids send | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+task forbids send | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+task forbids send | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+task forbids send | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+task forbids send | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+task forbids send | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+task forbids everything | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+task forbids everything | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__list for carol", rule: Some("task/t1:policy0") }
+task forbids everything | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+task forbids everything | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__list for carol", rule: Some("task/t1:policy0") }
+task forbids everything | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+task forbids everything | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__list for carol", rule: Some("task/t1:policy0") }
+task forbids everything | loop act mail__list | Ok(org:policy0)
+task forbids everything | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+task forbids everything | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+task forbids everything | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+task forbids everything | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+task forbids everything | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+task forbids everything | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+task forbids everything | loop act mail__send | Ok(org:policy0)
+task forbids everything | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+task forbids everything | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids crm__pay for carol", rule: Some("task/t1:policy0") }
+task forbids everything | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+task forbids everything | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids crm__pay for carol", rule: Some("task/t1:policy0") }
+task forbids everything | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+task forbids everything | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids crm__pay for carol", rule: Some("task/t1:policy0") }
+task forbids everything | loop act crm__pay | Ok(org:policy0)
+task forbids everything | loop suggest u=false | Ok(org:policy0)
+task forbids everything | loop suggest u=true | Ok(org:policy0)
+task forbids everything | loop interrupt u=false | Ok(org:policy0)
+task forbids everything | loop interrupt u=true | Ok(org:policy0)
+task forbids everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+task forbids everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+task forbids everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+task forbids everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+task forbids everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+task forbids everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+task forbids everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+task forbids everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+task forbids everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+task forbids everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+task forbids everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+task forbids everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff and user forbid send | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+staff and user forbid send | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff and user forbid send | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+staff and user forbid send | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff and user forbid send | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+staff and user forbid send | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+staff and user forbid send | loop act mail__list | Ok(org:policy0)
+staff and user forbid send | decide mail__send u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff and user forbid send | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff and user forbid send | decide mail__send u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff and user forbid send | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff and user forbid send | decide mail__send u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff and user forbid send | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+staff and user forbid send | loop act mail__send | Ok(org:policy0)
+staff and user forbid send | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff and user forbid send | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff and user forbid send | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff and user forbid send | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff and user forbid send | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff and user forbid send | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff and user forbid send | loop act crm__pay | Ok(org:policy0)
+staff and user forbid send | loop suggest u=false | Ok(org:policy0)
+staff and user forbid send | loop suggest u=true | Ok(org:policy0)
+staff and user forbid send | loop interrupt u=false | Ok(org:policy0)
+staff and user forbid send | loop interrupt u=true | Ok(org:policy0)
+staff and user forbid send | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+staff and user forbid send | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+staff and user forbid send | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff and user forbid send | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff and user forbid send | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+staff and user forbid send | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+staff and user forbid send | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff and user forbid send | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff and user forbid send | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+staff and user forbid send | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+staff and user forbid send | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff and user forbid send | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+finance and staff forbid | decide mail__list u=false p=false task=None | Deny { reason: "policy rule group/finance:policy0 forbids mail__list for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "policy rule group/finance:policy0 forbids mail__list for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide mail__list u=true p=false task=None | Deny { reason: "policy rule group/finance:policy0 forbids mail__list for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule group/finance:policy0 forbids mail__list for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide mail__list u=false p=true task=None | Deny { reason: "policy rule group/finance:policy0 forbids mail__list for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "policy rule group/finance:policy0 forbids mail__list for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | loop act mail__list | Ok(org:policy0)
+finance and staff forbid | decide mail__send u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+finance and staff forbid | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+finance and staff forbid | decide mail__send u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+finance and staff forbid | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+finance and staff forbid | decide mail__send u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+finance and staff forbid | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+finance and staff forbid | loop act mail__send | Ok(org:policy0)
+finance and staff forbid | decide crm__pay u=false p=false task=None | Deny { reason: "policy rule group/finance:policy0 forbids crm__pay for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "policy rule group/finance:policy0 forbids crm__pay for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide crm__pay u=true p=false task=None | Deny { reason: "policy rule group/finance:policy0 forbids crm__pay for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule group/finance:policy0 forbids crm__pay for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide crm__pay u=false p=true task=None | Deny { reason: "policy rule group/finance:policy0 forbids crm__pay for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "policy rule group/finance:policy0 forbids crm__pay for carol", rule: Some("group/finance:policy0") }
+finance and staff forbid | loop act crm__pay | Ok(org:policy0)
+finance and staff forbid | loop suggest u=false | Ok(org:policy0)
+finance and staff forbid | loop suggest u=true | Ok(org:policy0)
+finance and staff forbid | loop interrupt u=false | Ok(org:policy0)
+finance and staff forbid | loop interrupt u=true | Ok(org:policy0)
+finance and staff forbid | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+finance and staff forbid | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+finance and staff forbid | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+finance and staff forbid | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+finance and staff forbid | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+finance and staff forbid | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+finance and staff forbid | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+finance and staff forbid | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+finance and staff forbid | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+finance and staff forbid | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+finance and staff forbid | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+finance and staff forbid | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff cancel and user suggest | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+staff cancel and user suggest | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff cancel and user suggest | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+staff cancel and user suggest | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+staff cancel and user suggest | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+staff cancel and user suggest | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+staff cancel and user suggest | loop act mail__list | Ok(org:policy0)
+staff cancel and user suggest | decide mail__send u=false p=false task=None | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide mail__send u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide mail__send u=true p=false task=None | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide mail__send u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide mail__send u=false p=true task=None | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide mail__send u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff cancel and user suggest | loop act mail__send | Ok(org:policy0)
+staff cancel and user suggest | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+staff cancel and user suggest | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+staff cancel and user suggest | loop act crm__pay | Ok(org:policy0)
+staff cancel and user suggest | loop suggest u=false | Forbidden(policy forbids suggest for carol (rule user/carol:policy0))
+staff cancel and user suggest | loop suggest u=true | Forbidden(policy forbids suggest for carol (rule user/carol:policy0))
+staff cancel and user suggest | loop interrupt u=false | Ok(org:policy0)
+staff cancel and user suggest | loop interrupt u=true | Ok(org:policy0)
+staff cancel and user suggest | control carol cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for carol (rule group/staff:policy0))
+staff cancel and user suggest | control carol cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for carol (rule group/staff:policy0))
+staff cancel and user suggest | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff cancel and user suggest | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+staff cancel and user suggest | control dave cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for dave (rule group/staff:policy0))
+staff cancel and user suggest | control dave cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for dave (rule group/staff:policy0))
+staff cancel and user suggest | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff cancel and user suggest | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+staff cancel and user suggest | control alice cancel_task Task/t1 of carol | Forbidden(policy forbids cancel_task for alice (rule group/staff:policy0))
+staff cancel and user suggest | control alice cancel_task Task/t2 of bob | Forbidden(policy forbids cancel_task for alice (rule group/staff:policy0))
+staff cancel and user suggest | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+staff cancel and user suggest | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org send and user everything | decide mail__list u=false p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide mail__list u=true p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide mail__list u=false p=true task=None | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids mail__list for carol", rule: Some("user/carol:policy0") }
+org send and user everything | loop act mail__list | Ok(org:policy0)
+org send and user everything | decide mail__send u=false p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org send and user everything | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org send and user everything | decide mail__send u=true p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org send and user everything | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org send and user everything | decide mail__send u=false p=true task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org send and user everything | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+org send and user everything | loop act mail__send | Ok(org:policy0)
+org send and user everything | decide crm__pay u=false p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide crm__pay u=true p=false task=None | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide crm__pay u=false p=true task=None | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+org send and user everything | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "policy rule user/carol:policy0 forbids crm__pay for carol", rule: Some("user/carol:policy0") }
+org send and user everything | loop act crm__pay | Ok(org:policy0)
+org send and user everything | loop suggest u=false | Ok(org:policy0)
+org send and user everything | loop suggest u=true | Ok(org:policy0)
+org send and user everything | loop interrupt u=false | Ok(org:policy0)
+org send and user everything | loop interrupt u=true | Ok(org:policy0)
+org send and user everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org send and user everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org send and user everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org send and user everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org send and user everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org send and user everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org send and user everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org send and user everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org send and user everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org send and user everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org send and user everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org send and user everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org ask only and staff send | decide mail__list u=false p=false task=None | Ask { rule: "org:policy0" }
+org ask only and staff send | decide mail__list u=false p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only and staff send | decide mail__list u=true p=false task=None | Ask { rule: "org:policy0" }
+org ask only and staff send | decide mail__list u=true p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only and staff send | decide mail__list u=false p=true task=None | Ask { rule: "org:policy0" }
+org ask only and staff send | decide mail__list u=false p=true task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only and staff send | loop act mail__list | Ok(org:policy0)
+org ask only and staff send | decide mail__send u=false p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+org ask only and staff send | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+org ask only and staff send | decide mail__send u=true p=false task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+org ask only and staff send | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+org ask only and staff send | decide mail__send u=false p=true task=None | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+org ask only and staff send | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule group/staff:policy0 forbids mail__send for carol", rule: Some("group/staff:policy0") }
+org ask only and staff send | loop act mail__send | Ok(org:policy0)
+org ask only and staff send | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy0" }
+org ask only and staff send | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only and staff send | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy0" }
+org ask only and staff send | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only and staff send | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy0" }
+org ask only and staff send | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy0" }
+org ask only and staff send | loop act crm__pay | Ok(org:policy0)
+org ask only and staff send | loop suggest u=false | Ok(org:policy0)
+org ask only and staff send | loop suggest u=true | Ok(org:policy0)
+org ask only and staff send | loop interrupt u=false | Ok(org:policy0)
+org ask only and staff send | loop interrupt u=true | Ok(org:policy0)
+org ask only and staff send | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org ask only and staff send | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org ask only and staff send | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org ask only and staff send | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org ask only and staff send | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org ask only and staff send | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org ask only and staff send | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org ask only and staff send | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org ask only and staff send | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org ask only and staff send | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org ask only and staff send | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org ask only and staff send | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org empty and task everything | decide mail__list u=false p=false task=None | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty and task everything | decide mail__list u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__list for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | decide mail__list u=true p=false task=None | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty and task everything | decide mail__list u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__list for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | decide mail__list u=false p=true task=None | Deny { reason: "no policy permits mail__list for carol", rule: None }
+org empty and task everything | decide mail__list u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__list for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | loop act mail__list | Ok(org:policy0)
+org empty and task everything | decide mail__send u=false p=false task=None | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty and task everything | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | decide mail__send u=true p=false task=None | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty and task everything | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | decide mail__send u=false p=true task=None | Deny { reason: "no policy permits mail__send for carol", rule: None }
+org empty and task everything | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids mail__send for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | loop act mail__send | Ok(org:policy0)
+org empty and task everything | decide crm__pay u=false p=false task=None | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty and task everything | decide crm__pay u=false p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids crm__pay for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | decide crm__pay u=true p=false task=None | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty and task everything | decide crm__pay u=true p=false task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids crm__pay for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | decide crm__pay u=false p=true task=None | Deny { reason: "no policy permits crm__pay for carol", rule: None }
+org empty and task everything | decide crm__pay u=false p=true task=Some("t1") | Deny { reason: "policy rule task/t1:policy0 forbids crm__pay for carol", rule: Some("task/t1:policy0") }
+org empty and task everything | loop act crm__pay | Ok(org:policy0)
+org empty and task everything | loop suggest u=false | Ok(org:policy0)
+org empty and task everything | loop suggest u=true | Ok(org:policy0)
+org empty and task everything | loop interrupt u=false | Ok(org:policy0)
+org empty and task everything | loop interrupt u=true | Ok(org:policy0)
+org empty and task everything | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+org empty and task everything | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+org empty and task everything | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org empty and task everything | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+org empty and task everything | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+org empty and task everything | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+org empty and task everything | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org empty and task everything | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org empty and task everything | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+org empty and task everything | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+org empty and task everything | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+org empty and task everything | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+every layer forbids | decide mail__list u=false p=false task=None | Allow { rule: "org:policy0" }
+every layer forbids | decide mail__list u=false p=false task=Some("t1") | Allow { rule: "org:policy0" }
+every layer forbids | decide mail__list u=true p=false task=None | Allow { rule: "org:policy0" }
+every layer forbids | decide mail__list u=true p=false task=Some("t1") | Allow { rule: "org:policy0" }
+every layer forbids | decide mail__list u=false p=true task=None | Allow { rule: "org:policy0" }
+every layer forbids | decide mail__list u=false p=true task=Some("t1") | Allow { rule: "org:policy0" }
+every layer forbids | loop act mail__list | Ok(org:policy0)
+every layer forbids | decide mail__send u=false p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+every layer forbids | decide mail__send u=false p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+every layer forbids | decide mail__send u=true p=false task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+every layer forbids | decide mail__send u=true p=false task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+every layer forbids | decide mail__send u=false p=true task=None | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+every layer forbids | decide mail__send u=false p=true task=Some("t1") | Deny { reason: "policy rule org:policy2 forbids mail__send for carol", rule: Some("org:policy2") }
+every layer forbids | loop act mail__send | Ok(org:policy0)
+every layer forbids | decide crm__pay u=false p=false task=None | Ask { rule: "org:policy1" }
+every layer forbids | decide crm__pay u=false p=false task=Some("t1") | Ask { rule: "org:policy1" }
+every layer forbids | decide crm__pay u=true p=false task=None | Ask { rule: "org:policy1" }
+every layer forbids | decide crm__pay u=true p=false task=Some("t1") | Ask { rule: "org:policy1" }
+every layer forbids | decide crm__pay u=false p=true task=None | Ask { rule: "org:policy1" }
+every layer forbids | decide crm__pay u=false p=true task=Some("t1") | Ask { rule: "org:policy1" }
+every layer forbids | loop act crm__pay | Ok(org:policy0)
+every layer forbids | loop suggest u=false | Ok(org:policy0)
+every layer forbids | loop suggest u=true | Ok(org:policy0)
+every layer forbids | loop interrupt u=false | Ok(org:policy0)
+every layer forbids | loop interrupt u=true | Ok(org:policy0)
+every layer forbids | control carol cancel_task Task/t1 of carol | Ok(org:policy0)
+every layer forbids | control carol cancel_task Task/t2 of bob | Forbidden(no policy permits cancel_task for carol)
+every layer forbids | control carol pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+every layer forbids | control carol edit_schedule Schedule/s2 of bob | Forbidden(no policy permits edit_schedule for carol)
+every layer forbids | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+every layer forbids | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+every layer forbids | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+every layer forbids | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+every layer forbids | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+every layer forbids | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+every layer forbids | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+every layer forbids | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+org broken | decide mail__list u=false p=false task=None | Err(unexpected end of input)
+org broken | decide mail__list u=false p=false task=Some("t1") | Err(unexpected end of input)
+org broken | decide mail__list u=true p=false task=None | Err(unexpected end of input)
+org broken | decide mail__list u=true p=false task=Some("t1") | Err(unexpected end of input)
+org broken | decide mail__list u=false p=true task=None | Err(unexpected end of input)
+org broken | decide mail__list u=false p=true task=Some("t1") | Err(unexpected end of input)
+org broken | loop act mail__list | Broken(policy failed to evaluate act for carol: unexpected end of input)
+org broken | decide mail__send u=false p=false task=None | Err(unexpected end of input)
+org broken | decide mail__send u=false p=false task=Some("t1") | Err(unexpected end of input)
+org broken | decide mail__send u=true p=false task=None | Err(unexpected end of input)
+org broken | decide mail__send u=true p=false task=Some("t1") | Err(unexpected end of input)
+org broken | decide mail__send u=false p=true task=None | Err(unexpected end of input)
+org broken | decide mail__send u=false p=true task=Some("t1") | Err(unexpected end of input)
+org broken | loop act mail__send | Broken(policy failed to evaluate act for carol: unexpected end of input)
+org broken | decide crm__pay u=false p=false task=None | Err(unexpected end of input)
+org broken | decide crm__pay u=false p=false task=Some("t1") | Err(unexpected end of input)
+org broken | decide crm__pay u=true p=false task=None | Err(unexpected end of input)
+org broken | decide crm__pay u=true p=false task=Some("t1") | Err(unexpected end of input)
+org broken | decide crm__pay u=false p=true task=None | Err(unexpected end of input)
+org broken | decide crm__pay u=false p=true task=Some("t1") | Err(unexpected end of input)
+org broken | loop act crm__pay | Broken(policy failed to evaluate act for carol: unexpected end of input)
+org broken | loop suggest u=false | Broken(policy failed to evaluate suggest for carol: unexpected end of input)
+org broken | loop suggest u=true | Broken(policy failed to evaluate suggest for carol: unexpected end of input)
+org broken | loop interrupt u=false | Broken(policy failed to evaluate interrupt for carol: unexpected end of input)
+org broken | loop interrupt u=true | Broken(policy failed to evaluate interrupt for carol: unexpected end of input)
+org broken | control carol cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for carol: unexpected end of input)
+org broken | control carol cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for carol: unexpected end of input)
+org broken | control carol pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for carol: unexpected end of input)
+org broken | control carol edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for carol: unexpected end of input)
+org broken | control dave cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for dave: unexpected end of input)
+org broken | control dave cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for dave: unexpected end of input)
+org broken | control dave pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for dave: unexpected end of input)
+org broken | control dave edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for dave: unexpected end of input)
+org broken | control alice cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for alice: unexpected end of input)
+org broken | control alice cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for alice: unexpected end of input)
+org broken | control alice pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for alice: unexpected end of input)
+org broken | control alice edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for alice: unexpected end of input)
+staff broken | decide mail__list u=false p=false task=None | Err(unexpected end of input)
+staff broken | decide mail__list u=false p=false task=Some("t1") | Err(unexpected end of input)
+staff broken | decide mail__list u=true p=false task=None | Err(unexpected end of input)
+staff broken | decide mail__list u=true p=false task=Some("t1") | Err(unexpected end of input)
+staff broken | decide mail__list u=false p=true task=None | Err(unexpected end of input)
+staff broken | decide mail__list u=false p=true task=Some("t1") | Err(unexpected end of input)
+staff broken | loop act mail__list | Broken(policy failed to evaluate act for carol: unexpected end of input)
+staff broken | decide mail__send u=false p=false task=None | Err(unexpected end of input)
+staff broken | decide mail__send u=false p=false task=Some("t1") | Err(unexpected end of input)
+staff broken | decide mail__send u=true p=false task=None | Err(unexpected end of input)
+staff broken | decide mail__send u=true p=false task=Some("t1") | Err(unexpected end of input)
+staff broken | decide mail__send u=false p=true task=None | Err(unexpected end of input)
+staff broken | decide mail__send u=false p=true task=Some("t1") | Err(unexpected end of input)
+staff broken | loop act mail__send | Broken(policy failed to evaluate act for carol: unexpected end of input)
+staff broken | decide crm__pay u=false p=false task=None | Err(unexpected end of input)
+staff broken | decide crm__pay u=false p=false task=Some("t1") | Err(unexpected end of input)
+staff broken | decide crm__pay u=true p=false task=None | Err(unexpected end of input)
+staff broken | decide crm__pay u=true p=false task=Some("t1") | Err(unexpected end of input)
+staff broken | decide crm__pay u=false p=true task=None | Err(unexpected end of input)
+staff broken | decide crm__pay u=false p=true task=Some("t1") | Err(unexpected end of input)
+staff broken | loop act crm__pay | Broken(policy failed to evaluate act for carol: unexpected end of input)
+staff broken | loop suggest u=false | Broken(policy failed to evaluate suggest for carol: unexpected end of input)
+staff broken | loop suggest u=true | Broken(policy failed to evaluate suggest for carol: unexpected end of input)
+staff broken | loop interrupt u=false | Broken(policy failed to evaluate interrupt for carol: unexpected end of input)
+staff broken | loop interrupt u=true | Broken(policy failed to evaluate interrupt for carol: unexpected end of input)
+staff broken | control carol cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for carol: unexpected end of input)
+staff broken | control carol cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for carol: unexpected end of input)
+staff broken | control carol pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for carol: unexpected end of input)
+staff broken | control carol edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for carol: unexpected end of input)
+staff broken | control dave cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for dave: unexpected end of input)
+staff broken | control dave cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for dave: unexpected end of input)
+staff broken | control dave pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for dave: unexpected end of input)
+staff broken | control dave edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for dave: unexpected end of input)
+staff broken | control alice cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for alice: unexpected end of input)
+staff broken | control alice cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for alice: unexpected end of input)
+staff broken | control alice pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for alice: unexpected end of input)
+staff broken | control alice edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for alice: unexpected end of input)
+user broken | decide mail__list u=false p=false task=None | Err(unexpected end of input)
+user broken | decide mail__list u=false p=false task=Some("t1") | Err(unexpected end of input)
+user broken | decide mail__list u=true p=false task=None | Err(unexpected end of input)
+user broken | decide mail__list u=true p=false task=Some("t1") | Err(unexpected end of input)
+user broken | decide mail__list u=false p=true task=None | Err(unexpected end of input)
+user broken | decide mail__list u=false p=true task=Some("t1") | Err(unexpected end of input)
+user broken | loop act mail__list | Broken(policy failed to evaluate act for carol: unexpected end of input)
+user broken | decide mail__send u=false p=false task=None | Err(unexpected end of input)
+user broken | decide mail__send u=false p=false task=Some("t1") | Err(unexpected end of input)
+user broken | decide mail__send u=true p=false task=None | Err(unexpected end of input)
+user broken | decide mail__send u=true p=false task=Some("t1") | Err(unexpected end of input)
+user broken | decide mail__send u=false p=true task=None | Err(unexpected end of input)
+user broken | decide mail__send u=false p=true task=Some("t1") | Err(unexpected end of input)
+user broken | loop act mail__send | Broken(policy failed to evaluate act for carol: unexpected end of input)
+user broken | decide crm__pay u=false p=false task=None | Err(unexpected end of input)
+user broken | decide crm__pay u=false p=false task=Some("t1") | Err(unexpected end of input)
+user broken | decide crm__pay u=true p=false task=None | Err(unexpected end of input)
+user broken | decide crm__pay u=true p=false task=Some("t1") | Err(unexpected end of input)
+user broken | decide crm__pay u=false p=true task=None | Err(unexpected end of input)
+user broken | decide crm__pay u=false p=true task=Some("t1") | Err(unexpected end of input)
+user broken | loop act crm__pay | Broken(policy failed to evaluate act for carol: unexpected end of input)
+user broken | loop suggest u=false | Broken(policy failed to evaluate suggest for carol: unexpected end of input)
+user broken | loop suggest u=true | Broken(policy failed to evaluate suggest for carol: unexpected end of input)
+user broken | loop interrupt u=false | Broken(policy failed to evaluate interrupt for carol: unexpected end of input)
+user broken | loop interrupt u=true | Broken(policy failed to evaluate interrupt for carol: unexpected end of input)
+user broken | control carol cancel_task Task/t1 of carol | Broken(policy failed to evaluate cancel_task for carol: unexpected end of input)
+user broken | control carol cancel_task Task/t2 of bob | Broken(policy failed to evaluate cancel_task for carol: unexpected end of input)
+user broken | control carol pause_schedule Schedule/s1 of carol | Broken(policy failed to evaluate pause_schedule for carol: unexpected end of input)
+user broken | control carol edit_schedule Schedule/s2 of bob | Broken(policy failed to evaluate edit_schedule for carol: unexpected end of input)
+user broken | control dave cancel_task Task/t1 of carol | Ok(org:policy0)
+user broken | control dave cancel_task Task/t2 of bob | Ok(org:policy0)
+user broken | control dave pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user broken | control dave edit_schedule Schedule/s2 of bob | Ok(org:policy3)
+user broken | control alice cancel_task Task/t1 of carol | Ok(org:policy0)
+user broken | control alice cancel_task Task/t2 of bob | Ok(org:policy0)
+user broken | control alice pause_schedule Schedule/s1 of carol | Ok(org:policy1)
+user broken | control alice edit_schedule Schedule/s2 of bob | Ok(org:policy3)

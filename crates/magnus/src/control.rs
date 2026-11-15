@@ -641,7 +641,7 @@ async fn connectors(State(k): State<Arc<Kernel>>) -> Response {
 
 async fn add_connector(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
     let Some(actor) = actor(&b) else { return no_actor() };
-    done(k.add_connector(&actor, &b).await)
+    done(async { k.add_connector(&actor, &serde_json::from_value(b).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?).await }.await)
 }
 
 async fn connector_settings(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
@@ -698,7 +698,7 @@ async fn erase_person(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): ax
 // The agent policy (admin console spec, Security › Agent policy), as the
 // kernel keeps it: sets, drafts, versions, tests.
 
-fn policy_refused((st, m): crate::policy_admin::Refusal) -> Response {
+fn policy_refused((st, m): crate::policy::admin::Refusal) -> Response {
     (st, Json(json!({ "error": m }))).into_response()
 }
 

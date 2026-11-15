@@ -13,9 +13,17 @@ use crate::config::Person;
 use crate::people::Authority;
 use crate::tools::{Audience, Risk};
 use anyhow::{anyhow, Result};
-use cedar_policy::{ActionConstraint, Authorizer, Context, Decision, Entities, Entity, EntityUid, PolicySet, Request, RestrictedExpression};
+use cedar_policy::{Authorizer, Context, Decision, Entities, Entity, EntityUid, PolicySet, Request, RestrictedExpression};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::str::FromStr;
+
+pub mod admin;
+pub mod layers;
+mod sides;
+
+pub(crate) use sides::policy_sides;
+use sides::{partition_layer, Side};
+pub use sides::{CONTROL_ACTIONS, LOOP_ACTIONS};
 
 /// The organization policy in force until the owner writes one: the agent
 /// reads, makes reversible writes and uses its sandbox on its own, and asks
@@ -49,101 +57,6 @@ permit(principal, action == Action::"edit_schedule", resource)
 permit(principal, action == Action::"cancel_schedule", resource)
   when { resource in principal || context.is_owner || context.is_admin };
 "#;
-
-/// The actions that control a task or a schedule rather than call a tool.
-/// Each layer's rules are partitioned by the actions they name before an
-/// evaluation (`partition_layer`), so a tool rule's `resource.risk` check
-/// never runs against a task entity and a control rule's `context.is_owner`
-/// check never runs against a tool request. A rule that names no action (an
-/// unqualified `action`) bears on tool calls only: before control was
-/// governed every unqualified rule could only mean tools, and the group's
-/// sales policy still drafts one, so that meaning is kept. Name the control
-/// actions to constrain control; the console refuses an unqualified forbid
-/// that would silently miss it.
-pub const CONTROL_ACTIONS: &[&str] = &["cancel_task", "pause_schedule", "resume_schedule", "edit_schedule", "cancel_schedule"];
-
-/// The actions that call a tool rather than control a task or a schedule.
-const TOOL_ACTIONS: &[&str] = &["execute", "request_approval"];
-
-/// The proactive loop's own actions (#368): suggest (observations and
-/// proposals), interrupt, and act (a loop run's tool calls). Suggest and
-/// interrupt spend a person's attention, so their resource is the
-/// person; acts touch apps, so theirs is the tool, as for execute.
-pub const LOOP_ACTIONS: &[&str] = &["suggest", "interrupt", "act"];
-
-/// Which evaluations a layer is partitioned for: tool calls, task and
-/// schedule control, or the loop's own actions.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Side {
-    Tool,
-    Control,
-    Loop,
-}
-
-/// True when a rule naming `uids` may bear on `side`'s requests. A rule
-/// is dropped from a partition only when every action it names is known
-/// to belong to another side; a mixed rule, or one naming an unknown
-/// action, stays everywhere it might bear.
-fn rule_touches(uids: &[cedar_policy::EntityUid], side: Side) -> bool {
-    if uids.is_empty() {
-        return true;
-    }
-    let others: [&[&str]; 2] = match side {
-        Side::Tool => [CONTROL_ACTIONS, LOOP_ACTIONS],
-        Side::Control => [TOOL_ACTIONS, LOOP_ACTIONS],
-        Side::Loop => [TOOL_ACTIONS, CONTROL_ACTIONS],
-    };
-    !uids.iter().all(|uid| uid.type_name().to_string() == "Action" && others.iter().any(|s| s.contains(&uid.id().unescaped())))
-}
-
-/// Which evaluations a rule bears on: tool calls, task and schedule
-/// control, the loop's actions — or several, for a mixed or unknown
-/// action list. Unqualified rules bear on tool calls only: before
-/// control was governed every unqualified rule could only mean tools,
-/// and that meaning is kept for the loop as well.
-pub(crate) fn policy_sides(policy: &cedar_policy::Policy) -> (bool, bool, bool) {
-    match policy.action_constraint() {
-        ActionConstraint::Any => (true, false, false),
-        ActionConstraint::Eq(uid) => {
-            let uids = std::slice::from_ref(&uid);
-            (rule_touches(uids, Side::Tool), rule_touches(uids, Side::Control), rule_touches(uids, Side::Loop))
-        }
-        ActionConstraint::In(uids) => (rule_touches(&uids, Side::Tool), rule_touches(&uids, Side::Control), rule_touches(&uids, Side::Loop)),
-    }
-}
-
-/// Split a layer's rules into the ones that bear on `side`'s requests.
-/// The subset is re-rendered and policy ids renumbered, so diagnostics
-/// on a mixed layer name the rule's position within its partition.
-fn partition_layer(text: &str, side: Side) -> Result<String> {
-    if side == Side::Tool && !CONTROL_ACTIONS.iter().chain(LOOP_ACTIONS.iter()).any(|a| text.contains(a)) {
-        return Ok(text.to_string());
-    }
-    let set = PolicySet::from_str(text).map_err(|e| anyhow!("{e}"))?;
-    let mut out = String::new();
-    for policy in set.policies() {
-        let (tools, controls, loops) = policy_sides(&policy);
-        let keep = match side {
-            Side::Tool => tools,
-            Side::Control => controls,
-            Side::Loop => loops,
-        };
-        if keep {
-            if !out.is_empty() {
-                out.push('\n');
-            }
-            out.push_str(&policy.to_string());
-        }
-    }
-    Ok(out)
-}
-
-/// The permit-everything rule a control evaluation adds to a lower layer,
-/// so the layer denies only if one of its own forbids matched: the tool
-/// boundary's unqualified blanket bears on tool calls only, so control
-/// names its actions.
-const CONTROL_PERMIT_ALL: &str =
-    "permit(principal, action in [Action::\"cancel_task\", Action::\"pause_schedule\", Action::\"resume_schedule\", Action::\"edit_schedule\", Action::\"cancel_schedule\"], resource);";
 
 /// One control operation: `op` on the `kind` ("Task", "Schedule") `id`
 /// owned by `owner`.
@@ -204,18 +117,9 @@ pub fn control_allowed(policies: &BTreeMap<String, String>, person: &Person, aut
         None,
     )
     .map_err(|e| failed(e.to_string()))?;
-    let org = format!("{}\n{DEFAULT_CONTROL}", partition_layer(&layers[0].1, Side::Control).map_err(|e| failed(format!("{e:#}")))?);
-    let (mut ok, rule) = eval(&org, "org", &req, &ents).map_err(|e| failed(format!("{e:#}")))?;
-    let mut reason = rule.first().cloned();
-    for (name, text) in &layers[1..] {
-        let narrowed = format!("{}\n{CONTROL_PERMIT_ALL}", partition_layer(text, Side::Control).map_err(|e| failed(format!("{e:#}")))?);
-        let (allows, rules) = eval(&narrowed, name, &req, &ents).map_err(|e| failed(format!("{e:#}")))?;
-        if !allows {
-            ok = false;
-            reason = rules.first().cloned().or_else(|| Some(name.clone()));
-        }
-    }
-    if ok {
+    let s = stack(&layers, Side::Control, &req, &ents).map_err(|e| failed(format!("{e:#}")))?;
+    let reason = s.reason();
+    if s.allows() {
         Ok(reason.unwrap_or_default())
     } else {
         Err(ControlDeny::Forbidden(match reason {
@@ -231,8 +135,6 @@ pub fn control_allowed(policies: &BTreeMap<String, String>, person: &Person, aut
 pub const DEFAULT_LOOP: &str = r#"
 permit(principal, action in [Action::"suggest", Action::"interrupt", Action::"act"], resource);
 "#;
-
-const LOOP_PERMIT_ALL: &str = "permit(principal, action in [Action::\"suggest\", Action::\"interrupt\", Action::\"act\"], resource);";
 
 fn loop_entities(person: &Person, tool: Option<&ToolFacts>) -> Result<Entities> {
     let mut groups = HashSet::new();
@@ -281,18 +183,9 @@ pub fn loop_allowed(policies: &BTreeMap<String, String>, person: &Person, op: &s
     };
     let req = Request::new(uid("Person", &person.id).map_err(|e| failed(format!("{e:#}")))?, uid("Action", op).map_err(|e| failed(format!("{e:#}")))?, resource, ctx, None)
         .map_err(|e| failed(e.to_string()))?;
-    let org = format!("{}\n{DEFAULT_LOOP}", partition_layer(&layers[0].1, Side::Loop).map_err(|e| failed(format!("{e:#}")))?);
-    let (mut ok, rule) = eval(&org, "org", &req, &ents).map_err(|e| failed(format!("{e:#}")))?;
-    let mut reason = rule.first().cloned();
-    for (name, text) in &layers[1..] {
-        let narrowed = format!("{}\n{LOOP_PERMIT_ALL}", partition_layer(text, Side::Loop).map_err(|e| failed(format!("{e:#}")))?);
-        let (allows, rules) = eval(&narrowed, name, &req, &ents).map_err(|e| failed(format!("{e:#}")))?;
-        if !allows {
-            ok = false;
-            reason = rules.first().cloned().or_else(|| Some(name.clone()));
-        }
-    }
-    if ok {
+    let s = stack(&layers, Side::Loop, &req, &ents).map_err(|e| failed(format!("{e:#}")))?;
+    let reason = s.reason();
+    if s.allows() {
         Ok(reason.unwrap_or_default())
     } else {
         Err(LoopDeny::Forbidden(match reason {
@@ -309,11 +202,13 @@ pub enum Outcome {
     Deny { reason: String, rule: Option<String> },
 }
 
-/// Whether a run of `person` may propose a change to `layer`: the
-/// organisation's, a group's, or its own person's. Another person's layer is
-/// theirs, and a proposal to it would put this run's words in their inbox.
-pub fn proposable(layer: &str, person: &str) -> bool {
-    layer == "org" || layer.starts_with("group/") || layer.strip_prefix("user/") == Some(person)
+/// Whether a person may use one of the organisation's apps at all: it is
+/// theirs (none built for someone else), they are in one of the groups it
+/// is for (none named: everyone), and in none it is blocked for.
+pub fn may_use_app(person: &Person, c: &crate::config::Connector) -> bool {
+    let theirs = c.owner.as_ref().is_none_or(|o| *o == person.id);
+    let allowed = c.access_groups.is_empty() || c.access_groups.iter().any(|g| person.groups.contains(g));
+    theirs && allowed && !c.blocked_groups.iter().any(|g| person.groups.contains(g))
 }
 
 /// Parse a layer's policy text, so a bad policy is refused when written.
@@ -344,6 +239,56 @@ fn entities(person: &Person, t: &ToolFacts) -> Result<Entities> {
             .collect();
     list.push(Entity::new(uid("Tool", t.name)?, attrs, [app].into_iter().collect()).map_err(|e| anyhow!("{e}"))?);
     Entities::from_entities(list, None).map_err(|e| anyhow!("{e}"))
+}
+
+/// What a layer stack said of one request: the organisation's layer's
+/// answer and the rules that decided it, and each lower layer that forbade
+/// it, in order, with its forbids that matched.
+struct Stacked {
+    org_allows: bool,
+    org_rules: Vec<String>,
+    forbids: Vec<(String, Vec<String>)>,
+}
+
+impl Stacked {
+    /// The organisation's layer permits and no lower layer forbids.
+    fn allows(&self) -> bool {
+        self.org_allows && self.forbids.is_empty()
+    }
+
+    /// Why, for a control or the loop: the last lower layer that forbade
+    /// (its first rule, else its name), else the organisation's rule.
+    fn reason(&self) -> Option<String> {
+        match self.forbids.last() {
+            Some((name, rules)) => rules.first().cloned().or_else(|| Some(name.clone())),
+            None => self.org_rules.first().cloned(),
+        }
+    }
+}
+
+/// The hierarchy, in its one home: only `org` widens. The organisation's
+/// layer, with `side`'s defaults beneath what it says, decides what is
+/// permitted; each lower layer gets a permit-everything rule for `side`
+/// added, so it denies only where one of its own forbids matched.
+/// `layers` is `layers_for`'s, the organisation's first.
+fn stack(layers: &[(String, String)], side: Side, req: &Request, ents: &Entities) -> Result<Stacked> {
+    let ((_, org), lower) = layers.split_first().ok_or_else(|| anyhow!("no organisation layer"))?;
+    let org = partition_layer(org, side)?;
+    let org = match side {
+        Side::Tool => org,
+        Side::Control => format!("{org}\n{DEFAULT_CONTROL}"),
+        Side::Loop => format!("{org}\n{DEFAULT_LOOP}"),
+    };
+    let (org_allows, org_rules) = eval(&org, "org", req, ents)?;
+    let mut forbids = vec![];
+    for (name, text) in lower {
+        let narrowed = format!("{}\n{}", partition_layer(text, side)?, side.permit_all());
+        let (allows, rules) = eval(&narrowed, name, req, ents)?;
+        if !allows {
+            forbids.push((name.clone(), rules));
+        }
+    }
+    Ok(Stacked { org_allows, org_rules, forbids })
 }
 
 /// The evaluation of one policy set: whether it allows, and the rules that
@@ -397,24 +342,21 @@ pub fn decide(policies: &BTreeMap<String, String>, person: &Person, task: Option
     let mut results = vec![];
     for action in ["execute", "request_approval"] {
         let req = Request::new(uid("Person", &person.id)?, uid("Action", action)?, uid("Tool", tool.name)?, ctx.clone(), None).map_err(|e| anyhow!("{e}"))?;
-        let (org_ok, org_rules) = eval(&partition_layer(&layers[0].1, Side::Tool)?, "org", &req, &ents)?;
-        let mut ok = org_ok;
-        let mut rule = org_rules.first().cloned();
-        if !org_ok && !org_rules.is_empty() {
-            forbidden.get_or_insert_with(|| org_rules[0].clone());
+        let s = stack(&layers, Side::Tool, &req, &ents)?;
+        // The rule that decided: the last lower layer's forbid that
+        // matched, else the organisation's. A deny is put down to the
+        // organisation's forbid only when one of its rules matched.
+        let rule = match s.forbids.last() {
+            Some((_, rules)) => rules.first().cloned(),
+            None => s.org_rules.first().cloned(),
+        };
+        if !s.org_allows && !s.org_rules.is_empty() {
+            forbidden.get_or_insert_with(|| s.org_rules[0].clone());
         }
-        for (name, text) in &layers[1..] {
-            // With a permit-everything rule added, the layer denies only if one
-            // of its own forbids matched.
-            let narrowed = format!("{}\npermit(principal, action, resource);", partition_layer(text, Side::Tool)?);
-            let (allows, rules) = eval(&narrowed, name, &req, &ents)?;
-            if !allows {
-                ok = false;
-                rule = rules.first().cloned();
-                forbidden.get_or_insert_with(|| rules.first().cloned().unwrap_or_else(|| name.clone()));
-            }
+        if let Some((name, rules)) = s.forbids.first() {
+            forbidden.get_or_insert_with(|| rules.first().cloned().unwrap_or_else(|| name.clone()));
         }
-        results.push((ok, rule));
+        results.push((s.allows(), rule));
     }
     let (exec_ok, exec_rule) = results[0].clone();
     let (ask_ok, ask_rule) = results[1].clone();
@@ -477,13 +419,6 @@ pub fn rule_covers(cedar: &str, person: &Person, tool: &ToolFacts, destination: 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_agent_proposes_to_its_own_persons_layer_and_no_one_elses() {
-        assert!(proposable("user/mo", "mo") && proposable("org", "mo") && proposable("group/staff", "mo"));
-        assert!(!proposable("user/sam", "mo"), "mo's agent proposed to sam's own rules");
-        assert!(!proposable("user/", "mo") && !proposable("task/t1", "mo"));
-    }
 
     fn person(id: &str) -> Person {
         serde_json::from_value(serde_json::json!({ "id": id, "groups": ["staff"] })).unwrap()
@@ -589,4 +524,34 @@ mod tests {
         let odd = grant_cedar("carol", &["crm\" }; permit(principal, action, resource); //".into()], &[]).unwrap();
         assert!(!grant_covers(&odd, &carol, &other).unwrap());
     }
+
+    fn app(allow: &[&str], block: &[&str]) -> crate::config::Connector {
+        serde_json::from_value(
+            serde_json::json!({ "name": "gmail", "url": "https://x.test/mcp", "audience": "public", "label": "private", "access_groups": allow, "blocked_groups": block }),
+        )
+        .unwrap()
+    }
+
+    fn in_groups(groups: &[&str]) -> Person {
+        serde_json::from_value(serde_json::json!({ "id": "p", "groups": groups })).unwrap()
+    }
+
+    #[test]
+    fn an_app_is_for_its_groups_and_never_for_the_groups_it_is_blocked_for() {
+        let (staff, finance, both, none) = (in_groups(&["staff"]), in_groups(&["finance"]), in_groups(&["staff", "finance"]), in_groups(&[]));
+        // No rule: everyone.
+        assert!([&staff, &finance, &both, &none].iter().all(|p| may_use_app(p, &app(&[], &[]))));
+        // Allowed for staff only.
+        let a = app(&["staff"], &[]);
+        assert!(may_use_app(&staff, &a) && may_use_app(&both, &a) && !may_use_app(&finance, &a) && !may_use_app(&none, &a));
+        // Blocked for finance: a block wins over an allow.
+        let a = app(&["staff"], &["finance"]);
+        assert!(may_use_app(&staff, &a) && !may_use_app(&both, &a) && !may_use_app(&finance, &a));
+        // Blocked only: everyone else.
+        let a = app(&[], &["finance"]);
+        assert!(may_use_app(&staff, &a) && may_use_app(&none, &a) && !may_use_app(&both, &a));
+    }
 }
+
+#[cfg(test)]
+mod stack_tests;
