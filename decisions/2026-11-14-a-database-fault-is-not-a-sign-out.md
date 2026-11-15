@@ -5,7 +5,7 @@
 - Only a 401 ends a session in `app.js`.
 - At launch, a 5xx from `/v1/me` opens a "The server cannot answer just now" screen with Try again. It does not open sign-in. This holds for the app's `restore` (which keeps the token) and the browser's.
 
-**Reason.** A failure is never silent (K24). Before this, any store error (a dropped connection, a failed query) read as no session. The person got 401 and the app signed them out, which blamed them for the server's fault and threw away a live session. The owner decided on 2026-11-14 that a database fault must not sign people out.
+**Reason.** A failure is never silent (K24). Before this, any store error (a dropped connection, a failed query) read as no session. The person got 401 and the app signed them out, which blamed them for the server's fault and threw away a live session. Decided 2026-11-14 in the architecture review, as following from K24: a database fault must not sign people out.
 
 **Changed.** Requests made while the account store cannot answer get 503 instead of 401, both on routes that need a signed-in person and on those only the app's own session may use (`extract::app_session`).
 
