@@ -284,6 +284,7 @@ function paint(el, html) {
   const menuState = Menus.capture(el);
   $$("[data-draft]", el).forEach(i => { if (!(active !== i && active?.dataset?.draft === i.dataset.draft)) drafts[i.dataset.draft] = i.type === "checkbox" ? i.checked : i.value; });
   const opened = new Set($$("details[data-key]", el).filter(d => d.open).map(d => d.dataset.key));
+  const closed = new Set($$("details[data-key]", el).filter(d => !d.open).map(d => d.dataset.key));
   const focused = el.contains(active) ? active?.dataset?.draft : undefined;
   const control = el.contains(active) && !focused ? {
     id:active.id, entry:active.closest("[data-entry]")?.dataset.entry, msg:active.closest("[data-msg]")?.dataset.msg,
@@ -297,7 +298,7 @@ function paint(el, html) {
     input.replaceWith(prior.input);if(prior.start!==null)prior.input.setSelectionRange(prior.start,prior.end);
   }
   loadMarkdownImages(el);
-  $$("details[data-key]", el).forEach(d => { if (opened.has(d.dataset.key)) d.open = true; });
+  $$("details[data-key]", el).forEach(d => { if (opened.has(d.dataset.key)) d.open = true; else if (closed.has(d.dataset.key)) d.open = false; });
   $$("[data-draft]", el).forEach(i => { const v = drafts[i.dataset.draft]; if (v === undefined) return; if (i.type === "checkbox") i.checked = !!v; else i.value = v; });
   if (focused) $(`[data-draft="${CSS.escape(focused)}"]`, el)?.focus({preventScroll:true});
   if (control) {

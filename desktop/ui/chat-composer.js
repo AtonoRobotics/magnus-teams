@@ -142,15 +142,15 @@ function wireComposer(form, record, conv) {
     } finally { record.sending = false; MessageDrafts.changed(); }
   };
   const voiceBtn = $("[data-voice-in]", form);
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (voiceBtn && !SR) voiceBtn.hidden = true;
   let recog = null;
   const stopVoice = () => {
     if (recog) { try { recog.stop(); } catch { /* ignore */ } recog = null; }
     if (voiceBtn) { voiceBtn.classList.remove("recording"); voiceBtn.setAttribute("aria-pressed", "false"); }
   };
-  if (voiceBtn) voiceBtn.onclick = () => {
+  if (voiceBtn && SR) voiceBtn.onclick = () => {
     if (recog) { stopVoice(); return; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { toast("Voice dictation is not supported in this browser."); return; }
     recog = new SR();
     recog.continuous = true;
     recog.interimResults = false;

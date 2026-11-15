@@ -51,11 +51,11 @@ const WIZARD_TIERS = {
 };
 
 const DISCOVERY_PROPOSALS = [
-  { id: "d-inbox", focus: "inbox", requires: ["google-gmail", "microsoft-outlook", "google-calendar", "microsoft-calendar"], needsLabel: "Gmail/Outlook", tier: "simple", badge: "Simple · Weekdays 7:45 AM", cls: "ok", title: "Inbox Triage & Schedule Conflict Resolver", desc: "Checks overnight email for meeting requests, resolves calendar overlaps with 2 open options, and prepares reply drafts.", mode: "ask", on: true },
+  { id: "d-inbox", focus: "inbox", requires: ["google-gmail", "microsoft-outlook", "google-calendar", "microsoft-calendar"], needsLabel: "Gmail/Outlook", tier: "simple", badge: "Simple · Weekdays 7:45 AM", cls: "ok", title: "Inbox Triage & Schedule Conflict Resolver", desc: "Checks overnight email for meeting requests, resolves calendar overlaps with 2 open options, and prepares reply drafts.", mode: "ask", schedule: { daily_at: "07:45" }, on: true },
   { id: "d-procure", focus: "vendors", requires: [], needsLabel: "", tier: "complex", badge: "Multi-Step · On Demand", cls: "warn", title: "Product Research, Supplier Quotes & Order Placement", desc: "Researches specs & pricing, drafts supplier quote requests, builds a comparison table, and pauses for approval before ordering.", mode: "ask", on: true },
-  { id: "d-followup", focus: "followup", requires: ["google-gmail", "microsoft-outlook", "slack"], needsLabel: "Email or Slack", tier: "long", badge: "Long-Running · Every 4h (14 days)", cls: "sch", title: "Continuous Vendor & Deliverable Follow-Up", desc: "Watches open threads for stalled replies (>48h), drafts polite follow-ups, updates your live status brief, and escalates blockers.", mode: "draft", on: true },
-  { id: "d-eng-pr", focus: "eng", requires: ["github"], needsLabel: "GitHub", tier: "simple", badge: "Simple · Weekdays 9:00 AM", cls: "ok", title: "Daily PR Review Queue & Blocker Triage", desc: "Ranks pull requests waiting on your review by age, CI status, and release impact without touching code.", mode: "draft", on: true },
-  { id: "d-eng-ci", focus: "eng", requires: ["github"], needsLabel: "GitHub", tier: "long", badge: "Long-Running · Daily", cls: "sch", title: "CI Failure & Flaky Test Watcher", desc: "Tracks recurring CI failures across recent runs, groups root causes, and prepares draft issues for your 1-click confirmation.", mode: "ask", on: false },
+  { id: "d-followup", focus: "followup", requires: ["google-gmail", "microsoft-outlook", "slack"], needsLabel: "Email or Slack", tier: "long", badge: "Long-Running · Every 4h (14 days)", cls: "sch", title: "Continuous Vendor & Deliverable Follow-Up", desc: "Watches open threads for stalled replies (>48h), drafts polite follow-ups, updates your live status brief, and escalates blockers.", mode: "draft", schedule: { every_minutes: 240, max_runs: 84 }, on: true },
+  { id: "d-eng-pr", focus: "eng", requires: ["github"], needsLabel: "GitHub", tier: "simple", badge: "Simple · Weekdays 9:00 AM", cls: "ok", title: "Daily PR Review Queue & Blocker Triage", desc: "Ranks pull requests waiting on your review by age, CI status, and release impact without touching code.", mode: "draft", schedule: { daily_at: "09:00" }, on: true },
+  { id: "d-eng-ci", focus: "eng", requires: ["github"], needsLabel: "GitHub", tier: "long", badge: "Long-Running · Daily", cls: "sch", title: "CI Failure & Flaky Test Watcher", desc: "Tracks recurring CI failures across recent runs, groups root causes, and prepares draft issues for your 1-click confirmation.", mode: "ask", schedule: { daily_at: "08:30" }, on: false },
 ];
 
 const Guide = {
@@ -216,7 +216,7 @@ async function openSetupWizard() {
     const tier = t.closest("[data-wiz-tier]");
     if (tier) { Guide.setup.tier = tier.dataset.wizTier; draw(); return; }
     const launch = t.closest("[data-wiz-launch]");
-    if (launch) { d.close(); guideAsk(WIZARD_TIERS[/** @type {"simple"|"complex"|"long"} */ (launch.dataset.wizLaunch)].prompt); return; }
+    if (launch) { d.close(); guideStartTurn(WIZARD_TIERS[/** @type {"simple"|"complex"|"long"} */ (launch.dataset.wizLaunch)].prompt); return; }
     if (t.closest("[data-wiz-open-disc]")) { d.close(); openDiscoveryWizard(); }
   };
   await draw();
@@ -235,12 +235,12 @@ function discMatchedProposals(f) {
     });
 }
 
-/** Start an agent discovery or schedule creation turn immediately (falls back to draft if offline). @param {string} text */
-async function guideStartTurn(text) {
+/** Start an agent discovery or schedule creation turn immediately (falls back to draft if offline). @param {string} text @param {string[]} [files] */
+async function guideStartTurn(text, files = []) {
   save("guide-asked", text);
   if (typeof Server !== "undefined" && Server.chat?.send) {
     try {
-      const res = await Server.chat.send({ text });
+      const res = await Server.chat.send({ text, ...(files.length ? { files } : {}) });
       if (res?.thread) { location.hash = `#/chat/${enc(res.thread)}`; return; }
     } catch { /* fall through to pre-filled new chat */ }
   }

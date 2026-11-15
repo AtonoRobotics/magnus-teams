@@ -261,22 +261,31 @@ function computerScreen(body, c, alive, opts = {}) {
   if (typeof alive === "string") { const hash = alive; alive = () => stillAt(hash); }
   body.innerHTML = `<div class="computer-view" data-view><div class="control-strip" data-screen-bar role="status" aria-live="polite"></div>${opts.ask ? `<div data-ask-host></div>` : ""}<div class="screen" data-screen><img id="preview" alt="The computer's screen"><canvas id="display" tabindex="0" aria-label="The computer's screen" hidden></canvas><div class="screen-veil" data-veil hidden></div><div class="screen-hold" data-hold role="status" hidden><span data-hold-words></span><button data-done-here>I'm done</button></div><p class="screen-caption" data-caption></p></div><p class="small bad" id="display-error" hidden></p></div>`;
   const preview = $("#preview", body);
-  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "", recording: false, recordedSteps: [] };
-  const toggleRecord = () => {
+  const view = { c, alive, holding: false, live: false, done: null, looking: false, bar: "", shot: null, note: "", recording: false, recordedSteps: [], recordedShots: [] };
+  const toggleRecord = async () => {
     if (!view.recording) {
       view.recording = true;
       view.recordedSteps = [];
+      view.recordedShots = [];
       strip();
       toast("Recording your clicks and typing on the computer…");
       return;
     }
     view.recording = false;
     const steps = view.recordedSteps.splice(0);
+    const blobs = view.recordedShots.splice(0);
     strip();
     if (!steps.length) { toast("No steps were recorded."); return; }
+    const fileIds = [];
+    if (blobs.length && typeof upload === "function") {
+      try {
+        const uploaded = await upload(blobs);
+        for (const f of uploaded) if (f?.id) fileIds.push(f.id);
+      } catch { /* proceed with text steps even if snapshot upload fails */ }
+    }
     const summary = steps.map((s, idx) => `${idx + 1}. ${s}`).join("\n");
     const prompt = `Learn this workflow from the steps I just demonstrated on the computer and turn it into a repeatable automation:\n${summary}`;
-    if (typeof guideStartTurn === "function") guideStartTurn(prompt);
+    if (typeof guideStartTurn === "function") await guideStartTurn(prompt, fileIds);
     else { App.appSearch = prompt; location.hash = "#/chat/new"; }
   };
   const take = async () => {
@@ -405,7 +414,13 @@ function takeOver(body, id, grant, view, strip) {
   const mask = e => (e.buttons & 1) | (e.buttons & 4 ? 2 : 0) | (e.buttons & 2 ? 4 : 0);
   for (const type of ["mousemove", "mousedown", "mouseup"]) canvas.addEventListener(type, e => {
     const [x, y] = at(e);
-    if (type === "mousedown" && view.recording) view.recordedSteps.push(`Click at (${x}, ${y})`);
+    if (type === "mousedown" && view.recording) {
+      view.recordedSteps.push(`Click at (${x}, ${y}) on ${canvas.width}x${canvas.height}`);
+      if (view.recordedShots.length < 3 && canvas.toBlob) {
+        const idx = view.recordedSteps.length;
+        canvas.toBlob(b => { if (b) view.recordedShots.push(new File([b], `step-${idx}.png`, { type: "image/png" })); }, "image/png");
+      }
+    }
     rfb.pointer(x, y, mask(e)); e.preventDefault();
   });
   canvas.addEventListener("wheel", e => { const [x, y] = at(e), bit = e.deltaY < 0 ? 8 : 16; rfb.pointer(x, y, bit); rfb.pointer(x, y, 0); e.preventDefault(); }, { passive: false });
