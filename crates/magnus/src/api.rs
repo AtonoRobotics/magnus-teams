@@ -61,10 +61,6 @@ pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
     k.accounts.session(token).await.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
 }
 
-pub(crate) async fn developer(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    crate::extract::developer(k, h).await.map_err(IntoResponse::into_response)
-}
-
 /// A browser sends the session cookie on its own, so a change made with the
 /// cookie must also carry a header another site's page cannot set. The
 /// recovery, invitation and join forms are the exception: each is authorized
@@ -78,10 +74,6 @@ async fn cookie_guard(req: Request, next: Next) -> Response {
         return err(StatusCode::FORBIDDEN, "missing x-magnus-client header");
     }
     next.run(req).await
-}
-
-pub(crate) async fn owner(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    crate::extract::owner(k, h).await.map_err(IntoResponse::into_response)
 }
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {

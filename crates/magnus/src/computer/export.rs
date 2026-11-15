@@ -2,6 +2,7 @@
 //! user volume with its app manifest, as one ordinary tar file.
 use super::client::GuestRequest;
 use super::service::{user_path, USER_FILES};
+use crate::api_error::ApiResult;
 use crate::config::Person;
 use crate::controls::Refused;
 use crate::extract::Caller;
@@ -9,7 +10,7 @@ use crate::grants::answered;
 use crate::kernel::Kernel;
 use axum::extract::{Path, Query, State};
 use axum::http::header;
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -112,11 +113,11 @@ pub(super) struct Picked {
     paths: String,
 }
 
-pub(super) async fn export(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<Picked>) -> Response {
-    match k.export_computer_files(&p, &id, &q.paths).await {
+pub(super) async fn export(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<Picked>) -> ApiResult {
+    Ok(match k.export_computer_files(&p, &id, &q.paths).await {
         Ok(tar) => ([(header::CONTENT_TYPE, "application/x-tar"), (header::CONTENT_DISPOSITION, "attachment; filename=\"magnus-files.tar\"")], tar).into_response(),
         Err(e) => answered(Err(e)),
-    }
+    })
 }
 
 #[cfg(test)]
