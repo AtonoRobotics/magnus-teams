@@ -84,7 +84,7 @@ pub(crate) fn cards_of(s: &Projection, person: &str) -> Vec<Card> {
     let mut out = vec![];
     for r in s.runs.values().filter(|r| r.person == person) {
         let Some(c) = s.tasks.get(&r.task).filter(|t| t.is_chat_turn()).and_then(|t| t.chat.as_ref()) else { continue };
-        if s.trash.contains_key(&c.thread) || s.removed_threads.contains(&c.thread) {
+        if s.trash.contains_key(&c.thread) || s.removed_threads.contains_key(&c.thread) {
             continue;
         }
         for (call, res) in &r.results {

@@ -85,6 +85,54 @@ fn seed(s: &mut State, base: i64, p: &str) {
         ),
         ("admin:root".into(), json!({ "kind": "spend", "change": "models_allowed", "person": p, "models": ["a/m"] })),
         ("kernel".into(), json!({ "kind": "catalog", "change": "told", "id": "mail", "person": p, "item": item })),
+        // Their arrangements, library, inbox marks, identity, conversations, watches and trash.
+        (actor.clone(), json!({ "kind": "schedule_set", "id": format!("sc-{p}"), "person": p, "text": "Sum up.", "every_minutes": 60 })),
+        (
+            actor.clone(),
+            json!({ "kind": "grant_set", "id": format!("g-{p}"), "person": p, "apps": ["mail"], "period": "day", "max_usd": 2.0, "card": format!("c-{p}"), "cedar": "permit(principal, action, resource);" }),
+        ),
+        ("kernel".into(), json!({ "kind": "commitment_recorded", "id": format!("cm-{p}"), "person": p, "who": format!("{p}'s landlord"), "by": "" })),
+        (actor.clone(), json!({ "kind": "card_declined", "card": format!("cd-{p}"), "person": p, "reason": "not now" })),
+        (actor.clone(), json!({ "kind": "file_uploaded", "id": format!("f-{p}"), "person": p, "name": format!("{p}.txt"), "media_type": "text/plain", "data_b64": "aGk=" })),
+        (actor.clone(), json!({ "kind": "project_set", "id": format!("pr-{p}"), "person": p, "name": format!("{p}'s project") })),
+        (actor.clone(), json!({ "kind": "project_set", "id": format!("pt-{p}"), "person": p, "name": format!("{p}'s trashed project") })),
+        (actor.clone(), json!({ "kind": "trashed", "item": format!("pt-{p}"), "person": p })),
+        (
+            "model".into(),
+            json!({ "kind": "memory", "id": format!("m-{p}"), "person": p, "run": run, "fact": format!("{p} likes tea"), "label": { "untrusted": false, "private": true }, "sources": [] }),
+        ),
+        (
+            actor.clone(),
+            json!({ "kind": "bundle_written", "path": format!("/users/{}/me.md", crate::bundle::user_segment(p)), "version": 1, "doc_kind": "relationship", "scope": "user", "owner_user": p, "actor": "magnus/1", "label": { "untrusted": false, "private": true }, "sources": [], "writer": p }),
+        ),
+        (actor.clone(), json!({ "kind": "item_opened", "id": item })),
+        (actor.clone(), json!({ "kind": "approval", "id": format!("a-{p}"), "item": item, "person": p, "task": task, "tool": "mail__send", "scope": "task" })),
+        ("kernel".into(), json!({ "kind": "review_woken", "run": format!("rv-{p}"), "task": format!("tv-{p}"), "person": p, "reason": "overnight" })),
+        ("admin:root".into(), json!({ "kind": "subject_bound", "person": p, "subject": format!("sub-{p}") })),
+        ("kernel".into(), json!({ "kind": "rights_from_provider", "person": p, "groups": ["staff"], "roles": ["member"] })),
+        ("admin:root".into(), json!({ "kind": "roles_set", "person": p, "roles": ["member"] })),
+        (actor.clone(), json!({ "kind": "preferences_set", "person": p, "prefs": { "timezone": "Europe/Paris" } })),
+        (actor.clone(), json!({ "kind": "home_opened", "person": p })),
+        (
+            "kernel".into(),
+            json!({ "kind": "task_created", "task": format!("t-{p}-open"), "run": format!("r-{p}-open"), "person": p, "text": "Hello.", "config": config, "chat": { "thread": format!("thread_{p}"), "turn": true, "opener": {} }, "attachments": [{ "name": format!("{p}.pdf") }] }),
+        ),
+        (
+            actor.clone(),
+            json!({ "kind": "task_created", "task": format!("t-{p}-gone"), "run": format!("r-{p}-gone"), "person": p, "text": "Gone.", "config": config, "chat": { "thread": format!("thread_{p}_gone"), "turn": true } }),
+        ),
+        (actor.clone(), json!({ "kind": "trashed", "item": format!("thread_{p}_gone"), "person": p })),
+        ("kernel".into(), json!({ "kind": "removed", "item": format!("thread_{p}_gone"), "seqs": [] })),
+        (actor.clone(), json!({ "kind": "chat_hidden", "person": p, "thread": format!("thread_{p}"), "entries": ["e1"] })),
+        (actor.clone(), json!({ "kind": "reacted", "person": p, "thread": format!("thread_{p}"), "entry": "e1", "reaction": "great" })),
+        ("kernel".into(), json!({ "kind": "disagreement_recorded", "id": format!("d-{p}"), "person": p, "run": run, "position": "wait", "decision": "send now" })),
+        (actor.clone(), json!({ "kind": "thread_branched", "person": p, "thread": format!("thread_{p}_b"), "from": format!("thread_{p}"), "upto": "e1", "title": "B" })),
+        ("kernel".into(), json!({ "kind": "watched_seen", "person": p, "app": "mail", "tool": "list", "ids": ["x1"], "full": true })),
+        ("kernel".into(), json!({ "kind": "watch_polled", "person": p, "app": "mail", "tool": "list" })),
+        (
+            "kernel".into(),
+            json!({ "kind": "draft_scoped", "run": run, "person": p, "draft": format!("dr-{p}"), "threads": [format!("thread_{p}")], "participants": [], "usage": { "input_tokens": 1, "output_tokens": 1, "cost_usd": 0.0 } }),
+        ),
         // Last, so the run it stops is still going.
         (actor.clone(), json!({ "kind": "cancelled", "run": run })),
     ];
@@ -116,6 +164,16 @@ fn parts(s: &State) -> Vec<(&'static str, String)> {
         ("tools", format!("{:?}", s.tools)),
         ("spend", format!("{:?}", s.spend)),
         ("catalog", format!("{:?}", s.catalog)),
+        ("arrangements", format!("{:?}", s.arrangements)),
+        ("library", format!("{:?}", s.library)),
+        ("inbox", format!("{:?}", s.inbox)),
+        ("thread_extras", format!("{:?}", s.thread_extras)),
+        ("watch", format!("{:?}", s.watch)),
+        ("trash", format!("{:?}", s.trash)),
+        ("removed_threads", format!("{:?}", s.removed_threads)),
+        ("openers", format!("{:?}", s.openers)),
+        ("draft_sources", format!("{:?}", s.draft_sources)),
+        ("attachments", format!("{:?}", s.attachments)),
     ]
 }
 

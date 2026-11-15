@@ -163,7 +163,7 @@ impl State {
         stopped_by_person.retain(|r| !who.runs.contains(r));
         trash.retain(|_, t| t.person != p);
         // What they removed of their own conversations.
-        removed_threads.retain(|t| !who.threads.contains(t));
+        removed_threads.retain(|t, person| person != p && !who.threads.contains(t));
         // What their drafts were written from.
         draft_sources.retain(|_, d| d.person != p);
         // What their tasks had attached goes too.

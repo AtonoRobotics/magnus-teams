@@ -438,8 +438,9 @@ pub struct State {
     pub halts: crate::halts::Ledger,
     /// Trashed items by id.
     pub trash: BTreeMap<String, Trashed>,
-    /// Conversations removed from the trash: their tasks stay, the thread is gone.
-    pub removed_threads: HashSet<String>,
+    /// Conversations removed from the trash, each with whose it was, so
+    /// erasing them forgets it.
+    pub removed_threads: HashMap<String, String>,
     pub tasks: BTreeMap<String, Task>,
     pub runs: HashMap<String, Run>,
     /// Items, approvals and the proactive loop's marks.
@@ -886,12 +887,12 @@ impl State {
                 if let Some(task) = item.strip_prefix(crate::team::upkeep::NOTES) {
                     self.team.drop_notes(task);
                 }
-                match self.trash.remove(item).map(|t| t.held) {
-                    Some(Held::Entry { thread }) => {
+                match self.trash.remove(item).map(|t| (t.person, t.held)) {
+                    Some((_, Held::Entry { thread })) => {
                         self.thread_extras.hide(thread, item.clone());
                     }
-                    Some(Held::Thread { id, .. }) => {
-                        self.removed_threads.insert(id);
+                    Some((person, Held::Thread { id, .. })) => {
+                        self.removed_threads.insert(id, person);
                     }
                     _ => {}
                 }

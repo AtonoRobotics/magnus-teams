@@ -78,7 +78,7 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
             let (reaction, at) = history.iter().rev().find(|(_, at)| *at < before)?;
             let reaction = reaction.as_ref()?;
             let hidden = |id: &str| s.trash.contains_key(id) || s.thread_extras.hidden(thread).is_some_and(|h| h.contains(id));
-            if s.trash.contains_key(thread) || s.removed_threads.contains(thread) || hidden(entry) {
+            if s.trash.contains_key(thread) || s.removed_threads.contains_key(thread) || hidden(entry) {
                 return None;
             }
             // Started tasks read their turn's run, named in the entry; a

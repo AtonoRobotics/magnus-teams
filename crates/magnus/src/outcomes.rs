@@ -197,7 +197,7 @@ impl Kernel {
                 .due
                 .iter()
                 .filter_map(|id| s.tasks.get(id))
-                .filter(|t| t.chat.as_ref().is_some_and(|c| !s.trash.contains_key(&c.thread) && !s.removed_threads.contains(&c.thread)))
+                .filter(|t| t.chat.as_ref().is_some_and(|c| !s.trash.contains_key(&c.thread) && !s.removed_threads.contains_key(&c.thread)))
                 .filter_map(|t| s.runs.get(&t.run_id).map(|r| (t.clone(), r.clone())))
                 .take(RETURNS_PER_SWEEP_COUNT)
                 .collect()

@@ -22,7 +22,7 @@ impl Kernel {
     /// A conversation in the trash or removed from it. The tasks it started
     /// stay, and name it still.
     pub(crate) fn thread_gone(&self, thread: &str) -> bool {
-        self.read(|s| s.trash.contains_key(thread) || s.removed_threads.contains(thread))
+        self.read(|s| s.trash.contains_key(thread) || s.removed_threads.contains_key(thread))
     }
 
     /// A thread's turns and tasks, in the order they were created.

@@ -400,7 +400,7 @@ pub(crate) fn recent_runs(s: &crate::state::State, person: &str, except: Option<
         .filter(|t| t.person == person)
         .filter_map(|t| {
             let c = t.chat.as_ref().filter(|c| Some(c.thread.as_str()) != except)?;
-            if s.trash.contains_key(&c.thread) || s.removed_threads.contains(&c.thread) {
+            if s.trash.contains_key(&c.thread) || s.removed_threads.contains_key(&c.thread) {
                 return None;
             }
             let r = s.runs.get(&t.run_id).filter(|r| !r.untrusted && !r.private)?;
