@@ -26,6 +26,8 @@ const ZIP: &[u8] = include_bytes!("../fixtures/attachments/event.zip");
 const WAV: &[u8] = include_bytes!("../fixtures/attachments/tone.wav");
 const MOV: &[u8] = include_bytes!("../fixtures/attachments/clip.mov");
 const SEVEN: &[u8] = include_bytes!("../fixtures/attachments/bundle.7z");
+/// Bytes of no kind `file` names ("data"), as an unknown database would be.
+const UNKNOWN: &[u8] = &[0x00, 0x9c, 0x13, 0xfe, 0x01, 0x88, 0x00, 0x7f, 0xd2, 0x00, 0x41, 0xe7, 0x00, 0x05, 0xb0, 0x3a];
 
 #[tokio::test(flavor = "multi_thread")]
 async fn every_kind_of_file_from_outside_is_imported_clean() {
@@ -53,6 +55,8 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
         tool("import_attachment", json!({ "name": "tone.wav" })),
         tool("import_attachment", json!({ "name": "clip.mov" })),
         tool("import_attachment", json!({ "name": "bundle.7z" })),
+        tool("open_attachment", json!({ "name": "records.db" })),
+        tool("import_attachment", json!({ "name": "records.db" })),
         tool("sandbox_exec", json!({ "command": check })),
         complete("Made the flier."),
     ]))
@@ -68,6 +72,7 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
         { "name": "tone.wav", "media_type": "audio/wav", "data_b64": b64.encode(WAV) },
         { "name": "clip.mov", "media_type": "video/quicktime", "data_b64": b64.encode(MOV) },
         { "name": "bundle.7z", "media_type": "application/x-7z-compressed", "data_b64": b64.encode(SEVEN) },
+        { "name": "records.db", "media_type": "application/octet-stream", "data_b64": b64.encode(UNKNOWN) },
     ]);
     let (code, made) = alice.post("/v1/tasks", json!({ "text": "Make a flier from the photos and details in this email.", "from_outside": outside })).await;
     assert!(code.is_success(), "{made}");
@@ -100,7 +105,15 @@ async fn every_kind_of_file_from_outside_is_imported_clean() {
     let seven = result(8);
     assert!(!seven.is_error && seven.text.contains("a link"), "the 7z was not unpacked without its link: {}", seven.text);
 
-    let listed = result(9).text;
+    // A kind no tool here reads is neither opened nor brought in (owner,
+    // 2026-11-14: "If the agent can't read the file there is no reason to
+    // download or open it").
+    let unread = result(9);
+    assert!(unread.is_error && unread.text.contains("was not opened") && unread.text.contains("cannot read"), "an unreadable file was opened: {}", unread.text);
+    let unbrought = result(10);
+    assert!(unbrought.is_error && unbrought.text.contains("cannot read"), "an unreadable file was brought in: {}", unbrought.text);
+
+    let listed = result(11).text;
     assert!(listed.contains("JPEG image data"), "the imported copy is not a JPEG: {listed}");
     assert!(listed.contains("KEPT-TEXT"), "the document lost its text: {listed}");
     let line = |tag: &str| listed.lines().find(|l| l.starts_with(tag)).unwrap_or_default().to_string();

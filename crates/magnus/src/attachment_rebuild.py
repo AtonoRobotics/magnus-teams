@@ -20,9 +20,10 @@ first, bytes shaped to break a reader) comes with it:
 - an archive unpacked here (no links, no paths out, limits on count, size
   and depth), each member rebuilt by these same rules. A 7z or RAR archive
   is read one entry at a time to memory (`7z e -so`), so it writes nothing.
-An executable is never imported. Other data with no rebuild here (fonts,
-databases, formats this image does not know) comes in unchanged, never
-executable.
+Nothing else comes in: not a program, and not a kind with no rebuild here
+(fonts, databases, formats this image does not know), which the agent could
+not read anyway. `rebuild.py --kind` says which kind the attachment is, or
+null, so that `open_attachment` opens only what can be read.
 """
 
 import json
@@ -249,12 +250,6 @@ def text(path, rel_dir, name, ext, origin):
     kept(rel, "text", origin)
 
 
-def data(path, rel_dir, name, origin):
-    rel = place(rel_dir, name)
-    shutil.copyfile(path, os.path.join(OUT, rel))
-    kept(rel, "data", origin)
-
-
 def unpack(path, rel_dir, stem, m, origin, depth):
     if depth >= MAX_DEPTH:
         skipped.append({"name": origin, "why": "an archive nested too deep"})
@@ -309,32 +304,57 @@ def unpack(path, rel_dir, stem, m, origin, depth):
             os.remove(member)
 
 
+def kind_of(m, ext):
+    """What a file is, by its content's type and its name's extension: a
+    kind rebuilt here, "program", or None for a kind with no rebuild."""
+    if m.startswith(EXECUTABLE_MIME) or ext in EXECUTABLE_EXT:
+        return "program"
+    if m.startswith("image/"):
+        return "picture"
+    if m == "application/pdf":
+        return "pdf"
+    if m.startswith(OFFICE_MIME) or (ext in OFFICE and m in ("application/zip", "application/octet-stream", "application/x-ole-storage", "application/CDFV2")):
+        return "document"
+    if m in ARCHIVE_MIME or m in SEVEN_MIME:
+        return "archive"
+    if m.startswith(("audio/", "video/")) or m == "application/ogg":
+        return "media"
+    if m.startswith(TEXT_MIME):
+        return "text"
+    return None
+
+
 def rebuild(path, rel_dir, name, origin, depth):
     name = safe(name)
     stem, ext = split_ext(name)
     m = mime(path)
-    if m.startswith(EXECUTABLE_MIME) or ext in EXECUTABLE_EXT:
+    kind = kind_of(m, ext)
+    if kind == "program":
         skipped.append({"name": origin, "why": "a program, which never comes into the workspace"})
-    elif m.startswith("image/"):
+    elif kind == "picture":
         picture(path, rel_dir, stem, origin, m)
-    elif m == "application/pdf":
+    elif kind == "pdf":
         pdf(path, rel_dir, stem, origin)
-    elif m.startswith(OFFICE_MIME) or (ext in OFFICE and m in ("application/zip", "application/octet-stream", "application/x-ole-storage", "application/CDFV2")):
+    elif kind == "document":
         office(path, rel_dir, stem, ext, origin, m)
-    elif m in ARCHIVE_MIME or m in SEVEN_MIME:
+    elif kind == "archive":
         unpack(path, rel_dir, stem, m, origin, depth)
-    elif m.startswith(("audio/", "video/")) or m == "application/ogg":
+    elif kind == "media":
         media(path, rel_dir, stem, origin, m)
-    elif m.startswith(TEXT_MIME):
+    elif kind == "text":
         text(path, rel_dir, name, ext, origin)
     else:
-        data(path, rel_dir, name, origin)
+        skipped.append({"name": origin, "why": f"a kind of file Magnus cannot read ({m}), so it is not brought in"})
 
 
 def main():
+    name = open(NAME_FILE, encoding="utf-8", errors="replace").read().strip() or "attachment"
+    if sys.argv[1:] == ["--kind"]:
+        m = mime(SOURCE)
+        json.dump({"kind": kind_of(m, split_ext(safe(name.replace("\\", "/").split("/")[-1]))[1]), "type": m}, sys.stdout)
+        return
     os.makedirs(OUT, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
-    name = open(NAME_FILE, encoding="utf-8", errors="replace").read().strip() or "attachment"
     rebuild(SOURCE, "", name.replace("\\", "/").split("/")[-1], name, 0)
     json.dump({"files": files, "skipped": skipped}, sys.stdout)
 

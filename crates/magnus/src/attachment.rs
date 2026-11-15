@@ -34,6 +34,7 @@ const SAVED_UNDER: &str = "/workspace/attachments";
 /// each kind becomes is in the program's own words).
 const REBUILD_PY: &str = include_str!("attachment_rebuild.py");
 const REBUILD_COMMAND: &str = "python3 -I /workspace/inputs/rebuild.py";
+const KIND_COMMAND: &str = "python3 -I /workspace/inputs/rebuild.py --kind";
 const CLEAN_DIR: &str = "/workspace/clean";
 /// An archive of documents is many LibreOffice runs, and a video's
 /// re-encoding alone may take the rebuild's `MEDIA_TIMEOUT_SECONDS` (480).
@@ -194,7 +195,15 @@ impl Kernel {
         if file["data_b64"].is_null() {
             return Ok((gone(name), true, None));
         }
-        let sandbox = self.attachment_sandbox(a, &file, vec![])?;
+        let sandbox = self.attachment_sandbox(a, &file, rebuild_inputs(name))?;
+        // Only a kind the rebuild reads is opened: a program, or a file no
+        // tool here can read, has nothing in it for the agent.
+        let judged = self.sandboxes.exec(&sandbox, KIND_COMMAND, OPEN_TIMEOUT_SECONDS).await;
+        let kind = judged.as_ref().ok().and_then(|v| serde_json::from_str::<Value>(v["stdout"].as_str()?.trim()).ok()).unwrap_or_default();
+        if let Some(why) = unreadable(&kind) {
+            self.sandboxes.destroy(&sandbox).await;
+            return Ok((format!("{name} was not opened: it is {why}. Nothing in this task can read it."), true, None));
+        }
         let own = a.input["command"].as_str();
         let command = own.map_or_else(extract_command, String::from);
         let opened = self.sandboxes.exec(&sandbox, &format!("cd /workspace/inputs; {command}"), OPEN_TIMEOUT_SECONDS).await;
@@ -242,8 +251,7 @@ impl Kernel {
         if file["data_b64"].is_null() {
             return Ok((gone(name), true, None));
         }
-        let more = vec![("name".to_string(), name.as_bytes().to_vec()), ("rebuild.py".to_string(), REBUILD_PY.as_bytes().to_vec())];
-        let sandbox = self.attachment_sandbox(a, &file, more)?;
+        let sandbox = self.attachment_sandbox(a, &file, rebuild_inputs(name))?;
         let rebuilt = self.sandboxes.exec(&sandbox, REBUILD_COMMAND, REBUILD_TIMEOUT_SECONDS).await;
         let manifest = rebuilt.as_ref().ok().and_then(|v| serde_json::from_str::<Value>(v["stdout"].as_str()?.trim()).ok()).unwrap_or_default();
         let mut clean = vec![];
@@ -266,7 +274,7 @@ impl Kernel {
             .collect();
         if clean.is_empty() {
             let why = if skipped.is_empty() { "it could not be rebuilt clean".to_string() } else { skipped.join("; ") };
-            return Ok((format!("Nothing of {name} came into your workspace: {why}. open_attachment still reads it."), true, None));
+            return Ok((format!("Nothing of {name} came into your workspace: {why}."), true, None));
         }
         let mut dirs: Vec<String> = clean.iter().filter_map(|(rel, _, _)| rel.rsplit_once('/').map(|(d, _)| format!("'{IMPORTED_UNDER}/{d}'"))).collect();
         dirs.push(format!("'{IMPORTED_UNDER}'"));
@@ -310,6 +318,22 @@ impl Kernel {
         let path = format!("{SAVED_UNDER}/{name}");
         self.write_computer_file(who, &computer, &path, file["data_b64"].as_str().unwrap_or_default()).await?;
         Ok(json!({ "path": path }))
+    }
+}
+
+/// The rebuild program and the attachment's name, beside the attachment.
+fn rebuild_inputs(name: &str) -> Vec<(String, Vec<u8>)> {
+    vec![("name".to_string(), name.as_bytes().to_vec()), ("rebuild.py".to_string(), REBUILD_PY.as_bytes().to_vec())]
+}
+
+/// Why `rebuild.py --kind`'s answer is not a kind to open, or None when it
+/// is: a program, or a kind with no reader (including no answer at all).
+fn unreadable(kind: &Value) -> Option<String> {
+    let of = kind["type"].as_str().unwrap_or("of an unknown type");
+    match kind["kind"].as_str() {
+        Some("program") => Some(format!("a program ({of})")),
+        Some(_) => None,
+        None => Some(format!("a kind of file Magnus cannot read ({of})")),
     }
 }
 
@@ -362,6 +386,15 @@ mod lift_tests {
         assert!(!out.contains("123456"), "{out}");
         let (plain, _) = lift("r-lift-3", false, "your code 123456".into(), None, |t| crate::login_codes::strip(&t));
         assert!(!plain.contains("123456"), "{plain}");
+    }
+
+    #[test]
+    fn only_a_kind_with_a_reader_is_opened() {
+        assert_eq!(unreadable(&json!({ "kind": "picture", "type": "image/jpeg" })), None);
+        assert_eq!(unreadable(&json!({ "kind": "program", "type": "application/x-dosexec" })).as_deref(), Some("a program (application/x-dosexec)"));
+        assert!(unreadable(&json!({ "kind": null, "type": "application/octet-stream" })).is_some_and(|w| w.contains("cannot read")));
+        // No answer from the check opens nothing.
+        assert!(unreadable(&Value::Null).is_some());
     }
 
     #[test]
