@@ -401,6 +401,7 @@ mod tests {
             "local_read_file",
             "connector_build",
             "open_attachment",
+            "import_attachment",
             "project_read",
             "knowledge_search",
             "bundle_read",

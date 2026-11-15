@@ -197,6 +197,9 @@ pub(super) static DECLS: &[Decl] = &[
     Decl::tool("open_attachment", Class::new("sandbox", Risk::Sandbox, Label::UNTRUSTED, Audience::Private), Exec::Core(Op::Side), SANDBOX, |_| {
         obj(json!({ "name": { "type": "string" }, "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"])
     }),
+    Decl::tool("import_attachment", Class::new("sandbox", Risk::Sandbox, Label::UNTRUSTED, Audience::Private), Exec::Core(Op::Side), SANDBOX, |_| {
+        obj(json!({ "name": { "type": "string" } }), &["name"])
+    }),
     Decl::tool("start_sub_agent", IN_SANDBOX, Exec::Core(Op::Side), ALWAYS, |_| {
         obj(
             // No grant: a sub-agent works under its parent's (owner, 2026-11-10).
