@@ -375,16 +375,14 @@ function navigationTree() {
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
 }
 function nav() {
-  const route=location.hash || "#/home", waiting=needsMe();
-  const item=Panel.what?.startsWith("item:") ? App.inbox.find(i=>i.id===Panel.what.slice(5)) : null;
-  const active=k=>k==="activity" ? ["activity","tasks","schedules","rules"].includes(Panel.what) || /^(task|schedule):/.test(Panel.what || "") || (Panel.what?.startsWith("item:") && !needsDecision(item || {})) : k==="files" ? Panel.what==="files" || Panel.what?.startsWith("file:") : k==="needs" ? Panel.what==="needs" || (item && needsDecision(item)) : k==="apps" ? route.startsWith("#/library") : k==="computer" ? route.startsWith("#/computer") : k==="teams" ? route.startsWith("#/teams") : false;
-  const primary=(k,label,ic,href)=>`<a class="primary-nav${k==="needs" ? " needs" : ""}${active(k) ? " on" : ""}" href="${href}" ${!["apps","computer","teams"].includes(k) ? `data-open="${k}"` : ""} ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}${k==="needs" && waiting.length ? `, ${waiting.length} decisions` : ""}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span>${k==="needs" ? `<span class="pill${waiting.length ? "" : " quiet"}" data-needs-count aria-hidden="true">${waiting.length}</span>` : ""}</a>`;
+  const route=location.hash || "#/home";
+  const active=k=>k==="teams" ? route.startsWith("#/teams") : false;
+  const primary=(k,label,ic,href)=>`<a class="primary-nav${active(k) ? " on" : ""}" href="${href}" ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span></a>`;
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
     <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>${guideNavItem(route)}
-    <div class="primary-destinations">${primary("needs","Needs you","bell","#/inbox")}${primary("activity","Activity","tasks","#/activity")}</div>
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
-    <details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${primary("files","Files","file","#/files")}${primary("apps","Apps","grid","#/library")}${primary("computer","Computers","computer","#/computer")}${primary("teams","Teams","team","#/teams")}${adminNavItem(route)}</div></details>
+    <details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${primary("teams","Teams","team","#/teams")}${adminNavItem(route)}</div></details>
     <div class="sect"><a href="#/trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span>Trash</span></a></div>
     <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings" class="icon-btn${route.startsWith("#/settings") ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
@@ -1402,9 +1400,11 @@ function convHead(thread, project) {
   if (!el) return;
   const here = thread && App.threads.find(t => t.thread === thread);
   const p = here ? here.project : project && App.projects.find(x => x.id === project);
+  const n = needsMe().length, open = !!Panel.what;
+  const insp = `<button type="button" class="inspector-pill" data-toggle-inspector aria-expanded="${open}" title="Open Magnus Activity, Approvals, Apps & Files"><span>Magnus</span>${n ? `<span class="pill" data-needs-count>${n}</span>` : `<span class="small muted">Activity</span>`}</button>`;
   paint(el, `<div class="conv-title"><div class="small muted">${p ? `<a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a>` : thread ? "No project" : ""}</div>
     <h1 title="${esc(here?.title || "")}">${esc(here?.title || "New conversation")}</h1></div>
-    <div class="row">${computerChip(App.computers)}${thread ? `${moveControl(thread, here?.project, App.projects, true)}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
+    <div class="row">${computerChip(App.computers)}${insp}${thread ? `${moveControl(thread, here?.project, App.projects, true)}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -2068,7 +2068,10 @@ function activityView(composed) {
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
   const recentCount = done.length + other.length + decided.length + (feed ? 1 : 0);
   const next = scheds.filter(s => !s.paused && s.next).sort((a, b) => a.next.localeCompare(b.next))[0];
+  const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
+  const compCard = comp ? `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>${esc(comp.name || "Computer")}</strong><div class="small muted">${esc(controlWords(comp, false).pill)}</div></div><div class="row"><button type="button" data-open="computer:${esc(comp.id)}">Pin screen</button><a class="small" href="#/computer/${enc(comp.id)}/screen">Expand</a></div></div></div>` : "";
   return `${activityLinks()}
+    ${compCard}
     <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Happening now</strong><div class="small muted">${active.length ? `${active.length} active task${active.length === 1 ? "" : "s"}` : "All quiet right now."}</div></div><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length})</a></div>
       ${active.length ? `<ul class="tlist" style="margin-top:8px;">${active.slice(0, 6).map(taskRow).join("")}</ul>` : ""}</div>
     <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Schedules &amp; Heartbeat</strong><div class="small muted">${hb ? `Heartbeat active · ${hb.paused ? "Paused" : `Next ${esc(until(hb.next))}`}` : "Heartbeat off"}${scheds.length ? ` · ${scheds.length} active${next ? `, next ${esc(until(next.next))}` : ""}` : ""}</div></div><div class="row">${hb ? `<span class="chip ok">Heartbeat on</span>` : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}<a class="small" href="#/schedules" data-open="schedules">Manage (${App.schedules.length})</a></div></div></div>
@@ -2077,15 +2080,16 @@ function activityView(composed) {
 
 function needsView(composed) {
   const open=needsMe();
-  if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>`;
   const now=open.filter(i=>i.blocking), later=open.filter(i=>!i.blocking);
   const where = i => {
     const t = i.thread && App.threads.find(x => x.thread === i.thread);
     return t ? `<div class="small where">In <a href="#/chat/${enc(t.thread)}">${esc(t.title)}</a></div>` : "";
   };
   const list = items => items.map(i => `<div class="needs-item" data-needs="${esc(i.id)}">${where(i)}${card(i, composed)}</div>`).join("");
+  const guardrails = `<div class="card flat" style="margin-top:12px;"><div class="spread"><div><strong>Safety Guardrails</strong><div class="small muted">Ask before external actions &amp; payments · Vault-only credentials</div></div><a class="small" href="#/rules" data-open="rules">Rules</a></div></div>`;
+  if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}`;
   return `${now.length ? `<h3>A task is waiting <span class="badge">${now.length}</span></h3>${list(now)}` : ""}
-    ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}`;
+    ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}${guardrails}`;
 }
 
 // ---------- Task detail ----------
@@ -2187,7 +2191,13 @@ function stopPanelLive() {
   Panel.liveText = "";
 }
 
-const PANEL_TITLES = { activity: "Activity", needs: "Needs you", tasks: "Tasks", schedules: "Schedules", files: "Files", projects: "Projects", task: "Task", file: "File", schedule: "Schedule", project: "Project", item: "Item", search: "Search", connector: "Connector" };
+const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks", schedules: "Schedules", files: "Files", apps: "Apps", projects: "Projects", task: "Task", file: "File", schedule: "Schedule", project: "Project", item: "Item", search: "Search", connector: "Connector", rules: "Rules" };
+const PANEL_TAB_PARENT = { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
+function panelTabs(kind) {
+  const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
+  const tabs = [["activity", "Activity"], ["needs", "Approvals"], ["apps", "Apps"], ["files", "Files"]];
+  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}>${l}${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
+}
 
 async function drawPanel() {
   const el = $("#detail");
@@ -2208,12 +2218,14 @@ async function drawPanel() {
   if (n !== Panel.seq || !Panel.what) return;
   if(!failed){Panel.rendered=Panel.what;Resources.good("Work");}
   const title = kind === "search" ? `Search: ${id}` : PANEL_TITLES[kind] || kind;
+  const backTo = id || ["tasks", "schedules", "rules"].includes(kind) ? PANEL_TAB_PARENT[kind] || "activity" : null;
+  const backBtn = backTo ? `<button type="button" class="link small" data-panel-back="${esc(backTo)}">← Back</button>` : "";
   // A view names itself in the head (a task: its title and where it
   // stands); the others are named by what they are.
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${head || `<h2>${esc(title)}</h2>`}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
+  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${backBtn}${head || `<h2>${esc(title)}</h2>`}${panelTabs(kind)}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
   if (!changed) {
     reportOpenedSoon();
     if (Panel.focusNext) { const heading=$("h2",el); if (heading) { heading.tabIndex=-1; heading.focus({preventScroll:true}); } Panel.focusNext=false; }
@@ -2230,6 +2242,13 @@ async function drawPanel() {
 
 // A view whose content is already read (App's objects) or read here.
 const plain = body => ({ body });
+async function appsPanelView() {
+  const connectors = await Resources.read("Apps", "/v1/connectors", "connectors", true).catch(() => null);
+  const mine = (connectors || []).filter(c => c.for_you !== false);
+  const body = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${mine.filter(c => stateOf(c) === "connected").length} connected</span><a class="small" href="#/library">Full catalog ›</a></div>
+    ${mine.length ? `<div class="lgrid">${mine.map(connectorCard).join("")}</div>` : `<p class="empty">Apps are unavailable right now.</p>`}`;
+  return { body, after: el => bindConnectorActs(el) };
+}
 const PANELS = {
   activity: (_, composed) => plain(activityView(composed)),
   needs: (_, composed) => plain(needsView(composed)),
@@ -2243,6 +2262,7 @@ const PANELS = {
   task: taskView,
   file: fileView,
   files: filesView,
+  apps: appsPanelView,
   connector: connectorView,
   projects: projectsView,
   project: projectView,
@@ -2591,7 +2611,7 @@ async function filesView() {
   return plain(`<div class="row lib-bar"><label class="sr" for="lq">Search files</label><input id="lq" type="search" data-draft="lib-q" placeholder="Files, tasks, projects or text" autocomplete="off">
     <label class="sr" for="lp">Project</label><select id="lp" aria-label="Filter by project"><option value="">All files</option><option value="none"${project === "none" ? " selected" : ""}>In no project</option>${App.projects.map(p => `<option value="${esc(p.id)}"${p.id === project ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
     ${attachButton("Upload")}</div>
-    ${files.length ? `<ul class="flist">${files.map(f => `<li data-lib-file="${esc(f.id)}"><div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div>${moveControl(f.id, f.project, App.projects, true)}</li>`).join("")}</ul>`
+    ${files.length ? `<ul class="flist">${files.map(f => `<li data-lib-file="${esc(f.id)}"><div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`).join("")}</ul>`
       : `<p class="empty">${q || project ? "No file matches." : "No files yet. Upload one, or ask Magnus for a document."}</p>`}`);
 }
 
@@ -3235,6 +3255,16 @@ async function boot() {
       const t = /** @type {HTMLElement} */ (e.target);
       if (t.closest("[data-open-discovery]")) { e.preventDefault(); openDiscoveryWizard().catch(() => {}); }
       else if (t.closest("[data-open-setup]")) { e.preventDefault(); openSetupWizard().catch(() => {}); }
+      else if (t.closest("[data-toggle-inspector]")) {
+        e.preventDefault();
+        if (Panel.what) closePanel();
+        else openPanel(needsMe().length ? "needs" : "activity", { history: true, focus: true });
+        convHead(App.thread);
+      }
+      else if (t.closest("[data-panel-back]")) {
+        e.preventDefault();
+        openPanel(/** @type {HTMLElement} */ (t.closest("[data-panel-back]")).dataset.panelBack || "activity", { history: true, focus: true });
+      }
       else if (t.closest("[data-enable-heartbeat]")) {
         const b = /** @type {HTMLButtonElement} */ (t.closest("[data-enable-heartbeat]"));
         b.disabled = true;
