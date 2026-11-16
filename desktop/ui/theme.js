@@ -9,28 +9,28 @@
 
 (function (root) {
   const LIGHT = {
-    bg: "#F0F4F9", side: "#F0F4F9", panel: "#F8FAFD", main: "#FFFFFF", surface: "#F8FAFD", raised: "#F3F6FA",
-    bubble: "#EDF2FA", seg: "#E6ECF5", "seg-on": "#FFFFFF",
-    fg: "#1C1C1E", fg2: "#3F3F44", muted: "#5B5E66", faint: "#5B5E66",
-    line: "#E3E8EF", hair: "#ECF0F6", "line-strong": "#C4CBD6", "btn-border": "#DCE2EC", "button-bg": "#FFFFFF",
-    "row-sel": "rgba(15,23,42,0.06)", search: "rgba(15,23,42,0.07)", "group-head": "#F8FAFD", "row-hi": "#EEF3FD",
-    ok: "#1A6B3A", "ok-soft": "#E3F4E9", "ok-icon": "#1E7A44", warn: "#8A4200", "warn-soft": "#FFEBD2", "warn-icon": "#9A4A00",
-    sch: "#2C43AD", "sch-soft": "#E9EDFC", "approval-bg": "#FFFAF3", "approval-border": "#F2D9B8", bad: "#B42318", "bad-soft": "#FBE7E5",
-    shadow: "0 2px 6px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.05)", avatar: "#D4DCE8", chev: "#808794", "pdf-bg": "#FBE7E4", "pdf-fg": "#A23A2C", "panel-edge": "#E3E8EF", "main-edge": "transparent",
-    "t-read": "#5B5E66", "t-reversible": "#2C43AD", "t-irreversible": "#9A4A00", "t-financial": "#B42318",
-    "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#8A4200", "k-proposal": "#4338CA", "k-message": "#5B5E66", "k-tool": "#7C2D12",
+    bg: "#F6F7F9", side: "#F1F3F6", panel: "#F1F3F6", main: "#FFFFFF", surface: "#F8F9FB", raised: "#EEF1F6",
+    bubble: "#EEF1F6", seg: "#E9ECF2", "seg-on": "#FFFFFF",
+    fg: "#111318", fg2: "#4B5563", muted: "#565E6B", faint: "#565E6B",
+    line: "#E5E7EB", hair: "#EDF0F4", "line-strong": "#CBD5E1", "btn-border": "#D1D5DB", "button-bg": "#FFFFFF",
+    "row-sel": "rgba(15,23,42,0.055)", search: "rgba(15,23,42,0.06)", "group-head": "#F8F9FB", "row-hi": "#EEF2FF",
+    ok: "#146C34", "ok-soft": "#E6F4EA", "ok-icon": "#16A34A", warn: "#9A4A00", "warn-soft": "#FEF3C7", "warn-icon": "#D97706",
+    sch: "#364FC7", "sch-soft": "#EDF2FF", "approval-bg": "#F8F9FB", "approval-border": "#CBD5E1", bad: "#B91C1C", "bad-soft": "#FEE2E2",
+    shadow: "0 1px 3px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.06)", avatar: "#D8DEE9", chev: "#6B7280", "pdf-bg": "#FEE2E2", "pdf-fg": "#991B1B", "panel-edge": "#E5E7EB", "main-edge": "transparent",
+    "t-read": "#565E6B", "t-reversible": "#364FC7", "t-irreversible": "#9A4A00", "t-financial": "#B91C1C",
+    "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#9A4A00", "k-proposal": "#4338CA", "k-message": "#565E6B", "k-tool": "#9A3412",
   };
   const DARK = {
-    bg: "#07080B", side: "#0B0C0F", panel: "#101216", main: "#101216", surface: "#16181F", raised: "#1C1F28",
-    bubble: "#1A1D25", seg: "#1A1D25", "seg-on": "#262A36",
-    fg: "#ECEFF4", fg2: "#C8D0DF", muted: "#949EB2", faint: "#949EB2",
-    line: "#20242E", hair: "#1B1E27", "line-strong": "#333948", "btn-border": "#2A2F3D", "button-bg": "#1C1F28",
-    "row-sel": "rgba(255,255,255,0.07)", search: "rgba(255,255,255,0.07)", "group-head": "#13151B", "row-hi": "#161D2E",
-    ok: "#86DBA0", "ok-soft": "#16331F", "ok-icon": "#6CCB8A", warn: "#FFBE78", "warn-soft": "#3A2410", "warn-icon": "#FFAA55",
-    sch: "#A9BAFF", "sch-soft": "#1D2547", "approval-bg": "#241B10", "approval-border": "#4A3418", bad: "#FF8A80", "bad-soft": "#3A1717",
-    shadow: "0 4px 16px rgba(0,0,0,0.4)", avatar: "#2A2F3D", chev: "#7A8294", "pdf-bg": "#3A1E1A", "pdf-fg": "#FF9D8C", "panel-edge": "#20242E", "main-edge": "transparent",
-    "t-read": "#949EB2", "t-reversible": "#A9BAFF", "t-irreversible": "#FFAA55", "t-financial": "#FF8A80",
-    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FFBE78", "k-proposal": "#A5B4FC", "k-message": "#949EB2", "k-tool": "#FDBA74",
+    bg: "#090A0D", side: "#0D0F13", panel: "#0D0F13", main: "#111318", surface: "#171A21", raised: "#1E222B",
+    bubble: "#1E222B", seg: "#171A21", "seg-on": "#242834",
+    fg: "#ECEFF4", fg2: "#A6B0C3", muted: "#8892A6", faint: "#8892A6",
+    line: "#222631", hair: "#1B1E27", "line-strong": "#323846", "btn-border": "#2A2F3D", "button-bg": "#171A21",
+    "row-sel": "rgba(255,255,255,0.055)", search: "rgba(255,255,255,0.06)", "group-head": "#151820", "row-hi": "#1A2033",
+    ok: "#34D399", "ok-soft": "#102A22", "ok-icon": "#34D399", warn: "#FBBF24", "warn-soft": "#2B210E", "warn-icon": "#FBBF24",
+    sch: "#9BA7FF", "sch-soft": "#1C2136", "approval-bg": "#171A21", "approval-border": "#2E3444", bad: "#F87171", "bad-soft": "#2D1619",
+    shadow: "0 8px 28px rgba(0,0,0,0.45)", avatar: "#242834", chev: "#6E788C", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5", "panel-edge": "#222631", "main-edge": "transparent",
+    "t-read": "#8892A6", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
+    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8892A6", "k-tool": "#FDBA74",
   };
   // Glass: the chrome's tint (the design canvas's), its blur, the drawn
   // backdrop for systems with no window material, and `system`, the tint
@@ -40,33 +40,31 @@
   const GLASS = {
     light: {
       system: "rgba(248,248,246,0.86)",
-      side: "rgba(248,248,246,0.62)", panel: "rgba(250,250,248,0.70)", search: "rgba(255,255,255,0.55)", seg: "rgba(0,0,0,0.06)",
-      muted: "#55555A", faint: "#55555A", "panel-edge": "rgba(255,255,255,0.6)", "main-edge": "rgba(0,0,0,0.05)",
-      "main-shadow": "0 10px 40px rgba(40,50,90,0.12)",
-      backdrop: "radial-gradient(60% 50% at 12% 18%, #F7C8A6 0%, rgba(247,200,166,0) 70%), radial-gradient(55% 55% at 88% 12%, #AFC2F7 0%, rgba(175,194,247,0) 70%), radial-gradient(60% 60% at 72% 92%, #BFE5D2 0%, rgba(191,229,210,0) 70%), #E4E6EE",
+      side: "rgba(241,243,246,0.68)", panel: "rgba(241,243,246,0.74)", search: "rgba(255,255,255,0.58)", seg: "rgba(0,0,0,0.06)",
+      muted: "#4B5563", faint: "#4B5563", "panel-edge": "rgba(255,255,255,0.6)", "main-edge": "rgba(0,0,0,0.05)",
+      "main-shadow": "0 10px 40px rgba(15,23,42,0.10)",
+      backdrop: "radial-gradient(60% 50% at 12% 18%, #DDE3F0 0%, rgba(221,227,240,0) 70%), radial-gradient(55% 55% at 88% 12%, #E2E8F0 0%, rgba(226,232,240,0) 70%), #EEF1F6",
     },
     dark: {
-      system: "rgba(16,18,22,0.88)",
-      side: "rgba(18,20,24,0.62)", panel: "rgba(20,22,28,0.70)", search: "rgba(255,255,255,0.09)", seg: "rgba(255,255,255,0.07)",
+      system: "rgba(13,15,19,0.90)",
+      side: "rgba(13,15,19,0.68)", panel: "rgba(13,15,19,0.74)", search: "rgba(255,255,255,0.08)", seg: "rgba(255,255,255,0.07)",
       "panel-edge": "rgba(255,255,255,0.08)", "main-edge": "rgba(255,255,255,0.06)",
       "main-shadow": "0 10px 40px rgba(0,0,0,0.5)",
-      // The design's muted text over its 10% search field falls to 4.2:1
-      // over the wallpaper's darkest color; the placeholder alone is lifted.
-      "search-muted": "#B4B4BB",
-      backdrop: "radial-gradient(60% 50% at 12% 18%, #4B2A5E 0%, rgba(75,42,94,0) 70%), radial-gradient(55% 55% at 88% 12%, #173F66 0%, rgba(23,63,102,0) 70%), radial-gradient(60% 60% at 72% 92%, #5A2F1C 0%, rgba(90,47,28,0) 70%), #0D0F1A",
+      "search-muted": "#A6B0C3",
+      backdrop: "radial-gradient(60% 50% at 12% 18%, #1C2136 0%, rgba(28,33,54,0) 70%), radial-gradient(55% 55% at 88% 12%, #131B29 0%, rgba(19,27,41,0) 70%), #090A0D",
     },
   };
   // Each accent: the fill of primary buttons with the text on it, and the
   // color of accent text (links, selected labels) on each mode's surfaces.
   const ACCENTS = [
-    { id: "blue", label: "Blue", swatch: "#3557D9", light: { accent: "#3557D9", "accent-fg": "#FFFFFF", "accent-text": "#3557D9", "accent-soft": "#E9EDFC" }, dark: { accent: "#3557D9", "accent-fg": "#FFFFFF", "accent-text": "#9DB1FF", "accent-soft": "#1D2547" } },
-    { id: "indigo", label: "Indigo", swatch: "#5B5BD6", light: { accent: "#4F46E5", "accent-fg": "#FFFFFF", "accent-text": "#4338CA", "accent-soft": "#EEF2FF" }, dark: { accent: "#5B5BD6", "accent-fg": "#FFFFFF", "accent-text": "#A5B4FC", "accent-soft": "#1E1F3D" } },
-    { id: "teal", label: "Teal", swatch: "#1F7A6D", light: { accent: "#1F7A6D", "accent-fg": "#FFFFFF", "accent-text": "#1F7A6D", "accent-soft": "#EAF6F3" }, dark: { accent: "#1F7A6D", "accent-fg": "#FFFFFF", "accent-text": "#6FD3C1", "accent-soft": "#13302B" } },
-    { id: "emerald", label: "Emerald", swatch: "#15803D", light: { accent: "#15803D", "accent-fg": "#FFFFFF", "accent-text": "#15803D", "accent-soft": "#ECFDF3" }, dark: { accent: "#15803D", "accent-fg": "#FFFFFF", "accent-text": "#6EE7B7", "accent-soft": "#112E22" } },
-    { id: "clay", label: "Clay", swatch: "#B4532A", light: { accent: "#B4532A", "accent-fg": "#FFFFFF", "accent-text": "#B4532A", "accent-soft": "#FDF2EC" }, dark: { accent: "#B4532A", "accent-fg": "#FFFFFF", "accent-text": "#F7B394", "accent-soft": "#3A2016" } },
-    { id: "amber", label: "Amber", swatch: "#B45309", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#B45309", "accent-soft": "#FEF3C7" }, dark: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#FCD34D", "accent-soft": "#33220E" } },
-    { id: "rose", label: "Rose", swatch: "#BE123C", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#FDA4AF", "accent-soft": "#361620" } },
-    { id: "graphite", label: "Graphite", swatch: "#1C1C1E", light: { accent: "#1C1C1E", "accent-fg": "#FFFFFF", "accent-text": "#1C1C1E", "accent-soft": "#EDEDEA" }, dark: { accent: "#E5E5EA", "accent-fg": "#1C1C1E", "accent-text": "#E5E5EA", "accent-soft": "#2A2C34" } },
+    { id: "blue", label: "Indigo (Default)", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
+    { id: "indigo", label: "Violet", swatch: "#6366F1", light: { accent: "#4F46E5", "accent-fg": "#FFFFFF", "accent-text": "#4338CA", "accent-soft": "#EEF2FF" }, dark: { accent: "#818CF8", "accent-fg": "#090A0D", "accent-text": "#A5B4FC", "accent-soft": "#1E1F3D" } },
+    { id: "teal", label: "Teal", swatch: "#2DD4BF", light: { accent: "#0F766E", "accent-fg": "#FFFFFF", "accent-text": "#0F766E", "accent-soft": "#EAF6F3" }, dark: { accent: "#2DD4BF", "accent-fg": "#090A0D", "accent-text": "#5EEAD4", "accent-soft": "#122B28" } },
+    { id: "emerald", label: "Emerald", swatch: "#34D399", light: { accent: "#146C34", "accent-fg": "#FFFFFF", "accent-text": "#146C34", "accent-soft": "#ECFDF3" }, dark: { accent: "#34D399", "accent-fg": "#090A0D", "accent-text": "#6EE7B7", "accent-soft": "#102A22" } },
+    { id: "clay", label: "Clay", swatch: "#B4532A", light: { accent: "#A34721", "accent-fg": "#FFFFFF", "accent-text": "#A34721", "accent-soft": "#FDF2EC" }, dark: { accent: "#E07A5F", "accent-fg": "#090A0D", "accent-text": "#F7B394", "accent-soft": "#331E18" } },
+    { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
+    { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
+    { id: "graphite", label: "Monochrome", swatch: "#ECEFF4", light: { accent: "#111318", "accent-fg": "#FFFFFF", "accent-text": "#111318", "accent-soft": "#E9ECF2" }, dark: { accent: "#ECEFF4", "accent-fg": "#090A0D", "accent-text": "#ECEFF4", "accent-soft": "#242834" } },
   ];
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
   const MATERIALS = [["solid", "Solid", "Clean, opaque surfaces"], ["glass", "Glass", "Frosted panels over your wallpaper"]];
@@ -83,12 +81,14 @@
   const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
   const mixHex = (a, b, w) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - w) + parseInt(b.slice(i, i + 2), 16) * w).toString(16).padStart(2, "0")).join("");
   function customAccentTokens(hex, mode) {
-    const bg = (mode === "dark" ? DARK : LIGHT).main;
-    const fg = contrast(hex, "#FFFFFF") >= contrast(hex, "#111113") ? "#FFFFFF" : "#111113";
+    const pal = mode === "dark" ? DARK : LIGHT;
+    const target = mode === "dark" ? "#FFFFFF" : "#111318";
+    let accent = hex;
+    for (let step = 1; step <= 12 && contrast(accent, pal.main) < 3.0; step++) accent = mixHex(hex, target, step * 0.08);
+    const fg = contrast(accent, "#FFFFFF") >= contrast(accent, "#090A0D") ? "#FFFFFF" : "#090A0D";
     let text = hex;
-    const target = mode === "dark" ? "#FFFFFF" : "#111113";
-    for (let step = 1; step <= 10 && contrast(text, bg) < 4.5; step++) text = mixHex(hex, target, step * 0.08);
-    return { accent: hex, "accent-fg": fg, "accent-text": text, "accent-soft": mixHex(hex, mode === "dark" ? "#14161D" : "#FFFFFF", mode === "dark" ? 0.8 : 0.88) };
+    for (let step = 1; step <= 12 && (contrast(text, pal.main) < 4.5 || contrast(text, pal.surface) < 4.5); step++) text = mixHex(hex, target, step * 0.08);
+    return { accent, "accent-fg": fg, "accent-text": text, "accent-soft": mixHex(accent, pal.main, mode === "dark" ? 0.86 : 0.90) };
   }
 
   // The look in effect: the person's choices, as far as the system allows.

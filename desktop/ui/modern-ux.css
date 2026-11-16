@@ -1,22 +1,30 @@
-/* Gemini & Antigravity UI/UX layer: tonal surfaces, capsule composer,
-   pill controls, centered hero empty state, and whisper-quiet chrome. */
+/* Antigravity UI/UX: matte tonal hierarchy, 1px structural hairlines,
+   unified 44px top bar, 12px composer, and pinpoint accent discipline. */
 
-/* Borderless header, machined Forward Triad mark & tonal "New conversation" pill */
-.workspace-bar { border-bottom-color: transparent; }
-.conv-head { padding: 10px 24px; border-bottom-color: transparent; }
-nav.side .brand .logo { display: grid; place-items: center; width: 22px; height: 22px; background: transparent; color: var(--fg); border-radius: 0; }
-nav.side .brand .brand-name { font-weight: 700; letter-spacing: -0.025em; padding-left: 2px; }
+/* Unified 44px top bar & quiet sidebar border */
+.workspace-bar { min-height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.conv-head { min-height: 44px; padding: 8px 24px; border-bottom: 1px solid var(--line); }
+.conv-head h1 { font-size: 14px; font-weight: 600; }
+nav.side { border-right: 1px solid var(--line); padding: 12px 10px; gap: 12px; }
+nav.side .brand .logo { display: grid; place-items: center; width: 20px; height: 20px; background: transparent; color: var(--fg); border-radius: 0; }
+nav.side .brand .brand-name { font-weight: 650; font-size: 14.5px; letter-spacing: -0.025em; padding-left: 2px; }
 body[data-navigation="compact"] nav.side .brand .logo { display: none; }
-nav.side .new-chat { border: 0; border-radius: 999px; background: var(--seg); font-weight: 550; }
+nav.side .new-chat { border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); font-weight: 500; min-height: 32px; }
+nav.side .new-chat:hover { background: var(--raised); }
 body[data-navigation="compact"] nav.side .new-chat { width: 44px; padding: 0; justify-content: center; }
 
-/* Clean active pill (no vertical left bar) */
-nav.side a.on::before, .navigation-flyout a.on::before { display: none; }
-nav.side a.on, .navigation-flyout a.on { font-weight: 500; }
+/* Active nav item: subtle 2.5px left accent bar + elevated fill */
+nav.side a { position: relative; border-radius: 7px; font-size: 13px; }
+nav.side a.on::before, .navigation-flyout a.on::before {
+  content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2.5px;
+  border-radius: 2px; background: var(--accent); display: block;
+}
+nav.side a.on, .navigation-flyout a.on { background: var(--raised); font-weight: 500; }
+button.needs { border-radius: 8px; box-shadow: none; min-height: 36px; font-size: 13px; font-weight: 500; }
 
 /* Tighter desktop sidebar rows (44px preserved on coarse pointers) */
 @media (pointer: fine) {
-  nav.side a.primary-nav { min-height: 36px; }
+  nav.side a.primary-nav { min-height: 32px; }
 }
 
 /* Collapsible project groups in sidebar */
@@ -25,7 +33,7 @@ nav.side .nav-project > summary {
   cursor: pointer;
   display: flex;
   align-items: center;
-  border-radius: 10px;
+  border-radius: 7px;
 }
 nav.side .nav-project > summary::-webkit-details-marker { display: none; }
 nav.side .nav-project > summary > a { flex: 1; min-width: 0; }
@@ -40,34 +48,35 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 #workspace-splitter::after { width: 1px; background: var(--line); transition: background-color .15s ease, width .15s ease; }
 #workspace-splitter:hover::after, #workspace-splitter:focus-visible::after { width: 2px; background: var(--accent); }
 
-/* Disciplined machined composer */
+/* Antigravity low-profile composer */
 .say {
-  border-radius: 16px;
-  padding: 12px 12px 10px 16px;
-  border-color: var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 10px 8px 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
   box-shadow: none;
-  transition: border-color .18s ease, box-shadow .18s ease;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
 }
 .say:focus-within {
   border-color: var(--accent);
-  outline: 2px solid var(--focus, var(--accent));
-  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
 }
 
 /* Pill model selector */
 label.model {
   display: inline-flex;
   align-items: center;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   padding: 0 8px;
-  min-height: 36px;
+  min-height: 30px;
 }
 label.model:hover { background: var(--row-sel); }
 label.model select {
   max-width: 184px;
-  height: 36px;
-  font-size: 13px;
+  height: 30px;
+  font-size: 12.5px;
   font-weight: 500;
   color: var(--fg2);
   cursor: pointer;
@@ -75,16 +84,16 @@ label.model select {
 
 /* Context-aware send button */
 button.send {
-  border-radius: 10px;
-  transition: background-color .18s ease, color .18s ease, transform .12s ease;
+  border-radius: 8px;
+  transition: background-color .15s var(--ease), color .15s var(--ease), transform .12s var(--ease);
 }
 button.send.is-empty {
-  background: var(--seg);
+  background: var(--raised);
   border-color: transparent;
   color: var(--muted);
 }
 button.send.is-empty:hover {
-  background: var(--seg);
+  background: var(--raised);
   filter: none;
   color: var(--fg);
 }
@@ -197,16 +206,22 @@ button.hello-chip:hover {
 
 /* Hairline hierarchy & single focal point for decisions */
 .reqgroup.chatcard, .tcard {
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface);
-  border-color: var(--line);
+  border: 1px solid var(--line);
   box-shadow: none;
 }
 .ask-card {
-  border-radius: 12px;
-  border-color: var(--line-strong);
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  border-left: 2.5px solid var(--accent);
+  background: var(--surface);
 }
-.msg.me { border-radius: 16px; }
+.msg.me {
+  border-radius: 12px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+}
 
 /* Richer drag-and-drop cue */
 section.conv.dropping {
@@ -468,4 +483,32 @@ details.collapsed-done > summary {
   gap: 4px;
 }
 .kill-menu-list button { width: 100%; text-align: left; }
+
+/* Unified Antigravity Accent Swatches + Custom Spectrum Picker */
+.ag-swatches { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ag-swatches .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.ag-swatches .swatch.on { outline: 2px solid var(--fg); outline-offset: 2px; }
+.swatch-custom {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: conic-gradient(#7C8CFF, #34D399, #FBBF24, #FB7185, #7C8CFF);
+  border: 2px solid var(--surface); display: inline-grid; place-items: center; position: relative;
+}
+.swatch-custom input[type="color"] { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.swatch-custom-inner {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--surface);
+  display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--fg); pointer-events: none;
+}
+.hex-box {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border-radius: 7px; border: 1px solid var(--line-strong); background: var(--bg);
+}
+.hex-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; }
+.hex-input {
+  width: 72px; border: 0; background: transparent; outline: none; padding: 0;
+  font-family: var(--mono); font-size: 12.5px; color: var(--fg);
+}
+@media (any-pointer: coarse) {
+  .ag-swatches .swatch, .swatch-custom { width: 36px; height: 36px; }
+  .hex-box { min-height: 44px; }
+}
 
