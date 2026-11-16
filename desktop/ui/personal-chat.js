@@ -95,10 +95,15 @@ function personalChat(thread) {
         if (e.kind === "tasks") for (const t of e.tasks) startedAt[t.task_id] = i;
         if (e.kind === "result" && startedAt[e.task_id] !== undefined && lastMessage > startedAt[e.task_id]) ui.movedOn.add(e.task_id);
       });
+      listen(entries, view);
     },
     drawn: (el, entries, view) => {
       bindConnectorActs(el);
       keepHeights(el);
+      for (const [id, text] of Object.entries(view.ui.live)) {
+        const liveEl = $(`[data-live="${CSS.escape(id)}"]`, el);
+        if (liveEl && text) { patchLive(liveEl, text); loadMarkdownImages(liveEl); }
+      }
       for (const e of entries.filter(e => e.view)) fill($(`iframe[data-shown="${CSS.escape(e.id)}"]`, view.section), e.view, e.task_id);
       for (const [id, v, , task] of view.ui.composed) fill($(`iframe[data-view="${CSS.escape(id)}"]`, el), v, task);
       listen(entries, view);

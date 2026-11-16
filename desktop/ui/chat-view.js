@@ -180,12 +180,15 @@ const ChatView = (() => {
     const anchor = ui.drawn ? ReadingAnchors.capture(el) : view.record?.anchor || { follow: true };
     const newActivity = ui.entryIds && entries.some(e => e.id && !ui.entryIds.has(e.id));
     ui.entryIds = new Set(entries.map(e => e.id)); ui.drawn = true;
-    paint(el, listHtml(entries, view)); liveStatusLines(el);
-    ReadingAnchors.restore(el, anchor); ReadingAnchors.remember(el, anchor);
-    if (newActivity && !anchor.follow) $("[data-jump-latest]", view.section).hidden = false;
-    motion(el, ui);
+    const painted = paint(el, listHtml(entries, view));
+    if (painted) {
+      liveStatusLines(el);
+      ReadingAnchors.restore(el, anchor); ReadingAnchors.remember(el, anchor);
+      if (newActivity && !anchor.follow) $("[data-jump-latest]", view.section).hidden = false;
+      motion(el, ui);
+      conv.drawn?.(el, entries, view);
+    }
     paint($(".chat-status", view.section), conv.status?.(view) || "");
-    conv.drawn?.(el, entries, view);
   }
 
   /**
