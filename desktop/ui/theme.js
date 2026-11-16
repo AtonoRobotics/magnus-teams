@@ -93,11 +93,10 @@
   function effective(prefs, os) {
     const p = { ...DEFAULTS, ...(prefs || {}) };
     const dark = p.mode === "dark" || (p.mode === "system" && !!os.dark);
-    const glass = p.material === "glass" && !os.reduceTransparency;
     const order = ["off", "reduced", "full"];
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
     const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
-    return { mode: dark ? "dark" : "light", material: glass ? "glass" : "solid", motion, accent };
+    return { mode: dark ? "dark" : "light", material: "solid", motion, accent };
   }
 
   // Every token of a look, by CSS variable name (without the dashes).
@@ -137,7 +136,7 @@
     }
     return {
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
-      material: member(v.material, MATERIALS.map(x => x[0]), DEFAULTS.material),
+      material: "solid",
       accent: isHex(v.accent) ? v.accent : member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
       navigation: member(v.navigation, ["expanded", "compact"], LAYOUT.navigation),
@@ -204,7 +203,7 @@
     const saved = key && parse(key);
     current = preferences(saved || (key ? parse(LEGACY_KEY) : null));
     Theme.saved = true;
-    if (key && !saved) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
+    if (key && (!saved || saved.material !== "solid")) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
     return Theme.apply();
   };
   Theme.os = () => ({ dark: !!darkQ?.matches, reduceMotion: !!motionQ?.matches, reduceTransparency: !!clearQ?.matches || !!system.reduce_transparency,
