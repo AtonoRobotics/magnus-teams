@@ -78,7 +78,7 @@ section.conv .thread { flex: 1; min-height: 0; overflow-y: auto; width: 100%; pa
 .chatcard .tlist { margin: 6px 0; }
 .result { min-width: 0; }
 .result > details { min-width: 0; width: 100%; }
-.result { max-width: 100%; width: 100%; align-self: stretch; border: 0; border-left: 2px solid var(--line2); border-radius: 0; padding: 2px 0 2px 12px; margin-left: 6px; background: transparent; }
+.result { max-width: 100%; width: 100%; align-self: stretch; border: 0; border-left: 2px solid var(--line); border-radius: 0; padding: 2px 0 2px 12px; margin-left: 6px; background: transparent; }
 .result > details > summary { cursor: pointer; display: flex; gap: 8px; align-items: center; overflow: hidden; white-space: nowrap; font-size: 12.5px; color: var(--muted); list-style: none; }
 .result > details > summary::-webkit-details-marker { display: none; }
 .result > details > summary .ttl { color: var(--fg2); font-weight: 500; }
@@ -280,7 +280,7 @@ section.conv.side .composer-slot { padding-left: 12px; padding-right: 12px; }
   border-radius: 16px;
   padding: 10px 12px 8px 14px;
   gap: 6px;
-  border: 1px solid var(--line2);
+  border: 1px solid var(--line-strong);
   background: var(--raised);
   box-shadow: none;
   transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
@@ -376,9 +376,9 @@ button.hello-chip:hover {
 }
 /* Quiet message actions on hover-capable devices */
 @media (hover: hover) and (pointer: fine) {
-  .msg-actions { opacity: 0; transition: opacity .15s ease; }
+  .msg-actions { opacity: 0; }
   .entry:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
-  .msg-actions button.icon { width: 28px; height: 28px; min-width: 28px; min-height: 28px; border-radius: 6px; }
+  .msg-actions button.icon { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
   .msg-actions button.icon svg { width: 15px; height: 15px; }
 }
 .answer-body th, .answer-body td {
@@ -401,12 +401,12 @@ button.hello-chip:hover {
 /* Antigravity vertical-rail step timeline, code blocks & inspector pane */
 .reqgroup.chatcard {
   border: 0;
-  border-left: 1.5px solid var(--line);
+  border-left: 2px solid var(--line);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
   margin-left: 6px;
-  padding-left: 10px;
+  padding-left: 8px;
 }
 .chatcard > .rg-head {
   background: transparent;

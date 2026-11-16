@@ -40,8 +40,6 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-presence.on { background: var(--ok); border-color: var(--ok); }
 .team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 .team-head h1 { font-size: 18px; margin: 0; }
-.team-head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.team-head-tools select, .team-head-tools > button { border-radius: 999px; padding: 4px 12px; min-height: 32px; font-size: 13px; }
 .team-head-faces { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
 .team-face { position: relative; display: inline-flex; }
 .team-face.on::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); border: 1.5px solid var(--surface); }
@@ -52,9 +50,6 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 /* A post's controls sit under it, as the personal chat's do (owner, 2026-11-13). */
 .action-menu.reactions:not([hidden]) { display: flex; width: auto; gap: 2px; }
 .action-menu.reactions button { width: auto; min-width: 36px; text-align: center; padding: 6px 8px; font-size: 16px; }
-.team-spinner { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: team-spin 1s linear infinite; }
-@keyframes team-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .team-spinner { animation: none; } }
 .dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .team-card { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .team-card h3 { font-size: 13px; margin: 0 0 6px; display: flex; justify-content: space-between; }

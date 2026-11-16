@@ -23,7 +23,7 @@ nav.side .new-chat.primary-nav { height: 32px; min-height: 32px; border-radius: 
 nav.side .new-chat.primary-nav:hover { background: var(--raised); border-color: var(--line-strong); }
 nav.side .sect { display: flex; flex-direction: column; gap: 1px; }
 nav.side .group { display: flex; justify-content: space-between; align-items: center; text-transform: none; letter-spacing: 0; color: var(--muted); padding: 8px 8px 3px; font-weight: 500; font-size: 11.5px; }
-nav.side .group a.more { padding: 2px 6px; color: var(--muted); font-weight: 500; min-width: 0; min-height: 0; border-radius: 5px; justify-content: center; }
+nav.side .group a.more { padding: 2px 6px; font-size: 13px; color: var(--muted); font-weight: 500; min-width: 0; min-height: 0; border-radius: 5px; justify-content: center; }
 nav.side .group a.more:hover { color: var(--fg); background: var(--row-sel); }
 nav.side a svg.ic { color: var(--muted); width: 16px; height: 16px; }
 nav.side .ttl, .whoami .ttl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
@@ -40,7 +40,7 @@ nav.side .foot { display: flex; flex-direction: column; gap: 2px; flex: none; ma
 nav.side .who { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding: 8px 0 0; gap: 6px; }
 .whoami { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .whoami .ttl { font-weight: 500; font-size: 12.5px; }
-.whoami .link { align-self: flex-start; color: var(--muted); font-weight: 400; }
+.whoami .link { align-self: flex-start; font-size: 13px; color: var(--muted); font-weight: 400; }
 .whoami .link:hover { color: var(--fg); }
 nav.side .who .icon-btn { width: 32px; height: 32px; }
 nav.side .who .icon-btn svg.ic { width: 16px; height: 16px; }
@@ -178,7 +178,6 @@ nav.side #find { flex: none; }
 body[data-navigation=compact] .update-ready > span { display: none; }
 body[data-navigation=compact] .update-ready button { min-width: 44px; min-height: 44px; padding: 4px; font-size: 12px; overflow-wrap: anywhere; }
 .detail-body h3 { font-size: 16px; }
-nav.side .group a.more, .whoami .link { font-size: 13px; }
 
 /* Shared shape, identifiable input boundaries and a consistent focus ring. */
 .shell > main, .shell > aside.detail { border-radius: 0; }
@@ -215,11 +214,6 @@ body[data-workspace="conversation"]:not([data-navigation="drawer"]) .workspace-h
   padding: 6px 8px 4px;
   min-height: 28px;
 }
-nav.side .nav-workspace > summary.nav-group-head {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  min-height: 28px;
-}
 nav.side { background: var(--side); display: flex; flex-direction: column; grid-column: 1; grid-row: 1 / -1; height: 100%; max-height: none; overflow: hidden; min-height: 0; border-right: 1px solid var(--line); padding: 12px 10px; gap: 12px; }
 nav.side .brand .logo { display: grid; place-items: center; width: 20px; height: 20px; background: transparent; color: var(--fg); border-radius: 0; }
 body[data-navigation="compact"] nav.side .brand .logo { display: none; }
@@ -239,7 +233,7 @@ nav.side a.on, .navigation-flyout a.on { background: var(--raised); font-weight:
 /* Tighter desktop sidebar rows (44px preserved on coarse pointers) */
 @media (pointer: fine) {
   nav.side a.primary-nav, nav.side a, nav.side button.needs { min-height: 32px; }
-  nav.side a.conv { min-height: 30px; }
+  nav.side a.conv { min-height: 28px; }
   nav.side .icon-btn, nav.side .who a.icon-btn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
   nav.side #find input { min-height: 30px; height: 30px; }
   nav.side .group a.more { min-width: 0; min-height: 0; }
@@ -294,7 +288,10 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 nav.side .nav-workspace > summary.nav-group-head {
   list-style: none;
   cursor: pointer;
-  padding: 8px 10px 4px;
+  padding: 6px 8px 4px;
+  min-height: 28px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
