@@ -468,7 +468,7 @@ const Workspace = (() => {
       });
       document.addEventListener("keydown",e=>{
         if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}
-        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){e.preventDefault();if(document.body.dataset.navigation==="expanded")$("#q")?.focus();else{const d=$("#workspace-search");if(d&&!d.open){d.showModal();$("input",d)?.focus();}}}
+        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){if(location.hash.startsWith("#/team/"))return;e.preventDefault();if(document.body.dataset.navigation==="expanded")$("#q")?.focus();else{const d=$("#workspace-search");if(d&&!d.open){d.showModal();$("input",d)?.focus();}}}
       });
     }
     update();
@@ -1415,9 +1415,10 @@ function convHead(thread, project) {
 }
 
 async function showNewChat(main, project) {
-  if (!await chatLayout(main,null,project)) return;
+  const view = await chatLayout(main, null, project);
+  if (!view) return;
   const record = App.draftRecord;
-  paint($("#thread",main), `<p class="muted hello">Ask a question, or say what you want done. Magnus answers, starts a task, or proposes a schedule for you to confirm. What it starts shows here as it goes.</p>`);
+  paint($("#thread", main), ChatView.listHtml([], view));
   if (App.appSearch) { record.text=App.appSearch;record.selection=[record.text.length,record.text.length];App.appSearch=null;const box=$("#msg",main);if(box){box.value=record.text;box.setSelectionRange(...record.selection);} }
   sidebar();
 }

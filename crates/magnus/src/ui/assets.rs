@@ -13,6 +13,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("uispec.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/uispec.js")),
     ("html-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/html-frame.js")),
     ("compose.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/compose.js")),
+    ("html-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/html-frame.js")),
     ("app.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/app.js")),
     ("password.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/password.js")),
     ("dev.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/dev.js")),

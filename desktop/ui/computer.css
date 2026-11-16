@@ -21,7 +21,7 @@
 .state-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .7; }
 .state-pill[data-pill="waking"], .state-pill[data-pill="queued"], .state-pill[data-pill="asks"], .state-pill[data-pill="paused"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .state-pill[data-pill="working"] { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
-.state-pill[data-pill="mine"], .state-pill[data-pill="held"] { background: var(--elevated); color: var(--fg); border-color: var(--line-strong); }
+.state-pill[data-pill="mine"], .state-pill[data-pill="held"] { background: var(--raised); color: var(--fg); border-color: var(--line-strong); }
 .state-pill[data-pill="mine"]::before, .state-pill[data-pill="held"]::before { background: var(--ok); opacity: 1; }
 
 .screen { position: relative; min-height: 160px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; }
@@ -51,7 +51,7 @@
 .computer-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg2); cursor: pointer; }
 .computer-chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
 .computer-chip[data-pill="working"] { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
-.computer-chip[data-pill="mine"], .computer-chip[data-pill="held"] { background: var(--elevated); color: var(--fg); border-color: var(--line-strong); }
+.computer-chip[data-pill="mine"], .computer-chip[data-pill="held"] { background: var(--raised); color: var(--fg); border-color: var(--line-strong); }
 .computer-chip[data-pill="asks"], .computer-chip[data-pill="waking"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 
 .computer-apps td { vertical-align: top; }
