@@ -11,7 +11,7 @@
     "row-sel": "rgba(15,23,42,0.055)", search: "rgba(15,23,42,0.06)", "group-head": "#F8F9FB", "row-hi": "#EEF2FF",
     ok: "#146C34", "ok-soft": "#E6F4EA", "ok-icon": "#16A34A", warn: "#9A4A00", "warn-soft": "#FEF3C7", "warn-icon": "#D97706",
     sch: "#364FC7", "sch-soft": "#EDF2FF", "approval-bg": "#F8F9FB", "approval-border": "#CBD5E1", bad: "#B91C1C", "bad-soft": "#FEE2E2",
-    shadow: "0 1px 3px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.06)", avatar: "#D8DEE9", chev: "#6B7280", "pdf-bg": "#FEE2E2", "pdf-fg": "#991B1B", "panel-edge": "#E5E7EB", "main-edge": "transparent",
+    shadow: "0 1px 3px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.06)", avatar: "#D8DEE9", chev: "#6B7280", "pdf-bg": "#FEE2E2", "pdf-fg": "#991B1B",
     "t-read": "#565E6B", "t-reversible": "#364FC7", "t-irreversible": "#9A4A00", "t-financial": "#B91C1C",
     "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#9A4A00", "k-proposal": "#4338CA", "k-message": "#565E6B", "k-tool": "#9A3412",
   };
@@ -23,7 +23,7 @@
     "row-sel": "rgba(255,255,255,0.055)", search: "rgba(255,255,255,0.06)", "group-head": "#151820", "row-hi": "#1A2033",
     ok: "#34D399", "ok-soft": "#102A22", "ok-icon": "#34D399", warn: "#FBBF24", "warn-soft": "#2B210E", "warn-icon": "#FBBF24",
     sch: "#9BA7FF", "sch-soft": "#1C2136", "approval-bg": "#171A21", "approval-border": "#2E3444", bad: "#F87171", "bad-soft": "#2D1619",
-    shadow: "0 8px 28px rgba(0,0,0,0.45)", avatar: "#242834", chev: "#6E788C", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5", "panel-edge": "#222631", "main-edge": "transparent",
+    shadow: "0 8px 28px rgba(0,0,0,0.45)", avatar: "#242834", chev: "#6E788C", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5",
     "t-read": "#8892A6", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
     "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8892A6", "k-tool": "#FDBA74",
   };
@@ -69,7 +69,6 @@
   function tokens(look) {
     const dark = look.mode === "dark";
     const t = { ...(dark ? DARK : LIGHT) };
-    t.backdrop = t.bg;
     t.shell = t.bg;
     t.panel = t.main;
     const preset = ACCENTS.find(a => a.id === look.accent);
@@ -135,7 +134,6 @@
     el.style.colorScheme = look.mode;
     Object.assign(el.dataset, { mode: look.mode, motion: look.motion, accent: look.accent });
     delete el.dataset.material;
-    el.dataset.backdrop = "drawn";
     Theme.look = look;
     for (const f of document.querySelectorAll("iframe.composed")) {
       try { const r = f.contentDocument?.documentElement; if (r) { for (const [k, v] of Object.entries(t)) r.style.setProperty(`--${k}`, v); r.style.colorScheme = look.mode; } } catch { /* frame still loading */ }

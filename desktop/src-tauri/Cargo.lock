@@ -2261,7 +2261,6 @@ dependencies = [
  "url",
  "uuid",
  "webpki-roots 0.26.11",
- "window-vibrancy",
 ]
 
 [[package]]

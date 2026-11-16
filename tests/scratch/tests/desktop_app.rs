@@ -15,8 +15,8 @@
 //! - `desktop/tests/app-workspace.mjs`: research, approval, result, file and
 //!   schedule in one conversation, each flow held to its ease-of-use budget
 //!   (`desktop/tests/ease-budgets.json`).
-//! - `desktop/tests/app-looks.mjs`: the four looks, each readable, glass on
-//!   the chrome only.
+//! - `desktop/tests/app-looks.mjs`: light and dark, each readable, every
+//!   surface solid.
 //! - `desktop/tests/app-channels.mjs`: the owner's app updates from the
 //!   development channel (pull requests' builds), asking with its session.
 //!
@@ -857,14 +857,14 @@ async fn research_approval_result_file_and_schedule_happen_in_one_conversation_i
     assert!(saved.contains("41.7M"), "{saved}");
 }
 
-/// The four looks (U7, amended): light and dark, solid and glass, chosen in
-/// Settings > Appearance; glass on the chrome only, reading surfaces solid,
-/// every text on screen at 4.5:1 or more against the worst case behind it;
+/// The two looks: light and dark, chosen in Settings > Appearance; every
+/// surface solid, every text on screen at 4.5:1 or more against what is
+/// under it;
 /// the accent and the motion setting take effect, and the look is kept on
 /// the device.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs the built desktop app, tauri-driver, WebKitWebDriver and xvfb-run"]
-async fn each_of_the_four_looks_keeps_text_readable_and_reading_surfaces_solid_in_the_installed_app() {
+async fn each_look_keeps_text_readable_and_every_surface_solid_in_the_installed_app() {
     use magnus_invariants::{complete, plan, script, FakeWeb, Reply};
     let s = script(|c| async move {
         if c.body["system"].to_string().contains("in a chat") {

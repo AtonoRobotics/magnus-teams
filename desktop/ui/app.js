@@ -2913,10 +2913,9 @@ route(/^#\/settings(?:\/([a-z]+))?$/, async (main, which) => {
 route(/^#\/models$/, () => { location.hash = administers() ? "#/admin/models" : "#/settings"; });
 route(/^#\/apps$/, () => { location.hash = administers() ? "#/admin/connectors" : "#/library"; });
 
-// How Magnus looks on this device (U7, amended): light, dark or the
-// computer's; solid or glass; an accent; and how much it moves. The choice
-// takes effect at once; the computer's own settings for less motion and less
-// transparency still apply on top.
+// How Magnus looks on this device: light, dark or the computer's; an accent;
+// and how much it moves. The choice takes effect at once; the computer's own
+// setting for less motion still applies on top.
 function appearanceSection(el) {
   const radio = (look, value, label, inner = label, cls = "", style = "") => {
     const on = Theme.prefs()[look] === value;

@@ -2,7 +2,7 @@
 // same card in the Library, in chat, in a task and in approvals): in Needs
 // you, the decision for an app's action shows the app's tile and name and,
 // once the app has refused the person's sign-in, one button to sign in
-// again, without protocol words; in light, dark and glass, and at phone
+// again, without protocol words; in light and dark, and at phone
 // width with no sideways scroll.
 //
 // MAGNUS_URL, MAGNUS_PERSON, MAGNUS_PASSWORD  where and who
@@ -71,16 +71,16 @@ await step(decides ? "the approval carries the app's card, saying the person nee
 });
 
 await step("in every look and at phone width", async () => {
-  for (const [mode, material] of ["light","dark"].flatMap(mode=>["solid","glass"].map(material=>[mode,material]))) {
+  for (const mode of ["light", "dark"]) {
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 800 });
-      await page.evaluate(([mode, material]) => Theme.set({ mode, material }), [mode, material]);
+      await page.evaluate(mode => Theme.set({ mode }), mode);
       await card.waitFor({ timeout: T });
       const over = await page.evaluate(() => Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth, ...[...document.querySelectorAll("main")].map(m => m.scrollWidth - m.clientWidth)));
-      if (over > 0) throw new Error(`${mode} ${material} at ${width}px scrolls sideways by ${over}px`);
+      if (over > 0) throw new Error(`${mode} at ${width}px scrolls sideways by ${over}px`);
     }
   }
-  await page.evaluate(() => Theme.set({ mode: "system", material: "solid" }));
+  await page.evaluate(() => Theme.set({ mode: "system" }));
 });
 
 if (errors.length) { console.error(`FAIL page errors: ${errors.join("; ")}`); process.exit(1); }

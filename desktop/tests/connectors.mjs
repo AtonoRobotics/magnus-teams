@@ -4,8 +4,8 @@
 // Drive and Chat, already set up. Discover and Yours; search and category
 // chips; each card its tile, the review mark, one plain sentence, who makes
 // it and one action, with no protocol words; a connector opens to what
-// Magnus can do with it and what it asks for. The page renders in light,
-// dark and glass, and at phone width with no sideways scroll. Connecting is
+// Magnus can do with it and what it asks for. The page renders in light
+// and dark, and at phone width with no sideways scroll. Connecting is
 // the desktop app's, at Google's own page. Nothing on the connect path, and
 // nothing in the owner's Connectors settings, asks anyone to type anything:
 // no client ID, secret or address. No fakes (owner, 2026-11-01).
@@ -128,18 +128,18 @@ await step("search and the category chips narrow the catalog", async () => {
   await page.locator("[data-connector=google-gmail]").waitFor({ timeout: T });
 });
 
-await step("the Library renders in light, dark and glass, and at phone width with no sideways scroll", async () => {
-  for (const [mode, material] of [["light", "solid"], ["dark", "solid"], ["light", "glass"], ["dark", "glass"]]) {
+await step("the Library renders in light and dark, and at phone width with no sideways scroll", async () => {
+  for (const mode of ["light", "dark"]) {
     for (const width of [win.width, 390]) {
       await page.setViewportSize({ width, height: win.height });
-      await page.evaluate(([mode, material]) => Theme.set({ mode, material }), [mode, material]);
+      await page.evaluate(mode => Theme.set({ mode }), mode);
       const over = await page.evaluate(() => Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth, ...[...document.querySelectorAll("main")].map(m => m.scrollWidth - m.clientWidth)));
-      if (over > 0) throw new Error(`the Library in ${mode} ${material} at ${width}px scrolls sideways by ${over}px`);
-      await shot(`library-${mode}-${material}-${width}`);
+      if (over > 0) throw new Error(`the Library in ${mode} at ${width}px scrolls sideways by ${over}px`);
+      await shot(`library-${mode}-${width}`);
     }
   }
   await page.setViewportSize({ width: win.width, height: win.height });
-  await page.evaluate(() => Theme.set({ mode: "system", material: "solid" }));
+  await page.evaluate(() => Theme.set({ mode: "system" }));
 });
 
 await step("connecting happens in the desktop app, on the app's own page, and asks nothing here", async () => {

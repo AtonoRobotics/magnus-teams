@@ -188,7 +188,7 @@ const webBridge = {
   async updateLook() { return null; },
   async whatsNew() { return null; },
   onUpdateReady() {},
-  // A browser has no window material: the page draws its backdrop.
+  // A browser draws the page itself: there is no window to color.
   async setBackground() {},
   async systemLook() { return {}; },
   async sandboxUrl(html) { return (await this.api("POST", "/v1/ui/frames", { html })).url; },

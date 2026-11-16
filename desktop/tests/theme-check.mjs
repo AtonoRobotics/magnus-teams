@@ -1,9 +1,6 @@
-// Every look's text is readable (U7, amended): normal text reaches 4.5:1
-// (WCAG 2.2, 1.4.3) on every surface it sits on. Glass surfaces are checked
-// over the worst-case backdrop: whatever is behind the window, from black to
-// white, and the drawn wallpaper's colors; blurring the backdrop only mixes
-// its colors, so its extremes bound every case. Reading surfaces are checked
-// as they are, solid in every look.
+// Every look's text is readable: normal text reaches 4.5:1 (WCAG 2.2,
+// 1.4.3) on every surface it sits on, in light and dark, with every accent.
+// Every surface is solid.
 //
 // node desktop/tests/theme-check.mjs     prints the lowest ratio of each look
 import { readFileSync } from "node:fs";
@@ -78,4 +75,4 @@ console.log(report.join("\n"));
 if (failures.length) { console.error(`\n${failures.length} below ${MIN}:1 or wrong:\n${failures.join("\n")}`); process.exit(1); }
 console.log(`every look reaches ${MIN}:1`);
 await import('./preferences-check.mjs');
-await import("./native-material-check.mjs");
+await import("./native-background-check.mjs");

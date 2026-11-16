@@ -24,15 +24,12 @@ const shoot = (page, name) => shots ? page.screenshot({ path: join(shots, name) 
 
 const browser = await chromium.launch({ executablePath: env("MAGNUS_CHROMIUM"), args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const failures = [];
-// The Magnus Workspace design's values (owner-approved 2026-11-01), copied
-// here apart from theme.js so a drift in either shows. Glass frosts the
-// navigation chrome only; the conversation and the work panel stay solid.
-const LIGHT = { side: "#F3F3F0", main: "#FFFFFF", text: "#1C1C1E" };
-const NIGHT = { side: "#161618", main: "#1C1C1F", text: "#F2F2F4" };
-const REF = {
-  "light-solid": LIGHT, "light-glass": { ...LIGHT, side: "rgba(248,248,246,0.62)" },
-  "dark-solid": NIGHT, "dark-glass": { ...NIGHT, side: "rgba(26,26,30,0.58)" },
-};
+// The Antigravity Alabaster and Obsidian values
+// (decisions/2026-11-15-antigravity-default-ui-and-custom-accent.md), copied
+// here apart from theme.js so a drift in either shows. Every surface is solid.
+const LIGHT = { side: "#F1F3F6", main: "#FFFFFF", text: "#111318" };
+const NIGHT = { side: "#0D0F13", main: "#111318", text: "#ECEFF4" };
+const REF = { light: LIGHT, dark: NIGHT };
 // A color as [r, g, b, a], from #RRGGBB or rgb()/rgba().
 function rgba(c) {
   const h = /^#([0-9a-f]{6})$/i.exec(c);
@@ -49,7 +46,7 @@ function expect(look, what, got, want, eq = same) {
 }
 const px = (a, b) => Math.abs(parseFloat(a) - parseFloat(b)) < 0.5;
 
-const LOOKS = Object.keys(REF).map(name => { const [mode, material] = name.split('-'); return [name, { mode, material, accent: 'blue', motion: 'off' }]; });
+const LOOKS = Object.keys(REF).map(mode => [mode, { mode, accent: 'blue', motion: 'off' }]);
 
 async function open(look) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1060 } });
@@ -136,7 +133,7 @@ for (const [name, look] of LOOKS) {
   await page.evaluate(mode => Theme.set({mode}), other);
   const after = await page.locator('iframe.composed').first().evaluate(f => ({html:f.contentDocument.body.innerHTML,scroll:f.contentWindow.scrollY,color:getComputedStyle(f.contentDocument.body).color}));
   if (prior.html !== after.html || prior.scroll !== after.scroll) failures.push(`${name}: changing theme replaced frame content or scroll`);
-  expect(name,'open frame theme',after.color,REF[`${other}-solid`].text);
+  expect(name,'open frame theme',after.color,REF[other].text);
   console.log(`checked ${name}`);
   await page.close();
 }
@@ -156,7 +153,7 @@ for (const [name, look] of LOOKS) {
       swatch: cs(".appearance .swatch", "width"),
     };
   });
-  const want = ["Mode", "Material", "Accent color", "Motion"];
+  const want = ["Mode", "Accent color", "Motion"];
   if (want.join("|") !== got.labels.join("|")) failures.push(`appearance: the sections are ${got.labels.join(", ")}, the reference's are ${want.join(", ")}`);
 
   expect("appearance", "a choice's height", got.option, "40px", px);

@@ -1,7 +1,7 @@
 // An app Magnus offered in a conversation (connectors spec, Inside work;
 // the catalog mockup's "Connecting from chat"): the same card as in the
 // Library, with Magnus's reason, the app's tile and name, and one Connect
-// button, without protocol words; in light, dark and glass, and at phone
+// button, without protocol words; in light and dark, and at phone
 // width with no sideways scroll.
 //
 // MAGNUS_URL, MAGNUS_PERSON, MAGNUS_PASSWORD  where and who
@@ -54,16 +54,16 @@ await step("the offered app's card is in the conversation, with why and Connect"
 });
 
 await step("in every look and at phone width", async () => {
-  for (const [mode, material] of [["light", "solid"], ["dark", "solid"], ["light", "glass"], ["dark", "glass"]]) {
+  for (const mode of ["light", "dark"]) {
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 800 });
-      await page.evaluate(([mode, material]) => Theme.set({ mode, material }), [mode, material]);
+      await page.evaluate(mode => Theme.set({ mode }), mode);
       await card.waitFor({ timeout: T });
       const over = await page.evaluate(() => Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth, ...[...document.querySelectorAll("main")].map(m => m.scrollWidth - m.clientWidth)));
-      if (over > 0) throw new Error(`${mode} ${material} at ${width}px scrolls sideways by ${over}px`);
+      if (over > 0) throw new Error(`${mode} at ${width}px scrolls sideways by ${over}px`);
     }
   }
-  await page.evaluate(() => Theme.set({ mode: "system", material: "solid" }));
+  await page.evaluate(() => Theme.set({ mode: "system" }));
 });
 
 if (errors.length) { console.error(`FAIL page errors: ${errors.join("; ")}`); process.exit(1); }

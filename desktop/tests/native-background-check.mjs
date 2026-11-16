@@ -27,5 +27,8 @@ assert.equal(calls.length, 2, 'layout preferences must not repeat host backgroun
 T.set({ mode: 'dark' });
 assert.equal(calls.length, 3);
 waiting.shift().reject(Error('host unavailable')); await settle();
-assert.equal(host.document.documentElement.dataset.backdrop, 'drawn');
+assert.equal(host.document.documentElement.dataset.backdrop, undefined, 'no backdrop state: the window is solid');
+T.set({ mode: 'light' });
+assert.equal(calls.length, 4, 'a failed host call does not stop the next one');
+assert.deepEqual(calls[3], [false]);
 console.log('native background: serialized commands, coalescing and failure recovery passed');
