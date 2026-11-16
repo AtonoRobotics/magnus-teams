@@ -113,13 +113,13 @@ function personalChat(thread) {
     // aloud for an answer, from a script written for listening; Feedback for
     // what Magnus said; the rest for every entry.
     describe: e => {
-      if (!e.id || e.kind === "sub_agents") return null;
+      if (!e.id || (e.kind !== "message" && e.kind !== "answer")) return null;
       const mine = e.kind === "message";
       return { mine, agent: !mine, readable: e.kind === "answer", may: e.may };
     },
     caps: () => caps,
     lead: e => (typeof App !== "undefined" && App.workspaces?.length && (e.kind === "answer" || e.kind === "message") && e.text)
-      ? `<button type="button" class="link small" data-share-team="${esc(e.id)}">Share to team…</button>` : "",
+      ? `<button type="button" class="share-team-act small" data-share-team="${esc(e.id)}" title="Share to team channel">Share to team</button>` : "",
     actions: (e, view, b, el) => MessageControls.adapter(e, view, b, el, transport),
     click: (e, view) => personalCardClick(e, view),
   };

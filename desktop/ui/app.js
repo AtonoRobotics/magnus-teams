@@ -366,14 +366,20 @@ const UI = {
 };
 const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0 0 24 24" aria-hidden="true">${UI[k]}</svg>`;
 
+function displayTitle(title) {
+  const t = String(title || "").trim();
+  if (!t || t.startsWith("This turn is not a message from the person")) return "Automated check";
+  return t;
+}
+
 function navigationTree() {
   const current=href=>(location.hash || "#/home")===href ? 'class="on" aria-current="page"' : "";
   const route=location.hash || "#/home";
-  const conv=t=>`<a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(t.title)}"><span class="ttl">${esc(t.title)}</span></a>`;
+  const conv=t=>{const ttl=displayTitle(t.title);return `<a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(ttl)}"><span class="ttl">${esc(ttl)}</span></a>`;};
   const loose=App.threads.filter(t=>!t.project);
   const teamBadge=w=>{const chs=(typeof Team!=="undefined" && Team.homes?.[w.id]?.channels) || [];const m=w.mentions ?? chs.reduce((n,c)=>n+(c.mentions||0),0);const u=w.unread ?? chs.reduce((n,c)=>n+(c.notify==="off"?0:(c.unread||0)),0);return m?`<span class="pill" title="${m} mention${m===1?"":"s"}">${m}</span>`:u?`<span class="small muted">${u}</span>`:"";};
   return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><a href="#/projects" data-open="projects" class="more">All</a></div>
-    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("") || '<p class="small muted pad">No projects yet.</p>'}</div>
+    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}</div>
     <div class="sect" role="group" aria-label="Conversations"><div class="group"><span>Conversations</span></div>${loose.map(conv).join("") || '<p class="small muted pad">No conversations yet.</p>'}</div>
     <div class="sect" role="group" aria-label="Teams"><div class="group"><span>Teams</span><a href="#/teams" class="more">Manage</a></div>${(App.workspaces || []).map(w=>`<a class="conv${route.startsWith(`#/team/${enc(w.id)}`) ? " on" : ""}" href="#/team/${enc(w.id)}" ${route.startsWith(`#/team/${enc(w.id)}`) ? 'aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span>${teamBadge(w)}</a>`).join("") || '<p class="small muted pad">No teams yet.</p>'}</div>
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
@@ -1408,10 +1414,12 @@ function convHead(thread, project) {
   const here = thread && App.threads.find(t => t.thread === thread);
   const p = here ? here.project : project && App.projects.find(x => x.id === project);
   const n = needsMe().length, open = !!Panel.what;
-  const insp = `<button type="button" class="inspector-pill" data-toggle-inspector aria-expanded="${open}" title="Open Magnus Activity, Approvals, Apps & Files"><span>Magnus</span>${n ? `<span class="pill" data-needs-count>${n}</span>` : `<span class="small muted">Activity</span>`}</button>`;
-  paint(el, `<div class="conv-title"><div class="small muted">${p ? `<a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a>` : thread ? "No project" : ""}</div>
-    <h1 title="${esc(here?.title || "")}">${esc(here?.title || "New conversation")}</h1></div>
-    <div class="row">${computerChip(App.computers)}${insp}${thread ? `${moveControl(thread, here?.project, App.projects, true)}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
+  const insp = `<button type="button" class="inspector-pill" data-toggle-inspector aria-expanded="${open}" title="Open Magnus Activity, Approvals, Apps & Files"><span>Activity</span>${n ? `<span class="pill" data-needs-count>${n}</span>` : ""}</button>`;
+  const ttl = here ? displayTitle(here.title) : "New conversation";
+  const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a>` : "";
+  const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
+  paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
+    <div class="row">${computerChip(App.computers)}${insp}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -1507,7 +1515,7 @@ function ends(e) {
 const needsYou = t => !!t.waiting_item && needsMe().some(i => i.id === t.waiting_item);
 function standing(t) {
   if (needsYou(t)) return ["need", `<span class="chip warn">Needs you</span>`];
-  return [{ completed: "done", running: "working", failed: "stopped", cancelled: "stopped" }[t.status] || "working", chip(t.status)];
+  return [{ completed: "done", running: "working", failed: "stopped", cancelled: "stopped" }[t.status] || "working", t.status === "completed" ? "" : chip(t.status)];
 }
 // A task in its conversation: one row that opens it beside the thread, its
 // status live; what it waits on from the person follows the request's rows.
@@ -1695,15 +1703,14 @@ function entry(e, ui = {}) {
       : `<div class="msg magnus"><div class="small faint">${e.status === "running" ? "Working on an answer…" : esc(WAITING[e.waiting_on] || "paused")}</div>${e.status === "running" ? `<div class="pre" data-live="${esc(e.task_id)}"></div>` : ""}</div>${waitingCard(e.waiting_item, ui)}`;
     case "tasks": {
       const done = e.tasks.filter(t => t.status === "completed").length, need = e.tasks.filter(needsYou).length;
-      return `<div class="reqgroup chatcard" data-chat-tasks="${esc(e.from_run)}"><div class="rg-head"><span>From this request</span><span class="small muted num">${done} of ${e.tasks.length} done${need ? ` · ${need} need${need === 1 ? "s" : ""} you` : ""}</span></div>
+      const showHead = e.tasks.length > 1 || need > 0;
+      return `<div class="reqgroup chatcard" data-chat-tasks="${esc(e.from_run)}">${showHead ? `<div class="rg-head"><span>From this request</span><span class="small muted num">${done} of ${e.tasks.length} done${need ? ` · ${need} need${need === 1 ? "s" : ""} you` : ""}</span></div>` : ""}
         <ul class="rg-rows">${e.tasks.map(taskCard).join("")}</ul></div>
         ${e.tasks.map(t => t.waiting_item && waitingCard(t.waiting_item, ui) ? `<div class="decide" data-for-task="${esc(t.task_id)}">${waitingCard(t.waiting_item, ui)}</div>` : "").join("")}`;
     }
     case "sub_agents": return subAgentsCard(e, ui);
-    case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details data-key="result:${esc(e.task_id)}"><summary>${chip(e.status)} <span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span></summary>
-      <div class="pre">${esc(e.summary || "")}</div></details>
-      ${e.view ? shownFrame(e.id, "The deliverable") : ""}
-      ${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}<a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">See the outcome</a></div>`;
+    case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details data-key="result:${esc(e.task_id)}"><summary><span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span><a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">Outcome</a></summary>
+      <div class="pre">${esc(e.summary || "")}</div>${e.view ? shownFrame(e.id, "The deliverable") : ""}${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}</details></div>`;
     case "connector_card": return appOfferCard(e);
     case "suggestion_card": {
       if (e.state !== "open") return `<div data-card="${esc(e.card)}">${e.schedule ? scheduleLine(e) : cardOutcome(e)}</div>`;
