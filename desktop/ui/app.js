@@ -2931,7 +2931,7 @@ function appearanceSection(el) {
       <p class="small faint">Default uses Antigravity Indigo. Custom colors automatically preserve legible contrast.</p>
       <h3 id="mot-h">Motion</h3><div class="seg" role="radiogroup" aria-labelledby="mot-h">${Theme.MOTIONS.map(([k, l]) => radio("motion", k, l)).join("")}</div>
       <p class="small muted" data-motion-hint>${esc(Theme.MOTION_HINTS[p.motion])}${look.motion !== p.motion ? " Your computer asks for reduced motion, so Magnus uses quick fades." : ""}</p>
-      <p class="small faint">Magnus also follows your computer's settings for reduced motion and reduced transparency.</p></div>`);
+      <p class="small faint">Magnus also follows your computer's setting for reduced motion.</p></div>`);
   };
   // Redraw keeps keyboard focus on the choice that had it.
   const redraw = () => {

@@ -41,50 +41,35 @@ const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
 // surfaces, the conversation, cards and tiles.
 const TEXT = ["fg", "fg2", "muted", "accent-text"];
 const CHROME_PAIRS = s => [
-  // Accent-colored text sits on cards, never on the glass itself.
   ...["fg", "fg2", "muted"].map(fg => [fg, [s]]),
-  ["fg", [s, "row-sel"]], ["fg", [s, "search"]], ["search-muted", [s, "search"]],
+  ["fg", [s, "row-sel"]], ["fg", [s, "search"]], ["muted", [s, "search"]],
   ["fg2", [s, "seg"]], ["fg", [s, "seg", "seg-on"]],
 ];
 const READING = [["main"], ["surface"], ["raised"], ["group-head"]];
 const READING_PAIRS = [...READING.flatMap(l => TEXT.map(fg => [fg, l])), ["fg", ["bubble"]], ["fg", ["approval-bg"]], ["fg2", ["approval-bg"]], ["fg", ["seg-on"]], ["fg2", ["seg"]]];
 const PAIRS = [["accent-fg", "accent"], ["ok", "ok-soft"], ["warn", "warn-soft"], ["sch", "sch-soft"], ["bad", "bad-soft"], ["warn", "approval-bg"], ["accent-text", "accent-soft"]];
 
-// The backdrops that can be behind glass: the system's material over
-// anything on the desktop (its tint over black, white and grey between, the
-// luminance extremes; Windows 11's Mica stays within them), and the drawn
-// wallpaper's colors where the system has no material.
-const wallpaper = look => [...Theme.GLASS[look.mode].backdrop.matchAll(/#[0-9a-f]{6}/gi)].map(m => rgba(m[0]));
-const backdrops = look => ["#000000", "#ffffff", "#808080"].map(d => over(rgba(Theme.GLASS[look.mode].system), rgba(d))).concat(wallpaper(look));
-
 const failures = [];
 const report = [];
-for (const mode of ["light", "dark"]) for (const material of ["solid", "glass"]) for (const accent of Theme.ACCENTS.map(a => a.id)) {
-  const look = { mode, material, accent, motion: "full" };
+for (const mode of ["light", "dark"]) for (const accent of Theme.ACCENTS.map(a => a.id)) {
+  const look = { mode, accent, motion: "full" };
   const t = Theme.tokens(look);
-  const name = `${mode}/${material}/${accent}`;
+  const name = `${mode}/${accent}`;
   let low = Infinity;
   const check = (fg, layers, what) => {
-    const unders = Theme.GLASS_SURFACES.includes(layers[0]) && material === "glass" ? backdrops(look) : [rgba(t.bg)];
-    for (const under of unders) {
-      const bgc = layers.reduce((acc, k) => over(rgba(t[k]), acc), under);
-      const r = ratio(rgba(t[fg]), bgc);
-      low = Math.min(low, r);
-      if (r < MIN) failures.push(`${name}: ${fg} on ${layers.join(" over ")}${unders.length > 1 ? ` over ${under.slice(0, 3).join(",")}` : ""} is ${r.toFixed(2)}:1 (${what})`);
-    }
+    const bgc = layers.reduce((acc, k) => over(rgba(t[k]), acc), rgba(t.bg));
+    const r = ratio(rgba(t[fg]), bgc);
+    low = Math.min(low, r);
+    if (r < MIN) failures.push(`${name}: ${fg} on ${layers.join(" over ")} is ${r.toFixed(2)}:1 (${what})`);
   };
   for (const s of ["side", "panel"]) for (const [fg, layers] of CHROME_PAIRS(s)) check(fg, layers, "chrome");
   for (const [fg, layers] of READING_PAIRS) check(fg, layers, "reading");
   for (const [fg, bg] of PAIRS) check(fg, [bg], "label");
-  // Reading surfaces stay solid in every look.
-  for (const [k] of [...READING, ["bubble"], ["approval-bg"], ["seg-on"]]) if (rgba(t[k])[3] !== 1) failures.push(`${name}: the reading surface ${k} is not solid (${t[k]})`);
-  report.push(`${name.padEnd(24)} lowest ${low.toFixed(2)}:1`);
+  for (const [k] of [...READING, ["bubble"], ["approval-bg"], ["seg-on"]]) if (rgba(t[k])[3] !== 1) failures.push(`${name}: the surface ${k} is not solid (${t[k]})`);
+  report.push(`${name.padEnd(20)} lowest ${low.toFixed(2)}:1`);
 }
 
-// Glass only where the decision record allows it, and never when the
-// system asks for less transparency or the person chose solid.
-const os = { dark: false, reduceMotion: false, reduceTransparency: true };
-if (Theme.effective({ material: "glass" }, os).material !== "solid") failures.push("reduced transparency did not fall back to solid");
+const os = { dark: false, reduceMotion: false };
 if (Theme.effective({ motion: "full" }, { ...os, reduceMotion: true }).motion !== "reduced") failures.push("the system's reduced motion did not reduce motion");
 if (Theme.effective({ motion: "off" }, { ...os, reduceMotion: true }).motion !== "off") failures.push("the system's reduced motion turned motion back on");
 if (Theme.effective({ mode: "system" }, { ...os, dark: true }).mode !== "dark") failures.push("Match computer did not follow the system into dark");
@@ -93,5 +78,4 @@ console.log(report.join("\n"));
 if (failures.length) { console.error(`\n${failures.length} below ${MIN}:1 or wrong:\n${failures.join("\n")}`); process.exit(1); }
 console.log(`every look reaches ${MIN}:1`);
 await import('./preferences-check.mjs');
-
 await import("./native-material-check.mjs");
