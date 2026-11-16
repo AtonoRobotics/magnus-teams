@@ -132,6 +132,11 @@ pub fn observe(s: &mut State, e: &Event) {
         Ev::Completed { run, .. } | Ev::Failed { run, .. } => {
             let ended = if matches!(e.ev, Ev::Completed { .. }) { Status::Completed } else { Status::Failed };
             let task = s.runs.get(run).filter(|r| r.status == ended && r.config.module(MODULE)).map(|r| r.task.clone());
+            // A schedule with no conversation is done only when it stops for
+            // good, which sends its own notice (`ScheduleEnded`): a run that
+            // finished is nothing to tell (owner, 2026-11-16: "should not
+            // notify unless they are done ..., fail or need me").
+            let task = task.filter(|t| ended != Status::Completed || !s.tasks.get(t).is_some_and(|t| t.schedule.is_some() && notice_only(s, t)));
             if let Some(task) = task.filter(|t| !s.outcomes.returned.contains(t)) {
                 s.outcomes.due.insert(task);
             }
@@ -428,6 +433,15 @@ mod tests {
         let notice = json!({ "kind": "item", "id": "i1", "item_kind": "notice", "task": "run1", "run": "r_run1", "person": "carol", "summary": "Needs your attention: x", "details": { "reason": NOTICE_REASON } });
         ev(&mut s, "kernel", notice);
         assert!(!s.outcomes.is_due("run1"), "the notice did not return the outcome, so it would be sent again");
+        // A run that finished is not news: the schedule is done only when it stops for good.
+        task(&mut s, "schedule:sc1", "run2", Value::Null, json!({ MODULE: true }));
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_run2", "summary": "Nothing new." }));
+        assert!(!s.outcomes.is_due("run2"), "a heartbeat's every finished run sends a notice");
+        // A finished task the person asked for, whose conversation is deleted, is news.
+        task(&mut s, "chat:r_turn", "t9", json!({ "thread": "gone", "turn": false, "from_run": "r_turn" }), json!({ MODULE: true }));
+        s.trash.mark_removed("gone", "carol");
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_t9", "summary": "ok" }));
+        assert!(s.outcomes.is_due("t9"), "a finished task from a deleted conversation is never told");
     }
 
     /// A task whose conversation the person deleted is told by notice only.

@@ -105,7 +105,8 @@ async fn a_scheduled_run_uses_sub_agents() {
     let b = before(&alice).await;
     let origin = schedule_in_chat(&alice, ASK).await;
     until_outcome(&m).await;
-    let e = in_origin(&m, &alice, &origin, REPORT).await;
+    let e = in_origin(&m, &alice, &origin).await;
+    assert!(!e.iter().any(|e| e["text"] == REPORT), "the agent restated a finished run in the thread: {e:?}");
 
     // The run's result and the agent's report are where the schedule was set up.
     let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result where the schedule was set up: {e:?}"));
@@ -199,7 +200,8 @@ async fn a_failing_scheduled_run_wakes_the_agent_where_it_was_set_up() {
     let b = before(&alice).await;
     let origin = schedule_in_chat(&alice, ASK).await;
     until_outcome(&m).await;
-    let e = in_origin(&m, &alice, &origin, REPORT).await;
+    // A failed run with no retry stops to tell the person: that report shows.
+    let e = report_in(&m, &alice, &origin, REPORT).await;
 
     let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result where the schedule was set up: {e:?}"));
     assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("failed"), Some(REASON)), "{result}");

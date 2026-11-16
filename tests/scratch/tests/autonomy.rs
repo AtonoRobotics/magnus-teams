@@ -378,6 +378,16 @@ async fn in_origin(m: &FakeModel, api: &Api, origin: &str) -> Vec<Value> {
     .await
 }
 
+/// Wait for the agent's report in the conversation a schedule was set up
+/// in: shown when a failed run needs the person (owner, 2026-11-16).
+async fn report_in(m: &FakeModel, api: &Api, origin: &str, report: &str) -> Vec<Value> {
+    wait("the report where the schedule was set up", PATIENCE, m, api, || async {
+        let e = entries(api, origin).await;
+        e.iter().any(|e| e["kind"] == "answer" && e["text"] == report).then_some(e)
+    })
+    .await
+}
+
 /// Ask for a schedule in a new conversation, due at the start of the minute
 /// after next. Asking sets it up (spec rev 140): its card shows it set,
 /// with nothing to confirm. Returns the conversation.
