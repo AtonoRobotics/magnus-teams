@@ -58,10 +58,7 @@
   // color of accent text (links, selected labels) on each mode's surfaces.
   const ACCENTS = [
     { id: "blue", label: "Indigo (Default)", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
-    { id: "indigo", label: "Violet", swatch: "#6366F1", light: { accent: "#4F46E5", "accent-fg": "#FFFFFF", "accent-text": "#4338CA", "accent-soft": "#EEF2FF" }, dark: { accent: "#818CF8", "accent-fg": "#090A0D", "accent-text": "#A5B4FC", "accent-soft": "#1E1F3D" } },
-    { id: "teal", label: "Teal", swatch: "#2DD4BF", light: { accent: "#0F766E", "accent-fg": "#FFFFFF", "accent-text": "#0F766E", "accent-soft": "#EAF6F3" }, dark: { accent: "#2DD4BF", "accent-fg": "#090A0D", "accent-text": "#5EEAD4", "accent-soft": "#122B28" } },
     { id: "emerald", label: "Emerald", swatch: "#34D399", light: { accent: "#146C34", "accent-fg": "#FFFFFF", "accent-text": "#146C34", "accent-soft": "#ECFDF3" }, dark: { accent: "#34D399", "accent-fg": "#090A0D", "accent-text": "#6EE7B7", "accent-soft": "#102A22" } },
-    { id: "clay", label: "Clay", swatch: "#B4532A", light: { accent: "#A34721", "accent-fg": "#FFFFFF", "accent-text": "#A34721", "accent-soft": "#FDF2EC" }, dark: { accent: "#E07A5F", "accent-fg": "#090A0D", "accent-text": "#F7B394", "accent-soft": "#331E18" } },
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
     { id: "graphite", label: "Monochrome", swatch: "#ECEFF4", light: { accent: "#111318", "accent-fg": "#FFFFFF", "accent-text": "#111318", "accent-soft": "#E9ECF2" }, dark: { accent: "#ECEFF4", "accent-fg": "#090A0D", "accent-text": "#ECEFF4", "accent-soft": "#242834" } },
@@ -74,7 +71,7 @@
     reduced: "Quick fades instead of movement.",
     off: "No animation. Everything changes instantly.",
   };
-  const DEFAULTS = { mode: "system", material: "solid", accent: "blue", motion: "full" };
+  const DEFAULTS = { mode: "dark", material: "solid", accent: "blue", motion: "full" };
   // Which chrome surfaces may be glass; every other surface is solid.
   const GLASS_SURFACES = ["side", "panel"];
 
