@@ -13,6 +13,18 @@ window manager, which centres them.
 `layout` is the rule alone, for tests; `main` watches the X server.
 """
 import sys
+import time
+
+DEFAULT_FRAME_EXTENTS = (1, 1, 38, 1)
+EXTENTS_POLL_SECONDS = 0.05
+EXTENTS_POLL_ATTEMPTS = 6
+
+
+def resolve_extents(raw):
+    """Return usable (left, right, top, bottom) frame extents, falling back to Magnus's theme frame."""
+    if raw and len(raw) >= 4 and any(raw[:4]):
+        return tuple(raw[:4])
+    return DEFAULT_FRAME_EXTENTS
 
 
 def layout(known, current):
@@ -83,7 +95,14 @@ def main():
         maximized(wid, False)
         d.sync()
         area = prop(root, WORKAREA)[:4] or [0, 0, d.screen().width_in_pixels, d.screen().height_in_pixels]
-        ext = prop(win, EXTENTS)[:4] or [0, 0, 0, 0]
+        raw_ext = prop(win, EXTENTS)[:4]
+        for _ in range(EXTENTS_POLL_ATTEMPTS):
+            if raw_ext and any(raw_ext):
+                break
+            time.sleep(EXTENTS_POLL_SECONDS)
+            d.sync()
+            raw_ext = prop(win, EXTENTS)[:4]
+        ext = resolve_extents(raw_ext)
         x, y, w, h = half(side, area, ext)
         # Gravity north-west, from the pager, with x, y, width and height set.
         send(win, MOVERESIZE, [(2 << 12) | (0xF << 8) | 1, x, y, w, h])

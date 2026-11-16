@@ -46,6 +46,11 @@ class WindowRule(unittest.TestCase):
         self.assertEqual(arrange.half("left", area, ext), (0, 34, 638, 727))
         self.assertEqual(arrange.half("right", area, ext), (640, 34, 638, 727))
 
+    def test_resolve_extents_falls_back_to_magnus_frame(self):
+        self.assertEqual(arrange.resolve_extents([]), (1, 1, 38, 1))
+        self.assertEqual(arrange.resolve_extents([0, 0, 0, 0]), (1, 1, 38, 1))
+        self.assertEqual(arrange.resolve_extents([2, 2, 40, 2]), (2, 2, 40, 2))
+
 
 def app_tokens():
     """The app's own light and dark colors, from desktop/ui/theme.js."""

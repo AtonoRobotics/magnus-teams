@@ -5,9 +5,9 @@
 # /etc/chromium/policies/managed turns off saved passwords, sign-in and sync.
 # It trusts the computer's proxy, whose certificate the kernel installs.
 set -u
-HOME=${HOME:-/workspace}
+HOME=/tmp/magnus-desktop/browser-home
 profile=/tmp/magnus-desktop/chromium
-mkdir -p "$profile"
+mkdir -p "$HOME" "$profile"
 ca=/usr/local/share/ca-certificates/magnus-computer.crt
 if [ -f "$ca" ] && command -v certutil >/dev/null; then
   db="sql:$HOME/.pki/nssdb"

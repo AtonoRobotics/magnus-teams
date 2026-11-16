@@ -107,6 +107,7 @@ start() {
   (python3 -I /usr/local/lib/magnus/desktop/arrange.py >/tmp/arrange.log 2>&1 9>&- &)
   wait_for $SESSION_WAIT_TENTHS window_of xfce4-panel || echo "the top bar did not appear" >&2
   wait_for $SESSION_WAIT_TENTHS window_of xfdesktop || echo "the wallpaper did not appear" >&2
+  apply_theme
   sleep $SETTLE_SECONDS
   touch "$state/ready"
 }
@@ -131,7 +132,7 @@ app_installed() {
   [ -n "$slug" ] || return 2
   for d in /usr/share/applications /usr/local/share/applications; do
     [ -d "$d" ] || continue
-    if ls "$d" 2>/dev/null | grep -qi -- "$slug.*\.desktop$" || grep -qilx "Name=$name" "$d"/*.desktop 2>/dev/null; then
+    if find "$d" -maxdepth 1 -type f -iname "*.desktop" 2>/dev/null | grep -qiF -- "$slug" || grep -qilxF "Name=$name" "$d"/*.desktop 2>/dev/null; then
       echo "in the menu already"
       return 0
     fi
