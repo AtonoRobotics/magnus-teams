@@ -1,0 +1,152 @@
+/* Base: fonts, the page itself, and the elements every screen uses (buttons,
+   inputs, links, tables, dialogs), focus rings, motion and high contrast.
+   Colours are tokens from theme.js. Loaded first; the area sheets build on it.
+   Where each style lives and the rules for changing one: docs/ui-styles.md. */
+
+@font-face { font-family: Inter; font-style: normal; font-weight: 100 900; font-display: swap; src: url(fonts/inter-latin-wght-normal.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: Inter; font-style: normal; font-weight: 100 900; font-display: swap; src: url(fonts/inter-latin-ext-wght-normal.woff2) format("woff2"); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: "Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2"); }
+/* Antigravity theme: every color is a token set by theme.js (Obsidian Dark
+   and Alabaster Light + contrast-guarded accent). */
+:root {
+  --mono: "Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --t-sandbox: var(--t-read);
+  --spring: cubic-bezier(.2, 1.2, .35, 1);
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --hover-mix: 6%;
+  --pressed-mix: 10%;
+}
+* { box-sizing: border-box; }
+/* Solid before theme.js sets the tokens, in the colors the window starts
+   with (look.rs), so the window is never black while the page starts. */
+html { background: var(--bg, #F6F7F9); min-height: 100%; }
+@media (prefers-color-scheme: dark) {
+  html { background: var(--bg, #090A0D); }
+}
+html, body { margin: 0; height: 100%; }
+/* Tabular numerals everywhere: prices, times and counts line up. */
+body { color: var(--fg); font: 14px/1.45 var(--sans); font-feature-settings: "tnum" 1, "cv11" 1; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, .mono { font-family: var(--mono); font-size: 13px; }
+pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+h1 { font-size: 22px; letter-spacing: -0.015em; margin: 0 0 4px; font-weight: 600; }
+h2 { font-size: 15px; letter-spacing: 0; margin: 24px 0 10px; font-weight: 600; }
+h3 { font-size: 12px; letter-spacing: 0; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
+p { margin: 6px 0; }
+.muted { color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.faint { color: var(--faint); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; }
+svg.ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.icon-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border: 0; background: none; color: var(--fg2); padding: 0; cursor: pointer; flex: none; }
+.icon-btn:hover { background: var(--row-sel); text-decoration: none; }
+.icon-btn.on { background: var(--row-sel); color: var(--fg); }
+.icon-btn svg.ic { width: 17px; height: 17px; }
+button.needs { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; cursor: pointer; border: 0; border-radius: 7px; background: transparent; box-shadow: none; min-height: 32px; padding: 0 8px; font-size: 13px; font-weight: 500; color: var(--fg2); }
+button.needs svg.ic { color: var(--warn-icon); width: 15px; height: 15px; }
+button.needs .ttl { flex: 1; }
+button.needs:hover { background: var(--row-sel); color: var(--fg); }
+button.needs.on { background: var(--raised); color: var(--fg); }
+.pill { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); color: var(--fg); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.pill.quiet { background: var(--seg); color: var(--fg2); display: none; }
+.avatar { width: 28px; height: 28px; border-radius: 7px; background: var(--raised); border: 1px solid var(--line); color: var(--fg); display: grid; place-items: center; font-weight: 600; font-size: 12px; flex: none; }
+.badge { background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 600; min-width: 18px; text-align: center; }
+section.conv { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.foot-note { margin-top: 0; font-size: 12px; color: var(--muted); }
+svg.chev { width: 16px; height: 16px; color: var(--chev); stroke-width: 1.8; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spread { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+button { font: inherit; font-size: 13.5px; font-weight: 500; border: 1px solid var(--btn-border); background: var(--button-bg); color: var(--fg); padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--line-strong); background: var(--raised); }
+button:disabled { opacity: .55; cursor: default; }
+button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+button.primary:hover { background: var(--accent); filter: brightness(1.08); }
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+button.link, button.link:hover { border: 0; background: none; color: var(--accent-text); padding: 0; font-weight: 500; }
+input, textarea, select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--btn-border); padding: 7px 10px; }
+input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+textarea { width: 100%; resize: vertical; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; font-weight: 500; }
+dialog.ask { max-width: 440px; padding: 20px 22px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
+dialog.ask::backdrop { background: rgba(0,0,0,.28); }
+dialog.ask p { margin: 0 0 16px; line-height: 1.45; }
+dialog.ask .row { justify-content: flex-end; gap: 8px; }
+/* A column of a form's or card's parts, spaced evenly. (It was once a 14px
+   bar chart; nothing draws that any more, and every form that says stack
+   means this.) */
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.stack > label:not(:has(> input[type=checkbox], > input[type=radio])) { display: flex; flex-direction: column; gap: 4px; }
+.stack > label > input:not([type=checkbox]):not([type=radio]), .stack > label > select, .stack > label > textarea { width: 100%; box-sizing: border-box; }
+.fp { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--raised); border: 1px solid var(--line); padding: 8px; border-radius: 6px; }
+/* Files and projects. A label or link styled as a button opens a file
+   picker or goes somewhere; it looks like the buttons beside it. */
+.button { display: inline-block; font-size: 14px; font-weight: 550; border: 1px solid var(--btn-border); background: var(--button-bg); color: var(--fg); padding: 7px 14px; cursor: pointer; margin: 0; text-decoration: none; }
+.button:hover { border-color: var(--line-strong); text-decoration: none; }
+
+label.move { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+label.move select { padding: 3px 6px; font-size: 13px; }
+details.trace { margin-top: 18px; }
+details.trace > summary { cursor: pointer; }
+label.toggle { align-items: flex-start; gap: 10px; padding: 8px 0; cursor: pointer; }
+label.toggle input { margin-top: 3px; }
+/* Motion (U7): springs for the panel and cards, gentle status changes and a
+   quiet moment when work finishes; quick fades when reduced; nothing when
+   off. theme.js sets data-motion from the person's choice and the system's. */
+@keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.985); } }
+@keyframes glide { from { opacity: 0; transform: translateX(28px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes settle { from { opacity: .3; transform: scale(.85); } }
+@keyframes pop { 0% { transform: scale(.6); } 55% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes warm { from { background: var(--ok-soft); } }
+html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="off"] *::after { animation: none !important; transition: none !important; }
+ul.allows { margin: 4px 0 8px; padding-left: 18px; }
+@keyframes lspin { to { transform: rotate(360deg); } }
+blockquote.asked { margin: 0 0 6px; padding: 4px 10px; border-left: 3px solid var(--line-strong); color: var(--fg2); }
+@media (any-pointer: coarse) {
+  
+  a.glimpse { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; max-width: 100%; }
+}
+[hidden] { display: none !important; }
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
+input:not([type="checkbox"]):not([type="radio"]), textarea, select { border-color: var(--line-strong); }
+@media (any-pointer: coarse) {
+  button, .icon-btn, a.icon-btn, summary { min-width: 44px; min-height: 44px; }
+}
+@media (forced-colors: active) {
+  :root { --fg: CanvasText !important; --fg2: CanvasText !important; --muted: CanvasText !important; --faint: CanvasText !important; --surface: Canvas !important; --main: Canvas !important; --side: Canvas !important; --panel: Canvas !important; --raised: Canvas !important; --bg: Canvas !important; --accent: Highlight !important; --accent-text: LinkText !important; --accent-fg: HighlightText !important; --focus: Highlight !important; --line: CanvasText !important; --line-strong: CanvasText !important; --btn-border: ButtonText !important; --button-bg: ButtonFace !important; --row-sel: Canvas !important; }
+  button, input, textarea, select { border: 1px solid ButtonText; }
+  :is(.on, [aria-current="page"], [aria-selected="true"]) { outline: 2px solid Highlight; }
+}
+button, .button, .icon-btn, input, textarea, select { border-radius: 8px; }
+:is(a, button, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
+.button:focus-within { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
+html[data-mode="dark"] { --hover-mix: 8%; --pressed-mix: 12%; }
+@supports (background: color-mix(in srgb, black, white)) {
+  button.primary:enabled:hover { background: color-mix(in srgb, var(--accent-fg) var(--hover-mix), var(--accent)); color: var(--accent-fg); }
+  button.primary:enabled:active { background: color-mix(in srgb, var(--accent-fg) var(--pressed-mix), var(--accent)); color: var(--accent-fg); }
+}
+@media (any-pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]), select { min-width:44px; min-height:44px; }
+}
+.tooltip { position: fixed; z-index: 80; max-width: 280px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--fg); background: var(--surface); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; box-shadow: var(--shadow); }
+.sub.by { color: var(--muted); }
+section.conv.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; background: color-mix(in srgb, var(--accent) 4%, var(--main)); }
+/* Streamlined Activity & Needs you */
+details.collapsed-done {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+details.collapsed-done > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg2);
+}

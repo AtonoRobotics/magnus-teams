@@ -9,11 +9,11 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ui = join(dirname(fileURLToPath(import.meta.url)), "../ui");
-const css = readFileSync(join(ui, "app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const css = ["base.css", "layout.css", "chat.css", "pages.css"].map(f => readFileSync(join(ui, f), "utf8")).join("\n").replace(/\/\*[\s\S]*?\*\//g, "");
 const js = readFileSync(join(ui, "app.js"), "utf8");
 
 const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, sel]) => sel.split(",").some(s => s.includes("#banners")));
-assert.ok(rules.length > 0, "app.css styles #banners");
+assert.ok(rules.length > 0, "the stylesheets style #banners");
 for (const [, sel, body] of rules) {
   assert.ok(!/padding[^;]*100%/.test(body), `#banners gets padding sized from the pane, which a capped column cannot hold: ${sel.trim()} { ${body.trim()} }`);
 }

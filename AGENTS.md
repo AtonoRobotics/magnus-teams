@@ -35,6 +35,7 @@ When you must ask, ask once with your recommendation, and keep working on what d
 - A source file stays under 800 lines. Files over it are listed in `ci/oversize.txt` and may only shrink. New code goes in a new module.
 - Secrets come from the vault only.
 - The wire types are defined once in Rust. The UI is plain JavaScript with no build step, and its types come from JSDoc.
+- Styles live in one sheet per area, and a property is set for a selector in one place (`docs/ui-styles.md`, checked by `desktop/tests/stylesheet-check.mjs`).
 - An event kind is never edited or deleted. A retired kind keeps a reader that translates it to the current form.
 
 The reasons for each rule are in the Magnus Code Standard.

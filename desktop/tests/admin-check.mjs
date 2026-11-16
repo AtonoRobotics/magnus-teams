@@ -185,9 +185,9 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
 // layout, not the 14px bar it once was, which squashed the whole sheet into
 // a strip nobody could type in.
 {
-  const css = read("app.css");
+  const css = read("base.css");
   const rule = css.match(/(^|\n)\.stack\s*\{([^}]*)\}/);
-  assert.ok(rule, "app.css has no .stack rule");
+  assert.ok(rule, "base.css has no .stack rule");
   assert.match(rule[2], /flex-direction:\s*column/, ".stack is not a column");
   assert.doesNotMatch(rule[2], /(^|;)\s*(height|overflow)\s*:/, ".stack fixes a height or hides overflow, so forms using it are cut off");
   assert.match(admin, /<form class="stack" data-step-up>/, "the step-up sheet is not laid out with .stack");

@@ -1,0 +1,304 @@
+/* Pages: everything that is not a conversation. Library and connectors,
+   Settings and Appearance, Files and projects, Activity, and Admin cards.
+   Where each style lives and the rules for changing one: docs/ui-styles.md. */
+
+.masked-secret { font-family: ui-monospace, monospace; letter-spacing: .1em; padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+
+.needs-item .where { margin: 14px 0 -4px; }
+.pactions { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--hair); }
+.pactions button, .pactions select { font-size: 13px; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.seg button { border: 0; background: none; border-radius: 6px; padding: 0 12px; color: var(--muted); font-weight: 500; font-size: 12.5px; height: 28px; }
+.seg button.on { font-weight: 500; background: var(--raised); color: var(--fg); }
+.seg button:hover { border: 0; color: var(--fg); }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.tiles > div { background: var(--raised); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tiles span:first-child { font-size: 12px; color: var(--muted); font-weight: 400; }
+.tiles strong { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.tiles .small { color: var(--muted); }
+.item button[data-item] { min-height: 44px; border-radius: 12px; padding: 0 18px; font-weight: 500; }
+.item button.primary[data-item] { font-weight: 600; }
+@media (max-width: 720px) {
+  .tiles { grid-template-columns: 1fr; }
+}
+/* A delivered file as a row: its type, name, where it is kept, Download. */
+.frows { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.frow { display: flex; align-items: center; gap: 12px; min-height: 56px; border: 1px solid var(--line); padding: 0 14px; background: var(--surface); }
+.frow .ttl { font-weight: 500; color: var(--fg); }
+
+.ghead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 2px 8px 4px; }
+.ghead .ttl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-weight: 600; color: var(--fg); flex: 1; }
+.ghead .small { white-space: nowrap; }
+@media (max-width: 720px) {
+  .ghead { flex-direction: column; gap: 2px; }
+}
+.card { background: var(--surface); border: 1px solid var(--line); margin: 10px 0; border-radius: 10px; padding: 16px; }
+.card.flat { background: var(--raised); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font-size: 14px; }
+.kv > div:nth-child(odd) { color: var(--muted); }
+table.t { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.t th { text-align: left; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line-strong); }
+table.t td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.t td.n, table.t th.n { text-align: right; font-variant-numeric: tabular-nums; }
+table.t tr.click { cursor: pointer; }
+table.t tr.click:hover td { background: var(--raised); }
+/* Inbox cards, as the design draws a decision: one rounded card; a small
+   label in the tier's color names the kind and the risk. */
+.chatcard .item, .needs-item .item { margin: 0; }
+.item { display: flex; flex-direction: column; gap: 12px; }
+.item > * { margin-top: 0; margin-bottom: 0; }
+.item .kind { font-weight: 600; }
+.item.approval.read .kind, .item.approval.sandbox .kind { color: var(--t-read); }
+.item.approval.reversible_write .kind { color: var(--t-reversible); }
+.item.approval.irreversible .kind { color: var(--t-irreversible); }
+.item.approval.financial .kind { color: var(--t-financial); }
+.item.question .kind { color: var(--k-question); }
+.item.review .kind { color: var(--k-review); }
+.item.notice .kind { color: var(--k-notice); }
+.item.policy_proposal .kind, .item.schedule_proposal .kind { color: var(--k-proposal); }
+.item.message .kind { color: var(--k-message); }
+.item.tool_change .kind, .item.tool_review .kind { color: var(--k-tool); }
+.item h4 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; }
+/* An approval reads as one: warm, with its tier still on its edge. */
+.item.approval { background: var(--approval-bg); border-color: var(--approval-border); box-shadow: none; }
+.item.approval p, .item.approval .small { color: var(--fg2); }
+.item.approval button:not(.primary) { border-color: var(--approval-border); }
+.empty { color: var(--muted); padding: 24px 0; }
+.signin { max-width: 420px; margin: 12vh auto; }
+.signin .card { padding: 24px; }
+/* A request set: every request's table has the same columns. */
+table.req { table-layout: fixed; }
+table.req th:nth-child(1) { width: 22%; }
+table.req th:nth-child(2) { width: 40%; }
+table.req th:nth-child(3), table.req th:nth-child(4), table.req th:nth-child(5) { width: 9%; }
+.files { margin-top: 6px; }
+.lib-bar { gap: 10px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
+.lib-bar input[type=search] { flex: 1; min-width: 220px; }
+table.files td { vertical-align: top; }
+.plist, .flist { list-style: none; padding: 0; margin: 8px 0; }
+.plist li a { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; background: var(--surface); text-decoration: none; color: var(--fg); }
+.flist li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.whats-new { background: var(--surface); position: fixed; right: 20px; bottom: 20px; max-width: 420px; z-index: 50; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+.whats-new .notes p { margin: 0 0 8px; }
+/* Settings > Appearance: sentence-case headings, full-width segmented
+   controls and round accent swatches. */
+.appearance { max-width: 616px; display: flex; flex-direction: column; }
+.appearance h3 { font-size: 14px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); margin: 26px 0 10px; }
+.appearance h3:first-child { margin-top: 8px; }
+.appearance .seg { display: flex; gap: 4px; padding: 4px; border-radius: 12px; }
+.appearance .seg button { flex: 1; height: 40px; border-radius: 9px; font-size: 14px; font-weight: 500; }
+.appearance .seg button.on { font-weight: 600; }
+.appearance [data-motion-hint] { margin-top: 10px; }
+.appearance > p:last-child { margin-top: 26px; font-size: 12px; }
+.swatches { display: flex; gap: 12px; }
+button.swatch { width: 44px; height: 44px; border-radius: 50%; padding: 0; border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--line-strong); }
+button.swatch.on { box-shadow: 0 0 0 2px var(--swatch); }
+button.swatch:hover { border-color: var(--surface); }
+html[data-motion="full"] :is(a, button, .rg-row, .seg button) { transition: background-color .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease); }
+.flist li label.move { margin-left: auto; }
+dl.kv { margin: 8px 0 12px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; }
+/* The Library: the connector catalog, as the owner's catalog mockup draws
+   it (connectors spec rev 48, Library), in the app's own tokens so every
+   look applies. */
+
+.lhead { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.lhead h1 { margin: 0 0 6px; font-size: 28px; font-weight: 600; letter-spacing: -0.015em; }
+.lhead p { margin: 0; font-size: 15px; color: var(--muted); }
+.lclose { width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--btn-border); background: var(--button-bg); color: var(--fg); }
+.lbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.lseg button { height: 40px; padding: 0 18px; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 15px; font-weight: 500; cursor: pointer; }
+.lseg button[aria-pressed="true"] { border-radius: 999px; background: var(--seg-on); }
+
+.lsearch input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; color: var(--fg); font: inherit; font-size: 15px; padding: 0; }
+
+.lchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.lchips button { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.lchips button[aria-pressed="true"] { background: var(--fg); color: var(--main); border-color: var(--fg); }
+#lib-sections { display: flex; flex-direction: column; gap: 36px; padding-top: 8px; }
+.lsect { display: flex; flex-direction: column; gap: 14px; }
+.lsect-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.lsect-head h2 { margin: 0 0 4px; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.lsect-head p, .lsect-n { margin: 0; font-size: 14px; color: var(--muted); }
+.lgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); gap: 14px; }
+.lcard { display: flex; gap: 16px; align-items: flex-start; padding: 20px; min-height: 132px; box-sizing: border-box; border: 1px solid var(--line); min-width: 0; border-radius: 12px; border-color: var(--line); background: var(--surface); box-shadow: none; }
+.ctile { width: 52px; height: 52px; flex: none; color: #fff; display: grid; place-items: center; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; border-radius: 10px; border: 1px solid var(--line); }
+.ctile.big { width: 64px; height: 64px; border-radius: 16px; font-size: 21px; }
+.lc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.lc-name { display: flex; align-items: center; gap: 8px; }
+.lc-name h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.lc-name h3 a { color: var(--fg); text-decoration: none; }
+.lc-name h3 a:hover { text-decoration: underline; }
+.lc-rev { color: var(--muted); flex: none; }
+.lc-sum { margin: 0; font-size: 14px; line-height: 1.45; color: var(--muted); }
+.lc-by { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.lc-note { margin: 0; font-size: 14px; font-weight: 500; color: var(--accent-text); }
+.lc-note.warn { color: var(--warn); }
+.lc-note.ok { color: var(--ok); }
+.lc-act { width: 44px; height: 44px; flex: none; border-radius: 12px; border: 1px solid var(--btn-border); background: var(--button-bg); color: var(--fg); display: grid; place-items: center; cursor: pointer; padding: 0; }
+.lc-act.ok { border: 0; background: var(--ok-soft); color: var(--ok); }
+.lc-act.warn { border: 0; background: var(--warn-soft); color: var(--warn); }
+.lc-act.off { opacity: .45; cursor: default; }
+.lc-act.busy { border: 0; background: none; }
+.lc-act .spin { width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid var(--line); border-top-color: var(--accent); animation: lspin .9s linear infinite; }
+.lc-enable { height: 44px; padding: 0 18px; border-radius: 12px; flex: none; }
+.lempty { padding: 48px 24px; text-align: center; border-radius: 18px; border: 1px dashed var(--line-strong); color: var(--muted); font-size: 15px; }
+/* A connector's page. */
+.cpage { max-width: 760px; }
+.cp { display: flex; flex-direction: column; gap: 12px; }
+.cp-head { display: flex; align-items: center; gap: 16px; }
+.cp-head p { margin: 4px 0 0; }
+.cp-name { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cp-name h2 { margin: 0; }
+.cp h3 { margin: 12px 0 0; font-size: 15px; }
+.cp-list { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.cp-lock { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0 0; padding: 14px 16px; border-radius: 12px; background: var(--raised); color: var(--fg2); font-size: 14px; }
+.cp-lock svg { flex: none; color: var(--muted); }
+.cp-connect { align-self: flex-start; height: 44px; padding: 0 20px; margin-top: 4px; }
+.cp-recent { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.cp-recent li { display: flex; justify-content: space-between; gap: 12px; }
+.cp-actions { margin-top: 12px; }
+@media (max-width: 640px) {
+  .lhead h1 { font-size: 24px; }
+  .lcard { padding: 16px; gap: 12px; }
+  .ctile { width: 44px; height: 44px; font-size: 15px; }
+  .lseg button { padding: 0 14px; }
+}
+/* The live task and schedule cards' own buttons (behavior spec, Tasks and
+   schedules in conversation), and a result quoting what was asked. */
+.card-acts { display: flex; gap: 12px; align-items: center; padding: 4px 12px 8px 44px; }
+.tcard .card-acts { padding-top: 0; }
+@media (any-pointer: coarse) {
+  
+  .ghead > a, .feed-row > a, a.lc-act, .t td > a:not([data-prose-link]) { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; max-width: 100%; }
+}
+.libpage { margin: 0 auto; display: flex; flex-direction: column; gap: 20px; min-width: 0; max-width: 100%; }
+.activity-views { flex-wrap: wrap; display: inline-flex; padding: 4px; gap: 4px; border-radius: 999px; background: var(--seg); margin-bottom: 12px; }
+.activity-views a { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 14px; border-radius: 999px; font-size: 13px; color: var(--fg2); text-decoration: none; }
+.activity-views a[aria-current=page] { font-weight: 600; text-underline-offset: 4px; background: var(--seg-on); color: var(--fg); text-decoration: none; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.frow .sub, table.t th, .item .kind { font-size: 13px; }
+.ptitle { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -0.015em; overflow-wrap: anywhere; }
+.lib-bar select, .lib-bar input { max-width: 100%; }
+.frow, .lsearch { border-radius: 8px; }
+.lseg button { border-radius: 8px; }
+.lsearch { flex: 1 1 320px; min-width: 0; display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 16px; background: var(--surface); border: 1px solid var(--line); color: var(--muted); box-sizing: border-box; border-color: var(--line-strong); }
+.lsearch:focus-within { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
+.feedback-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 16px; padding: 24px; background: var(--surface); color: var(--fg); }
+.feedback-dialog h2 { margin-top: 0; }
+/* Unboxed editorial tables, blockquotes, and rich inline artifacts */
+.answer-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+/* Pill-style Activity view switcher */
+@media (any-pointer: coarse) {
+  .activity-views a { min-height: 44px; }
+}
+.rule-advanced > summary { cursor: pointer; padding: 4px 0; }
+/* Settings dismissible popup modal */
+dialog.settings-modal {
+  width: min(740px, calc(100vw - 32px));
+  max-height: min(84vh, 720px);
+  padding: 0;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+dialog.settings-modal::backdrop {
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(8px);
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--main);
+}
+.settings-tabs button {
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--fg2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.settings-tabs button:hover { color: var(--fg); background: var(--row-sel); }
+.settings-tabs button.on { background: var(--seg-on); color: var(--fg); }
+.settings-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.settings-stack { display: flex; flex-direction: column; gap: 24px; }
+.settings-stack > section + section { padding-top: 20px; border-top: 1px solid var(--line); }
+@media (any-pointer: coarse) {
+  .settings-tabs button { min-height: 44px; }
+}
+/* Apps, Files & Admin Obsidian theme alignment */
+.lcard:hover { border-color: var(--line-strong); }
+.lseg { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--seg); padding: 3px; }
+.admin-cards .card {
+  border-radius: 12px;
+  border-color: var(--line);
+  background: var(--surface);
+  box-shadow: none;
+}
+.admin-section table.t { font-variant-numeric: tabular-nums; }
+.admin-section table.t th, .admin-section table.t td { border-bottom: 1px solid var(--line); }
+.file-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+/* Unified Antigravity Accent Swatches + Custom Spectrum Picker */
+.ag-swatches { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ag-swatches .swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.ag-swatches .swatch.on { outline: 2px solid var(--fg); outline-offset: 2px; }
+.swatch-custom {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: conic-gradient(#7C8CFF, #34D399, #FBBF24, #FB7185, #7C8CFF);
+  border: 2px solid var(--surface); display: inline-grid; place-items: center; position: relative;
+}
+.swatch-custom input[type="color"] { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.swatch-custom-inner {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--surface);
+  display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--fg); pointer-events: none;
+}
+.hex-box {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
+  border-radius: 7px; border: 1px solid var(--line-strong); background: var(--bg);
+}
+.hex-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: none; }
+.hex-input {
+  width: 72px; border: 0; background: transparent; outline: none; padding: 0;
+  font-family: var(--mono); font-size: 12.5px; color: var(--fg);
+}
+@media (any-pointer: coarse) {
+  .ag-swatches .swatch, .swatch-custom { width: 44px; height: 44px; }
+  .hex-box { min-height: 44px; }
+}

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const css = readFileSync(new URL("../ui/app.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../ui/base.css", import.meta.url), "utf8");
 const look = readFileSync(new URL("../src-tauri/src/look.rs", import.meta.url), "utf8");
 const rules = [...css.matchAll(/(^|[{}\n])\s*(html(?:\[[^\]]*\])?)\s*\{([^}]*)\}/g)].map(m => ({ sel: m[2], body: m[3] }));
 const backgrounds = rules.filter(r => /background\s*:/.test(r.body));

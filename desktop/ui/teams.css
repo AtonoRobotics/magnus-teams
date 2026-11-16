@@ -1,5 +1,5 @@
 /* The team workspace: rail, conversation and project panel. Colours come
-   from app.css's tokens, so both themes follow. */
+   from theme.js's tokens, so both themes follow. */
 #main.team-main { padding: 0; max-width: none; height: 100%; }
 /* A workspace fills the window beside the folded app navigation: its own
    rail is the left column, so the app's bar above it goes. */
@@ -62,7 +62,8 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-screen-none p { margin: 0; }
 .team-screen img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; background: var(--seg); display: block; margin-bottom: 6px; }
 .team-mini, .team-work, .team-files, .team-people, .team-activity-list, .team-list { list-style: none; padding: 0; margin: 0; }
-.team-mini li, .team-files li, .team-people li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; }
+.team-mini li, .team-files li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; }
+.team-people li { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
 .team-people li { justify-content: flex-start; }
 .team-activity-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
 .team-activity-list a { color: inherit; text-decoration: none; display: block; }
@@ -117,7 +118,6 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 @media (max-width: 700px) { #notices { right: 16px; left: 16px; width: auto; bottom: 16px; } }
 /* A rail's archived conversations, folded away at its foot. */
 .team-archived summary { cursor: pointer; }
-
 
 /* A channel and its thread are the one chat view (chat-view.js): the
    centre and the side hold its section, which scrolls its own list. */
