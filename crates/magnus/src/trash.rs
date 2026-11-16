@@ -242,9 +242,11 @@ impl crate::state::State {
                 let t = self.tasks.get(item).filter(|t| t.person == person && !t.is_chat_turn()).ok_or(NotFound)?;
                 return if ended(&t.run_id) { Ok(()) } else { Err(Running) };
             }
-            _ if item.starts_with("thread_") => {
+            _ if crate::chat::is_thread_id(item) => {
                 let turns: Vec<&crate::state::Task> = self.tasks.values().filter(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).collect();
-                if turns.is_empty() && !self.thread_extras.branches().get(item).is_some_and(|b| b.person == person) {
+                // A schedule's own thread from an old log may hold only its runs.
+                let runs_only = turns.is_empty() && self.tasks.values().any(|t| t.person == person && t.chat.as_ref().is_some_and(|c| c.thread == item));
+                if turns.is_empty() && !runs_only && !self.thread_extras.branches().get(item).is_some_and(|b| b.person == person) {
                     return Err(NotFound);
                 }
                 return if turns.iter().all(|t| ended(&t.run_id)) { Ok(()) } else { Err(Running) };
@@ -277,3 +279,32 @@ impl crate::state::State {
 
 #[cfg(test)]
 mod others_tests;
+
+#[cfg(test)]
+mod schedule_thread_tests {
+    use crate::log::Event;
+    use crate::state::State;
+    use serde_json::{json, Value};
+
+    fn ev(s: &mut State, actor: &str, e: Value) {
+        let seq = s.last_seq + 1;
+        s.apply(&Event { seq, at: chrono::Utc::now(), actor: actor.into(), ev: serde_json::from_value(e).unwrap() });
+    }
+
+    /// A schedule's own thread from an old log, holding only its runs, is
+    /// the person's to delete like any conversation; it was refused as not
+    /// found, so it stayed in their list for good.
+    #[test]
+    fn a_schedules_own_thread_from_an_old_log_can_be_deleted() {
+        let mut s = State::default();
+        let config = json!({ "adapter": "a", "model": "m", "max_retries": 0, "max_tokens": 1, "budget": { "max_model_calls": 7, "max_actions": 9, "max_usd": 3.0 }, "verifier": false, "instructions": "", "harness": "", "modules": {} });
+        let chat = json!({ "thread": "schedule-sc1", "turn": false });
+        ev(&mut s, "schedule:sc1", json!({ "kind": "task_created", "task": "run1", "run": "r_run1", "person": "carol", "text": "Check in.", "config": config, "chat": chat }));
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_run1", "summary": "ok" }));
+        assert_eq!(s.may_trash("carol", false, "schedule-sc1"), Ok(()), "the schedule's thread cannot be deleted");
+        assert!(s.may_trash("dave", false, "schedule-sc1").is_err(), "someone else deleted carol's thread");
+        ev(&mut s, "person:carol", json!({ "kind": "trashed", "item": "schedule-sc1", "person": "carol" }));
+        assert!(s.trash.gone("schedule-sc1"), "the deleted thread is still in the list");
+        assert!(s.tasks.contains_key("run1"), "deleting the thread deleted the schedule's run from Tasks");
+    }
+}

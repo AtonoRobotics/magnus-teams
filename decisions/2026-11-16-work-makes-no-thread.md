@@ -1,0 +1,14 @@
+# Work makes no thread, and posts only what needs the person or is done (2026-11-16)
+
+Owner, 2026-11-16: "Tasks are creating their own threads I can't delete. They should not create a thread. They should appear in the thread that created them only. If it's deleted they show a notification only. Tasks and schedules do not need to post activity. They should post updates only when something needs attention or the tasks is done."
+
+**Cause.** A schedule set up outside a conversation (settings, the Heartbeat preset, the Discovery Wizard, an inbox suggestion), or whose conversation was deleted, posted every run to a thread of its own, `schedule-{id}` (`schedule_thread::of`). Each run added a "started" card, its result, and the outcome turn's answer restating it. `may_trash` only took ids starting `thread_`, so those threads could not be deleted.
+
+**Choice.**
+
+1. `schedule_thread::of` returns no thread when the schedule has no conversation that is still there. Such a run starts with no chat origin, still marked `returns_outcome`.
+2. An ended task marked `returns_outcome` with no conversation, or whose conversation is deleted, sends its person one inbox notice (`reason: task_ended`): "Finished: …" or "Needs your attention: …". That notice marks the outcome returned in the ledger, so it is sent once. Tasks that ended more than `NOTICE_WINDOW_HOURS` (24) before this release are not announced.
+3. A thread shows a task on the card of the message that started it, and its result once done. These are not shown: a scheduled run or a retry starting, a failed result a retry replaced, and the outcome turn's reply. The one exception is a failed task whose outcome turn started no retry, because that reply is the decision the person must make. The outcome turn still runs, so the agent keeps the goal and its retries (spec rev 133). Its text tells it what is shown.
+4. A `schedule-{id}` thread from an old log is a conversation the person may delete (`chat::is_thread_id`). Deleting it leaves the runs in Tasks.
+
+**Reason.** Work belongs to the conversation that asked for it, and a conversation is the person's: work never adds one, and never writes to one they deleted. A heartbeat every 30 minutes now leaves a notice, not a thread. Spec rev 133/140 say an outcome returns as a turn "in the conversation or schedule thread"; the owner's ruling removes the schedule thread, so a run without a conversation returns by notice.

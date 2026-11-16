@@ -23,11 +23,18 @@ pub(crate) fn derived(prefix: &str, key: &str) -> String {
     format!("{prefix}_{}", &hex::encode(sha2::Sha256::digest(key.as_bytes()))[..32])
 }
 
-/// A schedule's own thread: where the runs of one set up outside a
-/// conversation post (`schedule_thread::of`). The person can reply in it
-/// like any other.
+/// A schedule's own thread, from before work stopped making threads
+/// (owner, 2026-11-16): the runs of one set up outside a conversation
+/// posted there. Old logs still have them; nothing new posts to one.
 pub fn schedule_thread(schedule: &str) -> String {
     format!("schedule-{schedule}")
+}
+
+/// Whether an id names a conversation: one the person started (or a
+/// branch), or a schedule's own thread from an old log, which the person
+/// may delete like any other.
+pub fn is_thread_id(id: &str) -> bool {
+    id.starts_with("thread_") || id.starts_with("schedule-")
 }
 
 /// Why a card decision was not taken.

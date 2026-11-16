@@ -68,14 +68,30 @@ impl Kernel {
         let mut started: BTreeMap<String, (DateTime<Utc>, Vec<TaskRow>)> = Default::default();
         // A task's result follows the reply of the message that started it, even when the task finished first.
         let answered: HashMap<String, DateTime<Utc>> = runs.iter().filter(|(t, _)| t.is_chat_turn()).filter_map(|(_, r)| r.ended_at.map(|e| (r.id.clone(), e))).collect();
+        // Work posts only what needs the person or is done (outcomes.rs).
+        let started_by = self.read(crate::outcomes::starters);
         for (t, r) in &runs {
-            if t.is_chat_turn() {
+            if let Some(of) = self.read(|s| s.outcomes.of(&t.task_id).map(String::from)) {
+                // An outcome turn: what it asks the person, and its reply only when that is what needs them.
+                out.extend(self.turn_cards(person, t, r));
+                if self.read(|s| crate::outcomes::reply_shows(s, &started_by, &of, r)) {
+                    out.push(self.turn_reply(t, r));
+                }
+            } else if t.is_chat_turn() {
                 out.extend(self.turn_message(t, w));
                 out.extend(self.turn_cards(person, t, r));
                 out.extend(self.sub_agents_entry(t, r, w));
                 out.push(self.turn_reply(t, r));
             } else {
                 let title = crate::api::title_of(t, Some(r), w);
+                let (start_shows, result_shows) = self.read(|s| (crate::outcomes::start_shows(s, t), crate::outcomes::result_shows(s, &started_by, t)));
+                if let Some(end) = r.ended_at.filter(|_| result_shows) {
+                    let after = t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| answered.get(f)).map_or(end, |a| end.max(*a));
+                    out.push((after, i64::MAX, self.result_entry(t, r, title.clone(), w, end)));
+                }
+                if !start_shows {
+                    continue;
+                }
                 let from = t.chat.as_ref().and_then(|c| c.from_run.clone()).unwrap_or_else(|| t.task_id.clone());
                 let e = started.entry(from).or_insert((t.created_at, vec![]));
                 e.1.push(TaskRow {
@@ -93,10 +109,6 @@ impl Kernel {
                     thread: None,
                     started: None,
                 });
-                if let Some(end) = r.ended_at {
-                    let after = t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|f| answered.get(f)).map_or(end, |a| end.max(*a));
-                    out.push((after, i64::MAX, self.result_entry(t, r, title, w, end)));
-                }
             }
         }
         for (from, (at, tasks)) in started {

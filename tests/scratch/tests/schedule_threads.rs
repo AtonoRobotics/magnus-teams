@@ -1,9 +1,9 @@
 //! Where a schedule's runs post (owner, 2026-11-10; spec rev 140: "its
 //! outcome returns as a new turn to the agent in the conversation where the
 //! work or schedule started"). A schedule set up in a conversation posts each
-//! run's result there. One set up outside a conversation, in settings, posts
-//! in a thread of its own, which is in the person's list and takes a reply
-//! like any other.
+//! run's result there. One set up outside a conversation, in settings, makes
+//! no thread (owner, 2026-11-16): each run's end reaches its person as a
+//! notice.
 
 use magnus_invariants::*;
 use magnus_scratch::*;
@@ -75,25 +75,22 @@ async fn a_schedule_set_up_in_a_conversation_posts_its_runs_there() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_schedule_set_up_in_settings_posts_in_its_own_thread() {
+async fn a_schedule_set_up_in_settings_makes_no_thread_and_sends_a_notice() {
     let (_m, app) = sweeping().await;
     let alice = app.api("alice");
     let (st, schedule) = alice.post("/v1/schedules", json!({ "text": SWEEP, "every_minutes": 1 })).await;
     assert!(st.is_success(), "{schedule}");
     let id = schedule["id"].as_str().or(schedule["schedule"].as_str()).unwrap_or_else(|| panic!("no schedule id: {schedule}")).to_string();
-    let thread = format!("schedule-{id}");
 
-    let result = result_in(&alice, &thread).await;
-    assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("failed"), Some("No invoices today.")), "{result}");
-    // The thread is in the person's list, under what the schedule does.
+    // Its failed run reaches alice as one notice (owner, 2026-11-16: work makes no thread).
+    let notice = eventually("the run's notice", Duration::from_secs(120), || async {
+        let (_, inbox) = alice.get("/v1/inbox").await;
+        inbox["items"].as_array().cloned().unwrap_or_default().into_iter().find(|i| i["kind"] == "notice" && i["details"]["reason"] == "task_ended")
+    })
+    .await;
+    assert!(notice["summary"].as_str().is_some_and(|s| s.starts_with("Needs your attention")), "{notice}");
+    // No thread of its own is in her list.
     let (_, list) = alice.get("/v1/chat").await;
-    let listed =
-        list["threads"].as_array().unwrap().iter().find(|t| t["thread"] == thread.as_str()).cloned().unwrap_or_else(|| panic!("the schedule's thread is not listed: {list}"));
-    assert!(listed["title"].as_str().is_some_and(|t| t.contains("Sweep the shared mailbox")), "{listed}");
-    // The person can reply in it.
-    let (st, v) = alice.post("/v1/chat", json!({ "text": "Thanks, keep going.", "thread": thread })).await;
-    assert_eq!(st.as_u16(), 201, "{v}");
-    assert_eq!(v["thread"], thread.as_str());
-    // Nobody else sees it.
-    assert_eq!(app.api("bob").get(&format!("/v1/chat/{thread}")).await.0.as_u16(), 404);
+    assert!(list["threads"].as_array().unwrap().is_empty(), "a schedule made a thread: {list}");
+    assert_eq!(alice.get(&format!("/v1/chat/schedule-{id}")).await.0.as_u16(), 404, "the schedule's own thread is still there");
 }

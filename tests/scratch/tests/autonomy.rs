@@ -314,9 +314,10 @@ async fn a_chat_request_is_done_in_the_chat_with_no_task_and_no_approval() {
 
 /// 2. A schedule fires with nobody present and posts its result. The person
 /// sets it up and leaves; nothing touches the server until the run and its
-/// outcome turn are over. The result and the agent's report are in the
-/// conversation the schedule was set up in (owner, 2026-11-10), and the
-/// schedule has no thread of its own.
+/// outcome turn are over. The result is in the conversation the schedule
+/// was set up in (owner, 2026-11-10); the agent's handling of a finished
+/// run is not posted (owner, 2026-11-16), and the schedule has no thread
+/// of its own.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
     const ASK: &str = "Every morning, tell me what's new in my inbox.";
@@ -351,7 +352,8 @@ async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
     // Nobody is present: no request reaches the server until the run has
     // ended and its outcome turn has answered.
     until_outcome(&m).await;
-    let e = in_origin(&m, &alice, &origin, REPORT).await;
+    let e = in_origin(&m, &alice, &origin).await;
+    assert!(!e.iter().any(|e| e["text"] == REPORT), "the agent restated a finished run in the thread: {e:?}");
     let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result where the schedule was set up: {e:?}"));
     assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("completed"), Some(SUMMARY)), "{result}");
     assert_eq!(e.iter().filter(|e| e["kind"] == "message").count(), 1, "the conversation shows a message nobody wrote: {e:?}");
@@ -366,12 +368,12 @@ async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
     only(&alice, &b, &[&run], &[], &[&origin]).await;
 }
 
-/// Wait for the agent's report in the conversation a schedule was set up
-/// in: the run's result and the outcome turn's answer post there.
-async fn in_origin(m: &FakeModel, api: &Api, origin: &str, report: &str) -> Vec<Value> {
-    wait("the report where the schedule was set up", PATIENCE, m, api, || async {
+/// Wait for the run's result in the conversation a schedule was set up in:
+/// the one update a finished run posts there.
+async fn in_origin(m: &FakeModel, api: &Api, origin: &str) -> Vec<Value> {
+    wait("the result where the schedule was set up", PATIENCE, m, api, || async {
         let e = entries(api, origin).await;
-        e.iter().any(|e| e["kind"] == "answer" && e["text"] == report).then_some(e)
+        e.iter().any(|e| e["kind"] == "result").then_some(e)
     })
     .await
 }
@@ -454,14 +456,18 @@ async fn a_failing_task_wakes_its_agent_which_retries_and_reports() {
     })
     .await;
 
-    // What the person sees: their message once, each attempt's failure, and
-    // the agent's word after each; never the server's turn text.
+    // What the person sees (owner, 2026-11-16: only what needs them or is
+    // done): their message once, the first answer, the last attempt's
+    // failure, and the agent's one question; not the retries starting, the
+    // failures they replaced, nor the agent's notes while retrying, and
+    // never the server's turn text.
     let count = |k: &str| e.iter().filter(|x| x["kind"] == k).count();
     assert_eq!(count("message"), 1, "the thread shows a message the person did not write: {e:?}");
     let results: Vec<&Value> = e.iter().filter(|x| x["kind"] == "result").collect();
-    assert_eq!(results.len(), 3, "the first attempt and two retries: {e:?}");
+    assert_eq!(results.len(), 1, "a failure a retry replaced is posted: {e:?}");
     assert!(results.iter().all(|r| r["status"] == "failed" && r["summary"] == REASON), "{results:?}");
-    assert_eq!(count("answer"), 4, "the first answer and one per outcome: {e:?}");
+    assert_eq!(count("answer"), 2, "the first answer and the report that needs the person: {e:?}");
+    assert!(!e.iter().any(|x| x["text"] == "It failed: the record was locked. I'm trying again."), "the agent's retry note is posted: {e:?}");
     assert!(!e.iter().any(|x| x.to_string().contains(OUTCOME)), "the server's turn text is shown to the person: {e:?}");
 
     // At the limit the agent may start nothing.

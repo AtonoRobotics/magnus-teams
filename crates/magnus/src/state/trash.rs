@@ -193,7 +193,7 @@ impl State {
             let items = self.inbox.take_items_of(item);
             return Some((String::new(), Some(TitleFrom::Title(t.seq)), Held::Task(Box::new(t), r, items)));
         }
-        if item.starts_with("thread_") {
+        if crate::chat::is_thread_id(item) {
             let ids: Vec<String> = self.tasks.values().filter(|t| t.chat.as_ref().is_some_and(|c| c.turn && c.thread == item)).map(|t| t.task_id.clone()).collect();
             let mut turns: Vec<(Task, Option<Run>)> = ids
                 .iter()
@@ -213,7 +213,14 @@ impl State {
                     Some(o) => (crate::openers::title(o), None),
                     None => (String::new(), Some(TitleFrom::Text(t.seq))),
                 },
-                None => (branch.as_ref()?.title.clone(), None),
+                None => match &branch {
+                    Some(b) => (b.title.clone(), None),
+                    // A schedule's own thread with only its runs: titled by the first run's words.
+                    None => {
+                        let first = self.tasks.values().filter(|t| t.chat.as_ref().is_some_and(|c| c.thread == item)).min_by_key(|t| t.created_at)?;
+                        (String::new(), Some(TitleFrom::Text(first.seq)))
+                    }
+                },
             };
             return Some((title, from, Held::Thread { id: item.into(), turns, branch }));
         }

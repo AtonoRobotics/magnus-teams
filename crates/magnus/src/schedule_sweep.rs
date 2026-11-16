@@ -168,10 +168,10 @@ impl Kernel {
                     project: self.read(|s| s.project_of(&sc.id)),
                     scope: w.opt(sc.seq, "scope"),
                     // Each run posts in the conversation the schedule was set up in, where
-                    // its outcome wakes the agent too (outcomes.rs); one set up elsewhere,
-                    // or before that was recorded, in its own thread (owner, 2026-11-10).
-                    chat: Some(crate::events::ChatOrigin {
-                        thread: self.read(|s| crate::schedule_thread::of(s, &sc)),
+                    // its outcome wakes the agent too (outcomes.rs, owner 2026-11-10). One
+                    // with no conversation still there makes no thread (owner, 2026-11-16).
+                    chat: self.read(|s| crate::schedule_thread::of(s, &sc)).map(|thread| crate::events::ChatOrigin {
+                        thread,
                         turn: false,
                         from_run: None,
                         conversation: vec![],
@@ -179,8 +179,9 @@ impl Kernel {
                     }),
                     // A confirmed schedule runs on its own: the verifier judges the criteria
                     // no code checks, and only what it cannot judge goes to its person
-                    // (owner, 2026-11-02; invariant 7 holds).
-                    modules: [("verifier".to_string(), true)].into(),
+                    // (owner, 2026-11-02; invariant 7 holds). Every run's end reaches its
+                    // person: in its conversation, or as a notice when it has none.
+                    modules: [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into(),
                     ..Default::default()
                 };
                 self.create_run(&format!("schedule:{}", sc.id), &sc.person, w.text(sc.seq).to_string(), vec![], o).await

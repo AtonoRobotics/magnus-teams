@@ -4,17 +4,19 @@
 //! conversation (`ScheduleSet.thread`). Each run posts its result there, and
 //! its outcome returns there as a turn (outcomes.rs), with the retry limit.
 //!
-//! A schedule with no conversation keeps a thread of its own,
-//! `schedule-{id}`: one set up in settings or accepted from the inbox, one
-//! set up before the conversation was recorded, and one whose conversation
-//! the person has since trashed or removed.
+//! Work never makes a thread of its own (owner, 2026-11-16: "They should
+//! not create a thread. They should appear in the thread that created them
+//! only. If it's deleted they show a notification only"). A schedule set up
+//! in settings or accepted from the inbox, one set up before the
+//! conversation was recorded, and one whose conversation the person has
+//! since trashed or removed post nowhere: each run's end reaches the person
+//! as a notice (outcomes.rs).
 use crate::state::{Schedule, State};
 
-/// The thread a schedule's runs post to, and where a run's outcome wakes
-/// the agent.
-pub fn of(s: &State, sc: &Schedule) -> String {
-    let here = |t: &&String| !s.trash.gone(t);
-    sc.thread.as_ref().filter(here).cloned().unwrap_or_else(|| crate::chat::schedule_thread(&sc.id))
+/// The conversation a schedule's runs post to, and where a run's outcome
+/// wakes the agent: none when it has no conversation that is still there.
+pub fn of(s: &State, sc: &Schedule) -> Option<String> {
+    sc.thread.as_ref().filter(|t| !s.trash.gone(t)).cloned()
 }
 
 #[cfg(test)]
@@ -32,24 +34,24 @@ mod tests {
     }
 
     /// A schedule set up in a conversation posts there; one set up before
-    /// conversations were recorded, or outside one, posts in its own thread.
+    /// conversations were recorded, or outside one, makes no thread.
     #[test]
     fn a_schedule_posts_in_the_conversation_it_was_set_up_in() {
         let mut s = State::default();
         set(&mut s, 1, "sc_chat", json!("th_origin"));
         set(&mut s, 2, "sc_old", Value::Null);
-        assert_eq!(of(&s, &s.arrangements.schedules()["sc_chat"]), "th_origin", "a schedule set up in chat posts elsewhere");
-        assert_eq!(of(&s, &s.arrangements.schedules()["sc_old"]), "schedule-sc_old", "a schedule with no conversation lost its own thread");
+        assert_eq!(of(&s, &s.arrangements.schedules()["sc_chat"]).as_deref(), Some("th_origin"), "a schedule set up in chat posts elsewhere");
+        assert_eq!(of(&s, &s.arrangements.schedules()["sc_old"]), None, "a schedule with no conversation made a thread of its own");
     }
 
-    /// A conversation the person removed is not written to again: the
-    /// schedule's runs go to its own thread.
+    /// A conversation the person removed is not written to again, and no
+    /// thread replaces it.
     #[test]
-    fn a_removed_conversation_sends_the_runs_to_the_schedules_own_thread() {
+    fn a_removed_conversation_leaves_the_runs_without_a_thread() {
         let mut s = State::default();
         set(&mut s, 1, "sc1", json!("th_gone"));
         s.trash.mark_removed("th_gone", "alice");
-        assert_eq!(of(&s, &s.arrangements.schedules()["sc1"]), "schedule-sc1");
+        assert_eq!(of(&s, &s.arrangements.schedules()["sc1"]), None);
     }
 
     /// A schedule its own run ended, with no end time or run limit, is
