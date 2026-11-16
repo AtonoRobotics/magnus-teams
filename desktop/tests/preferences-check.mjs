@@ -51,6 +51,19 @@ U.set({ mode: 'light' }); U.scope('appliance-a', 'alice'); assert.equal(U.prefs(
 store.set('magnus.ui.v2.appliance-a.carol', JSON.stringify({ mode: 'dark', material: 'glass', motion: 'full' }));
 U.scope('appliance-a', 'carol'); assert.equal(U.look.mode, 'dark'); assert.equal(U.look.style, 'antigravity');
 assert.equal('material' in JSON.parse(store.get('magnus.ui.v2.appliance-a.carol')), false, 'saved material: glass is migrated out');
+// A record from before the Theme choice: its "blue" was the default then, so
+// it takes today's default; another accent is a choice and stays. A chosen
+// "blue" (stored with a style) stays blue.
+store.set('magnus.ui.v2.appliance-a.dan', JSON.stringify({ mode: 'dark', accent: 'blue', motion: 'full', navigation: 'expanded', conversationWidthPx: 420 }));
+U.scope('appliance-a', 'dan'); assert.equal(U.prefs().accent, 'graphite', 'the old default accent is not kept as a choice');
+assert.equal(JSON.parse(store.get('magnus.ui.v2.appliance-a.dan')).style, 'antigravity', 'the record is migrated');
+store.set('magnus.ui.v2.appliance-a.erin', JSON.stringify({ mode: 'dark', accent: 'rose', motion: 'full' }));
+U.scope('appliance-a', 'erin'); assert.equal(U.prefs().accent, 'rose', 'a chosen accent stays');
+U.set({ accent: 'blue' }); U.scope('appliance-a', 'erin'); assert.equal(U.prefs().accent, 'blue', 'Indigo chosen today stays Indigo');
+// Nothing is stored for someone who has chosen nothing, so a new default reaches them.
+store.delete('magnus.appearance');
+U.scope('appliance-b', 'frank'); assert.equal(store.has('magnus.ui.v2.appliance-b.frank'), false, 'defaults are stored as if chosen');
+store.set('magnus.appearance', JSON.stringify({ mode: 'dark', accent: 'amber', material: 'glass', motion: 'off' }));
 fail = true; U.set({ mode: 'light' }); assert.equal(U.saved, false); assert.equal(U.look.mode, 'light');
 assert.equal(JSON.parse(store.get('magnus.appearance')).accent, 'amber', 'the legacy record is never rewritten');
 assert.ok(events.some(e => e.type === 'magnus-theme'));

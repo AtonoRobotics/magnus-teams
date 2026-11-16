@@ -106,6 +106,9 @@
       const mode = v.followComputer ? "system" : v.theme === "custom" ? v.mode : ["dark", "ember"].includes(v.theme) ? "dark" : "light";
       v = { ...v, style: DEFAULTS.style, mode, accent: v.theme === "custom" ? v.accent : DEFAULTS.accent };
     }
+    // A record from before the Theme choice was written on first load, so its
+    // "blue" is the old default (Indigo), not a choice: it takes today's.
+    if (value && typeof value === "object" && !("style" in v) && v.accent === "blue") v = { ...v, accent: DEFAULTS.accent };
     return {
       style: member(v.style, STYLES.map(x => x[0]), DEFAULTS.style),
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
@@ -144,10 +147,13 @@
   Theme.prefs = () => ({ ...current });
   Theme.scope = (appliance, person) => {
     key = person ? `magnus.ui.v2.${appliance}.${person}` : null;
-    const saved = key && parse(key);
-    current = preferences(saved || (key ? parse(LEGACY_KEY) : null));
+    const saved = key && parse(key), legacy = key && !saved ? parse(LEGACY_KEY) : null;
+    current = preferences(saved || legacy);
     Theme.saved = true;
-    if (key && (!saved || "material" in saved)) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
+    // Only a choice is stored, or a record being migrated: defaults stay
+    // unstored, so a later change of default reaches everyone who never chose.
+    const migrate = saved ? "material" in saved || !("style" in saved) : !!legacy;
+    if (key && migrate) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
     return Theme.apply();
   };
   Theme.os = () => ({ dark: !!darkQ?.matches, reduceMotion: !!motionQ?.matches, forcedColors: !!forcedQ?.matches });
