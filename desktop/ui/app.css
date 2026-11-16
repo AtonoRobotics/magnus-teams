@@ -746,7 +746,7 @@ html[data-mode="dark"] { --hover-mix: 8%; --pressed-mix: 12%; }
 .frame-prose-link { color:transparent; background:transparent; }
 @media(any-pointer:coarse) { .frame-code-copy { min-width:44px;min-height:44px; } }
 /* Quiet scoped connection feedback reserves space instead of covering controls. */
-.connection-status { grid-column: 2 / -1; grid-row: 3; min-height: 28px; padding: 4px 12px; background: var(--side); color: var(--fg); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; border-top: 1px solid var(--line); }
+.connection-status { grid-column: 2 / -1; grid-row: 3; min-height: 22px; padding: 2px 14px; background: var(--main); color: var(--muted); font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; border-top: 1px solid var(--hair); }
 .shell:has(> .connection-status:not([hidden])) { grid-template-rows: 48px minmax(0, 1fr) auto; }
 body[data-navigation=drawer] .connection-status { grid-column: 1; }
 
@@ -783,11 +783,19 @@ section.conv.side .composer-slot { padding-left: 12px; padding-right: 12px; }
 /* Antigravity UI/UX: matte tonal hierarchy, 1px structural hairlines,
    unified 44px top bar, 12px composer, and pinpoint accent discipline. */
 
-/* Unified 44px top bar & quiet sidebar border */
-.workspace-bar { min-height: 44px; padding: 0 16px; border-bottom: 1px solid var(--hair); }
-.conv-head { min-height: 40px; padding: 6px 24px 10px; border-bottom: 1px solid var(--hair); }
+/* Unified top bar & quiet sidebar border */
+.workspace-bar { min-height: 36px; padding: 0 16px; border-bottom: 0; }
+body[data-workspace="conversation"]:not([data-navigation="drawer"]) .workspace-heading { display: none; }
+.conv-head { min-height: 40px; padding: 4px 24px 10px; border-bottom: 1px solid var(--hair); }
 .conv-head h1 { font-size: 14px; font-weight: 600; }
-.conv-head .icon-btn, .conv-head select { border-color: var(--line); background: var(--surface); border-radius: 7px; height: 28px; min-height: 28px; font-size: 12.5px; }
+.conv-head .icon-btn, .conv-head select, .conv-head .computer-chip, .conv-head .inspector-pill {
+  border-color: transparent; background: transparent; color: var(--muted); border-radius: 7px; height: 28px; min-height: 28px; font-size: 12.5px;
+}
+.conv-head .icon-btn:hover, .conv-head select:hover, .conv-head .computer-chip:hover, .conv-head .inspector-pill:hover,
+.conv-head .inspector-pill[aria-expanded="true"] {
+  background: var(--row-sel); color: var(--fg); border-color: var(--line);
+}
+.conv-head .icon-btn { width: 28px; }
 
 nav.side { background: var(--side); display: flex; flex-direction: column; overflow-y: auto; grid-column: 1; grid-row: 1 / -1; height: 100%; max-height: none; overflow: hidden; min-height: 0; border-right: 1px solid var(--line); padding: 12px 10px; gap: 12px; }
 nav.side .brand .logo { display: grid; place-items: center; width: 20px; height: 20px; background: transparent; color: var(--fg); border-radius: 0; }
@@ -863,7 +871,8 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 /* Antigravity low-profile composer */
 .say {
   border-radius: 12px;
-  padding: 10px 10px 8px 14px;
+  padding: 8px 10px 6px 12px;
+  gap: 4px;
   border: 1px solid var(--line);
   background: var(--surface);
   box-shadow: none;
@@ -875,17 +884,18 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
   outline: none;
 }
 @media (pointer: fine) {
-  .say textarea { min-height: 36px; padding: 6px 0; font-size: 14px; line-height: 21px; }
+  .say textarea { min-height: 32px; padding: 4px 0; font-size: 14px; line-height: 21px; }
   .say-bar .icon-btn, .say-bar label.button, .composer-slot .attachment-picker button {
-    width: 32px; height: 32px; min-width: 32px; min-height: 32px; border-radius: 8px;
+    width: 30px; height: 30px; min-width: 30px; min-height: 30px; border-radius: 8px;
   }
-  button.send { width: 32px; height: 32px; border-radius: 50%; }
-  button.send svg.ic { width: 16px; height: 16px; }
+  button.send { width: 30px; height: 30px; border-radius: 50%; }
+  button.send svg.ic { width: 15px; height: 15px; }
 }
 
 /* Pill model selector */
 
 label.model:hover { background: var(--row-sel); }
+label.model select { width: auto; max-width: 148px; padding: 0 20px 0 6px; background-position: right 6px center, right 2px center; }
 
 /* Context-aware send button */
 button.send {
@@ -1019,6 +1029,27 @@ button.hello-chip:hover {
   box-shadow: none;
   margin-left: 6px;
   padding-left: 10px;
+}
+.chatcard > .rg-head {
+  background: transparent;
+  border-bottom: 0;
+  padding: 2px 10px 4px;
+  font-size: 12px;
+}
+.chatcard > .rg-head > :first-child { font-weight: 500; color: var(--muted); }
+.chatcard .rg-main .sub { display: none; }
+.result {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.result .pre {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--fg2);
 }
 .tcard {
   border: 0;
