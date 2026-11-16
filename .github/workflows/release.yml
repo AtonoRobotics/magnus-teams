@@ -122,6 +122,7 @@ jobs:
 
       - name: Publish the desktop app
         run: |
+          release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" "$RUNNER_TEMP/build/dist" production
           release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" "$RUNNER_TEMP/build/dist" test
           release/publish.sh desktop "$MAGNUS_VERSION" "$UPDATES" "$RUNNER_TEMP/notes" "$RUNNER_TEMP/build/dist" development
 

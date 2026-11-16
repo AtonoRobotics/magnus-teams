@@ -63,26 +63,31 @@ pub(crate) const FONTS: &[(&str, &[u8])] = &[
 ];
 const UI_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src blob:; font-src 'self'; connect-src 'self'; frame-src 'self' about:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
-fn static_file(media: &str, body: &'static [u8]) -> Response {
+fn static_file(media: &str, body: impl Into<axum::body::Body>) -> Response {
     let built = Response::builder()
         .header("content-type", media)
         .header("content-security-policy", UI_CSP)
         .header("x-content-type-options", "nosniff")
-        .header("cache-control", "no-cache")
-        .body(axum::body::Body::from(body));
+        .header("cache-control", "private, no-store, no-cache, must-revalidate, max-age=0")
+        .body(body.into());
     built.unwrap_or_else(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "the file could not be served"))
 }
 
 pub async fn ui_file(Path(file): Path<String>) -> Response {
     match UI.iter().find(|(n, _, _)| *n == file) {
-        Some((_, media, body)) => static_file(media, body),
+        Some(("index.html", media, body)) => {
+            let v = crate::update::version();
+            let html = String::from_utf8_lossy(body).replace(".css\"", &format!(".css?v={v}\"")).replace(".js\"", &format!(".js?v={v}\""));
+            static_file(media, html)
+        }
+        Some((_, media, body)) => static_file(media, *body),
         None => err(StatusCode::NOT_FOUND, "not found"),
     }
 }
 
 pub async fn ui_font(Path(file): Path<String>) -> Response {
     match FONTS.iter().find(|(n, _)| *n == file) {
-        Some((_, body)) => static_file("font/woff2", body),
+        Some((_, body)) => static_file("font/woff2", *body),
         None => err(StatusCode::NOT_FOUND, "not found"),
     }
 }
