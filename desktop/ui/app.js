@@ -238,6 +238,24 @@ function ask(msg, yes) {
   });
 }
 
+function askText(msg, placeholder = "", yes = "Submit") {
+  return new Promise(done => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    d.innerHTML = `<form><p></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="primary" data-ask="yes"></button></div></form>`;
+    $("p", d).textContent = msg;
+    const inp = $("[data-ask-input]", d);
+    inp.placeholder = placeholder;
+    $("[data-ask=yes]", d).textContent = yes;
+    d.addEventListener("click", e => { if (e.target.closest("[data-ask=no]")) d.close("no"); });
+    $("form", d).addEventListener("submit", e => { e.preventDefault(); d.close("yes"); });
+    d.addEventListener("close", () => { const v = d.returnValue === "yes" ? inp.value.trim() : null; d.remove(); done(v || null); });
+    document.body.append(d);
+    d.showModal();
+    inp.focus();
+  });
+}
+
 function toast(msg, ms = 3200) {
   const t = document.createElement("div");
   t.className = "toast"; t.textContent = msg; t.setAttribute("role", "status");
@@ -363,6 +381,8 @@ const UI = {
   download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
   chev: '<path d="m9 6 6 6-6 6"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  sparkles: '<path d="m12 3 1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/>',
+  palette: '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><circle cx="10" cy="15" r="1"/>',
 };
 const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0 0 24 24" aria-hidden="true">${UI[k]}</svg>`;
 
@@ -2073,25 +2093,93 @@ function feedRows(feed) {
 function activityLinks(selected="activity") {
   return `<nav class="activity-views" aria-label="Activity views">${[["activity","Overview"],["tasks","Tasks"],["schedules","Schedules"],["rules","Rules"]].map(([k,l])=>`<a href="#/${k}" data-open="${k}" ${selected===k ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav>`;
 }
+function companionStatus() {
+  const active = App.tasks.filter(t => !ENDED.includes(t.status)).length;
+  const waiting = needsMe().length;
+  if (waiting) return { tone: "warn", label: `${waiting} waiting on you` };
+  if (active) return { tone: "run", label: `Working · ${active} active` };
+  return { tone: "ok", label: "Ready" };
+}
+function dayBucketLabel(iso) {
+  if (!iso) return "Earlier";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Earlier";
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startItem = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startToday - startItem) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function companionHeader() {
+  const st = companionStatus();
+  const triad = `<svg width="18" height="18" viewBox="0 0 64 64" fill="none" aria-hidden="true"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg>`;
+  return `<div class="companion-id">
+    <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent">${triad}</a>
+    <div class="companion-meta"><h2>Magnus</h2><div class="companion-sub"><span class="chip ${st.tone}">${esc(st.label)}</span><a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${icon("palette")}<span>Theme</span></a></div></div>
+    <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
+  </div>`;
+}
+function timelineGroups(active, done) {
+  const groups = [];
+  if (active.length) groups.push(["Active now", active.slice(0, 6)]);
+  const byDay = new Map();
+  for (const t of done.slice(0, 12)) {
+    const label = dayBucketLabel(t.ended_at || t.created_at);
+    if (!byDay.has(label)) byDay.set(label, []);
+    byDay.get(label).push(t);
+  }
+  for (const [label, list] of byDay) groups.push([label, list]);
+  if (!groups.length) return `<p class="empty">No work yet. Ask Magnus anything in the conversation.</p>`;
+  return groups.map(([label, list]) => `<div class="tl-day"><div class="tl-day-head">${esc(label)}</div><ul class="tlist">${list.map(t => {
+    const [ic, pill] = standing(t);
+    const sub = t.status === "suspended" ? (WAITING[t.waiting_on] || "waiting") : firstLine(t.summary || t.text);
+    const ts = when(t.ended_at || t.created_at);
+    return `<li class="trow" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="st ${ic}">${icon(ic)}</span><span class="tl-info"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span>${sub ? `<span class="small muted tl-sub">${esc(sub)}</span>` : ""}</span>${pill}<span class="small faint when">${esc(ts)}</span></a></li>`;
+  }).join("")}</ul></div>`).join("");
+}
 function activityView(composed) {
   const active = App.tasks.filter(t => !ENDED.includes(t.status));
-  const done = App.tasks.filter(t => ENDED.includes(t.status)).slice(0, 10);
+  const done = App.tasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
   const scheds = App.schedules.filter(sc => !sc.ended);
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
-  const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
-  const recentCount = done.length + other.length + decided.length + (feed ? 1 : 0);
   const next = scheds.filter(s => !s.paused && s.next).sort((a, b) => a.next.localeCompare(b.next))[0];
   const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
+  const compState = comp ? controlWords(comp, false) : null;
   const pauseBtn = comp?.status === "running" ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
-  const compCard = comp ? `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>${esc(comp.name || "Computer")}</strong><div class="small muted">${esc(controlWords(comp, false).pill)}</div></div><div class="row">${pauseBtn}<button type="button" data-open="computer:${esc(comp.id)}">Pin screen</button><a class="small" href="#/computer/${enc(comp.id)}/screen">Expand</a></div></div></div>` : "";
+  const compCard = comp ? `<section class="companion-computer card flat">
+    <div class="comp-copy"><div class="comp-head"><span class="comp-dot ${comp.status === "running" ? "awake" : "asleep"}" aria-hidden="true"></span><strong>${esc(comp.name || "Cloud Computer")}</strong></div>
+      <div class="small muted">${esc(compState.pill)}</div>
+      <div class="row comp-acts">${pauseBtn}<button type="button" data-open="computer:${esc(comp.id)}">Pin screen</button><a class="small" href="#/computer/${enc(comp.id)}/screen">Expand</a></div></div>
+    <a href="#/computer/${enc(comp.id)}/screen" data-open="computer:${esc(comp.id)}" class="comp-thumb ${comp.status === "running" ? "awake" : "asleep"}" aria-label="Open ${esc(comp.name || "computer")} screen">${UI.computer ? `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${UI.computer}</svg>` : icon("grid")}<span>${comp.status === "running" ? "Live screen" : "Asleep"}</span></a>
+  </section>` : "";
+  const showRoutineHint = !load("routine-hint-dismissed", false);
+  const routineCard = showRoutineHint ? `<section class="companion-routine card flat">
+    <div class="routine-icon" aria-hidden="true">${icon("sparkles")}</div>
+    <div class="routine-body"><strong>Suggested routines</strong><p class="small muted">Automate inbox triage, daily briefs, or PR queues on a schedule.</p><button type="button" class="link small" data-open-discovery>Explore routines ›</button></div>
+    <button type="button" class="icon-btn" data-dismiss-routine aria-label="Dismiss suggested routines" title="Dismiss">${icon("close")}</button>
+  </section>` : "";
+  const schedSummary = scheds.length ? `${scheds.length} scheduled task${scheds.length === 1 ? "" : "s"}${next ? ` · next ${until(next.next)}` : ""}` : "Scheduled tasks & Heartbeat";
+  const schedCard = `<details class="companion-scheds" data-key="panel-schedules">
+    <summary><span>${esc(schedSummary)}</span><span class="chip ${hb ? "ok" : ""}">${hb ? "Heartbeat on" : "Heartbeat off"}</span></summary>
+    <div class="scheds-body">
+      <div class="spread"><span class="small muted">${hb ? `30m check-in ${hb.paused ? "paused" : `· next ${esc(until(hb.next))}`}` : "30m proactive check-in is off"}</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>
+      ${scheds.length ? `<ul class="tlist">${scheds.slice(0, 5).map(sc => `<li class="trow"><a href="#/schedules" data-open="schedule:${esc(sc.id)}"><span class="st sch">${icon("calendar")}</span><span class="ttl">${esc(sc.title)}</span><span class="small muted when">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : rule(sc))}</span></a></li>`).join("")}</ul>` : ""}
+      <div class="spread" style="margin-top:6px;"><a class="small" href="#/schedules" data-open="schedules">Manage all schedules (${App.schedules.length}) ›</a></div>
+    </div>
+  </details>`;
   return `${activityLinks()}
+    ${routineCard}
     ${compCard}
-    <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Happening now</strong><div class="small muted">${active.length ? `${active.length} active task${active.length === 1 ? "" : "s"}` : "All quiet right now."}</div></div><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length})</a></div>
-      ${active.length ? `<ul class="tlist" style="margin-top:8px;">${active.slice(0, 6).map(taskRow).join("")}</ul>` : ""}</div>
-    <div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Schedules &amp; Heartbeat</strong><div class="small muted">${hb ? `Heartbeat active · ${hb.paused ? "Paused" : `Next ${esc(until(hb.next))}`}` : "Heartbeat off"}${scheds.length ? ` · ${scheds.length} active${next ? `, next ${esc(until(next.next))}` : ""}` : ""}</div></div><div class="row">${hb ? `<span class="chip ok">Heartbeat on</span>` : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}<a class="small" href="#/schedules" data-open="schedules">Manage (${App.schedules.length})</a></div></div></div>
-    ${recentCount ? `<details class="collapsed-done" data-key="overview-recent"><summary>Recent &amp; completed (${done.length} tasks${other.length ? `, ${other.length} updates` : ""}${decided.length ? `, ${decided.length} resolved` : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${done.length ? `<ul class="tlist">${done.map(taskRow).join("")}</ul>` : ""}${other.map(i => card(i, composed)).join("")}${decided.map(i => card(i, composed)).join("")}</details>` : ""}`;
+    ${schedCard}
+    <section class="companion-timeline">
+      <div class="spread"><h3>Recent work</h3><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length}) ›</a></div>
+      ${timelineGroups(active, done)}
+    </section>
+    ${(feed || other.length) ? `<details class="collapsed-done" data-key="overview-recent"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}`;
 }
 
 function needsView(composed) {
@@ -2102,10 +2190,21 @@ function needsView(composed) {
     return t ? `<div class="small where">In <a href="#/chat/${enc(t.thread)}">${esc(t.title)}</a></div>` : "";
   };
   const list = items => items.map(i => `<div class="needs-item" data-needs="${esc(i.id)}">${where(i)}${card(i, composed)}</div>`).join("");
+  const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
+  const resChip = i => {
+    const d = i.resolution?.decision || i.status || "decided";
+    const cls = d === "approve" || d === "accept" || d === "endorse" ? "ok" : d === "reject" || d === "decline" ? "bad" : "";
+    const label = { approve: "Allowed", reject: "Rejected", accept: "Accepted", answer: "Answered", dismiss: "Dismissed", endorse: "Endorsed", decline: "Declined" }[d] || d;
+    return `<span class="chip ${cls}">${esc(label)}</span>`;
+  };
+  const historyHtml = decided.length ? `<section class="appr-history"><h3>Recent decisions <span class="count">${decided.length}</span></h3>
+    ${decided.map(i => `<div class="appr-hist-row card flat"><div class="spread"><span class="small muted">${esc(KIND[i.kind] || i.kind)} · ${esc(when(i.created_at))}</span>${resChip(i)}</div>
+      <div class="appr-hist-title">${esc(i.summary || i.ask?.sentence || i.kind)}</div>
+      <details class="appr-payload" data-key="hist:${esc(i.id)}"><summary class="small">View details</summary>${i.kind === "approval" ? askContent(i.details || {}) : fieldValue(i.details || i.resolution || {})}</details></div>`).join("")}</section>` : "";
   const guardrails = `<div class="card flat" style="margin-top:12px;"><div class="spread"><div><strong>Safety Guardrails</strong><div class="small muted">Ask before external actions &amp; payments · Vault-only credentials</div></div><a class="small" href="#/rules" data-open="rules">Rules</a></div></div>`;
-  if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}`;
+  if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
   return `${now.length ? `<h3>A task is waiting <span class="badge">${now.length}</span></h3>${list(now)}` : ""}
-    ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}${guardrails}`;
+    ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}${guardrails}${historyHtml}`;
 }
 
 // ---------- Task detail ----------
@@ -2148,7 +2247,7 @@ function deliverable(t) {
 // Whatever the person opens (a task, a file, a schedule, a decision, or a
 // view over them) shows here, beside the conversation, never instead of it.
 // `what` is "kind:id" or a view's name.
-const Panel = { anchors:{}, layers:{}, unwatch:null, opener:null, focusNext:false, drawn:null, what: null, layer: "outcome", seq: 0, live: null, liveFor: null, liveText: "", lib: { q: "", project: "" } };
+const Panel = { anchors:{}, layers:{}, unwatch:null, opener:null, focusNext:false, drawn:null, what: null, layer: "outcome", seq: 0, live: null, liveFor: null, liveText: "", lib: { q: "", project: "", kind: "all" } };
 
 function openPanel(what, options={}) {
   if (options.history && Panel.what!==what) {
@@ -2211,8 +2310,8 @@ const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks",
 const PANEL_TAB_PARENT = { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
-  const tabs = [["activity", "Activity"], ["needs", "Approvals"], ["apps", "Apps"], ["files", "Files"]];
-  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}>${l}${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
+  const tabs = [["activity", "Activity", "working"], ["needs", "Approvals", "shield"], ["files", "Files", "file"], ["apps", "Apps", "grid"]];
+  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l, ic]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}>${icon(ic)}<span>${l}</span>${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
 }
 
 async function drawPanel() {
@@ -2236,12 +2335,16 @@ async function drawPanel() {
   const title = kind === "search" ? `Search: ${id}` : PANEL_TITLES[kind] || kind;
   const backTo = id || ["tasks", "schedules", "rules"].includes(kind) ? PANEL_TAB_PARENT[kind] || "activity" : null;
   const backBtn = backTo ? `<button type="button" class="link small" data-panel-back="${esc(backTo)}">← Back</button>` : "";
+  const isRootCompanion = !backTo && ["activity", "needs", "files", "apps"].includes(kind);
+  const headHtml = isRootCompanion
+    ? `${companionHeader()}${panelTabs(kind)}`
+    : `<div class="dh-top">${backBtn}<button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button></div>${head || `<h2>${esc(title)}</h2>`}${panelTabs(kind)}`;
   // A view names itself in the head (a task: its title and where it
   // stands); the others are named by what they are.
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${backBtn}${head || `<h2>${esc(title)}</h2>`}${panelTabs(kind)}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
+  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${headHtml}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
   if (!changed) {
     reportOpenedSoon();
     if (Panel.focusNext) { const heading=$("h2",el); if (heading) { heading.tabIndex=-1; heading.focus({preventScroll:true}); } Panel.focusNext=false; }
@@ -2260,7 +2363,8 @@ async function drawPanel() {
 const plain = body => ({ body });
 async function appsPanelView() {
   const connectors = await Resources.read("Apps", "/v1/connectors", "connectors", true).catch(() => null);
-  const mine = (connectors || []).filter(c => c.for_you !== false);
+  const rank = c => ({ connected: 0, needs_attention: 1, local: 2, available: 3 }[stateOf(c)] ?? 4);
+  const mine = (connectors || []).filter(c => c.for_you !== false).sort((a, b) => rank(a) - rank(b) || (a.title || a.name).localeCompare(b.title || b.name));
   const body = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${mine.filter(c => stateOf(c) === "connected").length} connected</span><a class="small" href="#/library">Full catalog ›</a></div>
     ${mine.length ? `<div class="lgrid">${mine.map(connectorCard).join("")}</div>` : `<p class="empty">Apps are unavailable right now.</p>`}`;
   return { body, after: el => bindConnectorActs(el) };
@@ -2271,6 +2375,7 @@ const PANELS = {
   tasks: () => plain(activityLinks("tasks") + tasksView()),
   schedules: () => plain(activityLinks("schedules") + schedulesView()),
   schedule: id => plain(scheduleView(id)),
+  rules: () => ({ body: '<div class="rules-host"></div>', after: el => rulesSection($(".rules-host", el)) }),
   item: (id, composed) => {
     const i = App.inbox.find(x => x.id === id);
     return plain(i ? card(i, composed) : `<p class="empty">This decision is gone.</p>`);
@@ -2619,16 +2724,34 @@ async function connectApp(name) {
   finally { delete Connecting[name]; connectorsChanged(); }
 }
 
+function libFileKind(f) {
+  const n = (f.name || "").toLowerCase();
+  const c = (f.media_type || f.content_type || "").toLowerCase();
+  if (f.kind === "page" || c.includes("html") || c.includes("markdown") || /\.(html?|md|markdown)$/.test(n)) return "pages";
+  if (c.startsWith("image/") || c.startsWith("video/") || c.startsWith("audio/") || /\.(png|jpe?g|gif|webp|svg|mp4|mov|webm|mp3|wav)$/.test(n)) return "media";
+  return "files";
+}
+
 // Files: every file uploaded or delivered, as a view over the same files
 // the conversations show.
 async function filesView() {
-  const { q, project } = Panel.lib;
+  const { q, project, kind = "all" } = Panel.lib;
   const { files } = await Server.files.list({ q, project });
+  const shown = kind === "all" ? files : files.filter(f => libFileKind(f) === kind);
+  const weekCutoff = Date.now() - 7 * 86400000;
+  const recent = shown.filter(f => { const t = Date.parse(f.at || ""); return !Number.isNaN(t) && t >= weekCutoff; });
+  const older = shown.filter(f => { const t = Date.parse(f.at || ""); return Number.isNaN(t) || t < weekCutoff; });
+  const rowHtml = f => `<li data-lib-file="${esc(f.id)}"><div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
+  const listHtml = !shown.length
+    ? `<p class="empty">${q || project || kind !== "all" ? "No file matches." : "No files yet. Upload one, or ask Magnus for a document."}</p>`
+    : recent.length && older.length
+      ? `<div class="lib-group-head">This week</div><ul class="flist">${recent.map(rowHtml).join("")}</ul><div class="lib-group-head">Older</div><ul class="flist">${older.map(rowHtml).join("")}</ul>`
+      : `<ul class="flist">${shown.map(rowHtml).join("")}</ul>`;
   return plain(`<div class="row lib-bar"><label class="sr" for="lq">Search files</label><input id="lq" type="search" data-draft="lib-q" placeholder="Files, tasks, projects or text" autocomplete="off">
     <label class="sr" for="lp">Project</label><select id="lp" aria-label="Filter by project"><option value="">All files</option><option value="none"${project === "none" ? " selected" : ""}>In no project</option>${App.projects.map(p => `<option value="${esc(p.id)}"${p.id === project ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
     ${attachButton("Upload")}</div>
-    ${files.length ? `<ul class="flist">${files.map(f => `<li data-lib-file="${esc(f.id)}"><div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`).join("")}</ul>`
-      : `<p class="empty">${q || project ? "No file matches." : "No files yet. Upload one, or ask Magnus for a document."}</p>`}`);
+    <div class="lib-filters" role="group" aria-label="Filter files by type">${[["all", "All"], ["pages", "Pages"], ["media", "Media"], ["files", "Files"]].map(([k, l]) => `<button type="button" class="${kind === k ? "on" : ""}" data-lib-kind="${k}" aria-pressed="${kind === k}">${l}</button>`).join("")}</div>
+    ${listHtml}`);
 }
 
 function projectsView() {
@@ -2666,6 +2789,9 @@ function wirePanel() {
   const el = $("#detail");
   el.addEventListener("click", async e => {
     if (e.target.closest("[data-act=close-panel]")) return closePanel(true);
+    if (e.target.closest("[data-dismiss-routine]")) { save("routine-hint-dismissed", true); return drawPanel(); }
+    const fk = e.target.closest("[data-lib-kind]");
+    if (fk) { Panel.lib.kind = fk.dataset.libKind; return drawPanel(); }
     const l = e.target.closest("[data-layer]");
     if (l) { Panel.layer = l.dataset.layer; return drawPanel(); }
     const m = e.target.closest("[data-more]");
@@ -2930,12 +3056,18 @@ function appearanceSection(el) {
     return `<button class="${cls}${on ? " on" : ""}" role="radio" aria-checked="${on}" data-look="${look}" data-value="${value}" title="${esc(label)}"${style ? ` style="${style}"` : ""}>${inner}</button>`;
   };
   const draw = () => {
-    const p = Theme.prefs(), os = Theme.os(), look = Theme.look;
+    const p = Theme.prefs(), look = Theme.look;
+    const defAccent = p.style === "companion" ? "blue" : "graphite";
+    const defHex = p.style === "companion" ? "#7C8CFF" : (look.mode === "light" ? "#111318" : "#ECEFF4");
+    const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111318" : a.swatch;
+    const currentHex = /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent.toUpperCase() : (Theme.ACCENTS.find(a => a.id === p.accent)?.[look.mode]?.accent || defHex);
     paint(el, `<h2>Appearance</h2><div class="appearance">
       ${Theme.saved === false ? `<p class="small" role="status">Appearance changed for this session but was not saved on this device.</p>` : ""}
+      <h3 id="style-h">Theme</h3><div class="seg" role="radiogroup" aria-labelledby="style-h">${Theme.STYLES.map(([k, l]) => radio("style", k, l)).join("")}</div>
+      <p class="small faint">${p.style === "companion" ? "Companion uses rounded cards, soft pills, and circular avatars." : "Antigravity uses tight architectural corners, flush borders, and a monochrome baseline."}</p>
       <h3 id="mode-h">Mode</h3><div class="seg" role="radiogroup" aria-labelledby="mode-h">${Theme.MODES.map(([k, l]) => radio("mode", k, l)).join("")}</div>
-      <h3 id="acc-h">Accent color</h3><div class="swatches ag-swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${a.swatch};background:${a.swatch}`)).join("")}<label class="swatch-custom" title="Pick any custom hex color"><span class="swatch-custom-inner" aria-hidden="true">+</span><input type="color" data-custom-accent value="${esc(/^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent : "#7C8CFF")}" aria-label="Custom accent color"></label><div class="hex-box"><span class="hex-dot" aria-hidden="true"></span><input type="text" class="hex-input" data-custom-hex value="${esc(/^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent.toUpperCase() : (Theme.ACCENTS.find(a => a.id === p.accent)?.swatch || "#7C8CFF"))}" maxlength="7" aria-label="Custom accent hex"></div>${/^#[0-9a-fA-F]{6}$/.test(p.accent) ? `<button type="button" class="link small" data-look="accent" data-value="blue">Reset to default</button>` : ""}</div>
-      <p class="small faint">Default uses Antigravity Indigo. Custom colors automatically preserve legible contrast.</p>
+      <h3 id="acc-h">Accent color</h3><div class="swatches ag-swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => { const sc = swatchColor(a); return radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${sc};background:${sc}`); }).join("")}<label class="swatch-custom" title="Pick any custom hex color"><span class="swatch-custom-inner" aria-hidden="true">+</span><input type="color" data-custom-accent value="${esc(currentHex)}" aria-label="Custom accent color"></label><div class="hex-box"><span class="hex-dot" aria-hidden="true"></span><input type="text" class="hex-input" data-custom-hex value="${esc(currentHex)}" maxlength="7" aria-label="Custom accent hex"></div>${p.accent !== defAccent ? `<button type="button" class="link small" data-look="accent" data-value="${esc(defAccent)}">Reset to default</button>` : ""}</div>
+      <p class="small faint">${p.style === "companion" ? "Default uses Indigo." : "Default uses Monochrome graphite."} Custom colors automatically preserve legible contrast.</p>
       <h3 id="mot-h">Motion</h3><div class="seg" role="radiogroup" aria-labelledby="mot-h">${Theme.MOTIONS.map(([k, l]) => radio("motion", k, l)).join("")}</div>
       <p class="small muted" data-motion-hint>${esc(Theme.MOTION_HINTS[p.motion])}${look.motion !== p.motion ? " Your computer asks for reduced motion, so Magnus uses quick fades." : ""}</p>
       <p class="small faint">Magnus also follows your computer's setting for reduced motion.</p></div>`);
@@ -2950,6 +3082,13 @@ function appearanceSection(el) {
     const b = e.target.closest("[data-look]");
     if (!b) return;
     b.focus({ preventScroll: true });
+    if (b.dataset.look === "style") {
+      const nextStyle = b.dataset.value, p = Theme.prefs(), patch = { style: nextStyle };
+      if (nextStyle === "companion" && p.accent === "graphite") patch.accent = "blue";
+      else if (nextStyle === "antigravity" && p.accent === "blue") patch.accent = "graphite";
+      Theme.set(patch);
+      return;
+    }
     Theme.set({ [b.dataset.look]: b.dataset.value });
   };
   el.oninput = e => {
@@ -3329,7 +3468,7 @@ function stop() {
   Panel.unwatch?.(); Panel.unwatch=null; Panel.anchors={}; Panel.layers={}; Panel.opener=null; Panel.drawn=null; Panel.what=null; App.draftRecord=null;
   App.me = null; App.computers = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
   // What one person was typing or filtering by is not the next one's here.
-  Panel.lib = { q: "", project: "" };
+  Panel.lib = { q: "", project: "", kind: "all" };
   delete Lib.all; Lib.q=""; Lib.cat="all"; Lib.tab="discover";
   for (const k of Object.keys(drafts)) delete drafts[k];
 }

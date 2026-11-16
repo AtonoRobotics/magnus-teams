@@ -90,6 +90,7 @@ await step("browse, edit and bulk delete files", async () => {
   await row("note.txt").locator("[data-pick]").check();
   await row("old.txt").locator("[data-pick]").check();
   await page.getByRole("button", { name: "Delete selected" }).click();
+  await page.locator("dialog.ask").getByRole("button", { name: "Delete" }).click();
   await row("old.txt").waitFor({ state: "detached" });
   await row("note.txt").waitFor({ state: "detached" });
 });

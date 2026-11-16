@@ -153,7 +153,7 @@ for (const [name, look] of LOOKS) {
       swatch: cs(".appearance .swatch", "width"),
     };
   });
-  const want = ["Mode", "Accent color", "Motion"];
+  const want = ["Theme", "Mode", "Accent color", "Motion"];
   if (want.join("|") !== got.labels.join("|")) failures.push(`appearance: the sections are ${got.labels.join(", ")}, the reference's are ${want.join(", ")}`);
 
   expect("appearance", "a choice's height", got.option, "40px", px);

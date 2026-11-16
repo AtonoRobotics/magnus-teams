@@ -251,8 +251,8 @@ const Compose = (() => {
 
   // Colors come from the app's look (theme.js tokens), so a result reads the
   // same as the cards around it; without them, a light and a dark default.
-  const VARS = ["fg", "fg2", "muted", "line", "hair", "surface", "raised", "shadow", "accent", "accent-text"];
-  const DEFAULT_LIGHT = { fg: "#1C1C1E", fg2: "#3F3F44", muted: "#5E5E63", line: "#E7E6E2", hair: "#EFEEEA", surface: "#FFFFFF", raised: "#F6F6F3", shadow: "0 1px 2px rgba(0,0,0,0.04), 0 6px 20px rgba(0,0,0,0.04)", accent: "#3557D9", "accent-text": "#3557D9" };
+  const VARS = ["fg", "fg2", "muted", "line", "hair", "surface", "raised", "shadow", "accent", "accent-text", "r-sm", "r-md", "r-lg"];
+  const DEFAULT_LIGHT = { fg: "#111318", fg2: "#4B5563", muted: "#565E6B", line: "#E5E7EB", hair: "#EDF0F4", surface: "#FFFFFF", raised: "#EEF1F6", shadow: "0 1px 3px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.06)", accent: "#111318", "accent-text": "#111318", "r-sm": "6px", "r-md": "8px", "r-lg": "10px" };
   const vars = t => VARS.map(k => `--${k}:${(t || DEFAULT_LIGHT)[k] ?? DEFAULT_LIGHT[k]};`).join("");
   const markdownStyles = `.markdown { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; min-width: 0; }
 .markdown p { margin: 8px 0; white-space: pre-wrap; }
@@ -263,9 +263,9 @@ const Compose = (() => {
 .markdown blockquote { border-left: 2px solid var(--muted); margin: 12px 0; padding: 4px 16px; }
 .markdown code { font-family: var(--mono, monospace); font-size: 15px; }
 .markdown :not(pre) > code { background: var(--raised); border-radius: 4px; padding: 2px 4px; }
-.markdown .code-block { background: var(--raised); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 12px 0; }
+.markdown .code-block { background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-md, 8px); overflow: hidden; margin: 12px 0; }
 .markdown .code-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; color: var(--muted); }
-.markdown .code-head button { min-height: 36px; padding: 4px 12px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: 8px; cursor: pointer; }
+.markdown .code-head button { min-height: 36px; padding: 4px 12px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; }
 .markdown .code-head button:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 @media (any-pointer: coarse) { .markdown .code-head button { min-width: 44px; min-height: 44px; } }
 .markdown pre { overflow: auto; white-space: pre; margin: 0; padding: 12px 16px; max-width: 100%; }
@@ -292,7 +292,7 @@ const Compose = (() => {
     .file { border-top: 1px solid var(--line); padding-top: 4px; }
     .fname { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
     /* Each figure is a card: the surface, its edge and shadow, as in the app. */
-    figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+    figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg, 10px); box-shadow: var(--shadow); overflow: hidden; }
     figure > :not(h3):not(.tw):not(.tl):not(svg) { padding-left: 16px; padding-right: 16px; }
     figure > ul, figure > ol:not(.tl) { padding: 12px 16px 12px 36px; margin: 0; }
     figure > svg { padding: 12px 16px; box-sizing: border-box; }
@@ -323,8 +323,8 @@ const Compose = (() => {
     .pt { fill: var(--bar); }
     .deck { display: flex; flex-direction: column; gap: 12px; }
     .deck-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .deck-present { min-height: 44px; padding: 0 16px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: 8px; cursor: pointer; }
-    .slide { aspect-ratio: 16 / 9; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 32px; box-sizing: border-box; overflow: hidden; }
+    .deck-present { min-height: 44px; padding: 0 16px; background: var(--surface); border: 1px solid var(--muted); color: var(--fg); border-radius: var(--r-sm, 6px); cursor: pointer; }
+    .slide { aspect-ratio: 16 / 9; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md, 8px); padding: 32px; box-sizing: border-box; overflow: hidden; }
     .slide h2 { font-size: 28px; margin: 0 0 16px; }
     .slide.title { display: flex; flex-direction: column; justify-content: center; }
     body.presenting { padding: 0; display: block; }
@@ -336,7 +336,7 @@ const Compose = (() => {
     .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; padding: 14px 16px; }
     .uiform { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; }
     .uiform label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-    .uiform :is(input, select, textarea) { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+    .uiform :is(input, select, textarea) { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm, 6px); padding: 8px 12px; }
     .uiform .form-send { align-self: flex-start; min-height: 44px; padding: 0 16px; }
     .tl { list-style: none; padding: 0; margin: 0; max-width: none; }
     .tl li { display: flex; gap: 14px; padding: 14px 16px; margin: 0; border-bottom: 1px solid var(--hair); }

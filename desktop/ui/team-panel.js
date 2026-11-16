@@ -286,7 +286,7 @@ const TeamPanel = {
       if (t.closest("[data-file-save]")) await Magnus.download(at, file);
       if (t.closest("[data-file-delete]") && await ask(`Delete ${file}?`, "Delete")) { await Server.workspaces.removeFile(s.ws, file); await this.refresh(); }
       if (t.closest("[data-entry-flag]")) {
-        const why = prompt("What is wrong with it?");
+        const why = await askText("What is wrong with it?", "Describe what should be corrected", "Flag");
         if (why) { await Server.workspaces.flagKnowledge(s.ws, entry, why); toast("Flagged."); this.knowledge(); }
       }
       if (t.closest("[data-entry-correct]")) {

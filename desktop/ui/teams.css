@@ -7,9 +7,9 @@ body[data-team]:not([data-navigation=drawer]) .workspace-bar { display: none; }
 body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .teams-page { max-width: 640px; margin: 24px auto; padding: 0 16px; }
 .teams-page .team-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 24px; }
-.teams-page .team-list a { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); text-decoration: none; background: var(--surface); }
+.teams-page .team-list a { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--fg); text-decoration: none; background: var(--surface); }
 .teams-page .team-list a:hover { background: var(--row-sel); }
-.teams-page .team-list .team-avatar { width: 36px; height: 36px; font-size: 14px; border-radius: 10px; }
+.teams-page .team-list .team-avatar { width: 36px; height: 36px; font-size: 14px; border-radius: var(--r-avatar); }
 .teams-page form { display: flex; gap: 8px; }
 .teams-page form input { flex: 1; }
 .team-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; height: 100%; min-height: 0; }
@@ -24,17 +24,17 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-rail-head { display: flex; flex-direction: column; padding: 4px 8px 10px; }
 .team-rail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 8px 4px; }
 .team-rail nav { display: flex; flex-direction: column; }
-.team-rail a { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; color: var(--fg2); text-decoration: none; }
+.team-rail a { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r-sm); color: var(--fg2); text-decoration: none; }
 .team-rail a:hover, .team-rail a[aria-current="page"] { background: var(--row-sel); color: var(--fg); }
 .team-rail a.unread { color: var(--fg); font-weight: 600; }
 .team-rail a.muted { opacity: .6; }
 .team-rail [data-rail-people] .faint { margin-left: auto; }
-.team-search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); }
+.team-search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--muted); }
 .team-search kbd { margin-left: auto; font-size: 11px; }
-.team-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--seg); color: var(--fg2); font-size: 12px; text-align: center; }
+.team-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--seg); color: var(--fg2); font-size: 12px; text-align: center; }
 .team-count.loud { background: var(--accent); color: var(--accent-fg); }
 .team-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: none; }
-.team-avatar { width: 24px; height: 24px; border-radius: 6px; background: var(--seg); color: var(--fg2); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.team-avatar { width: 24px; height: 24px; border-radius: var(--r-avatar); background: var(--seg); color: var(--fg2); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .team-avatar.agent { background: var(--accent-soft); color: var(--accent-text); }
 .team-presence { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); margin-left: -12px; margin-top: 14px; flex: none; }
 .team-presence.on { background: var(--ok); border-color: var(--ok); }
@@ -53,9 +53,9 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .team-card { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .team-card h3 { font-size: 13px; margin: 0 0 6px; display: flex; justify-content: space-between; }
-.team-screen-none { aspect-ratio: 16 / 10; border-radius: 8px; background: var(--seg); padding: 12px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.team-screen-none { aspect-ratio: 16 / 10; border-radius: var(--r-sm); background: var(--seg); padding: 12px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
 .team-screen-none p { margin: 0; }
-.team-screen img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; background: var(--seg); display: block; margin-bottom: 6px; }
+.team-screen img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: var(--r-sm); background: var(--seg); display: block; margin-bottom: 6px; }
 .team-mini, .team-work, .team-files, .team-people, .team-activity-list, .team-list { list-style: none; padding: 0; margin: 0; }
 .team-mini li, .team-files li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; }
 .team-people li { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
@@ -66,12 +66,12 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-progress { display: inline-block; width: 120px; height: 6px; border-radius: 3px; background: var(--seg); overflow: hidden; vertical-align: middle; margin-right: 6px; }
 .team-progress span { display: block; height: 100%; background: var(--ok); }
 .team-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
-.team-col { background: var(--seg); border-radius: 10px; padding: 8px; }
+.team-col { background: var(--seg); border-radius: var(--r-md); padding: 8px; }
 .team-col h3 { font-size: 13px; margin: 0 0 6px; }
 .team-col ul { list-style: none; padding: 0; margin: 0 0 6px; display: flex; flex-direction: column; gap: 6px; }
-.team-task { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px; cursor: grab; }
+.team-task { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px; cursor: grab; }
 .team-col input { width: 100%; }
-.team-drop { display: block; margin-top: 12px; padding: 16px; border: 2px dashed var(--line); border-radius: 10px; text-align: center; }
+.team-drop { display: block; margin-top: 12px; padding: 16px; border: 2px dashed var(--line); border-radius: var(--r-md); text-align: center; }
 .team-kb { list-style: none; padding: 0; margin: 8px 0; }
 .team-kb li { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .team-kb-head { display: flex; gap: 8px; align-items: center; }
@@ -80,10 +80,10 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-kb-new { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .team-kb-new select { align-self: flex-start; }
 .team-invite { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-.team-command { width: min(640px, 92vw); padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--raised, var(--surface)); color: var(--fg); box-shadow: var(--shadow); }
+.team-command { width: min(640px, 92vw); padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--raised, var(--surface)); color: var(--fg); box-shadow: var(--shadow); }
 .team-command input { width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--line); font-size: 16px; background: none; color: var(--fg); }
 .team-command #team-command-list { max-height: 60vh; overflow-y: auto; padding: 6px; }
-.team-command button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0; background: none; padding: 6px 10px; border-radius: 6px; text-align: left; color: var(--fg); }
+.team-command button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0; background: none; padding: 6px 10px; border-radius: var(--r-sm); text-align: left; color: var(--fg); }
 .team-command button.on { background: var(--row-sel); }
 .team-command-group { font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; }
 .team-command p { margin: 0; padding: 6px 16px 10px; }
@@ -102,10 +102,10 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 /* Pop-ups for what needs the person: the lower right corner, a few at most,
    above everything but dialogs, each its own click target. */
 #notices { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 40; width: min(360px, calc(100vw - 32px)); }
-.notice { position: relative; display: flex; flex-direction: column; gap: 2px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.18)); padding: 10px 36px 10px 14px; animation: notice-in .18s ease-out; }
+.notice { position: relative; display: flex; flex-direction: column; gap: 2px; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.18)); padding: 10px 36px 10px 14px; animation: notice-in .18s ease-out; }
 .notice-open { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .notice-open span { color: var(--muted); font-size: 0.92em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.notice-open:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 4px; border-radius: 6px; }
+.notice-open:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 4px; border-radius: var(--r-sm); }
 .notice-close { position: absolute; top: 6px; right: 6px; }
 .notice [data-system-on] { align-self: flex-start; margin-top: 4px; }
 @keyframes notice-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

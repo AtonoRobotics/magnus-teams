@@ -9,12 +9,19 @@ const context = {}; vm.runInNewContext(source, context); const T = context.Theme
 assert.equal(T.PRESETS, undefined, 'named presets were removed');
 assert.equal(T.MATERIALS, undefined, 'material options were removed');
 assert.equal(T.GLASS, undefined, 'glass palette was removed');
+assert.deepEqual([...T.STYLES.map(s => s[0])], ['antigravity', 'companion']);
+assert.ok(T.STYLE_TOKENS.antigravity && T.STYLE_TOKENS.companion, 'style radius tokens defined');
+assert.equal(T.STYLE_TOKENS.antigravity['r-pill'], '6px');
+assert.equal(T.STYLE_TOKENS.companion['r-pill'], '999px');
 assert.deepEqual([...T.MODES.map(m => m[0])], ['light', 'dark', 'system']);
 
 // Validation and clamping.
-const p = T.preferences({ mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', navigation: 'floating', conversationWidthPx: 9999 });
-assert.deepEqual({ ...p }, { mode: 'dark', accent: 'blue', motion: 'full', navigation: 'expanded', conversationWidthPx: 560 });
+const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', navigation: 'floating', conversationWidthPx: 9999 });
+assert.deepEqual({ ...p }, { style: 'antigravity', mode: 'dark', accent: 'graphite', motion: 'full', navigation: 'expanded', conversationWidthPx: 560 });
 assert.equal(T.preferences({ conversationWidthPx: 10 }).conversationWidthPx, 360);
+assert.equal(T.preferences({ style: 'companion' }).style, 'companion');
+assert.equal(T.preferences({ accent: '#7C8CFF' }).accent, '#7C8CFF');
+assert.equal(T.preferences({ accent: '#xyz' }).accent, 'graphite');
 
 // Records written by the four-preset build.
 const v2 = (x) => T.preferences({ version: 2, followComputer: false, motion: 'reduced', navigation: 'compact', conversationWidthPx: 480, ...x });
@@ -23,7 +30,7 @@ assert.equal(v2({ theme: 'dark' }).mode, 'dark');
 assert.equal(v2({ theme: 'ember' }).mode, 'dark');
 assert.equal(v2({ theme: 'corporate' }).mode, 'light');
 assert.equal(v2({ theme: 'dark', followComputer: true }).mode, 'system');
-assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { mode: 'dark', accent: 'amber', motion: 'reduced', navigation: 'compact', conversationWidthPx: 480 });
+assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'antigravity', mode: 'dark', accent: 'amber', motion: 'reduced', navigation: 'compact', conversationWidthPx: 480 });
 
 // In the page: per-person storage, legacy read once and left intact, a
 // failed write keeps the choice for the session and says so, and old records
@@ -34,15 +41,17 @@ const page = { localStorage: { getItem: k => store.get(k) ?? null, setItem: (k, 
   document: { documentElement: { style: { setProperty() {} }, dataset: {} }, querySelectorAll: () => [] },
   addEventListener() {}, dispatchEvent: e => events.push(e), CustomEvent: class { constructor(type, o) { this.type = type; this.detail = o.detail; } } };
 page.window = page; vm.runInNewContext(source, page); const U = page.Theme;
-U.scope('appliance-a', 'alice'); assert.equal(U.prefs().accent, 'amber'); assert.equal(U.prefs().mode, 'dark');
+U.scope('appliance-a', 'alice'); assert.equal(U.prefs().accent, 'amber'); assert.equal(U.prefs().mode, 'dark'); assert.equal(U.prefs().style, 'antigravity');
 assert.equal('material' in JSON.parse(store.get('magnus.ui.v2.appliance-a.alice')), false);
+U.set({ style: 'companion', accent: 'blue' });
+assert.equal(U.look.style, 'companion'); assert.equal(U.prefs().style, 'companion'); assert.equal(page.document.documentElement.dataset.style, 'companion');
 U.set({ accent: 'emerald' }); assert.equal(U.prefs().mode, 'dark', 'an accent never changes the mode');
-U.scope('appliance-a', 'bob'); assert.equal(U.prefs().accent, 'amber', 'a new person starts from the legacy record');
-U.set({ mode: 'light' }); U.scope('appliance-a', 'alice'); assert.equal(U.prefs().accent, 'emerald'); assert.equal(U.prefs().mode, 'dark');
+U.scope('appliance-a', 'bob'); assert.equal(U.prefs().accent, 'amber', 'a new person starts from the legacy record'); assert.equal(U.prefs().style, 'antigravity');
+U.set({ mode: 'light' }); U.scope('appliance-a', 'alice'); assert.equal(U.prefs().accent, 'emerald'); assert.equal(U.prefs().mode, 'dark'); assert.equal(U.prefs().style, 'companion');
 store.set('magnus.ui.v2.appliance-a.carol', JSON.stringify({ mode: 'dark', material: 'glass', motion: 'full' }));
-U.scope('appliance-a', 'carol'); assert.equal(U.look.mode, 'dark');
+U.scope('appliance-a', 'carol'); assert.equal(U.look.mode, 'dark'); assert.equal(U.look.style, 'antigravity');
 assert.equal('material' in JSON.parse(store.get('magnus.ui.v2.appliance-a.carol')), false, 'saved material: glass is migrated out');
 fail = true; U.set({ mode: 'light' }); assert.equal(U.saved, false); assert.equal(U.look.mode, 'light');
 assert.equal(JSON.parse(store.get('magnus.appearance')).accent, 'amber', 'the legacy record is never rewritten');
 assert.ok(events.some(e => e.type === 'magnus-theme'));
-console.log('preferences: validation, migration, per-person storage and storage failure passed');
+console.log('preferences: validation, style, migration, per-person storage and storage failure passed');

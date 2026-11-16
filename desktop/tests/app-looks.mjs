@@ -69,18 +69,25 @@ const reading=async()=>{
   await click(xpath(`//a[@data-open='file:${fileId}']`));
   await until('document decoded',()=>run("const f=document.getElementById('fview');return f?.contentDocument?.body?.textContent.includes('Actual uploaded document.') && f.getBoundingClientRect().height>=f.contentDocument.body.scrollHeight"));
 };
-await step('Appearance offers mode, accent and motion only',async()=>{
+await step('Appearance offers theme, mode, accent and motion',async()=>{
   await appearance();
+  for(const value of ['antigravity','companion'])await xpath(`//button[@data-look='style' and @data-value='${value}']`);
   for(const value of ['light','dark','system'])await xpath(`//button[@data-look='mode' and @data-value='${value}']`);
   if(await run("return document.querySelectorAll('[data-look=theme],[data-follow-computer]').length"))throw Error('Named presets or Follow computer are still offered');
   if(await run("return document.querySelectorAll('[data-look=material]').length"))throw Error('A material choice is still offered');
   for(const value of ['full','reduced','off'])await xpath(`//button[@data-look='motion' and @data-value='${value}']`);
+  await choose('style','companion');
+  const compLook=await run('return {...document.documentElement.dataset}');
+  if(compLook.style!=='companion' || compLook.accent!=='blue')throw Error(`Companion did not switch to Indigo default: ${JSON.stringify(compLook)}`);
+  await choose('style','antigravity');
+  const agLook=await run('return {...document.documentElement.dataset}');
+  if(agLook.style!=='antigravity' || agLook.accent!=='graphite')throw Error(`Antigravity did not switch to Monochrome default: ${JSON.stringify(agLook)}`);
 });
-for(const mode of ['light','dark']){
-  await step(mode,async()=>{
-    await appearance();await choose('mode',mode);await reading();
+for(const style of ['antigravity','companion'])for(const mode of ['light','dark']){
+  await step(`${style}/${mode}`,async()=>{
+    await appearance();await choose('style',style);await choose('mode',mode);await reading();
     const m=JSON.parse(await run(MEASURE));
-    if(m.look.mode!==mode || 'material' in m.look || 'backdrop' in m.look)throw Error(`Unexpected appearance ${JSON.stringify(m.look)}`);
+    if(m.look.style!==style || m.look.mode!==mode || 'material' in m.look || 'backdrop' in m.look)throw Error(`Unexpected appearance ${JSON.stringify(m.look)}`);
     if(m.panel!==1 || m.side!==1)throw Error(`Chrome or the panel is translucent: ${JSON.stringify(m)}`);
     if(m.sideBlur!=='none' || m.panelBlur!=='none')throw Error(`Chrome blurs what is behind it: ${JSON.stringify(m)}`);
     for(const [what,alpha] of m.reading)if(alpha!==null && alpha!==1)throw Error(`Translucent reading surface ${what}`);
@@ -96,13 +103,13 @@ await step('explicit expansion and restore keep conversation reachable',async()=
   await click(xpath("//div[contains(@class,'workspace-selectors')]//button[normalize-space()='Work']"));await css('#fview');
   await click(css('[aria-label="Restore split view"]'));await css('#msg');
 });
-await step('custom accent and no-motion preferences persist',async()=>{
-  await appearance();await choose('mode','dark');await choose('accent','emerald');await choose('motion','off');await reading();
+await step('theme, custom accent and no-motion preferences persist',async()=>{
+  await appearance();await choose('style','companion');await choose('mode','dark');await choose('accent','emerald');await choose('motion','off');await reading();
   if(await run("return getComputedStyle(document.getElementById('send')).backgroundColor")!=='rgb(52, 211, 153)')throw Error('The chosen Emerald accent is not rendered on Send');
   if(await run('return document.getAnimations().length'))throw Error('Motion Off still animates');
   await run('location.reload()');await css('#msg');
   const look=await run('return {...document.documentElement.dataset}');
-  if(look.mode!=='dark' || 'material' in look || look.accent!=='emerald' || look.motion!=='off')throw Error(`Lost preference ${JSON.stringify(look)}`);
+  if(look.style!=='companion' || look.mode!=='dark' || 'material' in look || look.accent!=='emerald' || look.motion!=='off')throw Error(`Lost preference ${JSON.stringify(look)}`);
 });
 await d.close();
 console.log("looks passed");

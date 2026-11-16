@@ -17,6 +17,28 @@
   --ease: cubic-bezier(.2, .8, .2, 1);
   --hover-mix: 6%;
   --pressed-mix: 10%;
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 10px;
+  --r-pill: 6px;
+  --r-send: 6px;
+  --r-avatar: 6px;
+  --r-composer: 10px;
+  --focus-ring: 0 0 0 1px var(--accent);
+}
+html[data-style="companion"] {
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-pill: 999px;
+  --r-send: 50%;
+  --r-avatar: 50%;
+  --r-composer: 16px;
+  --focus-ring: 0 0 0 3px var(--accent-soft);
 }
 * { box-sizing: border-box; }
 /* Solid before theme.js sets the tokens, in the colors the window starts
@@ -46,15 +68,15 @@ svg.ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor
 .icon-btn:hover { background: var(--row-sel); text-decoration: none; }
 .icon-btn.on { background: var(--row-sel); color: var(--fg); }
 .icon-btn svg.ic { width: 17px; height: 17px; }
-button.needs { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; cursor: pointer; border: 0; border-radius: 7px; background: transparent; box-shadow: none; min-height: 32px; padding: 0 8px; font-size: 13px; font-weight: 500; color: var(--fg2); }
+button.needs { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; cursor: pointer; border: 0; border-radius: var(--r-sm); background: transparent; box-shadow: none; min-height: 32px; padding: 0 8px; font-size: 13px; font-weight: 500; color: var(--fg2); }
 button.needs svg.ic { color: var(--warn-icon); width: 15px; height: 15px; }
 button.needs .ttl { flex: 1; }
 button.needs:hover { background: var(--row-sel); color: var(--fg); }
 button.needs.on { background: var(--raised); color: var(--fg); }
-.pill { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); color: var(--fg); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.pill { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--raised); border: 1px solid var(--line); color: var(--fg); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
 .pill.quiet { background: var(--seg); color: var(--fg2); display: none; }
-.avatar { width: 28px; height: 28px; border-radius: 7px; background: var(--raised); border: 1px solid var(--line); color: var(--fg); display: grid; place-items: center; font-weight: 600; font-size: 12px; flex: none; }
-.badge { background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 0 6px; font-size: 11px; font-weight: 600; min-width: 18px; text-align: center; }
+.avatar { width: 28px; height: 28px; border-radius: var(--r-avatar); background: var(--raised); border: 1px solid var(--line); color: var(--fg); display: grid; place-items: center; font-weight: 600; font-size: 12px; flex: none; }
+.badge { background: var(--accent); color: var(--accent-fg); border-radius: var(--r-pill); padding: 0 6px; font-size: 11px; font-weight: 600; min-width: 18px; text-align: center; }
 section.conv { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .foot-note { margin-top: 0; font-size: 12px; color: var(--muted); }
 svg.chev { width: 16px; height: 16px; color: var(--chev); stroke-width: 1.8; }
@@ -72,9 +94,10 @@ input, textarea, select { font: inherit; color: var(--fg); background: var(--sur
 input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 textarea { width: 100%; resize: vertical; }
 label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; font-weight: 500; }
-dialog.ask { max-width: 440px; padding: 20px 22px 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
+dialog.ask { max-width: 440px; padding: 20px 22px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); color: var(--fg); box-shadow: var(--shadow); }
 dialog.ask::backdrop { background: rgba(0,0,0,.28); }
 dialog.ask p { margin: 0 0 16px; line-height: 1.45; }
+dialog.ask input[type="text"] { width: 100%; margin-bottom: 14px; }
 dialog.ask .row { justify-content: flex-end; gap: 8px; }
 /* A column of a form's or card's parts, spaced evenly. (It was once a 14px
    bar chart; nothing draws that any more, and every form that says stack
@@ -82,7 +105,7 @@ dialog.ask .row { justify-content: flex-end; gap: 8px; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .stack > label:not(:has(> input[type=checkbox], > input[type=radio])) { display: flex; flex-direction: column; gap: 4px; }
 .stack > label > input:not([type=checkbox]):not([type=radio]), .stack > label > select, .stack > label > textarea { width: 100%; box-sizing: border-box; }
-.fp { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--raised); border: 1px solid var(--line); padding: 8px; border-radius: 6px; }
+.fp { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--raised); border: 1px solid var(--line); padding: 8px; border-radius: var(--r-xs); }
 /* Files and projects. A label or link styled as a button opens a file
    picker or goes somewhere; it looks like the buttons beside it. */
 .button { display: inline-block; font-size: 14px; font-weight: 550; border: 1px solid var(--btn-border); background: var(--button-bg); color: var(--fg); padding: 7px 14px; cursor: pointer; margin: 0; text-decoration: none; }
@@ -122,7 +145,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea, select { border-colo
   button, input, textarea, select { border: 1px solid ButtonText; }
   :is(.on, [aria-current="page"], [aria-selected="true"]) { outline: 2px solid Highlight; }
 }
-button, .button, .icon-btn, input, textarea, select { border-radius: 8px; }
+button, .button, .icon-btn, input, textarea, select { border-radius: var(--r-sm); }
 :is(a, button, input, textarea, select, summary, [tabindex]):focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
 .button:focus-within { outline: 2px solid var(--focus, var(--accent)); outline-offset: 2px; }
 html[data-mode="dark"] { --hover-mix: 8%; --pressed-mix: 12%; }
@@ -133,7 +156,7 @@ html[data-mode="dark"] { --hover-mix: 8%; --pressed-mix: 12%; }
 @media (any-pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]), select { min-width:44px; min-height:44px; }
 }
-.tooltip { position: fixed; z-index: 80; max-width: 280px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--fg); background: var(--surface); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; box-shadow: var(--shadow); }
+.tooltip { position: fixed; z-index: 80; max-width: 280px; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); color: var(--fg); background: var(--surface); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; user-select: text; box-shadow: var(--shadow); }
 .sub.by { color: var(--muted); }
 section.conv.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; background: color-mix(in srgb, var(--accent) 4%, var(--main)); }
 /* Streamlined Activity & Needs you */
@@ -141,7 +164,7 @@ details.collapsed-done {
   margin: 12px 0;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-md);
   background: var(--surface);
 }
 details.collapsed-done > summary {

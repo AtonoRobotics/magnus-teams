@@ -28,12 +28,25 @@
     "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8892A6", "k-tool": "#FDBA74",
   };
   const ACCENTS = [
-    { id: "blue", label: "Indigo (Default)", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
+    { id: "graphite", label: "Monochrome (Default)", swatch: "#ECEFF4", light: { accent: "#111318", "accent-fg": "#FFFFFF", "accent-text": "#111318", "accent-soft": "#E9ECF2" }, dark: { accent: "#ECEFF4", "accent-fg": "#090A0D", "accent-text": "#ECEFF4", "accent-soft": "#242834" } },
+    { id: "blue", label: "Indigo", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
     { id: "emerald", label: "Emerald", swatch: "#34D399", light: { accent: "#146C34", "accent-fg": "#FFFFFF", "accent-text": "#146C34", "accent-soft": "#ECFDF3" }, dark: { accent: "#34D399", "accent-fg": "#090A0D", "accent-text": "#6EE7B7", "accent-soft": "#102A22" } },
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
-    { id: "graphite", label: "Monochrome", swatch: "#ECEFF4", light: { accent: "#111318", "accent-fg": "#FFFFFF", "accent-text": "#111318", "accent-soft": "#E9ECF2" }, dark: { accent: "#ECEFF4", "accent-fg": "#090A0D", "accent-text": "#ECEFF4", "accent-soft": "#242834" } },
   ];
+  const STYLES = [["antigravity", "Antigravity"], ["companion", "Companion"]];
+  const STYLE_TOKENS = {
+    antigravity: {
+      "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
+      "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "10px",
+      "focus-ring": "0 0 0 1px var(--accent)",
+    },
+    companion: {
+      "r-xs": "6px", "r-sm": "8px", "r-md": "12px", "r-lg": "16px", "r-xl": "18px",
+      "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "16px",
+      "focus-ring": "0 0 0 3px var(--accent-soft)",
+    },
+  };
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
   const MOTIONS = [["full", "Full"], ["reduced", "Reduced"], ["off", "Off"]];
   const MOTION_HINTS = {
@@ -41,7 +54,7 @@
     reduced: "Quick fades instead of movement.",
     off: "No animation. Everything changes instantly.",
   };
-  const DEFAULTS = { mode: "dark", accent: "blue", motion: "full" };
+  const DEFAULTS = { style: "antigravity", mode: "dark", accent: "graphite", motion: "full" };
   const LAYOUT = { navigation: "expanded", conversationWidthPx: 420 };
 
   const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
@@ -49,12 +62,18 @@
   function customAccentTokens(hex, mode) {
     const pal = mode === "dark" ? DARK : LIGHT;
     const target = mode === "dark" ? "#FFFFFF" : "#111318";
+    const bestFg = c => contrast(c, "#FFFFFF") >= contrast(c, "#090A0D") ? "#FFFFFF" : "#090A0D";
     let accent = hex;
-    for (let step = 1; step <= 12 && contrast(accent, pal.main) < 3.0; step++) accent = mixHex(hex, target, step * 0.08);
-    const fg = contrast(accent, "#FFFFFF") >= contrast(accent, "#090A0D") ? "#FFFFFF" : "#090A0D";
+    for (let step = 1; step <= 16 && (contrast(accent, pal.main) < 3.0 || contrast(accent, bestFg(accent)) < 4.5); step++) {
+      accent = mixHex(hex, target, step / 16);
+    }
+    const fg = bestFg(accent);
+    const soft = mixHex(accent, pal.main, mode === "dark" ? 0.86 : 0.90);
     let text = hex;
-    for (let step = 1; step <= 12 && (contrast(text, pal.main) < 4.5 || contrast(text, pal.surface) < 4.5); step++) text = mixHex(hex, target, step * 0.08);
-    return { accent, "accent-fg": fg, "accent-text": text, "accent-soft": mixHex(accent, pal.main, mode === "dark" ? 0.86 : 0.90) };
+    for (let step = 1; step <= 16 && (contrast(text, pal.main) < 4.5 || contrast(text, pal.surface) < 4.5 || contrast(text, pal.raised) < 4.5 || contrast(text, soft) < 4.5); step++) {
+      text = mixHex(hex, target, step / 16);
+    }
+    return { accent, "accent-fg": fg, "accent-text": text, "accent-soft": soft };
   }
 
   function effective(prefs, os = {}) {
@@ -62,13 +81,16 @@
     const dark = p.mode === "dark" || (p.mode === "system" && !!os.dark);
     const order = ["off", "reduced", "full"];
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
+    const style = STYLES.some(s => s[0] === p.style) ? p.style : DEFAULTS.style;
     const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
-    return { mode: dark ? "dark" : "light", motion, accent };
+    return { style, mode: dark ? "dark" : "light", motion, accent };
   }
 
   function tokens(look) {
     const dark = look.mode === "dark";
     const t = { ...(dark ? DARK : LIGHT) };
+    const style = STYLES.some(s => s[0] === look.style) ? look.style : DEFAULTS.style;
+    Object.assign(t, STYLE_TOKENS[style]);
     t.shell = t.bg;
     t.panel = t.main;
     const preset = ACCENTS.find(a => a.id === look.accent);
@@ -82,9 +104,10 @@
     let v = value && typeof value === "object" ? value : {};
     if (v.version === 2) {
       const mode = v.followComputer ? "system" : v.theme === "custom" ? v.mode : ["dark", "ember"].includes(v.theme) ? "dark" : "light";
-      v = { ...v, mode, accent: v.theme === "custom" ? v.accent : DEFAULTS.accent };
+      v = { ...v, style: DEFAULTS.style, mode, accent: v.theme === "custom" ? v.accent : DEFAULTS.accent };
     }
     return {
+      style: member(v.style, STYLES.map(x => x[0]), DEFAULTS.style),
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
       accent: isHex(v.accent) ? v.accent : member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
@@ -97,7 +120,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, MODES, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT, preferences, contrast, effective, tokens };
+  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT, preferences, contrast, effective, tokens };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";
@@ -132,7 +155,7 @@
     const look = effective(current, Theme.os()), el = document.documentElement, t = tokens(look);
     for (const [k, v] of Object.entries(t)) el.style.setProperty(`--${k}`, v);
     el.style.colorScheme = look.mode;
-    Object.assign(el.dataset, { mode: look.mode, motion: look.motion, accent: look.accent });
+    Object.assign(el.dataset, { style: look.style, mode: look.mode, motion: look.motion, accent: look.accent });
     delete el.dataset.material;
     Theme.look = look;
     for (const f of document.querySelectorAll("iframe.composed")) {

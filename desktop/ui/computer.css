@@ -17,14 +17,14 @@
 .control-strip button.icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* The state, in one pill with a dot: asleep, waking, working, held. */
-.state-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--seg); color: var(--fg2); border: 1px solid var(--line); }
+.state-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--r-pill); font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--seg); color: var(--fg2); border: 1px solid var(--line); }
 .state-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .7; }
 .state-pill[data-pill="waking"], .state-pill[data-pill="queued"], .state-pill[data-pill="asks"], .state-pill[data-pill="paused"] { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .state-pill[data-pill="working"] { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
 .state-pill[data-pill="mine"], .state-pill[data-pill="held"] { background: var(--raised); color: var(--fg); border-color: var(--line-strong); }
 .state-pill[data-pill="mine"]::before, .state-pill[data-pill="held"]::before { background: var(--ok); opacity: 1; }
 
-.screen { position: relative; min-height: 160px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; }
+.screen { position: relative; min-height: 160px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; cursor: pointer; }
 /* The whole screen stays in view, caption and all: it scales down to fit,
    and its box is the picture itself, so a click lands where it points. */
 .screen img, .screen canvas { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100vh - 340px); margin: 0 auto; }
@@ -42,13 +42,13 @@
 .wake-bar { width: min(240px, 70%); height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .2); overflow: hidden; }
 .wake-bar > div { height: 6px; border-radius: 3px; background: var(--accent); transition: width .4s var(--ease); }
 
-.screen-hold { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 8px 8px 8px 14px; border-radius: 10px; background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong); font-size: 13px; box-shadow: var(--shadow); }
-.screen-hold button { height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: var(--accent); color: var(--accent-fg); font-size: 12px; font-weight: 600; flex: none; }
+.screen-hold { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px); padding: 8px 8px 8px 14px; border-radius: var(--r-md); background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong); font-size: 13px; box-shadow: var(--shadow); }
+.screen-hold button { height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-sm); background: var(--accent); color: var(--accent-fg); font-size: 12px; font-weight: 600; flex: none; }
 
 .screen-caption { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 12px 18px; background: rgba(9, 10, 13, .88); color: #ECEFF4; font-size: 13px; pointer-events: none; }
 
 /* The computer in the conversation's head: what it is doing, and a way to pin it. */
-.computer-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg2); cursor: pointer; }
+.computer-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 4px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface); color: var(--fg2); cursor: pointer; }
 .computer-chip svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
 .computer-chip[data-pill="working"] { background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
 .computer-chip[data-pill="mine"], .computer-chip[data-pill="held"] { background: var(--raised); color: var(--fg); border-color: var(--line-strong); }

@@ -115,7 +115,7 @@ async function madeAction(b, id) {
     toast(failed ? `${failed} could not be downloaded.` : paths.length === 1 ? "Downloaded." : `${paths.length} files downloaded.`);
     return false;
   }
-  if (!confirm(`Delete ${paths.length === 1 ? paths[0] : `${paths.length} files`} from this computer? This cannot be undone.`)) return false;
+  if (!await ask(`Delete ${paths.length === 1 ? paths[0] : `${paths.length} files`} from this computer? This cannot be undone.`, "Delete")) return false;
   let failed = 0;
   for (const p of paths) { try { await Server.local.removeFile(id, p); } catch (e) { failed++; if (paths.length === 1) throw e; } }
   toast(failed ? `${failed} could not be deleted.` : "Deleted.");
@@ -501,7 +501,7 @@ function computerFiles(body, id, base, hash) {
     }
     if (e.target.closest("[data-bulk]")) {
       const rows = $$("[data-pick]:checked", body).map(p => p.closest("tr"));
-      if (!confirm(`Delete ${rows.length} item${rows.length === 1 ? "" : "s"}? They are also removed from backups.`)) return;
+      if (!await ask(`Delete ${rows.length} item${rows.length === 1 ? "" : "s"}? They are also removed from backups.`, "Delete")) return;
       let failed = 0;
       for (const r of rows) { try { await Server.computers.removeFile(id, pathOf(r)); } catch { failed++; } }
       toast(failed ? `${failed} could not be deleted.` : "Deleted.");

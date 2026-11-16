@@ -48,10 +48,10 @@ const PAIRS = [["accent-fg", "accent"], ["ok", "ok-soft"], ["warn", "warn-soft"]
 
 const failures = [];
 const report = [];
-for (const mode of ["light", "dark"]) for (const accent of Theme.ACCENTS.map(a => a.id)) {
-  const look = { mode, accent, motion: "full" };
+for (const style of Theme.STYLES.map(s => s[0])) for (const mode of ["light", "dark"]) for (const accent of [...Theme.ACCENTS.map(a => a.id), "#000000", "#FFFFFF", "#777777", "#FF3B30"]) {
+  const look = { style, mode, accent, motion: "full" };
   const t = Theme.tokens(look);
-  const name = `${mode}/${accent}`;
+  const name = `${style}/${mode}/${accent}`;
   let low = Infinity;
   const check = (fg, layers, what) => {
     const bgc = layers.reduce((acc, k) => over(rgba(t[k]), acc), rgba(t.bg));
@@ -63,13 +63,14 @@ for (const mode of ["light", "dark"]) for (const accent of Theme.ACCENTS.map(a =
   for (const [fg, layers] of READING_PAIRS) check(fg, layers, "reading");
   for (const [fg, bg] of PAIRS) check(fg, [bg], "label");
   for (const [k] of [...READING, ["bubble"], ["approval-bg"], ["seg-on"]]) if (rgba(t[k])[3] !== 1) failures.push(`${name}: the surface ${k} is not solid (${t[k]})`);
-  report.push(`${name.padEnd(20)} lowest ${low.toFixed(2)}:1`);
+  report.push(`${name.padEnd(28)} lowest ${low.toFixed(2)}:1`);
 }
 
 const os = { dark: false, reduceMotion: false };
 if (Theme.effective({ motion: "full" }, { ...os, reduceMotion: true }).motion !== "reduced") failures.push("the system's reduced motion did not reduce motion");
 if (Theme.effective({ motion: "off" }, { ...os, reduceMotion: true }).motion !== "off") failures.push("the system's reduced motion turned motion back on");
 if (Theme.effective({ mode: "system" }, { ...os, dark: true }).mode !== "dark") failures.push("Match computer did not follow the system into dark");
+if (Theme.effective({}, os).style !== "antigravity" || Theme.effective({}, os).accent !== "graphite") failures.push("Default look is not Antigravity monochrome graphite");
 
 console.log(report.join("\n"));
 if (failures.length) { console.error(`\n${failures.length} below ${MIN}:1 or wrong:\n${failures.join("\n")}`); process.exit(1); }
