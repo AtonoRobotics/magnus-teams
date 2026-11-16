@@ -20,7 +20,7 @@ const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8"
 const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 assert.ok(scripts.includes("admin.js") && scripts.indexOf("admin.js") > scripts.indexOf("app.js"), "index.html loads admin.js after app.js");
 assert.match(page, /<link rel="stylesheet" href="admin\.css">/, "index.html loads admin.css");
-assert.match(app, /primary\("teams","Teams","team","#\/teams"\)\}\$\{adminNavItem\(route\)\}<\/div>/, "the navigation has the Admin entry beside the others");
+assert.match(app, /adminNavItem\(route\)/, "the navigation has the Admin entry");
 assert.match(app, /\n  shell\(\);\n  adminStart\(\);\n/, "signing in asks whether the person administers, and starts the stops banner");
 assert.match(app, /\n  adminStop\(\);\n/, "signing out forgets it");
 assert.ok(!/The kill switch is on\./.test(app), "the conversation no longer has a banner of its own that names no one");

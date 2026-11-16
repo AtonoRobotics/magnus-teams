@@ -73,6 +73,7 @@ const App = {
   schedules: [],
   threads: [],
   projects: [],
+  workspaces: [],
   health: null,
   thread: null,
   /** The person closed this session's "Updates since your last session" notice. */
@@ -367,22 +368,23 @@ const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0
 
 function navigationTree() {
   const current=href=>(location.hash || "#/home")===href ? 'class="on" aria-current="page"' : "";
+  const route=location.hash || "#/home";
   const conv=t=>`<a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(t.title)}"><span class="ttl">${esc(t.title)}</span></a>`;
   const loose=App.threads.filter(t=>!t.project);
   return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><a href="#/projects" data-open="projects" class="more">All</a></div>
     ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("") || '<p class="small muted pad">No projects yet.</p>'}</div>
     <div class="sect" role="group" aria-label="Conversations"><div class="group"><span>Conversations</span></div>${loose.map(conv).join("") || '<p class="small muted pad">No conversations yet.</p>'}</div>
+    <div class="sect" role="group" aria-label="Teams"><div class="group"><span>Teams</span><a href="#/teams" class="more">Manage</a></div>${(App.workspaces || []).map(w=>`<a class="conv${route.startsWith(`#/team/${enc(w.id)}`) ? " on" : ""}" href="#/team/${enc(w.id)}" ${route.startsWith(`#/team/${enc(w.id)}`) ? 'aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span></a>`).join("") || '<p class="small muted pad">No teams yet.</p>'}</div>
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
 }
 function nav() {
   const route=location.hash || "#/home";
-  const active=k=>k==="teams" ? route.startsWith("#/teams") : false;
-  const primary=(k,label,ic,href)=>`<a class="primary-nav${active(k) ? " on" : ""}" href="${href}" ${active(k) ? 'aria-current="page"' : ""} aria-label="${label}" title="${label}">${icon(ic)}<span class="nav-label">${label}</span></a>`;
+  const adminNav=adminNavItem(route);
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
     <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
-    <details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${primary("teams","Teams","team","#/teams")}${adminNavItem(route)}</div></details>
+    ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
     <div class="sect"><a href="#/trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span>Trash</span></a></div>
     <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings" class="icon-btn${route.startsWith("#/settings") ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
@@ -1160,7 +1162,8 @@ async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects"})[k],path,k);
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
   const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
-  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox(), computers]);
+  const workspaces = Server.workspaces.list().then(r => { if (Array.isArray(r)) App.workspaces = r; }, () => {});
+  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks
   // (owner, 2026-11-07): developers see them in the run inspector.
@@ -3312,7 +3315,7 @@ function stop() {
   Theme.scope(null, null);
   adminStop();
   Panel.unwatch?.(); Panel.unwatch=null; Panel.anchors={}; Panel.layers={}; Panel.opener=null; Panel.drawn=null; Panel.what=null; App.draftRecord=null;
-  App.me = null; App.computers = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
+  App.me = null; App.computers = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
   // What one person was typing or filtering by is not the next one's here.
   Panel.lib = { q: "", project: "" };
   delete Lib.all; Lib.q=""; Lib.cat="all"; Lib.tab="discover";
