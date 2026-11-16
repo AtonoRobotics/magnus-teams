@@ -6,7 +6,10 @@
 //! implementation and one audit entry (spec rev 141, Administration). The
 //! console these routes were built for is retired.
 
+mod ops;
+
 use crate::events::Ev;
+use crate::extract::Body;
 use crate::kernel::Kernel;
 use anyhow::{Context, Result};
 use axum::extract::{Query, State};
@@ -61,31 +64,31 @@ pub(crate) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/people/{person}/schedules/{id}/{change}", post(person_schedule))
         .route("/v1/people/{person}/erase", post(erase_person))
         .route("/v1/people/{person}/computer", post(crate::computer::make_for_person))
-        .route("/v1/admin/policy", axum::routing::get(policy_sets))
-        .route("/v1/admin/policy/draft", post(policy_draft))
-        .route("/v1/admin/policy/apply", post(policy_apply))
-        .route("/v1/admin/policy/test", post(policy_test))
-        .route("/v1/admin/policy/history", axum::routing::get(policy_history))
-        .route("/v1/admin/modules", axum::routing::get(modules))
-        .route("/v1/admin/modules/{name}", post(set_module))
-        .route("/v1/admin/providers", axum::routing::get(providers))
-        .route("/v1/admin/providers/{id}", axum::routing::patch(set_provider))
-        .route("/v1/admin/providers/{id}/test", post(test_provider))
-        .route("/v1/admin/updates", axum::routing::get(updates))
-        .route("/v1/admin/updates/install", post(install_update))
-        .route("/v1/admin/updates/rollback", post(roll_back_update))
-        .route("/v1/admin/updates/desktop-channel", axum::routing::put(desktop_channel))
+        .route("/v1/admin/policy", axum::routing::get(ops::policy_sets))
+        .route("/v1/admin/policy/draft", post(ops::policy_draft))
+        .route("/v1/admin/policy/apply", post(ops::policy_apply))
+        .route("/v1/admin/policy/test", post(ops::policy_test))
+        .route("/v1/admin/policy/history", axum::routing::get(ops::policy_history))
+        .route("/v1/admin/modules", axum::routing::get(ops::modules))
+        .route("/v1/admin/modules/{name}", post(ops::set_module))
+        .route("/v1/admin/providers", axum::routing::get(ops::providers))
+        .route("/v1/admin/providers/{id}", axum::routing::patch(ops::set_provider))
+        .route("/v1/admin/providers/{id}/test", post(ops::test_provider))
+        .route("/v1/admin/updates", axum::routing::get(ops::updates))
+        .route("/v1/admin/updates/install", post(ops::install_update))
+        .route("/v1/admin/updates/rollback", post(ops::roll_back_update))
+        .route("/v1/admin/updates/desktop-channel", axum::routing::put(ops::desktop_channel))
         .route("/v1/admin/connectors", axum::routing::get(connectors).post(add_connector))
         .route("/v1/admin/connectors/{name}", axum::routing::patch(connector_settings).delete(remove_connector))
         .merge(crate::registrations::routes())
 }
 
-fn text(b: &Value, f: &str) -> Option<String> {
+pub(super) fn text(b: &Value, f: &str) -> Option<String> {
     b[f].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from)
 }
 
 /// Record a console action; its seq once it is in the log.
-async fn record(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
+async fn record(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response {
     let (Some(admin), Some(action)) = (text(&b, "admin"), text(&b, "action")) else {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "an audit entry names its admin and action" }))).into_response();
     };
@@ -149,7 +152,7 @@ async fn switch_state(State(k): State<Arc<Kernel>>) -> Response {
 }
 
 /// Engage or release it, as `actor`: the one switch, the app's own.
-async fn switch(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
+async fn switch(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response {
     let Some(actor) = text(&b, "actor") else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who moves the switch" }))).into_response() };
     match k.kill_switch(&actor, b["engaged"].as_bool().unwrap_or(true)).await {
         Ok(v) => Json(v).into_response(),
@@ -257,7 +260,7 @@ fn last_admin() -> Response {
 
 /// Change a role, a status, or both. Ending sessions are recorded, so the
 /// person's devices sign out on the record.
-async fn admin_patch_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn admin_patch_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let id = id.trim().to_lowercase();
     if k.person(&id).is_none() {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
@@ -314,7 +317,7 @@ async fn admin_patch_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id
 
 /// Turn someone off: no sign-in, their sessions ended on the record, their
 /// schedules paused. Never the last admin.
-async fn admin_disable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn admin_disable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who turns them off" }))).into_response() };
     let id = id.trim().to_lowercase();
     if k.person(&id).is_none() {
@@ -357,7 +360,7 @@ async fn admin_enable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axu
 /// Delete them: their content erased, then their local account where the
 /// appliance keeps one. A config person cannot be unmade here, so they are
 /// turned off instead and stay listed, disabled.
-async fn admin_delete(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn admin_delete(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who deletes them" }))).into_response() };
     let id = id.trim().to_lowercase();
     if k.person(&id).is_none() {
@@ -426,7 +429,7 @@ async fn admin_cancel_invite(State(k): State<Arc<Kernel>>, axum::extract::Path(i
 /// appliance cannot send mail, so there is no email step (#508). The id
 /// derives from the email's local part; a held id refuses `taken`,
 /// never a surprising sibling.
-async fn admin_invite(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
+async fn admin_invite(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response {
     let email = b["email"].as_str().map(str::trim).unwrap_or_default().to_lowercase();
     let name = b["name"].as_str().map(str::trim).unwrap_or_default();
     let role = match b["role"].as_str() {
@@ -475,7 +478,7 @@ async fn admin_resend_invite(State(k): State<Arc<Kernel>>, axum::extract::Path(i
 
 /// Give an invited person a password to choose with once, shown to the
 /// admin here only. It never signs in; choosing with it sets their own.
-async fn admin_invite_password(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn admin_invite_password(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let id = id.trim().to_lowercase();
     if k.person(&id).is_none() {
         return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
@@ -512,7 +515,7 @@ async fn sign_in_policy(State(k): State<Arc<Kernel>>) -> Response {
 
 /// Change the sign-in rules: only what is given changes. The longest
 /// wait cannot be shorter than the first, against the merged rules.
-async fn set_sign_in_policy(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
+async fn set_sign_in_policy(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response {
     let mut p = match k.accounts.policy().await {
         Ok(p) => p,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),
@@ -596,7 +599,7 @@ async fn signed_out(k: &Kernel, actor: &str, person: &str, ended: Vec<String>) -
 }
 
 /// End every session a person holds here, as `actor`.
-async fn end_sessions(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn end_sessions(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who ends them" }))).into_response() };
     let Some(person) = person_of(&k, &sub) else { return Json(json!({ "ended": 0 })).into_response() };
     match k.accounts.end_all(&person).await {
@@ -606,7 +609,7 @@ async fn end_sessions(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): ax
 }
 
 /// End one of them.
-async fn end_session(State(k): State<Arc<Kernel>>, axum::extract::Path((sub, id)): axum::extract::Path<(String, String)>, Json(b): Json<Value>) -> Response {
+async fn end_session(State(k): State<Arc<Kernel>>, axum::extract::Path((sub, id)): axum::extract::Path<(String, String)>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who ends it" }))).into_response() };
     let gone = match person_of(&k, &sub) {
         Some(person) => k.accounts.end(&person, &id).await.map(|s| s.map(|s| (person, s))),
@@ -639,18 +642,18 @@ async fn connectors(State(k): State<Arc<Kernel>>) -> Response {
     Json(json!({ "connectors": k.admin_connectors() })).into_response()
 }
 
-async fn add_connector(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
+async fn add_connector(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return no_actor() };
     done(async { k.add_connector(&actor, &serde_json::from_value(b).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()))?).await }.await)
 }
 
-async fn connector_settings(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn connector_settings(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return no_actor() };
     let list = |f: &str| b.get(f).and_then(|g| g.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
     done(k.connector_settings(&actor, &name, b["enabled"].as_bool(), list("access_groups"), list("blocked_groups")).await)
 }
 
-async fn remove_connector(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn remove_connector(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return no_actor() };
     done(k.remove_connector(&actor, &name).await)
 }
@@ -672,7 +675,7 @@ async fn person_schedules(State(k): State<Arc<Kernel>>, axum::extract::Path(sub)
     }
 }
 
-async fn person_schedule(State(k): State<Arc<Kernel>>, axum::extract::Path((sub, id, change)): axum::extract::Path<(String, String, String)>, Json(b): Json<Value>) -> Response {
+async fn person_schedule(State(k): State<Arc<Kernel>>, axum::extract::Path((sub, id, change)): axum::extract::Path<(String, String, String)>, Body(b): Body<Value>) -> Response {
     let (Some(actor), Some(person)) = (actor(&b), person_of(&k, &sub)) else { return person_refused((StatusCode::NOT_FOUND, "no such schedule".into())) };
     let on = match change.as_str() {
         "resume" => true,
@@ -686,132 +689,11 @@ async fn person_schedule(State(k): State<Arc<Kernel>>, axum::extract::Path((sub,
     }
 }
 
-async fn erase_person(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
+async fn erase_person(State(k): State<Arc<Kernel>>, axum::extract::Path(sub): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
     let Some(actor) = actor(&b) else { return person_refused((StatusCode::BAD_REQUEST, "name who deletes it".into())) };
     let Some(person) = person_of(&k, &sub) else { return Json(json!({ "never_here": true })).into_response() };
     match k.erase_person(&actor, &person).await {
         Ok(v) => Json(v).into_response(),
         Err(r) => person_refused(r),
     }
-}
-
-// The agent policy (admin console spec, Security › Agent policy), as the
-// kernel keeps it: sets, drafts, versions, tests.
-
-fn policy_refused((st, m): crate::policy::admin::Refusal) -> Response {
-    (st, Json(json!({ "error": m }))).into_response()
-}
-
-/// The sets, and what a test can name: the appliance's people and the
-/// organisation's tools.
-async fn policy_sets(State(k): State<Arc<Kernel>>) -> Response {
-    let people: Vec<Value> = k.people().all().into_iter().map(|p| json!({ "id": p.id, "name": p.name, "groups": p.groups })).collect();
-    let tools: Vec<Value> = k
-        .connectors()
-        .into_iter()
-        .flat_map(|c| c.tools.iter().map(|(t, cl)| json!({ "name": format!("{}__{t}", c.name), "risk": cl.risk, "audience": c.audience })).collect::<Vec<_>>())
-        .collect();
-    Json(json!({ "sets": k.policy_sets(), "people": people, "tools": tools })).into_response()
-}
-
-async fn policy_draft(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let (Some(actor), Some(layer)) = (actor(&b), text(&b, "layer")) else { return policy_refused((StatusCode::BAD_REQUEST, "name who drafts which layer".into())) };
-    match k.policy_draft(&actor, &layer, b["cedar"].as_str().map(String::from)).await {
-        Ok(v) => Json(v).into_response(),
-        Err(r) => policy_refused(r),
-    }
-}
-
-async fn policy_apply(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let (Some(actor), Some(layer)) = (actor(&b), text(&b, "layer")) else { return policy_refused((StatusCode::BAD_REQUEST, "name who applies which layer".into())) };
-    match k.policy_apply(&actor, &layer, b["cedar"].as_str().unwrap_or_default()).await {
-        Ok(v) => Json(v).into_response(),
-        Err(r) => policy_refused(r),
-    }
-}
-
-async fn policy_test(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    match k.policy_test(&b) {
-        Ok(v) => Json(v).into_response(),
-        Err(r) => policy_refused(r),
-    }
-}
-
-async fn policy_history(State(k): State<Arc<Kernel>>, Query(q): Query<HashMap<String, String>>) -> Response {
-    Json(json!({ "versions": k.policy_history(q.get("layer").map(String::as_str).unwrap_or("org")) })).into_response()
-}
-
-// Operations (admin console spec): the run modules, the model providers and
-// the updates, as the kernel's own operations.
-
-fn ops_refused((st, m): crate::ops_admin::Refusal) -> Response {
-    (st, Json(json!({ "error": m }))).into_response()
-}
-
-fn ops(r: Result<Value, crate::ops_admin::Refusal>) -> Response {
-    match r {
-        Ok(v) => Json(v).into_response(),
-        Err(e) => ops_refused(e),
-    }
-}
-
-async fn modules(State(k): State<Arc<Kernel>>) -> Response {
-    Json(json!({ "modules": k.admin_modules() })).into_response()
-}
-
-async fn set_module(State(k): State<Arc<Kernel>>, axum::extract::Path(name): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who sets it".into())) };
-    ops(k.set_module(&actor, &name, b["on"].as_bool()).await)
-}
-
-async fn providers(State(k): State<Arc<Kernel>>) -> Response {
-    Json(json!({ "providers": k.admin_providers().await })).into_response()
-}
-
-async fn test_provider(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>) -> Response {
-    ops(k.test_provider(&id).await)
-}
-
-async fn set_provider(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who sets it".into())) };
-    ops(k.set_provider(&actor, &id, b["enabled"].as_bool(), b["default_model"].as_str()).await)
-}
-
-async fn updates(State(k): State<Arc<Kernel>>) -> Response {
-    Json(k.admin_updates()).into_response()
-}
-
-/// Install the latest release now; the switch happens after the answer.
-async fn install_update(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who installs it".into())) };
-    let current = crate::update::version();
-    let to = k.latest_release().and_then(|m| m["version"].as_str().map(String::from));
-    match to {
-        Some(to) if crate::update::newer(&to, &current) && !k.read(|s| s.server_ops.skipped(&to)) => {
-            tokio::spawn(async move {
-                if let Err(e) = k.update(&actor).await {
-                    tracing::error!("update: {e:#}");
-                }
-            });
-            (StatusCode::ACCEPTED, Json(json!({ "status": "installing", "version": current, "latest": to }))).into_response()
-        }
-        to => Json(json!({ "status": "up_to_date", "version": current, "latest": to })).into_response(),
-    }
-}
-
-/// Go back to the release kept; the switch happens after the answer.
-async fn roll_back_update(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who rolls it back".into())) };
-    let Some(to) = crate::update::previous_version() else { return ops_refused((StatusCode::CONFLICT, "no earlier release is kept on this server".into())) };
-    tokio::spawn(async move {
-        if let Err(e) = k.roll_back(&actor).await {
-            tracing::error!("roll back: {e:#}");
-        }
-    });
-    (StatusCode::ACCEPTED, Json(json!({ "status": "rolling_back", "version": crate::update::version(), "to": to }))).into_response()
-}
-
-async fn desktop_channel(State(k): State<Arc<Kernel>>, Json(b): Json<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return ops_refused((StatusCode::BAD_REQUEST, "name who sets it".into())) };
-    ops(k.set_desktop_channel(&actor, b["channel"].as_str().unwrap_or_default()).await)
 }

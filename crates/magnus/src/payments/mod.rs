@@ -7,6 +7,7 @@ mod link;
 mod routes;
 
 pub use routes::router;
+pub(crate) use routes::SignIns;
 
 use crate::boundary::Action;
 use crate::events::Ev;

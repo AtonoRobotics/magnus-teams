@@ -128,13 +128,15 @@ pub(crate) const PROBE_WAIT: Duration = Duration::from_secs(10);
 pub(crate) const BACKOFF_FIRST_SECS: u64 = 1;
 
 /// The apps' sign-ins in flight on one server, kept on its kernel: its own
-/// waiting for their code, the relay's waiting for their tokens, and the
-/// one refresh at a time (apps that rotate refresh tokens accept each once).
+/// waiting for their code, the relay's waiting for their tokens, Link's
+/// waiting for its callback, and one token refresh at a time.
 #[derive(Default)]
 pub(crate) struct Connecting {
     pub(crate) sign_ins: SignIns,
     pub(crate) relayed: relay::Waits,
     pub(crate) refresh: tokio::sync::Mutex<()>,
+    pub(crate) link_sign_ins: crate::payments::SignIns,
+    pub(crate) link_refresh: tokio::sync::Mutex<()>,
 }
 
 pub(crate) fn http() -> reqwest::Client {

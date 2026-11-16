@@ -6,7 +6,6 @@ use crate::kernel::Kernel;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 const SCOPE: &str = "payment_methods.agentic";
@@ -56,11 +55,6 @@ fn http() -> Result<reqwest::Client> {
 
 pub(super) fn token_name(person: &str) -> String {
     format!("payments/link/{person}")
-}
-
-fn refreshing() -> &'static tokio::sync::Mutex<()> {
-    static R: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    R.get_or_init(Default::default)
 }
 
 pub(super) fn authorize_url(s: &LinkSettings, state: &str, challenge: &str) -> Result<String> {
@@ -113,7 +107,7 @@ pub(super) async fn revoke(k: &Kernel, s: &LinkSettings, person: &str) -> Result
 /// refresh token works once, so the new one is stored before anything else.
 async fn access(k: &Kernel, s: &LinkSettings, person: &str) -> Result<Option<String>> {
     let name = token_name(person);
-    let _one_at_a_time = refreshing().lock().await;
+    let _one_at_a_time = k.connecting.link_refresh.lock().await;
     let Some(raw) = k.vault.get(&name)? else { return Ok(None) };
     let tokens: Tokens = serde_json::from_str(raw.expose()).context("the stored Link sign-in")?;
     if tokens.expires_at - REFRESH_MARGIN_SECONDS > chrono::Utc::now().timestamp() {

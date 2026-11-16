@@ -1,7 +1,7 @@
 //! Connecting Link and keeping a saved card, from the person's own settings.
 use super::{link, Card};
 use crate::api::err;
-use crate::extract::Caller;
+use crate::extract::{Body, Caller};
 use crate::kernel::Kernel;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const SIGN_IN_WINDOW: Duration = Duration::from_secs(10 * 60);
@@ -23,16 +23,30 @@ const MAX_CARD_DIGITS: usize = 19;
 
 type K = State<Arc<Kernel>>;
 
-struct SignIn {
+pub(crate) struct SignIn {
     person: String,
     verifier: String,
     at: Instant,
 }
 
-/// Sign-ins under way, by their `state`.
-fn sign_ins() -> &'static Mutex<HashMap<String, SignIn>> {
-    static S: OnceLock<Mutex<HashMap<String, SignIn>>> = OnceLock::new();
-    S.get_or_init(Default::default)
+/// Sign-ins under way on this kernel, by their `state`.
+#[derive(Default)]
+pub(crate) struct SignIns(Mutex<HashMap<String, SignIn>>);
+
+impl SignIns {
+    fn record(&self, state: String, sign_in: SignIn) -> bool {
+        let mut pending = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        pending.retain(|_, s| s.at.elapsed() < SIGN_IN_WINDOW);
+        if pending.len() >= MAX_SIGN_INS {
+            return false;
+        }
+        pending.insert(state, sign_in);
+        true
+    }
+
+    fn take(&self, state: &str) -> Option<SignIn> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).remove(state).filter(|s| s.at.elapsed() < SIGN_IN_WINDOW)
+    }
 }
 
 fn random() -> String {
@@ -58,13 +72,8 @@ async fn connect(State(k): K, Caller(p): Caller) -> Response {
     let Some(s) = k.cfg.payments.as_ref().and_then(|c| c.link.as_ref()) else { return err(StatusCode::CONFLICT, "Link is not set up on this server") };
     let (state, verifier) = (random(), random());
     let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-    {
-        let mut pending = sign_ins().lock().unwrap_or_else(|e| e.into_inner());
-        pending.retain(|_, s| s.at.elapsed() < SIGN_IN_WINDOW);
-        if pending.len() >= MAX_SIGN_INS {
-            return err(StatusCode::TOO_MANY_REQUESTS, "too many sign-ins under way");
-        }
-        pending.insert(state.clone(), SignIn { person: p.id.clone(), verifier, at: Instant::now() });
+    if !k.connecting.link_sign_ins.record(state.clone(), SignIn { person: p.id.clone(), verifier, at: Instant::now() }) {
+        return err(StatusCode::TOO_MANY_REQUESTS, "too many sign-ins under way");
     }
     match link::authorize_url(s, &state, &challenge) {
         Ok(url) => Json(json!({ "url": url })).into_response(),
@@ -81,7 +90,7 @@ struct Returned {
 /// Link sends the browser here, so `state` is what shows whose sign-in it is.
 async fn callback(State(k): K, Query(back): Query<Returned>) -> Response {
     let Some(s) = k.cfg.payments.as_ref().and_then(|c| c.link.as_ref()) else { return err(StatusCode::CONFLICT, "Link is not set up on this server") };
-    let taken = back.state.as_deref().and_then(|state| sign_ins().lock().unwrap_or_else(|e| e.into_inner()).remove(state)).filter(|s| s.at.elapsed() < SIGN_IN_WINDOW);
+    let taken = back.state.as_deref().and_then(|state| k.connecting.link_sign_ins.take(state));
     let Some(sign_in) = taken else { return err(StatusCode::BAD_REQUEST, "that sign-in is not one we started") };
     let Some(code) = back.code else { return Html("Link was not connected. You can close this page.").into_response() };
     match link::exchange(&k, s, &sign_in.person, &code, &sign_in.verifier).await {
@@ -118,7 +127,7 @@ fn card_from(b: &Value) -> Result<Card, &'static str> {
     Ok(Card { number, cvc, exp_month: exp_month as u32, exp_year: exp_year as u32, name: text("name"), postal_code: text("postal_code") })
 }
 
-async fn save_card(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
+async fn save_card(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> Response {
     if k.cfg.payments.is_none() {
         return err(StatusCode::CONFLICT, "payments are not set up on this server");
     }
@@ -154,5 +163,13 @@ mod tests {
             b[key] = bad;
             assert!(card_from(&b).is_err(), "{key}");
         }
+    }
+
+    #[test]
+    fn two_servers_in_one_process_keep_their_own_link_sign_ins() {
+        let (a, b) = (crate::connectors::Connecting::default(), crate::connectors::Connecting::default());
+        assert!(a.link_sign_ins.record("state-1".into(), SignIn { person: "alice".into(), verifier: "v1".into(), at: Instant::now() }));
+        assert!(b.link_sign_ins.take("state-1").is_none(), "another server's callback took this server's Link sign-in");
+        assert_eq!(a.link_sign_ins.take("state-1").map(|s| s.person), Some("alice".into()));
     }
 }
