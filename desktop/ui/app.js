@@ -661,8 +661,8 @@ function drawUiBlocks(root) {
     block._drawn = body + closed;
     if (kind === "html") {
       if (!closed) { block.innerHTML = `<div class="small faint">Writing…</div>`; return; }
-      block.innerHTML = `<iframe class="composed ui-html" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
-      Magnus.sandboxUrl(`<!doctype html>${body}`).then(url => { if (block.firstChild?.matches?.("iframe")) block.firstChild.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });;
+      block.innerHTML = `<iframe class="composed ui-html" data-auto-size="1" sandbox="allow-scripts" title="Made by Magnus"></iframe>`;
+      Magnus.sandboxUrl(HtmlFrame.wrap(body, ...look())).then(url => { if (block.firstChild?.matches?.("iframe")) block.firstChild.src = url; }, e => { block.innerHTML = `<div class="small bad">This could not be drawn: ${esc(e.message)}</div>`; });
       return;
     }
     let view;
