@@ -833,7 +833,10 @@ function wireDocument() {
     try {
       await Server.trash.add(b.dataset.trash);
       toast("Moved to the trash.");
-      if (b.closest("#detail")) closePanel();
+      if (b.closest("#detail")) {
+        if (Panel.what === `file:${b.dataset.trash}`) await openPanel("files");
+        else if (Panel.what === `task:${b.dataset.trash}` || Panel.what === `project:${b.dataset.trash}`) closePanel();
+      }
       if (b.dataset.then) location.hash = b.dataset.then; else await refresh();
     } catch (err) { toast(err.message); b.disabled = false; }
   });
