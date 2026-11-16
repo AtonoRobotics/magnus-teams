@@ -49,6 +49,13 @@ assert.match(sandbox.subAgentsCard({ ...entry, agents: [entry.agents[1]] }), /A 
 const app = ui("app.js"), personal = ui("personal-chat.js");
 assert.match(app, /case "sub_agents": return subAgentsCard\(e, ui\);/, "the conversation does not draw sub-agents");
 assert.match(personal, /e\.kind === "sub_agents" \? e\.agents\.map\(a => a\.waiting_item\)/, "a sub-agent's decision is not read before the thread is drawn");
-assert.match(personal, /if \(!e\.id \|\| e\.kind === "sub_agents"\) return null;/, "the sub-agents card offers message actions");
+{
+  // Message actions are offered only to what reads as a message, which leaves the sub-agents card out.
+  const gate = personal.match(/if \(!e\.id \|\| ([^)]*\)?)\) return null;/);
+  assert.ok(gate, "the message actions have no guard on the entry's kind");
+  const offered = kind => !new Function("e", `return ${gate[1]};`)({ id: "x", kind });
+  assert.ok(!offered("sub_agents"), "the sub-agents card offers message actions");
+  assert.ok(offered("message"), "a message offers no actions");
+}
 assert.match(ui("index.html"), /<script src="subagents\.js"><\/script>/, "the page does not load subagents.js");
 console.log("sub-agents ok");
