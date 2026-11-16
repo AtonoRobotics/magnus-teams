@@ -312,14 +312,16 @@ async fn a_chat_request_is_done_in_the_chat_with_no_task_and_no_approval() {
     only(&alice, &b, &[], &[], &[&thread]).await;
 }
 
-/// 2. A schedule fires with nobody present and posts its result. The person
-/// sets it up and leaves; nothing touches the server until the run and its
-/// outcome turn are over. The result is in the conversation the schedule
-/// was set up in (owner, 2026-11-10); the agent's handling of a finished
-/// run is not posted (owner, 2026-11-16), and the schedule has no thread
-/// of its own.
+/// 2. A schedule fires with nobody present and finishes quietly. The person
+/// sets it up and leaves; nothing touches the server until the run is over.
+/// A run that finished is not the schedule done (owner, 2026-11-16, standing
+/// rule: "Do not notify in chats or even notifications if the task is not
+/// completely finished or needs a decision. Marking it in activity is
+/// enough"): it is in Tasks, under its schedule; nothing posts in the
+/// conversation the schedule was set up in, and the agent does not wake
+/// there. The schedule has no thread of its own.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
+async fn a_schedule_fires_with_nobody_present_and_finishes_quietly() {
     const ASK: &str = "Every morning, tell me what's new in my inbox.";
     const RUN: &str = "Summarise what is new in my inbox.";
     const SUMMARY: &str = "One new message: the CFO sent the Q3 numbers.";
@@ -349,31 +351,33 @@ async fn a_schedule_fires_with_nobody_present_and_posts_its_result() {
     let alice = app.api("alice");
     let b = before(&alice).await;
     let origin = schedule_in_chat(&alice, ASK).await;
-    // Nobody is present: no request reaches the server until the run has
-    // ended and its outcome turn has answered.
-    until_outcome(&m).await;
-    let e = in_origin(&m, &alice, &origin).await;
-    assert!(!e.iter().any(|e| e["text"] == REPORT), "the agent restated a finished run in the thread: {e:?}");
-    let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result where the schedule was set up: {e:?}"));
-    assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("completed"), Some(SUMMARY)), "{result}");
+    // Nobody is present: no request reaches the server until the run has ended.
+    let tasks = until_done(&m, &alice).await;
+    assert!(!m.requests().iter().any(|c| run_of(c) == Run::Outcome), "a finished scheduled run woke the agent");
+    let e = entries(&alice, &origin).await;
+    assert!(!e.iter().any(|e| e["kind"] == "result" || e["text"] == REPORT), "a finished scheduled run posted in the conversation: {e:?}");
     assert_eq!(e.iter().filter(|e| e["kind"] == "message").count(), 1, "the conversation shows a message nobody wrote: {e:?}");
-    assert!(!e.iter().any(|e| e.to_string().contains(OUTCOME)), "the server's turn text is shown to the person: {e:?}");
-    // The one run is the person's task, grouped under its schedule, and the
-    // schedule has no thread of its own.
-    let tasks = visible_tasks(&alice).await;
+    // The one run is the person's task, done, grouped under its schedule,
+    // and the schedule has no thread of its own.
     assert_eq!(tasks.len(), 1, "{tasks:?}");
+    assert_eq!(tasks[0]["status"], "completed", "{tasks:?}");
     assert_eq!(tasks[0]["group"]["kind"], "schedule", "{tasks:?}");
     let run = tasks[0]["task_id"].as_str().unwrap().to_string();
     assert_eq!(alice.task(&run).await["thread"], origin.as_str(), "the run did not post where the schedule was set up");
     only(&alice, &b, &[&run], &[], &[&origin]).await;
 }
 
-/// Wait for the run's result in the conversation a schedule was set up in:
-/// the one update a finished run posts there.
-async fn in_origin(m: &FakeModel, api: &Api, origin: &str) -> Vec<Value> {
-    wait("the result where the schedule was set up", PATIENCE, m, api, || async {
-        let e = entries(api, origin).await;
-        e.iter().any(|e| e["kind"] == "result").then_some(e)
+/// Wait until a scheduled run has finished: nothing reaches the server until
+/// the model has said its last word for it. The person's tasks then.
+async fn until_done(m: &FakeModel, api: &Api) -> Vec<Value> {
+    let start = std::time::Instant::now();
+    while !m.requests().iter().any(|c| run_of(c) == Run::Task && c.turn() >= 2) {
+        assert!(start.elapsed() < SCHEDULE_PATIENCE, "the schedule did not run:\n{}", story(m));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    wait("the scheduled run done", PATIENCE, m, api, || async {
+        let tasks = visible_tasks(api).await;
+        tasks.iter().any(|t| t["status"] == "completed").then_some(tasks)
     })
     .await
 }

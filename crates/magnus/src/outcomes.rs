@@ -132,11 +132,13 @@ pub fn observe(s: &mut State, e: &Event) {
         Ev::Completed { run, .. } | Ev::Failed { run, .. } => {
             let ended = if matches!(e.ev, Ev::Completed { .. }) { Status::Completed } else { Status::Failed };
             let task = s.runs.get(run).filter(|r| r.status == ended && r.config.module(MODULE)).map(|r| r.task.clone());
-            // A schedule with no conversation is done only when it stops for
-            // good, which sends its own notice (`ScheduleEnded`): a run that
-            // finished is nothing to tell (owner, 2026-11-16: "should not
-            // notify unless they are done ..., fail or need me").
-            let task = task.filter(|t| ended != Status::Completed || !s.tasks.get(t).is_some_and(|t| t.schedule.is_some() && notice_only(s, t)));
+            // A schedule is done only when it stops for good, which sends its
+            // own notice (`ScheduleEnded`): a run that finished is not, so it
+            // wakes no one and tells no one, in a conversation or not; it is in
+            // Tasks (owner, 2026-11-16, standing rule: "Do not notify in chats
+            // or even notifications if the task is not completely finished or
+            // needs a decision. Marking it in activity is enough").
+            let task = task.filter(|t| ended != Status::Completed || !scheduled_run(s, t));
             if let Some(task) = task.filter(|t| !s.outcomes.returned.contains(t)) {
                 s.outcomes.due.insert(task);
             }
@@ -202,13 +204,23 @@ pub fn start_shows(s: &State, t: &Task) -> bool {
     from.is_some_and(|r| s.outcomes.of(&r.task).is_none())
 }
 
+/// Whether a task is one run of a schedule.
+fn scheduled_run(s: &State, task: &str) -> bool {
+    s.tasks.get(task).is_some_and(|t| t.schedule.is_some())
+}
+
 /// Whether a task's result shows: not one that failed and was retried,
-/// whose retry's result is the update.
+/// whose retry's result is the update, nor a schedule's run that finished,
+/// which is not the schedule done.
 pub fn result_shows(s: &State, started: &BTreeSet<String>, t: &Task) -> bool {
     let failed = s.runs.get(&t.run_id).is_some_and(|r| r.status != Status::Completed);
     let turn = derived("task", &format!("outcome:{}", t.task_id));
     let retried = s.tasks.get(&turn).is_some_and(|o| started.contains(&o.run_id));
-    !(failed && retried)
+    if failed {
+        !retried
+    } else {
+        t.schedule.is_none()
+    }
 }
 
 /// The outcome turn's text: the server's, about the task by id and status
@@ -489,13 +501,20 @@ mod tests {
         let started = starters(&s);
         assert!(reply_shows(&s, &started, "t2", &s.runs[&o2_run]), "the one decision the person must make is hidden");
         assert!(result_shows(&s, &started, &s.tasks["t2"]));
-        // A finished task's outcome turn never posts: the result is the update.
+        // A schedule's run that finished, in its conversation too, is not the
+        // schedule done: no result, and the agent is not woken; it is in Tasks.
         ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_run1", "summary": "ok" }));
-        let o3 = derived("task", "outcome:run1");
-        task(&mut s, "outcome:run1", &o3, json!({ "thread": "th", "turn": true }), json!({}));
+        assert!(!s.outcomes.is_due("run1"), "a finished scheduled run wakes the agent in its conversation");
+        assert!(!result_shows(&s, &starters(&s), &s.tasks["run1"]), "a finished scheduled run posts its result every time");
+        // A finished task's result shows; its outcome turn never posts.
+        task(&mut s, "chat:r_turn", "t3", json!({ "thread": "th", "turn": false, "from_run": "r_turn" }), on.clone());
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_t3", "summary": "ok" }));
+        assert!(s.outcomes.is_due("t3") && result_shows(&s, &starters(&s), &s.tasks["t3"]), "a finished task is not told");
+        let o3 = derived("task", "outcome:t3");
+        task(&mut s, "outcome:t3", &o3, json!({ "thread": "th", "turn": true }), json!({}));
         let o3_run = s.tasks[&o3].run_id.clone();
         ev(&mut s, "kernel", json!({ "kind": "completed", "run": o3_run, "summary": "Done." }));
-        assert!(!reply_shows(&s, &starters(&s), "run1", &s.runs[&o3_run]), "the agent restates a finished result");
+        assert!(!reply_shows(&s, &starters(&s), "t3", &s.runs[&o3_run]), "the agent restates a finished result");
     }
 
     /// Retries are counted back through the outcome turns that started
