@@ -34,7 +34,11 @@ button.needs.on { background: var(--raised); color: var(--fg); }
 
 /* Tighter desktop sidebar rows (44px preserved on coarse pointers) */
 @media (pointer: fine) {
-  nav.side a.primary-nav { min-height: 32px; }
+  nav.side a.primary-nav, nav.side a, nav.side button.needs { min-height: 32px; }
+  nav.side a.conv { min-height: 30px; }
+  nav.side .icon-btn, nav.side .who a.icon-btn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
+  nav.side #find input { min-height: 30px; height: 30px; }
+  nav.side .group a.more { min-width: 0; min-height: 0; }
 }
 
 /* Collapsible project groups in sidebar */
@@ -238,7 +242,7 @@ button.hello-chip:hover {
   background: var(--surface);
   padding: 12px;
 }
-aside.detail {
+.shell > aside.detail, aside.detail {
   background: var(--side);
   border-left: 1px solid var(--line);
 }
