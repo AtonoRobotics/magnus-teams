@@ -118,6 +118,8 @@ function personalChat(thread) {
       return { mine, agent: !mine, readable: e.kind === "answer", may: e.may };
     },
     caps: () => caps,
+    lead: e => (typeof App !== "undefined" && App.workspaces?.length && (e.kind === "answer" || e.kind === "message") && e.text)
+      ? `<button type="button" class="link small" data-share-team="${esc(e.id)}">Share to team…</button>` : "",
     actions: (e, view, b, el) => MessageControls.adapter(e, view, b, el, transport),
     click: (e, view) => personalCardClick(e, view),
   };
@@ -162,8 +164,56 @@ function personalTransport(thread) {
   };
 }
 
+async function shareToTeamModal(entry) {
+  const teams = App.workspaces || [];
+  if (!teams.length) return toast("You are not in any team yet.");
+  const d = document.createElement("dialog");
+  d.className = "ask";
+  d.innerHTML = `<form method="dialog" class="col" style="gap:10px;">
+    <h3>Share to team channel</h3>
+    <label class="small">Team <select data-st-ws>${teams.map(w => `<option value="${esc(w.id)}">${esc(w.name)}</option>`).join("")}</select></label>
+    <label class="small">Channel <select data-st-ch><option value="">Loading…</option></select></label>
+    <label class="small">Message <textarea data-st-text rows="5" style="width:100%;">${esc(entry.text || "")}</textarea></label>
+    <div class="row"><button type="button" data-st-cancel>Cancel</button><button type="submit" class="primary" data-st-send>Post to channel</button></div>
+  </form>`;
+  const wsSel = $("[data-st-ws]", d), chSel = $("[data-st-ch]", d), sendBtn = $("[data-st-send]", d);
+  const loadCh = async () => {
+    chSel.innerHTML = `<option value="">Loading…</option>`;
+    sendBtn.disabled = true;
+    try {
+      const home = await Server.workspaces.home(wsSel.value);
+      const chs = (home?.channels || []).filter(c => !c.archived && !c.deleted && !c.direct);
+      chSel.innerHTML = chs.length ? chs.map(c => `<option value="${esc(c.id)}">#${esc(c.name)}</option>`).join("") : `<option value="">No open channels</option>`;
+      sendBtn.disabled = !chs.length;
+    } catch (err) { chSel.innerHTML = `<option value="">Could not load channels</option>`; toast(err.message); }
+  };
+  wsSel.onchange = loadCh;
+  $("[data-st-cancel]", d).onclick = () => d.close();
+  $("form", d).onsubmit = async ev => {
+    ev.preventDefault();
+    const text = $("[data-st-text]", d).value.trim(), ws = wsSel.value, ch = chSel.value;
+    if (!ws || !ch || !text) return;
+    sendBtn.disabled = true;
+    try {
+      await Server.channels.post(ws, ch, { text });
+      d.close();
+      toast("Shared to team channel.");
+    } catch (err) { toast(err.message); sendBtn.disabled = false; }
+  };
+  d.addEventListener("close", () => d.remove());
+  document.body.append(d);
+  d.showModal();
+  loadCh();
+}
+
 /** The live cards' buttons act directly, not through Magnus. @param {MouseEvent} e @param {ChatViewState} view */
 async function personalCardClick(e, view) {
+  const st = e.target.closest("[data-share-team]");
+  if (st) {
+    const item = view.entries.find(x => x.id === st.dataset.shareTeam);
+    if (item) await shareToTeamModal(item);
+    return;
+  }
   const ui = view.ui, draw = view.draw, main = view.section;
   const ta = e.target.closest("[data-task-act]"), sa = e.target.closest("[data-sched-act]");
   if (ta || sa) {

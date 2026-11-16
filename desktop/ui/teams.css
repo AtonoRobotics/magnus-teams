@@ -128,3 +128,5 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-center .conv-title { min-width: 120px; flex: 1 1 120px; }
 .team-center .conv-head .row { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; }
 .team-head-faces .team-avatar { width: 24px; height: 24px; }
+.team-unread-divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--bad, #d93025); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.team-unread-divider::before, .team-unread-divider::after { content: ""; flex: 1; height: 1px; background: currentColor; opacity: 0.35; }

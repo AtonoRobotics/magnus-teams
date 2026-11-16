@@ -163,7 +163,7 @@ const ChatView = (() => {
 
   /** The whole list, as it is drawn. @param {ChatEntry[]} entries @param {ChatViewState} view */
   function listHtml(entries, view) {
-    const conv = view.conv, items = entries.map(e => item(e, view)).join("");
+    const conv = view.conv, items = entries.map((e, i) => `${conv.beforeItem?.(e, i, entries, view) || ""}${item(e, view)}`).join("");
     const empty = conv.hero ? `<div class="hello-hero"><h1 class="hello-title">${esc(conv.hero.title())}</h1><p class="hello-sub">${esc(conv.hero.subtitle)}</p><div class="hello-chips">${conv.hero.starters.map(s => `<button type="button" class="hello-chip">${esc(s)}</button>`).join("")}</div></div>`
       : conv.hello ? `<p class="muted hello">${esc(conv.hello)}</p>` : "";
     return `${conv.before?.(view) || ""}${items || empty}${conv.after?.(view) || ""}`;
