@@ -35,13 +35,31 @@ PALETTES = {
     },
 }
 
-# The Wallpaper artboard's values, as it has them.
+# Magnus Obsidian (dark) and Light wallpaper palettes, using desktop/ui/theme.js tokens.
 WALLPAPER = {
-    "dark": {"bg": "#0B1220", "line": "#1C2840", "lineFaint": "#141E33", "dot": "#3B4A66", "accent": "#3B82F6", "starFill": "#0F1A2E", "mark": "#5B6B87"},
-    "light": {"bg": "#F4F6FA", "line": "#DCE3EE", "lineFaint": "#E8EDF4", "dot": "#B8C4D6", "accent": "#2563EB", "starFill": "#EAF0FB", "mark": "#7A879B"},
+    "dark": {
+        "bg": "#07080B",
+        "glow": "#101216",
+        "line": "#20242E",
+        "lineFaint": "#1B1E27",
+        "dot": "#333948",
+        "accent": "#3557D9",
+        "accentGlow": "#1D2547",
+        "iconFill": "#9DB1FF",
+        "mark": "#949EB2",
+    },
+    "light": {
+        "bg": "#F0F4F9",
+        "glow": "#FFFFFF",
+        "line": "#E3E8EF",
+        "lineFaint": "#DCE2EC",
+        "dot": "#C4CBD6",
+        "accent": "#3557D9",
+        "accentGlow": "#E9EDFC",
+        "iconFill": "#3557D9",
+        "mark": "#5B5E66",
+    },
 }
-
-STAR = "M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"
 
 # Window frame, in pixels: the artboard's 38-pixel title bar and 12-pixel
 # corners, a one-pixel edge.
@@ -53,28 +71,40 @@ BUTTON_FACE_PX = 26
 BUTTON_FACE_WIDTH_PX = 28
 
 
+def magnus_icon_polygons(color):
+    """The Magnus 3-bar forward triad icon in a 64x64 coordinate space (center ~32, 34.5)."""
+    return (
+        f'<polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="{color}" fill-opacity="0.55"/>'
+        f'<polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="{color}"/>'
+        f'<polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="{color}" fill-opacity="0.55"/>'
+    )
+
+
 def wallpaper_svg(mode):
     c = WALLPAPER[mode]
     rings = "".join(f'<circle cx="900" cy="400" r="{r}" fill="none" stroke="{c[k]}" stroke-width="1.5"/>'
                     for r, k in [(230, "line"), (340, "line"), (460, "line"), (590, "lineFaint")])
     dots = "".join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="{c[k]}"/>'
                    for x, y, r, k in [(684, 321, 5, "dot"), (1116, 479, 4, "dot"), (784, 81, 4, "dot"), (870, 739, 6, "accent"), (468, 557, 5, "dot"), (1130, 2, 4, "dot")])
-    star = ('<polygon points="900.0,250.0 937.0,349.0 1042.7,353.6 959.9,419.5 988.2,521.4 900.0,463.0 811.8,521.4 840.1,419.5 757.3,353.6 863.0,349.0" '
-            f'fill="{c["starFill"]}" stroke="{c["accent"]}" stroke-width="2.5" stroke-linejoin="round"/>')
-    # The mark: an 18-pixel star and "Magnus" at 20 pixels, 56 from the
-    # left and centred 60 above the bottom, as the artboard places them.
-    mark = (f'<g fill="{c["mark"]}"><path transform="translate(56 730) scale(0.75)" d="{STAR}"/>'
-            f'<text x="84" y="746" font-family="Inter" font-size="20" font-weight="600" letter-spacing="0.4">Magnus</text></g>')
+    medallion = (
+        f'<circle cx="900" cy="400" r="132" fill="{c["glow"]}" stroke="{c["line"]}" stroke-width="1.5"/>'
+        f'<circle cx="900" cy="400" r="130" fill="{c["accentGlow"]}" fill-opacity="0.35"/>'
+    )
+    # Center the 64x64 Magnus icon (centroid 32, 34.5) at (900, 400) scaled 3.6x.
+    emblem = f'<g transform="translate(784.8 275.8) scale(3.6)">{magnus_icon_polygons(c["iconFill"])}</g>'
+    # Bottom-left mark: 24px Magnus icon and "Magnus" wordmark.
+    mark = (
+        f'<g transform="translate(56 726) scale(0.375)">{magnus_icon_polygons(c["mark"])}</g>'
+        f'<text x="86" y="746" fill="{c["mark"]}" font-family="Inter" font-size="20" font-weight="600" letter-spacing="0.4">Magnus</text>'
+    )
     return ('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">'
-            f'<rect width="1280" height="800" fill="{c["bg"]}"/>{rings}{dots}{star}{mark}</svg>\n')
+            f'<rect width="1280" height="800" fill="{c["bg"]}"/>{rings}{dots}{medallion}{emblem}{mark}</svg>\n')
 
 
 def star_svg(color):
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 64 64" fill="none">'
-        f'<polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="{color}" fill-opacity="0.55"/>'
-        f'<polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="{color}"/>'
-        f'<polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="{color}" fill-opacity="0.55"/>'
+        f'{magnus_icon_polygons(color)}'
         '</svg>\n'
     )
 

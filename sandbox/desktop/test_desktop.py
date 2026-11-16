@@ -74,14 +74,16 @@ class Colors(unittest.TestCase):
                 for v in value if isinstance(value, list) else [value]:
                     self.assertIn(v.upper(), allowed, f"{mode} {name} {v} is not one of the app's colors")
 
-    def test_the_wallpaper_is_the_artboards(self):
-        with open(os.path.join(root, "docs/design/team-and-computer/Wallpaper.dc.html")) as f:
-            src = f.read()
+    def test_the_wallpaper_matches_the_app_theme_and_magnus_icon(self):
+        tokens = app_tokens()
         for mode, c in theme.WALLPAPER.items():
+            allowed = {v.upper() for v in tokens[mode].values()}
             for k, v in c.items():
-                self.assertIn(f"{k}: '{v}'", src, f"{mode} wallpaper {k}")
+                self.assertIn(v.upper(), allowed, f"{mode} wallpaper {k} {v} is not one of the app's colors")
             svg = theme.wallpaper_svg(mode)
             self.assertIn(f'fill="{c["bg"]}"', svg)
+            self.assertIn('points="34.4,19 40.4,19 30.8,50 24.8,50"', svg)
+            self.assertIn(f'fill="{c["iconFill"]}"', svg)
 
     def test_both_looks_have_a_whole_window_theme(self):
         for mode in ("light", "dark"):

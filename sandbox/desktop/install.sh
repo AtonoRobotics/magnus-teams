@@ -28,7 +28,7 @@ rm -rf /tmp/magnus-theme
 papirus=/usr/share/icons/Papirus
 rm -rf /usr/share/icons/ePapirus /usr/share/icons/ePapirus-Dark
 find "$papirus"/*/places -type f -name '*.svg' -exec sed -i -e 's/#5294e2/#3557d9/Ig' -e 's/#4877b1/#2c43ad/Ig' {} +
-find /usr/share/icons/Papirus-Dark -type f -name '*.svg' -exec sed -i -e 's/#dfdfdf/#d1d1d6/Ig' {} +
+find /usr/share/icons/Papirus-Dark -type f -name '*.svg' -exec sed -i -e 's/#dfdfdf/#eceff4/Ig' {} +
 find /usr/share/icons/Papirus-Light -type f -name '*.svg' -exec sed -i -e 's/#444444/#3f3f44/Ig' {} +
 for t in Papirus Papirus-Dark Papirus-Light; do gtk-update-icon-cache -q -f "/usr/share/icons/$t" || true; done
 
