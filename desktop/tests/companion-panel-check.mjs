@@ -36,12 +36,38 @@ const sampleFiles = [
 ];
 
 const listeners = [];
+const UI = {
+  pencil: '<path/>', working: '<path/>', sparkles: '<path/>', bell: '<path/>',
+  calendar: '<path/>', chev: '<path/>', globe: '<path/>', shield: '<path/>',
+  done: '<path/>', need: '<path/>', stopped: '<path/>', grid: '<path/>',
+  folder: '<path/>', team: '<path/>', trash: '<path/>', gear: '<path/>',
+  palette: '<path/>', plus: '<path/>',
+};
 const ctx = {
   esc: s => String(s ?? "").replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`),
   enc: encodeURIComponent,
   when: at => `at ${at}`,
+  until: at => `in ${at}`,
+  rule: () => "daily",
+  firstLine: s => String(s || "").split("\n")[0],
+  load: () => false,
+  displayTitle: s => String(s || "Untitled"),
+  guideNavItem: () => "",
+  adminNavItem: () => "",
+  isDev: () => false,
+  STATE: t => t.status || "done",
+  WAITING: { approval: "waiting approval" },
+  KIND: { approval: "Approval" },
+  card: i => `<article data-id="${i.id}">${i.kind}</article>`,
+  askContent: () => "<div>details</div>",
+  fieldValue: () => "<div>fields</div>",
+  feedRows: () => "",
+  needsDecision: i => i.status === "open" && i.can_respond,
+  controlWords: (c) => ({ pill: c.status === "running" ? "Awake" : "Resting" }),
+  standing: t => [t.status === "running" ? "working" : "done", `<span class="chip">${t.status}</span>`],
   kb: n => `${Math.max(1, Math.round(n / 1024))} KB`,
-  icon: k => `<svg data-ic="${k}"></svg>`,
+  UI,
+  icon: (k, cls = "") => `<svg class="${cls}" data-ic="${k}"></svg>`,
   paint: (el, html) => { el.innerHTML = html; },
   onLeave: () => {},
   $: (q, root) => (root && root._bySel && root._bySel(q)) || null,
@@ -51,9 +77,24 @@ const ctx = {
   trashButton: id => `<button data-trash="${id}">Delete</button>`,
   attachButton: label => `<button>${label}</button>`,
   plain: body => ({ body }),
-  needsMe: () => [{ id: "n1" }, { id: "n2" }],
+  needsMe: () => [{ id: "n1", thread: "t1" }, { id: "n2" }],
   ENDED: ["completed", "failed", "cancelled"],
-  App: { me: { id: "alice" }, tasks: [{ status: "running" }], projects: [] },
+  location: { hash: "#/chat/t1" },
+  App: {
+    me: { id: "alice", name: "Alice" },
+    appliance: "local",
+    thread: "t1",
+    threads: [
+      { thread: "t1", title: "Today chat", updated_at: recentIso },
+      { thread: "t2", title: "Older chat", updated_at: oldIso },
+    ],
+    projects: [],
+    workspaces: [],
+    tasks: [{ task_id: "tk1", status: "running", thread: "t2", title: "Running job", created_at: recentIso }],
+    schedules: [],
+    inbox: [{ id: "n0", status: "decided", kind: "approval", summary: "Send quarterly email", resolution: { decision: "approve" }, created_at: oldIso }],
+    computers: [{ id: "c1", name: "Magnus VM", status: "running" }],
+  },
   Panel: { lib: { q: "", project: "", kind: "all" } },
   Server: { files: { list: async () => ({ files: sampleFiles }) } },
   PANEL_TAB_PARENT: { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" },
@@ -74,28 +115,65 @@ vm.createContext(ctx);
 vm.runInContext(themeSrc, ctx, { filename: "theme.js" });
 const snippets = [
   extractFn(app, "function companionStatus()"),
+  extractFn(app, "function dayBucketLabel(iso)"),
+  extractFn(app, "function activityLinks(selected=\"activity\")"),
   extractFn(app, "function companionHeader()"),
+  extractFn(app, "function timelineGroups(active, done)"),
+  extractFn(app, "function activityView(composed)"),
+  extractFn(app, "function needsView(composed)"),
   extractFn(app, "function panelTabs(kind)"),
   extractFn(app, "function libFileKind(f)"),
   extractFn(app, "async function filesView()"),
+  extractFn(app, "function navigationTree()"),
   extractFn(app, "function appearanceSection(el)"),
 ].join("\n");
 vm.runInContext(snippets, ctx, { filename: "app-slices.js" });
 
 // 1. Companion header & tabs.
-assert.match(ctx.companionHeader(), /<h2>Magnus<\/h2>/);
-assert.match(ctx.companionHeader(), /2 waiting on you/);
-assert.match(ctx.companionHeader(), /href="#\/settings\/appearance"[^>]*>.*Theme/);
+const hdr = ctx.companionHeader();
+assert.match(hdr, /<div class="companion-top-bar">/);
+assert.match(hdr, /<div class="companion-avatar-wrap">/);
+assert.match(hdr, /class="companion-edit-btn"/);
+assert.match(hdr, /<h2>Magnus<\/h2>/);
+assert.match(hdr, /2 waiting on you/);
+assert.match(hdr, /Worker Companion/);
+assert.match(hdr, /href="#\/settings\/appearance"[^>]*>.*Antigravity Theme/);
+ctx.Theme.set({ style: "companion" });
+assert.match(ctx.companionHeader(), /Companion Theme/);
+ctx.Theme.set({ style: "antigravity" });
 ctx.needsMe = () => [];
 assert.match(ctx.companionHeader(), /Working · 1 active/);
 ctx.App.tasks = [];
 assert.match(ctx.companionHeader(), /Ready/);
-ctx.needsMe = () => [{ id: "n1" }, { id: "n2" }];
+ctx.needsMe = () => [{ id: "n1", thread: "t1" }, { id: "n2" }];
 const tabs = ctx.panelTabs("rules");
 for (const label of ["Activity", "Approvals", "Files", "Apps"]) assert.ok(tabs.includes(`<span>${label}</span>`), `missing tab ${label}`);
 assert.match(tabs, /data-open="needs" aria-current="page".*<span class="badge">2<\/span>/);
 
-// 2. File classification & Files filter pills + time grouping.
+// 2. Grobot Activity, Timeline, Approvals History, and Sidebar tree.
+const act = ctx.activityView([]);
+assert.match(act, /<div class="gbox">.*Create a routine.*Discover automations.*Enable Heartbeat/s);
+assert.match(act, /class="comp-mini-bar"/);
+assert.match(act, /<details class="companion-scheds" data-key="panel-schedules" open>/);
+assert.match(act, /<a class="gbox-footer" href="#\/schedules"/);
+assert.match(act, /<nav class="activity-views" aria-label="Activity views">/);
+
+const tl = ctx.timelineGroups([{ task_id: "tk1", status: "running", title: "Running job", created_at: recentIso }], []);
+assert.match(tl, /<details class="tl-day" data-key="day:Active now" open>/);
+assert.match(tl, /<ul class="tlist tl-stack">/);
+
+const nv = ctx.needsView([]);
+assert.match(nv, /class="gbox companion-guard"/);
+assert.match(nv, /class="appr-history".*class="appr-ic mail".*class="gbox appr-payload-box"/s);
+
+ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Running job", created_at: recentIso }];
+const tree = ctx.navigationTree();
+assert.match(tree, /<div class="group"><span>Today<\/span><\/div>/);
+assert.match(tree, /<div class="group"><span>Previous<\/span><\/div>/);
+assert.match(tree, /class="nav-dot warn"/);
+assert.match(tree, /class="nav-dot run"/);
+
+// 3. File classification & Files filter pills + time grouping + type badges.
 assert.equal(ctx.libFileKind(sampleFiles[0]), "pages");
 assert.equal(ctx.libFileKind(sampleFiles[1]), "media");
 assert.equal(ctx.libFileKind(sampleFiles[2]), "files");
@@ -103,9 +181,10 @@ assert.equal(ctx.libFileKind(sampleFiles[2]), "files");
 const allRes = await ctx.filesView();
 assert.match(allRes.body, /<div class="lib-group-head">This week<\/div>/);
 assert.match(allRes.body, /<div class="lib-group-head">Older<\/div>/);
-assert.match(allRes.body, /brief\.md/);
-assert.match(allRes.body, /chart\.png/);
-assert.match(allRes.body, /report\.pdf/);
+assert.match(allRes.body, /<ul class="flist gbox">/);
+assert.match(allRes.body, /class="lib-badge page">MD/);
+assert.match(allRes.body, /class="lib-badge media">IMG/);
+assert.match(allRes.body, /class="lib-badge pdf">PDF/);
 
 ctx.Panel.lib.kind = "pages";
 const pagesRes = await ctx.filesView();
@@ -117,7 +196,7 @@ const mediaRes = await ctx.filesView();
 assert.match(mediaRes.body, /chart\.png/);
 assert.ok(!mediaRes.body.includes("brief.md") && !mediaRes.body.includes("report.pdf"));
 
-// 3. Appearance section: Theme selector, default auto-shift, and custom color preservation.
+// 4. Appearance section: Theme selector, default auto-shift, and custom color preservation.
 const makeEl = () => ({ innerHTML: "", isConnected: true, focus() {}, _bySel: () => null });
 const appEl = makeEl();
 ctx.appearanceSection(appEl);
@@ -139,11 +218,17 @@ clickLook("accent", "emerald");
 clickLook("style", "companion");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
-// 4. Rules panel handler and Panel.lib reset on stop().
+// 5. Desktop auto-open, rules panel handler, and dual-theme CSS rules.
+assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= 1200\)/);
+assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < 1200 \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
 
-// 5. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.
+assert.match(read("chat.css"), /html\[data-style="companion"\]\s*\.msg\.me/);
+assert.match(read("layout.css"), /html\[data-style="companion"\]\s*\.panel-tabs/);
+assert.match(read("pages.css"), /html\[data-style="companion"\]\s*\.gbox/);
+
+// 6. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.
 for (const file of ["app.js", "computers.js", "team-panel.js"]) {
   const src = read(file);
   assert.ok(!/(?:^|[^\w.])(?:window\.)?(?:confirm|prompt)\(/m.test(src), `${file} uses native confirm() or prompt()`);

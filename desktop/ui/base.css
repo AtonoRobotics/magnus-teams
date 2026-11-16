@@ -87,6 +87,7 @@ button { font: inherit; font-size: 13.5px; font-weight: 500; border: 1px solid v
 button:hover { border-color: var(--line-strong); background: var(--raised); }
 button:disabled { opacity: .55; cursor: default; }
 button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+html[data-style="companion"] button.primary, html[data-style="companion"] .button.primary { border-radius: var(--r-pill); }
 button.primary:hover { background: var(--accent); filter: brightness(1.08); }
 button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 button.link, button.link:hover { border: 0; background: none; color: var(--accent-text); padding: 0; font-weight: 500; }
