@@ -89,7 +89,7 @@ function harness({ admin: isAdmin = true, stops = [], fail = {} } = {}) {
 // The kill switch is always in the admin's top bar: the app's own bar, on
 // every page, not only inside Admin. A member's stays hidden and empty.
 {
-  assert.match(app, /<header id="workspace-bar"[^\n]*<div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden><\/div>/, "the app's top bar has no place for the kill switch");
+  assert.match(app, /<aside id="detail"[^>]*><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden><\/div><\/aside>/, "the right sidebar has no place for the kill switch");
   const a = harness();
   a.location.hash = "#/chat/new";
   await vm.runInContext("adminStart()", a);

@@ -519,8 +519,8 @@ function shell() {
   document.body.innerHTML = `<div class="shell"><nav class="side" aria-label="Sections"><div class="brand"><span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 64 64" fill="none"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg></span><span class="brand-name">Magnus</span><button class="icon-btn" data-nav-toggle aria-label="Collapse navigation" title="Collapse navigation">${icon("chev")}</button><button class="icon-btn" data-close-drawer aria-label="Close navigation">${icon("close")}</button></div>
     <button class="icon-btn rail-search" data-rail-search aria-label="Search conversations, tasks and files" title="Search conversations, tasks and files">${icon("search")}</button>
     <form id="find" role="search">${icon("search")}<label class="sr" for="q">Search conversations, tasks and files</label><input id="q" type="search" placeholder="Search…" autocomplete="off"><kbd class="kbd" aria-hidden="true">⌘K</kbd></form><div id="side"></div></nav>
-    <header id="workspace-bar" class="workspace-bar"><button class="icon-btn" data-open-drawer aria-label="Open navigation">${icon("tasks")}</button><span class="workspace-heading">Conversation</span><div class="workspace-selectors" aria-label="Workspace region"><button data-region="work" aria-pressed="false">Work</button><button data-region="conversation" aria-pressed="true">Conversation</button></div><span class="grow"></span><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div><button class="icon-btn" data-expand-work aria-label="Expand work">${icon("grid")}</button><button class="icon-btn" data-close-work data-act="close-panel" aria-label="Close work">${icon("close")}</button></header>
-    <main id="main" tabindex="-1"></main><div id="workspace-splitter" role="separator" tabindex="0" aria-label="Conversation width" aria-orientation="vertical" hidden></div><aside id="detail" class="detail" aria-label="Work" hidden></aside></div>
+    <header id="workspace-bar" class="workspace-bar"><button class="icon-btn" data-open-drawer aria-label="Open navigation">${icon("tasks")}</button><span class="workspace-heading">Conversation</span><div class="workspace-selectors" aria-label="Workspace region"><button data-region="work" aria-pressed="false">Work</button><button data-region="conversation" aria-pressed="true">Conversation</button></div><span class="grow"></span><button class="icon-btn" data-expand-work aria-label="Expand work">${icon("grid")}</button><button class="icon-btn" data-close-work data-act="close-panel" aria-label="Close work">${icon("close")}</button></header>
+    <main id="main" tabindex="-1"></main><div id="workspace-splitter" role="separator" tabindex="0" aria-label="Conversation width" aria-orientation="vertical" hidden></div><aside id="detail" class="detail" aria-label="Work" hidden><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div></aside></div>
     <dialog id="navigation-drawer" class="navigation-drawer" aria-label="Navigation"></dialog><div id="navigation-flyout" class="navigation-flyout" role="dialog" aria-label="Projects and conversations" hidden></div>
     <dialog id="workspace-search" class="workspace-search" aria-label="Search conversations, tasks and files"><form><label for="workspace-query">Search conversations, tasks and files</label><input id="workspace-query" type="search" required><div class="row"><button type="submit">Search</button><button type="button" data-close-search>Close search</button></div></form></dialog>`;
   Workspace.install();
@@ -1446,13 +1446,11 @@ function convHead(thread, project) {
   if (!el) return;
   const here = thread && App.threads.find(t => t.thread === thread);
   const p = here ? here.project : project && App.projects.find(x => x.id === project);
-  const n = needsMe().length, open = !!Panel.what;
-  const insp = `<button type="button" class="inspector-pill" data-toggle-inspector aria-expanded="${open}" title="Open Magnus Activity, Approvals, Apps & Files"><span class="insp-dot ${n ? "warn" : "ok"}" aria-hidden="true"></span><span>Companion</span>${n ? `<span class="pill" data-needs-count>${n}</span>` : ""}</button>`;
   const ttl = here ? displayTitle(here.title) : "New conversation";
   const projLink = p ? `<a class="conv-proj small muted" href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}">${esc(p.name)}</a><span class="conv-sep" aria-hidden="true">/</span>` : "";
   const move = (App.projects.length > 0 || here?.project) ? moveControl(thread, here?.project, App.projects, true) : "";
   paint(el, `<div class="conv-title">${projLink}<h1 title="${esc(ttl)}">${esc(ttl)}</h1></div>
-    <div class="row">${computerChip(App.computers)}${insp}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
+    <div class="row">${computerChip(App.computers)}${thread ? `${move}<button class="icon-btn" data-trash="${esc(thread)}" data-then="#/home" title="Delete conversation">${icon("trash")}<span class="sr">Delete conversation</span></button>` : ""}</div>`);
 }
 
 async function showNewChat(main, project) {
@@ -2139,7 +2137,10 @@ function companionHeader() {
   return `<div class="companion-id">
     <div class="companion-top-bar">
       <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${icon("palette")}<span>${esc(styleLbl)}</span></a>
-      <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
+      <div class="companion-top-acts">
+        <div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div>
+        <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
+      </div>
     </div>
     <div class="companion-avatar-wrap">
       <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent">${triad}</a>
@@ -2397,13 +2398,14 @@ async function drawPanel() {
   const isRootCompanion = !backTo && ["activity", "needs", "files", "apps"].includes(kind);
   const headHtml = isRootCompanion
     ? `${companionHeader()}${panelTabs(kind)}`
-    : `<div class="dh-top">${backBtn}<button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button></div>${head || `<h2>${esc(title)}</h2>`}${panelTabs(kind)}`;
+    : `<div class="dh-top">${backBtn}<div class="companion-top-acts"><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div><button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button></div></div>${head || `<h2>${esc(title)}</h2>`}${panelTabs(kind)}`;
   // A view names itself in the head (a task: its title and where it
   // stands); the others are named by what they are.
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
   const changed = paint(el, `<div class="detail-head"><div class="dh-main">${headHtml}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
+  if (typeof showKillControl === "function" && typeof AdminState !== "undefined" && AdminState.standing?.admin) showKillControl();
   if (!changed) {
     reportOpenedSoon();
     if (Panel.focusNext) { const heading=$("h2",el); if (heading) { heading.tabIndex=-1; heading.focus({preventScroll:true}); } Panel.focusNext=false; }

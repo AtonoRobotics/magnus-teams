@@ -14,6 +14,11 @@ function personalComposer() {
     upload: (file, record) => upload([file], record.thread ? { thread: record.thread } : record.project ? { project: record.project } : {}).then(r => r[0]),
     verify: f => Server.files.info(f.id),
     refresh: () => refresh(),
+    stopRun: async ids => {
+      await Promise.all(ids.map(id => Server.tasks.cancel(id)));
+      toast("Stopped.");
+      await refresh();
+    },
     send: async ({ text, files, form, record }) => {
       const body = { text, model: chosenModel(form), files: files.map(f => f.id) };
       if (record.thread) body.thread = record.thread; else if (record.project) body.project = record.project;
@@ -97,6 +102,11 @@ function personalChat(thread) {
         if (e.kind === "result" && startedAt[e.task_id] !== undefined && lastMessage > startedAt[e.task_id]) ui.movedOn.add(e.task_id);
       });
       listen(entries, view);
+      const runningIds = [...new Set([
+        ...entries.filter(e => e.kind === "turn" && e.status === "running").map(e => e.task_id),
+        ...entries.flatMap(e => e.kind === "tasks" ? e.tasks : []).filter(t => t.status === "running").map(t => t.task_id),
+      ].filter(Boolean))];
+      if (view.record) { view.record.runningIds = runningIds; MessageDrafts.changed(); }
     },
     drawn: (el, entries, view) => {
       bindConnectorActs(el);

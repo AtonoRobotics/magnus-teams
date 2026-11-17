@@ -55,7 +55,7 @@ await step("sign in", async () => {
 
 // The switch is in the top bar on every page (spec rev 141, Kill switch);
 // what it revoked and sealed is Admin › Overview's.
-const bar = () => page.locator("#workspace-bar [data-admin-kill]");
+const bar = () => page.locator("#detail [data-admin-kill]");
 const report = async () => {
   await page.getByRole("link", { name: "Admin" }).first().click();
   await page.getByRole("navigation", { name: "Admin sections" }).getByRole("link", { name: "Overview" }).click();

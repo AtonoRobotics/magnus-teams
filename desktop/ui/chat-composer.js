@@ -22,6 +22,7 @@
  * @param {{ side?: boolean, label?: string, mentions?: boolean }} [o]
  */
 if (typeof UI !== "undefined" && !UI.mic) UI.mic = '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>';
+if (typeof UI !== "undefined" && !UI.stop) UI.stop = '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>';
 
 function composer(placeholder, bar, o = {}) {
   const id = n => o.side ? "" : ` id="${n}"`;
@@ -44,7 +45,7 @@ function mentionAt(text, caret) {
  */
 function wireComposer(form, record, conv) {
   const box = $("textarea", form), pending = $(".pending", form), input = $("[data-attach]", form), send = $(".send", form), epoch = MessageDrafts.epoch();
-  let replacing = null, active = true;
+  let replacing = null, active = true, stopMode = false;
   box.value = record.text;
   const model = $("[data-model]", form);
   if (model && record.model && record.modelUnder === model.dataset.default && [...model.options].some(o => o.value === record.model)) model.value = record.model;
@@ -55,14 +56,33 @@ function wireComposer(form, record, conv) {
   // The record is shared by every composer mounted on this conversation:
   // a send that finishes after the person left and came back updates the
   // one now showing, and a send in flight stays in flight there too.
-  const syncSend = () => send.classList.toggle("is-empty", !box.value.trim() && !record.files.length);
+  const canStop = () => !!(conv.stopRun && record.runningIds?.length && !box.value.trim() && !record.files.length && !record.sending);
+  const syncSend = () => {
+    const nextStop = canStop();
+    if (nextStop !== stopMode) {
+      stopMode = nextStop;
+      send.type = stopMode ? "button" : "submit";
+      send.classList.toggle("is-stop", stopMode);
+      send.setAttribute("aria-label", stopMode ? "Stop" : "Send message");
+      send.title = stopMode ? "Stop" : "Send message";
+      send.innerHTML = stopMode ? `${icon("stop")}<span class="sr">Stop</span>` : `${icon("send")}<span class="sr">Send message</span>`;
+    }
+    send.disabled = stopMode ? false : (!!record.sending || record.files.some(f => f.state !== "ready"));
+    send.classList.toggle("is-empty", !stopMode && !box.value.trim() && !record.files.length);
+  };
+  send.onclick = async e => {
+    if (!stopMode || !conv.stopRun || !record.runningIds?.length) return;
+    e.preventDefault();
+    send.disabled = true;
+    try { await conv.stopRun([...record.runningIds]); } finally { syncSend(); }
+  };
   const show = () => {
     if (!active || !form.isConnected) return;
     if (box.value !== record.text) { box.value = record.text; fit(); }
     paint(pending, chips());
-    send.disabled = !!record.sending || record.files.some(f => f.state !== "ready");
     syncSend();
   };
+  syncSend();
   const unsubscribe = MessageDrafts.subscribe(show);
   async function startUpload(slot, file) {
     const currentEpoch = MessageDrafts.epoch(); slot.state = "uploading"; delete slot.error;

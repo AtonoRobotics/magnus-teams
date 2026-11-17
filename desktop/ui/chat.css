@@ -317,6 +317,11 @@ button.send.is-empty:hover {
   filter: none;
   color: var(--fg);
 }
+button.send.is-stop {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--main);
+}
 /* Serious, calm empty state */
 .thread:has(.hello-hero) { justify-content: flex-start; }
 .hello-hero {

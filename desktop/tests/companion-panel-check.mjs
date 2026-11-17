@@ -237,4 +237,8 @@ for (const file of readdirSync(uiDir).filter(f => f.endsWith(".css"))) {
   assert.ok(!/backdrop-filter\s*:/i.test(read(file)), `${file} uses backdrop-filter`);
 }
 
+assert.match(hdr, /data-admin-kill/);
+assert.ok(!app.includes("inspector-pill"), "Companion pill removed from conversation top bar");
+assert.match(read("chat-composer.js"), /send\.classList\.toggle\("is-stop",\s*stopMode\)/);
+
 console.log("companion-panel-check: ok");
