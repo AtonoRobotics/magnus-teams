@@ -113,6 +113,7 @@ ctx.window = ctx;
 ctx.globalThis = ctx;
 vm.createContext(ctx);
 vm.runInContext(themeSrc, ctx, { filename: "theme.js" });
+vm.runInContext(`${read("app-logos.js")}\nglobalThis.AppLogos = AppLogos;`, ctx, { filename: "app-logos.js" });
 const snippets = [
   extractFn(app, "function companionStatus()"),
   extractFn(app, "function dayBucketLabel(iso)"),
@@ -129,42 +130,53 @@ const snippets = [
 ].join("\n");
 vm.runInContext(snippets, ctx, { filename: "app-slices.js" });
 
-// 1. Companion header & tabs.
+// 1. Companion header & tabs across all 4 current themes.
 const hdr = ctx.companionHeader();
-assert.match(hdr, /<div class="companion-top-bar">/);
-assert.match(hdr, /<div class="companion-avatar-wrap">/);
-assert.match(hdr, /class="companion-edit-btn"/);
+assert.match(hdr, /<div class="companion-row-left">/);
+assert.match(hdr, /class="companion-avatar"/);
 assert.match(hdr, /<h2>Magnus<\/h2>/);
 assert.match(hdr, /2 waiting on you/);
-assert.match(hdr, /Worker Companion/);
+assert.match(hdr, /1 task/);
 assert.match(hdr, /href="#\/settings\/appearance"[^>]*>.*Obsidian Theme/);
+ctx.Theme.set({ style: "obsidian-2" });
+assert.match(ctx.companionHeader(), /Obsidian 2 Theme/);
 ctx.Theme.set({ style: "prism" });
 assert.match(ctx.companionHeader(), /Prism Theme/);
+ctx.Theme.set({ style: "studio" });
+assert.match(ctx.companionHeader(), /Studio Theme/);
 ctx.Theme.set({ style: "obsidian" });
 ctx.needsMe = () => [];
 assert.match(ctx.companionHeader(), /Working · 1 active/);
 ctx.App.tasks = [];
 assert.match(ctx.companionHeader(), /Ready/);
-ctx.needsMe = () => [{ id: "n1", thread: "t1" }, { id: "n2" }];
+ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Review Linear issue #84", created_at: recentIso }];
+ctx.needsMe = () => [{ id: "n1", thread: "t1", summary: "Send Gmail update" }, { id: "n2", summary: "Create GitHub PR" }];
 const tabs = ctx.panelTabs("rules");
 for (const label of ["Activity", "Approvals", "Files", "Apps"]) assert.ok(tabs.includes(`<span>${label}</span>`), `missing tab ${label}`);
 assert.match(tabs, /data-open="needs" aria-current="page".*<span class="badge">2<\/span>/);
 
-// 2. Grobot Activity, Timeline, Approvals History, and Sidebar tree.
+// 2. Activity priority ordering, inline approval banner, Active now progress card, Timeline brand logos, Approvals History brand logos, and Sidebar tree.
 const act = ctx.activityView([]);
+assert.match(act, /class="companion-sec companion-needs-banner"/);
+assert.match(act, /Needs your approval \(2\)/);
+assert.match(act, /class="gbox companion-active-card"/);
+assert.match(act, /class="active-progress"/);
 assert.match(act, /<div class="gbox">.*Create a routine.*Discover automations.*Enable Heartbeat/s);
-assert.match(act, /class="comp-mini-bar"/);
 assert.match(act, /<details class="companion-scheds" data-key="panel-schedules" open>/);
 assert.match(act, /<a class="gbox-footer" href="#\/schedules"/);
 assert.match(act, /<nav class="activity-views" aria-label="Activity views">/);
+assert.ok(act.indexOf("companion-needs-banner") < act.indexOf("companion-active-card"), "Inline approval banner appears above Active now card");
+assert.ok(act.indexOf("companion-active-card") < act.indexOf("companion-timeline"), "Active now card appears above Recent work timeline");
+assert.ok(act.indexOf("companion-timeline") < act.indexOf("companion-computer"), "Recent work appears above compact computer bar");
 
-const tl = ctx.timelineGroups([{ task_id: "tk1", status: "running", title: "Running job", created_at: recentIso }], []);
+const tl = ctx.timelineGroups([{ task_id: "tk1", status: "running", title: "Review GitHub PR #42", created_at: recentIso }], []);
 assert.match(tl, /<details class="tl-day" data-key="day:Active now" open>/);
 assert.match(tl, /<ul class="tlist tl-stack">/);
+assert.match(tl, /<span class="tl-brand" aria-hidden="true"><svg class="ctile-svg"/);
 
 const nv = ctx.needsView([]);
 assert.match(nv, /class="gbox companion-guard"/);
-assert.match(nv, /class="appr-history".*class="appr-ic mail".*class="gbox appr-payload-box"/s);
+assert.match(nv, /class="appr-history".*class="appr-ic mail has-logo".*<svg class="ctile-svg".*class="gbox appr-payload-box"/s);
 
 ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Running job", created_at: recentIso }];
 const tree = ctx.navigationTree();

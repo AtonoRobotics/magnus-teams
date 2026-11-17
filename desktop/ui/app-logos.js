@@ -31,12 +31,41 @@ const AppLogos = (() => {
     fusion: wrap('<path fill="#fff" d="M7 5h10l-2.2 3.5H10.5v2.7h4.8l-2 3.3h-2.8V19H7V5Z"/>'),
     "autodesk-fusion": wrap('<path fill="#fff" d="M7 5h10l-2.2 3.5H10.5v2.7h4.8l-2 3.3h-2.8V19H7V5Z"/>'),
     solidworks: wrap('<rect x="4.5" y="4.5" width="15" height="15" rx="3" fill="#fff"/><path fill="#DC2626" d="M14.8 9.2c-.5-.35-1.15-.55-1.95-.55-1.4 0-2.35.7-2.35 1.75 0 1 .75 1.45 1.9 1.75.75.2 1.1.4 1.1.8 0 .45-.45.75-1.15.75-.75 0-1.4-.25-1.95-.65l-.7 1.35c.65.45 1.55.75 2.6.75 1.55 0 2.6-.75 2.6-1.85 0-1-.7-1.5-1.95-1.8-.75-.2-1.05-.38-1.05-.75 0-.4.4-.65 1-.65.6 0 1.15.2 1.6.5l.35-1.35Z"/>'),
+    linear: wrap('<circle cx="12" cy="12" r="9.5" fill="#5E6AD2"/><path d="M6.8 14.8 9.2 17.2M6.2 11.4l6.4 6.4M7.5 8.5l8 8" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>'),
   };
+
+  /** @type {Array<[RegExp, string, string]>} */
+  const RULES = [
+    [/outlook/, "microsoft-outlook", "mail"],
+    [/mail|gmail|email|inbox/, "google-gmail", "mail"],
+    [/github|\bpr\b|pull request/, "github", "code"],
+    [/gitlab/, "gitlab", "code"],
+    [/slack|\bchannel\b/, "slack", "chat"],
+    [/calendar|meeting|invite|schedule conflict/, "google-calendar", "sch"],
+    [/google drive|\bdrive\b|spreadsheet|xlsx|docs/, "google-drive", "doc"],
+    [/onedrive/, "microsoft-onedrive", "doc"],
+    [/linear/, "linear", "code"],
+    [/asana/, "asana", "work"],
+    [/sentry/, "sentry", "code"],
+    [/shopify/, "shopify", "work"],
+    [/supabase/, "supabase", "code"],
+    [/vercel/, "vercel", "code"],
+    [/cloudflare/, "cloudflare", "code"],
+  ];
 
   /** @param {string} name */
   function svg(name) {
     return MARKS[String(name || "").toLowerCase()] || "";
   }
 
-  return { svg };
+  /** @param {string} text */
+  function forText(text) {
+    const hay = String(text || "").toLowerCase();
+    for (const [re, id, cls] of RULES) {
+      if (re.test(hay) && MARKS[id]) return { id, cls, svg: MARKS[id] };
+    }
+    return null;
+  }
+
+  return { svg, forText };
 })();

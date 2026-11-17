@@ -2132,26 +2132,28 @@ function dayBucketLabel(iso) {
 }
 function companionHeader() {
   const st = companionStatus();
-  const styleLbl = typeof Theme !== "undefined" && Theme.prefs().style === "prism" ? "Prism Theme" : "Obsidian Theme";
-  const triad = `<svg width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg>`;
+  const styleNames = { obsidian: "Obsidian Theme", "obsidian-2": "Obsidian 2 Theme", prism: "Prism Theme", studio: "Studio Theme" };
+  const styleLbl = (typeof Theme !== "undefined" && styleNames[Theme.prefs().style]) || "Obsidian Theme";
+  const triad = `<svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg>`;
+  const taskCount = (App.tasks || []).length;
   return `<div class="companion-id">
-    <div class="companion-top-bar">
-      <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${icon("palette")}<span>${esc(styleLbl)}</span></a>
-      <div class="companion-top-acts">
-        <div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div>
-        <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
+    <div class="companion-row-left">
+      <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent">${triad}<span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
+      <div class="companion-title-col">
+        <div class="companion-name-row">
+          <h2>Magnus</h2>
+          <span class="companion-status-lbl">${esc(st.label)}</span>
+        </div>
+        <div class="companion-sub">
+          <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${esc(styleLbl)}</a>
+          <span class="faint" aria-hidden="true">·</span>
+          <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"}</span>
+        </div>
       </div>
     </div>
-    <div class="companion-avatar-wrap">
-      <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent">${triad}</a>
-      <a href="#/settings/appearance" class="companion-edit-btn" aria-label="Customize appearance" title="Appearance">${icon("pencil")}</a>
-    </div>
-    <h2>Magnus</h2>
-    <div class="companion-sub">
-      <span class="comp-dot ${st.dot}" aria-hidden="true"></span>
-      <span class="companion-status-lbl">${esc(st.label)}</span>
-      <span class="faint" aria-hidden="true">·</span>
-      <span class="muted">Worker Companion</span>
+    <div class="companion-top-acts">
+      <div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div>
+      <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
     </div>
   </div>`;
 }
@@ -2172,13 +2174,16 @@ function timelineGroups(active, done) {
       const [ic, pill] = standing(t);
       const sub = t.status === "suspended" ? (WAITING[t.waiting_on] || "waiting") : firstLine(t.summary || t.text);
       const ts = when(t.ended_at || t.created_at);
-      return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="tl-ic st ${ic}">${icon(ic)}</span><div class="tl-info"><div class="tl-title-line"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span>${pill}</div>${sub ? `<div class="small muted tl-sub">${esc(sub)}</div>` : ""}<div class="mono faint tl-time">${esc(ts)}</div></div></a></li>`;
+      const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`) : null;
+      const brandHtml = brand ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>` : "";
+      return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="tl-ic st ${ic}">${icon(ic)}</span><div class="tl-info"><div class="tl-title-line">${brandHtml}<span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span>${pill}</div>${sub ? `<div class="small muted tl-sub">${esc(sub)}</div>` : ""}<div class="mono faint tl-time">${esc(ts)}</div></div></a></li>`;
     }).join("")}</ul></div>
   </details>`).join("");
 }
 function activityView(composed) {
   const active = App.tasks.filter(t => !ENDED.includes(t.status));
   const done = App.tasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
+  const pending = needsMe();
   const scheds = App.schedules.filter(sc => !sc.ended);
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
@@ -2187,16 +2192,33 @@ function activityView(composed) {
   const compState = comp ? controlWords(comp, false) : null;
   const awake = comp?.status === "running";
   const pauseBtn = awake ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
-  const compScreen = awake
-    ? `<span class="comp-mini-bar"><span class="comp-dot ok" aria-hidden="true"></span><span class="comp-mini-line"></span></span><span class="comp-mini-lines"><span class="comp-mini-accent"></span><span class="comp-mini-muted"></span></span>`
-    : `<span class="comp-mini-sleep mono">- -</span><span class="comp-mini-zz mono">zZ</span>`;
+  const needsBanner = pending.length ? `<section class="companion-sec companion-needs-banner">
+    <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Needs your approval (${pending.length})</span><a class="small" href="#/inbox" data-open="needs">View all →</a></div>
+    <div class="gbox">${pending.slice(0, 2).map(i => {
+      const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) : null;
+      const ic = b ? `<span class="gbox-ic has-logo" aria-hidden="true">${b.svg}</span>` : `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
+      return `<a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span><span class="chip warn">Review</span></a>`;
+    }).join("")}</div>
+  </section>` : "";
+  const curTask = active[0];
+  const activeCard = curTask ? `<section class="companion-sec">
+    <a class="gbox companion-active-card" href="#/task/${enc(curTask.task_id)}" data-open="task:${esc(curTask.task_id)}">
+      <div class="active-card-top">
+        <span class="active-card-kicker"><span class="comp-dot run" aria-hidden="true"></span>Active now</span>
+        <span class="mono small muted">${esc(when(curTask.created_at))}</span>
+      </div>
+      <div class="active-card-title">${esc(curTask.title || firstLine(curTask.text) || "Running task")}</div>
+      <div class="active-progress" aria-hidden="true"><span style="width:${pending.length ? "62%" : "45%"}"></span></div>
+      <div class="active-card-foot">
+        <span class="small muted">${esc(pending.length ? `Waiting on ${pending.length} approval${pending.length === 1 ? "" : "s"}` : (curTask.status === "suspended" ? (WAITING[curTask.waiting_on] || "Waiting") : "In progress"))}</span>
+        <span class="small active-inspect">Inspect →</span>
+      </div>
+    </a>
+  </section>` : "";
   const compCard = comp ? `<section class="companion-sec">
-    <div class="companion-sec-head"><span>Computer</span><a class="small" href="#/computer/${enc(comp.id)}/screen">Expand ›</a></div>
     <div class="gbox companion-computer">
-      <div class="comp-copy"><div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><strong>${esc(comp.name || "Cloud Computer")}</strong></div>
-        <div class="small muted">${esc(compState.pill)}</div>
-        <div class="row comp-acts">${pauseBtn}<button type="button" data-open="computer:${esc(comp.id)}">${awake ? "Watch" : "Wake"}</button></div></div>
-      <a href="#/computer/${enc(comp.id)}/screen" data-open="computer:${esc(comp.id)}" class="comp-thumb ${awake ? "awake" : "asleep"}" aria-label="Open ${esc(comp.name || "computer")} screen">${compScreen}</a>
+      <div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><strong>${esc(comp.name || "Cloud Computer")}</strong><span class="faint" aria-hidden="true">·</span><span class="small muted">${esc(compState.pill)}</span></div>
+      <div class="row comp-acts">${pauseBtn}<button type="button" data-open="computer:${esc(comp.id)}">${awake ? "Watch" : "Wake VM →"}</button></div>
     </div>
   </section>` : "";
   const showRoutineHint = !load("routine-hint-dismissed", false);
@@ -2208,24 +2230,28 @@ function activityView(composed) {
       ${hb ? "" : `<button type="button" class="gbox-row" data-enable-heartbeat><span class="gbox-ic warn">${icon("bell")}</span><span class="gbox-lbl">Enable Heartbeat (30m check-in)</span>${icon("chev", "chev")}</button>`}
     </div>
   </section>` : "";
-  const schedLabel = scheds.length ? `${scheds.length} scheduled task${scheds.length === 1 ? "" : "s"}` : "Scheduled tasks";
+  const schedLabel = scheds.length ? `${scheds.length} scheduled task${scheds.length === 1 ? "" : "s"}` : "Up next";
   const schedCard = `<details class="companion-scheds" data-key="panel-schedules" open>
     <summary><span>${esc(schedLabel)}</span><span class="chip ${hb ? "ok" : ""}">${hb ? "Heartbeat on" : "Heartbeat off"}</span></summary>
     <div class="gbox scheds-box">
       ${scheds.length ? scheds.slice(0, 4).map(sc => {
         const isHb = /heartbeat/i.test(sc.title || sc.text || "");
-        return `<a class="gbox-row" href="#/schedules" data-open="schedule:${esc(sc.id)}"><span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span><span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : rule(sc))}</span></span>${icon("chev", "chev")}</a>`;
+        const brand = !isHb && typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${sc.title || ""} ${sc.text || ""}`) : null;
+        const icHtml = brand ? `<span class="gbox-ic sch has-logo">${brand.svg}</span>` : `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
+        return `<a class="gbox-row" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : rule(sc))}</span></span>${icon("chev", "chev")}</a>`;
       }).join("") : `<div class="gbox-empty"><span class="small muted">30m proactive check-in is off</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
       <a class="gbox-footer" href="#/schedules" data-open="schedules">See all scheduled tasks (${App.schedules.length})</a>
     </div>
   </details>`;
-  return `${routineCard}
-    ${compCard}
-    ${schedCard}
+  return `${needsBanner}
+    ${activeCard}
     <section class="companion-timeline">
       <div class="companion-sec-head"><span>Recent work</span><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length}) ›</a></div>
       ${timelineGroups(active, done)}
     </section>
+    ${schedCard}
+    ${routineCard}
+    ${compCard}
     ${(feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}
     ${activityLinks("activity")}`;
 }
@@ -2245,6 +2271,8 @@ function needsView(composed) {
   };
   const appBadge = i => {
     const hay = `${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`.toLowerCase();
+    const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(hay) : null;
+    if (b) return `<span class="appr-ic ${b.cls} has-logo" aria-hidden="true">${b.svg}</span>`;
     if (/mail|gmail|email/.test(hay)) return `<span class="appr-ic mail" aria-hidden="true">M</span>`;
     return `<span class="appr-ic" aria-hidden="true">${icon("globe")}</span>`;
   };
@@ -2828,7 +2856,7 @@ async function filesView() {
     if (k === "media") return '<span class="lib-badge media">IMG</span>';
     return '<span class="lib-badge">FILE</span>';
   };
-  const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${badgeFor(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
+  const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${badgeFor(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><span class="mono small muted lib-size">${esc(kb(f.size))}</span><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
   const listHtml = !shown.length
     ? `<p class="empty">${q || project || kind !== "all" ? "No file matches." : "No files yet. Upload one, or ask Magnus for a document."}</p>`
     : recent.length && older.length
