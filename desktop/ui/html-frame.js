@@ -10,7 +10,7 @@ const HtmlFrame = (() => {
 
   const CHART_PALETTE = {
     light: ["#3B5BDB", "#0F766E", "#B45309", "#BE123C", "#6D28D9", "#4B5563"],
-    dark: ["#7C8CFF", "#5EEAD4", "#FBBF24", "#FDA4AF", "#C4B5FD", "#A6B0C3"],
+    dark: ["#7C8CFF", "#5EEAD4", "#FBBF24", "#FDA4AF", "#C4B5FD", "#B3B3B3"],
   };
 
   const safeCssValue = v => String(v ?? "").replace(/<\/style/gi, "").replace(/[;\n\r{}]/g, " ").trim();
@@ -21,12 +21,12 @@ const HtmlFrame = (() => {
     const vars = {};
     for (const [k, v] of Object.entries(t)) vars[`--${k}`] = safeCssValue(v);
     const pick = (key, fallback) => vars[`--${key}`] || fallback;
-    const fg = pick("fg", m === "dark" ? "#ECEFF4" : "#111318");
-    const muted = pick("muted", m === "dark" ? "#8892A6" : "#565E6B");
-    const main = pick("main", m === "dark" ? "#111318" : "#FFFFFF");
-    const surface = pick("surface", m === "dark" ? "#171A21" : "#F8F9FB");
-    const raised = pick("raised", m === "dark" ? "#1E222B" : "#EEF1F6");
-    const line = pick("line", m === "dark" ? "#222631" : "#E5E7EB");
+    const fg = pick("fg", m === "dark" ? "#F5F5F5" : "#111318");
+    const muted = pick("muted", m === "dark" ? "#8E8E8E" : "#565E6B");
+    const main = pick("main", m === "dark" ? "#0E0E0E" : "#FFFFFF");
+    const surface = pick("surface", m === "dark" ? "#151515" : "#F8F9FB");
+    const raised = pick("raised", m === "dark" ? "#1C1C1C" : "#EEF1F6");
+    const line = pick("line", m === "dark" ? "#242424" : "#E5E7EB");
     const accent = pick("accent", m === "dark" ? "#7C8CFF" : "#3B5BDB");
     const accentFg = pick("accent-fg", m === "dark" ? "#090A0D" : "#FFFFFF");
     const accentText = pick("accent-text", m === "dark" ? "#9BA7FF" : "#364FC7");

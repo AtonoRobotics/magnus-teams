@@ -13,12 +13,12 @@ const darkLook = Theme.effective({ mode: "dark", accent: "blue" }, { dark: true 
 const lightLook = Theme.effective({ mode: "light", accent: "emerald" }, { dark: false });
 
 const darkVars = HtmlFrame.themeVars(Theme.tokens(darkLook), darkLook.mode);
-assert.strictEqual(darkVars["--foreground"], "#ECEFF4");
+assert.strictEqual(darkVars["--foreground"], Theme.tokens(darkLook).fg, "the frame does not take the theme's text color");
 assert.strictEqual(darkVars["--primary"], "#7C8CFF");
 assert.ok(darkVars["--chart-1"] && darkVars["--chart-6"]);
 
 const lightVars = HtmlFrame.themeVars(Theme.tokens(lightLook), lightLook.mode);
-assert.strictEqual(lightVars["--foreground"], "#111318");
+assert.strictEqual(lightVars["--foreground"], Theme.tokens(lightLook).fg, "the frame does not take the theme's text color");
 assert.strictEqual(lightVars["--primary"], "#146C34");
 
 // Fragment wrapping injects style, script, transparent body, and ResizeObserver.

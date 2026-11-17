@@ -28,7 +28,7 @@ const failures = [];
 // (decisions/2026-11-15-antigravity-default-ui-and-custom-accent.md), copied
 // here apart from theme.js so a drift in either shows. Every surface is solid.
 const LIGHT = { side: "#F1F3F6", main: "#FFFFFF", text: "#111318" };
-const NIGHT = { side: "#0D0F13", main: "#111318", text: "#ECEFF4" };
+const NIGHT = { side: "#0A0A0A", main: "#0E0E0E", text: "#F5F5F5" };
 const REF = { light: LIGHT, dark: NIGHT };
 // A color as [r, g, b, a], from #RRGGBB or rgb()/rgba().
 function rgba(c) {

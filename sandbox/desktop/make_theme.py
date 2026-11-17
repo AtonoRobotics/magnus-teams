@@ -26,27 +26,27 @@ PALETTES = {
                  "#4B5563", "#B91C1C", "#16A34A", "#D97706", "#364FC7", "#4338CA", "#0F766E", "#6B7280"],
     },
     "dark": {
-        "bar": "#111318", "line": "#222631", "win": "#111318", "title": "#111318", "bg": "#090A0D",
-        "fg": "#ECEFF4", "fg2": "#A6B0C3", "muted": "#8892A6", "seg": "#171A21", "raised": "#1E222B",
+        "bar": "#0E0E0E", "line": "#242424", "win": "#0E0E0E", "title": "#0E0E0E", "bg": "#000000",
+        "fg": "#F5F5F5", "fg2": "#B3B3B3", "muted": "#8E8E8E", "seg": "#151515", "raised": "#1C1C1C",
         "accent": "#7C8CFF", "accent_fg": "#090A0D", "accent_text": "#9BA7FF", "accent_soft": "#1C2136",
-        "term_bg": "#090A0D", "term_fg": "#A6B0C3", "close_hover": "#2D1619",
-        "ansi": ["#1E222B", "#F87171", "#34D399", "#FBBF24", "#7C8CFF", "#C4B5FD", "#5EEAD4", "#A6B0C3",
-                 "#323846", "#FCA5A5", "#34D399", "#FDBA74", "#9BA7FF", "#A5B4FC", "#5EEAD4", "#ECEFF4"],
+        "term_bg": "#000000", "term_fg": "#B3B3B3", "close_hover": "#2D1619",
+        "ansi": ["#1C1C1C", "#F87171", "#34D399", "#FBBF24", "#7C8CFF", "#C4B5FD", "#5EEAD4", "#B3B3B3",
+                 "#363636", "#FCA5A5", "#34D399", "#FDBA74", "#9BA7FF", "#A5B4FC", "#5EEAD4", "#F5F5F5"],
     },
 }
 
 # Magnus Obsidian (dark) and Light wallpaper palettes, using desktop/ui/theme.js tokens.
 WALLPAPER = {
     "dark": {
-        "bg": "#090A0D",
-        "glow": "#111318",
-        "line": "#222631",
-        "lineFaint": "#1B1E27",
-        "dot": "#323846",
+        "bg": "#000000",
+        "glow": "#0E0E0E",
+        "line": "#242424",
+        "lineFaint": "#1A1A1A",
+        "dot": "#363636",
         "accent": "#7C8CFF",
         "accentGlow": "#1C2136",
         "iconFill": "#9BA7FF",
-        "mark": "#8892A6",
+        "mark": "#8E8E8E",
     },
     "light": {
         "bg": "#F6F7F9",
