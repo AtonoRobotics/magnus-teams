@@ -16,34 +16,34 @@
     "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#9A4A00", "k-proposal": "#4338CA", "k-message": "#565E6B", "k-tool": "#9A3412",
   };
   const DARK = {
-    bg: "#090A0D", side: "#0D0F13", panel: "#0D0F13", main: "#111318", surface: "#171A21", raised: "#1E222B",
-    bubble: "#1E222B", seg: "#171A21", "seg-on": "#242834",
-    fg: "#ECEFF4", fg2: "#A6B0C3", muted: "#8892A6", faint: "#8892A6",
-    line: "#222631", hair: "#1B1E27", "line-strong": "#323846", "btn-border": "#2A2F3D", "button-bg": "#171A21",
-    "row-sel": "rgba(255,255,255,0.055)", search: "rgba(255,255,255,0.06)", "group-head": "#151820", "row-hi": "#1A2033",
+    bg: "#000000", side: "#0A0A0A", panel: "#0A0A0A", main: "#0E0E0E", surface: "#151515", raised: "#1C1C1C",
+    bubble: "#1A1A1A", seg: "#141414", "seg-on": "#222222",
+    fg: "#F5F5F5", fg2: "#B3B3B3", muted: "#8E8E8E", faint: "#8E8E8E",
+    line: "#242424", hair: "#1A1A1A", "line-strong": "#363636", "btn-border": "#2E2E2E", "button-bg": "#151515",
+    "row-sel": "rgba(255,255,255,0.06)", search: "rgba(255,255,255,0.06)", "group-head": "#121212", "row-hi": "#1D1D20",
     ok: "#34D399", "ok-soft": "#102A22", "ok-icon": "#34D399", warn: "#FBBF24", "warn-soft": "#2B210E", "warn-icon": "#FBBF24",
-    sch: "#9BA7FF", "sch-soft": "#1C2136", "approval-bg": "#171A21", "approval-border": "#2E3444", bad: "#F87171", "bad-soft": "#2D1619",
-    shadow: "0 8px 28px rgba(0,0,0,0.45)", avatar: "#242834", chev: "#6E788C", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5",
-    "t-read": "#8892A6", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
-    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8892A6", "k-tool": "#FDBA74",
+    sch: "#9BA7FF", "sch-soft": "#1C2136", "approval-bg": "#151515", "approval-border": "#2E2E2E", bad: "#F87171", "bad-soft": "#2D1619",
+    shadow: "0 8px 28px rgba(0,0,0,0.65)", avatar: "#242424", chev: "#737373", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5",
+    "t-read": "#8E8E8E", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
+    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8E8E8E", "k-tool": "#FDBA74",
   };
   const ACCENTS = [
-    { id: "graphite", label: "Monochrome (Default)", swatch: "#ECEFF4", light: { accent: "#111318", "accent-fg": "#FFFFFF", "accent-text": "#111318", "accent-soft": "#E9ECF2" }, dark: { accent: "#ECEFF4", "accent-fg": "#090A0D", "accent-text": "#ECEFF4", "accent-soft": "#242834" } },
+    { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
     { id: "blue", label: "Indigo", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
     { id: "emerald", label: "Emerald", swatch: "#34D399", light: { accent: "#146C34", "accent-fg": "#FFFFFF", "accent-text": "#146C34", "accent-soft": "#ECFDF3" }, dark: { accent: "#34D399", "accent-fg": "#090A0D", "accent-text": "#6EE7B7", "accent-soft": "#102A22" } },
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["antigravity", "Antigravity"], ["companion", "Companion"]];
+  const STYLES = [["antigravity", "Antigravity"], ["gemini", "Gemini"]];
   const STYLE_TOKENS = {
     antigravity: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
       "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "10px",
       "focus-ring": "0 0 0 1px var(--accent)",
     },
-    companion: {
-      "r-xs": "6px", "r-sm": "8px", "r-md": "12px", "r-lg": "16px", "r-xl": "18px",
-      "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "16px",
+    gemini: {
+      "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "20px", "r-xl": "24px",
+      "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "24px",
       "focus-ring": "0 0 0 3px var(--accent-soft)",
     },
   };
@@ -61,8 +61,8 @@
   const mixHex = (a, b, w) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - w) + parseInt(b.slice(i, i + 2), 16) * w).toString(16).padStart(2, "0")).join("");
   function customAccentTokens(hex, mode) {
     const pal = mode === "dark" ? DARK : LIGHT;
-    const target = mode === "dark" ? "#FFFFFF" : "#111318";
-    const bestFg = c => contrast(c, "#FFFFFF") >= contrast(c, "#090A0D") ? "#FFFFFF" : "#090A0D";
+    const target = mode === "dark" ? "#FFFFFF" : "#111111";
+    const bestFg = c => contrast(c, "#FFFFFF") >= contrast(c, "#000000") ? "#FFFFFF" : "#000000";
     let accent = hex;
     for (let step = 1; step <= 16 && (contrast(accent, pal.main) < 3.0 || contrast(accent, bestFg(accent)) < 4.5); step++) {
       accent = mixHex(hex, target, step / 16);
@@ -106,6 +106,7 @@
       const mode = v.followComputer ? "system" : v.theme === "custom" ? v.mode : ["dark", "ember"].includes(v.theme) ? "dark" : "light";
       v = { ...v, style: DEFAULTS.style, mode, accent: v.theme === "custom" ? v.accent : DEFAULTS.accent };
     }
+    if (v.style === "companion") v = { ...v, style: "gemini" };
     // A record from before the Theme choice was written on first load, so its
     // "blue" is the old default (Indigo), not a choice: it takes today's.
     if (value && typeof value === "object" && !("style" in v) && v.accent === "blue") v = { ...v, accent: DEFAULTS.accent };

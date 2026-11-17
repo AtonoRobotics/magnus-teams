@@ -70,6 +70,7 @@ function personalChat(thread) {
         "Operations: Track open threads and follow up on anything stalled for 48 hours",
         "Engineering: Triage pull requests waiting for my review and summarize CI blockers",
       ],
+      render: () => (typeof Discover !== "undefined" ? Discover.heroHtml() : null),
     },
     stop: () => listen([]),
     load: async () => {
@@ -121,7 +122,7 @@ function personalChat(thread) {
     lead: e => (typeof App !== "undefined" && App.workspaces?.length && (e.kind === "answer" || e.kind === "message") && e.text)
       ? `<button type="button" class="share-team-act small" data-share-team="${esc(e.id)}" title="Share to team channel">Share to team</button>` : "",
     actions: (e, view, b, el) => MessageControls.adapter(e, view, b, el, transport),
-    click: (e, view) => personalCardClick(e, view),
+    click: (e, view) => { if (typeof Discover !== "undefined" && Discover.handleHeroClick(e, view)) return; return personalCardClick(e, view); },
   };
 }
 

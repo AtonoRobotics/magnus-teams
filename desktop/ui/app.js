@@ -420,7 +420,7 @@ function nav() {
   const route=location.hash || "#/home";
   const adminNav=adminNavItem(route);
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
@@ -1512,6 +1512,7 @@ route(/^#\/inbox$/, main => home(main, "needs"), true);
 route(/^#\/(activity|tasks|schedules|files|projects)$/, (main, k) => home(main, k), true);
 // The Library is the connector catalog, a page of its own (connectors spec,
 // Library); a connector's page is under it.
+route(/^#\/explore$/, main => Discover.show(main));
 route(/^#\/library(?:\/([^/]+))?$/, (main, name) => showLibrary(main, name));
 route(/^#\/new$/, main => home(main), true);
 route(/^#\/file\/([^/]+)$/, (main, id) => home(main, `file:${id}`), true);
@@ -2133,7 +2134,7 @@ function dayBucketLabel(iso) {
 }
 function companionHeader() {
   const st = companionStatus();
-  const styleLbl = typeof Theme !== "undefined" && Theme.prefs().style === "companion" ? "Companion Theme" : "Antigravity Theme";
+  const styleLbl = typeof Theme !== "undefined" && Theme.prefs().style === "gemini" ? "Gemini Theme" : "Antigravity Theme";
   const triad = `<svg width="20" height="20" viewBox="0 0 64 64" fill="none" aria-hidden="true"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg>`;
   return `<div class="companion-id">
     <div class="companion-top-bar">
@@ -2812,6 +2813,8 @@ async function filesView() {
     const n = (f.name || "").toLowerCase(), k = libFileKind(f);
     if (n.endsWith(".pdf") || f.media_type === "application/pdf") return '<span class="lib-badge pdf">PDF</span>';
     if (n.endsWith(".csv") || f.media_type === "text/csv") return '<span class="lib-badge sheet">CSV</span>';
+    if (n.endsWith(".json") || f.media_type === "application/json") return '<span class="lib-badge json">JSON</span>';
+    if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css)$/.test(n)) return '<span class="lib-badge code">CODE</span>';
     if (k === "pages") return '<span class="lib-badge page">MD</span>';
     if (k === "media") return '<span class="lib-badge media">IMG</span>';
     return '<span class="lib-badge">FILE</span>';
@@ -3132,17 +3135,17 @@ function appearanceSection(el) {
   };
   const draw = () => {
     const p = Theme.prefs(), look = Theme.look;
-    const defAccent = p.style === "companion" ? "blue" : "graphite";
-    const defHex = p.style === "companion" ? "#7C8CFF" : (look.mode === "light" ? "#111318" : "#ECEFF4");
-    const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111318" : a.swatch;
+    const defAccent = p.style === "gemini" ? "blue" : "graphite";
+    const defHex = p.style === "gemini" ? "#7C8CFF" : (look.mode === "light" ? "#111111" : "#F5F5F5");
+    const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111111" : a.swatch;
     const currentHex = /^#[0-9a-fA-F]{6}$/.test(p.accent) ? p.accent.toUpperCase() : (Theme.ACCENTS.find(a => a.id === p.accent)?.[look.mode]?.accent || defHex);
     paint(el, `<h2>Appearance</h2><div class="appearance">
       ${Theme.saved === false ? `<p class="small" role="status">Appearance changed for this session but was not saved on this device.</p>` : ""}
       <h3 id="style-h">Theme</h3><div class="seg" role="radiogroup" aria-labelledby="style-h">${Theme.STYLES.map(([k, l]) => radio("style", k, l)).join("")}</div>
-      <p class="small faint">${p.style === "companion" ? "Companion uses rounded cards, soft pills, and circular avatars." : "Antigravity uses tight architectural corners, flush borders, and a monochrome baseline."}</p>
+      <p class="small faint">${p.style === "gemini" ? "Gemini uses soft pill surfaces, rounded cards, and circular avatars." : "Antigravity uses tight architectural corners, flush borders, and a pure black monochrome baseline."}</p>
       <h3 id="mode-h">Mode</h3><div class="seg" role="radiogroup" aria-labelledby="mode-h">${Theme.MODES.map(([k, l]) => radio("mode", k, l)).join("")}</div>
       <h3 id="acc-h">Accent color</h3><div class="swatches ag-swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => { const sc = swatchColor(a); return radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${sc};background:${sc}`); }).join("")}<label class="swatch-custom" title="Pick any custom hex color"><span class="swatch-custom-inner" aria-hidden="true">+</span><input type="color" data-custom-accent value="${esc(currentHex)}" aria-label="Custom accent color"></label><div class="hex-box"><span class="hex-dot" aria-hidden="true"></span><input type="text" class="hex-input" data-custom-hex value="${esc(currentHex)}" maxlength="7" aria-label="Custom accent hex"></div>${p.accent !== defAccent ? `<button type="button" class="link small" data-look="accent" data-value="${esc(defAccent)}">Reset to default</button>` : ""}</div>
-      <p class="small faint">${p.style === "companion" ? "Default uses Indigo." : "Default uses Monochrome graphite."} Custom colors automatically preserve legible contrast.</p>
+      <p class="small faint">${p.style === "gemini" ? "Default uses Indigo." : "Default uses Monochrome graphite."} Custom colors automatically preserve legible contrast.</p>
       <h3 id="mot-h">Motion</h3><div class="seg" role="radiogroup" aria-labelledby="mot-h">${Theme.MOTIONS.map(([k, l]) => radio("motion", k, l)).join("")}</div>
       <p class="small muted" data-motion-hint>${esc(Theme.MOTION_HINTS[p.motion])}${look.motion !== p.motion ? " Your computer asks for reduced motion, so Magnus uses quick fades." : ""}</p>
       <p class="small faint">Magnus also follows your computer's setting for reduced motion.</p></div>`);
@@ -3159,7 +3162,7 @@ function appearanceSection(el) {
     b.focus({ preventScroll: true });
     if (b.dataset.look === "style") {
       const nextStyle = b.dataset.value, p = Theme.prefs(), patch = { style: nextStyle };
-      if (nextStyle === "companion" && p.accent === "graphite") patch.accent = "blue";
+      if (nextStyle === "gemini" && p.accent === "graphite") patch.accent = "blue";
       else if (nextStyle === "antigravity" && p.accent === "blue") patch.accent = "graphite";
       Theme.set(patch);
       return;
