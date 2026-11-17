@@ -330,7 +330,37 @@ button.send.is-empty:hover {
   width: 100%;
   margin: 0 auto;
 }
-.hello-head { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.hello-head { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.hello-banner {
+  position: relative;
+  width: 100%;
+  height: 112px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+html[data-style="gemini"] .hello-banner { border-radius: var(--r-lg); box-shadow: var(--shadow); }
+.hello-banner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hero-img-gem { display: none; }
+html[data-style="gemini"] .hero-img-ag { display: none; }
+html[data-style="gemini"] .hero-img-gem { display: block; }
+.hello-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 40%, var(--main) 100%);
+  pointer-events: none;
+}
+.card-media {
+  width: calc(100% + 32px);
+  height: 84px;
+  margin: -14px -16px 4px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--hair);
+  background: var(--bg);
+}
+.card-media img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0.92; transition: transform .2s ease, opacity .2s ease; }
+button.hello-card:hover .card-media img, .explore-card:hover .card-media img { transform: scale(1.03); opacity: 1; }
 .hello-title {
   margin: 0;
   font-size: 26px;
@@ -397,6 +427,7 @@ button.hello-card {
   background: var(--surface);
   color: var(--fg);
   cursor: pointer;
+  overflow: hidden;
   transition: background-color .15s ease, border-color .15s ease, transform .15s ease;
 }
 html[data-style="gemini"] button.hello-card { border-radius: var(--r-lg); box-shadow: var(--shadow); }

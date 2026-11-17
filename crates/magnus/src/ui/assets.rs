@@ -59,6 +59,12 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("onboarding.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/onboarding.js")),
     ("onboarding.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/onboarding.css")),
     ("discover.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/discover.js")),
+    ("hero-antigravity.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/hero-antigravity.jpg")),
+    ("hero-gemini.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/hero-gemini.jpg")),
+    ("card-inbox.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/card-inbox.jpg")),
+    ("card-research.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/card-research.jpg")),
+    ("card-monitor.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/card-monitor.jpg")),
+    ("card-eng.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/card-eng.jpg")),
 ];
 pub(crate) const FONTS: &[(&str, &[u8])] = &[
     ("inter-latin-wght-normal.woff2", include_bytes!("../../../../desktop/ui/fonts/inter-latin-wght-normal.woff2")),

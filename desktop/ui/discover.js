@@ -200,12 +200,22 @@ const Discover = (() => {
     return `<span class="hero-tool ${m.tone}">${svg}<span>${esc(name)}</span></span>`;
   }
 
+  const CAT_IMAGE = {
+    ops: "card-inbox.jpg",
+    research: "card-research.jpg",
+    monitor: "card-monitor.jpg",
+    eng: "card-eng.jpg",
+    team: "card-monitor.jpg",
+  };
+
   /** @param {Playbook} p */
   function cardHtml(p, expanded = false) {
     const tools = p.tools.map(t => toolBadge(t, false)).join("");
     const flow = p.tools.map(t => toolBadge(t, true)).join('<span class="flow-arrow" aria-hidden="true">→</span>');
+    const img = CAT_IMAGE[p.cat] || "card-inbox.jpg";
     if (!expanded) {
       return `<button type="button" class="hello-card" data-starter-prompt="${esc(p.prompt)}">
+        <div class="card-media"><img src="${esc(img)}" alt="" aria-hidden="true" loading="lazy"></div>
         <div class="hello-card-top"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span><div class="card-flow" aria-hidden="true">${flow}</div></div>
         <strong class="hello-card-title">${esc(p.title)}</strong>
         <p class="hello-card-desc">${esc(p.desc)}</p>
@@ -213,6 +223,7 @@ const Discover = (() => {
       </button>`;
     }
     return `<article class="explore-card">
+      <div class="card-media"><img src="${esc(img)}" alt="" aria-hidden="true" loading="lazy"></div>
       <div class="explore-card-head"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span><div class="card-flow" aria-hidden="true">${flow}</div></div>
       <h3>${esc(p.title)}</h3>
       <p class="small muted">${esc(p.desc)}</p>
@@ -225,11 +236,20 @@ const Discover = (() => {
     </article>`;
   }
 
+  function bannerHtml() {
+    return `<div class="hello-banner" aria-hidden="true">
+      <img class="hero-img-ag" src="hero-antigravity.jpg" alt="">
+      <img class="hero-img-gem" src="hero-gemini.jpg" alt="">
+      <div class="hello-banner-overlay"></div>
+    </div>`;
+  }
+
   function heroHtml() {
     const list = state.heroCat === "all" ? PLAYBOOKS.slice(0, 4) : PLAYBOOKS.filter(p => p.cat === state.heroCat).slice(0, 4);
     const tabs = CATEGORIES.map(c => `<button type="button" class="hero-tab${state.heroCat === c.id ? " on" : ""}" data-hero-cat="${esc(c.id)}" aria-pressed="${state.heroCat === c.id}">${esc(c.label)}</button>`).join("");
     return `<div class="hello-hero">
       <div class="hello-head">
+        ${bannerHtml()}
         <h1 class="hello-title">${esc(firstName())}</h1>
         <p class="hello-sub">Your autonomous digital worker — connected to your apps, equipped with a cloud computer, and always asking before acting.</p>
         <div class="hello-caps">
