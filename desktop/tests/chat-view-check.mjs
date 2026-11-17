@@ -113,7 +113,7 @@ assert.ok(ChatView.several(team), "a channel from a server that sends no caps lo
 const DATA_ATTRIBUTES = new Set([
   "agent-mode", "answer", "archive", "attach", "card", "catch-up", "chat-task", "chat-work", "clear-conversation", "close-feedback", "decide", "draft", "entry",
   "feedback-react", "file-download", "jump-latest", "kind", "live", "mention", "menu", "model", "msg-act", "not-now", "notify", "open", "open-thread", "picker",
-  "pins", "react", "remove-upload", "reply", "retry-upload", "sched-act", "share-answer", "share-team", "share-to", "shown", "st-cancel", "st-ch", "st-send", "st-text", "st-ws", "status", "task", "task-act", "tooltip", "upload",
+  "pins", "react", "remove-upload", "reply", "retry-upload", "sched-act", "share-answer", "share-team", "share-to", "shown", "st-cancel", "st-ch", "st-send", "st-text", "st-ws", "status", "task", "task-act", "tooltip", "ui-body", "ui-closed", "ui-kind", "upload",
   "view", "voice-entry", "voice-in", "whisper", "whisper-share",
 ]);
 for (const f of ["chat-view.js", "message-controls.js", "chat-composer.js", "personal-chat.js", "team-chat.js", "team-conversation.js"]) {

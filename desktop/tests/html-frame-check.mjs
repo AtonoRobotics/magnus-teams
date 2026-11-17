@@ -47,4 +47,22 @@ const sanitized = HtmlFrame.themeVars({ fg: "red</style><script>alert(1)</script
 assert.ok(!sanitized["--fg"].includes("</style"));
 assert.ok(!sanitized["--fg"].includes(";"));
 
+// Completed ChatView answers split magnus-html blocks into .ui-block elements.
+const chatCtx = {
+  esc: s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]),
+  when: () => "",
+  icon: () => "",
+  shownFrame: () => "",
+  Compose: { markdown: s => `<p>${s}</p>`, maskedText: s => s },
+  UiSpec: createRequire(import.meta.url)(`${here}../ui/uispec.js`),
+};
+chatCtx.globalThis = chatCtx;
+vm.runInNewContext(`${readFileSync(new URL("../ui/chat-view.js", import.meta.url), "utf8")}\nglobalThis.__ChatView = ChatView;`, chatCtx);
+const htmlAnswer = chatCtx.__ChatView.item(
+  { id: "a1", kind: "answer", task_id: "t1", text: "Here:\n```magnus-html\n<div>hi</div>\n```\n" },
+  { conv: { caps: () => ({}), people: () => [], mine: () => false, name: () => "Magnus", by: () => "Magnus", describe: () => null }, ui: { editing: null, sharing: null, people: [] } },
+);
+assert.ok(htmlAnswer.includes('<div class="ui-block" data-ui-kind="html"'));
+assert.ok(htmlAnswer.includes('data-ui-closed="1"'));
+
 console.log("html frame ok");

@@ -110,10 +110,18 @@ const ChatView = (() => {
     return `<div class="msg ${mine(e, conv) ? "me" : "person"}">${byline(e, conv)}<div>${marked(Compose.maskedText(e.text), conv)}</div>${files(e, conv)}</div>`;
   }
 
+  /** @param {string} text @param {ChatConversation} conv */
+  function answerBody(text, conv) {
+    if (typeof UiSpec === "undefined") return marked(Compose.markdown(text), conv);
+    return UiSpec.split(text).map(p => p.kind === "text"
+      ? marked(Compose.markdown(p.text), conv)
+      : `<div class="ui-block" data-ui-kind="${esc(p.kind)}" data-ui-body="${esc(p.body)}" data-ui-closed="${p.closed ? "1" : "0"}"></div>`).join("");
+  }
+
   /** The agent's answer. @param {ChatEntry} e @param {ChatUi} ui @param {ChatConversation} conv @param {ChatViewState} view */
   function answer(e, ui, conv, view) {
     const extra = `${e.model ? ` · ${esc(e.model.model)}` : ""}${e.for ? ` · for ${esc(e.for)}` : ""}`;
-    return `<div class="msg magnus" data-answer data-task="${esc(e.task_id)}">${byline(e, conv, extra)}<div class="answer-body">${marked(Compose.markdown(e.text || ""), conv)}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}${conv.note?.(e, view) || ""}</div>`;
+    return `<div class="msg magnus" data-answer data-task="${esc(e.task_id)}">${byline(e, conv, extra)}<div class="answer-body">${answerBody(e.text || "", conv)}</div>${e.view ? shownFrame(e.id, "What Magnus showed") : ""}${conv.note?.(e, view) || ""}</div>`;
   }
 
   /**
