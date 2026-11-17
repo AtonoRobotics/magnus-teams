@@ -2581,7 +2581,11 @@ const SVG = {
 const reviewed = `<svg class="lc-rev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Reviewed by Alpha Vector"><path d="M12 2.5l2.3 1.7 2.8-.2 1 2.6 2.4 1.5-.7 2.8 1 2.6-2.3 1.7-.5 2.8-2.8.4-1.9 2.1-2.6-1.1-2.6 1.1-1.9-2.1-2.8-.4-.5-2.8L2.6 15.2l1-2.6-.7-2.8 2.4-1.5 1-2.6 2.8.2z"/><path d="M8.5 12.2l2.3 2.3 4.7-4.8"/></svg>`;
 const stateOf = c => (Connecting[c.name] ? "connecting" : c.state);
 const tintOf = c => (/^#[0-9a-f]{6}$/i.test(c.listing?.tint || "") ? c.listing.tint : "#3A3F48");
-const tile = (c, big) => `<span class="ctile${big ? " big" : ""}" aria-hidden="true" style="background:${tintOf(c)}">${esc(c.listing?.letters || (c.title || "?").slice(0, 2))}</span>`;
+const tile = (c, big) => {
+  const logo = typeof AppLogos !== "undefined" ? AppLogos.svg(c.name) : "";
+  const inner = logo || esc(c.listing?.letters || (c.title || "?").slice(0, 2));
+  return `<span class="ctile${big ? " big" : ""}${logo ? " has-logo" : ""}" aria-hidden="true" style="background:${tintOf(c)}">${inner}</span>`;
+};
 const byline = c => (c.listing?.publisher ? `by ${c.listing.publisher}` : "Added by your organisation");
 const provider = c => c.listing?.publisher || c.title;
 
@@ -2605,11 +2609,14 @@ function connectorCard(c) {
   const line = {
     connecting: `<p class="lc-note">Finish signing in on ${esc(provider(c))}'s page… <button class="link" data-act="connect-page" data-url="${esc(Connecting[c.name] || "")}">Open it again</button></p>`,
     needs_attention: `<p class="lc-note warn">Sign in again to keep using ${esc(c.title)}.</p>`,
-    connected: c.account ? `<p class="lc-note ok">Connected as ${esc(c.account)}</p>` : "",
-  }[st] || "";
-  return `<article class="lcard" data-connector="${esc(c.name)}" data-state="${esc(st)}">${tile(c)}
-    <div class="lc-main"><div class="lc-name"><h3><a href="#/library/${enc(c.name)}">${esc(c.title)}</a></h3>${c.listing?.reviewed ? reviewed : ""}</div>
-    <p class="lc-sum">${esc(c.summary)}</p>${line}<p class="lc-by">${esc(byline(c))}</p></div>${connectorAction(c)}</article>`;
+    connected: c.account ? `<p class="lc-note ok"><span class="lc-dot ok" aria-hidden="true"></span>Connected as ${esc(c.account)}</p>` : `<p class="lc-note ok"><span class="lc-dot ok" aria-hidden="true"></span>Connected</p>`,
+  }[st] || `<p class="lc-note"><span class="lc-dot" aria-hidden="true"></span>Not connected</p>`;
+  const abilities = (c.listing?.abilities || []).slice(0, 2);
+  const abHtml = abilities.length ? `<div class="lc-ab-row">${abilities.map(a => `<span class="lc-ab">${esc(a)}</span>`).join("")}</div>` : "";
+  return `<article class="lcard" data-connector="${esc(c.name)}" data-state="${esc(st)}">
+    <div class="lc-head">${tile(c)}<div class="lc-title-wrap"><div class="lc-name"><h3><a href="#/library/${enc(c.name)}">${esc(c.title)}</a></h3>${c.listing?.reviewed ? reviewed : ""}</div><p class="lc-by">${esc(byline(c))}</p></div>${connectorAction(c)}</div>
+    <div class="lc-main"><p class="lc-sum">${esc(c.summary)}</p>${abHtml}</div>
+    <div class="lc-foot">${line}<a class="lc-more" href="#/library/${enc(c.name)}">Details →</a></div></article>`;
 }
 
 // What a search or a chip leaves: a service's name, or what the person

@@ -13,23 +13,25 @@ const PROGRAM_STATES = { not_installed: "Not installed", not_enabled: "Not enabl
 /** @typedef {{ program: string, title: string, state: "not_installed"|"not_enabled"|"closed"|"ready", allowed: boolean, version: ?string }} ProgramView */
 /** @typedef {{ id: string, name: string, online: boolean, programs: ProgramView[] }} DeviceView */
 
+const PROGRAM_TINTS = { blender: "#EA7600", freecad: "#CB333B", fusion: "#D97706", "autodesk-fusion": "#D97706", solidworks: "#DC2626" };
+
 /** One program on this computer: the consent, or where it stands. */
 function programCard(p, later) {
   const t = esc(p.title), id = esc(p.program);
   const version = p.version ? ` <span class="small faint">${esc(p.version)}</span>` : "";
+  const emblem = typeof tile === "function" ? tile({ name: p.program, title: p.title, listing: { tint: PROGRAM_TINTS[p.program] } }) : "";
   if (p.state === "not_enabled" && !later) {
-    return `<article class="lcard pcard" data-program="${id}" data-state="consent"><div class="lc-main">
-      <h3>Use ${t} on this computer</h3>${version}
+    return `<article class="lcard pcard" data-program="${id}" data-state="consent"><div class="lc-head">${emblem}<div class="lc-title-wrap"><h3>Use ${t} on this computer</h3>${version}</div></div><div class="lc-main">
       <p class="lc-sum">Magnus can work in ${t} here when you ask it to. Anything that runs code inside ${t} asks you first, and you can stop at any time.</p>
       <div class="row"><button class="primary" data-act="program-allow" data-program="${id}">Allow</button><button data-act="program-later" data-program="${id}">Not now</button></div></div></article>`;
   }
   if (p.state === "not_enabled") {
-    return `<article class="lcard pcard" data-program="${id}" data-state="not_enabled"><div class="lc-main"><h3>${t}</h3>${version}<p class="lc-note">Not enabled</p></div>
-      <button data-act="program-allow" data-program="${id}">Use ${t} on this computer</button></article>`;
+    return `<article class="lcard pcard" data-program="${id}" data-state="not_enabled"><div class="lc-head">${emblem}<div class="lc-title-wrap"><h3>${t}</h3>${version}<p class="lc-note">Not enabled</p></div>
+      <button data-act="program-allow" data-program="${id}">Use ${t} on this computer</button></div></article>`;
   }
-  return `<article class="lcard pcard" data-program="${id}" data-state="${esc(p.state)}"><div class="lc-main"><h3>${t}</h3>${version}
+  return `<article class="lcard pcard" data-program="${id}" data-state="${esc(p.state)}"><div class="lc-head">${emblem}<div class="lc-title-wrap"><h3>${t}</h3>${version}
     <p class="lc-note${p.state === "ready" ? " ok" : ""}">${esc(PROGRAM_STATES[p.state] || p.state)}</p></div>
-    <button data-act="program-stop" data-program="${id}" data-device="">Stop using ${t} here</button></article>`;
+    <button data-act="program-stop" data-program="${id}" data-device="">Stop using ${t} here</button></div></article>`;
 }
 
 /** Another computer, by its name, with the programs found or allowed there. */
