@@ -16,16 +16,34 @@
     "k-question": "#6D28D9", "k-review": "#0F766E", "k-notice": "#9A4A00", "k-proposal": "#4338CA", "k-message": "#565E6B", "k-tool": "#9A3412",
   };
   const DARK = {
-    bg: "#000000", side: "#0A0A0A", panel: "#0A0A0A", main: "#0E0E0E", surface: "#151515", raised: "#1C1C1C",
-    bubble: "#1A1A1A", seg: "#141414", "seg-on": "#222222",
-    fg: "#F5F5F5", fg2: "#B3B3B3", muted: "#8E8E8E", faint: "#8E8E8E",
-    line: "#242424", hair: "#1A1A1A", "line-strong": "#363636", "btn-border": "#2E2E2E", "button-bg": "#151515",
-    "row-sel": "rgba(255,255,255,0.06)", search: "rgba(255,255,255,0.06)", "group-head": "#121212", "row-hi": "#1D1D20",
+    bg: "#000000", side: "#09090B", panel: "#09090B", main: "#0A0A0C", surface: "#121215", raised: "#1A1A1F",
+    bubble: "#18181C", seg: "#141418", "seg-on": "#222228",
+    fg: "#F4F4F5", fg2: "#B4B4BC", muted: "#8E8E96", faint: "#8E8E96",
+    line: "#232329", hair: "#18181D", "line-strong": "#35353E", "btn-border": "#2A2A32", "button-bg": "#121215",
+    "row-sel": "rgba(255,255,255,0.06)", search: "rgba(255,255,255,0.055)", "group-head": "#101013", "row-hi": "#1C1C22",
     ok: "#34D399", "ok-soft": "#102A22", "ok-icon": "#34D399", warn: "#FBBF24", "warn-soft": "#2B210E", "warn-icon": "#FBBF24",
-    sch: "#9BA7FF", "sch-soft": "#1C2136", "approval-bg": "#151515", "approval-border": "#2E2E2E", bad: "#F87171", "bad-soft": "#2D1619",
-    shadow: "0 8px 28px rgba(0,0,0,0.65)", avatar: "#242424", chev: "#737373", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5",
-    "t-read": "#8E8E8E", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
-    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8E8E8E", "k-tool": "#FDBA74",
+    sch: "#9BA7FF", "sch-soft": "#1C2136", "approval-bg": "#121215", "approval-border": "#2E2E36", bad: "#F87171", "bad-soft": "#2D1619",
+    shadow: "0 8px 28px rgba(0,0,0,0.65)", avatar: "#222228", chev: "#71717A", "pdf-bg": "#2D1619", "pdf-fg": "#FCA5A5",
+    "t-read": "#8E8E96", "t-reversible": "#9BA7FF", "t-irreversible": "#FBBF24", "t-financial": "#F87171",
+    "k-question": "#C4B5FD", "k-review": "#5EEAD4", "k-notice": "#FBBF24", "k-proposal": "#A5B4FC", "k-message": "#8E8E96", "k-tool": "#FDBA74",
+  };
+  const PRISM_LIGHT = {
+    ...LIGHT,
+    bg: "#FFFFFF", side: "#F0F4F9", panel: "#F0F4F9", main: "#FFFFFF", surface: "#F0F4F9", raised: "#E9EEF6",
+    bubble: "#E9EEF6", seg: "#E1E5EA", "seg-on": "#FFFFFF",
+    fg: "#1F1F1F", fg2: "#444746", muted: "#5A5E66", faint: "#5A5E66",
+    line: "#DDE3EA", hair: "#E8EDF2", "line-strong": "#C4C7C5", "btn-border": "#C4C7C5", "button-bg": "#F0F4F9",
+    "row-sel": "rgba(31,31,31,0.055)", search: "rgba(31,31,31,0.06)", "group-head": "#F0F4F9", "row-hi": "#E8F0FE",
+    shadow: "0 2px 12px rgba(15,23,42,0.06)",
+  };
+  const PRISM_DARK = {
+    ...DARK,
+    bg: "#131314", side: "#1E1F20", panel: "#1E1F20", main: "#131314", surface: "#1E1F20", raised: "#282A2C",
+    bubble: "#282A2C", seg: "#282A2C", "seg-on": "#333537",
+    fg: "#E3E3E3", fg2: "#C4C7C5", muted: "#9AA0A6", faint: "#9AA0A6",
+    line: "#2E3033", hair: "#242628", "line-strong": "#444746", "btn-border": "#3C4043", "button-bg": "#1E1F20",
+    "row-sel": "rgba(227,227,227,0.07)", search: "rgba(227,227,227,0.07)", "group-head": "#1E1F20", "row-hi": "#282A2C",
+    shadow: "0 4px 20px rgba(0,0,0,0.36)",
   };
   const ACCENTS = [
     { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
@@ -38,7 +56,7 @@
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
-      "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "10px",
+      "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "12px",
       "focus-ring": "0 0 0 1px var(--accent)",
     },
     prism: {
@@ -59,8 +77,8 @@
 
   const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
   const mixHex = (a, b, w) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - w) + parseInt(b.slice(i, i + 2), 16) * w).toString(16).padStart(2, "0")).join("");
-  function customAccentTokens(hex, mode) {
-    const pal = mode === "dark" ? DARK : LIGHT;
+  function customAccentTokens(hex, mode, basePal) {
+    const pal = basePal || (mode === "dark" ? DARK : LIGHT);
     const target = mode === "dark" ? "#FFFFFF" : "#111111";
     const bestFg = c => contrast(c, "#FFFFFF") >= contrast(c, "#000000") ? "#FFFFFF" : "#000000";
     let accent = hex;
@@ -88,13 +106,14 @@
 
   function tokens(look) {
     const dark = look.mode === "dark";
-    const t = { ...(dark ? DARK : LIGHT) };
     const style = STYLES.some(s => s[0] === look.style) ? look.style : DEFAULTS.style;
+    const basePal = style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT) : (dark ? DARK : LIGHT);
+    const t = { ...basePal };
     Object.assign(t, STYLE_TOKENS[style]);
     t.shell = t.bg;
     t.panel = t.main;
     const preset = ACCENTS.find(a => a.id === look.accent);
-    Object.assign(t, preset ? preset[look.mode] : isHex(look.accent) ? customAccentTokens(look.accent, look.mode) : ACCENTS[0][look.mode]);
+    Object.assign(t, preset ? preset[look.mode] : isHex(look.accent) ? customAccentTokens(look.accent, look.mode, basePal) : ACCENTS[0][look.mode]);
     t.focus = t["accent-text"];
     return t;
   }

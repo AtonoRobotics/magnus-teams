@@ -219,7 +219,7 @@ const Discover = (() => {
         <div class="hello-card-top"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span><div class="card-flow" aria-hidden="true">${flow}</div></div>
         <strong class="hello-card-title">${esc(p.title)}</strong>
         <p class="hello-card-desc">${esc(p.desc)}</p>
-        <div class="hello-card-foot"><div class="hello-card-tools">${tools}</div><span class="hello-card-go">Try prompt →</span></div>
+        <div class="hello-card-foot"><span class="hello-card-meta">${esc(p.tools.join(" · "))}</span><span class="hello-card-go">Try →</span></div>
       </button>`;
     }
     return `<article class="explore-card">
