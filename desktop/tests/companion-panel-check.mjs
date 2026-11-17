@@ -137,10 +137,10 @@ assert.match(hdr, /class="companion-edit-btn"/);
 assert.match(hdr, /<h2>Magnus<\/h2>/);
 assert.match(hdr, /2 waiting on you/);
 assert.match(hdr, /Worker Companion/);
-assert.match(hdr, /href="#\/settings\/appearance"[^>]*>.*Antigravity Theme/);
-ctx.Theme.set({ style: "gemini" });
-assert.match(ctx.companionHeader(), /Gemini Theme/);
-ctx.Theme.set({ style: "antigravity" });
+assert.match(hdr, /href="#\/settings\/appearance"[^>]*>.*Obsidian Theme/);
+ctx.Theme.set({ style: "prism" });
+assert.match(ctx.companionHeader(), /Prism Theme/);
+ctx.Theme.set({ style: "obsidian" });
 ctx.needsMe = () => [];
 assert.match(ctx.companionHeader(), /Working · 1 active/);
 ctx.App.tasks = [];
@@ -201,21 +201,21 @@ const makeEl = () => ({ innerHTML: "", isConnected: true, focus() {}, _bySel: ()
 const appEl = makeEl();
 ctx.appearanceSection(appEl);
 assert.match(appEl.innerHTML, /<h3 id="style-h">Theme<\/h3>/);
-assert.match(appEl.innerHTML, /data-look="style" data-value="antigravity"/);
-assert.match(appEl.innerHTML, /data-look="style" data-value="gemini"/);
+assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian"/);
+assert.match(appEl.innerHTML, /data-look="style" data-value="prism"/);
 assert.match(appEl.innerHTML, /data-custom-hex/);
 
 const clickLook = (look, value) => appEl.onclick({ target: { closest: q => q === "[data-look]" ? { dataset: { look, value }, focus() {} } : null } });
-assert.equal(ctx.Theme.prefs().style, "antigravity");
+assert.equal(ctx.Theme.prefs().style, "obsidian");
 assert.equal(ctx.Theme.prefs().accent, "graphite");
-clickLook("style", "gemini");
-assert.equal(ctx.Theme.prefs().style, "gemini");
-assert.equal(ctx.Theme.prefs().accent, "blue", "switching Antigravity -> Gemini auto-shifts graphite -> blue");
-clickLook("style", "antigravity");
-assert.equal(ctx.Theme.prefs().style, "antigravity");
-assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Gemini -> Antigravity auto-shifts blue -> graphite");
+clickLook("style", "prism");
+assert.equal(ctx.Theme.prefs().style, "prism");
+assert.equal(ctx.Theme.prefs().accent, "blue", "switching Obsidian -> Prism auto-shifts graphite -> blue");
+clickLook("style", "obsidian");
+assert.equal(ctx.Theme.prefs().style, "obsidian");
+assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Prism -> Obsidian auto-shifts blue -> graphite");
 clickLook("accent", "emerald");
-clickLook("style", "gemini");
+clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
 // 5. Desktop auto-open, rules panel handler, and dual-theme CSS rules.
@@ -224,9 +224,9 @@ assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWi
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
 
-assert.match(read("chat.css"), /html\[data-style="gemini"\]\s*\.msg\.me/);
-assert.match(read("layout.css"), /html\[data-style="gemini"\]\s*\.panel-tabs/);
-assert.match(read("pages.css"), /html\[data-style="gemini"\]\s*\.gbox/);
+assert.match(read("chat.css"), /html\[data-style="prism"\]\s*\.msg\.me/);
+assert.match(read("layout.css"), /html\[data-style="prism"\]\s*\.panel-tabs/);
+assert.match(read("pages.css"), /html\[data-style="prism"\]\s*\.gbox/);
 
 // 6. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.
 for (const file of ["app.js", "computers.js", "team-panel.js"]) {

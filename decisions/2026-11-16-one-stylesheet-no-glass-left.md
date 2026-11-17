@@ -3,7 +3,7 @@
 ## Choice
 `2026-11-15-remove-glass-material-and-merge-app-css.md` appended
 `modern-ux.css` to `app.css` and left 59 selectors defined twice: the old
-rule early in the file and the Antigravity override at its end. That is the
+rule early in the file and the Obsidian override at its end. That is the
 same layering it set out to remove, in one file instead of two. Finishing it:
 
 - Every duplicated selector in `app.css` is one rule. The declarations that won

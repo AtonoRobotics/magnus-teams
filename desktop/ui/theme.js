@@ -1,4 +1,4 @@
-// Antigravity theme system: Obsidian Dark & Alabaster Light, matte tonal
+// Obsidian & Prism theme system: Dark & Light modes, matte tonal
 // hierarchy, 5 contrast-checked presets + custom hex accent picker.
 "use strict";
 
@@ -34,14 +34,14 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["antigravity", "Antigravity"], ["gemini", "Gemini"]];
+  const STYLES = [["obsidian", "Obsidian"], ["prism", "Prism"]];
   const STYLE_TOKENS = {
-    antigravity: {
+    obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
       "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "10px",
       "focus-ring": "0 0 0 1px var(--accent)",
     },
-    gemini: {
+    prism: {
       "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "20px", "r-xl": "24px",
       "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "24px",
       "focus-ring": "0 0 0 3px var(--accent-soft)",
@@ -54,7 +54,7 @@
     reduced: "Quick fades instead of movement.",
     off: "No animation. Everything changes instantly.",
   };
-  const DEFAULTS = { style: "antigravity", mode: "dark", accent: "graphite", motion: "full" };
+  const DEFAULTS = { style: "obsidian", mode: "dark", accent: "graphite", motion: "full" };
   const LAYOUT = { navigation: "expanded", conversationWidthPx: 420 };
 
   const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
@@ -106,7 +106,8 @@
       const mode = v.followComputer ? "system" : v.theme === "custom" ? v.mode : ["dark", "ember"].includes(v.theme) ? "dark" : "light";
       v = { ...v, style: DEFAULTS.style, mode, accent: v.theme === "custom" ? v.accent : DEFAULTS.accent };
     }
-    if (v.style === "companion") v = { ...v, style: "gemini" };
+    if (v.style === "antigravity") v = { ...v, style: "obsidian" };
+    else if (v.style === "companion" || v.style === "gemini") v = { ...v, style: "prism" };
     // A record from before the Theme choice was written on first load, so its
     // "blue" is the old default (Indigo), not a choice: it takes today's.
     if (value && typeof value === "object" && !("style" in v) && v.accent === "blue") v = { ...v, accent: DEFAULTS.accent };

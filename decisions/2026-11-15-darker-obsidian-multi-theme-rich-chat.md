@@ -1,7 +1,7 @@
 # Darker Obsidian Background, Multi-Theme Accents, and Unboxed Rich Chat
 
 ## Context
-After reviewing interactive UI mockups (`magnus_serious_mockup.html` and `magnus_rich_chat_mockup.html`), the owner approved transitioning Magnus to an Antigravity-inspired serious minimalist aesthetic with:
+After reviewing interactive UI mockups (`magnus_serious_mockup.html` and `magnus_rich_chat_mockup.html`), the owner approved transitioning Magnus to an Obsidian-inspired serious minimalist aesthetic with:
 1. A darker obsidian dark mode (`#07080B` / `#0B0C0F` / `#101216`).
 2. Additional curated color themes (`Indigo`, `Emerald`, `Amber`, `Rose`) alongside `Blue`, `Teal`, `Clay`, and `Graphite`.
 3. Unboxed editorial prose, `tabular-nums` hairline tables, proportional bar primitives, and a single focal surface for pending decisions.

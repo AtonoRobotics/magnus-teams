@@ -1,4 +1,4 @@
-# 2026-11-15 — Antigravity Shell, Navigation, and Timeline Redesign
+# 2026-11-15 — Obsidian Shell, Navigation, and Timeline Redesign
 
 ## Decision
 Replaced the legacy Magnus conversation, navigation, and card presentation templates and CSS in `desktop/ui/app.js`, `desktop/ui/personal-chat.js`, and `desktop/ui/app.css`:
@@ -8,4 +8,4 @@ Replaced the legacy Magnus conversation, navigation, and card presentation templ
 - **Messages & Composer**: Made `.msg-actions` hover-only and omitted them from `tasks`/`result` entries, moved `Share to team` to a quiet ghost action, hid `.msg.me .byline` on user prompt cards, and styled `.say` as a rounded-16px elevated surface with a `210px` model selector.
 
 ## Reason
-CSS-only token adjustments could not overcome the legacy multi-card DOM structure, noisy inline action bars, and double-stacked headers. Replacing the DOM templates alongside deduplicating conflicting CSS rules aligns the rendered UI with Antigravity while preserving all `data-*` contracts and accessibility/contrast invariants.
+CSS-only token adjustments could not overcome the legacy multi-card DOM structure, noisy inline action bars, and double-stacked headers. Replacing the DOM templates alongside deduplicating conflicting CSS rules aligns the rendered UI with Obsidian while preserving all `data-*` contracts and accessibility/contrast invariants.

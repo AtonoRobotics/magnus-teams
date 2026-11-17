@@ -63,7 +63,7 @@ aside.detail[hidden] { display: none; }
 .companion-avatar-wrap { position: relative; display: inline-grid; place-items: center; margin: 2px 0 4px; }
 .companion-avatar { width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--raised); border: 1px solid var(--line-strong); color: var(--fg); text-decoration: none; }
 .companion-avatar:hover { border-color: var(--accent); text-decoration: none; }
-html[data-style="gemini"] .companion-avatar { width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle at 30% 25%, var(--raised), var(--accent-soft)); color: var(--accent-text); border-color: var(--accent); box-shadow: var(--shadow); }
+html[data-style="prism"] .companion-avatar { width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle at 30% 25%, var(--raised), var(--accent-soft)); color: var(--accent-text); border-color: var(--accent); box-shadow: var(--shadow); }
 .companion-edit-btn { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--line-strong); color: var(--fg2); text-decoration: none; }
 .companion-edit-btn:hover { color: var(--fg); border-color: var(--accent); text-decoration: none; }
 .companion-edit-btn svg.ic { width: 11px; height: 11px; }
@@ -209,7 +209,7 @@ nav.side a.conv, nav.side button { min-height: 44px; min-width: 44px; }
 .connection-status { grid-column: 2 / -1; grid-row: 3; min-height: 22px; padding: 2px 14px; background: var(--main); color: var(--muted); font-size: 11.5px; line-height: 1.4; overflow-wrap: anywhere; border-top: 1px solid var(--hair); }
 .shell:has(> .connection-status:not([hidden])) { grid-template-rows: 48px minmax(0, 1fr) auto; }
 body[data-navigation=drawer] .connection-status { grid-column: 1; }
-/* Antigravity UI/UX: matte tonal hierarchy, 1px structural hairlines,
+/* Obsidian UI/UX: matte tonal hierarchy, 1px structural hairlines,
    unified 44px top bar, and pinpoint accent discipline. */
 /* Unified top bar & quiet sidebar border */
 body[data-workspace="conversation"]:not([data-navigation="drawer"]):not(:has(#workspace-bar [data-admin-kill]:not([hidden]))) .shell { grid-template-rows: 0 minmax(0, 1fr); }
@@ -236,7 +236,7 @@ body[data-navigation="compact"] nav.side .brand .logo { display: none; }
 nav.side .new-chat { border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); font-weight: 500; min-height: 32px; }
 nav.side .new-chat:hover { background: var(--raised); }
 body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-explore { width: 44px; padding: 0; justify-content: center; }
-/* Antigravity Search… ⌘K trigger */
+/* Search… ⌘K trigger */
 #find input:hover { background: var(--row-sel); }
 #find .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: var(--r-xs); border: 1px solid var(--line); color: var(--muted); pointer-events: none; }
 /* Active nav item: subtle 2.5px left accent bar + elevated fill */
@@ -305,7 +305,7 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 .nav-dot.warn { background: var(--warn-icon); }
 @keyframes lpulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 html[data-motion="full"] .nav-dot.run { animation: lpulse 1.8s ease-in-out infinite; }
-html[data-style="gemini"] nav.side .new-chat.primary-nav { border-radius: var(--r-pill); }
+html[data-style="prism"] nav.side .new-chat.primary-nav { border-radius: var(--r-pill); }
 /* Collapsible Workspace group in sidebar */
 nav.side .nav-workspace > summary.nav-group-head {
   list-style: none;
@@ -327,7 +327,7 @@ nav.side .nav-workspace[open] > summary.nav-group-head::after { content: "▾"; 
 nav.side .nav-workspace > summary.nav-group-head::-webkit-details-marker { display: none; }
 nav.side .nav-workspace-items { display: flex; flex-direction: column; gap: 2px; }
 body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head { display: none; }
-/* Right Inspector Drawer Tabs (flush underline in Antigravity, pill track in Companion) */
+/* Right Inspector Drawer Tabs (flush underline in Obsidian, pill track in Prism) */
 .panel-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -360,7 +360,7 @@ body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
-html[data-style="gemini"] .panel-tabs {
+html[data-style="prism"] .panel-tabs {
   gap: 4px;
   padding: 3px;
   margin-bottom: 10px;
@@ -368,12 +368,12 @@ html[data-style="gemini"] .panel-tabs {
   background: var(--seg);
   border: 1px solid var(--line);
 }
-html[data-style="gemini"] .panel-tabs a {
+html[data-style="prism"] .panel-tabs a {
   padding: 5px 4px;
   border-radius: var(--r-pill);
   border-bottom: 0;
 }
-html[data-style="gemini"] .panel-tabs a[aria-current="page"] {
+html[data-style="prism"] .panel-tabs a[aria-current="page"] {
   background: var(--seg-on);
   color: var(--fg);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
