@@ -132,13 +132,14 @@ pub fn observe(s: &mut State, e: &Event) {
         Ev::Completed { run, .. } | Ev::Failed { run, .. } => {
             let ended = if matches!(e.ev, Ev::Completed { .. }) { Status::Completed } else { Status::Failed };
             let task = s.runs.get(run).filter(|r| r.status == ended && r.config.module(MODULE)).map(|r| r.task.clone());
-            // A schedule is done only when it stops for good, which sends its
-            // own notice (`ScheduleEnded`): a run that finished is not, so it
-            // wakes no one and tells no one, in a conversation or not; it is in
-            // Tasks (owner, 2026-11-16, standing rule: "Do not notify in chats
-            // or even notifications if the task is not completely finished or
-            // needs a decision. Marking it in activity is enough").
-            let task = task.filter(|t| ended != Status::Completed || !scheduled_run(s, t));
+            // A repeating schedule shows in chats and notifications the first
+            // time, when its person is needed, and when it is finished (it
+            // stops for good, which sends its own notice, `ScheduleEnded`). A
+            // later run that finished wakes no one and tells no one; it is in
+            // Tasks (owner, 2026-11-16: "scheduled tasks only show up in the
+            // notifications and chats the first time and when HIL is needed
+            // or finished").
+            let task = task.filter(|t| ended != Status::Completed || !later_run(s, t));
             if let Some(task) = task.filter(|t| !s.outcomes.returned.contains(t)) {
                 s.outcomes.due.insert(task);
             }
@@ -204,14 +205,15 @@ pub fn start_shows(s: &State, t: &Task) -> bool {
     from.is_some_and(|r| s.outcomes.of(&r.task).is_none())
 }
 
-/// Whether a task is one run of a schedule.
-fn scheduled_run(s: &State, task: &str) -> bool {
-    s.tasks.get(task).is_some_and(|t| t.schedule.is_some())
+/// Whether a task is a run of a schedule after its first: one that
+/// finished is no news.
+fn later_run(s: &State, task: &str) -> bool {
+    s.tasks.get(task).is_some_and(|t| t.schedule.as_ref().is_some_and(|sc| s.tasks.values().any(|o| o.schedule.as_ref() == Some(sc) && o.seq < t.seq)))
 }
 
 /// Whether a task's result shows: not one that failed and was retried,
-/// whose retry's result is the update, nor a schedule's run that finished,
-/// which is not the schedule done.
+/// whose retry's result is the update, nor a schedule's later run that
+/// finished.
 pub fn result_shows(s: &State, started: &BTreeSet<String>, t: &Task) -> bool {
     let failed = s.runs.get(&t.run_id).is_some_and(|r| r.status != Status::Completed);
     let turn = derived("task", &format!("outcome:{}", t.task_id));
@@ -219,7 +221,7 @@ pub fn result_shows(s: &State, started: &BTreeSet<String>, t: &Task) -> bool {
     if failed {
         !retried
     } else {
-        t.schedule.is_none()
+        !later_run(s, &t.task_id)
     }
 }
 
@@ -501,11 +503,17 @@ mod tests {
         let started = starters(&s);
         assert!(reply_shows(&s, &started, "t2", &s.runs[&o2_run]), "the one decision the person must make is hidden");
         assert!(result_shows(&s, &started, &s.tasks["t2"]));
-        // A schedule's run that finished, in its conversation too, is not the
-        // schedule done: no result, and the agent is not woken; it is in Tasks.
+        // A repeating schedule shows the first time; a later run that
+        // finished, in its conversation too, shows nothing and wakes no one.
         ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_run1", "summary": "ok" }));
-        assert!(!s.outcomes.is_due("run1"), "a finished scheduled run wakes the agent in its conversation");
-        assert!(!result_shows(&s, &starters(&s), &s.tasks["run1"]), "a finished scheduled run posts its result every time");
+        assert!(s.outcomes.is_due("run1") && result_shows(&s, &starters(&s), &s.tasks["run1"]), "a schedule's first run is not shown");
+        task(&mut s, "schedule:sc1", "run2", json!({ "thread": "th", "turn": false }), on.clone());
+        ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_run2", "summary": "ok" }));
+        assert!(!s.outcomes.is_due("run2"), "a later finished scheduled run wakes the agent in its conversation");
+        assert!(!result_shows(&s, &starters(&s), &s.tasks["run2"]), "a later finished scheduled run posts its result every time");
+        task(&mut s, "schedule:sc1", "run3", json!({ "thread": "th", "turn": false }), on.clone());
+        ev(&mut s, "kernel", json!({ "kind": "failed", "run": "r_run3", "reason": "needs a sign-in", "by": "model" }));
+        assert!(s.outcomes.is_due("run3") && result_shows(&s, &starters(&s), &s.tasks["run3"]), "a later run that needs the person is hidden");
         // A finished task's result shows; its outcome turn never posts.
         task(&mut s, "chat:r_turn", "t3", json!({ "thread": "th", "turn": false, "from_run": "r_turn" }), on.clone());
         ev(&mut s, "kernel", json!({ "kind": "completed", "run": "r_t3", "summary": "ok" }));

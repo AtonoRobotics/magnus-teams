@@ -104,21 +104,14 @@ async fn a_scheduled_run_uses_sub_agents() {
     assert!(alice.put_policy("org", NOTES_ASK).await.is_success());
     let b = before(&alice).await;
     let origin = schedule_in_chat(&alice, ASK).await;
-    // Done once the run itself finished, not a sub-agent of it: its final word was asked for, and it is completed.
-    wait("the scheduled run done", SCHEDULE_PATIENCE, &m, &alice, || async {
-        if !m.requested_calls().iter().any(|(_, i)| i.to_string().contains(SUMMARY)) {
-            return None;
-        }
-        let tasks = visible_tasks(&alice).await;
-        tasks.iter().all(|t| t["status"] != "running" && t["status"] != "queued").then_some(())
-    })
-    .await;
+    until_outcome(&m).await;
+    let e = result_in_origin(&m, &alice, &origin).await;
+    assert!(!e.iter().any(|e| e["text"] == REPORT), "the agent restated a finished run in the thread: {e:?}");
 
-    // A run that finished is not the schedule done (owner, 2026-11-16): nothing
-    // posts where the schedule was set up, and the agent is not woken there.
-    let e = entries(&alice, &origin).await;
-    assert!(!e.iter().any(|e| e["kind"] == "result" || e["text"] == REPORT), "a finished scheduled run posted in the conversation: {e:?}");
-    assert!(!m.requests().iter().any(|c| run_of(c) == Run::Outcome), "a finished scheduled run woke the agent");
+    // A repeating schedule's first run posts its result where it was set up (owner, 2026-11-16).
+    let result = e.iter().find(|e| e["kind"] == "result").unwrap_or_else(|| panic!("no result where the schedule was set up: {e:?}"));
+    assert_eq!((result["status"].as_str(), result["summary"].as_str()), (Some("completed"), Some(SUMMARY)), "{result}\n{}", story(&m));
+    assert!(!e.iter().any(|e| e.to_string().contains(OUTCOME)), "the server's turn text is shown to the person: {e:?}");
 
     // The run started its sub-agents with no grant: the tool takes none.
     let runs = m.requests();
