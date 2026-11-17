@@ -202,7 +202,9 @@ const appEl = makeEl();
 ctx.appearanceSection(appEl);
 assert.match(appEl.innerHTML, /<h3 id="style-h">Theme<\/h3>/);
 assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian"/);
+assert.match(appEl.innerHTML, /data-look="style" data-value="obsidian-2"/);
 assert.match(appEl.innerHTML, /data-look="style" data-value="prism"/);
+assert.match(appEl.innerHTML, /data-look="style" data-value="studio"/);
 assert.match(appEl.innerHTML, /data-custom-hex/);
 
 const clickLook = (look, value) => appEl.onclick({ target: { closest: q => q === "[data-look]" ? { dataset: { look, value }, focus() {} } : null } });
@@ -214,18 +216,27 @@ assert.equal(ctx.Theme.prefs().accent, "blue", "switching Obsidian -> Prism auto
 clickLook("style", "obsidian");
 assert.equal(ctx.Theme.prefs().style, "obsidian");
 assert.equal(ctx.Theme.prefs().accent, "graphite", "switching Prism -> Obsidian auto-shifts blue -> graphite");
+clickLook("style", "obsidian-2");
+assert.equal(ctx.Theme.prefs().style, "obsidian-2");
+assert.equal(ctx.Theme.prefs().accent, "blue", "switching Obsidian -> Obsidian 2 auto-shifts graphite -> blue");
+clickLook("style", "studio");
+assert.equal(ctx.Theme.prefs().style, "studio");
 clickLook("accent", "emerald");
 clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
-// 5. Desktop auto-open, rules panel handler, and dual-theme CSS rules.
+// 5. Desktop auto-open, rules panel handler, and multi-theme CSS rules.
 assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= 1200\)/);
 assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < 1200 \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
 
 assert.match(read("chat.css"), /html\[data-style="prism"\]\s*\.msg\.me/);
+assert.match(read("chat.css"), /html\[data-style="obsidian-2"\]\s*\.fchip-inline/);
+assert.match(read("chat.css"), /html\[data-style="studio"\]\s*\.hello-hero/);
 assert.match(read("layout.css"), /html\[data-style="prism"\]\s*\.panel-tabs/);
+assert.match(read("layout.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
+assert.match(read("layout.css"), /html\[data-style="studio"\]\s*nav\.side/);
 assert.match(read("pages.css"), /html\[data-style="prism"\]\s*\.gbox/);
 
 // 6. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.

@@ -108,13 +108,26 @@ const Compose = (() => {
   function codeBlock(text,language="") {
     return `<div class="code-block"><div class="code-head"><span>${esc(language)}</span><button type="button" data-code-copy aria-label="Copy code" data-tooltip="Copy code">Copy code</button></div><pre class="code"><code>${esc(text)}</code></pre></div>`;
   }
+  const FILE_EXT = {
+    js: ["js", "JS"], mjs: ["js", "JS"], ts: ["ts", "TS"], tsx: ["ts", "TS"], jsx: ["js", "JS"],
+    html: ["html", "<>"], htm: ["html", "<>"], rs: ["rs", "RS"], css: ["css", "{}"],
+    md: ["md", "M↓"], json: ["json", "{}"], py: ["py", "PY"], sh: ["sh", ">_"],
+    yml: ["yml", "YML"], yaml: ["yml", "YML"], toml: ["toml", "TOML"], sql: ["sql", "SQL"],
+  };
+  function inlineCode(raw) {
+    const clean = raw.replace(/\n/g, " ");
+    const fm = !raw.includes("\n") && !raw.includes(" ") && raw.match(/^(?:[\w./-]+\/)?([\w.-]+\.([a-z0-9]{1,5}))$/i);
+    const meta = fm && FILE_EXT[fm[2].toLowerCase()];
+    if (meta) return `<code class="fchip-inline" data-ext="${meta[0]}"><span class="fchip-tag" aria-hidden="true">${meta[1]}</span>${esc(clean)}</code>`;
+    return `<code>${esc(clean)}</code>`;
+  }
   function markdownInline(text, depth = 0) {
     if (depth > 8) return esc(text);
     const pattern = /(`+)([\s\S]*?)\1|(!?)\[([^\]\n]*)\]\(([^\s]*?)(?:\s+"[^"\n]*")?\)|\*\*([^*\n]+)\*\*|__([^_\n]+)__|\*([^*\n]+)\*|_([^_\n]+)_|<(https?:\/\/[^>\s]+)>/g;
     let out = "", at = 0;
     for (const m of text.matchAll(pattern)) {
       out += esc(text.slice(at, m.index)); at = m.index + m[0].length;
-      if (m[1]) out += `<code>${esc(m[2].replace(/\n/g, " "))}</code>`;
+      if (m[1]) out += inlineCode(m[2]);
       else if (m[4] !== undefined || m[10]) {
         const label = m[4] ?? m[10], raw = m[5] ?? m[10], url = safeUrl(raw);
         const localImage = m[3] && localImagePath(raw);

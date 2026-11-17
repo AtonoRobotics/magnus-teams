@@ -45,6 +45,39 @@
     "row-sel": "rgba(227,227,227,0.07)", search: "rgba(227,227,227,0.07)", "group-head": "#1E1F20", "row-hi": "#282A2C",
     shadow: "0 4px 20px rgba(0,0,0,0.36)",
   };
+  const OBSIDIAN2_LIGHT = {
+    ...LIGHT,
+    bg: "#F1F3F6", side: "#F1F3F6", panel: "#F1F3F6", main: "#FFFFFF", surface: "#F6F7F9", raised: "#EAECEF",
+    bubble: "#EAECEF", seg: "#E5E8EE", "seg-on": "#FFFFFF",
+    line: "#E2E5EA", hair: "#ECEFF4", "line-strong": "#CBD5E1", "btn-border": "#D1D5DB", "button-bg": "#FFFFFF",
+    "row-sel": "rgba(15,23,42,0.055)", search: "rgba(15,23,42,0.06)", "group-head": "#F6F7F9", "row-hi": "#E8EEF8",
+  };
+  const OBSIDIAN2_DARK = {
+    ...DARK,
+    bg: "#121215", side: "#121215", panel: "#121215", main: "#000000", surface: "#121215", raised: "#1C1C21",
+    bubble: "#18181C", seg: "#141418", "seg-on": "#222227",
+    line: "#1F1F24", hair: "#18181D", "line-strong": "#2E2E36", "btn-border": "#27272E", "button-bg": "#18181C",
+    "row-sel": "rgba(255,255,255,0.055)", search: "rgba(255,255,255,0.055)", "group-head": "#141418", "row-hi": "#222227",
+    shadow: "0 8px 28px rgba(0,0,0,0.7)",
+  };
+  const STUDIO_LIGHT = {
+    ...LIGHT,
+    bg: "#F8F9FA", side: "#F1F3F4", panel: "#FFFFFF", main: "#FFFFFF", surface: "#F8F9FA", raised: "#E8EAED",
+    bubble: "#F1F3F4", seg: "#E8EAED", "seg-on": "#FFFFFF",
+    fg: "#202124", fg2: "#444746", muted: "#5F6368", faint: "#5F6368",
+    line: "#DADCE0", hair: "#E8EAED", "line-strong": "#BDC1C6", "btn-border": "#DADCE0", "button-bg": "#FFFFFF",
+    "row-sel": "rgba(32,33,36,0.055)", search: "rgba(32,33,36,0.06)", "group-head": "#F8F9FA", "row-hi": "#E8F0FE",
+    shadow: "0 2px 12px rgba(15,23,42,0.06)",
+  };
+  const STUDIO_DARK = {
+    ...DARK,
+    bg: "#181819", side: "#141415", panel: "#181819", main: "#181819", surface: "#232325", raised: "#2C2D30",
+    bubble: "#232325", seg: "#1E1F22", "seg-on": "#2C2D30",
+    fg: "#E8EAED", fg2: "#C4C7C5", muted: "#9AA0A6", faint: "#9AA0A6",
+    line: "#2E3034", hair: "#232326", "line-strong": "#3C3D40", "btn-border": "#3C3D40", "button-bg": "#232325",
+    "row-sel": "rgba(232,234,237,0.06)", search: "rgba(232,234,237,0.06)", "group-head": "#1E1F22", "row-hi": "#26272A",
+    shadow: "0 4px 20px rgba(0,0,0,0.40)",
+  };
   const ACCENTS = [
     { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
     { id: "blue", label: "Indigo", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
@@ -52,17 +85,27 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["obsidian", "Obsidian"], ["prism", "Prism"]];
+  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["prism", "Prism"], ["studio", "Studio"]];
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
       "r-pill": "6px", "r-send": "6px", "r-avatar": "6px", "r-composer": "12px",
       "focus-ring": "0 0 0 1px var(--accent)",
     },
+    "obsidian-2": {
+      "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
+      "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
+      "focus-ring": "0 0 0 1px var(--accent)",
+    },
     prism: {
       "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "20px", "r-xl": "24px",
       "r-pill": "999px", "r-send": "50%", "r-avatar": "50%", "r-composer": "24px",
       "focus-ring": "0 0 0 3px var(--accent-soft)",
+    },
+    studio: {
+      "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "16px", "r-xl": "22px",
+      "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "22px",
+      "focus-ring": "0 0 0 2px var(--accent-soft)",
     },
   };
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
@@ -107,7 +150,10 @@
   function tokens(look) {
     const dark = look.mode === "dark";
     const style = STYLES.some(s => s[0] === look.style) ? look.style : DEFAULTS.style;
-    const basePal = style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT) : (dark ? DARK : LIGHT);
+    const basePal = style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT)
+      : style === "obsidian-2" ? (dark ? OBSIDIAN2_DARK : OBSIDIAN2_LIGHT)
+      : style === "studio" ? (dark ? STUDIO_DARK : STUDIO_LIGHT)
+      : (dark ? DARK : LIGHT);
     const t = { ...basePal };
     Object.assign(t, STYLE_TOKENS[style]);
     t.shell = t.bg;

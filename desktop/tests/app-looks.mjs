@@ -71,7 +71,7 @@ const reading=async()=>{
 };
 await step('Appearance offers theme, mode, accent and motion',async()=>{
   await appearance();
-  for(const value of ['obsidian','prism'])await xpath(`//button[@data-look='style' and @data-value='${value}']`);
+  for(const value of ['obsidian','obsidian-2','prism','studio'])await xpath(`//button[@data-look='style' and @data-value='${value}']`);
   for(const value of ['light','dark','system'])await xpath(`//button[@data-look='mode' and @data-value='${value}']`);
   if(await run("return document.querySelectorAll('[data-look=theme],[data-follow-computer]').length"))throw Error('Named presets or Follow computer are still offered');
   if(await run("return document.querySelectorAll('[data-look=material]').length"))throw Error('A material choice is still offered');
@@ -83,7 +83,7 @@ await step('Appearance offers theme, mode, accent and motion',async()=>{
   const agLook=await run('return {...document.documentElement.dataset}');
   if(agLook.style!=='obsidian' || agLook.accent!=='graphite')throw Error(`Obsidian did not switch to Monochrome default: ${JSON.stringify(agLook)}`);
 });
-for(const style of ['obsidian','prism'])for(const mode of ['light','dark']){
+for(const style of ['obsidian','obsidian-2','prism','studio'])for(const mode of ['light','dark']){
   await step(`${style}/${mode}`,async()=>{
     await appearance();await choose('style',style);await choose('mode',mode);await reading();
     const m=JSON.parse(await run(MEASURE));

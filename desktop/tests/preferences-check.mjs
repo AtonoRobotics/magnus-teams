@@ -9,17 +9,21 @@ const context = {}; vm.runInNewContext(source, context); const T = context.Theme
 assert.equal(T.PRESETS, undefined, 'named presets were removed');
 assert.equal(T.MATERIALS, undefined, 'material options were removed');
 assert.equal(T.GLASS, undefined, 'glass palette was removed');
-assert.deepEqual([...T.STYLES.map(s => s[0])], ['obsidian', 'prism']);
-assert.ok(T.STYLE_TOKENS.obsidian && T.STYLE_TOKENS.prism, 'style radius tokens defined');
+assert.deepEqual([...T.STYLES.map(s => s[0])], ['obsidian', 'obsidian-2', 'prism', 'studio']);
+assert.ok(T.STYLE_TOKENS.obsidian && T.STYLE_TOKENS['obsidian-2'] && T.STYLE_TOKENS.prism && T.STYLE_TOKENS.studio, 'style radius tokens defined');
 assert.equal(T.STYLE_TOKENS.obsidian['r-pill'], '6px');
+assert.equal(T.STYLE_TOKENS['obsidian-2']['r-send'], '50%');
 assert.equal(T.STYLE_TOKENS.prism['r-pill'], '999px');
+assert.equal(T.STYLE_TOKENS.studio['r-composer'], '22px');
 assert.deepEqual([...T.MODES.map(m => m[0])], ['light', 'dark', 'system']);
 
 // Validation and clamping.
 const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', navigation: 'floating', conversationWidthPx: 9999 });
 assert.deepEqual({ ...p }, { style: 'obsidian', mode: 'dark', accent: 'graphite', motion: 'full', navigation: 'expanded', conversationWidthPx: 560 });
 assert.equal(T.preferences({ conversationWidthPx: 10 }).conversationWidthPx, 360);
+assert.equal(T.preferences({ style: 'obsidian-2' }).style, 'obsidian-2');
 assert.equal(T.preferences({ style: 'prism' }).style, 'prism');
+assert.equal(T.preferences({ style: 'studio' }).style, 'studio');
 assert.equal(T.preferences({ style: 'antigravity' }).style, 'obsidian');
 assert.equal(T.preferences({ style: 'gemini' }).style, 'prism');
 assert.equal(T.preferences({ style: 'companion' }).style, 'prism');

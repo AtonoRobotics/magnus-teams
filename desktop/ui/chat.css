@@ -643,3 +643,59 @@ html[data-style="prism"] .msg.me { align-self: flex-end; width: auto; max-width:
 html[data-style="prism"] .say { border-color: transparent; padding: 12px 16px 10px; box-shadow: var(--shadow); }
 html[data-style="prism"] .say:focus-within { background: var(--raised); border-color: var(--line-strong); }
 html[data-style="prism"] .tcard { border-radius: var(--r-lg); }
+
+/* Inline file-type badges (activated in Obsidian 2) */
+.fchip-tag { display: none; }
+html[data-style="obsidian-2"] .fchip-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  vertical-align: baseline;
+}
+html[data-style="obsidian-2"] .fchip-tag { display: inline; font-weight: 700; font-size: 10px; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="js"] .fchip-tag { color: #D97706; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="ts"] .fchip-tag { color: #2563EB; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="html"] .fchip-tag { color: #EA580C; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="rs"] .fchip-tag { color: #DC2626; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="css"] .fchip-tag { color: #0284C7; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="md"] .fchip-tag { color: #2563EB; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="json"] .fchip-tag { color: #7C3AED; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="py"] .fchip-tag { color: #059669; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="sh"] .fchip-tag { color: #0D9488; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="yml"] .fchip-tag { color: #DB2777; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="toml"] .fchip-tag { color: #EA580C; }
+html[data-style="obsidian-2"] .fchip-inline[data-ext="sql"] .fchip-tag { color: #0284C7; }
+html[data-style="obsidian-2"] .say { background: var(--surface); padding: 12px 14px 10px; }
+
+/* Studio: Google AI Studio-inspired 2-column editorial hero, bento cards & elevated pill composer */
+html[data-style="studio"] .hello-banner { display: none; }
+html[data-style="studio"] .hello-head { align-items: flex-start; text-align: left; }
+html[data-style="studio"] .hello-title { font-size: 28px; font-weight: 500; letter-spacing: -0.02em; }
+html[data-style="studio"] .hello-caps, html[data-style="studio"] .hero-tabs { justify-content: flex-start; }
+html[data-style="studio"] button.hero-tab.on { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
+html[data-style="studio"] button.hello-card { border-color: var(--line); border-radius: var(--r-lg); }
+html[data-style="studio"] button.hello-card:hover { transform: translateY(-1px); border-color: var(--line-strong); box-shadow: var(--shadow); }
+html[data-style="studio"] .entry.me { align-self: flex-end; align-items: flex-end; }
+html[data-style="studio"] .msg.me { align-self: flex-end; width: auto; max-width: 78%; background: var(--raised); border-color: transparent; border-radius: 18px 18px 4px 18px; }
+html[data-style="studio"] .say { border-color: transparent; padding: 14px 16px 10px; box-shadow: var(--shadow); }
+html[data-style="studio"] .say:focus-within { background: var(--raised); border-color: var(--line-strong); }
+html[data-style="studio"] .tcard { border-radius: var(--r-lg); }
+@media (min-width: 821px) {
+  html[data-style="studio"] .hello-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 20px 36px;
+    max-width: 960px;
+    align-items: start;
+  }
+  html[data-style="studio"] .hello-head { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  html[data-style="studio"] .hero-tabs { grid-column: 2; grid-row: 1; }
+  html[data-style="studio"] .hello-cards { grid-column: 2; grid-row: 2; grid-template-columns: 1fr 1fr; gap: 12px; }
+  html[data-style="studio"] .hello-card:first-child { grid-column: 1 / -1; }
+  html[data-style="studio"] .hello-pillars { grid-column: 1 / -1; }
+}
