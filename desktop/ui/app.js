@@ -2117,8 +2117,8 @@ function activityLinks(selected="activity") {
 function companionStatus() {
   const active = App.tasks.filter(t => !ENDED.includes(t.status)).length;
   const waiting = needsMe().length;
-  if (waiting) return { tone: "warn", dot: "warn", label: `${waiting} waiting on you` };
-  if (active) return { tone: "run", dot: "run", label: `Working · ${active} active` };
+  if (waiting) return { tone: "warn", dot: "warn", label: "Working" };
+  if (active) return { tone: "run", dot: "ok", label: "Working" };
   return { tone: "ok", dot: "ok", label: "Ready" };
 }
 function dayBucketLabel(iso) {
@@ -2135,9 +2135,7 @@ function dayBucketLabel(iso) {
 }
 function companionHeader() {
   const st = companionStatus();
-  const styleNames = { obsidian: "Obsidian Theme", "obsidian-2": "Obsidian 2 Theme", prism: "Prism Theme", studio: "Studio Theme" };
-  const styleLbl = (typeof Theme !== "undefined" && styleNames[Theme.prefs().style]) || "Obsidian Theme";
-  const taskCount = (App.tasks || []).length;
+  const taskCount = (App.tasks || []).filter(t => dayBucketLabel(t.ended_at || t.created_at) === "Today").length;
   const appCount = (typeof Lib !== "undefined" && Array.isArray(Lib.all) && Lib.all.length)
     ? Lib.all.filter(c => stateOf(c) === "connected").length
     : 5;
@@ -2147,12 +2145,10 @@ function companionHeader() {
       <div class="companion-title-col">
         <div class="companion-name-row">
           <h2>Magnus</h2>
-          <span class="companion-status-lbl ${st.dot}">${esc(st.label)}</span>
+          <span class="companion-status-lbl ${st.tone}">${esc(st.label)}</span>
         </div>
         <div class="companion-sub">
           <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"} today · ${appCount} app${appCount === 1 ? "" : "s"}</span>
-          <span class="faint" aria-hidden="true">·</span>
-          <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${esc(styleLbl)}</a>
         </div>
       </div>
     </div>
@@ -2178,6 +2174,15 @@ function companionFooter() {
     <div class="row comp-acts">${pauseBtn}<button type="button" class="link comp-wake-btn" data-open="computer:${esc(comp.id)}">${awake ? "Watch →" : "Wake VM →"}</button></div>
   </div>`;
 }
+function timelineRowHtml(t) {
+  const [ic] = standing(t);
+  const ts = when(t.ended_at || t.created_at);
+  const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`) : null;
+  const brandHtml = brand
+    ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>`
+    : `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
+  return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}">${brandHtml}<div class="tl-info"><div class="tl-title-line"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span><span class="mono faint tl-time">${esc(ts)}</span></div></div></a></li>`;
+}
 function timelineGroups(active, done) {
   const groups = [];
   if (active.length) groups.push(["Active now", active.slice(0, 6)]);
@@ -2191,15 +2196,7 @@ function timelineGroups(active, done) {
   if (!groups.length) return `<p class="empty">No work yet. Ask Magnus anything in the conversation.</p>`;
   return groups.map(([label, list]) => `<details class="tl-day" data-key="day:${esc(label)}" open>
     <summary class="tl-day-head"><span>${esc(label)}</span><span class="tl-day-count">${list.length}</span></summary>
-    <div class="gbox"><ul class="tlist tl-stack">${list.map(t => {
-      const [ic] = standing(t);
-      const ts = when(t.ended_at || t.created_at);
-      const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`) : null;
-      const brandHtml = brand
-        ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>`
-        : `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
-      return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}">${brandHtml}<div class="tl-info"><div class="tl-title-line"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span><span class="mono faint tl-time">${esc(ts)}</span></div></div></a></li>`;
-    }).join("")}</ul></div>
+    <div class="gbox"><ul class="tlist tl-stack">${list.map(timelineRowHtml).join("")}</ul></div>
   </details>`).join("");
 }
 function activityView(composed) {
@@ -2211,7 +2208,7 @@ function activityView(composed) {
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
   const needsBanner = pending.length ? `<section class="companion-sec companion-needs-banner">
-    <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Needs your approval (${pending.length})</span><a class="small" href="#/inbox" data-open="needs">View all →</a></div>
+    <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Needs your approval (${pending.length})</span><a class="needs-view-all" href="#/inbox" data-open="needs">View all →</a></div>
     <div class="needs-inline-list">${pending.slice(0, 1).map(i => {
       const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) : null;
       const ic = b ? `<span class="gbox-ic has-logo" aria-hidden="true">${b.svg}</span>` : `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
@@ -2225,13 +2222,16 @@ function activityView(composed) {
         </div>
       </div>`;
     }).join("")}</div>
-  </section>` : "";
+  </section>` : `<section class="companion-sec companion-cleared-banner">
+    <span class="cleared-lbl">✓ All approvals cleared</span>
+    <a class="cleared-link" href="#/inbox" data-open="needs">Approvals</a>
+  </section>`;
   const curTask = active[0];
   const activeCard = curTask ? `<section class="companion-sec">
     <a class="gbox companion-active-card" href="#/task/${enc(curTask.task_id)}" data-open="task:${esc(curTask.task_id)}">
       <div class="active-card-top">
         <span class="active-card-kicker"><span class="comp-dot run" aria-hidden="true"></span>Active now</span>
-        <span class="mono small muted">${esc(when(curTask.created_at))}</span>
+        <span class="mono active-elapsed">${esc(when(curTask.created_at))}</span>
       </div>
       <div class="active-card-title">${esc(curTask.title || firstLine(curTask.text) || "Running task")}</div>
       <div class="active-progress" aria-hidden="true"><span style="width:${pending.length ? "68%" : "45%"}"></span></div>
@@ -2241,24 +2241,26 @@ function activityView(composed) {
       </div>
     </a>
   </section>` : "";
-  const schedLabel = "Up next";
-  const schedCard = `<details class="companion-scheds" data-key="panel-schedules" open>
-    <summary><span>${esc(schedLabel)}</span><span class="small muted">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</span></summary>
-    <div class="gbox scheds-box">
-      ${scheds.length ? scheds.slice(0, 4).map(sc => {
+  const recentList = (done.length ? done : active).slice(0, 3);
+  const recentHtml = recentList.length
+    ? `<ul class="tlist tl-stack">${recentList.map(timelineRowHtml).join("")}</ul>`
+    : `<p class="empty">No work yet. Ask Magnus anything in the conversation.</p>`;
+  const schedCard = `<section class="companion-scheds">
+    <div class="companion-sec-head"><span>Up Next</span><a class="sec-head-link" href="#/schedules" data-open="schedules">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</a></div>
+    <div class="scheds-list">
+      ${scheds.length ? scheds.slice(0, 3).map(sc => {
         const isHb = /heartbeat/i.test(sc.title || sc.text || "");
-        const brand = !isHb && typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${sc.title || ""} ${sc.text || ""}`) : null;
+        const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${sc.title || ""} ${sc.text || ""}`) : null;
         const icHtml = brand ? `<span class="gbox-ic sch has-logo">${brand.svg}</span>` : `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
-        return `<a class="gbox-row" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
+        return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
       }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
-      <a class="gbox-footer" href="#/schedules" data-open="schedules">See all scheduled tasks (${App.schedules.length})</a>
     </div>
-  </details>`;
+  </section>`;
   return `${needsBanner}
     ${activeCard}
     <section class="companion-timeline">
-      <div class="companion-sec-head"><span>Recent work</span><a class="small" href="#/tasks" data-open="tasks">Today</a></div>
-      ${timelineGroups(done.length ? [] : active, done)}
+      <div class="companion-sec-head"><span>Recent Work</span><span>Today</span></div>
+      ${recentHtml}
     </section>
     ${schedCard}
     ${(feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}

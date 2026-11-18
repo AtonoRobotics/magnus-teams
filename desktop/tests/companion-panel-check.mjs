@@ -120,6 +120,7 @@ const snippets = [
   extractFn(app, "function activityLinks(selected=\"activity\")"),
   extractFn(app, "function companionHeader()"),
   extractFn(app, "function companionFooter()"),
+  extractFn(app, "function timelineRowHtml(t)"),
   extractFn(app, "function timelineGroups(active, done)"),
   extractFn(app, "function activityView(composed)"),
   extractFn(app, "function needsView(composed)"),
@@ -137,18 +138,10 @@ assert.match(hdr, /<div class="companion-row-left">/);
 assert.match(hdr, /class="companion-avatar"/);
 assert.match(hdr, /<span class="companion-m">M<\/span>/);
 assert.match(hdr, /<h2>Magnus<\/h2>/);
-assert.match(hdr, /2 waiting on you/);
-assert.match(hdr, /1 task today/);
-assert.match(hdr, /href="#\/settings\/appearance"[^>]*>.*Obsidian Theme/);
-ctx.Theme.set({ style: "obsidian-2" });
-assert.match(ctx.companionHeader(), /Obsidian 2 Theme/);
-ctx.Theme.set({ style: "prism" });
-assert.match(ctx.companionHeader(), /Prism Theme/);
-ctx.Theme.set({ style: "studio" });
-assert.match(ctx.companionHeader(), /Studio Theme/);
-ctx.Theme.set({ style: "obsidian" });
+assert.match(hdr, /Working/);
+assert.match(hdr, /1 task today · 5 apps/);
 ctx.needsMe = () => [];
-assert.match(ctx.companionHeader(), /Working · 1 active/);
+assert.match(ctx.companionHeader(), /Working/);
 ctx.App.tasks = [];
 assert.match(ctx.companionHeader(), /Ready/);
 ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Review Linear issue #84", created_at: recentIso }];
@@ -164,8 +157,8 @@ assert.match(act, /Needs your approval \(2\)/);
 assert.match(act, /class="gbox needs-inline-card"/);
 assert.match(act, /class="gbox companion-active-card"/);
 assert.match(act, /class="active-progress"/);
-assert.match(act, /<details class="companion-scheds" data-key="panel-schedules" open>/);
-assert.match(act, /<a class="gbox-footer" href="#\/schedules"/);
+assert.match(act, /<section class="companion-scheds">/);
+assert.match(act, /<a class="sec-head-link" href="#\/schedules"/);
 assert.match(act, /<nav class="activity-views" aria-label="Activity views">/);
 assert.ok(act.indexOf("companion-needs-banner") < act.indexOf("companion-active-card"), "Inline approval banner appears above Active now card");
 assert.ok(act.indexOf("companion-active-card") < act.indexOf("companion-timeline"), "Active now card appears above Recent work timeline");
@@ -256,7 +249,7 @@ assert.match(read("chat.css"), /html\[data-style="studio"\]\s*\.hello-hero/);
 assert.match(read("layout.css"), /html\[data-style="prism"\]\s*\.panel-tabs/);
 assert.match(read("layout.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
 assert.match(read("layout.css"), /html\[data-style="studio"\]\s*nav\.side/);
-assert.match(read("pages.css"), /html\[data-style="prism"\]\s*\.gbox/);
+assert.match(read("pages.css"), /\.gbox\s*\{\s*border:\s*0;/);
 
 // 6. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.
 for (const file of ["app.js", "computers.js", "team-panel.js"]) {
