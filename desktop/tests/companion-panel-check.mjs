@@ -119,6 +119,7 @@ const snippets = [
   extractFn(app, "function dayBucketLabel(iso)"),
   extractFn(app, "function activityLinks(selected=\"activity\")"),
   extractFn(app, "function companionHeader()"),
+  extractFn(app, "function companionFooter()"),
   extractFn(app, "function timelineGroups(active, done)"),
   extractFn(app, "function activityView(composed)"),
   extractFn(app, "function needsView(composed)"),
@@ -134,9 +135,10 @@ vm.runInContext(snippets, ctx, { filename: "app-slices.js" });
 const hdr = ctx.companionHeader();
 assert.match(hdr, /<div class="companion-row-left">/);
 assert.match(hdr, /class="companion-avatar"/);
+assert.match(hdr, /<span class="companion-m">M<\/span>/);
 assert.match(hdr, /<h2>Magnus<\/h2>/);
 assert.match(hdr, /2 waiting on you/);
-assert.match(hdr, /1 task/);
+assert.match(hdr, /1 task today/);
 assert.match(hdr, /href="#\/settings\/appearance"[^>]*>.*Obsidian Theme/);
 ctx.Theme.set({ style: "obsidian-2" });
 assert.match(ctx.companionHeader(), /Obsidian 2 Theme/);
@@ -159,15 +161,18 @@ assert.match(tabs, /data-open="needs" aria-current="page".*<span class="badge">2
 const act = ctx.activityView([]);
 assert.match(act, /class="companion-sec companion-needs-banner"/);
 assert.match(act, /Needs your approval \(2\)/);
+assert.match(act, /class="gbox needs-inline-card"/);
 assert.match(act, /class="gbox companion-active-card"/);
 assert.match(act, /class="active-progress"/);
-assert.match(act, /<div class="gbox">.*Create a routine.*Discover automations.*Enable Heartbeat/s);
 assert.match(act, /<details class="companion-scheds" data-key="panel-schedules" open>/);
 assert.match(act, /<a class="gbox-footer" href="#\/schedules"/);
 assert.match(act, /<nav class="activity-views" aria-label="Activity views">/);
 assert.ok(act.indexOf("companion-needs-banner") < act.indexOf("companion-active-card"), "Inline approval banner appears above Active now card");
 assert.ok(act.indexOf("companion-active-card") < act.indexOf("companion-timeline"), "Active now card appears above Recent work timeline");
-assert.ok(act.indexOf("companion-timeline") < act.indexOf("companion-computer"), "Recent work appears above compact computer bar");
+assert.ok(act.indexOf("companion-timeline") < act.indexOf("companion-scheds"), "Recent work appears above Up next schedules");
+const ftr = ctx.companionFooter();
+assert.match(ftr, /class="companion-computer"/);
+assert.match(ftr, /Cloud Computer ·/);
 
 const tl = ctx.timelineGroups([{ task_id: "tk1", status: "running", title: "Review GitHub PR #42", created_at: recentIso }], []);
 assert.match(tl, /<details class="tl-day" data-key="day:Active now" open>/);
@@ -175,6 +180,7 @@ assert.match(tl, /<ul class="tlist tl-stack">/);
 assert.match(tl, /<span class="tl-brand" aria-hidden="true"><svg class="ctile-svg"/);
 
 const nv = ctx.needsView([]);
+assert.match(nv, /Inline decision cards with real brand SVGs/);
 assert.match(nv, /class="gbox companion-guard"/);
 assert.match(nv, /class="appr-history".*class="appr-ic mail has-logo".*<svg class="ctile-svg".*class="gbox appr-payload-box"/s);
 

@@ -2134,20 +2134,19 @@ function companionHeader() {
   const st = companionStatus();
   const styleNames = { obsidian: "Obsidian Theme", "obsidian-2": "Obsidian 2 Theme", prism: "Prism Theme", studio: "Studio Theme" };
   const styleLbl = (typeof Theme !== "undefined" && styleNames[Theme.prefs().style]) || "Obsidian Theme";
-  const triad = `<svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true"><polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="currentColor" opacity="0.52"/><polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="currentColor"/><polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="currentColor" opacity="0.52"/></svg>`;
   const taskCount = (App.tasks || []).length;
   return `<div class="companion-id">
     <div class="companion-row-left">
-      <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent">${triad}<span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
+      <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent"><span class="companion-m">M</span><span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
       <div class="companion-title-col">
         <div class="companion-name-row">
           <h2>Magnus</h2>
-          <span class="companion-status-lbl">${esc(st.label)}</span>
+          <span class="companion-status-lbl ${st.dot}">${esc(st.label)}</span>
         </div>
         <div class="companion-sub">
-          <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${esc(styleLbl)}</a>
+          <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"} today</span>
           <span class="faint" aria-hidden="true">·</span>
-          <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"}</span>
+          <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${esc(styleLbl)}</a>
         </div>
       </div>
     </div>
@@ -2155,6 +2154,22 @@ function companionHeader() {
       <div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div>
       <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
     </div>
+  </div>`;
+}
+function companionFooter() {
+  const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
+  if (!comp) {
+    return `<div class="companion-computer" data-computer-bar="default">
+      <div class="comp-head"><span class="comp-dot idle" aria-hidden="true"></span><span class="muted">Cloud Computer ·</span><strong>Sleeping</strong></div>
+      <div class="row comp-acts"><a class="link comp-wake-btn" href="#/settings/general">Wake VM →</a></div>
+    </div>`;
+  }
+  const compState = controlWords(comp, false);
+  const awake = comp.status === "running";
+  const pauseBtn = awake ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
+  return `<div class="companion-computer" data-computer-bar="${esc(comp.id)}">
+    <div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><span class="muted">Cloud Computer ·</span><strong>${esc(compState.pill)}</strong></div>
+    <div class="row comp-acts">${pauseBtn}<button type="button" class="link comp-wake-btn" data-open="computer:${esc(comp.id)}">${awake ? "Watch →" : "Wake VM →"}</button></div>
   </div>`;
 }
 function timelineGroups(active, done) {
@@ -2171,12 +2186,13 @@ function timelineGroups(active, done) {
   return groups.map(([label, list]) => `<details class="tl-day" data-key="day:${esc(label)}" open>
     <summary class="tl-day-head"><span>${esc(label)}</span><span class="tl-day-count">${list.length}</span></summary>
     <div class="gbox"><ul class="tlist tl-stack">${list.map(t => {
-      const [ic, pill] = standing(t);
-      const sub = t.status === "suspended" ? (WAITING[t.waiting_on] || "waiting") : firstLine(t.summary || t.text);
+      const [ic] = standing(t);
       const ts = when(t.ended_at || t.created_at);
       const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`) : null;
-      const brandHtml = brand ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>` : "";
-      return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="tl-ic st ${ic}">${icon(ic)}</span><div class="tl-info"><div class="tl-title-line">${brandHtml}<span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span>${pill}</div>${sub ? `<div class="small muted tl-sub">${esc(sub)}</div>` : ""}<div class="mono faint tl-time">${esc(ts)}</div></div></a></li>`;
+      const brandHtml = brand
+        ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>`
+        : `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
+      return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}">${brandHtml}<div class="tl-info"><div class="tl-title-line"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span><span class="mono faint tl-time">${esc(ts)}</span></div></div></a></li>`;
     }).join("")}</ul></div>
   </details>`).join("");
 }
@@ -2188,16 +2204,20 @@ function activityView(composed) {
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
-  const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
-  const compState = comp ? controlWords(comp, false) : null;
-  const awake = comp?.status === "running";
-  const pauseBtn = awake ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
   const needsBanner = pending.length ? `<section class="companion-sec companion-needs-banner">
     <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Needs your approval (${pending.length})</span><a class="small" href="#/inbox" data-open="needs">View all →</a></div>
-    <div class="gbox">${pending.slice(0, 2).map(i => {
+    <div class="needs-inline-list">${pending.slice(0, 1).map(i => {
       const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) : null;
       const ic = b ? `<span class="gbox-ic has-logo" aria-hidden="true">${b.svg}</span>` : `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
-      return `<a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span><span class="chip warn">Review</span></a>`;
+      const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
+      const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
+      return `<div class="gbox needs-inline-card">
+        <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span></a>
+        <div class="needs-inline-acts">
+          <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
+          <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
+        </div>
+      </div>`;
     }).join("")}</div>
   </section>` : "";
   const curTask = active[0];
@@ -2208,20 +2228,14 @@ function activityView(composed) {
         <span class="mono small muted">${esc(when(curTask.created_at))}</span>
       </div>
       <div class="active-card-title">${esc(curTask.title || firstLine(curTask.text) || "Running task")}</div>
-      <div class="active-progress" aria-hidden="true"><span style="width:${pending.length ? "62%" : "45%"}"></span></div>
+      <div class="active-progress" aria-hidden="true"><span style="width:${pending.length ? "68%" : "45%"}"></span></div>
       <div class="active-card-foot">
         <span class="small muted">${esc(pending.length ? `Waiting on ${pending.length} approval${pending.length === 1 ? "" : "s"}` : (curTask.status === "suspended" ? (WAITING[curTask.waiting_on] || "Waiting") : "In progress"))}</span>
         <span class="small active-inspect">Inspect →</span>
       </div>
     </a>
   </section>` : "";
-  const compCard = comp ? `<section class="companion-sec">
-    <div class="gbox companion-computer">
-      <div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><strong>${esc(comp.name || "Cloud Computer")}</strong><span class="faint" aria-hidden="true">·</span><span class="small muted">${esc(compState.pill)}</span></div>
-      <div class="row comp-acts">${pauseBtn}<button type="button" data-open="computer:${esc(comp.id)}">${awake ? "Watch" : "Wake VM →"}</button></div>
-    </div>
-  </section>` : "";
-  const showRoutineHint = !load("routine-hint-dismissed", false);
+  const showRoutineHint = !load("routine-hint-dismissed", false) && !active.length && !done.length;
   const routineCard = showRoutineHint ? `<section class="companion-sec">
     <div class="companion-sec-head"><span>Suggested</span><button type="button" class="link small" data-dismiss-routine>Hide</button></div>
     <div class="gbox">
@@ -2230,16 +2244,16 @@ function activityView(composed) {
       ${hb ? "" : `<button type="button" class="gbox-row" data-enable-heartbeat><span class="gbox-ic warn">${icon("bell")}</span><span class="gbox-lbl">Enable Heartbeat (30m check-in)</span>${icon("chev", "chev")}</button>`}
     </div>
   </section>` : "";
-  const schedLabel = scheds.length ? `${scheds.length} scheduled task${scheds.length === 1 ? "" : "s"}` : "Up next";
+  const schedLabel = "Up next";
   const schedCard = `<details class="companion-scheds" data-key="panel-schedules" open>
-    <summary><span>${esc(schedLabel)}</span><span class="chip ${hb ? "ok" : ""}">${hb ? "Heartbeat on" : "Heartbeat off"}</span></summary>
+    <summary><span>${esc(schedLabel)}</span><span class="small muted">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</span></summary>
     <div class="gbox scheds-box">
       ${scheds.length ? scheds.slice(0, 4).map(sc => {
         const isHb = /heartbeat/i.test(sc.title || sc.text || "");
         const brand = !isHb && typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${sc.title || ""} ${sc.text || ""}`) : null;
         const icHtml = brand ? `<span class="gbox-ic sch has-logo">${brand.svg}</span>` : `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
-        return `<a class="gbox-row" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : rule(sc))}</span></span>${icon("chev", "chev")}</a>`;
-      }).join("") : `<div class="gbox-empty"><span class="small muted">30m proactive check-in is off</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
+        return `<a class="gbox-row" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
+      }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
       <a class="gbox-footer" href="#/schedules" data-open="schedules">See all scheduled tasks (${App.schedules.length})</a>
     </div>
   </details>`;
@@ -2247,11 +2261,10 @@ function activityView(composed) {
     ${activeCard}
     <section class="companion-timeline">
       <div class="companion-sec-head"><span>Recent work</span><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length}) ›</a></div>
-      ${timelineGroups(active, done)}
+      ${timelineGroups(done.length ? [] : active, done)}
     </section>
     ${schedCard}
     ${routineCard}
-    ${compCard}
     ${(feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}
     ${activityLinks("activity")}`;
 }
@@ -2263,18 +2276,21 @@ function needsView(composed) {
     const t = i.thread && App.threads.find(x => x.thread === i.thread);
     return t ? `<div class="small where">In <a href="#/chat/${enc(t.thread)}">${esc(t.title)}</a></div>` : "";
   };
-  const list = items => items.map(i => `<div class="needs-item" data-needs="${esc(i.id)}">${where(i)}${card(i, composed)}</div>`).join("");
-  const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
-  const resText = i => {
-    const d = i.resolution?.decision || i.status || "decided";
-    return { approve: "Allowed", reject: "Rejected", accept: "Accepted", answer: "Answered", dismiss: "Dismissed", endorse: "Endorsed", decline: "Declined" }[d] || d;
-  };
   const appBadge = i => {
     const hay = `${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`.toLowerCase();
     const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(hay) : null;
     if (b) return `<span class="appr-ic ${b.cls} has-logo" aria-hidden="true">${b.svg}</span>`;
     if (/mail|gmail|email/.test(hay)) return `<span class="appr-ic mail" aria-hidden="true">M</span>`;
     return `<span class="appr-ic" aria-hidden="true">${icon("globe")}</span>`;
+  };
+  const list = items => `<div class="appr-list">${items.map(i => `<div class="needs-item appr-hist-row" data-needs="${esc(i.id)}">
+    <div class="appr-row-top">${appBadge(i)}<div class="appr-row-main"><div class="appr-hist-title">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || i.kind || "Pending decision")}</div>${where(i)}</div><span class="companion-status-lbl warn">${esc((KIND && KIND[i.kind]) || i.kind || "External")}</span></div>
+    ${card(i, composed)}
+  </div>`).join("")}</div>`;
+  const decided = App.inbox.filter(i => i.status !== "open").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")).slice(0, 15);
+  const resText = i => {
+    const d = i.resolution?.decision || i.status || "decided";
+    return { approve: "Allowed", reject: "Rejected", accept: "Accepted", answer: "Answered", dismiss: "Dismissed", endorse: "Endorsed", decline: "Declined" }[d] || d;
   };
   const historyHtml = decided.length ? `<section class="appr-history"><div class="companion-sec-head"><span>Approvals history</span><span class="count">${decided.length}</span></div>
     <div class="appr-list">${decided.map(i => `<div class="appr-hist-row">
@@ -2287,7 +2303,8 @@ function needsView(composed) {
     </div>`).join("")}</div></section>` : "";
   const guardrails = `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
   if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
-  return `${now.length ? `<h3>A task is waiting <span class="badge">${now.length}</span></h3>${list(now)}` : ""}
+  return `<div class="companion-sec-head"><span>Inline decision cards with real brand SVGs</span><span class="count">${open.length}</span></div>
+    ${now.length ? `<h3>A task is waiting <span class="badge">${now.length}</span></h3>${list(now)}` : ""}
     ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}${guardrails}${historyHtml}`;
 }
 
@@ -2398,8 +2415,8 @@ const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks",
 const PANEL_TAB_PARENT = { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
-  const tabs = [["activity", "Activity", "working"], ["needs", "Approvals", "shield"], ["files", "Files", "file"], ["apps", "Apps", "grid"]];
-  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l, ic]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}>${icon(ic)}<span>${l}</span>${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
+  const tabs = [["activity", "Activity"], ["needs", "Approvals"], ["files", "Files"], ["apps", "Apps"]];
+  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}><span>${l}</span>${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
 }
 
 async function drawPanel() {
@@ -2432,7 +2449,7 @@ async function drawPanel() {
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${headHtml}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>`); liveStatusLines(el);
+  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${headHtml}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>${isRootCompanion ? companionFooter() : ""}`); liveStatusLines(el);
   if (typeof showKillControl === "function" && typeof AdminState !== "undefined" && AdminState.standing?.admin) showKillControl();
   if (!changed) {
     reportOpenedSoon();
@@ -2454,17 +2471,20 @@ async function appsPanelView() {
   const connectors = await Resources.read("Apps", "/v1/connectors", "connectors", true).catch(() => null);
   const rank = c => ({ connected: 0, needs_attention: 1, local: 2, available: 3 }[stateOf(c)] ?? 4);
   const mine = (connectors || []).filter(c => c.for_you !== false).sort((a, b) => rank(a) - rank(b) || (a.title || a.name).localeCompare(b.title || b.name));
-  const connectedCount = mine.filter(c => stateOf(c) === "connected").length;
-  const hero = `<div class="gbox companion-apps-hero">
-    <div class="gbox-row">
-      <span class="apps-hero-ic" aria-hidden="true">${icon("grid")}</span>
-      <div class="apps-hero-copy"><strong>${connectedCount} connected app${connectedCount === 1 ? "" : "s"}</strong><div class="small muted">Vault-only credentials · scoped per approval</div></div>
-      <a class="small" href="#/library">Catalog ›</a>
-    </div>
-  </div>`;
-  const body = `${hero}
-    <div class="companion-sec-head"><span>Your apps</span><span class="count">${mine.length}</span></div>
-    ${mine.length ? `<div class="lgrid">${mine.map(connectorCard).join("")}</div>` : `<p class="empty">Apps are unavailable right now.</p>`}`;
+  const rowHtml = c => {
+    const st = stateOf(c);
+    const sub = st === "connected" ? (c.account || "Connected account") : st === "needs_attention" ? "Needs attention · Sign in again" : "One-click OAuth";
+    const right = st === "connected"
+      ? `<span class="papp-connected"><span class="comp-dot ok" aria-hidden="true"></span>Connected</span>`
+      : `<button type="button" class="papp-btn" data-act="connect" data-app="${esc(c.name)}"${c.ready === false ? ' aria-disabled="true" title="Not ready on this server yet"' : ""}>${st === "needs_attention" ? "Reconnect" : "Connect"}</button>`;
+    return `<div class="papp-row" data-connector="${esc(c.name)}" data-state="${esc(st)}">
+      ${tile(c)}
+      <div class="gbox-main"><a class="gbox-lbl" href="#/library/${enc(c.name)}" data-open="connector:${esc(c.name)}">${esc(c.title)}</a><span class="small muted">${esc(sub)}</span></div>
+      ${right}
+    </div>`;
+  };
+  const body = `<div class="companion-sec-head"><span>Connected integrations &amp; 1-click OAuth</span><a class="small" href="#/library">Catalog ›</a></div>
+    ${mine.length ? `<div class="papp-list">${mine.map(rowHtml).join("")}</div>` : `<p class="empty">Apps are unavailable right now.</p>`}`;
   return { body, after: el => bindConnectorActs(el) };
 }
 const PANELS = {
@@ -2862,7 +2882,8 @@ async function filesView() {
     : recent.length && older.length
       ? `<div class="lib-group-head">This week</div><ul class="flist gbox">${recent.map(rowHtml).join("")}</ul><div class="lib-group-head">Older</div><ul class="flist gbox">${older.map(rowHtml).join("")}</ul>`
       : `<ul class="flist gbox">${shown.map(rowHtml).join("")}</ul>`;
-  return plain(`<div class="row lib-bar"><label class="sr" for="lq">Search files</label><input id="lq" type="search" data-draft="lib-q" placeholder="Files, tasks, projects or text" autocomplete="off">
+  return plain(`<div class="companion-sec-head"><span>Workspace &amp; conversation artifacts</span><span class="count">${shown.length}</span></div>
+    <div class="row lib-bar"><label class="sr" for="lq">Search files</label><input id="lq" type="search" data-draft="lib-q" placeholder="Files, tasks, projects or text" autocomplete="off">
     <label class="sr" for="lp">Project</label><select id="lp" aria-label="Filter by project"><option value="">All files</option><option value="none"${project === "none" ? " selected" : ""}>In no project</option>${App.projects.map(p => `<option value="${esc(p.id)}"${p.id === project ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
     ${attachButton("Upload")}</div>
     <div class="lib-filters" role="group" aria-label="Filter files by type">${[["all", "All"], ["pages", "Pages"], ["media", "Media"], ["files", "Files"]].map(([k, l]) => `<button type="button" class="${kind === k ? "on" : ""}" data-lib-kind="${k}" aria-pressed="${kind === k}">${l}</button>`).join("")}</div>
