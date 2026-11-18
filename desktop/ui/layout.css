@@ -321,7 +321,7 @@ nav.side .nav-workspace[open] > summary.nav-group-head::after { content: "▾"; 
 nav.side .nav-workspace > summary.nav-group-head::-webkit-details-marker { display: none; }
 nav.side .nav-workspace-items { display: flex; flex-direction: column; gap: 2px; }
 body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head { display: none; }
-/* Right Inspector Drawer Tabs (flush underline in Obsidian, pill track in Prism) */
+/* Right Side Panel Segmented Tab Bar across Obsidian, Obsidian 2, Prism, and Studio */
 .panel-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -329,8 +329,8 @@ body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head
   padding: 4px;
   margin-top: 2px;
   margin-bottom: 10px;
-  border-radius: var(--r-md);
-  background: var(--seg);
+  border-radius: 10px;
+  background: var(--surface);
   border: 0;
 }
 .panel-tabs a {
@@ -339,27 +339,22 @@ body[data-navigation="compact"] nav.side .nav-workspace > summary.nav-group-head
   justify-content: center;
   gap: 5px;
   padding: 6px 4px;
-  border-radius: var(--r-sm);
-  font-size: 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
   font-weight: 500;
-  color: var(--fg2);
+  color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
 }
 .panel-tabs a:hover { color: var(--fg); background: var(--row-sel); text-decoration: none; }
 .panel-tabs a[aria-current="page"] {
-  background: var(--seg-on);
+  background: var(--raised);
   color: var(--fg);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 html[data-style="prism"] .panel-tabs,
 html[data-style="studio"] .panel-tabs {
-  border-radius: var(--r-pill);
-}
-html[data-style="prism"] .panel-tabs a,
-html[data-style="studio"] .panel-tabs a {
-  border-radius: var(--r-pill);
+  box-shadow: none;
 }
 .companion-top-acts { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .kill-menu { position: relative; display: inline-block; }

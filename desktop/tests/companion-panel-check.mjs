@@ -200,9 +200,9 @@ const allRes = await ctx.filesView();
 assert.match(allRes.body, /<div class="lib-group-head">This week<\/div>/);
 assert.match(allRes.body, /<div class="lib-group-head">Older<\/div>/);
 assert.match(allRes.body, /<ul class="flist gbox">/);
-assert.match(allRes.body, /class="lib-badge page">MD/);
-assert.match(allRes.body, /class="lib-badge media">IMG/);
-assert.match(allRes.body, /class="lib-badge pdf">PDF/);
+assert.match(allRes.body, /class="lib-badge page"><svg[^>]*>.*<span class="sr">MD<\/span>/);
+assert.match(allRes.body, /class="lib-badge media"><svg[^>]*>.*<span class="sr">IMG<\/span>/);
+assert.match(allRes.body, /class="lib-badge pdf"><svg[^>]*>.*<span class="sr">PDF<\/span>/);
 
 ctx.Panel.lib.kind = "pages";
 const pagesRes = await ctx.filesView();

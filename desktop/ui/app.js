@@ -1422,6 +1422,9 @@ function chosenModel(root) {
 async function chatLayout(main, thread, project) {
   const seq = App.seq;
   App.thread = thread;
+  if (!Panel.what && !Panel.userClosed && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000) {
+    openPanel(needsMe().length ? "needs" : "activity", { auto: true });
+  }
   sidebar();
   paint(main, ChatView.layout({ banners: true }));
   convHead(thread, project);
@@ -2135,6 +2138,9 @@ function companionHeader() {
   const styleNames = { obsidian: "Obsidian Theme", "obsidian-2": "Obsidian 2 Theme", prism: "Prism Theme", studio: "Studio Theme" };
   const styleLbl = (typeof Theme !== "undefined" && styleNames[Theme.prefs().style]) || "Obsidian Theme";
   const taskCount = (App.tasks || []).length;
+  const appCount = (typeof Lib !== "undefined" && Array.isArray(Lib.all) && Lib.all.length)
+    ? Lib.all.filter(c => stateOf(c) === "connected").length
+    : 5;
   return `<div class="companion-id">
     <div class="companion-row-left">
       <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent"><span class="companion-m">M</span><span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
@@ -2144,7 +2150,7 @@ function companionHeader() {
           <span class="companion-status-lbl ${st.dot}">${esc(st.label)}</span>
         </div>
         <div class="companion-sub">
-          <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"} today</span>
+          <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"} today · ${appCount} app${appCount === 1 ? "" : "s"}</span>
           <span class="faint" aria-hidden="true">·</span>
           <a href="#/settings/appearance" class="companion-theme-link" aria-label="Theme and accent settings" title="Theme & accent">${esc(styleLbl)}</a>
         </div>
@@ -2235,15 +2241,6 @@ function activityView(composed) {
       </div>
     </a>
   </section>` : "";
-  const showRoutineHint = !load("routine-hint-dismissed", false) && !active.length && !done.length;
-  const routineCard = showRoutineHint ? `<section class="companion-sec">
-    <div class="companion-sec-head"><span>Suggested</span><button type="button" class="link small" data-dismiss-routine>Hide</button></div>
-    <div class="gbox">
-      <a class="gbox-row" href="#/schedules" data-open="schedules"><span class="gbox-ic">${icon("working")}</span><span class="gbox-lbl">Create a routine</span>${icon("chev", "chev")}</a>
-      <button type="button" class="gbox-row" data-open-discovery><span class="gbox-ic">${icon("sparkles")}</span><span class="gbox-lbl">Discover automations</span>${icon("chev", "chev")}</button>
-      ${hb ? "" : `<button type="button" class="gbox-row" data-enable-heartbeat><span class="gbox-ic warn">${icon("bell")}</span><span class="gbox-lbl">Enable Heartbeat (30m check-in)</span>${icon("chev", "chev")}</button>`}
-    </div>
-  </section>` : "";
   const schedLabel = "Up next";
   const schedCard = `<details class="companion-scheds" data-key="panel-schedules" open>
     <summary><span>${esc(schedLabel)}</span><span class="small muted">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</span></summary>
@@ -2260,11 +2257,10 @@ function activityView(composed) {
   return `${needsBanner}
     ${activeCard}
     <section class="companion-timeline">
-      <div class="companion-sec-head"><span>Recent work</span><a class="small" href="#/tasks" data-open="tasks">All tasks (${App.tasks.length}) ›</a></div>
+      <div class="companion-sec-head"><span>Recent work</span><a class="small" href="#/tasks" data-open="tasks">Today</a></div>
       ${timelineGroups(done.length ? [] : active, done)}
     </section>
     ${schedCard}
-    ${routineCard}
     ${(feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}
     ${activityLinks("activity")}`;
 }
@@ -2304,8 +2300,7 @@ function needsView(composed) {
   const guardrails = `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
   if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
   return `<div class="companion-sec-head"><span>Inline decision cards with real brand SVGs</span><span class="count">${open.length}</span></div>
-    ${now.length ? `<h3>A task is waiting <span class="badge">${now.length}</span></h3>${list(now)}` : ""}
-    ${later.length ? `<h3>When you have a moment</h3>${list(later)}` : ""}${guardrails}${historyHtml}`;
+    ${list([...now, ...later])}${guardrails}${historyHtml}`;
 }
 
 // ---------- Task detail ----------
@@ -2866,15 +2861,17 @@ async function filesView() {
   const weekCutoff = Date.now() - 7 * 86400000;
   const recent = shown.filter(f => { const t = Date.parse(f.at || ""); return !Number.isNaN(t) && t >= weekCutoff; });
   const older = shown.filter(f => { const t = Date.parse(f.at || ""); return Number.isNaN(t) || t < weekCutoff; });
+  const svgSheet = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-width="1.2"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="#10B981" stroke-width="1.2" stroke-linecap="round"/></svg>';
+  const svgDoc = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#F43F5E" fill-opacity="0.18" stroke="#F43F5E" stroke-width="1.2"/><path d="M5.5 6.5h5M5.5 9.5h3.5" stroke="#F43F5E" stroke-width="1.2" stroke-linecap="round"/></svg>';
   const badgeFor = f => {
     const n = (f.name || "").toLowerCase(), k = libFileKind(f);
-    if (n.endsWith(".pdf") || f.media_type === "application/pdf") return '<span class="lib-badge pdf">PDF</span>';
-    if (n.endsWith(".csv") || f.media_type === "text/csv") return '<span class="lib-badge sheet">CSV</span>';
-    if (n.endsWith(".json") || f.media_type === "application/json") return '<span class="lib-badge json">JSON</span>';
-    if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css)$/.test(n)) return '<span class="lib-badge code">CODE</span>';
-    if (k === "pages") return '<span class="lib-badge page">MD</span>';
-    if (k === "media") return '<span class="lib-badge media">IMG</span>';
-    return '<span class="lib-badge">FILE</span>';
+    if (n.endsWith(".pdf") || f.media_type === "application/pdf") return `<span class="lib-badge pdf">${svgDoc}<span class="sr">PDF</span></span>`;
+    if (/\.(csv|xlsx?|tsv)$/.test(n) || f.media_type === "text/csv") return `<span class="lib-badge sheet">${svgSheet}<span class="sr">CSV</span></span>`;
+    if (n.endsWith(".json") || f.media_type === "application/json") return `<span class="lib-badge json">${svgSheet}<span class="sr">JSON</span></span>`;
+    if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css|patch|diff)$/.test(n)) return `<span class="lib-badge code">${svgSheet}<span class="sr">CODE</span></span>`;
+    if (k === "pages") return `<span class="lib-badge page">${svgDoc}<span class="sr">MD</span></span>`;
+    if (k === "media") return `<span class="lib-badge media">${svgSheet}<span class="sr">IMG</span></span>`;
+    return `<span class="lib-badge">${svgDoc}<span class="sr">FILE</span></span>`;
   };
   const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${badgeFor(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><span class="mono small muted lib-size">${esc(kb(f.size))}</span><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
   const listHtml = !shown.length

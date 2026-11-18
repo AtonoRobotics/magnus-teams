@@ -26,12 +26,12 @@ PALETTES = {
                  "#4B5563", "#B91C1C", "#16A34A", "#D97706", "#364FC7", "#4338CA", "#0F766E", "#6B7280"],
     },
     "dark": {
-        "bar": "#0E0E0E", "line": "#242424", "win": "#0E0E0E", "title": "#0E0E0E", "bg": "#000000",
-        "fg": "#F5F5F5", "fg2": "#B3B3B3", "muted": "#8E8E8E", "seg": "#151515", "raised": "#1C1C1C",
+        "bar": "#121215", "line": "#232329", "win": "#121215", "title": "#121215", "bg": "#000000",
+        "fg": "#F4F4F5", "fg2": "#B4B4BC", "muted": "#8E8E96", "seg": "#141418", "raised": "#1A1A1F",
         "accent": "#7C8CFF", "accent_fg": "#090A0D", "accent_text": "#9BA7FF", "accent_soft": "#1C2136",
-        "term_bg": "#000000", "term_fg": "#B3B3B3", "close_hover": "#2D1619",
-        "ansi": ["#1C1C1C", "#F87171", "#34D399", "#FBBF24", "#7C8CFF", "#C4B5FD", "#5EEAD4", "#B3B3B3",
-                 "#363636", "#FCA5A5", "#34D399", "#FDBA74", "#9BA7FF", "#A5B4FC", "#5EEAD4", "#F5F5F5"],
+        "term_bg": "#000000", "term_fg": "#B4B4BC", "close_hover": "#2D1619",
+        "ansi": ["#1A1A1F", "#F87171", "#34D399", "#FBBF24", "#7C8CFF", "#C4B5FD", "#5EEAD4", "#B4B4BC",
+                 "#35353E", "#FCA5A5", "#34D399", "#FDBA74", "#9BA7FF", "#A5B4FC", "#5EEAD4", "#F4F4F5"],
     },
 }
 
@@ -39,14 +39,14 @@ PALETTES = {
 WALLPAPER = {
     "dark": {
         "bg": "#000000",
-        "glow": "#0E0E0E",
-        "line": "#242424",
-        "lineFaint": "#1A1A1A",
-        "dot": "#363636",
+        "glow": "#121215",
+        "line": "#232329",
+        "lineFaint": "#18181D",
+        "dot": "#35353E",
         "accent": "#7C8CFF",
         "accentGlow": "#1C2136",
         "iconFill": "#9BA7FF",
-        "mark": "#8E8E8E",
+        "mark": "#8E8E96",
     },
     "light": {
         "bg": "#F6F7F9",
