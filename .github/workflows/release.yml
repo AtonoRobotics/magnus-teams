@@ -69,6 +69,8 @@ jobs:
           key=$(release/signing-key.sh "$RUNNER_TEMP/signing" | head -1)
           c="{\"version\":\"$MAGNUS_VERSION\"}"
           export TAURI_SIGNING_PRIVATE_KEY="$(cat "$key")" TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          # Each update loads its own interface, not the one the webview kept.
+          release/stamp-ui.sh "$MAGNUS_VERSION"
           (cd desktop/src-tauri && cargo tauri build --bundles deb,appimage --config "$c")
           (cd desktop/src-tauri && cargo tauri build --runner cargo --target x86_64-pc-windows-gnu --bundles nsis --config "$c")
           rm -rf dist && mkdir -p dist

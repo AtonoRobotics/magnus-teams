@@ -2299,7 +2299,7 @@ function needsView(composed) {
     </div>`).join("")}</div></section>` : "";
   const guardrails = `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
   if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
-  return `<div class="companion-sec-head"><span>Inline decision cards with real brand SVGs</span><span class="count">${open.length}</span></div>
+  return `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>
     ${list([...now, ...later])}${guardrails}${historyHtml}`;
 }
 
@@ -2478,7 +2478,7 @@ async function appsPanelView() {
       ${right}
     </div>`;
   };
-  const body = `<div class="companion-sec-head"><span>Connected integrations &amp; 1-click OAuth</span><a class="small" href="#/library">Catalog ›</a></div>
+  const body = `<div class="companion-sec-head"><span>Apps</span><a class="small" href="#/library">Catalog ›</a></div>
     ${mine.length ? `<div class="papp-list">${mine.map(rowHtml).join("")}</div>` : `<p class="empty">Apps are unavailable right now.</p>`}`;
   return { body, after: el => bindConnectorActs(el) };
 }
@@ -2879,7 +2879,7 @@ async function filesView() {
     : recent.length && older.length
       ? `<div class="lib-group-head">This week</div><ul class="flist gbox">${recent.map(rowHtml).join("")}</ul><div class="lib-group-head">Older</div><ul class="flist gbox">${older.map(rowHtml).join("")}</ul>`
       : `<ul class="flist gbox">${shown.map(rowHtml).join("")}</ul>`;
-  return plain(`<div class="companion-sec-head"><span>Workspace &amp; conversation artifacts</span><span class="count">${shown.length}</span></div>
+  return plain(`<div class="companion-sec-head"><span>Files</span><span class="count">${shown.length}</span></div>
     <div class="row lib-bar"><label class="sr" for="lq">Search files</label><input id="lq" type="search" data-draft="lib-q" placeholder="Files, tasks, projects or text" autocomplete="off">
     <label class="sr" for="lp">Project</label><select id="lp" aria-label="Filter by project"><option value="">All files</option><option value="none"${project === "none" ? " selected" : ""}>In no project</option>${App.projects.map(p => `<option value="${esc(p.id)}"${p.id === project ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
     ${attachButton("Upload")}</div>

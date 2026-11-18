@@ -180,7 +180,8 @@ assert.match(tl, /<ul class="tlist tl-stack">/);
 assert.match(tl, /<span class="tl-brand" aria-hidden="true"><svg class="ctile-svg"/);
 
 const nv = ctx.needsView([]);
-assert.match(nv, /Inline decision cards with real brand SVGs/);
+assert.match(nv, /companion-sec-head"><span>Approvals<\/span>/);
+assert.doesNotMatch(nv, /brand SVGs/);
 assert.match(nv, /class="gbox companion-guard"/);
 assert.match(nv, /class="appr-history".*class="appr-ic mail has-logo".*<svg class="ctile-svg".*class="gbox appr-payload-box"/s);
 

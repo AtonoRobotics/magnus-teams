@@ -57,6 +57,7 @@ jobs:
       - run: node desktop/tests/stylesheet-check.mjs
       - run: node desktop/tests/theme-check.mjs
       - run: node desktop/tests/companion-panel-check.mjs
+      - run: node desktop/tests/stamp-ui-check.mjs
       - run: node desktop/tests/team-check.mjs
       - run: node desktop/tests/team-own-check.mjs
       - run: node desktop/tests/message-controls-check.mjs
