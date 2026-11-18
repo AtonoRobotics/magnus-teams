@@ -15,14 +15,14 @@ const T = host.Theme, settle = async () => { for (let i = 0; i < 5; i++) await P
 assert.equal(calls.length, 1);
 assert.deepEqual(calls[0], [true]);
 T.scope('appliance', 'alice');
-T.set({ mode: 'light' }); T.set({ accent: 'amber' }); T.set({ conversationWidthPx: 480, navigation: 'compact' });
+T.set({ mode: 'light' }); T.set({ accent: 'amber' }); T.set({ panelWidthPx: 420, navigation: 'compact' });
 assert.equal(T.look.mode, 'light', 'tokens apply immediately while a host command is pending');
 assert.equal(calls.length, 1, 'native operations must not overlap');
 waiting.shift().resolve(); await settle();
 assert.equal(calls.length, 2, 'coalesce pending choices to the latest mode');
 assert.deepEqual(calls[1], [false]);
 waiting.shift().resolve(); await settle();
-T.set({ conversationWidthPx: 500 });
+T.set({ panelWidthPx: 460 });
 assert.equal(calls.length, 2, 'layout preferences must not repeat host background calls');
 T.set({ mode: 'dark' });
 assert.equal(calls.length, 3);

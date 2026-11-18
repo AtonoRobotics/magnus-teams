@@ -74,6 +74,7 @@ const App = {
   threads: [],
   projects: [],
   workspaces: [],
+  connectors: null,
   health: null,
   thread: null,
   /** The person closed this session's "Updates since your last session" notice. */
@@ -402,7 +403,7 @@ function navigationTree() {
   const dot=t=>waitingThreads.has(t.thread) ? '<span class="nav-dot warn" aria-hidden="true"></span>' : activeThreads.has(t.thread) ? '<span class="nav-dot run" aria-hidden="true"></span>' : "";
   const conv=t=>{const ttl=displayTitle(t.title);return `<a class="conv${t.thread===App.thread ? " on" : ""}" href="#/chat/${enc(t.thread)}" ${t.thread===App.thread ? 'aria-current="page"' : ""} title="${esc(ttl)}">${dot(t)}<span class="ttl">${esc(ttl)}</span></a>`;};
   const loose=App.threads.filter(t=>!t.project);
-  const cutoff=Date.now()-86400000;
+  const DAY_MS=86_400_000, cutoff=Date.now()-DAY_MS;
   const today=loose.filter(t=>{const ts=Date.parse(t.updated_at||t.created_at||"");return Number.isNaN(ts)||ts>=cutoff;});
   const earlier=loose.filter(t=>{const ts=Date.parse(t.updated_at||t.created_at||"");return !Number.isNaN(ts)&&ts<cutoff;});
   const looseHtml=!loose.length ? '<p class="small muted pad">No conversations yet.</p>'
@@ -437,29 +438,32 @@ const Workspace = (() => {
   let expanded=false, region="conversation", forceExpanded=false, installed=false, restoreDrawer=true;
   // A team workspace brings its own rail, so the app's navigation folds to
   // icons there unless the person opens it.
-  function fit(width, preferred="expanded", conversation=420, work=false, team=false) {
-    const mobile=width<760;
-    const temporary=(work || team) && !expanded && !forceExpanded && preferred==="expanded" && (team || width-228<936);
+  function fit(width, preferred="expanded", panelWidth=Theme.LAYOUT_BOUNDS.panelDefaultWidthPx, work=false, team=false) {
+    const B=Theme.LAYOUT_BOUNDS;
+    const mobile=width<B.mobileMaxWidthPx;
+    const temporary=(work || team) && !expanded && !forceExpanded && preferred==="expanded" && (team || width-B.navExpandedWidthPx<B.splitMinAvailablePx);
     const nav=mobile ? "drawer" : preferred==="compact" || temporary ? "compact" : "expanded";
-    const navWidth=mobile ? 0 : nav==="compact" ? 64 : 228, available=width-navWidth;
-    const eligible=work && available>=936;
-    const max=Math.min(560,available-576), actual=Math.max(360,Math.min(560,Number(conversation)||420));
-    return {nav,navWidth,available,eligible,split:eligible && !expanded,min:360,max:Math.max(360,max),conversation:eligible ? Math.min(actual,max) : actual,temporary};
+    const navWidth=mobile ? 0 : nav==="compact" ? B.navCompactWidthPx : B.navExpandedWidthPx, available=width-navWidth;
+    const eligible=work && available>=B.splitMinAvailablePx;
+    const max=Math.min(B.panelMaxWidthPx,available-(B.conversationMinWidthPx+B.splitterWidthPx));
+    const actual=Math.max(B.panelMinWidthPx,Math.min(B.panelMaxWidthPx,Number(panelWidth)||B.panelDefaultWidthPx));
+    const panel=eligible ? Math.min(actual,Math.max(B.panelMinWidthPx,max)) : actual;
+    return {nav,navWidth,available,eligible,split:eligible && !expanded,min:B.panelMinWidthPx,max:Math.max(B.panelMinWidthPx,max),panel,conversation:Math.max(B.conversationMinWidthPx,available-B.splitterWidthPx-panel),temporary};
   }
   function update() {
     const shell=$(".shell"); if (!shell) return;
-    const prefs=Theme.prefs(), work=!!Panel.what && !!App.workspace;
+    const B=Theme.LAYOUT_BOUNDS, prefs=Theme.prefs(), work=!!Panel.what && !!App.workspace;
     const team=/^#\/team\//.test(location.hash);
-    const m=fit(shell.clientWidth,prefs.navigation || "expanded",prefs.conversationWidthPx || 420,work,team);
-    if (work && Panel.autoOpened && (shell.clientWidth < 1200 || !m.eligible)) { closePanel(false); return m; }
+    const m=fit(shell.clientWidth,prefs.navigation || "expanded",prefs.panelWidthPx || B.panelDefaultWidthPx,work,team);
+    if (work && Panel.autoOpened && (shell.clientWidth < B.autoOpenMinWidthPx || !m.eligible)) { closePanel(false); return m; }
     if(team)document.body.dataset.team="";else delete document.body.dataset.team;
     const prior=[...document.querySelectorAll("#thread, #detail .detail-body")].filter(el=>el.clientHeight).map(root=>{
       const rect=root.getBoundingClientRect(), nodes=[...root.querySelectorAll("[data-entry], iframe, h2, h3, p")], node=nodes.find(n=>n.getBoundingClientRect().bottom>rect.top);
       return {root,node,top:root.scrollTop,offset:node ? node.getBoundingClientRect().top-rect.top : 0,follow:root.id==="thread" && root.scrollHeight-root.scrollTop-root.clientHeight<=80};
     });
-    shell.style.setProperty("--nav-width",`${m.navWidth}px`);shell.style.setProperty("--conversation-width",`${m.conversation}px`);
+    shell.style.setProperty("--nav-width",`${m.navWidth}px`);shell.style.setProperty("--panel-width",`${m.panel}px`);shell.style.setProperty("--conversation-min-width",`${B.conversationMinWidthPx}px`);shell.style.setProperty("--splitter-width",`${B.splitterWidthPx}px`);
     document.body.dataset.navigation=m.nav;document.body.dataset.workspace=!work ? "conversation" : m.split ? "split" : "single";document.body.dataset.region=region;
-    const height=Math.min(innerHeight,window.visualViewport?.height || innerHeight);shell.style.setProperty("--workspace-height",`${height}px`);shell.style.setProperty("--workspace-top",`${window.visualViewport?.offsetTop || 0}px`);document.body.classList.toggle("short-viewport",height<520);
+    const height=Math.min(innerHeight,window.visualViewport?.height || innerHeight);shell.style.setProperty("--workspace-height",`${height}px`);shell.style.setProperty("--workspace-top",`${window.visualViewport?.offsetTop || 0}px`);document.body.classList.toggle("short-viewport",height<B.shortViewportMaxHeightPx);
     const toggle=$("[data-nav-toggle]");if(toggle){toggle.setAttribute("aria-label",m.nav==="expanded" ? "Collapse navigation" : "Expand navigation");toggle.title=toggle.getAttribute("aria-label");toggle.setAttribute("aria-expanded",String(m.nav==="expanded"));}
     $("[data-open-drawer]").hidden=m.nav!=="drawer";
     const selectors=$(".workspace-selectors");selectors.hidden=!work || m.split;
@@ -468,7 +472,7 @@ const Workspace = (() => {
     $("[data-close-work]").hidden=!work;
     $(".workspace-heading").textContent=App.workspace ? "Conversation" : location.hash.startsWith("#/library") ? "Apps" : location.hash.startsWith("#/settings") ? "Settings" : location.hash.startsWith("#/admin") ? "Admin" : location.hash.startsWith("#/dev") ? "Developer" : "Magnus";
     $(".workspace-heading").hidden=work;
-    const separator=$("#workspace-splitter");separator.hidden=!m.split;separator.setAttribute("aria-valuenow",String(Math.round(m.conversation)));separator.setAttribute("aria-valuemin",String(m.min));separator.setAttribute("aria-valuemax",String(m.max));separator.setAttribute("aria-valuetext",`${Math.round(m.conversation)} pixels`);
+    const separator=$("#workspace-splitter");separator.hidden=!m.split;separator.setAttribute("aria-valuenow",String(Math.round(m.panel)));separator.setAttribute("aria-valuemin",String(m.min));separator.setAttribute("aria-valuemax",String(m.max));separator.setAttribute("aria-valuetext",`${Math.round(m.panel)} pixels`);
     if (m.nav!=="drawer" && $("#navigation-drawer").open) closeDrawer(false);
     for(const a of prior){if(!a.root.clientHeight)continue;a.root.scrollTop=a.follow ? a.root.scrollHeight : a.node?.isConnected ? a.root.scrollTop+a.node.getBoundingClientRect().top-a.root.getBoundingClientRect().top-a.offset : a.top;}
     reportOpenedSoon();
@@ -484,7 +488,7 @@ const Workspace = (() => {
   }
   function closeDrawer(restore=true) {const d=$("#navigation-drawer");if(!d?.open)return;restoreDrawer=restore;d.close();}
   function closeTree(restore=true) {const fly=$("#navigation-flyout");if(!fly)return;fly.hidden=true;const b=$("[data-nav-tree]");b?.setAttribute("aria-expanded","false");if(restore)b?.focus({preventScroll:true});}
-  function resize(value) {const m=update();Theme.set({conversationWidthPx:Math.max(m.min,Math.min(m.max,value))});update();}
+  function resize(value) {const m=update();Theme.set({panelWidthPx:Math.max(m.min,Math.min(m.max,value))});update();}
   function install() {
     expanded=false;region="conversation";forceExpanded=false;
     const d=$("#navigation-drawer");d.addEventListener("click",e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom)closeDrawer();}});d.addEventListener("close",()=>{const nav=$("nav.side",d);if(nav)$(".shell").prepend(nav);if(restoreDrawer)$("[data-open-drawer]")?.focus({preventScroll:true});});
@@ -494,8 +498,10 @@ const Workspace = (() => {
     $("[data-rail-search]").onclick=()=>{const dialog=$("#workspace-search");dialog.showModal();$("input",dialog).focus();};
     $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=$("#workspace-search input").value.trim();$("#workspace-search").close();if(q){if(App.workspace)openPanel(`search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
     $("[data-close-search]").onclick=()=>$("#workspace-search").close();
-    const separator=$("#workspace-splitter");separator.onkeydown=e=>{const m=update();let width=m.conversation;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowRight" ? 1 : -1)*(e.shiftKey ? 48 : 16);else return;e.preventDefault();resize(width);};
-    separator.onpointerdown=e=>{if(e.button!==0)return;const m=update(),x=e.clientX,width=m.conversation;separator.setPointerCapture(e.pointerId);separator.onpointermove=move=>resize(width+move.clientX-x);separator.onpointerup=()=>{separator.onpointermove=null;separator.onpointerup=null;separator.releasePointerCapture(e.pointerId);};};
+    const separator=$("#workspace-splitter"), B=Theme.LAYOUT_BOUNDS;
+    separator.onkeydown=e=>{const m=update();let width=m.panel;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowLeft" ? 1 : -1)*(e.shiftKey ? B.splitterLargeStepPx : B.splitterStepPx);else return;e.preventDefault();resize(width);};
+    separator.onpointerdown=e=>{if(e.button!==0)return;const m=update(),x=e.clientX,width=m.panel;separator.setPointerCapture(e.pointerId);separator.onpointermove=move=>resize(width+x-move.clientX);separator.onpointerup=()=>{separator.onpointermove=null;separator.onpointerup=null;separator.releasePointerCapture(e.pointerId);};};
+    separator.ondblclick=()=>resize(B.panelDefaultWidthPx);
     if(!installed){installed=true;
       window.addEventListener("resize",()=>{forceExpanded=false;update();closeTree(false);});window.visualViewport?.addEventListener("resize",update);window.visualViewport?.addEventListener("scroll",()=>$(".shell")?.style.setProperty("--workspace-top",`${window.visualViewport?.offsetTop || 0}px`));window.addEventListener("magnus-theme",update);
       document.addEventListener("click",e=>{
@@ -1202,11 +1208,11 @@ function describeChange(c) {
 // Tasks, schedules, conversations and projects, read together with the
 // inbox; then every view that shows them is drawn again from what was read.
 async function refresh() {
-  const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects"})[k],path,k);
+  const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects",connectors:"Apps"})[k],path,k);
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
   const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
   const workspaces = Server.workspaces.list().then(r => { if (Array.isArray(r)) App.workspaces = r; }, () => {});
-  const [tasks, schedules, threads, projects, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces]);
+  const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks
   // (owner, 2026-11-07): developers see them in the run inspector.
@@ -1214,6 +1220,7 @@ async function refresh() {
   if (schedules) App.schedules = schedules;
   if (threads) App.threads = threads;
   if (projects) App.projects = projects;
+  if (Array.isArray(connectors)) { App.connectors = connectors; Lib.all = connectors.filter(c => c.for_you !== false); }
   if (health) App.health = health;
   sidebar();
   banners();
@@ -1491,7 +1498,7 @@ async function home(main, panel = App.openAfter) {
   App.threads = threads;
   if (seq !== App.seq) return;
   let targetPanel = panel, panelOpts;
-  if (!targetPanel && !Panel.what && !Panel.userClosed && typeof innerWidth === "number" && innerWidth >= 1200) {
+  if (!targetPanel && !Panel.what && !Panel.userClosed && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
     targetPanel = needsMe().length ? "needs" : "activity";
     panelOpts = { auto: true };
   }
@@ -2128,7 +2135,8 @@ function dayBucketLabel(iso) {
   const now = new Date();
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startItem = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((startToday - startItem) / 86400000);
+  const DAY_MS = 86_400_000;
+  const days = Math.round((startToday - startItem) / DAY_MS);
   if (days <= 0) return "Today";
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -2136,9 +2144,15 @@ function dayBucketLabel(iso) {
 function companionHeader() {
   const st = companionStatus();
   const taskCount = (App.tasks || []).filter(t => dayBucketLabel(t.ended_at || t.created_at) === "Today").length;
-  const appCount = (typeof Lib !== "undefined" && Array.isArray(Lib.all) && Lib.all.length)
-    ? Lib.all.filter(c => stateOf(c) === "connected").length
-    : 5;
+  const list = (typeof Lib !== "undefined" && Array.isArray(Lib.all))
+    ? Lib.all
+    : Array.isArray(App.connectors)
+      ? App.connectors
+      : null;
+  const appCount = list
+    ? list.filter(c => (typeof stateOf === "function" ? stateOf(c) : c.state) === "connected").length
+    : null;
+  const subText = `${taskCount} task${taskCount === 1 ? "" : "s"} today${appCount !== null ? ` · ${appCount} app${appCount === 1 ? "" : "s"}` : ""}`;
   return `<div class="companion-id">
     <div class="companion-row-left">
       <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent"><span class="companion-m">M</span><span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
@@ -2148,7 +2162,7 @@ function companionHeader() {
           <span class="companion-status-lbl ${st.tone}">${esc(st.label)}</span>
         </div>
         <div class="companion-sub">
-          <span class="muted">${taskCount} task${taskCount === 1 ? "" : "s"} today · ${appCount} app${appCount === 1 ? "" : "s"}</span>
+          <span class="muted">${subText}</span>
         </div>
       </div>
     </div>
@@ -2160,18 +2174,16 @@ function companionHeader() {
 }
 function companionFooter() {
   const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
-  if (!comp) {
-    return `<div class="companion-computer" data-computer-bar="default">
-      <div class="comp-head"><span class="comp-dot idle" aria-hidden="true"></span><span class="muted">Cloud Computer ·</span><strong>Sleeping</strong></div>
-      <div class="row comp-acts"><a class="link comp-wake-btn" href="#/settings/general">Wake VM →</a></div>
-    </div>`;
-  }
+  if (!comp) return "";
   const compState = controlWords(comp, false);
   const awake = comp.status === "running";
   const pauseBtn = awake ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
+  const actBtn = awake
+    ? `<button type="button" class="link comp-wake-btn" data-open="computer:${esc(comp.id)}">Watch →</button>`
+    : `<button type="button" class="link comp-wake-btn" data-wake-computer="${esc(comp.id)}">Wake VM →</button>`;
   return `<div class="companion-computer" data-computer-bar="${esc(comp.id)}">
     <div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><span class="muted">Cloud Computer ·</span><strong>${esc(compState.pill)}</strong></div>
-    <div class="row comp-acts">${pauseBtn}<button type="button" class="link comp-wake-btn" data-open="computer:${esc(comp.id)}">${awake ? "Watch →" : "Wake VM →"}</button></div>
+    <div class="row comp-acts">${pauseBtn}${actBtn}</div>
   </div>`;
 }
 function timelineRowHtml(t) {
@@ -2227,6 +2239,19 @@ function activityView(composed) {
     <a class="cleared-link" href="#/inbox" data-open="needs">Approvals</a>
   </section>`;
   const curTask = active[0];
+  const units = curTask?.plan?.units || [];
+  const doneUnits = units.filter(u => u.status === "done").length;
+  const pct = units.length ? Math.round((100 * doneUnits) / units.length) : null;
+  const progressBar = pct !== null
+    ? `<div class="active-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>`
+    : "";
+  const footStatus = pending.length
+    ? `<span class="small muted">${esc(`Waiting on ${pending.length} approval${pending.length === 1 ? "" : "s"}`)}</span>`
+    : curTask?.status === "suspended"
+      ? `<span class="small muted">${esc(WAITING[curTask.waiting_on] || "Waiting")}</span>`
+      : curTask && typeof statusLineSlot === "function"
+        ? statusLineSlot(curTask, "small muted")
+        : `<span class="small muted">${esc(curTask?.status_line || "In progress")}</span>`;
   const activeCard = curTask ? `<section class="companion-sec">
     <a class="gbox companion-active-card" href="#/task/${enc(curTask.task_id)}" data-open="task:${esc(curTask.task_id)}">
       <div class="active-card-top">
@@ -2234,9 +2259,9 @@ function activityView(composed) {
         <span class="mono active-elapsed">${esc(when(curTask.created_at))}</span>
       </div>
       <div class="active-card-title">${esc(curTask.title || firstLine(curTask.text) || "Running task")}</div>
-      <div class="active-progress" aria-hidden="true"><span style="width:${pending.length ? "68%" : "45%"}"></span></div>
+      ${progressBar}
       <div class="active-card-foot">
-        <span class="small muted">${esc(pending.length ? `Waiting on ${pending.length} approval${pending.length === 1 ? "" : "s"}` : (curTask.status === "suspended" ? (WAITING[curTask.waiting_on] || "Waiting") : "In progress"))}</span>
+        ${footStatus}
         <span class="small active-inspect">Inspect →</span>
       </div>
     </a>
@@ -2466,6 +2491,10 @@ async function drawPanel() {
 const plain = body => ({ body });
 async function appsPanelView() {
   const connectors = await Resources.read("Apps", "/v1/connectors", "connectors", true).catch(() => null);
+  if (Array.isArray(connectors)) {
+    App.connectors = connectors;
+    if (typeof Lib !== "undefined") Lib.all = connectors;
+  }
   const rank = c => ({ connected: 0, needs_attention: 1, local: 2, available: 3 }[stateOf(c)] ?? 4);
   const mine = (connectors || []).filter(c => c.for_you !== false).sort((a, b) => rank(a) - rank(b) || (a.title || a.name).localeCompare(b.title || b.name));
   const rowHtml = c => {
@@ -2797,7 +2826,9 @@ function bindConnectorActs(root) {
 }
 
 // Wherever connectors are shown, they are drawn again.
-function connectorsChanged() {
+async function connectorsChanged() {
+  const list = await Resources.read("Apps", "/v1/connectors", "connectors", true);
+  if (Array.isArray(list)) { App.connectors = list; Lib.all = list.filter(c => c.for_you !== false); }
   const m = /^#\/library(?:\/([^/]+))?$/.exec(location.hash);
   if (m && Lib.main?.isConnected) showLibrary(Lib.main, m[1]);
   else App.redraw?.();
@@ -2860,7 +2891,7 @@ async function filesView() {
   const { q, project, kind = "all" } = Panel.lib;
   const { files } = await Server.files.list({ q, project });
   const shown = kind === "all" ? files : files.filter(f => libFileKind(f) === kind);
-  const weekCutoff = Date.now() - 7 * 86400000;
+  const DAY_MS = 86_400_000, weekCutoff = Date.now() - 7 * DAY_MS;
   const recent = shown.filter(f => { const t = Date.parse(f.at || ""); return !Number.isNaN(t) && t >= weekCutoff; });
   const older = shown.filter(f => { const t = Date.parse(f.at || ""); return Number.isNaN(t) || t < weekCutoff; });
   const svgSheet = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-width="1.2"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="#10B981" stroke-width="1.2" stroke-linecap="round"/></svg>';
@@ -3576,6 +3607,16 @@ async function boot() {
           await refresh();
         } catch (err) { toast(err.message); b.disabled = false; }
       }
+      else if (t.closest("[data-wake-computer]")) {
+        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-wake-computer]"));
+        const id = b.dataset.wakeComputer;
+        b.disabled = true;
+        try {
+          await Server.computers.wake(id);
+          openPanel(`computer:${id}`, { history: true, focus: true });
+          await refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+      }
       else if (t.closest("[data-overview-kill]")) {
         const act = /** @type {HTMLElement} */ (t.closest("[data-overview-kill]")).dataset.overviewKill;
         const btn = $(`[data-admin-kill] [data-kill-${act === "release" ? "release" : "press"}="server"]`);
@@ -3608,7 +3649,7 @@ function stop() {
   Theme.scope(null, null);
   adminStop();
   Panel.unwatch?.(); Panel.unwatch=null; Panel.anchors={}; Panel.layers={}; Panel.opener=null; Panel.drawn=null; Panel.what=null; App.draftRecord=null;
-  App.me = null; App.computers = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
+  App.me = null; App.computers = null; App.connectors = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
   // What one person was typing or filtering by is not the next one's here.
   Panel.lib = { q: "", project: "", kind: "all" };
   delete Lib.all; Lib.q=""; Lib.cat="all"; Lib.tab="discover";

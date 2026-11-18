@@ -113,6 +113,7 @@ ctx.window = ctx;
 ctx.globalThis = ctx;
 vm.createContext(ctx);
 vm.runInContext(themeSrc, ctx, { filename: "theme.js" });
+vm.runInContext(read("evidence.js"), ctx, { filename: "evidence.js" });
 vm.runInContext(`${read("app-logos.js")}\nglobalThis.AppLogos = AppLogos;`, ctx, { filename: "app-logos.js" });
 const snippets = [
   extractFn(app, "function companionStatus()"),
@@ -139,12 +140,21 @@ assert.match(hdr, /class="companion-avatar"/);
 assert.match(hdr, /<span class="companion-m">M<\/span>/);
 assert.match(hdr, /<h2>Magnus<\/h2>/);
 assert.match(hdr, /Working/);
-assert.match(hdr, /1 task today · 5 apps/);
+assert.match(hdr, /<span class="muted">1 task today<\/span>/, "when connectors are not yet loaded, do not show a hardcoded app count");
+ctx.App.connectors = [];
+assert.match(ctx.companionHeader(), /1 task today · 0 apps/, "shows 0 apps when /v1/connectors returns an empty or disconnected list");
+ctx.App.connectors = [
+  { name: "github", state: "connected" },
+  { name: "gmail", state: "connected" },
+  { name: "linear", state: "available" },
+];
+assert.match(ctx.companionHeader(), /1 task today · 2 apps/, "shows real connected app count when connectors are loaded");
+assert.match(app, /get\("\/v1\/connectors",\s*"connectors"\)/, "refresh() fetches /v1/connectors from the server");
 ctx.needsMe = () => [];
 assert.match(ctx.companionHeader(), /Working/);
 ctx.App.tasks = [];
 assert.match(ctx.companionHeader(), /Ready/);
-ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Review Linear issue #84", created_at: recentIso }];
+ctx.App.tasks = [{ task_id: "tk1", status: "running", thread: "t2", title: "Review Linear issue #84", created_at: recentIso, status_line: "Reading issue #84" }];
 ctx.needsMe = () => [{ id: "n1", thread: "t1", summary: "Send Gmail update" }, { id: "n2", summary: "Create GitHub PR" }];
 const tabs = ctx.panelTabs("rules");
 for (const label of ["Activity", "Approvals", "Files", "Apps"]) assert.ok(tabs.includes(`<span>${label}</span>`), `missing tab ${label}`);
@@ -156,7 +166,24 @@ assert.match(act, /class="companion-sec companion-needs-banner"/);
 assert.match(act, /Needs your approval \(2\)/);
 assert.match(act, /class="gbox needs-inline-card"/);
 assert.match(act, /class="gbox companion-active-card"/);
-assert.match(act, /class="active-progress"/);
+assert.doesNotMatch(act, /class="active-progress/, "no fake progress bar when task has no plan units");
+ctx.needsMe = () => [];
+ctx.App.tasks = [{
+  task_id: "tk1",
+  status: "running",
+  thread: "t2",
+  title: "Review Linear issue #84",
+  created_at: recentIso,
+  status_line: "Reading issue #84",
+  plan: { units: [{ id: "u1", status: "done" }, { id: "u2", status: "done" }, { id: "u3", status: "active" }, { id: "u4", status: "pending" }] },
+}];
+const actWithPlan = ctx.activityView([]);
+assert.match(actWithPlan, /class="active-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span style="width:50%"><\/span><\/div>/);
+assert.match(actWithPlan, /data-status-line="tk1"/, "running task foot uses real statusLineSlot from evidence.js");
+const slotNode = { dataset: { statusLine: "tk1" }, textContent: "Working on it" };
+ctx.liveStatusLines({ querySelectorAll: () => [slotNode] });
+assert.equal(slotNode.textContent, "Reading issue #84");
+ctx.needsMe = () => [{ id: "n1", thread: "t1", summary: "Send Gmail update" }, { id: "n2", summary: "Create GitHub PR" }];
 assert.match(act, /<section class="companion-scheds">/);
 assert.match(act, /<a class="sec-head-link" href="#\/schedules"/);
 assert.match(act, /<nav class="activity-views" aria-label="Activity views">/);
@@ -166,6 +193,12 @@ assert.ok(act.indexOf("companion-timeline") < act.indexOf("companion-scheds"), "
 const ftr = ctx.companionFooter();
 assert.match(ftr, /class="companion-computer"/);
 assert.match(ftr, /Cloud Computer ·/);
+assert.match(ftr, /data-open="computer:c1">Watch →<\/button>/);
+ctx.App.computers = [{ id: "c1", name: "Magnus VM", status: "stopped" }];
+assert.match(ctx.companionFooter(), /data-wake-computer="c1">Wake VM →<\/button>/);
+ctx.App.computers = [];
+assert.equal(ctx.companionFooter(), "", "no fake computer bar when no computer is provisioned");
+ctx.App.computers = [{ id: "c1", name: "Magnus VM", status: "running" }];
 
 const tl = ctx.timelineGroups([{ task_id: "tk1", status: "running", title: "Review GitHub PR #42", created_at: recentIso }], []);
 assert.match(tl, /<details class="tl-day" data-key="day:Active now" open>/);
@@ -238,8 +271,8 @@ clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
 // 5. Desktop auto-open, rules panel handler, and multi-theme CSS rules.
-assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= 1200\)/);
-assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < 1200 \|\| !m\.eligible\)\)/);
+assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= Theme\.LAYOUT_BOUNDS\.autoOpenMinWidthPx\)/);
+assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < B\.autoOpenMinWidthPx \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
 

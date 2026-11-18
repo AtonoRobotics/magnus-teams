@@ -116,7 +116,22 @@
     off: "No animation. Everything changes instantly.",
   };
   const DEFAULTS = { style: "obsidian", mode: "dark", accent: "graphite", motion: "full" };
-  const LAYOUT = { navigation: "expanded", conversationWidthPx: 420 };
+  const LAYOUT_BOUNDS = {
+    navExpandedWidthPx: 228,
+    navCompactWidthPx: 64,
+    mobileMaxWidthPx: 760,
+    splitMinAvailablePx: 936,
+    autoOpenMinWidthPx: 1200,
+    shortViewportMaxHeightPx: 520,
+    splitterWidthPx: 16,
+    splitterStepPx: 16,
+    splitterLargeStepPx: 48,
+    conversationMinWidthPx: 560,
+    panelMinWidthPx: 300,
+    panelDefaultWidthPx: 360,
+    panelMaxWidthPx: 560,
+  };
+  const LAYOUT = { navigation: "expanded", panelWidthPx: LAYOUT_BOUNDS.panelDefaultWidthPx };
 
   const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
   const mixHex = (a, b, w) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - w) + parseInt(b.slice(i, i + 2), 16) * w).toString(16).padStart(2, "0")).join("");
@@ -176,13 +191,16 @@
     // A record from before the Theme choice was written on first load, so its
     // "blue" is the old default (Indigo), not a choice: it takes today's.
     if (value && typeof value === "object" && !("style" in v) && v.accent === "blue") v = { ...v, accent: DEFAULTS.accent };
+    const rawPanelWidth = Number.isFinite(v.panelWidthPx) ? v.panelWidthPx : null;
     return {
       style: member(v.style, STYLES.map(x => x[0]), DEFAULTS.style),
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
       accent: isHex(v.accent) ? v.accent : member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
       navigation: member(v.navigation, ["expanded", "compact"], LAYOUT.navigation),
-      conversationWidthPx: Number.isFinite(v.conversationWidthPx) ? Math.max(360, Math.min(560, v.conversationWidthPx)) : LAYOUT.conversationWidthPx,
+      panelWidthPx: rawPanelWidth !== null
+        ? Math.max(LAYOUT_BOUNDS.panelMinWidthPx, Math.min(LAYOUT_BOUNDS.panelMaxWidthPx, rawPanelWidth))
+        : LAYOUT.panelWidthPx,
     };
   }
 
@@ -190,7 +208,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT, preferences, contrast, effective, tokens };
+  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";
@@ -219,7 +237,7 @@
     Theme.saved = true;
     // Only a choice is stored, or a record being migrated: defaults stay
     // unstored, so a later change of default reaches everyone who never chose.
-    const migrate = saved ? "material" in saved || !("style" in saved) : !!legacy;
+    const migrate = saved ? "material" in saved || !("style" in saved) || "conversationWidthPx" in saved : !!legacy;
     if (key && migrate) { try { localStorage.setItem(key, JSON.stringify(current)); } catch { Theme.saved = false; } }
     return Theme.apply();
   };

@@ -80,6 +80,8 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         "waiting_on": run.reason,
         "status_line": crate::evidence::status_line(run),
         "summary": run.summary,
+        "plan": run.plan,
+        "plan_version": run.plan_version,
         "thread": task.chat.as_ref().map(|c| c.thread.clone()),
         "verdict": task.verdict,
         "review": task.review,
@@ -105,8 +107,6 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         v["budget"] = json!(run.config.budget);
         v["taint"] = json!({ "untrusted": run.untrusted, "private": run.private });
         v["outputs"] = json!(run.outputs.iter().map(|(id, name, mt, size)| json!({ "id": id, "name": name, "media_type": mt, "size": size })).collect::<Vec<_>>());
-        v["plan"] = run.plan.clone().unwrap_or(Value::Null);
-        v["plan_version"] = json!(run.plan_version);
         v["outcome_view"] = run.outcome_view.clone().unwrap_or(Value::Null);
         // Only here, never in a list's rows: those are built under the state lock.
         v["files"] = json!(k.read(|s| task.files.iter().filter_map(|id| s.library.files().get(id)).map(|f| crate::library::file_json(s, f, words)).collect::<Vec<_>>()));
