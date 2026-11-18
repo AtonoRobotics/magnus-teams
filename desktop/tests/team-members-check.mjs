@@ -65,14 +65,14 @@ assert.match(sandbox.railHtml(owner, { kind: "people" }), /aria-current="page" d
 // or remove for a Team Admin; for anyone else, to see who is in.
 const panel = { project: null, channels: [], files: [], tasks: [], work: [], members: [{ id: "dana", name: "Dana" }, { id: "leo", name: "Leo" }], knowledge: 0, progress: null, computer: null };
 Team.home = owner;
-const card = sandbox.overviewHtml(panel, "w").split("data-members-card")[1].split("</section>")[0];
+const card = sandbox.membersCardHtml(panel, "w").split("data-members-card")[1].split("</section>")[0];
 assert.match(card, /href="#\/team\/w\/people" data-members-manage>Add or remove</, "the owner's panel offers no way to add or remove members");
 assert.match(card, /title="Leo"[^]*class="sr">Leo</, "the panel's members are initials with no names");
 Team.home = admin;
-assert.match(sandbox.overviewHtml(panel, "w"), /data-members-manage>Add or remove</, "a workspace admin's panel offers no way to add or remove members");
+assert.match(sandbox.membersCardHtml(panel, "w"), /data-members-manage>Add or remove</, "a workspace admin's panel offers no way to add or remove members");
 Team.home = member;
-assert.match(sandbox.overviewHtml(panel, "w"), /data-members-manage>See all</, "a member cannot see who is in");
-assert.doesNotMatch(sandbox.overviewHtml(panel, "w"), /Add or remove/, "a member is offered to add or remove people");
+assert.match(sandbox.membersCardHtml(panel, "w"), /data-members-manage>See all</, "a member cannot see who is in");
+assert.doesNotMatch(sandbox.membersCardHtml(panel, "w"), /Add or remove/, "a member is offered to add or remove people");
 Team.home = owner;
 
 // The people page: a Team Admin adds a server person, invites by email or

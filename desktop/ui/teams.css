@@ -45,18 +45,14 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-face.on::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); border: 1.5px solid var(--surface); }
 .team-scroll { flex: 1; overflow-y: auto; padding: 12px 20px; min-height: 0; }
 .team-side .team-scroll { padding: 0; }
-.team-side-head { display: flex; justify-content: space-between; align-items: center; }
-.team-side-head h2 { font-size: 15px; margin: 4px 0 10px; }
 /* A post's controls sit under it, as the personal chat's do (owner, 2026-11-13). */
 .action-menu.reactions:not([hidden]) { display: flex; width: auto; gap: 2px; }
 .action-menu.reactions button { width: auto; min-width: 36px; text-align: center; padding: 6px 8px; font-size: 16px; }
 .dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
-.team-card { padding: 10px 0; border-bottom: 1px solid var(--line); }
-.team-card h3 { font-size: 13px; margin: 0 0 6px; display: flex; justify-content: space-between; }
 .team-screen-none { aspect-ratio: 16 / 10; border-radius: var(--r-sm); background: var(--seg); padding: 12px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
 .team-screen-none p { margin: 0; }
 .team-screen img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: var(--r-sm); background: var(--seg); display: block; margin-bottom: 6px; }
-.team-mini, .team-work, .team-files, .team-people, .team-activity-list, .team-list { list-style: none; padding: 0; margin: 0; }
+.team-mini, .team-files, .team-people, .team-activity-list, .team-list { list-style: none; padding: 0; margin: 0; }
 .team-mini li, .team-files li { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 4px 0; }
 .team-people li { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
 .team-people li { justify-content: flex-start; }
@@ -117,6 +113,12 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 /* A channel and its thread are the one chat view (chat-view.js): the
    centre and the side hold its section, which scrolls its own list. */
 .team-center > section.conv { flex: 1; min-height: 0; }
+/* The side panel beside a channel, laid out as a person's own right panel. */
+.team-side:has(> .team-companion) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.team-companion { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.team-side-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.team-faces-box, .gbox.team-screen { padding: 10px 12px; }
+.team-spend .team-mini li { padding: 8px 12px; }
 .team-side:has(> section.conv) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 .team-side > section.conv { flex: 1; min-height: 0; }
 .team-center .conv-head { flex-wrap: nowrap; }

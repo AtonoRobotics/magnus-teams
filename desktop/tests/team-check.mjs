@@ -158,7 +158,18 @@ const overview = sandbox.overviewHtml({ project: null, channels: ["c1"], files: 
 assert.match(overview, /data-team-screen="pc1"/, "the panel does not show the team computer's screen");
 assert.match(overview, /Magnus is working for Dana/, "the panel does not say whom the agent works for");
 assert.match(overview, /data-take-over="pc1"/, "the team computer cannot be taken over from the panel");
-assert.match(overview, /notes\.md/);
+assert.match(sandbox.teamFilesHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w"), /notes\.md[^]*lib-size/, "the Files tab does not list the files with their size");
+// The side panel is laid out as a person's own right panel: one head row
+// with the agent's status, four tabs, the open tab, the computer at its foot.
+const side = sandbox.teamSideHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1", "activity");
+assert.match(side, /class="companion-id"[^]*companion-status-lbl run">Working · 1 active</, "the side panel's head does not say how the agent stands");
+assert.deepEqual([...side.matchAll(/data-team-side-tab="(\w+)"/g)].map(m => m[1]), ["activity", "tasks", "files", "members"], "the side panel does not have its four tabs");
+assert.match(side, /data-team-side-tab="activity" aria-current="page"/, "the open tab is not marked");
+assert.match(side, /Active now[^]*Magnus is working for Dana/, "the agent's current work is not the Active now card");
+assert.match(side, /class="companion-computer" data-computer-bar="pc1"/, "the team computer is not at the panel's foot");
+assert.doesNotMatch(side, /notes\.md|data-members-card/, "the Activity tab carries the other tabs' content");
+assert.match(sandbox.teamSideHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1", "members"), /data-members-card/, "the Members tab does not show the members");
+assert.match(sandbox.teamSideHtml({ ...{ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: true, steps: 1 }] }, "w", "c1", "activity"), /Waiting on someone \(1\)[^]*Magnus is waiting for Dana/, "work waiting on a person is not at the top");
 const noComputer = { project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null };
 // One computer, always there (spec rev 142): nobody sets the team computer
 // up, an admin no more than a member; before the server has made it, the
