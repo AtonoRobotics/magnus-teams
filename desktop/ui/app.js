@@ -353,7 +353,7 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","app_tools","deletion_request","endorsement"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","app_tools","definition_change","deletion_request","endorsement"]);
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -1795,7 +1795,7 @@ route(/^#\/chat\/([^/]+)$/, async (main, thread) => {
 
 const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
-  policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed",
+  policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed", definition_change: "Tool changed",
   monitor: "Safety monitor", secure_form: "Secure sign-in", takeover_request: "Take over", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
@@ -1936,6 +1936,10 @@ function card(i, composed) {
     // One card per app, never per tool, and never a description (spec rev 140).
     case "app_tools":
       body = appToolsCard(i);
+      break;
+    // A changed definition no model could screen: the change, shown.
+    case "definition_change":
+      body = definitionChangeCard(i);
       break;
     default:
       body = `<div class="what">${fieldValue(d)}</div>`;
