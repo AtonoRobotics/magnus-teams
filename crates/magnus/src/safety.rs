@@ -328,7 +328,13 @@ impl Kernel {
         if let Some(p) = INJECTION_PHRASES.iter().find(|p| lower.contains(*p)) {
             return Screen::Failed(format!("it says \"{p}\""), None);
         }
-        let Some(spec) = self.cfg.safety.inbound_model.clone().or_else(|| self.cfg.safety.monitor_model.clone()) else { return Screen::Unanswered };
+        // With no screening model set, the default model screens: a change
+        // nobody screened was held until the app was reconnected, which
+        // accepted it unseen (decisions/2026-11-19-changed-definition-card.md).
+        let spec = self.cfg.safety.inbound_model.clone().or_else(|| self.cfg.safety.monitor_model.clone()).unwrap_or_else(|| {
+            let (adapter, model) = self.default_model();
+            format!("{adapter}/{model}")
+        });
         if words.len() > MAX_SCREENED_BYTES {
             return Screen::Unanswered;
         }
