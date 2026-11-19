@@ -482,6 +482,8 @@ pub(super) async fn inbox_list(State(k): K, Caller(p): Caller) -> ApiResult {
             i["app"] = k.offered_card(i["person"].as_str().unwrap_or_default(), &json!({ "connector": app }));
         }
     }
+    // A card that offers Handle carries the grant form's starting values.
+    k.handle_prefill(&p.id, &mut items).await;
     Ok(Json(json!({ "items": items })).into_response())
 }
 

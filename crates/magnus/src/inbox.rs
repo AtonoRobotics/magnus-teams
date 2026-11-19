@@ -142,9 +142,11 @@ impl Kernel {
                 use crate::asks::Reason;
                 // Allow for this task ("task") covers the rest of the task,
                 // every tool; Allow always saves a narrow rule as well;
-                // "once" is Allow for this action alone.
+                // "once" is Allow for this action alone; "handle" sets a
+                // grant for this kind of work and allows the rest of the
+                // task as "task" does (`ask_grants`).
                 let scope = body["scope"].as_str().unwrap_or("once").to_string();
-                if !["once", "task", "always"].contains(&scope.as_str()) {
+                if !["once", "task", "always", "handle"].contains(&scope.as_str()) {
                     return Ok(Answer::Invalid(format!("unknown scope {scope}")));
                 }
                 let rule = item.details["rule"].as_str().map(String::from);
@@ -171,6 +173,12 @@ impl Kernel {
                     evs.push((&actor, Ev::Rule(crate::rules::Change::Proposed { id: rule_id.clone(), person: item.person.clone(), compiled: Some(compiled), words: Some(words) })));
                     evs.push((&actor, Ev::Rule(crate::rules::Change::Accepted { id: rule_id })));
                 }
+                if scope == "handle" {
+                    match self.grant_from_ask(p, &item, body).await? {
+                        Ok(ev) => evs.push((&actor, ev)),
+                        Err(why) => return Ok(Answer::Invalid(why)),
+                    }
+                }
                 evs.push((&actor, resolve(Some(scope.clone()))));
                 evs.push((
                     &actor,
@@ -181,7 +189,13 @@ impl Kernel {
                         task: item.task.clone().unwrap_or_default(),
                         tool,
                         input_hash: item.details["input_hash"].as_str().map(String::from),
-                        scope: if scope == "always" { "once".into() } else { scope },
+                        scope: if scope == "always" {
+                            "once".into()
+                        } else if scope == "handle" {
+                            "task".into()
+                        } else {
+                            scope
+                        },
                         until: None,
                         reason: rule,
                         risk: item.details["risk"].as_str().map(String::from),

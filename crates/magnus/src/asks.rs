@@ -251,6 +251,31 @@ pub fn always_rule_for(person: &str, d: &Value, dests: &[String]) -> std::result
     always_rule(person, app, d["tool"].as_str().unwrap_or_default(), dests)
 }
 
+/// Whether "Handle things like this" is offered on this ask (owner,
+/// 2026-11-19; decisions/2026-11-19-handle-things-like-this-on-an-ask.md):
+/// on a case-1 ask where Allow always is not offered, for an action in an
+/// app (`app__tool`) that a grant can cover: what cannot be undone. Never a
+/// payment, case 3 or an ask-first rule, which no grant answers.
+pub fn handle_offered(reason: Option<Reason>, risk: &str, dests: &[String], tool: &str, app: &str) -> bool {
+    reason == Some(Reason::OutsideRequest)
+        && !always_offered(reason, risk, dests)
+        && Risk::parse(risk) == Some(Risk::Irreversible)
+        && !app.is_empty()
+        && tool.strip_prefix(app).is_some_and(|rest| rest.starts_with("__"))
+}
+
+/// What the grant form on a card starts from: the action's app, and its
+/// exclusion lifted (what cannot be undone, and sending when it reaches
+/// beyond the person). The title and budget are added where the person's
+/// task and the server's limit are known (`ask_grants`).
+fn handle_prefill(d: &Value) -> Value {
+    let mut allow = vec!["irreversible"];
+    if d["audience"].as_str().is_some_and(|a| a != "private") {
+        allow.push("send");
+    }
+    json!({ "apps": [d["app"]], "app_title": d["app_title"], "allow": allow, "period": "week" })
+}
+
 /// The plain name of where an action happens.
 fn place(app: &str, title: Option<&str>) -> String {
     // A program on the person's computer is named by its title: Blender.
@@ -367,6 +392,13 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     }
     // On a program's own ask, Allow always is for the whole program: the card says which.
     let program = program_always(d["rule"].as_str(), d["app"].as_str().unwrap_or_default()).map(|p| p.title);
+    // Where Allow always is not offered, the person's standing authority
+    // for this kind of work instead: a grant, set from the card.
+    let (risk, app) = (d["risk"].as_str().unwrap_or_default(), d["app"].as_str().unwrap_or_default());
+    let handle = viewer.id == i.person && handle_offered(reason, risk, &dests, d["tool"].as_str().unwrap_or_default(), app);
+    if handle {
+        offers.push("handle");
+    }
     offers.push("dont_allow");
     let thread = i.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| t.chat.as_ref()).map(|c| c.thread.clone());
     // Allowing a site is remembered for it (`remembered`): the card says so.
@@ -379,6 +411,7 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
         "allow_covers": if site { Some("site") } else { None },
         "always_covers": program,
         "conversation": thread,
+        "handle": if handle { handle_prefill(d) } else { Value::Null },
     })
 }
 

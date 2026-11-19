@@ -252,8 +252,9 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     let bob: Person = serde_json::from_value(json!({ "id": "bob", "groups": [] })).unwrap();
     let c = card(&s, &alice, &item(OUTSIDE_REQUEST, "irreversible", "alice"));
     assert_eq!(c["sentence"], "Magnus wants to send in Mail, to eve@evil.example.");
-    // What cannot be undone is allowed for this action or this task, never every task.
-    assert_eq!(c["offers"], json!(["allow_once", "allow", "dont_allow"]));
+    // What cannot be undone is allowed for this action or this task, never
+    // every task; the person may hand this kind of work to Magnus instead.
+    assert_eq!(c["offers"], json!(["allow_once", "allow", "handle", "dont_allow"]));
     assert_eq!(c["allow_scope"], "task");
     // What can be undone may be allowed always, named destination or not.
     let undoable = card(&s, &alice, &item(OUTSIDE_REQUEST, "reversible_write", "alice"));
@@ -313,6 +314,43 @@ fn a_programs_own_ask_offers_allow_always_for_the_program() {
     }
     assert_eq!(card(&s, &ana, &program(crate::desktop::PROGRAM_ASK))["offers"], json!(["allow_once", "allow", "dont_allow"]), "Allow always was offered for someone else");
     assert!(card(&s, &mo, &item(OUTSIDE_REQUEST, "irreversible", "mo"))["always_covers"].is_null(), "an app's card named a program");
+}
+
+/// "Handle things like this" is offered where Allow always is not, on an
+/// ask Auto Review raised about what cannot be undone in one of the
+/// person's apps, to the person whose work it is: never a payment, case 3,
+/// an ask-first rule, an action outside an app, or someone else
+/// (decisions/2026-11-19-handle-things-like-this-on-an-ask.md).
+#[test]
+fn handle_is_offered_where_allow_always_is_not() {
+    let s = State::default();
+    let alice: Person = serde_json::from_value(json!({ "id": "alice", "groups": [] })).unwrap();
+    let bob: Person = serde_json::from_value(json!({ "id": "bob", "groups": [] })).unwrap();
+    let offers = |viewer: &Person, i: &Item| card(&s, viewer, i)["offers"].as_array().cloned().unwrap_or_default();
+    let handles = |viewer: &Person, i: &Item| offers(viewer, i).contains(&json!("handle"));
+    let mut send = item(OUTSIDE_REQUEST, "irreversible", "alice");
+    send.details["audience"] = json!("public");
+    assert!(handles(&alice, &send));
+    // The form starts from the action's app, with what it needs lifted.
+    let form = card(&s, &alice, &send)["handle"].clone();
+    assert_eq!((form["apps"].clone(), form["allow"].clone(), form["period"].clone()), (json!(["mail"]), json!(["irreversible", "send"]), json!("week")), "{form}");
+    let mut own = send.clone();
+    own.details["audience"] = json!("private");
+    assert_eq!(card(&s, &alice, &own)["handle"]["allow"], json!(["irreversible"]), "a change that stays with the person lifted sending");
+    assert!(handles(&alice, &item(crate::boundary::REVIEWER_FLAG, "irreversible", "alice")), "the reviewer's flag is case 1 too");
+    assert!(!handles(&bob, &send), "Handle was offered to someone whose work it is not");
+    assert!(card(&s, &bob, &send)["handle"].is_null());
+    for (rule, risk) in [(OUTSIDE_REQUEST, "reversible_write"), (NEW_DESTINATION, "irreversible"), (crate::payments::MONEY_RULE, "financial"), (LOCAL_ASK_FIRST, "irreversible")] {
+        let i = item(rule, risk, "alice");
+        assert!(!handles(&alice, &i), "Handle was offered on {rule} ({risk}): {:?}", offers(&alice, &i));
+    }
+    assert!(!handles(&alice, &item(OUTSIDE_REQUEST, "financial", "alice")), "Handle was offered on spending money, which no grant covers");
+    let mut outside = item(OUTSIDE_REQUEST, "irreversible", "alice");
+    outside.details["tool"] = json!("delete_file");
+    outside.details["app"] = json!("local");
+    assert!(!handles(&alice, &outside), "Handle was offered for an action in no app");
+    assert!(!handle_offered(Some(Reason::OutsideRequest), "irreversible", &[], "mailbox__send", "mail"), "an app's name matched another app's tools");
+    assert!(handle_offered(Some(Reason::OutsideRequest), "irreversible", &[], "mail__send", "mail"));
 }
 
 /// A saved card's ask says on its card that it is the saved card, what it
