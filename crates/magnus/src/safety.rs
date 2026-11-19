@@ -169,6 +169,9 @@ pub(crate) fn blocked(run: &str, tool: &str, hash: &str, reason: &str) -> String
 pub(crate) enum Watch {
     Allow,
     Block(String),
+    /// The monitor could not answer, after its tries: the step is not done
+    /// and no one is asked (`review_outage`).
+    Unavailable,
     /// A person decides; `pause` stops the computer until they have.
     Hold {
         reason: String,
@@ -178,7 +181,7 @@ pub(crate) enum Watch {
 
 fn watch_of(input: Option<Value>) -> Watch {
     let Some(input) = input else {
-        return Watch::Hold { reason: "the safety monitor could not be reached".to_string(), pause: false };
+        return Watch::Unavailable;
     };
     let reason = input["reason"].as_str().unwrap_or_default().to_string();
     match input["decision"].as_str().unwrap_or_default() {
@@ -215,8 +218,15 @@ impl Kernel {
     async fn ask_monitor(&self, doc: String) -> Option<Watch> {
         let (adapter, model) = self.cfg.safety.monitor_model.as_deref()?.split_once('/')?;
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, MONITOR_SYSTEM, messages, vec![monitor_tool()], MONITOR_MAX_TOKENS, |_| {})).await;
-        Some(watch_of(reply.ok().and_then(|r| r.ok()).and_then(|out| tool_input(&out.blocks, "monitor"))))
+        let messages = &messages;
+        let input = crate::review_outage::with_retries(|| async move {
+            let reply =
+                tokio::time::timeout(CHECK_TIMEOUT, self.adapters.complete(adapter, model, MONITOR_SYSTEM, messages.clone(), vec![monitor_tool()], MONITOR_MAX_TOKENS, |_| {}))
+                    .await;
+            reply.ok().and_then(|r| r.ok()).and_then(|out| tool_input(&out.blocks, "monitor"))
+        })
+        .await;
+        Some(watch_of(input))
     }
 
     /// The monitor on the latest reply, once however many calls it makes.
@@ -237,7 +247,10 @@ impl Kernel {
             .collect();
         let doc = json!({ "reply": reply.blocks, "last_read": read, "run_untrusted": run.untrusted, "run_private": run.private }).to_string();
         let watch = self.ask_monitor(doc).await?;
-        remember(&WATCHED, key, watch.clone());
+        // An outage is tried afresh next time, never remembered as an answer.
+        if watch != Watch::Unavailable {
+            remember(&WATCHED, key, watch.clone());
+        }
         Some((reply.step, watch))
     }
 
@@ -267,6 +280,7 @@ impl Kernel {
         match self.watch_reply(run).await {
             None | Some((_, Watch::Allow)) => Ok(None),
             Some((_, Watch::Block(reason))) => Ok(Some(self.deny(a, "monitor", &reason, false, None).await?)),
+            Some((_, Watch::Unavailable)) => Ok(Some(self.deny(a, "monitor", &crate::review_outage::unavailable_text("The safety monitor"), true, None).await?)),
             Some((step, Watch::Hold { reason, pause })) => {
                 if pause {
                     self.monitor_pause(run).await;
@@ -292,7 +306,8 @@ impl Kernel {
     pub(crate) async fn watch_answer(&self, run: &Run, answer: &str) {
         let doc = json!({ "reply": [{ "text": answer }], "run_untrusted": run.untrusted, "run_private": run.private }).to_string();
         let (reason, pause) = match self.ask_monitor(doc).await {
-            None | Some(Watch::Allow) => return,
+            // A reply that only talks has nothing to hold while the monitor is down.
+            None | Some(Watch::Allow) | Some(Watch::Unavailable) => return,
             Some(Watch::Block(reason)) => (reason, false),
             Some(Watch::Hold { reason, pause }) => (reason, pause),
         };
@@ -424,7 +439,8 @@ mod tests {
     #[test]
     fn a_monitor_that_says_nothing_clear_holds_the_work() {
         assert_eq!(watch_of(Some(json!({ "decision": "allow", "reason": "" }))), Watch::Allow);
-        assert!(matches!(watch_of(None), Watch::Hold { pause: false, .. }));
+        // An outage asks no one (decisions/2026-11-19-an-outage-asks-no-one.md).
+        assert_eq!(watch_of(None), Watch::Unavailable);
         assert!(matches!(watch_of(Some(json!({ "decision": "maybe", "reason": "" }))), Watch::Hold { pause: false, .. }));
         assert!(matches!(watch_of(Some(json!({ "decision": "pause", "reason": "x" }))), Watch::Hold { pause: true, .. }));
         assert!(matches!(watch_of(Some(json!({ "decision": "block", "reason": "x" }))), Watch::Block(_)));

@@ -209,12 +209,13 @@ fn lasting(risk: &str) -> bool {
 
 /// Whether Allow always is offered on this ask (owner, 2026-11-19): for
 /// an action that can be undone, whether or not it names a destination;
-/// for case 3, only a destination the person can see named (invariant 4);
+/// for case 3, only an action that can be undone to a destination the
+/// person can see named (invariant 4);
 /// never for what cannot be undone that Auto Review asked about, which is
 /// allowed for one task at a time; never a payment or an ask-first rule.
 pub fn always_offered(reason: Option<Reason>, risk: &str, dests: &[String]) -> bool {
     match reason {
-        Some(Reason::NewDestination) => !dests.is_empty(),
+        Some(Reason::NewDestination) => !dests.is_empty() && !lasting(risk),
         Some(Reason::OutsideRequest) => !lasting(risk),
         _ => false,
     }
@@ -435,10 +436,13 @@ impl Kernel {
             let Some(reason) = reason else { return Err(anyhow::anyhow!("{rule} is not one of the four asks")) };
             return self.raise(a, run, f, shown, reason, &rule, &why).await;
         }
-        // An enabled send reviewer judges first; its flag is case 1.
+        // An enabled send reviewer judges first: its block stands, and its
+        // flag is something Auto Review weighs, not a card of its own.
+        let mut flag = None;
         if run.config.module("reviewer") && crate::boundary::is_reviewed_send(a, f) {
-            if let Gate::Stop(v) = self.reviewer_stage(a, run, f, shown, &hash).await? {
-                return Ok(Gate::Stop(v));
+            match self.reviewer_stage(a, run, f, shown, &hash).await? {
+                Ok(flagged) => flag = flagged,
+                Err(v) => return Ok(Gate::Stop(v)),
             }
         }
         // A grant or schedule the person set up answers for them, as an
@@ -451,7 +455,11 @@ impl Kernel {
             other => other,
         };
         let said = if standing.is_some() { "covered by a grant or schedule the person set up" } else { "asked for by the person" };
-        match self.auto_review(a, f, run, shown, &hash, said).await? {
+        let said = match &flag {
+            Some(why) => format!("{said}; the send reviewer flagged it: {why}"),
+            None => said.to_string(),
+        };
+        match self.auto_review(a, f, run, shown, &hash, &said).await? {
             crate::auto_review::Verdict::Allow(why) if self.auto_review_acts() || standing.is_some() => {
                 match standing {
                     Some(s) => self.record_standing(a, run, &None, s).await?,
@@ -464,6 +472,8 @@ impl Kernel {
             }
             crate::auto_review::Verdict::Deny(why) => Ok(Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?)),
             crate::auto_review::Verdict::Ask(why) => self.raise(a, run, f, shown, Reason::OutsideRequest, OUTSIDE_REQUEST, &why).await,
+            // An outage is not a decision: not done, no one asked, the agent tries again.
+            crate::auto_review::Verdict::Unavailable(why) => Ok(Gate::Stop(self.deny(a, "auto_review", &why, true, None).await?)),
         }
     }
 
@@ -519,12 +529,13 @@ impl Kernel {
     }
 
     /// The send reviewer's judgment (#179): a pass lets the send on to Auto
-    /// Review, a block denies it with its reason on the task, a flag is an
-    /// ask of case 1.
-    async fn reviewer_stage(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, hash: &str) -> Result<Gate> {
+    /// Review, a block denies it with its reason on the task, a flag goes on
+    /// to Auto Review with the send (Ok(Some(why))): the reviewer is
+    /// "quality, never a security control", so its flag is no card of its own.
+    async fn reviewer_stage(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, hash: &str) -> Result<std::result::Result<Option<String>, Verdict>> {
         use crate::run::reviewer::SendVerdict;
         match self.review_send(run, &a.tool, &a.input, shown).await? {
-            SendVerdict::Pass | SendVerdict::Unavailable => Ok(Gate::Pass),
+            SendVerdict::Pass | SendVerdict::Unavailable => Ok(Ok(None)),
             SendVerdict::Block(reason) => {
                 let (_, ev) = crate::kernel::notice_event(
                     Some(run.task.clone()),
@@ -537,11 +548,9 @@ impl Kernel {
                     json!({ "call_id": a.call_id, "tool": a.tool, "reason": reason }),
                 );
                 self.emit("kernel", ev).await?;
-                Ok(Gate::Stop(self.deny(a, "reviewer", &crate::safety::blocked(&a.run, &a.tool, hash, &format!("the reviewer blocked this send: {reason}")), false, None).await?))
+                Ok(Err(self.deny(a, "reviewer", &crate::safety::blocked(&a.run, &a.tool, hash, &format!("the reviewer blocked this send: {reason}")), false, None).await?))
             }
-            SendVerdict::Flag(reason) => {
-                self.raise(a, run, f, shown, Reason::OutsideRequest, crate::boundary::REVIEWER_FLAG, &format!("the reviewer flagged this send: {reason}")).await
-            }
+            SendVerdict::Flag(reason) => Ok(Ok(Some(reason))),
         }
     }
 }

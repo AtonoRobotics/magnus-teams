@@ -54,7 +54,15 @@ pub enum Verdict {
     Allow(String),
     Deny(String),
     Ask(String),
+    /// The review could not be made (an outage, an action too large to
+    /// read): the action is not done and no one is asked (`review_outage`).
+    /// Its text is what the agent is told.
+    Unavailable(String),
 }
+
+/// What Auto Review is told when the outgoing classifier could not answer:
+/// it judges the content itself (decisions/2026-11-19-an-outage-asks-no-one.md).
+pub const CLASSIFIER_UNAVAILABLE: &str = "unavailable: the outgoing classifier could not be reached, so judge the content yourself";
 
 fn verdict_of(blocks: &[Block]) -> Option<Verdict> {
     let input = blocks.iter().find_map(|b| if let Block::ToolCall { name, input, .. } = b { (name == "review").then_some(input) } else { None })?;
@@ -108,7 +116,7 @@ fn cached(key: &str) -> Option<Verdict> {
 }
 
 fn remember(key: String, verdict: &Verdict) {
-    if matches!(verdict, Verdict::Ask(_)) {
+    if matches!(verdict, Verdict::Ask(_) | Verdict::Unavailable(_)) {
         return;
     }
     let mut slot = CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -205,18 +213,24 @@ impl Kernel {
             return Ok(hit);
         }
         let asked = self.asked(&self.requester_run(run)).await.unwrap_or_default();
-        let Some(finding) = self.outgoing_finding(a, run).await else {
-            return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
+        // The classifier advises; when it cannot answer, Auto Review reads the content itself.
+        let finding = match crate::review_outage::with_retries(|| self.outgoing_finding(a, run)).await {
+            Some(found) => found,
+            None => Some(CLASSIFIER_UNAVAILABLE.to_string()),
         };
         let doc = document(a, f.risk.as_str(), &destination, &asked, &rules, standing, finding.as_deref());
         if doc.len() > MAX_DOCUMENT_BYTES {
-            return Ok(Verdict::Ask("the action is too large for Auto Review to read".to_string()));
+            return Ok(Verdict::Unavailable("Auto Review cannot read an action this large, so it was not done and no one was asked: split it into smaller ones".to_string()));
         }
-        let tool = review_tool();
-        let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
-        let reply = tokio::time::timeout(REVIEW_TIMEOUT, self.reviewer_call(run, "auto_review", SYSTEM, messages, vec![tool])).await;
-        let Some(verdict) = reply.ok().and_then(|r| r.ok()).flatten().and_then(|blocks| verdict_of(&blocks)) else {
-            return Ok(Verdict::Ask("Auto Review could not be reached".to_string()));
+        let doc = &doc;
+        let verdict = crate::review_outage::with_retries(|| async move {
+            let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc.clone() }], state: None }];
+            let reply = tokio::time::timeout(REVIEW_TIMEOUT, self.reviewer_call(run, "auto_review", SYSTEM, messages, vec![review_tool()])).await;
+            reply.ok().and_then(|r| r.ok()).flatten().and_then(|blocks| verdict_of(&blocks))
+        })
+        .await;
+        let Some(verdict) = verdict else {
+            return Ok(Verdict::Unavailable(crate::review_outage::unavailable_text("Auto Review")));
         };
         remember(key, &verdict);
         Ok(match verdict {

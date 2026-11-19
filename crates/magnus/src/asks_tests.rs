@@ -270,9 +270,11 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     );
     let pay = card(&s, &alice, &item(crate::payments::MONEY_RULE, "financial", "alice"));
     assert_eq!((pay["offers"].clone(), pay["allow_scope"].clone()), (json!(["allow", "dont_allow"]), json!("once")));
-    let taint = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
-    // Case 3: Allow for the rest of the task and Allow always, as on every card (spec, How an ask looks).
+    let taint = card(&s, &alice, &item(NEW_DESTINATION, "reversible_write", "alice"));
+    // Case 3: Allow for the rest of the task, and Allow always for what can be undone.
     assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow_once", "allow", "allow_always", "dont_allow"]), json!("task")));
+    let lasting = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
+    assert_eq!(lasting["offers"], json!(["allow_once", "allow", "dont_allow"]), "what cannot be undone was allowed always after untrusted input");
     let mut unnamed = item(NEW_DESTINATION, "reversible_write", "alice");
     unnamed.details["ask_destinations"] = json!([]);
     assert!(!card(&s, &alice, &unnamed)["offers"].as_array().unwrap().contains(&json!("allow_always")), "case 3 offered Allow always with no destination named");
