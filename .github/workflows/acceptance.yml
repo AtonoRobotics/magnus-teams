@@ -22,8 +22,10 @@ on:
         default: true
   pull_request:
     types: [labeled, synchronize]
+# A run that is skipped (a push before the label) never cancels one that
+# runs: only runs that will run share the group.
 concurrency:
-  group: acceptance-${{ github.ref }}
+  group: acceptance-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'acceptance')) && 'run' || github.run_id }}
   cancel-in-progress: true
 permissions:
   contents: read
