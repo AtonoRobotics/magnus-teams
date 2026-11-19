@@ -527,11 +527,20 @@ impl Kernel {
     }
 
     /// The live definition, screened right before acting, so one changed
-    /// after it was listed cannot run unscreened (spec rev 140). The error
-    /// says whether trying again may work.
+    /// after it was listed cannot run unscreened (spec rev 140). A run's
+    /// own listing that still matches the pin is reused for a minute
+    /// (`pin_listing.rs`). The error says whether trying again may work.
     pub(crate) async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
-        let secret = self.connector_secret(c, person).await.ok().flatten();
-        let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+        let pinned = self.usable_pin(&f.name).ok().map(|p| p.hash);
+        let live = match crate::pin_listing::reuse(&c.name, person, run, &f.remote, pinned.as_deref()) {
+            Some(t) => vec![t],
+            None => {
+                let secret = self.connector_secret(c, person).await.ok().flatten();
+                let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+                crate::pin_listing::keep(&c.name, person, run, &live);
+                live
+            }
+        };
         let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err((format!("{} no longer offers {}", f.app, f.remote), true)) };
         if let Err(e) = self.pin(c, &f.name, t, Some(run).filter(|r| !r.is_empty())).await {
             return Err((format!("could not screen the tool definition: {e}"), true));

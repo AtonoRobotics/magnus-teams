@@ -26,7 +26,7 @@ pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
         "approval" => i.person == p.id,
         // Setting policy is separate from approving (E7).
         "policy_proposal" => crate::people::rights(p).may_write_policy_layer(i.details["layer"].as_str().unwrap_or_default()),
-        crate::consent::APP_TOOLS => crate::people::rights(p).decides_app_tools(),
+        crate::consent::APP_TOOLS | crate::definition_card::DEFINITION_CHANGE => crate::people::rights(p).decides_app_tools(),
         "deletion_request" => crate::people::rights(p).decides_deletion_requests(),
         // A message shared with someone is theirs alone, the owner's too.
         "shared" => i.person == p.id,
@@ -438,7 +438,14 @@ impl Kernel {
                 evs.push((&actor, resolve(None)));
                 evs.extend(crate::consent::kept(&item).into_iter().map(|e| (actor.as_str(), e)));
             }
-            (crate::consent::APP_TOOLS, "disconnect") => {
+            // A changed definition no model could screen: pinned as its card
+            // showed it, while that is the one held (definition_card.rs).
+            (crate::definition_card::DEFINITION_CHANGE, "accept") => {
+                let held = self.read(|s| s.tools.held.get(item.details["tool"].as_str().unwrap_or_default()).map(|h| h.hash.clone()));
+                evs.push((&actor, resolve(None)));
+                evs.extend(crate::definition_card::accepted(&item, held.as_deref(), &p.id).map(|e| (actor.as_str(), e)));
+            }
+            (crate::consent::APP_TOOLS | crate::definition_card::DEFINITION_CHANGE, "disconnect") => {
                 evs.push((&actor, resolve(None)));
                 removed = item.details["app"].as_str().map(String::from);
             }
