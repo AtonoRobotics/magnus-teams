@@ -46,9 +46,12 @@
      eventually("Link's answer to reach the agent", std::time::Duration::from_secs(90), || {
          let model = s.model.clone();
          async move { answers(&model).iter().any(|t| t.contains("did not approve")).then_some(()) }
-@@ -262,7 +246,7 @@
+@@ -260,9 +244,9 @@
+         }
+     }));
      let task = alice.submit("Buy the notebook.").await;
-     let mut seen = vec![];
+-    let mut seen = vec![];
++    let mut seen: Vec<String> = vec![];
      for round in 0..2 {
 -        approve_next(&alice, &task, "purchase_request", &mut seen).await;
 +        // The request asks nothing; the saved card's fill is the ask.
