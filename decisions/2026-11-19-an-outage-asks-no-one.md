@@ -1,4 +1,4 @@
-# An outage asks no one; the Rule of Two judges what goes out
+# An outage asks no one; the Rule of Two stays deterministic
 
 From the review of approvals for ceremony
 (`docs/proposals/2026-11-19-approvals-review.md`, items 1, 2 and 3 (item 5 was tried and reverted, below),
