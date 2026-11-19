@@ -76,6 +76,10 @@ pub struct Connector {
     /// Where a tool's action goes, read from what it acts on, by tool.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub destinations: BTreeMap<String, crate::gate_reads::Destination>,
+    /// Where a write lands when no recipient names it, as a template over
+    /// the call's fields (`places::place`): GitHub's repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
     /// How the gate asks whether the person has mailed an address before
     /// (#210): a read tool called with a query naming the address.
     #[serde(default, skip_serializing_if = "Option::is_none")]

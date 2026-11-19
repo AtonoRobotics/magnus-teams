@@ -78,15 +78,19 @@ impl Kernel {
     /// a tool's result, the model's words (a chat task's text is the
     /// model's) or a schedule's text.
     pub(super) async fn named_by_person(&self, run: &Run) -> Result<std::collections::BTreeSet<String>> {
+        Ok(self.said_by_person(run).await?.iter().flat_map(|t| tools::addresses_in(t)).collect())
+    }
+
+    /// The person's own words for this run, as `named_by_person` reads them.
+    pub(super) async fn said_by_person(&self, run: &Run) -> Result<Vec<String>> {
         // A sub-agent's: its requester's, never its goal (the parent's words).
         let run = &self.requester_run(run);
-        let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(Default::default()) };
-        let said: Vec<String> = match &task.chat {
+        let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(vec![]) };
+        Ok(match &task.chat {
             Some(c) if !c.turn => c.conversation.iter().filter(|m| m["role"] == "person").filter_map(|m| m["text"].as_str().map(String::from)).collect(),
             _ if task.schedule.is_none() => vec![self.asked(run).await?],
             _ => vec![],
-        };
-        Ok(said.iter().flat_map(|t| tools::addresses_in(t)).collect())
+        })
     }
 
     /// Call a read tool of a connector through the person's own sign-in, as

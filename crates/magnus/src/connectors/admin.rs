@@ -197,6 +197,7 @@ impl Kernel {
             redirect_uri: None,
             handoff: None,
             destinations: Default::default(),
+            place: None,
             sent: None,
             read_back: Default::default(),
             watch: vec![],

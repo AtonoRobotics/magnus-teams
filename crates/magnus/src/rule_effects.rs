@@ -54,7 +54,7 @@ impl Kernel {
     pub(crate) fn stopping_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<Rule> {
         let person = self.person(&run.person)?;
         let facts = ToolFacts::from(f);
-        strongest(self.rules_for(&run.person), &person, &facts, &crate::rules::destinations_of(a, shown))
+        strongest(self.rules_for(&run.person), &person, &facts, &crate::rules::destinations_of(a, crate::rules::place_of(f), shown))
     }
 
     /// The kernel's own ask, after the person's rules: a block denies, and
@@ -123,7 +123,7 @@ mod tests {
             input: serde_json::json!({ "host": "Data.Example" }),
             issuer: crate::boundary::Issuer::Model,
         };
-        assert_eq!(crate::rules::destinations_of(&a, None), vec!["data.example".to_string()]);
+        assert_eq!(crate::rules::destinations_of(&a, None, None), vec!["data.example".to_string()]);
         let alice: crate::config::Person = serde_json::from_value(serde_json::json!({ "id": "alice", "groups": [] })).unwrap();
         let facts = ToolFacts { name: SOURCE_TOOL, app: "computer", risk: crate::tools::Risk::ReversibleWrite, audience: crate::tools::Audience::Public };
         let allow = crate::rules::compile("alice", "computer", SOURCE_TOOL, &["data.example".into()], false, Effect::Allow).unwrap();

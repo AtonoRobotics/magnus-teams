@@ -662,8 +662,14 @@ impl Kernel {
         let lookup = matches!(f.app.as_str(), "web" | "browser") && f.connector.is_none();
         // An approved destination is remembered (spec rev 140, What still asks).
         let remembered = |d: &String| self.read(|s| crate::asks::remembered(&s.inbox.approvals(), &run.person, d));
+        let placed = crate::rules::place_of(f).is_some() && !dests.is_empty();
         let theirs = match shown {
             _ if transmits && untrusted && private && !dests.is_empty() && dests.iter().all(remembered) => true,
+            // A repository the person named themselves, as a recipient they wrote.
+            None if transmits && untrusted && private && placed => {
+                let said = self.said_by_person(run).await?;
+                dests.iter().all(|d| remembered(d) || crate::places::named_in(&said, d))
+            }
             Some(s) if transmits && untrusted && private => {
                 let named = self.named_by_person(run).await?;
                 let mut all = true;

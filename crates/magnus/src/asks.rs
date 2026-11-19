@@ -127,7 +127,7 @@ pub(crate) fn destinations(a: &Action, f: &Facts, shown: Option<&Shown>) -> Vec<
     if shown.is_none() && f.connector.is_none() && matches!(f.app.as_str(), "web" | "browser") {
         return a.input["url"].as_str().and_then(host_of).into_iter().collect();
     }
-    let mut d = crate::rules::destinations_of(a, shown);
+    let mut d = crate::rules::destinations_of(a, crate::rules::place_of(f), shown);
     d.sort();
     d.dedup();
     d
