@@ -98,6 +98,35 @@ fn cache_key(person: &str, tool: &str, destination: &Value, content_hash: &str, 
     hex::encode(h.finalize())
 }
 
+/// A credential leaving through the proxy, as Auto Review reads it. Its
+/// decision stands for the person, the computer, the host and the method,
+/// whatever the path (decisions/2026-11-19-credential-review-by-host.md):
+/// the first request's path is in the document the reviewer reads.
+struct CredentialUse<'a> {
+    person: &'a str,
+    computer: &'a str,
+    method: &'a str,
+    host: &'a str,
+    path: &'a str,
+}
+
+impl CredentialUse<'_> {
+    const STANDING: &'static str = "covered by a credential the person issued for this host";
+
+    fn key(&self, rule_version: &str) -> String {
+        let scope = json!({ "host": self.host.to_ascii_lowercase(), "method": self.method.to_ascii_uppercase(), "computer": self.computer });
+        cache_key(self.person, "credential_use", &scope, "", (false, false), rule_version, Self::STANDING)
+    }
+
+    fn document(&self, rules: &[String]) -> String {
+        let destination = json!({ "host": self.host, "method": self.method, "path": self.path, "computer": self.computer });
+        let covers =
+            format!("this decision covers every {} request with this credential to {} from this computer for {} minutes", self.method, self.host, CACHE_FOR.as_secs() / 60);
+        json!({ "action": { "tool": "credential_use", "destination": destination, "content": null }, "decision_covers": covers, "what_the_person_asked": "", "their_rules": rules, "standing": Self::STANDING })
+            .to_string()
+    }
+}
+
 fn cached(key: &str) -> Option<Verdict> {
     let mut slot = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let map = slot.get_or_insert_with(HashMap::new);
@@ -161,18 +190,17 @@ impl Kernel {
 
     /// A credential leaving through the proxy, which no run may have asked
     /// for. Anything but a clear allow keeps the credential home.
+    /// Its decision is kept by person, computer, host and method, not path;
+    /// an ask or an unreachable review is never kept, and denies.
     pub(crate) async fn review_credential_use(&self, person: &str, computer: &str, method: &str, host: &str, path: &str) -> Verdict {
-        let standing = "covered by a credential the person issued for this host";
+        let usage = CredentialUse { person, computer, method, host, path };
         let rules = self.policy_texts(person, None);
         let version = hex::encode(Sha256::digest(rules.join("\n").as_bytes()));
-        let destination = json!({ "host": host, "method": method, "path": path, "computer": computer });
-        let key = cache_key(person, "credential_use", &destination, "", (false, false), &version, standing);
+        let key = usage.key(&version);
         if let Some(hit) = cached(&key) {
             return hit;
         }
-        let doc =
-            json!({ "action": { "tool": "credential_use", "destination": destination, "content": null }, "what_the_person_asked": "", "their_rules": rules, "standing": standing })
-                .to_string();
+        let doc = usage.document(&rules);
         let (adapter, model) = self.default_model();
         let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: doc }], state: None }];
         let reply =
@@ -290,6 +318,47 @@ mod tests {
         ] {
             assert_ne!(base, other);
         }
+    }
+
+    fn usage<'a>(person: &'a str, computer: &'a str, method: &'a str, host: &'a str, path: &'a str) -> CredentialUse<'a> {
+        CredentialUse { person, computer, method, host, path }
+    }
+
+    /// A credential's review is kept by person, computer, host and method:
+    /// a new path on the same host is not another model call (before, the
+    /// path was in the key, so each one was, and an outage denied it). The
+    /// path the first decision was made on is still in what the reviewer reads.
+    #[test]
+    fn a_credential_review_is_kept_by_host_and_method_not_path() {
+        let base = usage("alice", "c1", "GET", "api.example.com", "/v1/a").key("v");
+        assert_eq!(base, usage("alice", "c1", "GET", "api.example.com", "/v1/b?page=2").key("v"), "a new path cost another review");
+        assert_eq!(base, usage("alice", "c1", "get", "API.example.com", "/").key("v"));
+        for other in [
+            usage("bob", "c1", "GET", "api.example.com", "/v1/a").key("v"),
+            usage("alice", "c2", "GET", "api.example.com", "/v1/a").key("v"),
+            usage("alice", "c1", "POST", "api.example.com", "/v1/a").key("v"),
+            usage("alice", "c1", "GET", "other.example.com", "/v1/a").key("v"),
+            usage("alice", "c1", "GET", "api.example.com", "/v1/a").key("w"),
+        ] {
+            assert_ne!(base, other, "a review was reused for another person, computer, method, host or rules");
+        }
+        let doc: Value = serde_json::from_str(&usage("alice", "c1", "GET", "api.example.com", "/v1/a").document(&["org-text".into()])).unwrap();
+        assert_eq!(doc["action"]["destination"]["path"], "/v1/a", "{doc}");
+        assert!(doc["decision_covers"].as_str().unwrap_or_default().contains("api.example.com"), "{doc}");
+        assert_eq!(doc["their_rules"][0], "org-text");
+    }
+
+    /// An ask (and so an unreachable review) is never kept: it denies this
+    /// request, and the next one is reviewed again. Allow and deny are kept.
+    #[test]
+    fn only_a_clear_credential_decision_is_kept() {
+        let key = |path| usage("keep-test", "c1", "GET", "api.example.com", path).key("v");
+        remember(key("/a"), &Verdict::Ask("Auto Review could not be reached".into()));
+        assert_eq!(cached(&key("/b")), None, "an ask was kept");
+        remember(key("/a"), &Verdict::Deny("no".into()));
+        assert_eq!(cached(&key("/b")), Some(Verdict::Deny("no".into())), "a denial on one path did not hold for the host");
+        remember(key("/a"), &Verdict::Allow("fine".into()));
+        assert_eq!(cached(&key("/c")), Some(Verdict::Allow("fine".into())));
     }
 
     #[test]
