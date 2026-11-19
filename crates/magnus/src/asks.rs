@@ -59,7 +59,7 @@ impl Reason {
         if r == NEW_DESTINATION {
             return Some(Reason::NewDestination);
         }
-        if r == LOCAL_ASK_FIRST || r == crate::desktop::ASK_RULE || r.starts_with(crate::rule_effects::PERSON_RULE) {
+        if r == LOCAL_ASK_FIRST || r == crate::desktop::ASK_RULE || r == crate::desktop::PROGRAM_ASK || r.starts_with(crate::rule_effects::PERSON_RULE) {
             return Some(Reason::AskFirst);
         }
         None
@@ -212,6 +212,7 @@ fn lasting(risk: &str) -> bool {
 /// for case 3, only a destination the person can see named (invariant 4);
 /// never for what cannot be undone that Auto Review asked about, which is
 /// allowed for one task at a time; never a payment or an ask-first rule.
+/// A program's own ask is the one exception, by its rule: `program_always`.
 pub fn always_offered(reason: Option<Reason>, risk: &str, dests: &[String]) -> bool {
     match reason {
         Some(Reason::NewDestination) => !dests.is_empty(),
@@ -220,9 +221,40 @@ pub fn always_offered(reason: Option<Reason>, risk: &str, dests: &[String]) -> b
     }
 }
 
+/// The program a program's own ask is about (`desktop::PROGRAM_ASK`), which
+/// Allow always answers for that program on the person's computers. None
+/// for every other ask: a lower layer's or the person's ask first, a
+/// payment, case 3 (decisions/2026-11-19-allow-a-program-always.md).
+pub fn program_always(rule: Option<&str>, app: &str) -> Option<&'static crate::desktop::Program> {
+    if rule != Some(crate::desktop::PROGRAM_ASK) {
+        return None;
+    }
+    crate::desktop::program_of_app(app)
+}
+
+/// Whether Allow always is offered on an approval item, from its fields:
+/// on a program's own ask, or as `always_offered` says. The card offers it
+/// and the inbox accepts it by this one test.
+pub fn always_offered_for(d: &Value, dests: &[String]) -> bool {
+    let app = d["app"].as_str().unwrap_or_default();
+    !app.is_empty() && (program_always(d["rule"].as_str(), app).is_some() || always_offered(Reason::of(d["rule"].as_str()), d["risk"].as_str().unwrap_or_default(), dests))
+}
+
+/// The rule Allow always saves for an approval item: on a program's own
+/// ask, that program on the person's computers; otherwise `always_rule`.
+pub fn always_rule_for(person: &str, d: &Value, dests: &[String]) -> std::result::Result<crate::rules::Compiled, String> {
+    let app = d["app"].as_str().unwrap_or_default();
+    if program_always(d["rule"].as_str(), app).is_some() {
+        return crate::rules::compile_program_allow(person, app);
+    }
+    always_rule(person, app, d["tool"].as_str().unwrap_or_default(), dests)
+}
+
 /// The plain name of where an action happens.
 fn place(app: &str, title: Option<&str>) -> String {
-    match (app, title) {
+    // A program on the person's computer is named by its title: Blender.
+    let program = crate::desktop::program_of_app(app).map(|p| p.title);
+    match (app, title.or(program)) {
         (_, Some(t)) if !t.trim().is_empty() => t.trim().to_string(),
         ("local", _) => "your computer".into(),
         ("team", _) => "the team workspace".into(),
@@ -329,9 +361,11 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     // Allow (this action), Allow for this task (`allow`, every tool of the
     // task), Allow always (every task), Don't allow. A payment: this action.
     let mut offers = if task_wide { vec!["allow_once", "allow"] } else { vec!["allow"] };
-    if viewer.id == i.person && d["app"].as_str().is_some_and(|a| !a.is_empty()) && always_offered(reason, d["risk"].as_str().unwrap_or_default(), &dests) {
+    if viewer.id == i.person && always_offered_for(d, &dests) {
         offers.push("allow_always");
     }
+    // On a program's own ask, Allow always is for the whole program: the card says which.
+    let program = program_always(d["rule"].as_str(), d["app"].as_str().unwrap_or_default()).map(|p| p.title);
     offers.push("dont_allow");
     let thread = i.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| t.chat.as_ref()).map(|c| c.thread.clone());
     // Allowing a site is remembered for it (`remembered`): the card says so.
@@ -342,6 +376,7 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
         "offers": offers,
         "allow_scope": if task_wide { "task" } else { "once" },
         "allow_covers": if site { Some("site") } else { None },
+        "always_covers": program,
         "conversation": thread,
     })
 }
@@ -429,6 +464,11 @@ impl Kernel {
         let reason = asked.as_ref().and_then(|(_, r)| Reason::of(Some(r)));
         if let Some(c) = self.person_cover(run, a, f, shown, &hash, &dests, reason) {
             self.record_cover(a, c, asked.map(|(_, r)| r)).await?;
+            return Ok(Gate::Pass);
+        }
+        // A program the person allowed always on their computers answers its own ask.
+        if let Some(id) = asked.as_ref().and_then(|(_, r)| self.program_rule(run, f, r)) {
+            self.record_cover(a, Cover::Rule(id), asked.map(|(_, r)| r)).await?;
             return Ok(Gate::Pass);
         }
         if let Some((why, rule)) = asked {
