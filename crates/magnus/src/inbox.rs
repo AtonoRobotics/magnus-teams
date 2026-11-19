@@ -140,9 +140,9 @@ impl Kernel {
         match (inbox_kind(&item.kind), decision.as_str()) {
             ("approval", "approve") => {
                 use crate::asks::Reason;
-                // Allow ("task") covers the rest of the task for the same kind
-                // and destinations; Allow always saves a narrow rule as well;
-                // "once" is Allow where only this action may be allowed.
+                // Allow for this task ("task") covers the rest of the task,
+                // every tool; Allow always saves a narrow rule as well;
+                // "once" is Allow for this action alone.
                 let scope = body["scope"].as_str().unwrap_or("once").to_string();
                 if !["once", "task", "always"].contains(&scope.as_str()) {
                     return Ok(Answer::Invalid(format!("unknown scope {scope}")));
@@ -156,7 +156,8 @@ impl Kernel {
                 let tool = item.details["tool"].as_str().unwrap_or_default().to_string();
                 let app = item.details["app"].as_str().unwrap_or_default().to_string();
                 if scope == "always" {
-                    if !reason.is_some_and(Reason::always) || p.id != item.person || dests.is_empty() || app.is_empty() {
+                    let risk = item.details["risk"].as_str().unwrap_or_default();
+                    if !crate::asks::always_offered(reason, risk, &dests) || p.id != item.person || app.is_empty() {
                         return Ok(Answer::Invalid("Allow always is not offered for this".into()));
                     }
                     let compiled = match crate::asks::always_rule(&item.person, &app, &tool, &dests) {

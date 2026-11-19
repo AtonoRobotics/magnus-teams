@@ -189,6 +189,25 @@ pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String
     Ok(Compiled { connector: connector.to_string(), tool: tool.to_string(), destinations, once, cedar, effect })
 }
 
+/// The rule Allow always saves for a reversible action that names no
+/// destination: this person may use this one tool of this app without
+/// asking, wherever it goes. `covering_rule` lets it answer only an action
+/// Auto Review asked about that can be undone: never case 3, never what
+/// cannot be undone (decisions/2026-11-19-allow-covers-the-task.md).
+pub fn compile_tool_allow(person: &str, connector: &str, tool: &str) -> Result<Compiled, String> {
+    if connector.is_empty() || tool.is_empty() {
+        return Err("a rule that allows names a connector and a tool".to_string());
+    }
+    let cedar = format!(
+        "permit(principal == Person::{}, action == Action::\"execute\", resource == Tool::{}) when {{ resource in App::{} }};",
+        quoted(person)?,
+        quoted(tool)?,
+        quoted(connector)?
+    );
+    policy::validate(&cedar).map_err(|e| e.to_string())?;
+    Ok(Compiled { connector: connector.to_string(), tool: tool.to_string(), destinations: vec![], once: false, cedar, effect: Effect::Allow })
+}
+
 /// Where an action goes, as a rule would name it. Empty means it cannot match.
 /// A new source is named by its host.
 pub(crate) fn destinations_of(a: &Action, shown: Option<&Shown>) -> Vec<String> {
@@ -233,17 +252,23 @@ fn secret_values(raw: &str) -> Vec<String> {
 
 impl Kernel {
     /// The accepted rule that covers this action, if one matches exactly.
-    pub(crate) fn covering_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<String> {
+    /// A rule naming destinations covers an action going only there. A
+    /// rule naming none (Allow always on a reversible action) covers only
+    /// an ask that is not case 3, for an action that can be undone.
+    pub(crate) fn covering_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, case_three: bool) -> Option<String> {
         let destinations = destinations_of(a, shown);
-        if destinations.is_empty() {
-            return None;
-        }
         let person = self.person(&run.person)?;
         let facts = ToolFacts::from(f);
+        let undoable = !matches!(f.risk, crate::tools::Risk::Irreversible | crate::tools::Risk::Financial | crate::tools::Risk::Prohibited);
         let rules = self.rules_for(&run.person);
         rules.into_iter().filter(|r| r.live() && r.effect() == Effect::Allow).find_map(|r| {
-            let cedar = r.compiled.as_ref()?.cedar.clone();
-            destinations.iter().all(|d| policy::rule_covers(&cedar, &person, &facts, d).unwrap_or(false)).then_some(r.id)
+            let compiled = r.compiled.as_ref()?;
+            let covered = if compiled.destinations.is_empty() {
+                !case_three && undoable && policy::rule_covers(&compiled.cedar, &person, &facts, "").unwrap_or(false)
+            } else {
+                !destinations.is_empty() && destinations.iter().all(|d| policy::rule_covers(&compiled.cedar, &person, &facts, d).unwrap_or(false))
+            };
+            covered.then_some(r.id)
         })
     }
 

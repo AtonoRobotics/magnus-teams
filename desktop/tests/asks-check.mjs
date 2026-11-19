@@ -1,5 +1,6 @@
 // An ask's card (spec rev 140, How an ask looks): one plain sentence, the
-// exact content one tap away, Allow, Allow always and Don't allow, and none
+// exact content one tap away, Allow, Allow for this task, Allow always and
+// Don't allow, and none
 // of the rule, policy, taint or reviewer reasoning. As asks.js draws it and
 // app.js uses it, wherever the card shows.
 import assert from "node:assert/strict";
@@ -26,7 +27,7 @@ const item = (offers, scope) => ({
   },
 });
 
-const card = sandbox.askCard(item(["allow", "allow_always", "dont_allow"], "task"), true);
+const card = sandbox.askCard(item(["allow_once", "allow", "allow_always", "dont_allow"], "task"), true);
 const sentence = card.match(/<p class="ask-sentence" data-ask-sentence>([^<]*)<\/p>/);
 assert.ok(sentence, "the card has no sentence");
 assert.equal(sentence[1], "Magnus wants to send in Mail, to eve@evil.example.");
@@ -36,14 +37,18 @@ const content = card.match(/<details class="ask-content" data-ask-content>([\s\S
 assert.ok(content, "the content is not one tap away");
 for (const exact of ["eve@evil.example", "Q3", "Revenue was 41.7M"]) assert.ok(content[1].includes(exact), `the content lacks ${exact}`);
 const buttons = [...card.matchAll(/<button[^>]*data-decision="([^"]+)"[^>]*>([^<]+)<\/button>/g)].map(m => [m[1], m[2]]);
-assert.deepEqual(buttons, [["approve:task", "Allow"], ["approve:always", "Allow always"], ["reject", "Don&#39;t allow"]], "the answers are not Allow, Allow always and Don't allow");
+assert.deepEqual(
+  buttons,
+  [["approve:once", "Allow"], ["approve:task", "Allow for this task"], ["approve:always", "Allow always"], ["reject", "Don&#39;t allow"]],
+  "the answers are not Allow, Allow for this task, Allow always and Don't allow",
+);
 for (const hidden of ["person_rule", "rule_7", "Auto Review", "never named", "taint", "untrusted", "policy", "outside_request", "Why you are asked"]) {
   assert.ok(!card.includes(hidden), `the card shows ${hidden}`);
 }
 
 // A payment: Allow is one action, and there is no Allow always.
 const once = sandbox.askCard(item(["allow", "dont_allow"], "once"), true);
-assert.deepEqual([...once.matchAll(/data-decision="([^"]+)"/g)].map(m => m[1]), ["approve:once", "reject"]);
+assert.deepEqual([...once.matchAll(/data-decision="([^"]+)"[^>]*>([^<]+)</g)].map(m => [m[1], m[2]]), [["approve:once", "Allow"], ["reject", "Don&#39;t allow"]]);
 // Someone who cannot answer sees no buttons.
 assert.doesNotMatch(sandbox.askCard(item(["allow", "dont_allow"], "task"), false), /<button/);
 // A decided ask says what was decided, in plain words.

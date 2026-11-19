@@ -98,8 +98,9 @@ fn a_payment_asks_every_time_and_case_three_is_allowed_for_the_task() {
 }
 
 /// Allow always saves a narrow rule: this person, this app's tool, these
-/// destinations. It is offered wherever a rule can answer: an action Auto
-/// Review asked about, and case 3.
+/// destinations, or for an action that can be undone and names none, that
+/// tool. It is offered for an action Auto Review asked about that can be
+/// undone, and for case 3 to a named destination.
 #[test]
 fn allow_always_makes_a_narrow_rule() {
     let rule = always_rule("alice", "mail", "mail__send", &to(&["Bob <bob@corp.example>"])).unwrap();
@@ -111,7 +112,18 @@ fn allow_always_makes_a_narrow_rule() {
     assert!(!covers("alice", "mail__send", "eve@evil.example"), "the rule reached another destination");
     assert!(!covers("alice", "mail__delete", "bob@corp.example"), "the rule reached another tool");
     assert!(!covers("carol", "mail__send", "bob@corp.example"), "the rule reached another person");
-    assert!(always_rule("alice", "mail", "mail__send", &[]).is_err(), "Allow always saved a rule with no destination");
+    // Where no destination is named, the rule is the one tool, wherever it goes.
+    let tool_wide = always_rule("alice", "tasks", "tasks__update", &[]).unwrap();
+    assert!(tool_wide.destinations.is_empty() && tool_wide.effect == crate::rules::Effect::Allow);
+    let tfacts = |name| crate::policy::ToolFacts { name, app: "tasks", risk: Risk::ReversibleWrite, audience: Audience::Public };
+    assert!(crate::policy::rule_covers(&tool_wide.cedar, &person("alice"), &tfacts("tasks__update"), "").unwrap());
+    assert!(!crate::policy::rule_covers(&tool_wide.cedar, &person("alice"), &tfacts("tasks__delete"), "").unwrap(), "the rule reached another tool");
+    assert!(!crate::policy::rule_covers(&tool_wide.cedar, &person("carol"), &tfacts("tasks__update"), "").unwrap(), "the rule reached another person");
+    assert!(always_offered(Some(Reason::OutsideRequest), "reversible_write", &[]));
+    assert!(!always_offered(Some(Reason::OutsideRequest), "irreversible", &to(&["bob@corp.example"])), "what cannot be undone was allowed for every task");
+    assert!(!always_offered(Some(Reason::NewDestination), "reversible_write", &[]), "case 3 was allowed always with no destination");
+    assert!(!always_offered(Some(Reason::Payment), "financial", &to(&["shop.example"])));
+    assert!(!always_offered(Some(Reason::AskFirst), "reversible_write", &[]));
     assert_eq!(Reason::ALL.iter().filter(|r| r.always()).collect::<Vec<_>>(), vec![&Reason::OutsideRequest, &Reason::NewDestination]);
 }
 
@@ -238,18 +250,32 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     let bob: Person = serde_json::from_value(json!({ "id": "bob", "groups": [] })).unwrap();
     let c = card(&s, &alice, &item(OUTSIDE_REQUEST, "irreversible", "alice"));
     assert_eq!(c["sentence"], "Magnus wants to send in Mail, to eve@evil.example.");
-    assert_eq!(c["offers"], json!(["allow", "allow_always", "dont_allow"]));
+    // What cannot be undone is allowed for this action or this task, never every task.
+    assert_eq!(c["offers"], json!(["allow_once", "allow", "dont_allow"]));
     assert_eq!(c["allow_scope"], "task");
+    // What can be undone may be allowed always, named destination or not.
+    let undoable = card(&s, &alice, &item(OUTSIDE_REQUEST, "reversible_write", "alice"));
+    assert_eq!(undoable["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]));
+    let mut nowhere = item(OUTSIDE_REQUEST, "reversible_write", "alice");
+    nowhere.details["ask_destinations"] = json!([]);
+    assert_eq!(card(&s, &alice, &nowhere)["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]), "Allow always needed a destination");
     let text = c.to_string();
     for word in ["Auto Review", "taint", "untrusted", "rule", "policy", "never named"] {
         assert!(!text.contains(word), "the card carries {word}: {text}");
     }
-    assert_eq!(card(&s, &bob, &item(OUTSIDE_REQUEST, "irreversible", "alice"))["offers"], json!(["allow", "dont_allow"]), "Allow always was offered for someone else");
+    assert_eq!(
+        card(&s, &bob, &item(OUTSIDE_REQUEST, "reversible_write", "alice"))["offers"],
+        json!(["allow_once", "allow", "dont_allow"]),
+        "Allow always was offered for someone else"
+    );
     let pay = card(&s, &alice, &item(crate::payments::MONEY_RULE, "financial", "alice"));
     assert_eq!((pay["offers"].clone(), pay["allow_scope"].clone()), (json!(["allow", "dont_allow"]), json!("once")));
     let taint = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
     // Case 3: Allow for the rest of the task and Allow always, as on every card (spec, How an ask looks).
-    assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow", "allow_always", "dont_allow"]), json!("task")));
+    assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow_once", "allow", "allow_always", "dont_allow"]), json!("task")));
+    let mut unnamed = item(NEW_DESTINATION, "reversible_write", "alice");
+    unnamed.details["ask_destinations"] = json!([]);
+    assert!(!card(&s, &alice, &unnamed)["offers"].as_array().unwrap().contains(&json!("allow_always")), "case 3 offered Allow always with no destination named");
     let shown = without_reasoning(&item(OUTSIDE_REQUEST, "irreversible", "alice").details);
     for k in REASONING_FIELDS {
         assert!(shown.get(k).is_none(), "{k} stayed on the user's item");

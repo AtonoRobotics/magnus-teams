@@ -28,6 +28,24 @@ change:
 - "once" approvals, and window and standing approvals from before rev 140,
   still cover only the action they were given for.
 
+**The card's answers (owner, 2026-11-19).** Asking for a task is the
+approval for what serves it. Where something still asks, the card offers:
+- **Allow**: this action (`allow_once`, scope `once`);
+- **Allow for this task**: the rest of the task, every tool, as above
+  (`allow`, scope `task`; the `allow` offer keeps its task scope, which
+  invariant 4's test reads);
+- **Allow always**: every task, by saving the person's rule. Offered for an
+  action that can be undone, whether or not it names a destination: one
+  that names none saves a rule for that one tool
+  (`rules::compile_tool_allow`), which answers only an ask that is not
+  case 3, for an action that is still classed as undoable. It is not
+  offered for what cannot be undone that Auto Review asked about: that is
+  allowed for one task at a time. Case 3 keeps it for a named destination
+  (invariant 4: remembering where private data may go needs a place);
+- **Don't allow**.
+A payment offers Allow for that one payment, and an ask-first rule of the
+person's own is never answered by Allow always.
+
 **Auto Review asked about everything hard to undo.** Its instructions said
 "Ask when you are unsure, and when the action would be hard to undo", and
 apps class most writes `irreversible` (a commit, a comment, a deploy). So
@@ -42,5 +60,7 @@ An earlier attempt on this branch made a GitHub repository a destination
 (`place`). The owner rejected it as a per-app exception, and it was removed.
 
 Tests: `asks::tests::allow_covers_the_task_wherever_it_goes_nowhere_new`,
+`asks::tests::the_card_is_one_sentence_three_answers_and_no_reasoning`,
+`asks::tests::allow_always_makes_a_narrow_rule`, `desktop/tests/asks-check.mjs`,
 `asks::tests::an_old_window_or_standing_approval_covers_only_its_own_tool`,
 `auto_review::tests::what_cannot_be_undone_asks_only_beyond_the_request`.

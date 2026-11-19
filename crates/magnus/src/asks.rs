@@ -192,9 +192,32 @@ pub fn remembered(approvals: &[Approval], person: &str, destination: &str) -> bo
 }
 
 /// The narrow rule Allow always saves: this person, this app and tool, these
-/// destinations, allow automatically.
+/// destinations, allow automatically; for a reversible action that names
+/// none, this tool wherever it goes (`rules::compile_tool_allow`).
 pub fn always_rule(person: &str, app: &str, tool: &str, destinations: &[String]) -> std::result::Result<crate::rules::Compiled, String> {
+    if destinations.is_empty() {
+        return crate::rules::compile_tool_allow(person, app, tool);
+    }
     crate::rules::compile(person, app, tool, destinations, false, crate::rules::Effect::Allow)
+}
+
+/// Whether what cannot be undone, or costs money, is at stake: such an ask
+/// is answered for one action or for its task, never for every task.
+fn lasting(risk: &str) -> bool {
+    matches!(Risk::parse(risk), Some(Risk::Irreversible | Risk::Financial | Risk::Prohibited) | None)
+}
+
+/// Whether Allow always is offered on this ask (owner, 2026-11-19): for
+/// an action that can be undone, whether or not it names a destination;
+/// for case 3, only a destination the person can see named (invariant 4);
+/// never for what cannot be undone that Auto Review asked about, which is
+/// allowed for one task at a time; never a payment or an ask-first rule.
+pub fn always_offered(reason: Option<Reason>, risk: &str, dests: &[String]) -> bool {
+    match reason {
+        Some(Reason::NewDestination) => !dests.is_empty(),
+        Some(Reason::OutsideRequest) => !lasting(risk),
+        _ => false,
+    }
 }
 
 /// The plain name of where an action happens.
@@ -303,8 +326,10 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     let dests = item_destinations(d);
     let say = item_sentence(d, &dests);
     let task_wide = reason.is_some_and(Reason::task_wide);
-    let mut offers = vec!["allow"];
-    if reason.is_some_and(Reason::always) && viewer.id == i.person && !dests.is_empty() && d["app"].as_str().is_some_and(|a| !a.is_empty()) {
+    // Allow (this action), Allow for this task (`allow`, every tool of the
+    // task), Allow always (every task), Don't allow. A payment: this action.
+    let mut offers = if task_wide { vec!["allow_once", "allow"] } else { vec!["allow"] };
+    if viewer.id == i.person && d["app"].as_str().is_some_and(|a| !a.is_empty()) && always_offered(reason, d["risk"].as_str().unwrap_or_default(), &dests) {
         offers.push("allow_always");
     }
     offers.push("dont_allow");
@@ -371,7 +396,7 @@ impl Kernel {
         if !may {
             return None;
         }
-        self.covering_rule(a, run, f, shown).map(Cover::Rule)
+        self.covering_rule(a, run, f, shown, reason == Some(Reason::NewDestination)).map(Cover::Rule)
     }
 
     async fn record_cover(&self, a: &Action, cover: Cover, rule: Option<String>) -> Result<()> {

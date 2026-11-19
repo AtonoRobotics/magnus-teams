@@ -1,16 +1,20 @@
 // An ask as the person sees it (spec rev 140, How an ask looks): one plain
 // sentence the server wrote from the action's fields, the exact content one
-// tap away, and Allow, Allow always and Don't allow. Nothing else: the
+// tap away, and Allow (this action), Allow for this task (every action of
+// the task), Allow always (every task) and Don't allow, as the server
+// offers them (decisions/2026-11-19-allow-covers-the-task.md). Nothing else: the
 // rule, the policy, the taint and the reviewer's reasoning are for the
 // developer view (askReasoning below, drawn by dev.js).
 "use strict";
 
-const ASK_LABELS = { allow: "Allow", allow_always: "Allow always", dont_allow: "Don't allow" };
+const ASK_LABELS = { allow_once: "Allow", allow: "Allow for this task", allow_always: "Allow always", dont_allow: "Don't allow" };
 
 // A site's Allow holds for that site from then on, and says so.
 function askLabel(a, offer) {
   const sites = a.destinations || [];
   if (offer === "allow" && a.allow_covers === "site" && sites.length) return sites.length === 1 ? `Allow ${sites[0]}` : "Allow these sites";
+  // A payment's only Allow is for this action.
+  if (offer === "allow" && a.allow_scope !== "task") return "Allow";
   return ASK_LABELS[offer];
 }
 
@@ -50,7 +54,7 @@ function askSpendGuardrail(i, d) {
 function askCard(i, canRespond) {
   const a = i.ask || {};
   const d = i.details || {};
-  const scope = { allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
+  const scope = { allow_once: "approve:once", allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
   const buttons = canRespond
     ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(askLabel(a, o))}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
