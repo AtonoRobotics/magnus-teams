@@ -9,9 +9,10 @@ mod routes;
 pub use routes::router;
 pub(crate) use routes::SignIns;
 
-use crate::boundary::Action;
+use crate::boundary::{shown_hash, Action, Facts, Gate, Issuer, Shown};
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use crate::state::Run;
 use crate::tools::{obj, Audience, Builtin, Label, Risk};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -226,13 +227,91 @@ fn value_of<'a>(card: &'a Card, field: &str, expiry: &'a str) -> Option<(std::bo
 /// Any other action that moves money (a connector tool classed financial)
 /// asks the person every time, whatever the policy permits: only
 /// `purchase_request` and `purchase_fill` have an approval of their own (in
-/// Link, or the saved card's ask).
+/// Link, or the saved card's ask; `purchase_step`).
 pub(crate) fn money_ask(tool: &str, risk: Risk) -> Option<(String, Option<String>)> {
     (risk == Risk::Financial && !BUILTINS.iter().any(|b| b.name == tool))
         .then(|| (format!("{tool} moves money, and every payment is the person's to approve"), Some(MONEY_RULE.to_string())))
 }
 
+/// How the gate treats a purchase tool: a purchase is asked about once
+/// (decisions/2026-11-19-one-ask-per-purchase.md).
+#[derive(Debug, PartialEq)]
+enum Step {
+    /// `purchase_request` only asks Link to put the purchase in front of the
+    /// person: Link's approval is the ask, so Auto Review may deny the
+    /// request but its ask is not a card of its own.
+    LinkAsks,
+    /// The fill of a purchase this person approved in Link, not yet used:
+    /// covered by that approval.
+    ApprovedInLink,
+    /// Everything else goes through the gate as any action does: a saved
+    /// card's fill is that purchase's one ask (`saved_card_ask`).
+    Other,
+}
+
+fn purchase_step(tool: &str, purchase: Option<&Purchase>, person: &str) -> Step {
+    let approved = |p: &Purchase| p.person == person && p.rail == Rail::Link && p.status == Status::Ready && p.link_id.is_some();
+    match tool {
+        "purchase_request" => Step::LinkAsks,
+        "purchase_fill" if purchase.is_some_and(approved) => Step::ApprovedInLink,
+        _ => Step::Other,
+    }
+}
+
+/// The one-time card Link gives must be the one the person approved: their
+/// approved request, for the amount, currency and seller on record wherever
+/// Link names them. Anything else is not covered by their approval.
+fn spend_matches(p: &Purchase, spend: &link::Spend) -> Result<(), String> {
+    if p.link_id.as_deref() != Some(spend.id.as_str()) {
+        return Err("Link answered for another request".into());
+    }
+    if spend.status != "approved" {
+        return Err(format!("the request in Link is {}, not approved", spend.status));
+    }
+    // Named but unreadable counts as different.
+    let named = |v: &Value| !v.is_null();
+    let amount = named(&spend.amount) && spend.amount.as_i64().or_else(|| spend.amount.as_str().and_then(|a| a.parse().ok())) != Some(p.amount_minor);
+    let currency = named(&spend.currency) && !spend.currency.as_str().is_some_and(|c| c.eq_ignore_ascii_case(&p.currency));
+    let merchant = named(&spend.merchant_name) && spend.merchant_name.as_str() != Some(p.merchant_name.as_str());
+    if amount || currency || merchant {
+        return Err("Link's card is not for the amount and seller the person approved".into());
+    }
+    Ok(())
+}
+
 impl Kernel {
+    /// A purchase's one ask (decisions/2026-11-19-one-ask-per-purchase.md),
+    /// before `settle`, for a model's action the kernel raised no ask for:
+    /// the person's ask-first rules and case 3 still go to `settle`. Some is
+    /// the gate's answer; None leaves it to `settle`, as for any action.
+    pub(crate) async fn purchase_gate(&self, a: &Action, f: &Facts, run: &Run, shown: Option<&Shown>) -> Result<Option<Gate>> {
+        if a.issuer != Issuer::Model {
+            return Ok(None);
+        }
+        let purchase = self.read(|s| a.input["purchase_id"].as_str().and_then(|id| s.payments.get(id).cloned()));
+        match purchase_step(&a.tool, purchase.as_ref(), &run.person) {
+            Step::Other => Ok(None),
+            Step::ApprovedInLink => {
+                let p = purchase.context("the purchase")?;
+                let why = format!("covered by the person's approval in Link of {} at {}", amount_text(&p), p.merchant_name);
+                self.decision(a, "allow", "approval", &why, None).await?;
+                Ok(Some(Gate::Pass))
+            }
+            Step::LinkAsks => {
+                let said = "asked for by the person; the person approves the payment itself, in Link or when the saved card is filled";
+                match self.auto_review(a, f, run, shown, &shown_hash(a, shown), said).await? {
+                    crate::auto_review::Verdict::Deny(why) => Ok(Some(Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?))),
+                    // An outage asks no one and does nothing (decisions/2026-11-19-an-outage-asks-no-one.md).
+                    crate::auto_review::Verdict::Unavailable(why) => Ok(Some(Gate::Stop(self.deny(a, "auto_review", &why, true, None).await?))),
+                    crate::auto_review::Verdict::Allow(why) | crate::auto_review::Verdict::Ask(why) => {
+                        self.decision(a, "allow", "auto_review", &format!("{why}; the person approves the payment itself"), None).await?;
+                        Ok(Some(Gate::Pass))
+                    }
+                }
+            }
+        }
+    }
+
     /// The ask every payment gets, whatever the policy says.
     pub(crate) fn payment_ask(&self, a: &Action, risk: Risk) -> Option<(String, Option<String>)> {
         self.saved_card_ask(a).or_else(|| money_ask(&a.tool, risk))
@@ -434,6 +513,7 @@ impl Kernel {
         let spend = link::retrieve(self, s, &p.person, id, true).await.map_err(|f| match f {
             link::Failure::Unavailable(why) | link::Failure::Refused(why) => anyhow::anyhow!(why),
         })?;
+        spend_matches(p, &spend).map_err(anyhow::Error::msg)?;
         anyhow::ensure!(link::valid_until(&spend).is_none_or(|until| until > Utc::now()), "the one-time card has expired");
         link::card_of(&spend).context("Link gave no card")
     }
@@ -506,6 +586,73 @@ mod tests {
         l.apply(&Change::Decided { id: "p".into(), status: Status::Ready });
         assert_eq!(l.get("p").map(|p| p.status), Some(Status::Ready));
         assert_eq!(l.get("p").map(amount_text), Some("USD 35.05".to_string()));
+    }
+
+    fn approved(rail: Rail, status: Status) -> Purchase {
+        Purchase {
+            id: "p".into(),
+            person: "alice".into(),
+            run: "r".into(),
+            merchant_name: "Shop".into(),
+            merchant_host: "shop.test".into(),
+            amount_minor: 3505,
+            currency: "usd".into(),
+            rail,
+            link_id: (rail == Rail::Link).then(|| "lsrq".to_string()),
+            status,
+            at: Utc::now(),
+        }
+    }
+
+    /// A Link purchase is asked about once, in Link
+    /// (decisions/2026-11-19-one-ask-per-purchase.md): the request is not a
+    /// card of its own, and the fill of a purchase the person approved there
+    /// is covered by that approval. Before, Auto Review could ask on each of
+    /// them as well. A saved card's fill, or a fill of anything not approved
+    /// in Link for this person, still goes through the gate and its ask.
+    #[test]
+    fn a_link_purchase_is_asked_once_and_its_approved_fill_is_covered() {
+        let in_link = approved(Rail::Link, Status::Ready);
+        assert_eq!(purchase_step("purchase_request", None, "alice"), Step::LinkAsks);
+        assert_eq!(purchase_step("purchase_fill", Some(&in_link), "alice"), Step::ApprovedInLink, "an approved Link purchase was asked again");
+        assert_eq!(purchase_step("purchase_fill", Some(&in_link), "bob"), Step::Other, "another person's approval covered a fill");
+        assert_eq!(purchase_step("purchase_fill", Some(&approved(Rail::SavedCard, Status::Ready)), "alice"), Step::Other, "a saved card's fill went unasked");
+        for status in [Status::Waiting, Status::Declined, Status::Filled] {
+            assert_eq!(purchase_step("purchase_fill", Some(&approved(Rail::Link, status)), "alice"), Step::Other, "{status:?}");
+        }
+        assert_eq!(purchase_step("purchase_fill", None, "alice"), Step::Other);
+        assert_eq!(purchase_step("crm__pay", Some(&in_link), "alice"), Step::Other, "a connector's payment was covered by a purchase");
+        let mut no_spend = in_link.clone();
+        no_spend.link_id = None;
+        assert_eq!(purchase_step("purchase_fill", Some(&no_spend), "alice"), Step::Other);
+    }
+
+    /// The card a covered fill uses is the one the person approved: for this
+    /// request, approved, and for the amount, currency and seller on record.
+    #[test]
+    fn a_card_for_anything_but_what_was_approved_is_not_used() {
+        let p = approved(Rail::Link, Status::Ready);
+        let spend = |f: &dyn Fn(&mut link::Spend)| {
+            let mut s = link::Spend { id: "lsrq".into(), status: "approved".into(), ..Default::default() };
+            f(&mut s);
+            spend_matches(&p, &s)
+        };
+        assert_eq!(spend(&|_| {}), Ok(()), "Link named nothing else, and the approval holds");
+        assert_eq!(
+            spend(&|s| {
+                s.amount = json!(3505);
+                s.currency = json!("USD");
+                s.merchant_name = json!("Shop");
+            }),
+            Ok(())
+        );
+        assert_eq!(spend(&|s| s.amount = json!("3505")), Ok(()));
+        assert!(spend(&|s| s.amount = json!(9999)).is_err(), "a different amount was covered");
+        assert!(spend(&|s| s.amount = json!({ "value": 3505 })).is_err(), "an amount that could not be read was covered");
+        assert!(spend(&|s| s.currency = json!("eur")).is_err(), "a different currency was covered");
+        assert!(spend(&|s| s.merchant_name = json!("Other")).is_err(), "a different seller was covered");
+        assert!(spend(&|s| s.id = "lsrq_other".into()).is_err(), "another request's card was covered");
+        assert!(spend(&|s| s.status = "pending_approval".into()).is_err(), "an unapproved card was used");
     }
 
     #[test]

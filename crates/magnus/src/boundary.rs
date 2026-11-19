@@ -384,8 +384,14 @@ impl Kernel {
             Err(v) => return Ok(v),
         };
 
-        // 5. The person's answer, one of the four asks, or Auto Review.
-        if let Gate::Stop(v) = self.settle(a, &run, &f, shown.as_ref(), asked).await? {
+        // 5. The person's answer, one of the four asks, or Auto Review. A
+        // purchase is asked about once, in Link (`purchase_gate`).
+        let purchase = if asked.is_none() { self.purchase_gate(a, &f, &run, shown.as_ref()).await? } else { None };
+        let gate = match purchase {
+            Some(gate) => gate,
+            None => self.settle(a, &run, &f, shown.as_ref(), asked).await?,
+        };
+        if let Gate::Stop(v) = gate {
             return Ok(v);
         }
 
