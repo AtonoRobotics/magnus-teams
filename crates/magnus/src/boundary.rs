@@ -706,21 +706,6 @@ impl Kernel {
             }
             _ => false,
         };
-        // An app write that names no recipient (a commit, a comment, a
-        // deploy) carries private data out only if what it sends holds
-        // some: the outgoing classifier decides, and while it is down the
-        // write waits (decisions/2026-11-19-an-outage-asks-no-one.md).
-        let unnamed_write = dests.is_empty() && !lookup && f.connector.is_some();
-        if transmits && untrusted && private && !theirs && unnamed_write {
-            match crate::review_outage::with_retries(|| self.outgoing_finding(a, run)).await {
-                Some(None) => return Ok(Ok(self.payment_ask(a, f.risk).or(ask))),
-                Some(Some(_)) => {}
-                None => {
-                    let why = crate::review_outage::unavailable_text("The check for private data in what this sends");
-                    return Ok(Err(self.deny(a, "policy", &why, true, None).await?));
-                }
-            }
-        }
         if transmits && untrusted && private && !theirs {
             // A web lookup's address can carry data out too (K34): its host is the destination.
             let why = if lookup {

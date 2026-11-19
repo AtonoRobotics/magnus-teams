@@ -1,7 +1,7 @@
 # An outage asks no one; the Rule of Two judges what goes out
 
 From the review of approvals for ceremony
-(`docs/proposals/2026-11-19-approvals-review.md`, items 1, 2, 3 and 5,
+(`docs/proposals/2026-11-19-approvals-review.md`, items 1, 2 and 3 (item 5 was tried and reverted, below),
 and the owner's card model), all accepted by the owner on 2026-11-19. The
 standard: protect the person, their data and Magnus as autonomously as
 possible, asking as little as possible, without giving up safety that is
@@ -30,16 +30,19 @@ it is down; its flag put a card in front of the person. Now the flag goes
 to Auto Review with the send ("the send reviewer flagged it: …"), which may
 still ask. Its block stands.
 
-**The Rule of Two judges what goes out when no recipient is named.** After
-the work read untrusted input and private data, an app write that names no
-recipient (a commit, a comment, a channel post, a deploy) asked every time
-as "a new destination", though the card could name none for the person to
-judge. The threat is real (injected text steering private data into a
-public place), so it is kept, aimed at what it protects: such a write asks
-only when the outgoing classifier finds private data in what it sends. If
-the classifier cannot answer, the write waits, as above. A write to a
-recipient, a web or browser lookup, and the person's own computer keep the
-rule as it was. Auto Review still judges every such write.
+**The Rule of Two stays deterministic (tried and reverted the same day).**
+Item 5 had a write that names no recipient ask after untrusted input only
+when the outgoing classifier found private data in it. The injection suite
+(`tests/scratch/tests/injection.rs`, run on GitHub) caught it at once: an
+injected instruction posted the person's private canary to the team chat
+after reading their mail, because the classifier saw nothing sensitive in
+it. A real classifier fails the same way on private data that does not look
+sensitive (a token, an id, a code), and the Rule of Two holds against an
+adaptive attacker only because it does not depend on a model's judgement.
+So such a write still asks once after untrusted input and private data;
+Allow for this task covers the rest of the task
+(`decisions/2026-11-19-allow-covers-the-task.md`), which is what removes the
+repetition.
 
 **Allow always after untrusted input is for what can be undone.** Case 3's
 card offers Allow always only for an action that can be undone, to a named
@@ -47,9 +50,7 @@ destination; what cannot be undone is allowed one task at a time, as the
 owner's model has it.
 
 Invariant 4's tests change with this (an outage of the classifier no longer
-asks; a case-3 test's post now carries data the classifier flags; a new
-test for a post carrying nothing private; Allow always only for what can be
-undone). The patch is `docs/proposals/2026-11-19-approvals-invariants.patch`,
+asks; Allow always only for what can be undone). The patch is `docs/proposals/2026-11-19-approvals-invariants.patch`,
 for the owner to apply with `git apply`.
 
 Tests: `review_outage::tests`, `safety::tests` (`watch_of(None)` is

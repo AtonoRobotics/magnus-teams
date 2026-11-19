@@ -1,15 +1,6 @@
 --- a/tests/invariants/tests/inv4_taint.rs
 +++ b/tests/invariants/tests/inv4_taint.rs
-@@ -211,6 +211,8 @@
-         fail("stopping"),
-     ]))
-     .await;
-+    // A post names no recipient: what it carries decides (decisions/2026-11-19-an-outage-asks-no-one.md).
-+    model.set_classifier(script(|c| async move { magnus_invariants::model::classify(c.text().contains("41.7M"), "a revenue figure is private business data") }));
-     let app = appliance(&w, &model).await;
-     let alice = app.api("alice");
-     let id = alice.submit("Tell the team what the CFO emailed me, with the news.").await;
-@@ -218,7 +220,35 @@
+@@ -218,7 +218,9 @@
      assert_eq!(w.chat.effects("post"), 0, "private data went out before the person answered");
      assert_eq!(card["ask"]["allow_scope"], "task", "case 3's Allow does not cover the rest of the task: {card}");
      let (offers, named) = (card["ask"]["offers"].as_array().cloned().unwrap_or_default(), card["ask"]["destinations"].as_array().is_some_and(|d| !d.is_empty()));
@@ -17,36 +8,10 @@
 +    // Allow always only for what can be undone, to a named place (owner, 2026-11-19).
 +    let undoable = !["irreversible", "financial"].contains(&card["details"]["risk"].as_str().unwrap_or("irreversible"));
 +    assert!(offers.contains(&json!("allow")) && offers.contains(&json!("dont_allow")) && offers.contains(&json!("allow_always")) == (named && undoable), "{card}");
-+}
-+
-+/// A post that names no recipient, after untrusted input and private data,
-+/// goes without asking when what it sends carries nothing private; the
-+/// outgoing classifier decides, and Auto Review still judges it
-+/// (decisions/2026-11-19-an-outage-asks-no-one.md).
-+#[tokio::test(flavor = "multi_thread")]
-+async fn an_unnamed_post_carrying_nothing_private_goes_without_asking() {
-+    let w = world().await;
-+    let news = w.web.url("/news");
-+    let model = FakeModel::start(steps(vec![
-+        plan("tell the team the build passed"),
-+        tool("mail__list_inbox", json!({})),
-+        tool("web_fetch", json!({ "url": news })),
-+        tool("chat__post", json!({ "channel": "team", "text": "The build passed." })),
-+        fail("stopping"),
-+    ]))
-+    .await;
-+    model.set_classifier(script(|c| async move { magnus_invariants::model::classify(c.text().contains("41.7M"), "a revenue figure is private business data") }));
-+    let app = appliance(&w, &model).await;
-+    let alice = app.api("alice");
-+    let id = alice.submit("Check my inbox and the news, then tell the team the build passed.").await;
-+    alice.wait_settled(&id).await;
-+    assert!(alice.open_items(&id, "approval").await.is_empty(), "a post carrying nothing private asked the person");
-+    assert_eq!(w.chat.effects("post"), 1, "a post carrying nothing private was held");
-+    assert!(model.reviews().iter().any(|r| r.text().contains("chat__post")), "the post went out without Auto Review");
  }
  
  #[tokio::test(flavor = "multi_thread")]
-@@ -512,18 +542,24 @@
+@@ -512,18 +514,24 @@
          assert_eq!(review_document(r)["outgoing_classifier_finding"], json!(finding), "an outgoing action reached Auto Review without its finding");
      }
  

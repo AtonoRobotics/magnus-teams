@@ -70,7 +70,7 @@ always works for reversible actions that name no recipient.
    code in it stays an ask the first time. **Done for Allow always**
    (`decisions/2026-11-19-allow-a-program-always.md`); no program's real
    tool names are in the repository yet, so none is classed a read.
-5. **Case 3 on a write that names no recipient** (a commit or comment after
+5. **Not done (reverted 2026-11-19):** asking a tainted unnamed write only when the classifier finds private data let the injection suite post a private canary; the Rule of Two stays deterministic, and Allow for this task stops its repeats. Original proposal: **Case 3 on a write that names no recipient** (a commit or comment after
    reading an issue). It protects against something real: injected text
    steering private data into a public place. But the card names no
    destination, so the person cannot judge it, and it can never be allowed
