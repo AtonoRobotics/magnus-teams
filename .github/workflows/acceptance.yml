@@ -80,11 +80,16 @@ jobs:
         env:
           MAGNUS_CHROMIUM: /usr/bin/google-chrome
         run: |
-          if [ "${{ matrix.suite }}" = scratch-asks ]; then
+          if [ "${{ matrix.suite }}" = invariants ]; then
+            # Every invariant file runs and reports, so one that needs a
+            # computer (KVM, the magnus group) hides none of the others.
+            cargo build --workspace --bins
+            cargo test -p magnus-invariants --no-fail-fast -- --test-threads=1
+          elif [ "${{ matrix.suite }}" = scratch-asks ]; then
             # The scratch tests this kind of change touches most: asks, the
             # send reviewer and a definition changed under its pin.
             cargo build --workspace --bins
-            cargo test -p magnus-scratch --test asks --test reviewer --test destination_preview
+            cargo test -p magnus-scratch --no-fail-fast --test asks --test reviewer --test destination_preview
           else
             ci/acceptance.sh "${{ matrix.suite }}"
           fi
