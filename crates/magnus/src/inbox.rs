@@ -156,16 +156,18 @@ impl Kernel {
                 let tool = item.details["tool"].as_str().unwrap_or_default().to_string();
                 let app = item.details["app"].as_str().unwrap_or_default().to_string();
                 if scope == "always" {
-                    let risk = item.details["risk"].as_str().unwrap_or_default();
-                    if !crate::asks::always_offered(reason, risk, &dests) || p.id != item.person || app.is_empty() {
+                    if !crate::asks::always_offered_for(&item.details, &dests) || p.id != item.person {
                         return Ok(Answer::Invalid("Allow always is not offered for this".into()));
                     }
-                    let compiled = match crate::asks::always_rule(&item.person, &app, &tool, &dests) {
+                    let compiled = match crate::asks::always_rule_for(&item.person, &item.details, &dests) {
                         Ok(c) => c,
                         Err(e) => return Ok(Answer::Invalid(e)),
                     };
                     let rule_id = new_id("rule");
-                    let words = format!("Always allow: {}", item.summary);
+                    let words = match crate::asks::program_always(rule.as_deref(), &app) {
+                        Some(program) => format!("Always allow {} on my computers", program.title),
+                        None => format!("Always allow: {}", item.summary),
+                    };
                     evs.push((&actor, Ev::Rule(crate::rules::Change::Proposed { id: rule_id.clone(), person: item.person.clone(), compiled: Some(compiled), words: Some(words) })));
                     evs.push((&actor, Ev::Rule(crate::rules::Change::Accepted { id: rule_id })));
                 }

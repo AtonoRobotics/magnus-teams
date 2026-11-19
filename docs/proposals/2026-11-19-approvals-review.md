@@ -67,7 +67,9 @@ always works for reversible actions that name no recipient.
    and ask-first, and Allow always is never offered). **Proposed:**
    classify each program's read tools as reads, and offer Allow always for
    a program on the person's own computer ("Allow Blender always"). Running
-   code in it stays an ask the first time.
+   code in it stays an ask the first time. **Done for Allow always**
+   (`decisions/2026-11-19-allow-a-program-always.md`); no program's real
+   tool names are in the repository yet, so none is classed a read.
 5. **Case 3 on a write that names no recipient** (a commit or comment after
    reading an issue). It protects against something real: injected text
    steering private data into a public place. But the card names no

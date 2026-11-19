@@ -208,6 +208,19 @@ pub fn compile_tool_allow(person: &str, connector: &str, tool: &str) -> Result<C
     Ok(Compiled { connector: connector.to_string(), tool: tool.to_string(), destinations: vec![], once: false, cedar, effect: Effect::Allow })
 }
 
+/// The rule Allow always saves on a program's own ask on the person's
+/// computer (`desktop::PROGRAM_ASK`): this person may use every tool of this
+/// one program without asking. Only `Kernel::program_rule` reads it as an
+/// answer, and only to that ask (decisions/2026-11-19-allow-a-program-always.md).
+pub fn compile_program_allow(person: &str, app: &str) -> Result<Compiled, String> {
+    if crate::desktop::program_of_app(app).is_none() {
+        return Err(format!("{app} is not a program on the person's computer"));
+    }
+    let cedar = format!("permit(principal == Person::{}, action == Action::\"execute\", resource in App::{});", quoted(person)?, quoted(app)?);
+    policy::validate(&cedar).map_err(|e| e.to_string())?;
+    Ok(Compiled { connector: app.to_string(), tool: String::new(), destinations: vec![], once: false, cedar, effect: Effect::Allow })
+}
+
 /// Where an action goes, as a rule would name it. Empty means it cannot match.
 /// A new source is named by its host.
 pub(crate) fn destinations_of(a: &Action, shown: Option<&Shown>) -> Vec<String> {
@@ -491,6 +504,21 @@ mod tests {
         l.apply(&Change::Proposed { id: "w".into(), person: "alice".into(), compiled: None, words: Some("be careful".into()) });
         l.apply(&Change::Accepted { id: "w".into() });
         assert!(!l.of("alice")[1].live(), "words alone covered something");
+    }
+
+    /// Allowing a program always covers that program's tools for that
+    /// person only, and is made for nothing but a program.
+    #[test]
+    fn a_program_rule_covers_only_that_programs_tools() {
+        let c = compile_program_allow("alice", "desktop_blender").unwrap();
+        assert_eq!((c.effect, c.tool.as_str(), c.destinations.len(), c.once), (Effect::Allow, "", 0, false));
+        let alice = person("alice");
+        assert!(policy::rule_covers(&c.cedar, &alice, &facts("desktop_blender__run_python", "desktop_blender"), "").unwrap());
+        assert!(!policy::rule_covers(&c.cedar, &alice, &facts("desktop_freecad__run_python", "desktop_freecad"), "").unwrap(), "it reached another program");
+        assert!(!policy::rule_covers(&c.cedar, &alice, &facts("gmail__send", "gmail"), "").unwrap(), "it reached an app");
+        assert!(!policy::rule_covers(&c.cedar, &person("bob"), &facts("desktop_blender__run_python", "desktop_blender"), "").unwrap(), "it reached another person");
+        assert!(compile_program_allow("alice", "gmail").is_err(), "a whole app was allowed");
+        assert!(compile_program_allow("alice", "desktop_photoshop").is_err(), "an unsupported program was allowed");
     }
 
     #[test]

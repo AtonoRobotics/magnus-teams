@@ -142,6 +142,54 @@ fn a_program_tool_runs_code_unless_classified_otherwise() {
     let p = Program { id: "blender", title: "Blender", classified: &[("list_objects", Risk::Read)] };
     assert!(executes_code(&p, "run_python") && !executes_code(&p, "list_objects"));
     assert_eq!(crate::asks::Reason::of(Some(ASK_RULE)), Some(crate::asks::Reason::AskFirst), "the ask is not one of the four");
+    assert_eq!(crate::asks::Reason::of(Some(PROGRAM_ASK)), Some(crate::asks::Reason::AskFirst), "the ask is not one of the four");
+}
+
+/// The default's ask (the organisation's layer) is the program's own, which
+/// Allow always may answer; a lower layer's forbid is their own ask first,
+/// which it may not (decisions/2026-11-19-allow-a-program-always.md).
+#[test]
+fn only_the_organisations_ask_may_be_allowed_always() {
+    let f = facts("desktop_blender", "run_python").unwrap();
+    let tool = ToolFacts::from(&f);
+    let mo = person("mo", &[]);
+    let none = BTreeMap::new();
+    let out = decide(&none, &mo, Some("t1"), &tool, false, false).unwrap();
+    let lower = tightened(&none, &mo, Some("t1"), &tool, false, false).unwrap();
+    assert!(!lower, "the default's ask read as the person's own");
+    assert_eq!(ask_of(&out, &f, lower).unwrap().unwrap().1.as_deref(), Some(PROGRAM_ASK));
+    let ask_first = r#"forbid(principal, action == Action::"execute", resource in App::"desktop_blender");"#;
+    for layer in ["user/mo", "group/design", "task/t1"] {
+        let policies = BTreeMap::from([(layer.to_string(), ask_first.to_string())]);
+        let designer = person("mo", &["design"]);
+        let out = decide(&policies, &designer, Some("t1"), &tool, false, false).unwrap();
+        let lower = tightened(&policies, &designer, Some("t1"), &tool, false, false).unwrap();
+        assert!(lower, "{layer}'s ask first was not seen");
+        assert_eq!(ask_of(&out, &f, lower).unwrap().unwrap().1.as_deref(), Some(ASK_RULE), "{layer}'s ask first could be allowed always");
+    }
+    // Their ask first on a read, which the default lets run, is theirs too.
+    let policies = BTreeMap::from([("user/mo".to_string(), ask_first.to_string())]);
+    assert!(tightened(&policies, &mo, None, &ToolFacts::from(&read_tool()), false, false).unwrap());
+    // Another program's ask first leaves Blender's the program's own.
+    let other = BTreeMap::from([("user/mo".to_string(), r#"forbid(principal, action == Action::"execute", resource in App::"desktop_freecad");"#.to_string())]);
+    assert!(!tightened(&other, &mo, None, &tool, false, false).unwrap());
+}
+
+/// Allow always is offered on a program's own ask, saves a rule for that
+/// program, and is offered on no other kind of ask.
+#[test]
+fn allow_always_on_a_programs_ask_is_for_that_program() {
+    let d = |rule: &str, app: &str| json!({ "tool": format!("{app}__run_python"), "app": app, "risk": "irreversible", "rule": rule });
+    assert!(crate::asks::always_offered_for(&d(PROGRAM_ASK, "desktop_blender"), &[]));
+    assert!(!crate::asks::always_offered_for(&d(ASK_RULE, "desktop_blender"), &[]), "a lower layer's ask first was offered Allow always");
+    assert!(!crate::asks::always_offered_for(&d("person_rule:r1", "desktop_blender"), &[]), "the person's ask first was offered Allow always");
+    assert!(!crate::asks::always_offered_for(&d(PROGRAM_ASK, "gmail"), &[]), "a program's rule was offered for an app");
+    assert!(!crate::asks::always_offered_for(&d(crate::payments::MONEY_RULE, "desktop_blender"), &[]), "a payment was offered Allow always");
+    let rule = crate::asks::always_rule_for("mo", &d(PROGRAM_ASK, "desktop_blender"), &[]).unwrap();
+    assert_eq!((rule.connector.as_str(), rule.tool.as_str()), ("desktop_blender", ""));
+    let other = crate::asks::always_rule_for("mo", &d(crate::asks::OUTSIDE_REQUEST, "tasks"), &[]).unwrap();
+    assert_eq!((other.connector.as_str(), other.tool.as_str()), ("tasks", "tasks__run_python"), "another ask saved a whole app");
+    assert_eq!(crate::asks::sentence("desktop_blender__run_python", "desktop_blender", None, "irreversible", &[]), "Magnus wants to run python in Blender.");
 }
 
 fn read_tool() -> Facts {
@@ -154,11 +202,11 @@ fn by_default_code_in_a_program_asks_the_person() {
     let f = facts("desktop_blender", "run_python").unwrap();
     let out = decide(&BTreeMap::new(), &person("mo", &[]), None, &ToolFacts::from(&f), false, false).unwrap();
     assert!(matches!(out, Outcome::Ask { .. }), "{out:?}");
-    let (why, rule) = ask_of(&out, &f).unwrap().unwrap();
-    assert_eq!(rule.as_deref(), Some(ASK_RULE));
+    let (why, rule) = ask_of(&out, &f, false).unwrap().unwrap();
+    assert_eq!(rule.as_deref(), Some(PROGRAM_ASK));
     assert!(why.contains("runs code inside Blender"), "{why}");
     let out = decide(&BTreeMap::new(), &person("mo", &[]), None, &ToolFacts::from(&read_tool()), false, false).unwrap();
-    assert!(ask_of(&out, &read_tool()).is_none(), "a read asked by default");
+    assert!(ask_of(&out, &read_tool(), false).is_none(), "a read asked by default");
 }
 
 const RELAX_DESIGN: &str = r#"
@@ -173,7 +221,7 @@ fn an_admin_relaxes_it_for_a_group() {
     let f = facts("desktop_blender", "run_python").unwrap();
     let policies = BTreeMap::from([("org".to_string(), RELAX_DESIGN.to_string())]);
     let designer = decide(&policies, &person("ana", &["design"]), None, &ToolFacts::from(&f), false, false).unwrap();
-    assert!(matches!(designer, Outcome::Allow { .. }) && ask_of(&designer, &f).is_none(), "{designer:?}");
+    assert!(matches!(designer, Outcome::Allow { .. }) && ask_of(&designer, &f, false).is_none(), "{designer:?}");
     let other = decide(&policies, &person("mo", &["sales"]), None, &ToolFacts::from(&f), false, false).unwrap();
     assert!(matches!(other, Outcome::Ask { .. }), "the relaxation reached beyond its group: {other:?}");
 }
@@ -193,11 +241,11 @@ fn a_person_can_only_tighten_it() {
     let ask_first = r#"forbid(principal, action == Action::"execute", resource in App::"desktop_blender");"#;
     let policies = BTreeMap::from([("user/mo".to_string(), ask_first.to_string())]);
     let out = decide(&policies, &person("mo", &[]), None, &ToolFacts::from(&read_tool()), false, false).unwrap();
-    assert!(matches!(out, Outcome::Ask { .. }) && matches!(ask_of(&out, &read_tool()), Some(Ok(_))), "a person's forbid did not make a read ask: {out:?}");
+    assert!(matches!(out, Outcome::Ask { .. }) && matches!(ask_of(&out, &read_tool(), true), Some(Ok(_))), "a person's forbid did not make a read ask: {out:?}");
     let never = r#"forbid(principal, action, resource in App::"desktop_blender");"#;
     let both = BTreeMap::from([("org".to_string(), RELAX_DESIGN.to_string()), ("user/ana".to_string(), never.to_string())]);
     let out = decide(&both, &person("ana", &["design"]), None, &ToolFacts::from(&f), false, false).unwrap();
-    assert!(matches!(ask_of(&out, &f), Some(Err(_))), "a person's forbid did not hold over the org's relaxation: {out:?}");
+    assert!(matches!(ask_of(&out, &f, true), Some(Err(_))), "a person's forbid did not hold over the org's relaxation: {out:?}");
 }
 
 #[path = "desktop_e2e_tests.rs"]

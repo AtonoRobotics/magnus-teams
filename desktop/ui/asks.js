@@ -15,6 +15,8 @@ function askLabel(a, offer) {
   if (offer === "allow" && a.allow_covers === "site" && sites.length) return sites.length === 1 ? `Allow ${sites[0]}` : "Allow these sites";
   // A payment's only Allow is for this action.
   if (offer === "allow" && a.allow_scope !== "task") return "Allow";
+  // On a program's own ask, Allow always is for the whole program on the person's computers.
+  if (offer === "allow_always" && a.always_covers) return `Allow ${a.always_covers} always`;
   return ASK_LABELS[offer];
 }
 

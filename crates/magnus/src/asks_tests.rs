@@ -156,6 +156,8 @@ fn no_ask_outside_the_four_can_be_produced() {
         (crate::payments::RULE, Reason::Payment),
         (NEW_DESTINATION, Reason::NewDestination),
         (LOCAL_ASK_FIRST, Reason::AskFirst),
+        (crate::desktop::ASK_RULE, Reason::AskFirst),
+        (crate::desktop::PROGRAM_ASK, Reason::AskFirst),
         ("person_rule:rule_1", Reason::AskFirst),
     ];
     for (rule, reason) in four {
@@ -283,6 +285,34 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
         assert!(shown.get(k).is_none(), "{k} stayed on the user's item");
     }
     assert_eq!(shown["input"]["to"], "eve@evil.example", "the exact content is not one tap away");
+}
+
+/// A program's own ask on the person's computer offers Allow always for
+/// that program, and says so; the person's or a lower layer's ask first
+/// about it does not (decisions/2026-11-19-allow-a-program-always.md).
+#[test]
+fn a_programs_own_ask_offers_allow_always_for_the_program() {
+    let s = State::default();
+    let mo: Person = serde_json::from_value(json!({ "id": "mo", "groups": [] })).unwrap();
+    let ana: Person = serde_json::from_value(json!({ "id": "ana", "groups": [] })).unwrap();
+    let program = |rule: &str| {
+        let mut i = item(rule, "irreversible", "mo");
+        i.details["tool"] = json!("desktop_blender__run_python");
+        i.details["app"] = json!("desktop_blender");
+        i.details["app_title"] = Value::Null;
+        i.details["ask_destinations"] = json!([]);
+        i
+    };
+    let c = card(&s, &mo, &program(crate::desktop::PROGRAM_ASK));
+    assert_eq!(c["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]));
+    assert_eq!((c["always_covers"].clone(), c["sentence"].clone()), (json!("Blender"), json!("Magnus wants to run python in Blender.")));
+    for theirs in [crate::desktop::ASK_RULE, "person_rule:rule_1"] {
+        let c = card(&s, &mo, &program(theirs));
+        assert_eq!(c["offers"], json!(["allow_once", "allow", "dont_allow"]), "{theirs} offered Allow always");
+        assert!(c["always_covers"].is_null());
+    }
+    assert_eq!(card(&s, &ana, &program(crate::desktop::PROGRAM_ASK))["offers"], json!(["allow_once", "allow", "dont_allow"]), "Allow always was offered for someone else");
+    assert!(card(&s, &mo, &item(OUTSIDE_REQUEST, "irreversible", "mo"))["always_covers"].is_null(), "an app's card named a program");
 }
 
 /// A saved card's ask says on its card that it is the saved card, what it

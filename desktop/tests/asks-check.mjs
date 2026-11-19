@@ -46,6 +46,11 @@ for (const hidden of ["person_rule", "rule_7", "Auto Review", "never named", "ta
   assert.ok(!card.includes(hidden), `the card shows ${hidden}`);
 }
 
+// A program's own ask: Allow always names the program it allows.
+const program = item(["allow_once", "allow", "allow_always", "dont_allow"], "task");
+program.ask.always_covers = "Blender";
+assert.match(sandbox.askCard(program, true), /data-decision="approve:always"[^>]*>Allow Blender always</, "Allow always does not name the program");
+
 // A payment: Allow is one action, and there is no Allow always.
 const once = sandbox.askCard(item(["allow", "dont_allow"], "once"), true);
 assert.deepEqual([...once.matchAll(/data-decision="([^"]+)"[^>]*>([^<]+)</g)].map(m => [m[1], m[2]]), [["approve:once", "Allow"], ["reject", "Don&#39;t allow"]]);
