@@ -2,7 +2,7 @@
 //! The run tools a team thread is offered too are declared with the run's
 //! (`in_team`); these serve only a team thread, but for reading a base,
 //! which a person's own agent may do for a base its owner may read.
-use super::{Class, Decl, Exec, Offer};
+use super::{Class, Decl, Exec, Offer, Taint};
 use crate::team::TeamOp;
 use crate::tools::{obj, Audience, Label, Risk};
 use serde_json::json;
@@ -38,6 +38,16 @@ pub(super) static DECLS: &[Decl] = &[
     .doing("Making a space for the team")
     .in_team(),
     Decl::tool("team_note", TO_TEAM, Exec::Team(TeamOp::Note), TEAM, |_| obj(json!({ "text": { "type": "string" } }), &["text"])).doing("Taking notes").in_team(),
+    Decl::tool(
+        "team_ask_personal_agent",
+        Class::new("team", Risk::ReversibleWrite, Label { untrusted: true, private: true }, Audience::Internal),
+        Exec::Team(TeamOp::AskPersonalAgent),
+        TEAM,
+        |_| obj(json!({ "request": { "type": "string" }, "app": { "type": "string" }, "member": { "type": "string" } }), &["request"]),
+    )
+    .taint(Taint::Returned)
+    .doing("Asking personal agent")
+    .in_team(),
     Decl::tool(
         "team_read_knowledge",
         Class::new("team", Risk::Read, Label { untrusted: true, private: true }, Audience::Internal),

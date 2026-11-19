@@ -105,6 +105,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/me", get(me))
         .route("/v1/versions", get(versions))
         .route("/v1/tasks", post(submit).get(list_tasks))
+        .route("/v1/tasks/stop-all", post(stop_all))
         .route("/v1/chat", post(chat_post).get(chat_threads))
         .route("/v1/chat/{thread}", get(chat_thread))
         .route("/v1/chat/cards/{card}", post(chat_card))

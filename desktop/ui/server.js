@@ -106,6 +106,7 @@ const Server = (() => {
       cancel: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/cancel`),
       resume: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/resume`),
       steer: (/** @type {Id} */ id, /** @type {string} */ text) => post(`/v1/tasks/${enc(id)}/steer`, { text }),
+      stopAll: () => post("/v1/tasks/stop-all"),
       /** One of a result's actions, started as a new request. @param {Id} id @param {number|string} index @param {any} [body] */
       action: (id, index, body) => call("POST", `/v1/tasks/${enc(id)}/actions/${enc(index)}`, body),
       verdict: (/** @type {Id} */ id, /** @type {string} */ verdict, /** @type {string} */ note) => post(`/v1/tasks/${enc(id)}/verdict`, { verdict, note }),

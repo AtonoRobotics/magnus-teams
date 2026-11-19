@@ -255,10 +255,12 @@ async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws
             })
         })
         .collect();
+    let delegations = k.panel_delegations(&ws, &p.id, &channels);
+    let apps = k.workspace_app_list(&w);
     Ok(Json(json!({
         "project": def, "channels": channels, "files": files, "tasks": tasks, "work": work, "members": people,
         "knowledge": knowledge, "progress": progress.map(|(d, t)| json!({ "done": d, "total": t })), "computer": k.team_computer(&ws),
-        "routines": routines,
+        "routines": routines, "delegations": delegations, "apps": apps,
     }))
     .into_response())
 }

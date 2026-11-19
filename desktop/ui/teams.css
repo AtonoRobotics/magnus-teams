@@ -3,8 +3,8 @@
 #main.team-main { padding: 0; max-width: none; height: 100%; }
 /* A workspace fills the window beside the folded app navigation: its own
    rail is the left column, so the app's bar above it goes. */
-body[data-team]:not([data-navigation=drawer]) .workspace-bar { display: none; }
-body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
+body[data-team]:not([data-navigation=drawer]) .workspace-bar, body[data-team] .shell > aside.detail, body[data-team] .shell > #workspace-splitter { display: none; }
+body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; grid-column: 2 / -1; }
 .teams-page { max-width: 640px; margin: 24px auto; padding: 0 16px; }
 .teams-page .team-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 24px; }
 .teams-page .team-list a { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--fg); text-decoration: none; background: var(--surface); }
@@ -12,14 +12,12 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .teams-page .team-list .team-avatar { width: 36px; height: 36px; font-size: 14px; border-radius: var(--r-avatar); }
 .teams-page form { display: flex; gap: 8px; }
 .teams-page form input { flex: 1; }
-.team-shell { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; height: 100%; min-height: 0; }
-@media (max-width: 1200px) {
-  .team-shell { grid-template-columns: 220px minmax(0, 1fr); }
-  .team-side { display: none; }
-}
+.team-shell { display: grid; grid-template-columns: 220px minmax(0, 1fr) 6px min(var(--panel-width, 340px), 36vw); grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; }
+.team-splitter { cursor: col-resize; touch-action: none; background: linear-gradient(to right, transparent 2px, var(--line) 2px 3px, transparent 3px); }
+.team-splitter:hover, .team-splitter:focus-visible { background: linear-gradient(to right, transparent 2px, var(--accent) 2px 4px, transparent 4px); }
 .team-rail, .team-side { overflow-y: auto; padding: 12px; border-color: var(--line); border-style: solid; border-width: 0; background: var(--side, var(--surface)); }
-.team-rail { border-right-width: 1px; display: flex; flex-direction: column; gap: 2px; }
-.team-side { border-left-width: 1px; }
+.team-rail { border-right-width: 1px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.team-side { display: flex; flex-direction: column; min-width: 0; }
 .team-center { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .team-rail-head { display: flex; flex-direction: column; padding: 4px 8px 10px; }
 .team-rail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 8px 4px; }
@@ -84,10 +82,10 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
 .team-command-group { font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; }
 .team-command p { margin: 0; padding: 6px 16px 10px; }
 .team-search-form { display: flex; gap: 8px; padding: 12px 20px 0; }
-@media (max-width: 1100px) {
-  .team-shell { grid-template-columns: 220px minmax(0, 1fr); }
-  .team-side { display: none; }
-  .team-shell.threaded .team-side { display: block; position: fixed; inset: 0 0 0 auto; width: min(420px, 100vw); z-index: 5; box-shadow: var(--shadow); }
+@media (max-width: 860px) {
+  .team-shell { grid-template-columns: 200px minmax(0, 1fr); }
+  .team-side, .team-splitter { display: none; }
+  .team-shell.threaded .team-side { display: flex; position: fixed; inset: 0 0 0 auto; width: min(420px, 100vw); z-index: 5; box-shadow: var(--shadow); }
 }
 @media (max-width: 700px) {
   .team-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
@@ -114,12 +112,11 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; }
    centre and the side hold its section, which scrolls its own list. */
 .team-center > section.conv { flex: 1; min-height: 0; }
 /* The side panel beside a channel, laid out as a person's own right panel. */
-.team-side:has(> .team-companion) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.team-side:has(> .team-companion), .team-side:has(> section.conv) { padding: 0; overflow: hidden; }
 .team-companion { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .team-side-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .team-faces-box, .gbox.team-screen { padding: 10px 12px; }
 .team-spend .team-mini li { padding: 8px 12px; }
-.team-side:has(> section.conv) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 .team-side > section.conv { flex: 1; min-height: 0; }
 .team-center .conv-head { flex-wrap: nowrap; }
 .team-center .conv-title { min-width: 120px; flex: 1 1 120px; }

@@ -167,7 +167,24 @@ async function showTeam(main, ws, place) {
   if (place.kind === "project" && !place.id) place = { kind: "channel", id: firstChannel(Team.home) };
   Team.place = place;
   main.classList.add("team-main");
-  main.innerHTML = `<div class="team-shell"><aside class="team-rail" id="team-rail"></aside><section class="team-center" id="team-center"></section><aside class="team-side" id="team-side" aria-label="Project"></aside></div>`;
+  main.innerHTML = `<div class="team-shell"><aside class="team-rail" id="team-rail"></aside><section class="team-center" id="team-center"></section><div class="team-splitter" id="team-splitter" role="separator" tabindex="0" aria-label="Side panel width" aria-orientation="vertical"></div><aside class="team-side" id="team-side" aria-label="Project"></aside></div>`;
+  const splitter = $("#team-splitter", main);
+  if (splitter && typeof Theme !== "undefined") {
+    const B = Theme.LAYOUT_BOUNDS || { panelMinWidthPx: 280, panelMaxWidthPx: 520, panelDefaultWidthPx: 360 };
+    const setWidth = w => {
+      const clamped = Math.max(B.panelMinWidthPx, Math.min(B.panelMaxWidthPx, Math.round(w)));
+      Theme.set({ panelWidthPx: clamped });
+      $(".shell")?.style.setProperty("--panel-width", `${clamped}px`);
+    };
+    splitter.onpointerdown = e => {
+      if (e.button !== 0) return;
+      const sideEl = $("#team-side", main), startX = e.clientX, startW = sideEl?.getBoundingClientRect().width || Theme.prefs().panelWidthPx || B.panelDefaultWidthPx;
+      splitter.setPointerCapture(e.pointerId);
+      splitter.onpointermove = mv => setWidth(startW + startX - mv.clientX);
+      splitter.onpointerup = () => { splitter.onpointermove = null; splitter.onpointerup = null; splitter.releasePointerCapture(e.pointerId); };
+    };
+    splitter.ondblclick = () => setWidth(B.panelDefaultWidthPx);
+  }
   const draw = () => {
     paint($("#team-rail", main), railHtml(Team.home, Team.place));
   };
@@ -205,9 +222,10 @@ async function drawCenter(main, ws, place) {
 }
 
 async function refreshCenter(main, ws) {
-  const place = Team.place;
+  const place = Team.place, side = $("#team-side", main);
   if (place.kind === "channel") return TeamChat.refresh();
   if (place.kind === "project") return TeamPanel.refresh();
+  if (side) return TeamPanel.side(side, ws, null, null);
 }
 
 function bindRail(main, ws) {
@@ -234,7 +252,7 @@ async function teamActivity(center, side, ws) {
   paint(center, `<header class="team-head"><h1>Activity</h1></header><div class="team-scroll">
     ${a.asks?.length ? `<h2>Waiting on you</h2><ul class="team-activity-list">${a.asks.map(x => `<li><a href="#/inbox">The team agent needs your answer${x.reason ? `: ${esc(x.reason)}` : ""}</a></li>`).join("")}</ul>` : ""}
     ${section("Mentions", a.mentions || [], "No one has mentioned you.")}${section("Replies", a.replies || [], "No replies to your threads.")}</div>`);
-  paint(side, "");
+  await TeamPanel.side(side, ws, null, null);
 }
 
 /** Invite inline: by email, or a link to copy. */

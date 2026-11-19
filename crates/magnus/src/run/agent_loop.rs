@@ -190,7 +190,7 @@ impl Kernel {
         // send, not the kernel's bytes (#323). The quote below prices the
         // same prompt every attempt, while what is left is re-read. An
         // adapter that cannot measure falls back to the kernel's bytes.
-        let input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
+        let mut input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
             Ok(n) => n,
             Err(e) => {
                 tracing::warn!("prompt estimate for {run_id}: {e:#}; pricing the kernel's bytes");
@@ -292,25 +292,38 @@ impl Kernel {
                             attempt += 1;
                             tokio::time::sleep(wait.unwrap_or(LONGEST_BACKOFF)).await;
                         }
-                        ErrorClass::Unavailable | ErrorClass::UsageLimit if self.cfg.model.fallbacks.iter().skip(fallback_idx).find_map(|f| f.split_once('/')).is_some() => {
-                            while let Some(entry) = self.cfg.model.fallbacks.get(fallback_idx) {
-                                fallback_idx += 1;
-                                if let Some((fa, fm)) = entry.split_once('/') {
-                                    if fa != active_adapter || fm != active_model {
-                                        active_adapter = fa.trim().to_string();
-                                        active_model = fm.trim().to_string();
-                                        attempt += 1;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
                         ErrorClass::Malformed => {
                             self.emit("kernel", Ev::Notice { run: run_id.into(), step, text: format!("Your previous reply could not be used: {}. Reply again.", e.message) })
                                 .await?;
                             return Ok(Flow::Continue);
                         }
                         class => {
+                            if matches!(class, ErrorClass::Unavailable | ErrorClass::UsageLimit) {
+                                let allowed = self.allowed_models(&run.person).await;
+                                let mut switched = false;
+                                while let Some(entry) = self.cfg.model.fallbacks.get(fallback_idx) {
+                                    fallback_idx += 1;
+                                    if let Some((fa, fm)) = entry.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) {
+                                        if (fa != active_adapter || fm != active_model) && crate::spend::access::permits(&allowed, fa, fm) {
+                                            active_adapter = fa.to_string();
+                                            active_model = fm.to_string();
+                                            input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
+                                                Ok(n) => n,
+                                                Err(err) => {
+                                                    tracing::warn!("prompt estimate for {run_id} on fallback {active_adapter}/{active_model}: {err:#}; pricing the kernel's bytes");
+                                                    estimated_input_tokens(&system, &messages, &tools)
+                                                }
+                                            };
+                                            attempt += 1;
+                                            switched = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if switched {
+                                    continue;
+                                }
+                            }
                             let (reason, what) = match class {
                                 ErrorClass::Unavailable => ("provider", "The model provider is unavailable"),
                                 ErrorClass::UsageLimit => ("usage_limit", "The model provider's usage limit was reached"),

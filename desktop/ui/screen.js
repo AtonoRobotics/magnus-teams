@@ -184,6 +184,7 @@ document.addEventListener("click", e => {
   const id = b.dataset.takeOver;
   Screen.takeOnOpen = id;
   if (location.hash.startsWith(`#/computer/${enc(id)}`)) { showComputer($("#main"), id, "screen"); return; }
+  if (location.hash.startsWith("#/team/")) { location.hash = `#/computer/${enc(id)}/screen`; return; }
   const pinned = Screen.pinned;
   if (pinned?.c.id === id && pinned.alive()) { Screen.takeOnOpen = null; pinned.take(); return; }
   openPanel(`computer:${id}`, { history: true, focus: true, opener: b });

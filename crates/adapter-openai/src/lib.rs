@@ -220,7 +220,7 @@ async fn client_version(http: &reqwest::Client, url: &str, refresh_s: u64) -> Re
     use std::time::{Duration, Instant};
     static CACHE: OnceLock<Mutex<std::collections::HashMap<String, (String, Instant)>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    let cached = cache.lock().unwrap().get(url).cloned();
+    let cached = cache.lock().unwrap_or_else(|e| e.into_inner()).get(url).cloned();
     if let Some((v, at)) = &cached {
         if at.elapsed() < Duration::from_secs(refresh_s) {
             return Ok(v.clone());
@@ -237,7 +237,7 @@ async fn client_version(http: &reqwest::Client, url: &str, refresh_s: u64) -> Re
     .await;
     match (fetched, cached) {
         (Some(v), _) => {
-            cache.lock().unwrap().insert(url.to_string(), (v.clone(), Instant::now()));
+            cache.lock().unwrap_or_else(|e| e.into_inner()).insert(url.to_string(), (v.clone(), Instant::now()));
             Ok(v)
         }
         (None, Some((v, _))) => Ok(v),

@@ -75,6 +75,7 @@ function peopleRemoveSheet(p, people) {
       <p class="small">Their own chats, tasks, files and memory are deleted, and their devices signed out. This cannot be undone.</p>
       <fieldset><legend>Their team projects, routines and workspaces</legend>
         <label><input type="radio" name="projects" value="transfer" checked> Give them to <select name="to" aria-label="Who receives them">${others.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</select></label>
+        <p class="small muted">In workspaces they do not belong to, projects and routines go to that workspace's remaining owner or admin; workspaces with no other members are removed.</p>
         <label><input type="radio" name="projects" value="delete"> Delete them</label>
       </fieldset>
       <div class="row"><button type="button" data-cancel>Cancel</button><button class="danger" type="submit">Remove</button></div></form>`;

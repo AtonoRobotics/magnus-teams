@@ -66,6 +66,12 @@ fn successor_in(team: &crate::team::Ledger, ws: &str, id: &str, to: Option<&str>
     w.members.iter().filter(|(m, _)| m.as_str() != id).max_by(|(a_id, a_role), (b_id, b_role)| a_role.cmp(b_role).then_with(|| b_id.cmp(a_id))).map(|(m, _)| m.clone())
 }
 
+/// Workspaces where `id` is the only member: removing `id` deletes the
+/// workspace rather than leaving an empty, ownerless workspace behind.
+pub fn sole_workspaces(team: &crate::team::Ledger, id: &str) -> Vec<String> {
+    team.all().filter(|w| w.members.len() == 1 && w.members.contains_key(id)).map(|w| w.id.clone()).collect()
+}
+
 /// The team changes that move what `id` holds to `to` (or an existing member
 /// of each workspace), or delete it.
 pub fn changes(team: &crate::team::Ledger, id: &str, h: &Held, to: Option<&str>) -> Vec<Change> {
@@ -107,7 +113,13 @@ pub fn changes(team: &crate::team::Ledger, id: &str, h: &Held, to: Option<&str>)
             None => out.push(Change::RoutineRemoved { workspace: ws.clone(), id: r.clone() }),
         }
     }
-    out.extend(h.member_of.iter().map(|ws| Change::Removed { workspace: ws.clone(), person: id.into() }));
+    for ws in &h.member_of {
+        if team.workspace(ws).is_some_and(|w| w.members.len() <= 1 && w.members.contains_key(id)) {
+            out.push(Change::Deleted { workspace: ws.clone() });
+        } else {
+            out.push(Change::Removed { workspace: ws.clone(), person: id.into() });
+        }
+    }
     out
 }
 
@@ -141,7 +153,6 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
         return refuse(StatusCode::BAD_REQUEST, "invalid", "Name who receives their projects and agents.");
     }
     let given = if transfer { to.as_deref() } else { None };
-    let evs = k.read(|s| changes(&s.team, &id, &h, given));
     let counts = json!({ "projects": h.projects.len(), "routines": h.routines.len(), "workspaces_owned": h.owned.len(), "workspaces_left": h.member_of.len() });
     let audit = Audit {
         action: "user_deleted".into(),
@@ -151,6 +162,16 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
     };
     let actor = a.actor();
     let change = async {
+        let sole = k.read(|s| sole_workspaces(&s.team, &id));
+        for ws in &sole {
+            if let Err(e) = k.delete_workspace(&actor, ws).await {
+                return refuse(StatusCode::INTERNAL_SERVER_ERROR, "failed", &format!("{e:#}"));
+            }
+        }
+        let evs = k.read(|s| {
+            let h = held(&s.team, &id);
+            changes(&s.team, &id, &h, given)
+        });
         let team: Vec<(&str, Ev)> = evs.into_iter().map(|c| (actor.as_str(), Ev::Team(c))).collect();
         if !team.is_empty() {
             if let Err(e) = k.emit_all(team).await {

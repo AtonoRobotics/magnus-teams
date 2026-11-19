@@ -363,6 +363,35 @@ pub(super) async fn cancel(State(k): K, Caller(p): Caller, Path(id): Path<String
     })))
 }
 
+/// Self-service emergency stop for a person's own work: cancels every active or
+/// paused task of theirs and pauses all of their active schedules.
+pub(super) async fn stop_all(State(k): K, Caller(p): Caller) -> ApiResult {
+    let (tasks, schedules): (Vec<String>, Vec<String>) = k.read(|s| {
+        let tasks = s
+            .tasks
+            .values()
+            .filter(|t| t.person == p.id && s.team.run_of(&t.task_id).is_none())
+            .filter(|t| s.runs.get(&t.run_id).is_some_and(|r| !r.status.terminal()))
+            .map(|t| t.task_id.clone())
+            .collect();
+        let schedules = s.arrangements.schedules_of(&p.id).filter(|sc| sc.ended.is_none() && sc.paused.is_none()).map(|sc| sc.id.clone()).collect();
+        (tasks, schedules)
+    });
+    let mut cancelled = 0usize;
+    for id in &tasks {
+        if k.cancel_task(&p, id, None).await.is_ok() {
+            cancelled += 1;
+        }
+    }
+    let mut paused = 0usize;
+    for id in &schedules {
+        if k.pause_schedule(&p, id, None).await.is_ok() {
+            paused += 1;
+        }
+    }
+    Ok(Json(json!({ "ok": true, "tasks_cancelled": cancelled, "schedules_paused": paused, "cancelled_tasks": cancelled, "paused_schedules": paused })).into_response())
+}
+
 /// Steer an active or paused task in flight: appends a steering note from
 /// the task's person so the agent reads it on its next step without
 /// cancelling or restarting the run.
@@ -375,9 +404,12 @@ pub(super) async fn steer(State(k): K, Caller(p): Caller, Path(id): Path<String>
     if text.is_empty() || text.chars().count() > crate::compose::MAX_TEXT {
         return refuse(StatusCode::BAD_REQUEST, "steer needs a short instruction");
     }
-    let step = (run.replies.len() as u32).saturating_add(1);
+    let step = run.replies.len() as u32;
     let actor = format!("person:{}", p.id);
     k.emit(&actor, Ev::Notice { run: run.id.clone(), step, text: format!("Steering instruction from the person while this task is running: {text}") }).await?;
+    if run.status == crate::state::Status::Running {
+        k.wake(&run.id);
+    }
     Ok(Json(json!({ "ok": true, "step": step })).into_response())
 }
 

@@ -125,11 +125,20 @@ function harness() {
   assert.ok(h.calls.some(c => c[0] === "PUT" && c[1] === "/v1/preferences" && c[2]?.timezone === "America/Los_Angeles"));
 
   const privBox = { set innerHTML(v) { this.html = v; }, get innerHTML() { return this.html; } };
-  h.askText = async () => "DELETE";
+  let askedOpts = null;
+  h.askText = async opts => { askedOpts = opts; return "DELETE"; };
   h.privacyAccountCard(privBox);
   assert.match(privBox.html, /data-account-export.*data-account-erase/s);
   await h.$("[data-account-erase]").onclick();
+  assert.equal(askedOpts?.title, "Delete your account and data?", "privacyAccountCard passes an options object with title and danger to askText");
+  assert.equal(askedOpts?.danger, true);
   assert.ok(h.calls.some(c => c[0] === "DELETE" && c[1] === "/v1/account" && c[2]?.confirm === "DELETE"));
 }
+
+assert.match(app, /typeof msg === "object" && msg !== null/, "askText in app.js accepts an options object");
+assert.match(app, /data-hours="working_hours"/, "Settings → Notifications exposes working_hours controls");
+assert.match(app, /data-hours="quiet_hours"/, "Settings → Notifications exposes quiet_hours controls");
+assert.match(app, /data-pref-num="interruptions_per_day"/, "Settings → Notifications exposes interruptions_per_day control");
+assert.match(app, /data-stop-all-work/, "Tasks view exposes a Stop my active work button");
 
 console.log("password check passed");

@@ -106,11 +106,16 @@ function teamSideHead(d, ws, tab) {
  * @param {TeamPanelData} d
  */
 function teamSideFoot(d) {
+  const state = d.computer ? (TeamComputerStates[d.computer] || "Checking") : "Being set up";
+  const awake = state === "Awake";
+  const canControl = Team.home?.role && Team.home.role !== "guest";
   return SidePanel.computerFoot({
     id: d.computer,
     kindLabel: "Team Computer",
-    stateText: d.computer ? (TeamComputerStates[d.computer] || "Checking") : "Being set up",
+    stateText: state,
+    awake,
     stateAttr: true,
+    pauseId: d.computer && awake && canControl ? d.computer : null,
     watchHref: d.computer ? `#/computer/${enc(d.computer)}/screen` : null,
     showSetupWhenMissing: true,
   });
@@ -118,7 +123,8 @@ function teamSideFoot(d) {
 
 /**
  * The Activity tab: who is waiting, what the agent does now, the team
- * computer's screen, everyone it works for, and the month's spend.
+ * computer's screen, everyone it works for, personal agent delegations,
+ * routines, and the month's spend.
  * @param {TeamPanelData} d @param {string} ws @param {?string} [channel] the channel open beside it
  */
 function overviewHtml(d, ws, channel = null) {
@@ -146,7 +152,25 @@ function overviewHtml(d, ws, channel = null) {
   // The rest of the work, below what the banner and the card already show.
   const work = rest.length || !d.work.length ? `<section class="companion-sec"><div class="companion-sec-head"><span>Agents at work</span><span class="count">${rest.length}</span></div>
     ${rest.length ? `<div class="gbox">${rest.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic" aria-hidden="true">${icon("working")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)} · step ${w.steps + 1}</span></span></a>`).join("")}</div>` : `<p class="small faint">Nothing running.</p>`}</section>` : "";
-  return `${banner}${active}${screen}${work}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
+  return `${banner}${active}${screen}${work}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
+}
+
+/**
+ * Active and recent delegations from the team orchestrator to members'
+ * personal agents (`team_ask_personal_agent`).
+ * @param {TeamPanelData} d @param {string} ws @param {(id: string) => string} where
+ */
+function delegationsHtml(d, ws, where) {
+  const list = d.delegations || [];
+  if (!list.length) return "";
+  const rows = list.map(x => {
+    const ic = x.status === "waiting" ? "need" : x.status === "done" ? "done" : "working";
+    const tone = x.status === "waiting" ? " warn" : x.status === "done" ? " ok" : "";
+    const state = x.status === "waiting" ? "Waiting on personal approval" : x.status === "done" ? (x.shared ? "Shared to thread" : "Held privately") : "Working in personal agent";
+    const sub = [where(x.channel), state, x.mine && x.summary ? firstLine(x.summary) : ""].filter(Boolean).join(" · ");
+    return `<a class="gbox-row" data-delegation="${esc(x.task)}" href="${teamHref(ws, { kind: "channel", id: x.channel })}"><span class="gbox-ic${tone}" aria-hidden="true">${icon(ic)}</span><span class="gbox-main"><span class="gbox-lbl">${esc(x.member_name)}'s Magnus</span><span class="small muted">${esc(sub)}</span></span></a>`;
+  }).join("");
+  return `<section class="companion-sec" data-delegations><div class="companion-sec-head"><span>Personal agent delegations</span><span class="count">${list.length}</span></div><div class="gbox">${rows}</div></section>`;
 }
 
 /**
@@ -191,14 +215,19 @@ function teamFilesHtml(d, ws) {
 
 /**
  * The Members tab: who is here by name, and the way to the people page,
- * where a Team Admin adds and removes people and anyone sees who is in.
+ * where a Team Admin adds and removes people and anyone sees who is in,
+ * followed by how the team orchestrator delegates app requests to each
+ * member's personal Magnus.
  * @param {TeamPanelData} d @param {string} ws
  */
 function membersCardHtml(d, ws) {
   const home = Team.home, admin = isTeamAdmin(home);
   const face = m => `<span class="team-face" title="${esc(m.name)}">${avatar(m.name)}<span class="sr">${esc(m.name)}</span></span>`;
+  const apps = d.apps || home.apps || [];
+  const appsSec = apps.length ? `<section class="companion-sec" data-team-apps-card><div class="companion-sec-head"><span>Connectors &amp; agents</span><a class="small" href="${teamHref(ws, { kind: "people" })}">${admin ? "Configure" : "View"}</a></div>
+    <div class="gbox">${apps.map(a => `<div class="gbox-row"><span class="gbox-main"><span class="gbox-lbl">${esc(a.title || a.name)}</span><span class="small muted">${a.signs_in ? "Delegated to member's personal Magnus" : a.roles?.length ? `Workspace app (${a.roles.join(", ")})` : "Not granted"}</span></span></div>`).join("")}</div></section>` : "";
   return `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></div>
-    <div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}${avatar(home.agent.name, true)}</div></div></section>`;
+    <div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}${avatar(home.agent.name, true)}</div></div></section>${appsSec}`;
 }
 
 /**
@@ -244,7 +273,7 @@ const TeamPanel = {
 
   /** The right panel beside a channel: its project's, or the workspace's. */
   async side(el, ws, project, channel = null) {
-    if (!el) return;
+    if (!el || !el.isConnected) return;
     const d = await this.load(ws, project).catch(() => null);
     if (!d || !el.isConnected) return;
     this.paintSide(el, d, ws, channel);

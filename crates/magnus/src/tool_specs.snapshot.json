@@ -756,6 +756,7 @@
       "team_fix_entry",
       "team_create",
       "team_note",
+      "team_ask_personal_agent",
       "team_read_knowledge"
     ]
   },
@@ -842,6 +843,7 @@
     "team_fix_entry": "{\"name\":\"team_fix_entry\",\"description\":\"Correct or retire a knowledge base entry the agent wrote, when you learn it is wrong.\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"statement\":{\"type\":\"string\"},\"retire\":{\"type\":\"boolean\"},\"superseded_by\":{\"type\":\"string\"}},\"required\":[\"id\"]}}",
     "team_create": "{\"name\":\"team_create\",\"description\":\"Make a project (with its own channel, owned by the person you work for) or a channel, when the conversation calls for one.\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\",\"enum\":[\"project\",\"channel\"]},\"name\":{\"type\":\"string\"}},\"required\":[\"kind\",\"name\"]}}",
     "team_note": "{\"name\":\"team_note\",\"description\":\"Keep a scratch note for this task. Never a fact, and gone when the task ends.\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]}}",
+    "team_ask_personal_agent": "{\"name\":\"team_ask_personal_agent\",\"description\":\"Delegate a connector or personal account request to a workspace member's own personal agent instead of using a personal connector yourself. request: what the member's personal agent should do. app: optional app name (such as gcal, gmail, github). member: optional member id (defaults to the requester). When acting for the requester, their personal agent returns the answer privately; when acting for another member, their personal agent works for them privately in this thread until they share it.\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"request\":{\"type\":\"string\"},\"app\":{\"type\":\"string\"},\"member\":{\"type\":\"string\"}},\"required\":[\"request\"]}}",
     "team_read_knowledge": "{\"name\":\"team_read_knowledge\",\"description\":\"Read a knowledge base open to the person you work for. Omit project for the workspace's own.\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"workspace\":{\"type\":\"string\"},\"project\":{\"type\":\"string\"}},\"required\":[]}}"
   }
 }

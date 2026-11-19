@@ -224,11 +224,11 @@ function reportOpenedSoon() {
 // ignore window.confirm and answer no without showing it, so a button
 // behind one did nothing at all (the Windows app, owner 2026-11-03:
 // Disconnect in the Library). Escape, or Back, is no.
-function ask(msg, yes) {
+function ask(msg, yes = "Approve", danger = false) {
   return new Promise(done => {
     const d = document.createElement("dialog");
     d.className = "ask";
-    d.innerHTML = `<p></p><div class="row"><button data-ask="no">Back</button><button class="primary" data-ask="yes"></button></div>`;
+    d.innerHTML = `<p></p><div class="row"><button data-ask="no">Back</button><button class="${danger ? "danger" : "primary"}" data-ask="yes"></button></div>`;
     $("p", d).textContent = msg;
     $("[data-ask=yes]", d).textContent = yes;
     d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
@@ -239,15 +239,19 @@ function ask(msg, yes) {
   });
 }
 
-function askText(msg, placeholder = "", yes = "Submit") {
+function askText(msg, placeholder = "", yes = "Submit", danger = false) {
+  const opts = typeof msg === "object" && msg !== null
+    ? { title: msg.title || "", body: msg.body || "", placeholder: msg.placeholder || "", yes: msg.okLabel || msg.yes || "Submit", danger: !!msg.danger }
+    : { title: "", body: String(msg ?? ""), placeholder, yes, danger };
   return new Promise(done => {
     const d = document.createElement("dialog");
     d.className = "ask";
-    d.innerHTML = `<form><p></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="primary" data-ask="yes"></button></div></form>`;
-    $("p", d).textContent = msg;
+    d.innerHTML = `<form>${opts.title ? `<h3></h3>` : ""}<p></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="${opts.danger ? "danger" : "primary"}" data-ask="yes"></button></div></form>`;
+    if (opts.title) $("h3", d).textContent = opts.title;
+    $("p", d).textContent = opts.body;
     const inp = $("[data-ask-input]", d);
-    inp.placeholder = placeholder;
-    $("[data-ask=yes]", d).textContent = yes;
+    inp.placeholder = opts.placeholder;
+    $("[data-ask=yes]", d).textContent = opts.yes;
     d.addEventListener("click", e => { if (e.target.closest("[data-ask=no]")) d.close("no"); });
     $("form", d).addEventListener("submit", e => { e.preventDefault(); d.close("yes"); });
     d.addEventListener("close", () => { const v = d.returnValue === "yes" ? inp.value.trim() : null; d.remove(); done(v || null); });
@@ -373,6 +377,7 @@ const UI = {
   done: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   need: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
   working: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   stopped: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   attach: '<path d="m21 11-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.3-2.3l8-8"/>',
@@ -425,7 +430,7 @@ function nav() {
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
-    <div class="sect"><a href="#/trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span>Trash</span></a></div>
+    <div class="sect"><a href="#/trash" aria-label="Trash" title="Trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span class="nav-label">Trash</span></a></div>
     <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings/appearance" class="icon-btn companion-theme-nav${route==="#/settings/appearance" ? " on" : ""}" aria-label="Appearance" title="Theme & accent">${icon("palette")}</a><a href="#/settings" class="icon-btn${route.startsWith("#/settings") && route!=="#/settings/appearance" ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
 function sidebar() {
@@ -986,6 +991,7 @@ async function go() {
   // never the next view's.
   const seq = ++App.seq;
   const left = $("#main"), main = left.cloneNode(false);
+  main.className = "";
   left.replaceWith(main);
   for (const [re, view, workspace] of App.routes) {
     const m = h.match(re);
@@ -1318,14 +1324,16 @@ const MORE = new Set();
 function tasksView() {
   const LIMIT = { done: 15, failed: 15 };
   const sections = groupTasks(App.tasks);
-  return sections.length ? sections.map(sec => {
+  const activeCount = App.tasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended).length;
+  const stopBar = activeCount ? `<div class="spread" style="margin-bottom:8px"><span class="small muted">Active work running or scheduled</span><button type="button" class="danger small" data-stop-all-work>Stop my active work</button></div>` : "";
+  return sections.length ? `${stopBar}${sections.map(sec => {
     const n = sec.groups.reduce((k, g) => k + g.count[sec.state], 0);
     const cap = LIMIT[sec.state] && !MORE.has(sec.state) ? LIMIT[sec.state] : Infinity;
     const left = sec.groups.length - Math.min(cap, sec.groups.length);
     return `<section class="tsec" data-section="${sec.state}"><h3>${esc(sec.label)} <span class="count">${n}</span></h3>
       ${sec.groups.slice(0, cap).map(g => groupBlock(g, sec.state)).join("")}
       ${left ? `<button class="link small" data-more="${sec.state}">Show ${left} more</button>` : ""}</section>`;
-  }).join("") : offered("No tasks yet. Ask for something in a conversation.");
+  }).join("")}` : offered("No tasks yet. Ask for something in a conversation.");
 }
 
 // An empty Tasks or Schedules: what Magnus offered to take over when it
@@ -3293,15 +3301,41 @@ function systemNotificationsCard() {
 async function notificationsSection(el) {
   const draw = async () => {
     App.prefs = await Server.preferences.get();
+    const wh = App.prefs.working_hours || { start: "09:00", end: "17:00" };
+    const qh = App.prefs.quiet_hours || { start: "22:00", end: "07:00" };
+    const budget = App.prefs.interruptions_per_day ?? 5;
     paint(el, `<h2>Notifications</h2><p class="muted">Magnus tells this computer when…</p>
       <div class="card">${NOTIFY.map(([k, label, hint]) => `<label class="row toggle"><input type="checkbox" data-pref="${k}" ${App.prefs[k] ? "checked" : ""}>
         <span><span>${esc(label)}</span><span class="small muted" style="display:block">${esc(hint)}</span></span></label>`).join("")}</div>
+      <h3>Hours and interruption budget</h3>
+      <div class="card" data-hours-card>
+        <p class="small muted">Morning briefings run at the start of working hours. During quiet hours, non-urgent proactive notices wait until morning.</p>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap">
+          <label class="small">Working hours <input type="time" data-hours="working_hours" data-edge="start" value="${esc(wh.start || "09:00")}"> to <input type="time" data-hours="working_hours" data-edge="end" value="${esc(wh.end || "17:00")}"></label>
+          <label class="small">Quiet hours <input type="time" data-hours="quiet_hours" data-edge="start" value="${esc(qh.start || "22:00")}"> to <input type="time" data-hours="quiet_hours" data-edge="end" value="${esc(qh.end || "07:00")}"></label>
+          <label class="small">Daily interruption limit <input type="number" min="1" max="50" data-pref-num="interruptions_per_day" value="${esc(String(budget))}" style="width:5em"></label>
+        </div>
+      </div>
       ${systemNotificationsCard()}`);
   };
   el.onchange = async e => {
     if (e.target.closest("input[data-system-notifications]")) {
       if (e.target.checked && Magnus.notifyPermission?.() !== "granted") await Notices.turnOn(); else Notices.setSystem(e.target.checked);
       return draw();
+    }
+    const h = e.target.closest("input[data-hours]");
+    if (h) {
+      const kind = h.dataset.hours;
+      const start = $(`input[data-hours="${kind}"][data-edge="start"]`, el)?.value || "09:00";
+      const end = $(`input[data-hours="${kind}"][data-edge="end"]`, el)?.value || "17:00";
+      try { App.prefs = await Server.preferences.set({ [kind]: { start, end } }); toast("Saved."); } catch (err) { toast(err.message); }
+      return;
+    }
+    const num = e.target.closest("input[data-pref-num]");
+    if (num) {
+      const v = Math.max(1, Number(num.value) || 1);
+      try { App.prefs = await Server.preferences.set({ [num.dataset.prefNum]: v }); toast("Saved."); } catch (err) { toast(err.message); }
+      return;
     }
     const c = e.target.closest("input[data-pref]"); if (!c) return;
     try { App.prefs = await Server.preferences.set({ [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
@@ -3597,6 +3631,16 @@ async function boot() {
         try {
           await Server.schedules.create({ text: "Heartbeat: Check connected email, calendar, and active threads for anything urgent or stalled. Stay silent unless something needs my attention.", every_minutes: 30 });
           toast("Heartbeat enabled (every 30 min).");
+          await refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+      }
+      else if (t.closest("[data-stop-all-work]")) {
+        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-stop-all-work]"));
+        if (!await ask("Stop all of your running tasks, pause your schedules, and pause your active computers?", "Stop my active work", true)) return;
+        b.disabled = true;
+        try {
+          const r = await Server.tasks.stopAll();
+          toast(`Stopped ${r.tasks_cancelled || 0} task(s), paused ${r.schedules_paused || 0} schedule(s) and ${r.computers_paused || 0} computer(s).`);
           await refresh();
         } catch (err) { toast(err.message); b.disabled = false; }
       }

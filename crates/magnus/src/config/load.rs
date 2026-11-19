@@ -18,6 +18,14 @@ impl Config {
         }
         cfg.images.as_ref().map(|i| i.check(&cfg.adapters)).transpose()?;
         cfg.relay.as_ref().map(|r| r.check()).transpose()?;
+        for f in &cfg.model.fallbacks {
+            let Some((a, _m)) = f.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) else {
+                anyhow::bail!("[model] fallbacks: {f:?} must be \"adapter/model\"");
+            };
+            if !cfg.adapters.is_empty() {
+                anyhow::ensure!(cfg.adapters.iter().any(|ad| ad.id == a), "[model] fallbacks: unknown adapter {a:?} in {f:?}");
+            }
+        }
         anyhow::ensure!(cfg.backup.keep_days >= 1, "[backup] keep_days must be at least 1: with 0 every backup is deleted as soon as it is made");
         if let Some(b) = &cfg.browser {
             for site in &b.allow {

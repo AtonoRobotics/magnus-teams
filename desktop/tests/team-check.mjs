@@ -294,4 +294,24 @@ TeamCommand.dialog = { open: false, close() {} };
 for (const f of listeners.keydown) f({ ctrlKey: true, metaKey: false, altKey: false, key: "k", preventDefault() {} });
 assert.equal(opened, 1, "Ctrl+K after Escape did not open the menu again");
 
+// Personal agent delegations and member connector visibility in the right side panel.
+const panelWithDelegations = {
+  ...noComputer,
+  computer: "pc1",
+  channels: ["c1"],
+  members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }],
+  delegations: [
+    { task: "t99", channel: "c1", member: "dana", member_name: "Dana", mine: false, shared: false, status: "running", summary: "Check open PRs" },
+  ],
+  apps: [
+    { name: "github", title: "GitHub", signs_in: true, roles: ["owner", "admin", "member"] },
+    { name: "jira", title: "Jira", signs_in: false, roles: ["owner", "admin", "member"] },
+  ],
+};
+const actHtml = sandbox.overviewHtml(panelWithDelegations, "w", "c1");
+assert.match(actHtml, /data-delegations[^]*Personal agent delegations[^]*Dana's Magnus[^]*Working in personal agent/, "the Activity tab does not show personal agent delegations");
+const memHtml = sandbox.teamSideHtml(panelWithDelegations, "w", "c1", "members");
+assert.match(memHtml, /data-team-apps-card[^]*Connectors &amp; agents[^]*GitHub[^]*Delegated to member's personal Magnus/, "the Members tab does not show personal agent connector availability");
+assert.match(memHtml, /Jira[^]*Workspace app/, "the Members tab does not show team connectors");
+
 console.log("team ok");

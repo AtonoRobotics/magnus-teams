@@ -96,6 +96,7 @@ const table = [
   ["tasks.cancel", ["t 1"], "POST", "/v1/tasks/t%201/cancel", {}],
   ["tasks.resume", ["t1"], "POST", "/v1/tasks/t1/resume", {}],
   ["tasks.steer", ["t 1", "use staging"], "POST", "/v1/tasks/t%201/steer", { text: "use staging" }],
+  ["tasks.stopAll", [], "POST", "/v1/tasks/stop-all", {}],
   ["schedules.create", [{ text: "Check inbox", daily_at: "08:00" }], "POST", "/v1/schedules", { text: "Check inbox", daily_at: "08:00" }],
   ["schedules.remove", ["s/1"], "DELETE", "/v1/schedules/s%2F1", undefined],
   ["schedules.resume", ["s1"], "POST", "/v1/schedules/s1/resume", {}],

@@ -276,6 +276,12 @@ async fn delete_own_account(State(k): K, Caller(p): Caller, Json(b): Json<Value>
         return refuse(StatusCode::CONFLICT, "You are the last owner of this server: make someone else an owner first.");
     }
     let actor = format!("person:{}", p.id);
+    let sole = k.read(|s| crate::admin_app::remove::sole_workspaces(&s.team, &p.id));
+    for ws in &sole {
+        if let Err(e) = k.delete_workspace(&actor, ws).await {
+            return Ok(internal(e));
+        }
+    }
     let evs = k.read(|s| {
         let h = crate::admin_app::remove::held(&s.team, &p.id);
         crate::admin_app::remove::changes(&s.team, &p.id, &h, None)

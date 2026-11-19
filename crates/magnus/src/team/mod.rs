@@ -17,6 +17,7 @@ mod caller;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
+pub(crate) mod delegate;
 mod forget;
 #[cfg(test)]
 mod forget_tests;
@@ -648,6 +649,10 @@ impl Ledger {
 
     pub fn whispers_by(&self, workspace: &str, channel: &str, person: &str) -> Vec<&Whisper> {
         self.whispers.values().filter(|w| w.workspace == workspace && w.channel == channel && w.owner == person).collect()
+    }
+
+    pub fn whispers_of(&self, workspace: &str) -> Vec<&Whisper> {
+        self.whispers.values().filter(|w| w.workspace == workspace).collect()
     }
 
     pub fn runs_by(&self, workspace: &str, person: &str) -> Vec<&TeamRun> {

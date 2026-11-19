@@ -88,7 +88,7 @@ impl Kernel {
                 .filter(|t| t.person == person && t.task_id != task && t.chat.as_ref().is_some_and(|c| !c.turn && c.thread == thread))
                 .filter_map(|t| s.runs.get(&t.run_id))
                 .filter(|r| r.status == Status::Running)
-                .map(|r| (r.id.clone(), (r.replies.len() as u32).saturating_add(1)))
+                .map(|r| (r.id.clone(), r.replies.len() as u32))
                 .collect()
         });
         for (run_id, step) in active_runs {
