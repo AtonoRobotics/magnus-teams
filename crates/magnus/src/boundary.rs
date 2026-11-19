@@ -647,6 +647,7 @@ impl Kernel {
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
         let transmits = crate::local::may_send(a, f)
             && !own_memory
+            && !crate::payments::sends_only_the_purchase(&f.app, &a.tool)
             && !f.reaches_self
             && (f.risk.changes_state()
                 || f.app == "web"

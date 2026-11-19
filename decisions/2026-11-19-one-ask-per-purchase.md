@@ -14,5 +14,15 @@ The person's own ask-first rules and the Rule of Two (case 3) are unchanged: whe
 ## Reason
 The owner's standard: an ask is worth the person's attention only when they know something the system does not. For a purchase, that is whether this money is wanted, and Link's card already asks exactly that, with the seller, amount and the agent's reason. Auto Review's ask on the request, and again on the fill of what the person had just approved, asked the same question two more times. Money is still approved by the person once per purchase: in Link, or at the saved card's fill. Auto Review's denial is kept on the request because it is protection that costs the person nothing.
 
-## Not done: case 3 on a purchase
-In a run that read untrusted content and private data, the Rule of Two still asks on `purchase_request` and on each `purchase_fill`, so a tainted run still sees up to three cards. `tests/invariants/tests/payments.rs` (`a_purchase_is_a_one_time_card_the_person_approved_and_the_agent_never_sees`, `a_purchase_declined_in_link_ends_there_and_no_saved_card_stands_in`, `a_saved_card_is_approved_at_every_fill_and_works_only_at_its_seller`) expects those case-3 cards, so dropping them needs the owner. Recommendation: the request sends only the seller, amount and reason to the person's own Link wallet, where they read it, and a covered fill sends the approved card to the approved seller's page; neither carries private data to a new destination, so neither should be a case-3 ask.
+## Case 3 on a purchase (owner, 2026-11-19)
+The Rule of Two asked on `purchase_request` and on each `purchase_fill` in a
+run that had read untrusted content and private data, so a tainted run still
+saw up to three cards for one purchase. Neither tool carries the work's
+private data to a new destination: a request goes to the person's own Link
+wallet with the seller, amount and reason, and a fill puts the approved card
+on the approved seller's page. So the Rule of Two leaves both alone
+(`payments::sends_only_the_purchase`, read where the boundary decides what
+transmits). Each is still asked about as a payment: in Link, or at a saved
+card's every fill, which still asks each time. Invariant tests in
+`tests/invariants/tests/payments.rs` expected those cards; the owner's
+patch is `docs/proposals/2026-11-19-payments-invariants.patch`.

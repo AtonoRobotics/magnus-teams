@@ -279,6 +279,16 @@ fn spend_matches(p: &Purchase, spend: &link::Spend) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a payments tool carries nothing of the work out, so the Rule
+/// of Two has nothing to ask about (decisions/2026-11-19-one-ask-per-purchase.md):
+/// a purchase request goes to the person's own Link wallet with the amount
+/// and seller the agent read, and a fill puts the approved card on the
+/// approved seller's page and nothing else. Each is still asked about as a
+/// payment: in Link, or at a saved card's every fill.
+pub(crate) fn sends_only_the_purchase(app: &str, tool: &str) -> bool {
+    app == "payments" && matches!(tool, "purchase_request" | "purchase_fill")
+}
+
 impl Kernel {
     /// A purchase's one ask (decisions/2026-11-19-one-ask-per-purchase.md),
     /// before `settle`, for a model's action the kernel raised no ask for:
@@ -563,6 +573,8 @@ mod tests {
         assert!(MONEY_RULE.starts_with("kernel:"), "a broader approval could cover a payment");
         assert!(money_ask("crm__update", Risk::Irreversible).is_none());
         assert!(money_ask("purchase_request", Risk::Financial).is_none(), "a Link purchase was asked twice");
+        assert!(sends_only_the_purchase("payments", "purchase_request") && sends_only_the_purchase("payments", "purchase_fill"));
+        assert!(!sends_only_the_purchase("shop", "purchase_fill") && !sends_only_the_purchase("payments", "pay"), "the Rule of Two was lifted from another tool");
         assert!(money_ask("purchase_fill", Risk::Financial).is_none());
     }
 
