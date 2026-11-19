@@ -190,18 +190,15 @@ pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String
 }
 
 /// Where an action goes, as a rule would name it. Empty means it cannot match.
-/// A new source is named by its host. `place` is the app's template for
-/// where a write lands (`places::place`), from its connector.
-pub(crate) fn destinations_of(a: &Action, place: Option<&str>, shown: Option<&Shown>) -> Vec<String> {
+/// A new source is named by its host.
+pub(crate) fn destinations_of(a: &Action, shown: Option<&Shown>) -> Vec<String> {
     if a.tool == crate::rule_effects::SOURCE_TOOL {
         return a.input["host"].as_str().map(normalized).filter(|h| !h.is_empty()).into_iter().collect();
     }
     // Where the gate read no recipients (an app with no destinations set
-    // up), the place the call names, else the addresses it names.
-    let placed = place.and_then(|t| crate::places::place(t, &a.input));
+    // up), the addresses the call itself names.
     match shown {
         Some(s) if s.recipients.values().any(|r| !r.is_empty()) => s.recipients.values().flatten().map(|r| normalized(r)).collect(),
-        _ if placed.is_some() => placed.into_iter().collect(),
         _ => ["to", "cc", "bcc", "recipient", "recipients"]
             .iter()
             .filter_map(|k| a.input.get(*k))
@@ -225,11 +222,6 @@ fn discloses(text: &str, secret: &str) -> bool {
     secret.len() >= MIN_SECRET_BYTES && crate::vault::redact(text, secret) != text
 }
 
-/// The template for where this tool's app lands a write, if it has one.
-pub(crate) fn place_of(f: &Facts) -> Option<&str> {
-    f.connector.as_ref().and_then(|c| c.place.as_deref())
-}
-
 /// The tokens inside a stored value: the whole of it, or a sign-in's tokens.
 fn secret_values(raw: &str) -> Vec<String> {
     let mut out = vec![raw.to_string()];
@@ -242,7 +234,7 @@ fn secret_values(raw: &str) -> Vec<String> {
 impl Kernel {
     /// The accepted rule that covers this action, if one matches exactly.
     pub(crate) fn covering_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<String> {
-        let destinations = destinations_of(a, place_of(f), shown);
+        let destinations = destinations_of(a, shown);
         if destinations.is_empty() {
             return None;
         }

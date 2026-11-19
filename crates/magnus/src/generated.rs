@@ -174,7 +174,6 @@ fn connector_of(person: &str, d: &Definition) -> Result<Connector> {
         redirect_uri: None,
         handoff: None,
         destinations: Default::default(),
-        place: None,
         sent: Default::default(),
         read_back: Default::default(),
         watch: vec![],

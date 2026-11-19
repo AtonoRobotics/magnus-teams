@@ -10,8 +10,8 @@
 //! An ask is a card the client draws in the conversation the work came
 //! from and in the approval list. The agent never writes or sees it: the
 //! run only waits. Its sentence is the server's, made from structured
-//! fields. Allow covers the rest of the task (same kind, same
-//! destinations), Allow always saves a narrow rule, Don't allow stops the
+//! fields. Allow covers the rest of the task (any action going nowhere
+//! the person did not allow), Allow always saves a narrow rule, Don't allow stops the
 //! action. A payment and case 3 are allowed one action at a time.
 //!
 //! Every approval card is made here, by `raise`, from a `Reason`: there is
@@ -127,19 +127,21 @@ pub(crate) fn destinations(a: &Action, f: &Facts, shown: Option<&Shown>) -> Vec<
     if shown.is_none() && f.connector.is_none() && matches!(f.app.as_str(), "web" | "browser") {
         return a.input["url"].as_str().and_then(host_of).into_iter().collect();
     }
-    let mut d = crate::rules::destinations_of(a, crate::rules::place_of(f), shown);
+    let mut d = crate::rules::destinations_of(a, shown);
     d.sort();
     d.dedup();
     d
 }
 
 /// Whether an Allow given for `approved` covers an action going to `now`:
-/// the same destinations, or fewer of them. An approval from before
-/// destinations were kept covers as it did then.
+/// every place the action goes is one the person allowed. An action that
+/// names no destination (a commit, a deploy, a task update) adds none, so
+/// it is covered; a recipient the Allow did not name is not. An approval
+/// from before destinations were kept covers as it did then.
 pub fn same_destinations(approved: Option<&[String]>, now: &[String]) -> bool {
     match approved {
         None => true,
-        Some(list) => list.is_empty() == now.is_empty() && now.iter().all(|d| list.iter().any(|x| x.eq_ignore_ascii_case(d))),
+        Some(list) => now.iter().all(|d| list.iter().any(|x| x.eq_ignore_ascii_case(d))),
     }
 }
 
@@ -158,22 +160,25 @@ pub struct Query<'a> {
 }
 
 /// Whether one approval covers this action. Allow ("task") covers the rest
-/// of its task for the same tool, risk and destinations (spec, How an ask
-/// looks). Never a payment, covered only by the approval of that very
-/// action; and case 3 only by an Allow the person gave on a case-3 card.
+/// of its task: every later action of any tool, in any app, that goes to no
+/// destination the person did not allow
+/// (decisions/2026-11-19-allow-covers-the-task.md). Never a payment,
+/// covered only by the approval of that very action; and case 3 only by an
+/// Allow the person gave on a case-3 card.
 pub fn covers(ap: &Approval, q: &Query) -> bool {
-    if ap.person != q.person || ap.tool != q.tool || ap.risk.as_deref() != Some(q.risk) {
+    if ap.person != q.person {
         return false;
     }
+    let same_action = ap.tool == q.tool && ap.risk.as_deref() == Some(q.risk);
     let given = Reason::of(ap.reason.as_deref());
     let same_case = q.reason != Some(Reason::NewDestination) || given == Some(Reason::NewDestination);
     let wide = same_case && q.reason.is_none_or(Reason::task_wide) && given.is_none_or(Reason::task_wide);
     match ap.scope.as_str() {
-        "once" => !ap.used && q.tasks.contains(&ap.task) && ap.input_hash.as_deref() == Some(q.hash),
+        "once" => same_action && !ap.used && q.tasks.contains(&ap.task) && ap.input_hash.as_deref() == Some(q.hash),
         "task" => wide && q.tasks.contains(&ap.task) && same_destinations(ap.destinations.as_deref(), q.destinations),
         // Written before rev 140, read as they were given.
-        "window" => wide && ap.until.is_some_and(|u| u > q.now),
-        "standing" => wide,
+        "window" => same_action && wide && ap.until.is_some_and(|u| u > q.now),
+        "standing" => same_action && wide,
         _ => false,
     }
 }

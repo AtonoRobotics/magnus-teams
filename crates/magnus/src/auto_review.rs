@@ -293,7 +293,7 @@ mod tests {
     }
 
     /// Hard to undo is no ask of its own: a commit or pull request the
-    /// person asked for is allowed (decisions/2026-11-19-a-repository-is-a-destination.md).
+    /// person asked for is allowed (decisions/2026-11-19-allow-covers-the-task.md).
     #[test]
     fn what_cannot_be_undone_asks_only_beyond_the_request() {
         assert!(!SYSTEM.contains("and when the action would be hard to undo"), "{SYSTEM}");

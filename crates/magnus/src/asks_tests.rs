@@ -28,25 +28,44 @@ fn to(d: &[&str]) -> Vec<String> {
     d.iter().map(|s| s.to_string()).collect()
 }
 
-/// Allow covers the rest of the task: later actions of the same kind to the
-/// same destinations, and nothing else (spec rev 140, How an ask looks).
+/// Allow covers the rest of the task: any later action, of any tool in any
+/// app, that goes nowhere the person did not allow
+/// (decisions/2026-11-19-allow-covers-the-task.md).
 #[test]
-fn allow_covers_the_task_by_kind_and_destinations() {
+fn allow_covers_the_task_wherever_it_goes_nowhere_new() {
     let allow = approval("task", "t1", Some(OUTSIDE_REQUEST), Some("h1"), Some(&["bob@corp.example"]));
     let bob = to(&["bob@corp.example"]);
     assert!(covers(&allow, &query(&bob, Some(Reason::OutsideRequest), "h2")), "Allow did not cover a later send to the same person");
     assert!(covers(&allow, &query(&bob, None, "h3")), "Allow did not cover an unasked send of the same kind");
     assert!(!covers(&allow, &query(&to(&["eve@evil.example"]), Some(Reason::OutsideRequest), "h4")), "Allow covered another destination");
     assert!(!covers(&allow, &query(&to(&["bob@corp.example", "eve@evil.example"]), None, "h5")), "Allow covered an added destination");
-    assert!(!covers(&allow, &query(&[], None, "h6")), "Allow for a destination covered an action with none");
+    assert!(covers(&allow, &query(&[], None, "h6")), "Allow did not cover an action that goes nowhere new");
     let other_task = approval("task", "t2", Some(OUTSIDE_REQUEST), None, Some(&["bob@corp.example"]));
     assert!(!covers(&other_task, &query(&bob, None, "h7")), "Allow reached another task");
+    // Before, each tool asked again: a commit, then a pull request, then a comment.
     let mut other_tool = allow.clone();
-    other_tool.tool = "mail__delete".into();
-    assert!(!covers(&other_tool, &query(&bob, None, "h8")), "Allow reached another kind of action");
-    let mut riskier = allow.clone();
-    riskier.risk = Some("reversible_write".into());
-    assert!(!covers(&riskier, &query(&bob, None, "h9")), "Allow covered the action once it was classed riskier");
+    other_tool.tool = "github__push_files".into();
+    other_tool.destinations = Some(vec![]);
+    assert!(covers(&other_tool, &query(&[], None, "h8")), "Allow for one tool did not cover another in the same task");
+    assert!(!covers(&other_tool, &query(&bob, None, "h8")), "Allow that named no one covered a send to someone");
+    let mut other_risk = allow.clone();
+    other_risk.risk = Some("reversible_write".into());
+    assert!(covers(&other_risk, &query(&bob, None, "h9")), "Allow did not cover a riskier action of the same task");
+    let mut someone_elses = allow.clone();
+    someone_elses.person = "carol".into();
+    assert!(!covers(&someone_elses, &query(&bob, None, "h10")), "another person's Allow covered the action");
+}
+
+/// An approval from before rev 140 still covers only the action it was given for.
+#[test]
+fn an_old_window_or_standing_approval_covers_only_its_own_tool() {
+    for scope in ["window", "standing"] {
+        let mut old = approval(scope, "t0", None, None, None);
+        old.until = Some(chrono::Utc::now() + chrono::Duration::hours(1));
+        assert!(covers(&old, &query(&[], None, "h")), "{scope}");
+        old.tool = "mail__delete".into();
+        assert!(!covers(&old, &query(&[], None, "h")), "{scope} reached another tool");
+    }
 }
 
 /// A payment asks every time: no Allow covers another. Private data to a

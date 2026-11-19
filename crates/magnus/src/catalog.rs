@@ -102,9 +102,6 @@ pub struct Manifest {
     /// Where a tool's action goes, read from what it acts on.
     #[serde(default)]
     pub destinations: BTreeMap<String, crate::gate_reads::Destination>,
-    /// Where a write lands when no recipient names it (`places::place`).
-    #[serde(default)]
-    pub place: Option<String>,
     /// How the gate asks whether the person has mailed an address before.
     #[serde(default)]
     pub sent: Option<crate::gate_reads::SentSearch>,
@@ -206,7 +203,6 @@ pub fn connector(m: &Manifest) -> Connector {
         redirect_uri: m.redirect_uri.clone(),
         handoff: m.handoff.clone(),
         destinations: m.destinations.clone(),
-        place: m.place.clone(),
         sent: m.sent.clone(),
         read_back: m.read_back.clone(),
         watch: m.watch.clone(),
@@ -336,10 +332,6 @@ mod tests {
         for (t, d) in &m.destinations {
             assert_eq!(d.fault(t, |t| m.tools.get(t).cloned()), None, "{}", m.id);
             assert!(m.tools.contains_key(t), "{}: destinations for {t}, which it does not have", m.id);
-        }
-        // A place names a host and at least one field of the call.
-        if let Some(p) = &m.place {
-            assert!(p.split_once('/').is_some_and(|(host, path)| host.contains('.') && !host.contains('{') && path.contains('{')), "{}: place {p}", m.id);
         }
         if let Some(s) = &m.sent {
             assert_eq!(s.fault(|t| m.tools.get(t).cloned()), None, "{}", m.id);

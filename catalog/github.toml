@@ -9,9 +9,9 @@ summary = "Magnus can read your GitHub repositories, issues, pull requests and c
 # until the provider's own mark is in its listing.
 publisher = "GitHub"
 category = "code"
-abilities = ["Find a repository, issue, pull request or file when you ask about it", "Read a pull request's changes, reviews and comments", "Open and update issues and pull requests, comment and review, when your request needs it", "Commit, merge and delete when your request calls for it, and ask you first about anything beyond it"]
+abilities = ["Find a repository, issue, pull request or file when you ask about it", "Read a pull request's changes, reviews and comments", "Open and update issues and pull requests, comment and review, when your request needs it", "Commit, merge and delete, when you allow each one"]
 asks = ["Read and change your repositories, public and private, with their code, issues and pull requests, when your request needs it", "See your organisations and teams"]
-can = "Read your repositories, issues, pull requests, commits and releases, and open, comment on, commit to or merge them when your request calls for it"
+can = "Read your repositories, issues, pull requests, commits and releases, and open, comment on, commit to or merge them when you allow each one"
 cannot = "Change anything you did not ask for without asking you first, or reach an organisation whose owners have not approved Magnus"
 letters = "Gh"
 tint = "#24292F"
@@ -32,12 +32,6 @@ endpoint = "https://api.githubcopilot.com/mcp/"
 # comes back is the person's repositories, written by others.
 audience = "public"
 label = "private+untrusted"
-# Where a write lands: the repository its call names. It is the write's
-# destination wherever one is asked about, so allowing a repository once
-# after reading someone else's text is remembered for it, and a repository
-# the person named in their request is theirs, as an address they wrote is
-# (decisions/2026-11-19-a-repository-is-a-destination.md).
-place = "github.com/{owner}/{repo}"
 registration = "preregistered"
 provider = "github"
 # GitHub publishes no revocation endpoint: the person removes Magnus here.
