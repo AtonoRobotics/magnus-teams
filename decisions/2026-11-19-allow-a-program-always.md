@@ -62,3 +62,5 @@ Tests: `desktop::tests::only_the_organisations_ask_may_be_allowed_always`,
 `rules::tests::a_program_rule_covers_only_that_programs_tools`,
 `rule_effects::tests::a_persons_ask_first_replaces_a_programs_own_ask`,
 `desktop/tests/asks-check.mjs`.
+
+Narrowed the same day (decisions/2026-11-19-code-asks-once-per-task.md): a tool that runs code asks once per task with its own ask, which Allow always for the program does not answer, unless the request asked for that code.

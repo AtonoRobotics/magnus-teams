@@ -50,10 +50,11 @@ fn strongest(rules: Vec<Rule>, person: &crate::config::Person, facts: &ToolFacts
 }
 
 /// Whether the kernel's own ask stands over the person's ask-first rule. A
-/// program's own ask (`desktop::PROGRAM_ASK`) does not: Allow always may
-/// answer it, so the person's ask first takes its place and still asks.
+/// program's own ask (`desktop::PROGRAM_ASK`, `desktop::CODE_ASK`) does not:
+/// Allow always or the request may answer it, so the person's ask first
+/// takes its place and still asks.
 fn kernel_ask_stands(ask: &Ask) -> bool {
-    ask.as_ref().is_some_and(|(_, rule)| rule.as_deref().is_some_and(|r| r.starts_with("kernel:") && r != crate::desktop::PROGRAM_ASK))
+    ask.as_ref().is_some_and(|(_, rule)| rule.as_deref().is_some_and(|r| r.starts_with("kernel:") && r != crate::desktop::PROGRAM_ASK && r != crate::desktop::CODE_ASK))
 }
 
 impl Kernel {
@@ -144,6 +145,7 @@ mod tests {
     fn a_persons_ask_first_replaces_a_programs_own_ask() {
         let asked = |rule: &str| -> Ask { Some(("why".into(), Some(rule.into()))) };
         assert!(!kernel_ask_stands(&asked(crate::desktop::PROGRAM_ASK)), "a program's ask hid the person's ask first");
+        assert!(!kernel_ask_stands(&asked(crate::desktop::CODE_ASK)), "a program's code ask hid the person's ask first");
         assert!(kernel_ask_stands(&asked(crate::desktop::ASK_RULE)));
         assert!(kernel_ask_stands(&asked(crate::asks::NEW_DESTINATION)));
         assert!(kernel_ask_stands(&asked(crate::asks::LOCAL_ASK_FIRST)));

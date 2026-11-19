@@ -59,7 +59,12 @@ impl Reason {
         if r == NEW_DESTINATION {
             return Some(Reason::NewDestination);
         }
-        if r == LOCAL_ASK_FIRST || r == crate::desktop::ASK_RULE || r == crate::desktop::PROGRAM_ASK || r.starts_with(crate::rule_effects::PERSON_RULE) {
+        if r == LOCAL_ASK_FIRST
+            || r == crate::desktop::ASK_RULE
+            || r == crate::desktop::PROGRAM_ASK
+            || r == crate::desktop::CODE_ASK
+            || r.starts_with(crate::rule_effects::PERSON_RULE)
+        {
             return Some(Reason::AskFirst);
         }
         None
@@ -504,6 +509,13 @@ impl Kernel {
         if let Some(id) = asked.as_ref().and_then(|(_, r)| self.program_rule(run, f, r)) {
             self.record_cover(a, Cover::Rule(id), asked.map(|(_, r)| r)).await?;
             return Ok(Gate::Pass);
+        }
+        // Code a program would run asks once per task, unless the person's
+        // own request asked for it (decisions/2026-11-19-code-asks-once-per-task.md).
+        if asked.as_ref().is_some_and(|(_, r)| r == crate::desktop::CODE_ASK) {
+            if let Some(gate) = self.code_asked_for(a, run, f, shown, &hash).await? {
+                return Ok(gate);
+            }
         }
         if let Some((why, rule)) = asked {
             let Some(reason) = reason else { return Err(anyhow::anyhow!("{rule} is not one of the four asks")) };

@@ -36,6 +36,16 @@ pub const ASK_RULE: &str = "kernel:local_program";
 /// the one the person may answer with Allow always for that program on
 /// their own computers (decisions/2026-11-19-allow-a-program-always.md).
 pub const PROGRAM_ASK: &str = "kernel:program";
+/// Set on the organisation's ask before a program's tool that runs code
+/// (owner, 2026-11-19; decisions/2026-11-19-code-asks-once-per-task.md).
+/// Case 4. Allow always for the program never answers it: code in a
+/// program can reach the whole computer. It asks once per task (Allow for
+/// this task covers the rest), unless the person's own request asked for
+/// that code to run (`code_asked_for`).
+pub const CODE_ASK: &str = "kernel:program_code";
+/// What Auto Review is told about code a program would run: the bar is the
+/// person's request asking for it, not serving it.
+const CODE_STANDING: &str = "this runs code inside a program on the person's own computer, which can reach the whole computer: allow it only if what the person asked specifically asks for running code, a script or a macro in this program; otherwise ask";
 /// How long a call waits for the computer to answer.
 pub(crate) const JOB_WAIT: Duration = Duration::from_secs(120);
 /// Within this of its last poll or report, a computer counts as online.
@@ -413,7 +423,10 @@ pub fn ask_of(outcome: &Outcome, f: &Facts, tightened: bool) -> Option<std::resu
     match outcome {
         Outcome::Allow { .. } => None,
         Outcome::Deny { reason, .. } => Some(Err(reason.clone())),
-        Outcome::Ask { .. } if executes_code(p, &f.remote) => Some(Ok((format!("{} runs code inside {} on the person's computer", f.remote, p.title), Some(rule.to_string())))),
+        Outcome::Ask { .. } if executes_code(p, &f.remote) => {
+            let rule = if tightened { ASK_RULE } else { CODE_ASK };
+            Some(Ok((format!("{} runs code inside {} on the person's computer", f.remote, p.title), Some(rule.to_string()))))
+        }
         Outcome::Ask { .. } => Some(Ok((format!("policy asks before {} in {}", f.remote, p.title), Some(rule.to_string())))),
     }
 }
@@ -474,6 +487,30 @@ impl Kernel {
             let c = r.compiled.as_ref()?;
             let program_wide = c.connector == f.app && c.tool.is_empty() && c.destinations.is_empty();
             (program_wide && crate::policy::rule_covers(&c.cedar, &person, &facts, "").unwrap_or(false)).then_some(r.id)
+        })
+    }
+
+    /// Whether the person's own request asked for this code to run in the
+    /// program: Auto Review judges, held to the request asking for it
+    /// (`CODE_STANDING`). Some(Pass) runs it with no card; Some(Stop) is
+    /// Auto Review's denial; None leaves the ask to be raised, as it is when
+    /// Auto Review is unsure or cannot answer (the ask is the default here).
+    pub(crate) async fn code_asked_for(
+        &self,
+        a: &Action,
+        run: &crate::state::Run,
+        f: &Facts,
+        shown: Option<&crate::boundary::Shown>,
+        hash: &str,
+    ) -> Result<Option<crate::boundary::Gate>> {
+        use crate::auto_review::Verdict;
+        Ok(match self.auto_review(a, f, run, shown, hash, CODE_STANDING).await? {
+            Verdict::Allow(why) => {
+                self.decision(a, "allow", "auto_review", &format!("the person's request asked for this code to run: {why}"), Some(CODE_ASK.to_string())).await?;
+                Some(crate::boundary::Gate::Pass)
+            }
+            Verdict::Deny(why) => Some(crate::boundary::Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?)),
+            Verdict::Ask(_) | Verdict::Unavailable(_) => None,
         })
     }
 

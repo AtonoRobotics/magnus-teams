@@ -158,6 +158,7 @@ fn no_ask_outside_the_four_can_be_produced() {
         (LOCAL_ASK_FIRST, Reason::AskFirst),
         (crate::desktop::ASK_RULE, Reason::AskFirst),
         (crate::desktop::PROGRAM_ASK, Reason::AskFirst),
+        (crate::desktop::CODE_ASK, Reason::AskFirst),
         ("person_rule:rule_1", Reason::AskFirst),
     ];
     for (rule, reason) in four {

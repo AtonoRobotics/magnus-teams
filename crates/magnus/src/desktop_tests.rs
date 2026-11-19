@@ -157,7 +157,8 @@ fn only_the_organisations_ask_may_be_allowed_always() {
     let out = decide(&none, &mo, Some("t1"), &tool, false, false).unwrap();
     let lower = tightened(&none, &mo, Some("t1"), &tool, false, false).unwrap();
     assert!(!lower, "the default's ask read as the person's own");
-    assert_eq!(ask_of(&out, &f, lower).unwrap().unwrap().1.as_deref(), Some(PROGRAM_ASK));
+    // Code asks its own ask, which Allow always for the program never answers.
+    assert_eq!(ask_of(&out, &f, lower).unwrap().unwrap().1.as_deref(), Some(CODE_ASK));
     let ask_first = r#"forbid(principal, action == Action::"execute", resource in App::"desktop_blender");"#;
     for layer in ["user/mo", "group/design", "task/t1"] {
         let policies = BTreeMap::from([(layer.to_string(), ask_first.to_string())]);
@@ -173,6 +174,20 @@ fn only_the_organisations_ask_may_be_allowed_always() {
     // Another program's ask first leaves Blender's the program's own.
     let other = BTreeMap::from([("user/mo".to_string(), r#"forbid(principal, action == Action::"execute", resource in App::"desktop_freecad");"#.to_string())]);
     assert!(!tightened(&other, &mo, None, &tool, false, false).unwrap());
+}
+
+/// Code a program would run asks once per task: its card offers Allow and
+/// Allow for this task, never Allow always for the program, and a tool that
+/// runs no code keeps the program's own ask (owner, 2026-11-19).
+#[test]
+fn code_in_a_program_is_allowed_one_task_at_a_time() {
+    let d = json!({ "tool": "desktop_blender__run_python", "app": "desktop_blender", "risk": "irreversible", "rule": CODE_ASK });
+    assert!(!crate::asks::always_offered_for(&d, &[]), "code in a program was offered Allow always");
+    assert_eq!(crate::asks::Reason::of(Some(CODE_ASK)), Some(crate::asks::Reason::AskFirst));
+    assert!(crate::asks::Reason::AskFirst.task_wide(), "Allow for this task did not cover the rest of the task's code");
+    let p = Program { id: "blender", title: "Blender", classified: &[("set_material", Risk::Irreversible)] };
+    let tool = Facts { remote: "set_material".into(), ..facts("desktop_blender", "run_python").unwrap() };
+    assert!(!executes_code(&p, &tool.remote), "a classified tool read as running code");
 }
 
 /// Allow always is offered on a program's own ask, saves a rule for that
@@ -203,7 +218,7 @@ fn by_default_code_in_a_program_asks_the_person() {
     let out = decide(&BTreeMap::new(), &person("mo", &[]), None, &ToolFacts::from(&f), false, false).unwrap();
     assert!(matches!(out, Outcome::Ask { .. }), "{out:?}");
     let (why, rule) = ask_of(&out, &f, false).unwrap().unwrap();
-    assert_eq!(rule.as_deref(), Some(PROGRAM_ASK));
+    assert_eq!(rule.as_deref(), Some(CODE_ASK));
     assert!(why.contains("runs code inside Blender"), "{why}");
     let out = decide(&BTreeMap::new(), &person("mo", &[]), None, &ToolFacts::from(&read_tool()), false, false).unwrap();
     assert!(ask_of(&out, &read_tool(), false).is_none(), "a read asked by default");
