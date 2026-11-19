@@ -465,7 +465,7 @@ async fn a_keycloak_sign_in_refuses_strangers_forgeries_other_clients_and_declin
     // Someone Keycloak knows but the appliance does not.
     let (st, v) = kc.app_sign_in(&app, "mallory").await;
     assert_eq!(st, 403, "someone not on the appliance got in: {v}");
-    assert!(v["error"].as_str().unwrap().contains("not a person on this appliance"), "{v}");
+    assert!(v["error"].as_str().unwrap().contains("not a person on this server"), "{v}");
 
     // The code only ever goes to the person's own computer.
     for elsewhere in ["https://evil.example/callback", "http://192.0.2.1:8080/callback", "http://127.0.0.1/callback"] {

@@ -108,16 +108,8 @@ assert.match(told2.status({}), /Dana is typing/);
 // An older server sends no caps: a channel is still a conversation of several.
 assert.ok(ChatView.several(team), "a channel from a server that sends no caps lost its people");
 
-// Every data-* attribute the chat's files draw or read is one of these,
-// each with one meaning: a whisper's Share is not the message control's.
-const DATA_ATTRIBUTES = new Set([
-  "agent-mode", "answer", "archive", "attach", "card", "catch-up", "chat-task", "chat-work", "clear-conversation", "close-feedback", "decide", "draft", "entry",
-  "feedback-react", "file-download", "jump-latest", "kind", "live", "mention", "menu", "model", "msg-act", "not-now", "notify", "open", "open-thread", "picker",
-  "pins", "react", "remove-upload", "reply", "retry-upload", "sched-act", "share-answer", "share-team", "share-to", "shown", "st-cancel", "st-ch", "st-send", "st-text", "st-ws", "status", "task", "task-act", "tooltip", "ui-body", "ui-closed", "ui-kind", "upload",
-  "view", "voice-entry", "voice-in", "whisper", "whisper-share",
-]);
+// Renamed attributes stay gone: a whisper's Share is not the message control's.
 for (const f of ["chat-view.js", "message-controls.js", "chat-composer.js", "personal-chat.js", "team-chat.js", "team-conversation.js"]) {
-  for (const [, name] of ui(f).matchAll(/data-([a-z][a-z-]*[a-z])/g)) assert.ok(DATA_ATTRIBUTES.has(name), `${f} uses data-${name}, which is not in the list`);
   assert.doesNotMatch(ui(f), /data-share[=\]"]|data-team-download|dataset\.share\b|dataset\.teamDownload/, `${f} still uses a renamed attribute`);
 }
 

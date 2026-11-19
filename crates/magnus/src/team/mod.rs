@@ -460,6 +460,7 @@ impl Ledger {
             Change::Member { workspace, person, role } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.members.insert(person.clone(), *role);
+                    routines::apply(w, c);
                 }
             }
             Change::Removed { workspace, person } => {
@@ -472,6 +473,7 @@ impl Ledger {
                         d.members.retain(|m| m != person);
                         d.curators.retain(|c| c != person);
                     }
+                    routines::apply(w, c);
                 }
             }
             Change::Channel { workspace, channel, name } => {

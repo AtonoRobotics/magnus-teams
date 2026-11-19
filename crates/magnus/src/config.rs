@@ -271,6 +271,10 @@ pub struct Model {
     pub max_retries: u32,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+    /// Optional fallback models (`"adapter/model"`) tried in order when the
+    /// primary provider is unavailable or over its usage limit after retries.
+    #[serde(default)]
+    pub fallbacks: Vec<String>,
 }
 
 fn default_retries() -> u32 {

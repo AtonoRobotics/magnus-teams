@@ -69,8 +69,8 @@ registerAdminSection("operations", async el => {
   el.onclick = async e => {
     const t = /** @type {HTMLElement} */ (e.target);
     try {
-      if (t.matches("[data-ops-install]")) { if (!confirm("Install the update now? Magnus restarts, and running tasks continue after.")) return; await Server.admin.install(); toast("Installing."); }
-      else if (t.matches("[data-ops-rollback]")) { if (!confirm("Go back to the release kept? Magnus restarts.")) return; await Server.admin.rollback(); toast("Rolling back."); }
+      if (t.matches("[data-ops-install]")) { if (!await ask("Install the update now? Magnus restarts, and running tasks continue after.", "Install")) return; await Server.admin.install(); toast("Installing."); }
+      else if (t.matches("[data-ops-rollback]")) { if (!await ask("Go back to the release kept? Magnus restarts.", "Roll back", true)) return; await Server.admin.rollback(); toast("Rolling back."); }
       else if (t.matches("[data-ops-backup]")) { t.setAttribute("disabled", ""); await Server.admin.backUp(); toast("Backed up."); }
       else return;
     } catch (err) { failed(err); }

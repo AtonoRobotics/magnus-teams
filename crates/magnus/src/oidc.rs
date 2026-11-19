@@ -303,7 +303,7 @@ impl Provider {
             Ok((person, rights)) => Ok(Polled::Done { person, app: f.app, rights }),
             Err(e) => {
                 tracing::warn!("oidc: refused an ID token: {e:#}");
-                Ok(Polled::Failed(format!("{} answered, but not with a sign-in for this appliance.", self.label())))
+                Ok(Polled::Failed(format!("{} answered, but not with a sign-in for this server.", self.label())))
             }
         }
     }
@@ -353,7 +353,7 @@ impl Provider {
                 Ok((person, rights)) => Ok(Polled::Done { person, app, rights }),
                 Err(e) => {
                     tracing::warn!("oidc: refused an ID token: {e:#}");
-                    Ok(Polled::Failed(format!("{} answered, but not with a sign-in for this appliance.", self.label())))
+                    Ok(Polled::Failed(format!("{} answered, but not with a sign-in for this server.", self.label())))
                 }
             };
         }
@@ -547,7 +547,7 @@ impl Provider {
                 Ok((person, rights)) => Ok(Polled::Done { person, app, rights }),
                 Err(e) => {
                     tracing::warn!("oidc: refused an ID token: {e:#}");
-                    Ok(Polled::Failed(format!("{} answered, but not with a sign-in for this appliance.", self.label())))
+                    Ok(Polled::Failed(format!("{} answered, but not with a sign-in for this server.", self.label())))
                 }
             };
         }

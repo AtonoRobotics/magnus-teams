@@ -44,7 +44,7 @@ struct Advertised {
 /// The client says what it can draw. An older client is told so.
 async fn advertised(Caller(p): Caller, Json(b): Json<Advertised>) -> Response {
     if b.version != catalog::CATALOG_VERSION {
-        return err(StatusCode::CONFLICT, format!("this appliance uses catalog version {}", catalog::CATALOG_VERSION));
+        return err(StatusCode::CONFLICT, format!("this server uses catalog version {}", catalog::CATALOG_VERSION));
     }
     catalog::advertise(&p.id, b.elements);
     Json(json!({ "elements": catalog::allowed(&p.id) })).into_response()

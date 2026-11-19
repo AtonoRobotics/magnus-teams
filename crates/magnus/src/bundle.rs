@@ -29,7 +29,7 @@ pub fn place(path: &str) -> Result<(&'static str, Option<String>), String> {
     if segs.iter().any(|s| s.is_empty() || *s == "." || *s == ".." || !s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))) {
         return Err(format!("{path}: each part of a path is letters, digits, -, _ or ."));
     }
-    let file = *segs.last().unwrap();
+    let file = *segs.last().ok_or_else(|| format!("{path}: a bundle path starts with /"))?;
     let user = (segs[0] == "users" && segs.len() >= 3).then(|| segs[1].to_string());
     if segs[0] == "users" && user.is_none() {
         return Err(format!("{path}: a person's documents are under /users/<user>/"));

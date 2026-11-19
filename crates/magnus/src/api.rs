@@ -112,6 +112,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/tasks/{id}/timeline", get(timeline))
         .route("/v1/tasks/{id}/resume", post(resume))
         .route("/v1/tasks/{id}/cancel", post(cancel))
+        .route("/v1/tasks/{id}/steer", post(steer))
         .route("/v1/tasks/{id}/verdict", post(verdict))
         .route("/v1/search", get(search))
         .route("/v1/inbox", get(inbox_list))

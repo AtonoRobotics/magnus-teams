@@ -203,6 +203,9 @@ pub struct Accounts {
     /// refresh them from the store first, so a changed rule bites at
     /// once; per-request session checks serve the cache within its TTL.
     policy: Mutex<(Instant, Policy)>,
+    /// Unconfirmed authenticator secrets started in Settings › Account,
+    /// promoted to `account_totp` only after the person confirms a 6-digit code.
+    pending_totp: Mutex<BTreeMap<String, String>>,
 }
 
 fn token_hash(token: &str) -> String {
@@ -257,6 +260,7 @@ impl Accounts {
             failures: Mutex::new(lockout::Lockout::default()),
             local: Mutex::new((Instant::now(), local)),
             policy: Mutex::new((Instant::now(), policy)),
+            pending_totp: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -630,6 +634,67 @@ impl Accounts {
         self.refresh_local(c).await?;
         let label = percent_encoding::utf8_percent_encode(&person, percent_encoding::NON_ALPHANUMERIC);
         Ok(format!("otpauth://totp/Magnus:{label}?secret={}&issuer=Magnus&digits=6&period=30", secret.trim_end_matches('=')))
+    }
+
+    /// Begin self-service authenticator enrollment without overwriting an
+    /// active secret until a 6-digit code confirms it.
+    pub fn begin_totp(&self, person: &str) -> (String, String) {
+        let person = key(person);
+        let mut raw = [0u8; 20];
+        rand::rngs::OsRng.fill_bytes(&mut raw);
+        let secret = crate::totp::base32_encode(&raw);
+        let clean = secret.trim_end_matches('=').to_string();
+        let label = percent_encoding::utf8_percent_encode(&person, percent_encoding::NON_ALPHANUMERIC);
+        let uri = format!("otpauth://totp/Magnus:{label}?secret={clean}&issuer=Magnus&digits=6&period=30");
+        self.pending_totp.lock().unwrap_or_else(|e| e.into_inner()).insert(person, secret);
+        (clean, uri)
+    }
+
+    /// Confirm a pending self-service authenticator enrollment with a 6-digit code.
+    pub async fn confirm_totp(&self, person: &str, code: &str) -> Result<bool> {
+        let person = key(person);
+        let secret = self.pending_totp.lock().unwrap_or_else(|e| e.into_inner()).get(&person).cloned();
+        let Some(secret) = secret else { return Ok(false) };
+        let Some(step) = crate::totp::verify_step(&secret, code, Utc::now()) else { return Ok(false) };
+        let mut g = self.client().await?;
+        let c = g.as_mut().context("accounts connection")?;
+        let tx = c.transaction().await?;
+        tx.execute("INSERT INTO public.account_totp (person, secret) VALUES ($1, $2) ON CONFLICT (person) DO UPDATE SET secret = EXCLUDED.secret", &[&person, &secret]).await?;
+        tx.execute("INSERT INTO public.account_totp_steps (person, step) VALUES ($1, $2) ON CONFLICT (person) DO UPDATE SET step = EXCLUDED.step", &[&person, &step]).await?;
+        tx.commit().await?;
+        self.pending_totp.lock().unwrap_or_else(|e| e.into_inner()).remove(&person);
+        self.refresh_local(c).await?;
+        Ok(true)
+    }
+
+    /// Remove a person's enrolled authenticator secret.
+    pub async fn remove_totp(&self, person: &str) -> Result<bool> {
+        let person = key(person);
+        self.pending_totp.lock().unwrap_or_else(|e| e.into_inner()).remove(&person);
+        let mut g = self.client().await?;
+        let c = g.as_mut().context("accounts connection")?;
+        let tx = c.transaction().await?;
+        let n = tx.execute("DELETE FROM public.account_totp WHERE person = $1", &[&person]).await?;
+        tx.execute("DELETE FROM public.account_totp_steps WHERE person = $1", &[&person]).await?;
+        tx.commit().await?;
+        self.refresh_local(c).await?;
+        Ok(n > 0)
+    }
+
+    /// How many active local people have not yet enrolled an authenticator app.
+    pub async fn unenrolled_totp_count(&self) -> Result<i64> {
+        let mut g = self.client().await?;
+        let c = g.as_mut().context("accounts connection")?;
+        let row = c
+            .query_one(
+                "SELECT COUNT(*) FROM public.account_people p
+                 LEFT JOIN public.account_statuses s ON s.person = p.person
+                 LEFT JOIN public.account_totp t ON t.person = p.person
+                 WHERE (s.status IS NULL OR s.status = 'active') AND t.person IS NULL",
+                &[],
+            )
+            .await?;
+        Ok(row.get(0))
     }
 }
 

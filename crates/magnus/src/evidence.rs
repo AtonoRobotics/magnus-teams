@@ -135,7 +135,18 @@ pub fn receipts(s: &State, run: &Run, class: Class) -> Vec<Value> {
         .map(|i| {
             let dests = destinations_of(&i.input);
             let read_back = s.evidence.read_backs(&run.id).iter().find(|r| r.call_id == i.call_id).cloned();
-            json!({ "call_id": i.call_id, "tool": i.tool, "what": what(class, &i.tool, &dests), "to": dests, "at": i.at, "read_back": read_back })
+            let risk = class(&i.tool).map(|(_, r)| r).unwrap_or(Risk::ReversibleWrite);
+            let reversible = risk == Risk::ReversibleWrite;
+            json!({
+                "call_id": i.call_id,
+                "tool": i.tool,
+                "what": what(class, &i.tool, &dests),
+                "to": dests,
+                "at": i.at,
+                "read_back": read_back,
+                "risk": risk.as_str(),
+                "reversible": reversible,
+            })
         })
         .collect()
 }

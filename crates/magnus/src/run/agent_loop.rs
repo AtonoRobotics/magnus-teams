@@ -182,12 +182,15 @@ impl Kernel {
             hex::encode(&sha2::Sha256::digest(serde_json::to_vec(&tools)?)[..16])
         };
         let step = run.replies.len() as u32;
-        let (adapter, model) = run.model();
+        let (primary_adapter, primary_model) = run.model();
+        let mut active_adapter = primary_adapter.to_string();
+        let mut active_model = primary_model.to_string();
+        let mut fallback_idx = 0usize;
         // The prompt's tokens, asked of the adapter once: what it would
         // send, not the kernel's bytes (#323). The quote below prices the
         // same prompt every attempt, while what is left is re-read. An
         // adapter that cannot measure falls back to the kernel's bytes.
-        let input_tokens = match self.adapters.estimate_prompt(adapter, model, &system, messages.clone(), tools.clone()).await {
+        let input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
             Ok(n) => n,
             Err(e) => {
                 tracing::warn!("prompt estimate for {run_id}: {e:#}; pricing the kernel's bytes");
@@ -206,7 +209,7 @@ impl Kernel {
             // the full output, at the model's prices. What is left bounds
             // the output; when the prompt alone does not fit, the run stops
             // for budget here, before anything is asked (#273).
-            let max_tokens = match self.clamped_max_tokens(run_id, &left, adapter, model, input_tokens, run.config.max_tokens).await? {
+            let max_tokens = match self.clamped_max_tokens(run_id, &left, &active_adapter, &active_model, input_tokens, run.config.max_tokens).await? {
                 Some(n) => n,
                 None => return Ok(Flow::Stop),
             };
@@ -229,7 +232,7 @@ impl Kernel {
             .await?;
             let live = self.live_text.clone();
             let rid = run_id.to_string();
-            let out = self.adapters.complete(adapter, model, &system, messages.clone(), tools.clone(), max_tokens, |t| live.send(&rid, t)).await;
+            let out = self.adapters.complete(&active_adapter, &active_model, &system, messages.clone(), tools.clone(), max_tokens, |t| live.send(&rid, t)).await;
             live.end(&rid);
             match out {
                 Ok(t) => {
@@ -288,6 +291,19 @@ impl Kernel {
                         ErrorClass::Unavailable | ErrorClass::UsageLimit if attempt < run.config.max_retries && wait.is_some() => {
                             attempt += 1;
                             tokio::time::sleep(wait.unwrap_or(LONGEST_BACKOFF)).await;
+                        }
+                        ErrorClass::Unavailable | ErrorClass::UsageLimit if self.cfg.model.fallbacks.iter().skip(fallback_idx).find_map(|f| f.split_once('/')).is_some() => {
+                            while let Some(entry) = self.cfg.model.fallbacks.get(fallback_idx) {
+                                fallback_idx += 1;
+                                if let Some((fa, fm)) = entry.split_once('/') {
+                                    if fa != active_adapter || fm != active_model {
+                                        active_adapter = fa.trim().to_string();
+                                        active_model = fm.trim().to_string();
+                                        attempt += 1;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         ErrorClass::Malformed => {
                             self.emit("kernel", Ev::Notice { run: run_id.into(), step, text: format!("Your previous reply could not be used: {}. Reply again.", e.message) })

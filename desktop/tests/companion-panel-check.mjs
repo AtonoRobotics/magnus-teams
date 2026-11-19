@@ -115,6 +115,7 @@ vm.createContext(ctx);
 vm.runInContext(themeSrc, ctx, { filename: "theme.js" });
 vm.runInContext(read("evidence.js"), ctx, { filename: "evidence.js" });
 vm.runInContext(`${read("app-logos.js")}\nglobalThis.AppLogos = AppLogos;`, ctx, { filename: "app-logos.js" });
+vm.runInContext(`${read("side-panel.js")}\nglobalThis.SidePanel = SidePanel;`, ctx, { filename: "side-panel.js" });
 const snippets = [
   extractFn(app, "function companionStatus()"),
   extractFn(app, "function dayBucketLabel(iso)"),
@@ -284,14 +285,28 @@ assert.match(read("layout.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
 assert.match(read("layout.css"), /html\[data-style="studio"\]\s*nav\.side/);
 assert.match(read("pages.css"), /\.gbox\s*\{\s*border:\s*0;/);
 
-// 6. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.
-for (const file of ["app.js", "computers.js", "team-panel.js"]) {
+// 6. No native browser confirm()/alert()/prompt() dialogs or backdrop-filter blur in any desktop UI script or stylesheet.
+for (const file of readdirSync(uiDir).filter(f => f.endsWith(".js"))) {
   const src = read(file);
-  assert.ok(!/(?:^|[^\w.])(?:window\.)?(?:confirm|prompt)\(/m.test(src), `${file} uses native confirm() or prompt()`);
+  assert.ok(!/(?:^|[^\w.])(?:window\.)?(?:confirm|alert|prompt)\(/m.test(src), `${file} uses native confirm(), alert(), or prompt()`);
 }
 for (const file of readdirSync(uiDir).filter(f => f.endsWith(".css"))) {
   assert.ok(!/backdrop-filter\s*:/i.test(read(file)), `${file} uses backdrop-filter`);
 }
+
+// 7. Personal and Team right side panels share SidePanel (side-panel.js).
+const teamHead = ctx.SidePanel.head({ letter: "M", dot: "run", tone: "run", label: "Working", titleHtml: "Magnus", subText: "1 running · 2 projects", topActs: false });
+assert.match(teamHead, /class="companion-row-left".*<h2>Magnus<\/h2>.*1 running · 2 projects/s);
+const teamCard = ctx.SidePanel.activeCard({
+  href: "#/team/w/c/c1",
+  rightMeta: "Step 3",
+  title: "Magnus is working for Dana",
+  pct: 50,
+  footHtml: '<span class="mono">Running tests</span>',
+});
+assert.match(teamCard, /class="gbox companion-active-card".*Step 3.*Magnus is working for Dana.*aria-valuenow="50".*Running tests/s);
+assert.match(read("team-panel.js"), /SidePanel\.shell\(/, "team-panel.js renders through shared SidePanel");
+assert.match(app, /SidePanel\.head\(/, "app.js renders through shared SidePanel");
 
 assert.match(hdr, /data-admin-kill/);
 assert.ok(!app.includes("inspector-pill"), "Companion pill removed from conversation top bar");

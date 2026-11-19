@@ -24,7 +24,27 @@ function readBackLine(rb) {
 
 /** @param {Receipt} r */
 function receiptRow(r) {
-  return `<li data-receipt="${esc(r.call_id)}"><div>${esc(r.what)}</div><div class="small faint">${esc(r.tool)} · ${esc(when(r.at))}</div>${readBackLine(r.read_back)}</li>`;
+  const undo = r.reversible ? ` · <button type="button" class="link small" data-receipt-undo="${esc(r.call_id)}" data-receipt-what="${esc(r.what)}" data-receipt-tool="${esc(r.tool)}">Undo</button>` : "";
+  return `<li data-receipt="${esc(r.call_id)}"><div>${esc(r.what)}</div><div class="small faint">${esc(r.tool)} · ${esc(when(r.at))}${undo}</div>${readBackLine(r.read_back)}</li>`;
+}
+
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("click", async e => {
+    const b = e.target.closest?.("[data-receipt-undo]");
+    if (!b || typeof Server === "undefined") return;
+    e.preventDefault();
+    const callId = b.dataset.receiptUndo, what = b.dataset.receiptWhat || b.dataset.receiptTool || "that action";
+    const thread = typeof Panel !== "undefined" ? Panel.task?.thread : null;
+    b.disabled = true;
+    try {
+      const r = await Server.chat.send({ text: `Undo this action (${callId}): ${what}`, ...(thread ? { thread } : {}) });
+      if (typeof toast === "function") toast("Started an undo request.");
+      if (r?.thread && typeof location !== "undefined") location.hash = `#/chat/${encodeURIComponent(r.thread)}`;
+    } catch (err) {
+      b.disabled = false;
+      if (typeof toast === "function") toast(err.message);
+    }
+  });
 }
 
 // A running task's status line changes with every step it takes. Drawn into

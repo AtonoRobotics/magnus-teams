@@ -323,7 +323,7 @@ async fn password(args: &[String]) -> Result<()> {
     let cfg = config(args)?;
     let person = arg(args, "--person").context("--person is required")?;
     let accounts = managed_accounts(&cfg, &person).await?;
-    anyhow::ensure!(local_password(&cfg, &accounts, &person), "{person} signs in through the identity provider; only the owner keeps a password on the appliance, as a backup");
+    anyhow::ensure!(local_password(&cfg, &accounts, &person), "{person} signs in through the identity provider; only the owner keeps a password on the server, as a backup");
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     let pw = line.trim_end_matches(['\r', '\n']);

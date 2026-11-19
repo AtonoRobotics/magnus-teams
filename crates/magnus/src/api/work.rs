@@ -363,6 +363,24 @@ pub(super) async fn cancel(State(k): K, Caller(p): Caller, Path(id): Path<String
     })))
 }
 
+/// Steer an active or paused task in flight: appends a steering note from
+/// the task's person so the agent reads it on its next step without
+/// cancelling or restarting the run.
+pub(super) async fn steer(State(k): K, Caller(p): Caller, Path(id): Path<String>, Body(b): Body<Value>) -> ApiResult {
+    let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
+    if run.status.terminal() {
+        return refuse(StatusCode::CONFLICT, "the task has already ended");
+    }
+    let text = b["text"].as_str().unwrap_or_default().trim();
+    if text.is_empty() || text.chars().count() > crate::compose::MAX_TEXT {
+        return refuse(StatusCode::BAD_REQUEST, "steer needs a short instruction");
+    }
+    let step = (run.replies.len() as u32).saturating_add(1);
+    let actor = format!("person:{}", p.id);
+    k.emit(&actor, Ev::Notice { run: run.id.clone(), step, text: format!("Steering instruction from the person while this task is running: {text}") }).await?;
+    Ok(Json(json!({ "ok": true, "step": step })).into_response())
+}
+
 /// The person's verdict on an outcome that has ended: right, partly or
 /// wrong, with an optional note. A later verdict replaces it.
 pub(super) async fn verdict(State(k): K, Caller(p): Caller, Path(id): Path<String>, Body(b): Body<req::Verdict>) -> ApiResult {

@@ -16,8 +16,8 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("uispec.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/uispec.js")),
     ("html-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/html-frame.js")),
     ("compose.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/compose.js")),
-    ("html-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/html-frame.js")),
     ("app-logos.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/app-logos.js")),
+    ("side-panel.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/side-panel.js")),
     ("app.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/app.js")),
     ("password.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/password.js")),
     ("dev.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/dev.js")),
@@ -79,6 +79,7 @@ fn static_file(media: &str, body: impl Into<axum::body::Body>) -> Response {
     let built = Response::builder()
         .header("content-type", media)
         .header("content-security-policy", UI_CSP)
+        .header("x-frame-options", "DENY")
         .header("x-content-type-options", "nosniff")
         .header("cache-control", "private, no-store, no-cache, must-revalidate, max-age=0")
         .body(body.into());

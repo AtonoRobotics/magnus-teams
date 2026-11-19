@@ -199,7 +199,7 @@ impl Kernel {
             s.runs.values().filter(|r| !r.status.terminal() && r.intents.values().any(|i| i.tool.starts_with("sandbox_"))).map(|r| (r.id.clone(), r.replies.len() as u32)).collect()
         });
         for (run, step) in restarted {
-            k.emit("kernel", Ev::Notice { run, step, text: "The appliance restarted. Processes in your sandbox were stopped; files in /workspace are kept.".into() }).await?;
+            k.emit("kernel", Ev::Notice { run, step, text: "The server restarted. Processes in your sandbox were stopped; files in /workspace are kept.".into() }).await?;
         }
         Ok(k)
     }

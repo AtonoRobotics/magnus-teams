@@ -66,6 +66,7 @@ export function load(file, answers = {}) {
     route: () => {},
     sidebar: () => {},
     confirm: () => true,
+    ask: async () => true,
     navigator: {},
     setInterval: () => 1, clearInterval: () => {}, setTimeout: () => 1,
     document: { createElement: () => node(), body: { append() {} } },

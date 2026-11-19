@@ -1844,22 +1844,6 @@ function card(i, composed) {
         <div class="row" style="margin-top:8px"><button class="primary" data-item="${esc(i.id)}" data-decision="answer">Send answer</button></div>` : buttons(i, [])}`;
       break;
     }
-    // Asked before rev 140, when checking became internal: the criteria
-    // stand whatever is answered, and the task goes on against them.
-    case "contract_change":
-      body = `<p class="small">This task no longer needs you here: it goes on against the criteria it set.</p>${buttons(i, [["reject", "Continue", "primary"]])}`;
-      break;
-    case "review": {
-      const crit = (d.criteria || []).map(c => `<li>${esc(c.description || c.id || c)}${c.unchecked_reason ? `<div class="small faint">Its check could not run: ${esc(c.unchecked_reason)}</div>` : ""}</li>`).join("");
-      body = `<p>${esc(d.summary)}</p>
-        <div class="evidence none"><div class="small muted">The server could not check these. Check them yourself:</div><ul>${crit}</ul></div>
-        ${d.view ? `<iframe class="composed" sandbox="allow-same-origin" title="The outcome" data-view="${esc(i.id)}"></iframe>` : ""}
-        ${taintNote(d.taint)}
-        ${i.can_respond ? `<textarea rows="2" data-draft="rev-${esc(i.id)}" placeholder="If you send it back, say what is wrong" style="margin-top:10px"></textarea>` : ""}
-        ${buttons(i, [["accept", "Accept", "primary"], ["reject", "Send back"]])}`;
-      if (d.view) composed.push([i.id, d.view, i.run_id, i.task_id]);
-      break;
-    }
     case "notice": {
       const ev = d.evidence;
       const list = [];
@@ -1873,11 +1857,6 @@ function card(i, composed) {
         ${ev ? `<div class="evidence fail"><div class="small muted">Evidence</div>${fieldValue(ev)}</div>` : ""}${buttons(i, list)}`;
       break;
     }
-    case "policy_proposal":
-      body = `<p class="small"><span class="muted">Layer:</span> <span class="mono">${esc(d.layer)}</span></p>
-        ${d.rationale ? `<p>${esc(d.rationale)}</p>` : ""}<div class="what"><pre>${esc(d.cedar)}</pre></div>${taintNote(d.taint)}
-        ${buttons(i, [["accept", "Add this rule", "primary"], ["reject", "Reject"]])}`;
-      break;
     // Magnus's own idea from a task or a review: one tap starts it (spec rev
     // 140). Proposals from before then read as suggestions.
     case "suggestion": {
@@ -2153,46 +2132,38 @@ function companionHeader() {
     ? list.filter(c => (typeof stateOf === "function" ? stateOf(c) : c.state) === "connected").length
     : null;
   const subText = `${taskCount} task${taskCount === 1 ? "" : "s"} today${appCount !== null ? ` · ${appCount} app${appCount === 1 ? "" : "s"}` : ""}`;
-  return `<div class="companion-id">
-    <div class="companion-row-left">
-      <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent"><span class="companion-m">M</span><span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
-      <div class="companion-title-col">
-        <div class="companion-name-row">
-          <h2>Magnus</h2>
-          <span class="companion-status-lbl ${st.tone}">${esc(st.label)}</span>
-        </div>
-        <div class="companion-sub">
-          <span class="muted">${subText}</span>
-        </div>
-      </div>
-    </div>
-    <div class="companion-top-acts">
-      <div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div>
-      <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
-    </div>
-  </div>`;
+  return SidePanel.head({
+    letter: "M",
+    avatarHref: "#/settings/appearance",
+    avatarTitle: "Theme & accent",
+    dot: st.dot,
+    tone: st.tone,
+    label: st.label,
+    titleHtml: "Magnus",
+    subText,
+    topActs: true,
+  });
 }
 function companionFooter() {
   const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
   if (!comp) return "";
   const compState = controlWords(comp, false);
   const awake = comp.status === "running";
-  const pauseBtn = awake ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
-  const actBtn = awake
-    ? `<button type="button" class="link comp-wake-btn" data-open="computer:${esc(comp.id)}">Watch →</button>`
-    : `<button type="button" class="link comp-wake-btn" data-wake-computer="${esc(comp.id)}">Wake VM →</button>`;
-  return `<div class="companion-computer" data-computer-bar="${esc(comp.id)}">
-    <div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><span class="muted">Cloud Computer ·</span><strong>${esc(compState.pill)}</strong></div>
-    <div class="row comp-acts">${pauseBtn}${actBtn}</div>
-  </div>`;
+  return SidePanel.computerFoot({
+    id: comp.id,
+    kindLabel: "Cloud Computer",
+    stateText: compState.pill,
+    awake,
+    pauseId: awake ? comp.id : null,
+    watchOpen: awake ? `computer:${comp.id}` : null,
+    wakeId: awake ? null : comp.id,
+  });
 }
 function timelineRowHtml(t) {
   const [ic] = standing(t);
   const ts = when(t.ended_at || t.created_at);
-  const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`) : null;
-  const brandHtml = brand
-    ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>`
-    : `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
+  const brandHtml = SidePanel.brand(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`, "tl-brand")
+    || `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
   return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}">${brandHtml}<div class="tl-info"><div class="tl-title-line"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span><span class="mono faint tl-time">${esc(ts)}</span></div></div></a></li>`;
 }
 function timelineGroups(active, done) {
@@ -2219,11 +2190,15 @@ function activityView(composed) {
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
-  const needsBanner = pending.length ? `<section class="companion-sec companion-needs-banner">
-    <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Needs your approval (${pending.length})</span><a class="needs-view-all" href="#/inbox" data-open="needs">View all →</a></div>
-    <div class="needs-inline-list">${pending.slice(0, 1).map(i => {
-      const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) : null;
-      const ic = b ? `<span class="gbox-ic has-logo" aria-hidden="true">${b.svg}</span>` : `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
+  const needsBanner = SidePanel.waitingBanner({
+    several: false,
+    count: pending.length,
+    viewAllHref: "#/inbox",
+    viewAllOpen: "needs",
+    clearedHref: "#/inbox",
+    clearedOpen: "needs",
+    rowsHtml: pending.slice(0, 1).map(i => {
+      const ic = SidePanel.brand(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) || `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
       const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
       const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
       return `<div class="gbox needs-inline-card">
@@ -2233,18 +2208,12 @@ function activityView(composed) {
           <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
         </div>
       </div>`;
-    }).join("")}</div>
-  </section>` : `<section class="companion-sec companion-cleared-banner">
-    <span class="cleared-lbl">✓ All approvals cleared</span>
-    <a class="cleared-link" href="#/inbox" data-open="needs">Approvals</a>
-  </section>`;
+    }).join(""),
+  });
   const curTask = active[0];
   const units = curTask?.plan?.units || [];
   const doneUnits = units.filter(u => u.status === "done").length;
   const pct = units.length ? Math.round((100 * doneUnits) / units.length) : null;
-  const progressBar = pct !== null
-    ? `<div class="active-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>`
-    : "";
   const footStatus = pending.length
     ? `<span class="small muted">${esc(`Waiting on ${pending.length} approval${pending.length === 1 ? "" : "s"}`)}</span>`
     : curTask?.status === "suspended"
@@ -2252,20 +2221,15 @@ function activityView(composed) {
       : curTask && typeof statusLineSlot === "function"
         ? statusLineSlot(curTask, "small muted")
         : `<span class="small muted">${esc(curTask?.status_line || "In progress")}</span>`;
-  const activeCard = curTask ? `<section class="companion-sec">
-    <a class="gbox companion-active-card" href="#/task/${enc(curTask.task_id)}" data-open="task:${esc(curTask.task_id)}">
-      <div class="active-card-top">
-        <span class="active-card-kicker"><span class="comp-dot run" aria-hidden="true"></span>Active now</span>
-        <span class="mono active-elapsed">${esc(when(curTask.created_at))}</span>
-      </div>
-      <div class="active-card-title">${esc(curTask.title || firstLine(curTask.text) || "Running task")}</div>
-      ${progressBar}
-      <div class="active-card-foot">
-        ${footStatus}
-        <span class="small active-inspect">Inspect →</span>
-      </div>
-    </a>
-  </section>` : "";
+  const activeCard = curTask ? SidePanel.activeCard({
+    href: `#/task/${enc(curTask.task_id)}`,
+    open: `task:${curTask.task_id}`,
+    rightMeta: when(curTask.created_at),
+    title: curTask.title || firstLine(curTask.text) || "Running task",
+    pct,
+    footHtml: footStatus,
+    inspectLabel: "Inspect →",
+  }) : "";
   const recentList = (done.length ? done : active).slice(0, 3);
   const recentHtml = recentList.length
     ? `<ul class="tlist tl-stack">${recentList.map(timelineRowHtml).join("")}</ul>`
@@ -2275,8 +2239,7 @@ function activityView(composed) {
     <div class="scheds-list">
       ${scheds.length ? scheds.slice(0, 3).map(sc => {
         const isHb = /heartbeat/i.test(sc.title || sc.text || "");
-        const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${sc.title || ""} ${sc.text || ""}`) : null;
-        const icHtml = brand ? `<span class="gbox-ic sch has-logo">${brand.svg}</span>` : `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
+        const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
         return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
       }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
     </div>
@@ -2437,8 +2400,12 @@ const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks",
 const PANEL_TAB_PARENT = { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
-  const tabs = [["activity", "Activity"], ["needs", "Approvals"], ["files", "Files"], ["apps", "Apps"]];
-  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}><span>${l}</span>${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
+  return SidePanel.tabs([
+    ["activity", "Activity", { href: "#/activity", open: "activity" }],
+    ["needs", "Approvals", { href: "#/inbox", open: "needs", badge: n }],
+    ["files", "Files", { href: "#/files", open: "files" }],
+    ["apps", "Apps", { href: "#/apps", open: "apps" }],
+  ], cur, { label: "Inspector" });
 }
 
 async function drawPanel() {
@@ -2471,7 +2438,7 @@ async function drawPanel() {
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${headHtml}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>${isRootCompanion ? companionFooter() : ""}`); liveStatusLines(el);
+  const changed = paint(el, SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" })); liveStatusLines(el);
   if (typeof showKillControl === "function" && typeof AdminState !== "undefined" && AdminState.standing?.admin) showKillControl();
   if (!changed) {
     reportOpenedSoon();
@@ -2592,6 +2559,7 @@ async function taskView(id, composed) {
     ${running ? `<div class="live" id="plive" aria-live="polite">${esc(Panel.liveText) || `<span class="faint">Working…</span>`}</div>` : ""}
     <div class="seg layers" role="tablist" aria-label="What to show">${[["outcome", "Result"], ["contract", "Progress"], ["trace", "Steps"]].map(([k, l]) => `<button role="tab" aria-selected="${Panel.layer === k}" class="${Panel.layer === k ? "on" : ""}" data-layer="${k}">${l}</button>`).join("")}</div>
     <section class="layer">${layers[Panel.layer]}</section>
+    ${!ENDED.includes(t.status) ? `<form class="row small" data-task-steer="${esc(id)}"><input placeholder="Steer Magnus on the next step…" aria-label="Steer Magnus" autocomplete="off"><button type="submit">Steer</button></form>` : ""}
     <div class="row pactions">${moveControl(t.task_id, t.project, App.projects)}${!ENDED.includes(t.status) ? `<button data-act="cancel" data-id="${esc(id)}">Stop</button>` : trashButton(t.task_id, "Delete task")}${t.status === "suspended" && !t.waiting_item ? `<button data-act="resume" data-id="${esc(id)}">Resume</button>` : ""}</div>`;
   Panel.task = t;
   return { head, body, after: el => Panel.layer === "outcome" && view.length && fill($("#pview", el), view, id, t) };
@@ -3286,7 +3254,7 @@ async function accountSection(el) {
       <div class="card"><div class="spread"><div><strong>${esc(App.me.name)}</strong> <span class="faint">(${esc(App.me.id)})</span>
         <div class="small muted">Signed in to ${esc(App.appliance)}${App.me.roles?.length ? ` · roles: ${esc(App.me.roles.join(", "))}` : ""}${App.me.groups?.length ? ` · groups: ${esc(App.me.groups.join(", "))}` : ""}</div></div>
         <button data-act="sign-out">Sign out</button></div></div>
-      <div data-password></div><div data-mail></div>
+      <div data-password></div><div data-totp></div><div data-timezone></div><div data-mail></div><div data-account-privacy></div>
       <h3>Devices</h3>
       ${sessions.length ? `<table class="t" data-devices><tbody>${sessions.map(x => `<tr data-session="${esc(x.id)}"><td>${x.client === "app" ? "Magnus app" : x.client === "browser" ? "Browser" : "Device"}${x.current ? ` <span class="chip ok">this device</span>` : ""}</td>
         <td class="small muted">signed in ${esc(when(x.created))} · until ${esc(new Date(x.expires).toLocaleDateString())}</td>
@@ -3295,7 +3263,7 @@ async function accountSection(el) {
       <p class="small muted" data-guide-again>Setting up? <a href="#/start">Open the getting started guide</a>: connect your apps, set up team chat and schedule a first workflow.</p>
       ${administers() ? `<p class="small muted" data-roles-moved>People's roles are set in <a href="#/admin/people">Admin › People</a>.</p>` : ""}`);
     const pw = $("[data-password]", el);
-    if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); }
+    if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); if (typeof accountExtras === "function") await accountExtras(el); }
   };
   el.onclick = async e => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
@@ -3569,6 +3537,7 @@ async function boot() {
   refreshUpdate(true);
   showWhatsNew();
   App.prefs = await Server.preferences.get().catch(() => null);
+  if (typeof autoDetectTimezone === "function") autoDetectTimezone();
   await Promise.all([refresh(), pollVersions()]);
   // Opening the app shows what changed since the last session: with
   // news, and landing on home, the needs panel opens beside it (#367).

@@ -76,8 +76,7 @@ const TEAM_SIDE_TABS = [["activity", "Activity"], ["tasks", "Tasks"], ["files", 
 
 /** A brand's logo for what a row names, when one is known. */
 function teamBrand(text) {
-  const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(text) : null;
-  return b ? `<span class="gbox-ic has-logo" aria-hidden="true">${b.svg}</span>` : "";
+  return SidePanel.brand(text);
 }
 
 /** Where the agent's work stands, for the header's status. @param {TeamPanelData} d */
@@ -95,13 +94,10 @@ function teamSideStatus(d) {
  */
 function teamSideHead(d, ws, tab) {
   const home = Team.home, st = teamSideStatus(d), p = d.project && home.projects.find(x => x.id === d.project.id);
-  const title = p ? `<a href="${teamHref(ws, { kind: "project", id: p.id })}">${esc(p.name)}</a>` : esc(d.project?.name || home.name);
+  const titleHtml = p ? `<a href="${teamHref(ws, { kind: "project", id: p.id })}">${esc(p.name)}</a>` : esc(d.project?.name || home.name);
   const open = d.tasks.filter(t => t.status !== "done").length, people = d.members.length;
-  return `<div class="companion-id"><div class="companion-row-left">
-      <span class="companion-avatar" aria-hidden="true"><span class="companion-m">${esc((home.agent.name || "M").slice(0, 1).toUpperCase())}</span><span class="comp-dot ${st.dot}"></span></span>
-      <div class="companion-title-col"><div class="companion-name-row"><h2>${title}</h2><span class="companion-status-lbl ${st.dot}">${esc(st.label)}</span></div>
-        <div class="companion-sub"><span class="muted">${open} open task${open === 1 ? "" : "s"} · ${people} member${people === 1 ? "" : "s"}</span></div></div></div></div>
-    <nav class="panel-tabs" aria-label="Team panel">${TEAM_SIDE_TABS.map(([k, l]) => `<button type="button" data-team-side-tab="${k}"${k === tab ? ' aria-current="page"' : ""}><span>${l}</span></button>`).join("")}</nav>`;
+  const subText = `${open} open task${open === 1 ? "" : "s"} · ${people} member${people === 1 ? "" : "s"}`;
+  return `${SidePanel.head({ letter: home.agent.name || "M", dot: st.dot, tone: st.dot, label: st.label, titleHtml, subText })}${SidePanel.tabs(TEAM_SIDE_TABS, tab, { label: "Team panel", buttonAttr: "data-team-side-tab" })}`;
 }
 
 /**
@@ -110,9 +106,14 @@ function teamSideHead(d, ws, tab) {
  * @param {TeamPanelData} d
  */
 function teamSideFoot(d) {
-  if (!d.computer) return `<div class="companion-computer"><div class="comp-head"><span class="comp-dot idle" aria-hidden="true"></span><span class="muted">Team Computer ·</span><strong>Being set up</strong></div></div>`;
-  return `<div class="companion-computer" data-computer-bar="${esc(d.computer)}"><div class="comp-head"><span class="comp-dot idle" aria-hidden="true" data-team-comp-dot="${esc(d.computer)}"></span><span class="muted">Team Computer ·</span><strong data-team-comp-state="${esc(d.computer)}">${esc(TeamComputerStates[d.computer] || "Checking")}</strong></div>
-    <div class="row comp-acts"><a class="link comp-wake-btn" href="#/computer/${enc(d.computer)}/screen">Watch →</a></div></div>`;
+  return SidePanel.computerFoot({
+    id: d.computer,
+    kindLabel: "Team Computer",
+    stateText: d.computer ? (TeamComputerStates[d.computer] || "Checking") : "Being set up",
+    stateAttr: true,
+    watchHref: d.computer ? `#/computer/${enc(d.computer)}/screen` : null,
+    showSetupWhenMissing: true,
+  });
 }
 
 /**
@@ -125,14 +126,19 @@ function overviewHtml(d, ws, channel = null) {
   const where = id => { const c = home.channels.find(x => x.id === id); return c ? esc(channelTitle(home, c)) : ""; };
   const waiting = d.work.filter(w => w.waiting), busy = d.work.filter(w => !w.waiting);
   const status = d.work.length ? `${agent} is working ${d.work[0].waiting ? `and waiting for ${esc(d.work[0].requester_name)}` : `for ${esc(d.work[0].requester_name)}`}` : "Ready";
-  const banner = waiting.length ? `<section class="companion-sec companion-needs-banner">
-    <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Waiting on someone (${waiting.length})</span></div>
-    <div class="gbox">${waiting.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} is waiting for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)}</span></span></a>`).join("")}</div></section>` : "";
+  const banner = SidePanel.waitingBanner({
+    several: true,
+    count: waiting.length,
+    rowsHtml: waiting.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} is waiting for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)}</span></span></a>`).join(""),
+  });
   const now = busy[0];
-  const active = now ? `<section class="companion-sec"><a class="gbox companion-active-card" href="${teamHref(ws, { kind: "channel", id: now.channel })}">
-      <div class="active-card-top"><span class="active-card-kicker"><span class="comp-dot run" aria-hidden="true"></span>Active now</span><span class="mono small muted">Step ${now.steps + 1}</span></div>
-      <div class="active-card-title">${agent} is working for ${esc(now.requester_name)}</div>
-      <div class="active-card-foot"><span class="small muted">${where(now.channel)}</span><span class="small active-inspect">Open →</span></div></a></section>` : "";
+  const active = now ? SidePanel.activeCard({
+    href: teamHref(ws, { kind: "channel", id: now.channel }),
+    rightMeta: `Step ${now.steps + 1}`,
+    title: `${home.agent.name} is working for ${now.requester_name}`,
+    footHtml: `<span class="small muted">${where(now.channel)}</span>`,
+    inspectLabel: "Open →",
+  }) : "";
   const screen = `<section class="companion-sec"><div class="companion-sec-head"><span>Team computer</span>${d.computer ? `<a class="small" href="#/computer/${enc(d.computer)}/screen">Watch</a>` : ""}</div>
     ${d.computer ? `<div class="gbox team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${TeamScreens[d.computer] ? ` src="${TeamScreens[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div><div class="small faint" data-team-screen-caption="${esc(d.computer)}">${esc(TeamScreenCaptions[d.computer] || "")}</div>
       ${home.role === "guest" ? "" : `<div class="row small"><button class="link" data-take-over="${esc(d.computer)}">Take control</button></div>`}</div>` : noTeamComputer(home)}</section>`;
@@ -140,7 +146,26 @@ function overviewHtml(d, ws, channel = null) {
   // The rest of the work, below what the banner and the card already show.
   const work = rest.length || !d.work.length ? `<section class="companion-sec"><div class="companion-sec-head"><span>Agents at work</span><span class="count">${rest.length}</span></div>
     ${rest.length ? `<div class="gbox">${rest.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic" aria-hidden="true">${icon("working")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)} · step ${w.steps + 1}</span></span></a>`).join("")}</div>` : `<p class="small faint">Nothing running.</p>`}</section>` : "";
-  return `${banner}${active}${screen}${work}${spendHtml(home, channel)}`;
+  return `${banner}${active}${screen}${work}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
+}
+
+/**
+ * Scheduled routines in this workspace or project, with create, restart, and
+ * remove controls for workspace admins.
+ * @param {TeamPanelData} d @param {TeamHome} home @param {?string} channel @param {(id: string) => string} where
+ */
+function routinesHtml(d, home, channel, where) {
+  const routines = d.routines || [], admin = isTeamAdmin(home);
+  if (!routines.length && !admin) return "";
+  const targetChannel = channel || d.channels?.[0] || home.channels?.[0]?.id || "";
+  const rows = routines.map(r => {
+    const cadence = r.every_hours === 24 ? "Daily" : r.every_hours % 24 === 0 ? `Every ${r.every_hours / 24}d` : `Every ${r.every_hours}h`;
+    const stopLine = r.stopped ? `<span class="small bad">Stopped: ${esc(r.stopped)}</span>` : `<span class="small muted">${where(r.channel)} · ${esc(cadence)}</span>`;
+    const acts = admin ? `<span class="row small">${r.stopped ? `<button class="link" data-routine-restart="${esc(r.id)}">Restart</button>` : ""}<button class="link" data-routine-remove="${esc(r.id)}">Remove</button></span>` : `<span class="small muted">${esc(cadence)}</span>`;
+    return `<div class="gbox-row" data-routine="${esc(r.id)}"><span class="gbox-ic${r.stopped ? " warn" : ""}" aria-hidden="true">${icon("clock")}</span><span class="gbox-main"><span class="gbox-lbl">${esc(r.text)}</span>${stopLine}</span>${acts}</div>`;
+  }).join("");
+  const form = admin && targetChannel ? `<form class="row small" data-routine-new><input name="text" placeholder="Add a scheduled routine" aria-label="Routine instructions" autocomplete="off"><select name="every_hours" aria-label="Cadence"><option value="1">Hourly</option><option value="6">Every 6h</option><option value="24" selected>Daily</option><option value="168">Weekly</option></select><input type="hidden" name="channel" value="${esc(targetChannel)}"><button class="link" type="submit">Add</button></form>` : "";
+  return `<section class="companion-sec" data-routines><div class="companion-sec-head"><span>Routines</span><span class="count">${routines.length}</span></div>${routines.length ? `<div class="gbox">${rows}</div>` : `<p class="small faint">No scheduled routines.</p>`}${form}</section>`;
 }
 
 /**
@@ -192,13 +217,19 @@ function spendHtml(home, channel) {
 }
 
 /**
- * The whole side panel, laid out as a person's own right panel: the head
- * and tabs, the open tab, and the team computer at the foot.
+ * The whole side panel, laid out by SidePanel: the head and tabs, the open
+ * tab, and the team computer at the foot.
  * @param {TeamPanelData} d @param {string} ws @param {?string} channel @param {string} tab
  */
 function teamSideHtml(d, ws, channel, tab) {
-  const body = tab === "tasks" ? teamTasksHtml(d, ws) : tab === "files" ? teamFilesHtml(d, ws) : tab === "members" ? membersCardHtml(d, ws) : overviewHtml(d, ws, channel);
-  return `<div class="team-companion"><div class="detail-head"><div class="dh-main">${teamSideHead(d, ws, tab)}</div></div><div class="detail-body" data-panel="team-${esc(tab)}">${body}</div>${teamSideFoot(d)}</div>`;
+  const bodyHtml = tab === "tasks" ? teamTasksHtml(d, ws) : tab === "files" ? teamFilesHtml(d, ws) : tab === "members" ? membersCardHtml(d, ws) : overviewHtml(d, ws, channel);
+  return SidePanel.shell({
+    wrapClass: "team-companion",
+    headHtml: teamSideHead(d, ws, tab),
+    panelKey: `team-${tab}`,
+    bodyHtml,
+    footHtml: teamSideFoot(d),
+  });
 }
 
 /** What each team computer was last seen doing, for the panel's foot. */
@@ -408,11 +439,40 @@ const TeamPanel = {
   },
 };
 
-document.addEventListener("click", e => {
+document.addEventListener("click", async e => {
   const b = e.target.closest?.("[data-team-side-tab]"), at = TeamPanel.sideAt;
-  if (!b || !at || !at.el.contains(b)) return;
-  TeamPanel.sideTab = b.dataset.teamSideTab;
-  TeamPanel.paintSide(at.el, at.d, at.ws, at.channel);
+  if (b && at && at.el.contains(b)) {
+    TeamPanel.sideTab = b.dataset.teamSideTab;
+    TeamPanel.paintSide(at.el, at.d, at.ws, at.channel);
+    return;
+  }
+  const restart = e.target.closest?.("[data-routine-restart]"), remove = e.target.closest?.("[data-routine-remove]");
+  if ((!restart && !remove) || !at || !at.el.contains(restart || remove)) return;
+  try {
+    if (restart) {
+      const id = restart.dataset.routineRestart;
+      await Server.workspaces.updateRoutine(at.ws, id, {});
+      await TeamPanel.side(at.el, at.ws, at.d.project?.id || null, at.channel);
+    }
+    if (remove) {
+      const id = remove.dataset.routineRemove;
+      await Server.workspaces.removeRoutine(at.ws, id);
+      await TeamPanel.side(at.el, at.ws, at.d.project?.id || null, at.channel);
+    }
+  } catch (err) { toast(err.message); }
+});
+document.addEventListener("submit", async e => {
+  const form = e.target.closest?.("[data-routine-new]"), at = TeamPanel.sideAt;
+  if (!form || !at || !at.el.contains(form)) return;
+  e.preventDefault();
+  const text = form.querySelector('[name="text"]')?.value.trim();
+  const every_hours = Number(form.querySelector('[name="every_hours"]')?.value) || 24;
+  const channel = form.querySelector('[name="channel"]')?.value;
+  if (!text || !channel) return;
+  try {
+    await Server.workspaces.addRoutine(at.ws, { channel, text, every_hours });
+    await TeamPanel.side(at.el, at.ws, at.d.project?.id || null, at.channel);
+  } catch (err) { toast(err.message); }
 });
 document.addEventListener("drop", e => {
   const zone = e.target.closest?.("[data-drop-files]");

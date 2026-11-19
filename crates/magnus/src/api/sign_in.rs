@@ -30,7 +30,7 @@ pub(crate) async fn issue(k: &Arc<Kernel>, t: Transport, person: &str, app: bool
     if let Err(e) = k.accounts.refresh_people().await {
         return internal(e);
     }
-    let Some(p) = k.person(person) else { return err(StatusCode::FORBIDDEN, format!("{person} is not a person on this appliance.")) };
+    let Some(p) = k.person(person) else { return err(StatusCode::FORBIDDEN, format!("{person} is not a person on this server.")) };
     let client = if app { "app" } else { "browser" };
     let (session, token) = match k.accounts.open_session(person, client, device).await {
         Ok(s) => s,
@@ -259,7 +259,7 @@ pub(super) async fn sign_in(State(k): K, Extension(t): Extension<Transport>, Con
             if backup {
                 return Ok((
                     StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({ "machine_code_needed": true, "error": format!("{label} is not answering. On the appliance, run `magnus sign-in-code` and enter the code it prints, with your password.") })),
+                    Json(json!({ "machine_code_needed": true, "error": format!("{label} is not answering. On the server, run `magnus sign-in-code` and enter the code it prints, with your password.") })),
                 )
                     .into_response());
             }
@@ -350,8 +350,8 @@ async fn provider_answered(k: &Arc<Kernel>, t: Transport, label: String, polled:
         Polled::Pending => (StatusCode::ACCEPTED, Json(json!({ "pending": true }))).into_response(),
         Polled::Done { person, app, rights } => {
             if k.cfg.person(&person).is_none() {
-                tracing::warn!("identity: {person} signed in at {label} but is not a person on this appliance");
-                return err(StatusCode::FORBIDDEN, format!("You signed in as {person}, who is not a person on this appliance. Ask the owner to add you."));
+                tracing::warn!("identity: {person} signed in at {label} but is not a person on this server");
+                return err(StatusCode::FORBIDDEN, format!("You signed in as {person}, who is not a person on this server. Ask the owner to add you."));
             }
             // A person is the provider's account that first signed in as
             // them (its `sub`), not a username: an account made again, or

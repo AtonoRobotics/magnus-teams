@@ -159,11 +159,11 @@ impl Brokered {
     }
 
     async fn launch(&self, c: &Connector, hosts: Option<Vec<String>>) -> Result<Instance> {
-        let sb = self.sandbox.as_ref().ok_or_else(|| anyhow!("{} runs in a microVM, and this appliance has no [sandbox] to run it", c.name))?;
+        let sb = self.sandbox.as_ref().ok_or_else(|| anyhow!("{} runs in a microVM, and this server has no [sandbox] to run it", c.name))?;
         let images = images(&self.cfg, crate::update::install_dir().ok().as_deref())
-            .ok_or_else(|| anyhow!("{}'s server image is not on this appliance (no {IMAGES} beside its programs, and no [brokered] images)", c.name))?;
+            .ok_or_else(|| anyhow!("{}'s server image is not on this server (no {IMAGES} beside its programs, and no [brokered] images)", c.name))?;
         let hex = digest(&c.url)?;
-        let bytes = std::fs::read(images.join(format!("{hex}.cpio"))).with_context(|| format!("{}'s server image {hex} is not on this appliance", c.name))?;
+        let bytes = std::fs::read(images.join(format!("{hex}.cpio"))).with_context(|| format!("{}'s server image {hex} is not on this server", c.name))?;
         anyhow::ensure!(hex::encode(sha2::Sha256::digest(&bytes)) == hex, "{}'s server image on this server is not the one its manifest names", c.name);
         let dir = self.root.join(&uuid::Uuid::new_v4().simple().to_string()[..12]);
         std::fs::create_dir_all(&dir)?;

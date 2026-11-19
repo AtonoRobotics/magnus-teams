@@ -81,7 +81,20 @@ impl Kernel {
             project,
             ..Default::default()
         };
-        let (task, _) = self.create_run(&format!("person:{person}"), person, text, vec![], o).await?;
+        let (task, _) = self.create_run(&format!("person:{person}"), person, text.clone(), vec![], o).await?;
+        let active_runs: Vec<(String, u32)> = self.read(|s| {
+            s.tasks
+                .values()
+                .filter(|t| t.person == person && t.task_id != task && t.chat.as_ref().is_some_and(|c| !c.turn && c.thread == thread))
+                .filter_map(|t| s.runs.get(&t.run_id))
+                .filter(|r| r.status == Status::Running)
+                .map(|r| (r.id.clone(), (r.replies.len() as u32).saturating_add(1)))
+                .collect()
+        });
+        for (run_id, step) in active_runs {
+            let note = format!("The person sent a new message in this conversation while you are working: {text}");
+            let _ = self.emit(&format!("person:{person}"), Ev::Notice { run: run_id, step, text: note }).await;
+        }
         Ok(Some((thread, task)))
     }
 

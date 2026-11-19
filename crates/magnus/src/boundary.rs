@@ -329,7 +329,7 @@ impl Kernel {
             return Ok(Verdict::Suspended);
         }
         let Some(f) = facts(self, &a.tool) else {
-            return self.deny(a, "identify", &format!("{} is not a tool this appliance can use (it is unknown or the owner has not classified it)", a.tool), false, None).await;
+            return self.deny(a, "identify", &format!("{} is not a tool this server can use (it is unknown or the owner has not classified it)", a.tool), false, None).await;
         };
         if let Some(c) = &f.connector {
             // Compare the live definition with the pin right before acting, so
@@ -588,7 +588,7 @@ impl Kernel {
             Err(Refusal::Denied { why, rule }) => return Ok(Err(self.deny(a, "policy", &why, false, rule.map(Into::into)).await?)),
         }
         if f.risk == Risk::Prohibited {
-            return Ok(Err(self.deny(a, "policy", &format!("{} is prohibited on this appliance", a.tool), false, None).await?));
+            return Ok(Err(self.deny(a, "policy", &format!("{} is prohibited on this server", a.tool), false, None).await?));
         }
         if let Some(why) = self.hard_denial(a, run) {
             return Ok(Err(self.deny(a, "policy", &why, false, Some(HARD_DENIAL.into())).await?));

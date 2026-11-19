@@ -141,3 +141,170 @@ async function mailCard(el) {
     catch (err) { say(err.message || String(err)); }
   };
 }
+
+const COMMON_TIMEZONES = ["UTC", "America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York", "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Berlin", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney"];
+
+function deviceTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; }
+}
+
+/**
+ * When the person has not explicitly chosen a time zone yet, sync their
+ * device's IANA time zone so schedules and quiet hours run in local time.
+ */
+async function autoDetectTimezone() {
+  try {
+    const st = await Server.account.totp();
+    if (st && !st.timezone_explicit) {
+      const tz = deviceTimezone();
+      if (tz && tz !== "UTC") {
+        const updated = await Server.preferences.set({ timezone: tz });
+        if (typeof App !== "undefined" && App) App.prefs = updated;
+      }
+    }
+  } catch { /* non-fatal on boot */ }
+}
+
+/**
+ * Self-service Authenticator app (TOTP) card in Settings → Account.
+ * @param {HTMLElement|null} el
+ */
+async function totpCard(el) {
+  if (!el) return;
+  let st;
+  try { st = await Server.account.totp(); } catch { el.innerHTML = ""; return; }
+  if (!st.here) { el.innerHTML = ""; return; }
+  const draw = (pending = null) => {
+    el.innerHTML = `<h3>Two-factor authentication</h3>
+      <div class="card" data-totp-card>
+        <p class="small">${st.enrolled ? `<span class="chip ok">Enrolled</span> Your account asks for a 6-digit code from your authenticator app at sign-in.` : `Add an authenticator app (1Password, Google Authenticator, Apple Passwords) for a 6-digit second factor at sign-in.`}</p>
+        ${pending ? `<div class="stack" data-totp-setup>
+          <p class="small">Enter this key in your authenticator app or open <a href="${esc(pending.uri)}">the setup link</a>:</p>
+          <input readonly class="mono" value="${esc(pending.secret)}" aria-label="Authenticator secret key" data-totp-secret>
+          <label for="totp-code">6-digit code from your app</label>
+          <div class="row"><input id="totp-code" data-totp-code inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456"><button type="button" class="primary" data-totp-confirm>Verify and turn on</button></div>
+        </div>` : `<div class="row">
+          <button type="button" class="${st.enrolled ? "" : "primary"}" data-totp-begin>${st.enrolled ? "Replace authenticator app" : "Set up authenticator app"}</button>
+          ${st.enrolled && !st.code_required ? `<button type="button" class="danger" data-totp-remove>Remove authenticator app</button>` : ""}
+        </div>`}
+      </div>`;
+    const beginBtn = $("[data-totp-begin]", el);
+    if (beginBtn) beginBtn.onclick = async () => {
+      try { draw(await Server.account.beginTotp()); }
+      catch (err) { toast(err.message || String(err)); }
+    };
+    const confirmBtn = $("[data-totp-confirm]", el);
+    if (confirmBtn) confirmBtn.onclick = async () => {
+      const code = /** @type {HTMLInputElement} */ ($("[data-totp-code]", el))?.value.trim() || "";
+      try {
+        await Server.account.confirmTotp(code);
+        st.enrolled = true;
+        toast("Authenticator app enrolled.");
+        draw(null);
+      } catch (err) { toast(err.message || String(err)); }
+    };
+    const removeBtn = $("[data-totp-remove]", el);
+    if (removeBtn) removeBtn.onclick = async () => {
+      if (typeof ask === "function" && !await ask("Remove your authenticator app? Your account will sign in with your password alone.", "Remove", true)) return;
+      try {
+        await Server.account.removeTotp();
+        st.enrolled = false;
+        toast("Authenticator app removed.");
+        draw(null);
+      } catch (err) { toast(err.message || String(err)); }
+    };
+  };
+  draw(null);
+}
+
+/**
+ * Time zone and working hours card in Settings → Account.
+ * @param {HTMLElement|null} el
+ */
+async function timezoneCard(el) {
+  if (!el) return;
+  let prefs;
+  try { prefs = (typeof App !== "undefined" && App?.prefs) || await Server.preferences.get(); } catch { el.innerHTML = ""; return; }
+  const current = prefs?.timezone || "UTC";
+  const detected = deviceTimezone();
+  const zones = Array.from(new Set([current, detected, ...COMMON_TIMEZONES]));
+  el.innerHTML = `<h3>Time zone</h3>
+    <div class="card" data-timezone-card>
+      <p class="small muted">Schedules, morning briefings and quiet hours follow this time zone.</p>
+      <div class="row">
+        <select data-tz-select aria-label="Time zone">${zones.map(z => `<option value="${esc(z)}"${z === current ? " selected" : ""}>${esc(z)}</option>`).join("")}</select>
+        ${detected && detected !== current ? `<button type="button" data-tz-detect>Use device time zone (${esc(detected)})</button>` : ""}
+      </div>
+    </div>`;
+  const sel = /** @type {HTMLSelectElement} */ ($("[data-tz-select]", el));
+  if (sel) sel.onchange = async () => {
+    try {
+      const updated = await Server.preferences.set({ timezone: sel.value });
+      if (typeof App !== "undefined") App.prefs = updated;
+      toast(`Time zone set to ${sel.value}.`);
+    } catch (err) { toast(err.message || String(err)); }
+  };
+  const det = $("[data-tz-detect]", el);
+  if (det) det.onclick = async () => {
+    try {
+      const updated = await Server.preferences.set({ timezone: detected });
+      if (typeof App !== "undefined") App.prefs = updated;
+      toast(`Time zone set to ${detected}.`);
+      await timezoneCard(el);
+    } catch (err) { toast(err.message || String(err)); }
+  };
+}
+
+/**
+ * Self-service data export and immediate account erasure card in Settings → Account.
+ * @param {HTMLElement|null} el
+ */
+function privacyAccountCard(el) {
+  if (!el) return;
+  el.innerHTML = `<h3>Your data and account</h3>
+    <div class="card" data-privacy-account-card>
+      <p class="small muted">Download a copy of your chats, tasks, files metadata, preferences and memory, or permanently erase your account and data from this server.</p>
+      <div class="row">
+        <button type="button" data-account-export>Download my data (JSON)</button>
+        <button type="button" class="danger" data-account-erase>Delete my account and data</button>
+      </div>
+    </div>`;
+  const exp = $("[data-account-export]", el);
+  if (exp) exp.onclick = async () => {
+    try {
+      const bundle = await Server.account.exportData();
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `magnus-data-${bundle.person || "export"}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast("Downloaded your data export.");
+    } catch (err) { toast(err.message || String(err)); }
+  };
+  const erase = $("[data-account-erase]", el);
+  if (erase) erase.onclick = async () => {
+    const typed = typeof askText === "function"
+      ? await askText({ title: "Delete your account and data?", body: "Your chats, tasks, files, schedules, computers and memory will be permanently erased and your devices signed out. Type DELETE to confirm.", placeholder: "DELETE", okLabel: "Erase my account", danger: true })
+      : null;
+    if (typed !== "DELETE") return;
+    try {
+      await Server.account.deleteAccount("DELETE");
+      toast("Your account and data have been erased.");
+      $("nav.side [data-act=sign-out]")?.click();
+    } catch (err) { toast(err.message || String(err)); }
+  };
+}
+
+/**
+ * Populate the Authenticator, Time zone, and Data & Account cards in Settings → Account.
+ * @param {HTMLElement} root
+ */
+async function accountExtras(root) {
+  await Promise.all([
+    totpCard($("[data-totp]", root)),
+    timezoneCard($("[data-timezone]", root)),
+  ]);
+  privacyAccountCard($("[data-account-privacy]", root));
+}
+

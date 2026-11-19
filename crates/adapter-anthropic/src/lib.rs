@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 const DEFAULT_BASE: &str = "https://api.anthropic.com";
 const DEFAULT_VERSION: &str = "2023-06-01";
+const CONNECT_TIMEOUT_S: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub fn main() {
     let socket = match proto::socket_arg() {
@@ -24,7 +25,7 @@ pub fn main() {
         }
     };
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let http = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(10)).build().expect("http client");
+    let http = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT_S).build().expect("http client");
     if let Err(e) = rt.block_on(proto::serve(&socket, move |req, sink| handle(http.clone(), req, sink))) {
         eprintln!("adapter stopped: {e:#}");
         std::process::exit(1);

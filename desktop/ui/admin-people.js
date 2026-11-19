@@ -136,7 +136,7 @@ registerAdminSection("people", async el => {
         case "resend": paint(note, peopleInvited(await Server.admin.resendInvite(id))); return;
         case "cancel": await Server.admin.cancelInvite(id); toast("Invitation withdrawn."); break;
         case "sign-out": { const r = await Server.admin.signOut(id); toast(`Signed out of ${r.ended ?? 0} device${r.ended === 1 ? "" : "s"}.`); break; }
-        case "disable": if (!confirm(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`)) return; await Server.admin.disable(id); toast(`${p.name} is turned off.`); break;
+        case "disable": if (!await ask(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`, "Turn off", true)) return; await Server.admin.disable(id); toast(`${p.name} is turned off.`); break;
         case "enable": await Server.admin.enable(id); toast(`${p.name} is turned on.`); break;
         case "remove": {
           const body = await peopleRemoveSheet(p, people);

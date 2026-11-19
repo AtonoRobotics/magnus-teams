@@ -10,6 +10,8 @@ use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+const CONNECT_TIMEOUT_S: Duration = Duration::from_secs(10);
+
 /// SHA-256 of the certificate as colon-separated hex pairs, as the appliance prints it.
 pub fn fingerprint(cert: &CertificateDer<'_>) -> String {
     use sha2::Digest;
@@ -27,7 +29,7 @@ struct Pinned {
 impl ServerCertVerifier for Pinned {
     fn verify_server_cert(&self, end_entity: &CertificateDer<'_>, _: &[CertificateDer<'_>], _: &ServerName<'_>, _: &[u8], _: UnixTime) -> Result<ServerCertVerified, Error> {
         let fp = fingerprint(end_entity);
-        *self.seen.lock().unwrap() = Some(fp.clone());
+        *self.seen.lock().unwrap_or_else(|e| e.into_inner()) = Some(fp.clone());
         match &self.want {
             Some(w) if *w != fp => Err(Error::General("the server's certificate is not the one you trusted".into())),
             _ => Ok(ServerCertVerified::assertion()),
@@ -75,7 +77,7 @@ fn build(want: Option<String>) -> Result<(reqwest::Client, Arc<Mutex<Option<Stri
     let client = reqwest::Client::builder()
         .default_headers(headers)
         .use_preconfigured_tls(tls)
-        .connect_timeout(Duration::from_secs(10))
+        .connect_timeout(CONNECT_TIMEOUT_S)
         .build()
         .map_err(|e| e.to_string())?;
     Ok((client, seen))
@@ -92,7 +94,7 @@ pub fn client(pin: Option<&str>) -> Result<reqwest::Client, String> {
 pub async fn look(url: &str) -> Result<String, String> {
     let (c, seen) = build(None)?;
     let r = c.get(format!("{url}/v1/health")).send().await;
-    let fp = seen.lock().unwrap().clone();
+    let fp = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
     match (fp, r) {
         (Some(fp), _) => Ok(fp),
         (None, Err(e)) => Err(describe(&e)),
@@ -151,7 +153,7 @@ pub fn public_client(cert_pem: &str, key_pem: &str) -> Result<reqwest::Client, S
     if let Ok(v) = reqwest::header::HeaderValue::from_str(&crate::app_version()) {
         headers.insert("x-magnus-app", v);
     }
-    reqwest::Client::builder().default_headers(headers).use_preconfigured_tls(tls).connect_timeout(Duration::from_secs(10)).build().map_err(|e| e.to_string())
+    reqwest::Client::builder().default_headers(headers).use_preconfigured_tls(tls).connect_timeout(CONNECT_TIMEOUT_S).build().map_err(|e| e.to_string())
 }
 
 /// The innermost cause of a request error, which is the one a person can act on.
