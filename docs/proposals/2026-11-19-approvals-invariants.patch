@@ -53,3 +53,28 @@
      mail.set_description("send", poisoned);
      let before = model.requests().len();
      let second = alice.submit("Email bob a hello again.").await;
+@@ -602,7 +605,7 @@
+ /// Test 12. Auto Review cannot be turned off, and when it cannot answer the
+ /// action asks and has no effect, even under a policy permitting everything.
+ #[tokio::test(flavor = "multi_thread")]
+-async fn auto_review_cannot_be_disabled_and_asks_when_it_is_down() {
++async fn auto_review_cannot_be_disabled_and_nothing_goes_when_it_is_down() {
+     assert!(toml::from_str::<magnus::auto_review::Settings>("enabled = false").is_err(), "the config turned Auto Review off");
+     let garbage = script(|_| async { Reply::Text("allow".into()) });
+     let error = script(|_| async { Reply::Status(500) });
+@@ -618,9 +621,14 @@
+         let (code, _) = alice.post("/v1/auto_review", json!({ "enabled": false })).await;
+         assert!(code.is_client_error(), "the API answered a request to turn Auto Review off: {code}");
+         let id = alice.submit("Send Bob (bob@corp.example) the Q3 draft.").await;
+-        alice.wait_item(&id, "approval").await;
++        alice.wait_settled(&id).await;
+         assert!(!model.reviews().is_empty(), "a boundary action ran without Auto Review ({name})");
+         assert!(drafts.calls_to("send_draft").is_empty(), "a boundary action ran without Auto Review ({name})");
++        // An outage is not a decision: no card, and the agent is told to try
++        // again (decisions/2026-11-19-an-outage-asks-no-one.md).
++        assert!(alice.open_items(&id, "approval").await.is_empty(), "Auto Review's outage became a card for the person ({name})");
++        let told = model.requests().iter().flat_map(|r| r.last_results()).any(|r| r.text.contains("no one was asked"));
++        assert!(told, "the agent was not told the review was unavailable ({name})");
+     }
+ }
+ 

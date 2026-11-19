@@ -37,7 +37,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [invariants, autonomy, injection, update, scratch-asks]
+        # `*-base` runs the same suite on the pull request's base, without
+        # the owner's patches: a failure in both is not the change's.
+        suite: [invariants, invariants-base, autonomy, autonomy-base, injection, update, scratch-asks]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     services:
@@ -54,15 +56,18 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ endsWith(matrix.suite, '-base') && github.event.pull_request.base.sha || '' }}
       - name: Skip a suite not asked for
         id: asked
         env:
           SUITES: ${{ github.event.inputs.suites || 'invariants autonomy injection update' }}
           SUITE: ${{ matrix.suite }}
         run: |
+          SUITE=${SUITE%-base}
           case " $SUITES scratch-asks " in *" $SUITE "*) echo "run=true" >> "$GITHUB_OUTPUT" ;; *) echo "run=false" >> "$GITHUB_OUTPUT" ;; esac
       - name: Apply the owner's pending invariant patches
-        if: steps.asked.outputs.run == 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.owner_patches == 'true')
+        if: steps.asked.outputs.run == 'true' && !endsWith(matrix.suite, '-base') && (github.event_name != 'workflow_dispatch' || github.event.inputs.owner_patches == 'true')
         run: |
           for p in docs/proposals/*-invariants.patch; do
             [ -e "$p" ] || continue
@@ -80,16 +85,18 @@ jobs:
         env:
           MAGNUS_CHROMIUM: /usr/bin/google-chrome
         run: |
-          if [ "${{ matrix.suite }}" = invariants ]; then
+          suite="${{ matrix.suite }}"
+          suite=${suite%-base}
+          if [ "$suite" = invariants ]; then
             # Every invariant file runs and reports, so one that needs a
             # computer (KVM, the magnus group) hides none of the others.
             cargo build --workspace --bins
             cargo test -p magnus-invariants --no-fail-fast -- --test-threads=1
-          elif [ "${{ matrix.suite }}" = scratch-asks ]; then
+          elif [ "$suite" = scratch-asks ]; then
             # The scratch tests this kind of change touches most: asks, the
             # send reviewer and a definition changed under its pin.
             cargo build --workspace --bins
             cargo test -p magnus-scratch --no-fail-fast --test asks --test reviewer --test destination_preview
           else
-            ci/acceptance.sh "${{ matrix.suite }}"
+            ci/acceptance.sh "$suite"
           fi

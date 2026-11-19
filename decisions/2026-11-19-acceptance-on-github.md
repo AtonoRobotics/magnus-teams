@@ -18,3 +18,10 @@ the run's checkout first, unless the run is told not to: a change and the
 invariant changes it needs are tested together before the owner applies
 them. Nothing is committed; `tests/invariants/` in the repository changes
 only by the owner's `git apply`.
+
+The invariants and autonomy suites also run on the pull request's base
+(`invariants-base`, `autonomy-base`), without the patches, so a failure
+the change did not cause shows in both and is not mistaken for its own.
+Every invariant file runs (`--no-fail-fast`), so the ones that need a
+computer (no `magnus` group or firecracker on a hosted runner) hide none of
+the others.
