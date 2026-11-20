@@ -85,6 +85,9 @@ pub fn request_body(p: &CompleteParams) -> Value {
         Some(Value::String(f)) => body[f.as_str()] = json!(p.max_tokens),
         _ => body["max_output_tokens"] = json!(p.max_tokens),
     }
+    if let Some(effort) = s["reasoning_effort"].as_str().filter(|e| matches!(*e, "low" | "medium" | "high")) {
+        body["reasoning"] = json!({ "effort": effort });
+    }
     if let Some(extra) = s["body"].as_object() {
         for (k, v) in extra {
             body[k.as_str()] = v.clone();

@@ -191,7 +191,17 @@ fn request_body(model: &str, settings: &Value, system: &str, messages: &[proto::
     if !tools.is_empty() {
         body["tools"] = tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.input_schema })).collect();
     }
-    if let Some(budget) = settings["thinking_budget"].as_u64() {
+    const THINKING_BUDGET_LOW_TOKENS: u64 = 2048;
+    const THINKING_BUDGET_MEDIUM_TOKENS: u64 = 8192;
+    const THINKING_BUDGET_HIGH_TOKENS: u64 = 16384;
+    let budget = match settings["reasoning_effort"].as_str() {
+        Some("off") => None,
+        Some("low") => Some(THINKING_BUDGET_LOW_TOKENS),
+        Some("medium") => Some(THINKING_BUDGET_MEDIUM_TOKENS),
+        Some("high") => Some(THINKING_BUDGET_HIGH_TOKENS),
+        _ => settings["thinking_budget"].as_u64(),
+    };
+    if let Some(budget) = budget {
         body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
     }
     body

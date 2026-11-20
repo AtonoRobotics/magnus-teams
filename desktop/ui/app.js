@@ -1404,6 +1404,8 @@ function scheduleView(id) {
 // providers list them now. The appliance's default is used until the viewer
 // picks another; a pick holds only while the default it was made under is
 // still the default, so changing the default reaches new messages (#540).
+const REASONING_LEVELS = [["", "Reasoning: Auto"], ["off", "Reasoning: Off"], ["low", "Reasoning: Low"], ["medium", "Reasoning: Medium"], ["high", "Reasoning: High"]];
+
 async function modelPicker() {
   const { default: dflt, adapters } = await Server.models.list().catch(() => ({ default: null, adapters: [] }));
   const key = m => JSON.stringify([m.adapter, m.model]);
@@ -1413,8 +1415,10 @@ async function modelPicker() {
   const saved = load("model-choice", null);
   const pick = opts.find(o => saved?.under === under && key(o) === key(saved)) || dflt || opts[0];
   const groups = [...new Set(opts.map(o => o.adapter))];
+  const savedReasoning = load("reasoning-choice", "") || "";
   return `<label class="model"><span class="sr">Model</span><select data-model data-default="${esc(under)}" aria-label="Model">${groups.map(g => `<optgroup label="${esc(g)}">${opts.filter(o => o.adapter === g).map(o =>
-    `<option value="${esc(key(o))}"${pick && key(o) === key(pick) ? " selected" : ""}>${esc(o.model)}${dflt && key(o) === key(dflt) ? " (default)" : ""}</option>`).join("")}</optgroup>`).join("")}</select></label>`;
+    `<option value="${esc(key(o))}"${pick && key(o) === key(pick) ? " selected" : ""}>${esc(o.model)}${dflt && key(o) === key(dflt) ? " (default)" : ""}</option>`).join("")}</optgroup>`).join("")}</select></label><label class="model"><span class="sr">Reasoning level</span><select data-reasoning aria-label="Reasoning level">${REASONING_LEVELS.map(([val, label]) =>
+    `<option value="${esc(val)}"${val === savedReasoning ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
 }
 function chosenModel(root) {
   const sel = $("select[data-model]", root);
@@ -1422,7 +1426,10 @@ function chosenModel(root) {
   const [adapter, model] = JSON.parse(sel.value);
   // Sending on the default is not a pick: nothing is kept to outlive it.
   save("model-choice", sel.value === sel.dataset.default ? null : { adapter, model, under: sel.dataset.default });
-  return { adapter, model };
+  const rsel = $("select[data-reasoning]", root);
+  const reasoning = rsel && rsel.value ? rsel.value : undefined;
+  if (rsel) save("reasoning-choice", rsel.value || "");
+  return reasoning ? { adapter, model, reasoning } : { adapter, model };
 }
 
 // ---------- Chat ----------
@@ -3136,7 +3143,11 @@ const MOVED_TO_ADMIN = { models: "#/admin/models", connectors: "#/admin/connecto
 const administers = () => typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
 async function openSettingsModal(which) {
   if (which === "rules") { openPanel("rules", { history: true, focus: true }); return; }
+  if (typeof AdminState !== "undefined" && !AdminState.standing && typeof Server !== "undefined" && Server.admin?.standing) {
+    AdminState.standing = await Server.admin.standing({ background: true }).catch(() => null);
+  }
   let d = $("#settings-modal");
+  let navigatingAway = false;
   if (!d) {
     d = document.createElement("dialog");
     d.id = "settings-modal";
@@ -3146,10 +3157,12 @@ async function openSettingsModal(which) {
     d.addEventListener("click", e => { if (e.target === d) d.close(); });
     d.addEventListener("close", () => {
       d.remove();
-      if (location.hash.startsWith("#/settings")) location.hash = App.lastNonSettingsHash || "#/home";
+      if (!navigatingAway && (location.hash.startsWith("#/settings") || location.hash.startsWith("#/admin"))) {
+        location.hash = App.lastNonSettingsHash || "#/home";
+      }
     });
   }
-  const MODAL_TABS = [
+  const PERSONAL_TABS = [
     ["account", "Account & Privacy", async el => {
       el.innerHTML = `<div class="settings-stack"><section data-s="account"></section><section data-s="payments"></section><section data-s="data"></section><section data-s="agreements"></section></div>`;
       await accountSection($('[data-s="account"]', el));
@@ -3161,19 +3174,49 @@ async function openSettingsModal(which) {
     ["notifications", "Notifications", notificationsSection],
     ["updates", "Updates", updatesSection],
   ];
-  const mapKey = k => ["payments", "data", "agreements"].includes(k) ? "account" : k;
+  const ADMIN_LABELS = { models: "Models & Providers" };
+  const adminTabs = () => {
+    if (!administers() || typeof ADMIN_SECTIONS === "undefined") return [];
+    return ADMIN_SECTIONS.map(([k, label]) => [
+      `admin:${k}`,
+      ADMIN_LABELS[k] || label,
+      async el => {
+        const render = AdminState.sections.get(k);
+        if (render) await render(el);
+        else paint(el, `<h2>${esc(label)}</h2><p class="empty">${esc(label)} is not in the app yet.</p>`);
+      },
+    ]);
+  };
+  const mapKey = k => {
+    if (!k) return "account";
+    if (k.startsWith("admin:")) return k;
+    if (["models", "connectors", "people", "agents", "spend", "security", "operations", "overview"].includes(k)) {
+      return administers() ? `admin:${k}` : "account";
+    }
+    if (k === "safety") return administers() ? "admin:overview" : "account";
+    return ["payments", "data", "agreements"].includes(k) ? "account" : k;
+  };
   const renderTab = async key => {
-    const sec = MODAL_TABS.find(x => x[0] === mapKey(key)) || MODAL_TABS[0];
+    const aTabs = adminTabs();
+    const allTabs = [...PERSONAL_TABS, ...aTabs];
+    const target = mapKey(key);
+    const sec = allTabs.find(x => x[0] === target) || PERSONAL_TABS[0];
+    const btn = ([k, label]) => `<button type="button" data-settings-tab="${esc(k)}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`;
     d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="primary" data-settings-done>Done</button></div>
-      <nav class="settings-tabs" aria-label="Settings">${MODAL_TABS.map(([k, label]) =>
-        `<button type="button" data-settings-tab="${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`).join("")}</nav>
-      <div class="settings-body">${administers() ? `<p class="small muted" data-admin-pointer>The server's models, the organisation's connectors, people's roles, server updates and the kill switch are in <a href="#/admin">Admin</a>.</p>` : ""}<section id="setting" data-section="${sec[0]}"></section></div>`;
+      <div class="settings-shell">
+        <nav class="settings-nav" aria-label="Settings">
+          <div class="settings-nav-group">Personal</div>
+          ${PERSONAL_TABS.map(btn).join("")}
+          ${aTabs.length ? `<div class="settings-nav-group">Server &amp; Admin</div>${aTabs.map(btn).join("")}` : ""}
+        </nav>
+        <div class="settings-body"><section id="setting" data-section="${esc(sec[0])}"></section></div>
+      </div>`;
     $("[data-settings-done]", d).onclick = () => d.close();
-    d.querySelectorAll("[data-settings-tab]").forEach(btn => {
-      btn.onclick = () => renderTab(btn.dataset.settingsTab);
+    d.querySelectorAll("[data-settings-tab]").forEach(b => {
+      b.onclick = () => renderTab(b.dataset.settingsTab);
     });
     d.querySelectorAll('a[href^="#/"]').forEach(a => {
-      a.addEventListener("click", () => d.close());
+      a.addEventListener("click", () => { navigatingAway = true; d.close(); });
     });
     if (!d.open) d.showModal();
     await sec[2]($("#setting", d));
@@ -3181,12 +3224,11 @@ async function openSettingsModal(which) {
   await renderTab(which);
 }
 
-route(/^#\/settings(?:\/([a-z]+))?$/, async (main, which) => {
-  if (MOVED_TO_ADMIN[which]) { location.hash = administers() ? MOVED_TO_ADMIN[which] : "#/settings"; return; }
+route(/^#\/settings(?:\/([a-z:]+))?$/, async (main, which) => {
   await openSettingsModal(which);
 });
 // Where these lived before Settings.
-route(/^#\/models$/, () => { location.hash = administers() ? "#/admin/models" : "#/settings"; });
+route(/^#\/models$/, () => openSettingsModal(administers() ? "admin:models" : "account"));
 route(/^#\/apps$/, () => { location.hash = administers() ? "#/admin/connectors" : "#/library"; });
 
 // How Magnus looks on this device: light, dark or the computer's; an accent;

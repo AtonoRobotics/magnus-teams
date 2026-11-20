@@ -232,7 +232,12 @@ impl Kernel {
             .await?;
             let live = self.live_text.clone();
             let rid = run_id.to_string();
-            let out = self.adapters.complete(&active_adapter, &active_model, &system, messages.clone(), tools.clone(), max_tokens, |t| live.send(&rid, t)).await;
+            let out = self
+                .adapters
+                .complete_with_reasoning(&active_adapter, &active_model, &system, messages.clone(), tools.clone(), max_tokens, run.config.reasoning.as_deref(), |t| {
+                    live.send(&rid, t)
+                })
+                .await;
             live.end(&rid);
             match out {
                 Ok(t) => {

@@ -48,12 +48,28 @@ impl Kernel {
     /// The person writes in a thread of theirs, or starts one (in a project
     /// of theirs, if they chose one), with the model they chose for this
     /// message (the appliance's when none) and any files they added to it.
+    #[allow(clippy::too_many_arguments)]
     pub async fn chat_say(
         self: &Arc<Self>,
         person: &str,
         text: String,
         thread: Option<String>,
         model: Option<(String, String)>,
+        experiment: Option<crate::events::ExperimentTag>,
+        files: Vec<String>,
+        project: Option<String>,
+    ) -> Result<Option<(String, String)>> {
+        self.chat_say_with_reasoning(person, text, thread, model, None, experiment, files, project).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn chat_say_with_reasoning(
+        self: &Arc<Self>,
+        person: &str,
+        text: String,
+        thread: Option<String>,
+        model: Option<(String, String)>,
+        reasoning: Option<String>,
         experiment: Option<crate::events::ExperimentTag>,
         files: Vec<String>,
         project: Option<String>,
@@ -76,6 +92,7 @@ impl Kernel {
             chat: Some(ChatOrigin { thread: thread.clone(), turn: true, from_run: None, conversation, opener: None }),
             label: (label != Label::PRINCIPAL).then_some(label),
             model,
+            reasoning,
             experiment,
             files,
             project,
