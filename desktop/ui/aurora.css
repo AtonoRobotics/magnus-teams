@@ -1,4 +1,4 @@
-/* Aurora theme: cinematic living light fields, frosted glass surfaces,
+/* Aurora theme: cinematic living light fields, solid layered surfaces,
    rotating conic-gradient execution beams, masked entry streaming, and
    dynamic right-sidebar & navigation choreography.
    Every rule is scoped to html[data-style="aurora"]; existing themes stay untouched. */
@@ -61,8 +61,6 @@ html[data-style="aurora"] nav.side,
 html[data-style="aurora"] .navigation-drawer,
 html[data-style="aurora"] .team-rail {
   background: var(--aurora-glass);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
   border-right: 1px solid var(--aurora-rim);
 }
 
@@ -125,8 +123,6 @@ html[data-style="aurora"] #find input {
 html[data-style="aurora"] aside.detail,
 html[data-style="aurora"] .team-side {
   background: var(--aurora-glass);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
   border-left: 1px solid var(--aurora-rim);
 }
 
@@ -137,8 +133,6 @@ html[data-style="aurora"][data-motion="full"] aside.detail.opening {
 html[data-style="aurora"] .detail-head,
 html[data-style="aurora"] .workspace-bar {
   background: var(--aurora-glass-strong);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--aurora-rim);
 }
 
@@ -207,8 +201,6 @@ html[data-style="aurora"] .explore-card {
   background:
     radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 65%),
     var(--aurora-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   transition: transform .24s var(--ease), border-color .24s var(--ease), box-shadow .24s var(--ease);
 }
 
@@ -236,8 +228,6 @@ html[data-style="aurora"] .msg.me {
   border-radius: 20px 20px 6px 20px;
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
 }
 
 html[data-style="aurora"] .tcard,
@@ -245,8 +235,6 @@ html[data-style="aurora"] .reqgroup,
 html[data-style="aurora"] .sub-agent {
   border-radius: var(--r-md);
   background: var(--aurora-glass);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--aurora-rim);
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
@@ -269,8 +257,6 @@ html[data-style="aurora"] .say {
   background:
     radial-gradient(280px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 70%),
     var(--aurora-glass-strong);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
   box-shadow: 0 18px 46px color-mix(in srgb, var(--aurora-beam-a) 10%, rgba(0, 0, 0, 0.35));
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
@@ -294,8 +280,6 @@ html[data-style="aurora"] dialog.ask {
   background:
     radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 68%),
     var(--aurora-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--aurora-rim);
   transition: transform .22s var(--ease), border-color .22s var(--ease), box-shadow .22s var(--ease);
 }
@@ -333,7 +317,6 @@ html[data-style="aurora"][data-motion="reduced"] .computer-view:has(.state-pill[
   html[data-style="aurora"] .say,
   html[data-style="aurora"] .card {
     background: Canvas;
-    backdrop-filter: none;
     border-color: CanvasText;
   }
 }

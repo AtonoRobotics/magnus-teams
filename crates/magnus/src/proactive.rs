@@ -321,7 +321,7 @@ impl crate::kernel::Kernel {
     /// used to skip when any review had woken within five minutes, which
     /// silently dropped failures after a cadence review or a boot; a
     /// per-task mark is the precise dedup (a task ends once).
-    pub async fn review_wake(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
+    pub(crate) async fn review_wake(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
         if !self.cfg.proactive.on {
             return false;
         }

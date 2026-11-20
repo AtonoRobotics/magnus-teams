@@ -227,11 +227,13 @@ impl Accounts {
     /// Check a password and, where the person enrolled one, the code from
     /// their authenticator app. A missing code answers `NeedsCode`
     /// (uncounted); a wrong code rejects and counts, like a wrong password.
+    #[cfg(test)]
     pub(super) async fn sign_in_counted_with_code(&self, person: &str, password: &str, code: Option<&str>, counter: &str) -> Result<std::result::Result<(), SignInError>> {
         self.sign_in_counted_with_code_at(person, password, code, counter, Utc::now()).await
     }
 
     /// `sign_in_counted_with_code` at `at`, for tests.
+    #[cfg(test)]
     pub(super) async fn sign_in_counted_with_code_at(
         &self,
         person: &str,

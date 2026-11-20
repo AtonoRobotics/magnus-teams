@@ -19,14 +19,16 @@
 # --bins`): the scratch and invariant tests run the programs but do not build
 # them.
 #
-# STRIX_BETA overrides the ssh destination (default the LAN address: the
-# tailnet name has hung).
+# `STRIX_BETA` overrides the SSH destination (default the LAN address: the
+# tailnet name has hung). `STRIX_BETA_HOST_KEY_ALIAS` overrides the known-host
+# lookup name; by default it is the destination host with any user removed.
 set -eu
 [ $# -ge 2 ] || { echo "usage: ci/on-strix-beta.sh NAME COMMAND..." >&2; exit 2; }
 name=$1; shift
 case $name in *[!A-Za-z0-9._-]*) echo "NAME: letters, digits, dot, dash, underscore" >&2; exit 2 ;; esac
 host=${STRIX_BETA:-samuel@192.168.0.51}
-ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=strix-beta"
+host_key_alias=${STRIX_BETA_HOST_KEY_ALIAS:-${host#*@}}
+ssh_="ssh -o BatchMode=yes -o ConnectTimeout=15 -o HostKeyAlias=$host_key_alias"
 root=$(cd "$(dirname "$0")/.." && pwd)
 dir=magnus-teams-ci/$name
 # This NAME is in use from now on, so another run's garbage collection

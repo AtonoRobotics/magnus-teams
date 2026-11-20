@@ -170,6 +170,7 @@ impl Kernel {
 
     /// Takes a member's request. The run is theirs, so what it may do and
     /// who is asked follows them. Other people's words come in only as data.
+    #[cfg(test)]
     pub(super) async fn team_request(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, text: String) -> Result<(String, String)> {
         self.team_request_on(workspace, channel, thread, person, text, None).await
     }
