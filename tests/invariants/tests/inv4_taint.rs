@@ -236,8 +236,11 @@ async fn a_fetch_cannot_carry_private_data_out_after_untrusted_input() {
     let app = appliance(&w, &model).await;
     let alice = app.api("alice");
     let id = alice.submit("Read my inbox and the news page.").await;
-    alice.wait_item(&id, "approval").await;
+    // v2 compartmentalized security: a model-fabricated URL after private +
+    // untrusted taint is silently denied (zero data leaked, zero approval card).
+    alice.wait_settled(&id).await;
     assert!(w.web.hits().iter().all(|h| !h.starts_with("/collect")), "a URL carried data out: {:?}", w.web.hits());
+    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "approval"), "a fabricated URL interrupted the person instead of silently denying");
 }
 
 /// An approval holds for the email the person was shown, read from the

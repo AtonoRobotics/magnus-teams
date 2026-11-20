@@ -118,6 +118,13 @@ const Server = (() => {
       answer: (/** @type {Id} */ id, /** @type {any} */ body) => post(`/v1/inbox/${enc(id)}`, body),
     },
 
+    staged: {
+      /** Open staged drafts/actions with service read-back and destination provenance. */
+      list: () => get("/v1/staged"),
+      /** Resolve a staged item. @param {Id} id @param {{outcome: "sent"|"discarded"|"edited"|"sent_externally"|"deleted_externally", scope?: "once"|"recipient"|"domain"}} body */
+      resolve: (id, body) => post(`/v1/staged/${enc(id)}`, body),
+    },
+
     /** Apps the agent made, drawn in the conversation, and the elements they may use. */
     ui: {
       app: (/** @type {Id} */ id) => get(`/v1/ui/apps/${enc(id)}`),

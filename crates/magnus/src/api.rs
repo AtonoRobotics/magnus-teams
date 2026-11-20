@@ -119,6 +119,8 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/inbox", get(inbox_list))
         .route("/v1/inbox/{id}", post(respond))
         .route("/v1/inbox/opened", post(inbox_opened))
+        .route("/v1/staged", get(crate::staging::list_route))
+        .route("/v1/staged/{id}", post(crate::staging::resolve_route))
         .route("/v1/home/opened", post(home_opened))
         .route("/v1/policies", get(policies))
         .route("/v1/policies/{*layer}", put(put_policy))

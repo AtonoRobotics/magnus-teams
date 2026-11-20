@@ -638,10 +638,38 @@ impl Kernel {
         // only to the provider that holds their data already, and it reaches
         // no one there (#175). So does an identity's page, read at its own site.
         // A read through the organisation's key, the web and the browser keep it.
+        // 4a. Compartment & web query guardrails (zero internet approval cards):
+        // - `web_search` passes the shared query gate (scrub + budget + mandatory
+        //   classifier when private && untrusted + retry cap), never prompting the user.
+        // - `research_web` runs the same gate inside `compartment::research_web`.
+        // - A link-following-only `OpenWeb` worker may only open URLs from its own
+        //   search results, loaded pages, or the user's original prompt.
+        // - A tainted `Private` run silently denies model-fabricated URLs instead
+        //   of interrupting the user with an approval card.
+        let wr = crate::tool_registry::web_read(&a.tool);
+        if wr == crate::tool_registry::WebRead::Query && f.connector.is_none() {
+            let q = a.input["query"].as_str().unwrap_or_default();
+            if let Some(why) = self.check_web_query(a, run, q).await? {
+                return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
+            }
+        }
+        let link_only = self.read(|s| s.compartments.of(&a.run).is_link_following_only());
+        if link_only && f.connector.is_none() && wr == crate::tool_registry::WebRead::OpensUrl && !self.open_web_link_allowed(a, f, run).await? {
+            let why = "this OpenWeb worker only follows links from its own search results, loaded pages, or the user's request; search first and open a returned link";
+            return Ok(Err(self.deny(a, "policy", why, false, None).await?));
+        }
+        let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
+        let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || (f.app == "browser" && !a.tool.starts_with("browser_as_")));
+        if web_or_browser_read && !is_query_tool && untrusted && private && !self.plain_web_read(a, f, run).await? {
+            let why = "cannot open a constructed URL while this conversation holds private data and untrusted content; use web_search or research_web to find a public link first";
+            return Ok(Err(self.deny(a, "policy", why, false, None).await?));
+        }
+
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
         let transmits = crate::local::may_send(a, f)
             && !own_memory
             && !f.reaches_self
+            && !is_query_tool
             && (f.risk.changes_state()
                 || f.app == "web"
                 || (f.app == "browser" && !(f.risk == Risk::Read && a.tool.starts_with("browser_as_")))
@@ -649,55 +677,33 @@ impl Kernel {
         // A web read whose address the model did not make up carries nothing
         // out (decisions/2026-11-12-web-reads-by-provenance.md).
         let transmits = transmits && !(untrusted && private && crate::web_reads::sends_nothing_new(a, f, |_| true) && self.plain_web_read(a, f, run).await?);
-        // These override a policy ask: the approval must then cover this exact
-        // action, not a broader scope granted for policy reasons.
-        // A send whose every recipient the person wrote themselves, has
-        // mailed before, or the directory holds goes where they asked,
-        // whatever the task read: injected text can choose neither who
-        // they named nor, read from the draft at the gate, who it goes to
-        // (#176, #210, #211; approvals spec, recipient provenance). That
-        // the content is what they wanted is theirs to judge (owner,
-        // 2026-11-04).
+        // Outbound writes when holding untrusted content + private data:
+        // check against the lazy user-only Envelope (never whole-directory or
+        // blanket past-contact auto-allow). Out-of-envelope stageable writes
+        // (and cross-thread replies to untrusted senders) are staged as drafts
+        // instead of blocking on a modal approval card.
         let dests = self.destinations_of(a, f, shown);
-        let lookup = matches!(f.app.as_str(), "web" | "browser") && f.connector.is_none();
-        // An approved destination is remembered (spec rev 140, What still asks).
-        let remembered = |d: &String| self.read(|s| crate::asks::remembered(&s.inbox.approvals(), &run.person, d));
-        let theirs = match shown {
-            _ if transmits && untrusted && private && !dests.is_empty() && dests.iter().all(remembered) => true,
-            Some(s) if transmits && untrusted && private => {
-                let named = self.named_by_person(run).await?;
-                let mut all = true;
-                for r in s.recipients.values().flatten() {
-                    if named.contains(r) || remembered(r) {
-                        continue;
-                    }
-                    // The spec's second source (#210): mailed before.
-                    if self.mailed_before(a, f, run, person, r).await? {
-                        continue;
-                    }
-                    // The spec's third source (#211): the organisation's
-                    // directory. No provider, no waiver.
-                    let held = match self.identity() {
-                        Some(idp) => idp.in_directory(r).await?,
-                        None => false,
-                    };
-                    if !held {
-                        all = false;
-                        break;
-                    }
+        if transmits && untrusted && private {
+            let env = self.ensure_envelope(run).await?;
+            let typed: Vec<crate::envelope::Destination> = dests.iter().filter_map(|d| crate::envelope::Destination::parse_for_app(&f.app, d)).collect();
+            let in_envelope = !typed.is_empty() && env.allows_all(&typed);
+            let cross_thread_reply = in_envelope && crate::envelope::is_cross_thread_untrusted_reply(run, &f.app);
+            if !in_envelope || cross_thread_reply {
+                let why = if cross_thread_reply {
+                    "cross-thread reply to an untrusted sender while holding private data from outside this thread"
+                } else {
+                    "destination is outside the user's request envelope"
+                };
+                if let Some(kind) = crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input) {
+                    let msg = self.stage_action(a, run, f, shown, kind, &dests, why).await?;
+                    self.decision(a, "stage", "envelope", why, None).await?;
+                    return Ok(Err(self.record(a, None, "staged", msg, false, Label::PRINCIPAL, None).await?));
                 }
-                all
+                ask = Some((
+                    format!("the work has read untrusted content and private data, and this unstageable action targets a new destination ({why})"),
+                    Some(crate::asks::NEW_DESTINATION.to_string()),
+                ));
             }
-            _ => false,
-        };
-        if transmits && untrusted && private && !theirs {
-            // A web lookup's address can carry data out too (K34): its host is the destination.
-            let why = if lookup {
-                "the work has read untrusted content and private data, and a web lookup's address can carry data out to a new destination"
-            } else {
-                "the work has read untrusted content and private data, and this sends to a new destination"
-            };
-            ask = Some((why.to_string(), Some(crate::asks::NEW_DESTINATION.to_string())));
         }
         Ok(Ok(self.payment_ask(a, f.risk).or(ask)))
     }

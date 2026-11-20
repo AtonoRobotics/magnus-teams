@@ -209,6 +209,19 @@ pub(super) static DECLS: &[Decl] = &[
     })
     .taint(Taint::Returned)
     .in_team(),
+    Decl::tool("research_web", WEB, Exec::Core(Op::Side), ALWAYS, |_| {
+        obj(
+            json!({
+                "query": { "type": "string", "description": "general public web search/research question without private data" },
+                "goal": { "type": "string", "description": "optional: what specific public facts or URLs to return" }
+            }),
+            &["query"],
+        )
+    })
+    .doing("Researching the web")
+    .web(WebRead::Research)
+    .taint(Taint::Returned)
+    .in_team(),
     Decl::tool("browser_navigate", BROWSE, Exec::Core(Op::Browser), BROWSER, |_| obj(json!({ "url": { "type": "string" } }), &["url"])).doing(PAGE_WORDS).web(WebRead::OpensUrl).in_team(),
     Decl::tool("browser_snapshot", BROWSE, Exec::Core(Op::Browser), BROWSER, |_| obj(json!({}), &[])).doing(PAGE_WORDS).web(WebRead::OpenPage).in_team(),
     Decl::tool("browser_click", BROWSE_ACT, Exec::Core(Op::Browser), BROWSER, |_| obj(json!({ "target": target() }), &["target"])).doing(BROWSING).in_team(),

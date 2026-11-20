@@ -60,6 +60,9 @@ pub enum Ev {
     Payment(crate::payments::Change),
     Rule(crate::rules::Change),
     SubAgent(crate::sub_agents::SubAgent),
+    Compartment(crate::compartment::Change),
+    Envelope(crate::envelope::Change),
+    Staged(crate::staging::Change),
     LocalComputer(crate::local::Computer),
     LocalFile(crate::local_files::Change),
     Team(crate::team::Change),
@@ -67,8 +70,7 @@ pub enum Ev {
     Legal(crate::legal::Change),
     Push(crate::push::Change),
     Tools(crate::tool_gate::Change),
-    /// A read-back or a result's sources (spec rev 147).
-    Evidence(crate::evidence::Change),
+    Evidence(crate::evidence::Change), // read-back or result sources (spec rev 147)
     Spend(crate::spend::Change),
     Catalog(crate::catalog_withdrawal::Change),
     Desktop(crate::desktop::Change),
@@ -77,14 +79,10 @@ pub enum Ev {
     Handback {
         run: String,
         step: u32,
-        /// Content; gone once its task is deleted.
         #[serde(default)]
-        image_b64: String,
+        image_b64: String, // content; gone once its task is deleted
     },
-    /// Something done in the admin console (admin console spec, Authority
-    /// and audit): who (the admin's `sub` and name), what, to what, from
-    /// where, and for a change, what it was before and after. Written by the
-    /// kernel at the console's request, before the console answers.
+    /// Something done in the admin console (audit: who, what, to what, from where, before/after).
     AdminAction {
         admin: String,
         #[serde(default)]

@@ -130,6 +130,10 @@ fn refused(text: String) -> (String, bool, Option<Value>) {
 
 /// A share of what is left of the parent's budget, however it was asked
 /// for: the child's spend is the parent's too (`Run::spent_usd`).
+pub(crate) fn child_budget_for(parent: &Budget, spent_usd: f64, share: Option<f64>) -> Budget {
+    child_budget(parent, spent_usd, share)
+}
+
 fn child_budget(parent: &Budget, spent_usd: f64, share: Option<f64>) -> Budget {
     let share = share.unwrap_or(DEFAULT_CHILD_SHARE).clamp(0.0, MAX_CHILD_SHARE);
     Budget {
@@ -300,6 +304,10 @@ impl Kernel {
         self.create_run(&format!("run:{}", a.run), &parent.person, ask.goal, vec![], o).await?;
         self.wake(&child);
         self.wait_for_child(&task, &child).await
+    }
+
+    pub(crate) async fn wait_for_sub_agent(&self, task: &str, child: &str) -> Result<(String, bool, Option<Value>)> {
+        self.wait_for_child(task, child).await
     }
 
     async fn wait_for_child(&self, task: &str, child: &str) -> Result<(String, bool, Option<Value>)> {

@@ -77,7 +77,7 @@ impl Kernel {
     /// messages of the conversation a task started from chat carries. Never
     /// a tool's result, the model's words (a chat task's text is the
     /// model's) or a schedule's text.
-    pub(super) async fn named_by_person(&self, run: &Run) -> Result<std::collections::BTreeSet<String>> {
+    pub(crate) async fn named_by_person(&self, run: &Run) -> Result<std::collections::BTreeSet<String>> {
         // A sub-agent's: its requester's, never its goal (the parent's words).
         let run = &self.requester_run(run);
         let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(Default::default()) };

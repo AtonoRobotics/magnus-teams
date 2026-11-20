@@ -14,6 +14,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 /// Whether a sent search found mail: what `found` points at is not empty.
+#[allow(dead_code)]
 pub(crate) fn found_at(read: &Value, found: &str) -> bool {
     match read.pointer(found).unwrap_or(&Value::Null) {
         Value::Null => false,
@@ -162,6 +163,7 @@ impl Kernel {
     /// (#184). Whatever stops the read counts as not mailed: the send asks
     /// rather than passing on an unchecked claim. Only a decision the log
     /// cannot keep is an error.
+    #[allow(dead_code)]
     pub(crate) async fn mailed_before(&self, a: &Action, f: &Facts, run: &Run, person: &Person, address: &str) -> Result<bool> {
         let Some(s) = f.connector.as_ref().and_then(|c| c.sent.as_ref()) else { return Ok(false) };
         let within = Within { run, action: a, prefix: "sent", stage: "mailed_before", what: "sent search" };

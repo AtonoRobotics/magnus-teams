@@ -89,6 +89,9 @@ impl State {
             rules,
             evidence,
             sub_agents,
+            compartments,
+            envelopes,
+            staged,
             outcomes,
             local,
             team,
@@ -126,12 +129,15 @@ impl State {
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 27] = [
+        let parts: [&mut dyn Forget; 30] = [
             computers,
             payments,
             rules,
             evidence,
             sub_agents,
+            compartments,
+            envelopes,
+            staged,
             outcomes,
             local,
             team,
