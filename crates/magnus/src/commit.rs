@@ -159,7 +159,6 @@ mod tests {
         assert_eq!(w.state.lock().unwrap().last_seq, 1, "the log holds an event the state never applied: the next write restarts the server");
         let next = w.write(|_| boot()).await.unwrap();
         assert_eq!(next[0].seq, 2);
-        drop(in_db);
         drop(c);
         drop(held);
         drop(w);
