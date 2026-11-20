@@ -1,7 +1,9 @@
-/* Aurora dynamic theme: floating frosted-glass bento layout over a living
-   ambient shader canvas, liquid-glass presence orbs, rotating conic-gradient
-   execution beams, masked streaming, and state-reactive navigation & right sidebar.
-   Strictly scoped to html[data-style="aurora"]; other themes stay untouched. */
+/* Dynamic Aurora & Obsidian 2 Aurora themes: floating-island layout over a
+   living ambient shader canvas, liquid-glass presence orbs, rotating
+   conic-gradient execution beams, masked streaming, and state-reactive
+   navigation & right sidebar.
+   Zero backdrop-filter (decisions/2026-11-20-aurora-solid-surfaces.md).
+   Existing static themes (obsidian, obsidian-2, prism, studio) stay untouched. */
 
 @property --aurora-angle {
   syntax: "<angle>";
@@ -34,180 +36,188 @@
 }
 
 /* ---------- 1. Living Ambient Shader Canvas & Floating Bento Shell ---------- */
-html[data-style="aurora"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) {
   --aurora-mx: 50%;
   --aurora-my: 50%;
 }
 
-html[data-style="aurora"] body {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body {
   background: var(--bg);
 }
 
-html[data-style="aurora"] .aurora-bg-canvas {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   z-index: 0;
   pointer-events: none;
-  filter: blur(48px) saturate(1.18);
+  filter: blur(48px) saturate(1.15);
   transform: scale(1.08);
 }
 
-html[data-style="aurora"] .shell {
+html[data-style="obsidian-aurora"] .aurora-bg-canvas {
+  opacity: 0.58;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell {
   position: relative;
   z-index: 1;
   background: transparent;
 }
 
 @media (min-width: 761px) {
-  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell {
     padding: 10px;
     column-gap: 10px;
     row-gap: 8px;
     box-sizing: border-box;
   }
 
-  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell > nav.side {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > nav.side {
     border-radius: var(--r-lg);
     border: 1px solid var(--aurora-rim);
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     overflow: hidden;
   }
 
-  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell > main {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > main {
     border-radius: var(--r-xl);
     border: 1px solid var(--aurora-rim);
     background: var(--aurora-glass);
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
-  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell > aside.detail {
+  html[data-style="obsidian-aurora"] body:not([data-navigation=drawer]) .shell > main {
+    background: var(--main);
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > aside.detail {
     border-radius: var(--r-lg);
     border: 1px solid var(--aurora-rim);
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 }
 
-html[data-style="aurora"] #main.team-main {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #main.team-main {
   background: transparent;
 }
 
-html[data-style="aurora"] #workspace-splitter::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter::after {
   width: 3px;
   border-radius: var(--r-pill);
   background: var(--aurora-rim);
   transition: background .2s var(--ease), transform .2s var(--ease);
 }
 
-html[data-style="aurora"] #workspace-splitter:hover::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter:hover::after {
   background: var(--aurora-beam-a);
   transform: scaleY(1.08);
 }
 
 /* ---------- 2. Left Navigation Island & Living Brand Orb ---------- */
-html[data-style="aurora"] nav.side,
-html[data-style="aurora"] .navigation-drawer,
-html[data-style="aurora"] .team-rail {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .navigation-drawer,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail {
   background: var(--aurora-glass);
 }
 
-html[data-style="aurora"] nav.side .brand .logo {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo {
   position: relative;
   display: inline-grid;
   place-items: center;
 }
 
-html[data-style="aurora"] nav.side .brand .logo > svg {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo > svg {
   opacity: 0;
 }
 
-html[data-style="aurora"] .aurora-orb-nav {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-nav {
   position: absolute;
   inset: 50% auto auto 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
 
-html[data-style="aurora"] nav.side .new-chat.primary-nav {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .new-chat.primary-nav {
   border-radius: var(--r-pill);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--aurora-beam-a) 20%, var(--surface)), color-mix(in srgb, var(--aurora-beam-b) 18%, var(--surface)));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aurora-beam-a) 16%, var(--surface)), color-mix(in srgb, var(--aurora-beam-b) 14%, var(--surface)));
   border: 1px solid var(--aurora-rim);
   transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .22s var(--ease);
 }
 
-html[data-style="aurora"] nav.side .new-chat.primary-nav:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .new-chat.primary-nav:hover {
   transform: translateY(-1px);
   border-color: var(--line-strong);
-  box-shadow: 0 8px 26px var(--aurora-spot);
+  box-shadow: 0 8px 24px var(--aurora-spot);
 }
 
-html[data-style="aurora"] nav.side a,
-html[data-style="aurora"] .team-rail a,
-html[data-style="aurora"] button.needs {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail a,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.needs {
   border-radius: var(--r-sm);
   transition: background .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
 }
 
-html[data-style="aurora"] nav.side a:hover,
-html[data-style="aurora"] .team-rail a:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a:hover,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail a:hover {
   transform: translateX(3px);
 }
 
-html[data-style="aurora"] nav.side a.on,
-html[data-style="aurora"] nav.side a.cur,
-html[data-style="aurora"] nav.side a.conv.on {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--aurora-beam-a) 18%, transparent), color-mix(in srgb, var(--aurora-beam-b) 10%, transparent));
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a.on,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a.cur,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a.conv.on {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--aurora-beam-a) 16%, transparent), color-mix(in srgb, var(--aurora-beam-b) 8%, transparent));
   box-shadow: inset 2.5px 0 0 var(--aurora-beam-a);
 }
 
-html[data-style="aurora"] #find input {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #find input {
   border-radius: var(--r-pill);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
 
-/* ---------- 3. Dynamic Right Sidebar, Companion Orb, Pill Tabs & Live Computer ---------- */
-html[data-style="aurora"] aside.detail,
-html[data-style="aurora"] .team-side {
+/* ---------- 3. Dynamic Right Sidebar, Companion Orb, Tabs & Live Computer ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.detail,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-side {
   background: var(--aurora-glass);
 }
 
-html[data-style="aurora"][data-motion="full"] aside.detail.opening {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] aside.detail.opening {
   animation: auroraPanelGlide .32s var(--ease) both;
 }
 
-html[data-style="aurora"] .detail-head,
-html[data-style="aurora"] .workspace-bar {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .detail-head,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .workspace-bar {
   background: var(--aurora-glass-strong);
   border-bottom: 1px solid var(--aurora-rim);
 }
 
-html[data-style="aurora"] .companion-avatar {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-avatar {
   background: transparent;
   overflow: visible;
 }
 
-html[data-style="aurora"] .companion-m {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-m {
   opacity: 0;
 }
 
-html[data-style="aurora"] .aurora-orb-side {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-side {
   position: absolute;
   inset: 50% auto auto 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
 
-html[data-style="aurora"] .panel-tabs {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .panel-tabs {
   padding: 4px;
   border-radius: var(--r-pill);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
 
-html[data-style="aurora"] .companion-active-card,
-html[data-style="aurora"] .gbox {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-active-card,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .gbox {
   position: relative;
   border-radius: var(--r-md);
   border: 1px solid var(--aurora-rim);
@@ -217,17 +227,17 @@ html[data-style="aurora"] .gbox {
   transition: transform .22s var(--ease), border-color .22s var(--ease), box-shadow .22s var(--ease);
 }
 
-html[data-style="aurora"] .companion-active-card:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-active-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow);
 }
 
-html[data-style="aurora"] .companion-computer {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-computer {
   border-top: 1px solid var(--aurora-rim);
   background: var(--aurora-glass-strong);
 }
 
-html[data-style="aurora"] .computer-view {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view {
   position: relative;
   border-radius: var(--r-lg);
   background: var(--aurora-glass-strong);
@@ -236,9 +246,9 @@ html[data-style="aurora"] .computer-view {
   box-shadow: var(--shadow);
 }
 
-html[data-style="aurora"] .computer-view:has(.state-pill[data-pill="working"]),
-html[data-style="aurora"] .computer-view:has(.state-pill[data-pill="waking"]),
-html[data-style="aurora"] .aurora-executing {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view:has(.state-pill[data-pill="working"]),
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view:has(.state-pill[data-pill="waking"]),
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-executing {
   position: relative;
   overflow: hidden;
   border-color: transparent;
@@ -248,7 +258,7 @@ html[data-style="aurora"] .aurora-executing {
   animation: auroraBeamSpin 2.2s linear infinite;
 }
 
-html[data-style="aurora"] .aurora-executing::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-executing::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -258,12 +268,12 @@ html[data-style="aurora"] .aurora-executing::after {
   pointer-events: none;
 }
 
-html[data-style="aurora"] .screen.held {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .screen.held {
   box-shadow: inset 0 0 0 2px var(--warn), 0 0 32px color-mix(in srgb, var(--warn) 26%, transparent);
 }
 
-/* ---------- 4. Hero Presence Orb, Voice Ripples & Discover Bento ---------- */
-html[data-style="aurora"] .aurora-hero-presence {
+/* ---------- 4. Hero Presence Orb, Voice Ripples & Discover Cards ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-hero-presence {
   position: relative;
   width: 88px;
   height: 88px;
@@ -272,7 +282,7 @@ html[data-style="aurora"] .aurora-hero-presence {
   margin: 0 auto 14px;
 }
 
-html[data-style="aurora"] .aurora-ripple {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-ripple {
   position: absolute;
   inset: 6px;
   border-radius: 50%;
@@ -281,11 +291,11 @@ html[data-style="aurora"] .aurora-ripple {
   pointer-events: none;
 }
 
-html[data-style="aurora"][data-aurora-state="listening"] .aurora-ripple {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-ripple {
   animation: auroraRipple 1.8s var(--ease) infinite;
 }
 
-html[data-style="aurora"][data-aurora-state="listening"] .aurora-ripple.r2 {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-ripple.r2 {
   animation-delay: 0.65s;
 }
 
@@ -296,14 +306,21 @@ html[data-style="aurora"] .hero-img-gem { display: block; opacity: 0.55; }
 html[data-style="aurora"] .hello-title { font-size: 36px; font-weight: 600; letter-spacing: -0.035em; }
 html[data-style="aurora"] .hello-caps, html[data-style="aurora"] .hero-tabs { justify-content: center; }
 
-html[data-style="aurora"] button.hero-tab.on {
+html[data-style="obsidian-aurora"] .aurora-hero-presence {
+  width: 72px;
+  height: 72px;
+  margin: 0 0 12px;
+}
+html[data-style="obsidian-aurora"] .hello-title { font-size: 32px; font-weight: 600; letter-spacing: -0.03em; }
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.on {
   background: var(--fg);
   color: var(--bg);
   border-color: transparent;
 }
 
-html[data-style="aurora"] button.hello-card,
-html[data-style="aurora"] .explore-card {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hello-card,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card {
   border-radius: var(--r-lg);
   border: 1px solid var(--aurora-rim);
   background:
@@ -312,21 +329,20 @@ html[data-style="aurora"] .explore-card {
   transition: transform .24s var(--ease), border-color .24s var(--ease), box-shadow .24s var(--ease);
 }
 
-html[data-style="aurora"] button.hello-card:hover,
-html[data-style="aurora"] .explore-card:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hello-card:hover,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card:hover {
   transform: translateY(-3px);
   border-color: var(--line-strong);
   box-shadow: var(--shadow);
 }
 
-/* ---------- 5. Masked Streaming, Chat Work Cards & Spotlight Composer ---------- */
-html[data-style="aurora"][data-motion="full"] .entry.enter,
-html[data-style="aurora"][data-motion="full"] .aurora-stream-in {
+/* ---------- 5. Masked Streaming, Chat Work Cards, File Chips & Composer ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .entry.enter,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-stream-in {
   animation: auroraMaskIn .38s var(--ease) both;
 }
 
 html[data-style="aurora"] .entry.me { align-self: flex-end; align-items: flex-end; }
-
 html[data-style="aurora"] .msg.me {
   align-self: flex-end;
   width: auto;
@@ -336,16 +352,42 @@ html[data-style="aurora"] .msg.me {
   border: 1px solid var(--aurora-rim);
 }
 
-html[data-style="aurora"] .tcard,
-html[data-style="aurora"] .reqgroup,
-html[data-style="aurora"] .sub-agent {
+/* Obsidian 2 inline file-type badges carried into Obsidian 2 Aurora */
+html[data-style="obsidian-aurora"] .fchip-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  vertical-align: baseline;
+}
+html[data-style="obsidian-aurora"] .fchip-tag { display: inline; font-weight: 700; font-size: 10px; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="js"] .fchip-tag { color: #D97706; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="ts"] .fchip-tag { color: #2563EB; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="html"] .fchip-tag { color: #EA580C; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="rs"] .fchip-tag { color: #DC2626; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="css"] .fchip-tag { color: #0284C7; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="md"] .fchip-tag { color: #2563EB; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="json"] .fchip-tag { color: #7C3AED; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="py"] .fchip-tag { color: #059669; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="sh"] .fchip-tag { color: #0D9488; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="yml"] .fchip-tag { color: #DB2777; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="toml"] .fchip-tag { color: #EA580C; }
+html[data-style="obsidian-aurora"] .fchip-inline[data-ext="sql"] .fchip-tag { color: #0284C7; }
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .tcard,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .sub-agent {
   border-radius: var(--r-md);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
 
-html[data-style="aurora"] .say {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
   position: relative;
   border-radius: var(--r-composer);
   border: 1px solid var(--line-strong);
@@ -353,16 +395,16 @@ html[data-style="aurora"] .say {
   background:
     radial-gradient(280px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 70%),
     var(--aurora-glass-strong);
-  box-shadow: 0 20px 52px color-mix(in srgb, var(--aurora-beam-a) 12%, rgba(0, 0, 0, 0.35));
+  box-shadow: 0 20px 52px color-mix(in srgb, var(--aurora-beam-a) 10%, rgba(0, 0, 0, 0.35));
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
 
-html[data-style="aurora"] .say:focus-within {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say:focus-within {
   border-color: var(--aurora-beam-a);
-  box-shadow: 0 22px 58px var(--aurora-spot), 0 0 0 1px color-mix(in srgb, var(--aurora-beam-a) 40%, transparent);
+  box-shadow: 0 22px 58px var(--aurora-spot), 0 0 0 1px color-mix(in srgb, var(--aurora-beam-a) 38%, transparent);
 }
 
-html[data-style="aurora"] .voice-in[aria-pressed="true"] {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .voice-in[aria-pressed="true"] {
   background: var(--ok);
   color: #05070e;
   border-radius: 50%;
@@ -373,10 +415,10 @@ html[data-style="aurora"] .voice-in[aria-pressed="true"] {
 html[data-style="aurora"] button.primary,
 html[data-style="aurora"] .button.primary { border-radius: var(--r-pill); }
 
-html[data-style="aurora"] .card,
-html[data-style="aurora"] .tiles > div,
-html[data-style="aurora"] .teams-page .team-list a,
-html[data-style="aurora"] dialog.ask {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .tiles > div,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .teams-page .team-list a,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) dialog.ask {
   border-radius: var(--r-lg);
   background:
     radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 68%),
@@ -385,41 +427,41 @@ html[data-style="aurora"] dialog.ask {
   transition: transform .22s var(--ease), border-color .22s var(--ease), box-shadow .22s var(--ease);
 }
 
-html[data-style="aurora"] .teams-page .team-list a:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .teams-page .team-list a:hover {
   transform: translateY(-2px);
   border-color: var(--line-strong);
   box-shadow: var(--shadow);
 }
 
-html[data-style="aurora"] .seg {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg {
   border-radius: var(--r-pill);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
 
-html[data-style="aurora"] .seg button.on {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg button.on {
   border-radius: var(--r-pill);
   box-shadow: 0 4px 14px var(--aurora-spot);
 }
 
 /* ---------- 7. Motion & High-Contrast Floors ---------- */
-html[data-style="aurora"][data-motion="reduced"] .aurora-executing,
-html[data-style="aurora"][data-motion="reduced"] .computer-view:has(.state-pill[data-pill="working"]),
-html[data-style="aurora"][data-motion="reduced"] .computer-view:has(.state-pill[data-pill="waking"]) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .aurora-executing,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .computer-view:has(.state-pill[data-pill="working"]),
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .computer-view:has(.state-pill[data-pill="waking"]) {
   animation: none;
   border-color: var(--aurora-beam-a);
 }
 
-html[data-style="aurora"][data-motion="reduced"] .aurora-executing::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .aurora-executing::after {
   display: none;
 }
 
 @media (forced-colors: active) {
-  html[data-style="aurora"] .aurora-bg-canvas { display: none; }
-  html[data-style="aurora"] nav.side,
-  html[data-style="aurora"] aside.detail,
-  html[data-style="aurora"] .say,
-  html[data-style="aurora"] .card {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas { display: none; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.detail,
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say,
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card {
     background: Canvas;
     border-color: CanvasText;
   }

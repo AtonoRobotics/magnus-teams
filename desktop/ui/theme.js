@@ -102,6 +102,18 @@
     "aurora-rim": "rgba(186,215,255,0.12)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#9B6DFF",
     "aurora-spot": "rgba(79,157,255,0.20)",
   };
+  const OBSIDIAN_AURORA_LIGHT = {
+    ...OBSIDIAN2_LIGHT,
+    "aurora-glass": "#F6F7F9", "aurora-glass-strong": "#FFFFFF",
+    "aurora-rim": "rgba(15,23,42,0.11)", "aurora-beam-a": "#3B5BDB", "aurora-beam-b": "#64748B",
+    "aurora-spot": "rgba(59,91,219,0.09)",
+  };
+  const OBSIDIAN_AURORA_DARK = {
+    ...OBSIDIAN2_DARK,
+    "aurora-glass": "#121215", "aurora-glass-strong": "#17171B",
+    "aurora-rim": "rgba(255,255,255,0.10)", "aurora-beam-a": "#E4E4E7", "aurora-beam-b": "#7C8CFF",
+    "aurora-spot": "rgba(255,255,255,0.08)",
+  };
   const ACCENTS = [
     { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
     { id: "blue", label: "Indigo", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
@@ -109,7 +121,7 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["prism", "Prism"], ["studio", "Studio"], ["aurora", "Aurora"]];
+  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["obsidian-aurora", "Obsidian 2 Aurora"], ["prism", "Prism"], ["studio", "Studio"], ["aurora", "Aurora"]];
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
@@ -117,6 +129,11 @@
       "focus-ring": "0 0 0 1px var(--accent)",
     },
     "obsidian-2": {
+      "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
+      "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
+      "focus-ring": "0 0 0 1px var(--accent)",
+    },
+    "obsidian-aurora": {
       "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
       "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
       "focus-ring": "0 0 0 1px var(--accent)",
@@ -196,6 +213,7 @@
     const style = STYLES.some(s => s[0] === look.style) ? look.style : DEFAULTS.style;
     const basePal = style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT)
       : style === "obsidian-2" ? (dark ? OBSIDIAN2_DARK : OBSIDIAN2_LIGHT)
+      : style === "obsidian-aurora" ? (dark ? OBSIDIAN_AURORA_DARK : OBSIDIAN_AURORA_LIGHT)
       : style === "studio" ? (dark ? STUDIO_DARK : STUDIO_LIGHT)
       : style === "aurora" ? (dark ? AURORA_DARK : AURORA_LIGHT)
       : (dark ? DARK : LIGHT);

@@ -8,11 +8,18 @@
 "use strict";
 
 (function () {
-  const STATES = {
+  const AURORA_STATES = {
     idle:      { speed: 0.72, amp: 0.14, c1: [79, 157, 255],  c2: [56, 189, 248],  c3: [147, 197, 253] },
     listening: { speed: 1.55, amp: 0.25, c1: [52, 211, 153],  c2: [56, 189, 248],  c3: [167, 243, 208] },
     thinking:  { speed: 2.55, amp: 0.27, c1: [155, 109, 255], c2: [56, 189, 248],  c3: [216, 180, 254] },
     executing: { speed: 2.20, amp: 0.23, c1: [56, 189, 248],  c2: [129, 140, 248], c3: [94, 234, 212] },
+    takeover:  { speed: 1.35, amp: 0.20, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
+  };
+  const OBSIDIAN_STATES = {
+    idle:      { speed: 0.68, amp: 0.12, c1: [212, 212, 220], c2: [113, 128, 150], c3: [248, 250, 252] },
+    listening: { speed: 1.50, amp: 0.23, c1: [52, 211, 153],  c2: [148, 163, 184], c3: [209, 250, 229] },
+    thinking:  { speed: 2.45, amp: 0.25, c1: [124, 140, 255], c2: [212, 212, 220], c3: [224, 231, 255] },
+    executing: { speed: 2.15, amp: 0.22, c1: [96, 165, 250],  c2: [228, 228, 235], c3: [186, 230, 253] },
     takeover:  { speed: 1.35, amp: 0.20, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
   };
 
@@ -25,11 +32,13 @@
   let phase = 0;
   let active = false;
   let currentState = "idle";
-  let cur = { speed: 0.72, amp: 0.14, c1: [...STATES.idle.c1], c2: [...STATES.idle.c2], c3: [...STATES.idle.c3] };
+  let cur = { speed: 0.72, amp: 0.14, c1: [...AURORA_STATES.idle.c1], c2: [...AURORA_STATES.idle.c2], c3: [...AURORA_STATES.idle.c3] };
   let bgCanvas = null;
   const orbs = new Set();
 
-  function isAurora() { return document.documentElement.dataset.style === "aurora"; }
+  function styleName() { return document.documentElement.dataset.style || ""; }
+  function isDynamicStyle() { const s = styleName(); return s === "aurora" || s === "obsidian-aurora"; }
+  function statePalette() { return styleName() === "obsidian-aurora" ? OBSIDIAN_STATES : AURORA_STATES; }
   function isLight() { return document.documentElement.dataset.theme === "light"; }
   function motionMode() { return document.documentElement.dataset.motion || "full"; }
 
@@ -221,7 +230,8 @@
     if (!active) { rafId = 0; return; }
     const dt = Math.min((now - lastTs) / 1000, 0.05);
     lastTs = now;
-    const target = STATES[currentState] || STATES.idle;
+    const pal = statePalette();
+    const target = pal[currentState] || pal.idle;
     const blend = 1 - Math.exp(-dt * 4.5);
     cur.speed = lerp(cur.speed, target.speed, blend);
     cur.amp = lerp(cur.amp, target.amp, blend);
@@ -268,7 +278,7 @@
   }
 
   function reconcile() {
-    if (isAurora()) {
+    if (isDynamicStyle()) {
       const wasActive = active;
       active = true;
       document.documentElement.dataset.auroraState = currentState;
