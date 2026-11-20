@@ -68,10 +68,19 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell {
 
 @media (min-width: 761px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell {
-    padding: 10px;
-    column-gap: 10px;
+    padding: 8px;
+    column-gap: 8px;
     row-gap: 8px;
     box-sizing: border-box;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) var(--panel-width, 360px);
+    column-gap: 0;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell > main {
+    margin-left: 8px;
   }
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > nav.side {
@@ -387,6 +396,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .sub-agent {
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot {
+  background: transparent;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
   position: relative;
   border-radius: var(--r-composer);
@@ -402,6 +415,24 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say:focus-within {
   border-color: var(--aurora-beam-a);
   box-shadow: 0 22px 58px var(--aurora-spot), 0 0 0 1px color-mix(in srgb, var(--aurora-beam-a) 38%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send {
+  flex: none;
+  border: 1px solid var(--accent);
+  box-shadow: 0 4px 16px var(--aurora-spot);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send.is-empty {
+  background: var(--raised);
+  border-color: var(--line-strong);
+  color: var(--fg2);
+  box-shadow: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send.is-empty:hover {
+  border-color: var(--aurora-beam-a);
+  color: var(--fg);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .voice-in[aria-pressed="true"] {
