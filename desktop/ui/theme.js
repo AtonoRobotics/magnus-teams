@@ -78,6 +78,30 @@
     "row-sel": "rgba(232,234,237,0.06)", search: "rgba(232,234,237,0.06)", "group-head": "#1E1F22", "row-hi": "#26272A",
     shadow: "0 4px 20px rgba(0,0,0,0.40)",
   };
+  const AURORA_LIGHT = {
+    ...LIGHT,
+    bg: "#F4F7FE", side: "#EEF3FC", panel: "#F6F9FF", main: "#FAFBFD", surface: "#FFFFFF", raised: "#EAF0FB",
+    bubble: "#EDF3FD", seg: "#E5ECF9", "seg-on": "#FFFFFF",
+    fg: "#0D1526", fg2: "#3B4A66", muted: "#586885", faint: "#6E7F9E",
+    line: "#DCE5F4", hair: "#E9EFFA", "line-strong": "#B8C7E2", "btn-border": "#CBD7EC", "button-bg": "#FFFFFF",
+    "row-sel": "rgba(37,99,235,0.07)", search: "rgba(37,99,235,0.06)", "group-head": "#F1F5FD", "row-hi": "#E6EFFD",
+    shadow: "0 12px 36px rgba(15,35,75,0.08)",
+    "aurora-glass": "rgba(255,255,255,0.74)", "aurora-glass-strong": "rgba(255,255,255,0.88)",
+    "aurora-rim": "rgba(37,99,235,0.14)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#8B5CF6",
+    "aurora-spot": "rgba(59,130,246,0.13)",
+  };
+  const AURORA_DARK = {
+    ...DARK,
+    bg: "#05070E", side: "#080C18", panel: "#090E1C", main: "#060913", surface: "#0E1424", raised: "#151E34",
+    bubble: "#121A2E", seg: "#0E1526", "seg-on": "#1B2640",
+    fg: "#F4F7FC", fg2: "#BBC6DC", muted: "#8393B2", faint: "#6E7F9E",
+    line: "#1C263D", hair: "#131B2E", "line-strong": "#2E3D5E", "btn-border": "#263350", "button-bg": "#0F1628",
+    "row-sel": "rgba(96,165,250,0.10)", search: "rgba(96,165,250,0.08)", "group-head": "#0C1221", "row-hi": "#16213A",
+    shadow: "0 18px 48px rgba(0,4,16,0.62)",
+    "aurora-glass": "rgba(13,19,34,0.62)", "aurora-glass-strong": "rgba(15,22,40,0.82)",
+    "aurora-rim": "rgba(186,215,255,0.12)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#9B6DFF",
+    "aurora-spot": "rgba(79,157,255,0.20)",
+  };
   const ACCENTS = [
     { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
     { id: "blue", label: "Indigo", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
@@ -85,7 +109,7 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["prism", "Prism"], ["studio", "Studio"]];
+  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["prism", "Prism"], ["studio", "Studio"], ["aurora", "Aurora"]];
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
@@ -106,6 +130,11 @@
       "r-xs": "8px", "r-sm": "10px", "r-md": "14px", "r-lg": "16px", "r-xl": "22px",
       "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "22px",
       "focus-ring": "0 0 0 2px var(--accent-soft)",
+    },
+    aurora: {
+      "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "22px", "r-xl": "26px",
+      "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px",
+      "focus-ring": "0 0 0 3px var(--accent-soft)",
     },
   };
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
@@ -168,6 +197,7 @@
     const basePal = style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT)
       : style === "obsidian-2" ? (dark ? OBSIDIAN2_DARK : OBSIDIAN2_LIGHT)
       : style === "studio" ? (dark ? STUDIO_DARK : STUDIO_LIGHT)
+      : style === "aurora" ? (dark ? AURORA_DARK : AURORA_LIGHT)
       : (dark ? DARK : LIGHT);
     const t = { ...basePal };
     Object.assign(t, STYLE_TOKENS[style]);
