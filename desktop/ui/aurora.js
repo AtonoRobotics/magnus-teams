@@ -103,6 +103,16 @@
       }
     });
 
+    // 2b. Mobile / drawer top workspace-bar live presence orb
+    document.querySelectorAll(".workspace-bar").forEach((bar) => {
+      const heading = bar.querySelector(".workspace-heading");
+      if (heading && !bar.querySelector(".aurora-orb-bar")) {
+        const c = makeOrb(22, "aurora-orb-bar");
+        bar.insertBefore(c, heading);
+        orbs.add(c);
+      }
+    });
+
     // 3. Discover / New Chat hero presence orb with voice ripples
     document.querySelectorAll(".hello-head").forEach((head) => {
       if (!head.querySelector(".aurora-orb-hero")) {
@@ -309,6 +319,7 @@
   function init() {
     bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed"] });
     document.addEventListener("pointermove", onPointerMove, { passive: true });
+    document.addEventListener("pointerdown", onPointerMove, { passive: true });
     document.addEventListener("focusin", () => { if (active) enhanceDynamicDom(); }, true);
     document.addEventListener("focusout", () => { if (active) enhanceDynamicDom(); }, true);
     window.addEventListener("resize", () => { if (active) resizeBgCanvas(); }, { passive: true });

@@ -104,15 +104,15 @@
   };
   const OBSIDIAN_AURORA_LIGHT = {
     ...OBSIDIAN2_LIGHT,
-    "aurora-glass": "#F6F7F9", "aurora-glass-strong": "#FFFFFF",
+    "aurora-glass": "rgba(246,247,249,0.84)", "aurora-glass-strong": "rgba(255,255,255,0.92)",
     "aurora-rim": "rgba(15,23,42,0.11)", "aurora-beam-a": "#3B5BDB", "aurora-beam-b": "#64748B",
     "aurora-spot": "rgba(59,91,219,0.09)",
   };
   const OBSIDIAN_AURORA_DARK = {
     ...OBSIDIAN2_DARK,
-    "aurora-glass": "#121215", "aurora-glass-strong": "#17171B",
-    "aurora-rim": "rgba(255,255,255,0.10)", "aurora-beam-a": "#E4E4E7", "aurora-beam-b": "#7C8CFF",
-    "aurora-spot": "rgba(255,255,255,0.08)",
+    "aurora-glass": "rgba(16,16,20,0.82)", "aurora-glass-strong": "rgba(22,22,27,0.92)",
+    "aurora-rim": "rgba(255,255,255,0.11)", "aurora-beam-a": "#E4E4E7", "aurora-beam-b": "#7C8CFF",
+    "aurora-spot": "rgba(255,255,255,0.09)",
   };
   const ACCENTS = [
     { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
