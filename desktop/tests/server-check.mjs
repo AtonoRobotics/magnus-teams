@@ -112,6 +112,8 @@ const table = [
   ["rules.remove", ["r1"], "DELETE", "/v1/rules/r1", undefined],
   ["rules.save", [null, { when: "x" }], "POST", "/v1/rules", { when: "x" }],
   ["rules.save", ["r 1", { when: "x" }], "PUT", "/v1/rules/r%201", { when: "x" }],
+  ["staged.list", [], "GET", "/v1/staged", undefined],
+  ["staged.resolve", ["st 1", { outcome: "sent", scope: "recipient" }], "POST", "/v1/staged/st%201", { outcome: "sent", scope: "recipient" }],
   ["connectors.terms", ["my crm"], "GET", "/v1/connectors/my%20crm/terms", undefined],
   ["connectors.consent", ["crm", "v2"], "POST", "/v1/connectors/crm/consent", { terms: "v2" }],
   ["account.password", [], "GET", "/v1/account/password", undefined],

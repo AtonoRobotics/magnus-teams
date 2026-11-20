@@ -125,7 +125,7 @@ async function adminModels(el) {
         <select id="admin-def-model" aria-label="Default model">${initialModels.map(m => `<option value="${esc(m)}"${m === curModel ? " selected" : ""}>${esc(m)}</option>`).join("")}</select>
         <button type="button" class="primary" data-set-default>Use as default</button>
       </div>
-      <p class="small muted">New work runs on this model unless a person's access rule restricts it.</p>
+      <p class="small muted">New work runs on <strong>${esc(def)}</strong> unless a person's access rule restricts it.</p>
     </div>
     <div data-provider-setup></div>
     <h3>Provider status &amp; availability</h3>
