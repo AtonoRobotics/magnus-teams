@@ -33,7 +33,7 @@ jobs:
       version: ${{ steps.versions.outputs.version }}
       appliance_version: ${{ steps.versions.outputs.appliance_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -107,7 +107,7 @@ jobs:
       MAGNUS_VERSION: ${{ needs.build.outputs.version }}
       MAGNUS_APPLIANCE_VERSION: ${{ needs.build.outputs.appliance_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # publish.sh asks git whether this build holds the commit a channel
           # was built from; a one-commit clone cannot answer, and refuses.
