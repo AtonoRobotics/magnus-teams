@@ -1,7 +1,7 @@
-/* Aurora theme: cinematic living light fields, solid layered surfaces,
-   rotating conic-gradient execution beams, masked entry streaming, and
-   dynamic right-sidebar & navigation choreography.
-   Every rule is scoped to html[data-style="aurora"]; existing themes stay untouched. */
+/* Aurora dynamic theme: floating frosted-glass bento layout over a living
+   ambient shader canvas, liquid-glass presence orbs, rotating conic-gradient
+   execution beams, masked streaming, and state-reactive navigation & right sidebar.
+   Strictly scoped to html[data-style="aurora"]; other themes stay untouched. */
 
 @property --aurora-angle {
   syntax: "<angle>";
@@ -13,55 +13,103 @@
   to { --aurora-angle: 360deg; }
 }
 
+@keyframes auroraSweep {
+  0% { transform: translateX(-130%) skewX(-18deg); }
+  100% { transform: translateX(250%) skewX(-18deg); }
+}
+
 @keyframes auroraMaskIn {
-  from { opacity: 0; filter: blur(4px); transform: translateY(6px); }
+  from { opacity: 0; filter: blur(4px); transform: translateY(5px); }
   to { opacity: 1; filter: blur(0px); transform: translateY(0); }
 }
 
 @keyframes auroraPanelGlide {
-  from { opacity: 0; transform: translateX(18px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateX(20px) scale(0.985); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
-/* ---------- 1. Global Atmospheric Canvas & State-Responsive Aura ---------- */
+@keyframes auroraRipple {
+  0% { transform: scale(0.84); opacity: 0.6; }
+  100% { transform: scale(1.85); opacity: 0; }
+}
+
+/* ---------- 1. Living Ambient Shader Canvas & Floating Bento Shell ---------- */
 html[data-style="aurora"] {
   --aurora-mx: 50%;
   --aurora-my: 50%;
 }
 
 html[data-style="aurora"] body {
-  background-color: var(--bg);
-  background-image:
-    radial-gradient(65% 48% at 18% 0%, var(--aurora-spot), transparent 68%),
-    radial-gradient(50% 42% at 88% 12%, color-mix(in srgb, var(--aurora-beam-b) 14%, transparent), transparent 70%),
-    radial-gradient(45% 40% at 52% 100%, color-mix(in srgb, var(--aurora-beam-a) 10%, transparent), transparent 72%);
-  background-attachment: fixed;
+  background: var(--bg);
 }
 
-html[data-style="aurora"][data-aurora-state="executing"] body {
-  background-image:
-    radial-gradient(70% 52% at 22% 0%, color-mix(in srgb, var(--aurora-beam-a) 22%, transparent), transparent 68%),
-    radial-gradient(56% 48% at 85% 16%, color-mix(in srgb, var(--aurora-beam-b) 20%, transparent), transparent 70%),
-    radial-gradient(50% 44% at 50% 100%, color-mix(in srgb, var(--aurora-beam-a) 14%, transparent), transparent 72%);
+html[data-style="aurora"] .aurora-bg-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(48px) saturate(1.18);
+  transform: scale(1.08);
 }
 
-html[data-style="aurora"][data-aurora-state="takeover"] body {
-  background-image:
-    radial-gradient(65% 48% at 82% 8%, color-mix(in srgb, var(--warn) 16%, transparent), transparent 68%),
-    radial-gradient(50% 42% at 18% 12%, var(--aurora-spot), transparent 70%);
+html[data-style="aurora"] .shell {
+  position: relative;
+  z-index: 1;
+  background: transparent;
 }
 
-html[data-style="aurora"] .shell > main,
+@media (min-width: 761px) {
+  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell {
+    padding: 10px;
+    column-gap: 10px;
+    row-gap: 8px;
+    box-sizing: border-box;
+  }
+
+  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell > nav.side {
+    border-radius: var(--r-lg);
+    border: 1px solid var(--aurora-rim);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell > main {
+    border-radius: var(--r-xl);
+    border: 1px solid var(--aurora-rim);
+    background: var(--aurora-glass);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  html[data-style="aurora"] body:not([data-navigation=drawer]) .shell > aside.detail {
+    border-radius: var(--r-lg);
+    border: 1px solid var(--aurora-rim);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
 html[data-style="aurora"] #main.team-main {
   background: transparent;
 }
 
-/* ---------- 2. Left Navigation Sidebar & Team Rail ---------- */
+html[data-style="aurora"] #workspace-splitter::after {
+  width: 3px;
+  border-radius: var(--r-pill);
+  background: var(--aurora-rim);
+  transition: background .2s var(--ease), transform .2s var(--ease);
+}
+
+html[data-style="aurora"] #workspace-splitter:hover::after {
+  background: var(--aurora-beam-a);
+  transform: scaleY(1.08);
+}
+
+/* ---------- 2. Left Navigation Island & Living Brand Orb ---------- */
 html[data-style="aurora"] nav.side,
 html[data-style="aurora"] .navigation-drawer,
 html[data-style="aurora"] .team-rail {
   background: var(--aurora-glass);
-  border-right: 1px solid var(--aurora-rim);
 }
 
 html[data-style="aurora"] nav.side .brand .logo {
@@ -83,7 +131,7 @@ html[data-style="aurora"] .aurora-orb-nav {
 
 html[data-style="aurora"] nav.side .new-chat.primary-nav {
   border-radius: var(--r-pill);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--aurora-beam-a) 18%, var(--surface)), color-mix(in srgb, var(--aurora-beam-b) 16%, var(--surface)));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--aurora-beam-a) 20%, var(--surface)), color-mix(in srgb, var(--aurora-beam-b) 18%, var(--surface)));
   border: 1px solid var(--aurora-rim);
   transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .22s var(--ease);
 }
@@ -91,7 +139,7 @@ html[data-style="aurora"] nav.side .new-chat.primary-nav {
 html[data-style="aurora"] nav.side .new-chat.primary-nav:hover {
   transform: translateY(-1px);
   border-color: var(--line-strong);
-  box-shadow: 0 8px 24px var(--aurora-spot);
+  box-shadow: 0 8px 26px var(--aurora-spot);
 }
 
 html[data-style="aurora"] nav.side a,
@@ -103,37 +151,80 @@ html[data-style="aurora"] button.needs {
 
 html[data-style="aurora"] nav.side a:hover,
 html[data-style="aurora"] .team-rail a:hover {
-  transform: translateX(2px);
+  transform: translateX(3px);
 }
 
 html[data-style="aurora"] nav.side a.on,
 html[data-style="aurora"] nav.side a.cur,
 html[data-style="aurora"] nav.side a.conv.on {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--aurora-beam-a) 16%, transparent), color-mix(in srgb, var(--aurora-beam-b) 10%, transparent));
-  box-shadow: inset 2px 0 0 var(--aurora-beam-a);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--aurora-beam-a) 18%, transparent), color-mix(in srgb, var(--aurora-beam-b) 10%, transparent));
+  box-shadow: inset 2.5px 0 0 var(--aurora-beam-a);
 }
 
 html[data-style="aurora"] #find input {
   border-radius: var(--r-pill);
-  background: var(--aurora-glass);
+  background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
 
-/* ---------- 3. Right Side Panel, Splitter & Live Computer ---------- */
+/* ---------- 3. Dynamic Right Sidebar, Companion Orb, Pill Tabs & Live Computer ---------- */
 html[data-style="aurora"] aside.detail,
 html[data-style="aurora"] .team-side {
   background: var(--aurora-glass);
-  border-left: 1px solid var(--aurora-rim);
 }
 
 html[data-style="aurora"][data-motion="full"] aside.detail.opening {
-  animation: auroraPanelGlide .28s var(--ease) both;
+  animation: auroraPanelGlide .32s var(--ease) both;
 }
 
 html[data-style="aurora"] .detail-head,
 html[data-style="aurora"] .workspace-bar {
   background: var(--aurora-glass-strong);
   border-bottom: 1px solid var(--aurora-rim);
+}
+
+html[data-style="aurora"] .companion-avatar {
+  background: transparent;
+  overflow: visible;
+}
+
+html[data-style="aurora"] .companion-m {
+  opacity: 0;
+}
+
+html[data-style="aurora"] .aurora-orb-side {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+html[data-style="aurora"] .panel-tabs {
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--aurora-glass-strong);
+  border: 1px solid var(--aurora-rim);
+}
+
+html[data-style="aurora"] .companion-active-card,
+html[data-style="aurora"] .gbox {
+  position: relative;
+  border-radius: var(--r-md);
+  border: 1px solid var(--aurora-rim);
+  background:
+    radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 68%),
+    var(--aurora-glass-strong);
+  transition: transform .22s var(--ease), border-color .22s var(--ease), box-shadow .22s var(--ease);
+}
+
+html[data-style="aurora"] .companion-active-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+html[data-style="aurora"] .companion-computer {
+  border-top: 1px solid var(--aurora-rim);
+  background: var(--aurora-glass-strong);
 }
 
 html[data-style="aurora"] .computer-view {
@@ -146,47 +237,64 @@ html[data-style="aurora"] .computer-view {
 }
 
 html[data-style="aurora"] .computer-view:has(.state-pill[data-pill="working"]),
-html[data-style="aurora"] .computer-view:has(.state-pill[data-pill="waking"]) {
+html[data-style="aurora"] .computer-view:has(.state-pill[data-pill="waking"]),
+html[data-style="aurora"] .aurora-executing {
+  position: relative;
+  overflow: hidden;
   border-color: transparent;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
-    conic-gradient(from var(--aurora-angle), transparent 220deg, var(--aurora-beam-a) 300deg, var(--aurora-beam-b) 345deg, transparent 360deg) border-box;
-  animation: auroraBeamSpin 2.4s linear infinite;
+    conic-gradient(from var(--aurora-angle), transparent 210deg, var(--aurora-beam-a) 295deg, var(--aurora-beam-b) 340deg, #ffffff 356deg, transparent 360deg) border-box;
+  animation: auroraBeamSpin 2.2s linear infinite;
+}
+
+html[data-style="aurora"] .aurora-executing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(186, 230, 253, 0.08), transparent);
+  animation: auroraSweep 2.1s var(--ease) infinite;
+  pointer-events: none;
 }
 
 html[data-style="aurora"] .screen.held {
-  box-shadow: inset 0 0 0 2px var(--warn), 0 0 28px color-mix(in srgb, var(--warn) 24%, transparent);
+  box-shadow: inset 0 0 0 2px var(--warn), 0 0 32px color-mix(in srgb, var(--warn) 26%, transparent);
 }
 
-/* ---------- 4. Discover / Empty Hero & Living Presence Orb ---------- */
+/* ---------- 4. Hero Presence Orb, Voice Ripples & Discover Bento ---------- */
 html[data-style="aurora"] .aurora-hero-presence {
+  position: relative;
+  width: 88px;
+  height: 88px;
   display: grid;
   place-items: center;
   margin: 0 auto 14px;
 }
 
-html[data-style="aurora"] .hello-hero {
-  align-items: center;
-  text-align: center;
+html[data-style="aurora"] .aurora-ripple {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--aurora-beam-a);
+  opacity: 0;
+  pointer-events: none;
 }
 
-html[data-style="aurora"] .hello-head {
-  align-items: center;
+html[data-style="aurora"][data-aurora-state="listening"] .aurora-ripple {
+  animation: auroraRipple 1.8s var(--ease) infinite;
 }
 
+html[data-style="aurora"][data-aurora-state="listening"] .aurora-ripple.r2 {
+  animation-delay: 0.65s;
+}
+
+html[data-style="aurora"] .hello-hero { align-items: center; text-align: center; }
+html[data-style="aurora"] .hello-head { align-items: center; }
 html[data-style="aurora"] .hero-img-ag { display: none; }
-html[data-style="aurora"] .hero-img-gem { display: block; opacity: 0.72; }
-
-html[data-style="aurora"] .hello-title {
-  font-size: 34px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-}
-
-html[data-style="aurora"] .hello-caps,
-html[data-style="aurora"] .hero-tabs {
-  justify-content: center;
-}
+html[data-style="aurora"] .hero-img-gem { display: block; opacity: 0.55; }
+html[data-style="aurora"] .hello-title { font-size: 36px; font-weight: 600; letter-spacing: -0.035em; }
+html[data-style="aurora"] .hello-caps, html[data-style="aurora"] .hero-tabs { justify-content: center; }
 
 html[data-style="aurora"] button.hero-tab.on {
   background: var(--fg);
@@ -200,7 +308,7 @@ html[data-style="aurora"] .explore-card {
   border: 1px solid var(--aurora-rim);
   background:
     radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 65%),
-    var(--aurora-glass);
+    var(--aurora-glass-strong);
   transition: transform .24s var(--ease), border-color .24s var(--ease), box-shadow .24s var(--ease);
 }
 
@@ -211,21 +319,19 @@ html[data-style="aurora"] .explore-card:hover {
   box-shadow: var(--shadow);
 }
 
-/* ---------- 5. Conversation, Choreographed Tool Cards & Masked Entry ---------- */
-html[data-style="aurora"][data-motion="full"] .entry.enter {
-  animation: auroraMaskIn .42s var(--ease) both;
+/* ---------- 5. Masked Streaming, Chat Work Cards & Spotlight Composer ---------- */
+html[data-style="aurora"][data-motion="full"] .entry.enter,
+html[data-style="aurora"][data-motion="full"] .aurora-stream-in {
+  animation: auroraMaskIn .38s var(--ease) both;
 }
 
-html[data-style="aurora"] .entry.me {
-  align-self: flex-end;
-  align-items: flex-end;
-}
+html[data-style="aurora"] .entry.me { align-self: flex-end; align-items: flex-end; }
 
 html[data-style="aurora"] .msg.me {
   align-self: flex-end;
   width: auto;
   max-width: 78%;
-  border-radius: 20px 20px 6px 20px;
+  border-radius: 22px 22px 6px 22px;
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
@@ -234,21 +340,11 @@ html[data-style="aurora"] .tcard,
 html[data-style="aurora"] .reqgroup,
 html[data-style="aurora"] .sub-agent {
   border-radius: var(--r-md);
-  background: var(--aurora-glass);
+  background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
 
-html[data-style="aurora"] .tcard:has(.st.working),
-html[data-style="aurora"] .reqgroup:has(.st.working) {
-  border-color: transparent;
-  background:
-    linear-gradient(var(--surface), var(--surface)) padding-box,
-    conic-gradient(from var(--aurora-angle), transparent 220deg, var(--aurora-beam-a) 300deg, var(--aurora-beam-b) 345deg, transparent 360deg) border-box;
-  animation: auroraBeamSpin 2.2s linear infinite;
-}
-
-/* ---------- 6. Floating Glass Composer with Radial Spotlight ---------- */
 html[data-style="aurora"] .say {
   position: relative;
   border-radius: var(--r-composer);
@@ -257,20 +353,25 @@ html[data-style="aurora"] .say {
   background:
     radial-gradient(280px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 70%),
     var(--aurora-glass-strong);
-  box-shadow: 0 18px 46px color-mix(in srgb, var(--aurora-beam-a) 10%, rgba(0, 0, 0, 0.35));
+  box-shadow: 0 20px 52px color-mix(in srgb, var(--aurora-beam-a) 12%, rgba(0, 0, 0, 0.35));
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
 
 html[data-style="aurora"] .say:focus-within {
   border-color: var(--aurora-beam-a);
-  box-shadow: 0 20px 54px var(--aurora-spot), 0 0 0 1px color-mix(in srgb, var(--aurora-beam-a) 35%, transparent);
+  box-shadow: 0 22px 58px var(--aurora-spot), 0 0 0 1px color-mix(in srgb, var(--aurora-beam-a) 40%, transparent);
 }
 
-/* ---------- 7. Pages, Settings, Admin Cards & Dialogs ---------- */
-html[data-style="aurora"] button.primary,
-html[data-style="aurora"] .button.primary {
-  border-radius: var(--r-pill);
+html[data-style="aurora"] .voice-in[aria-pressed="true"] {
+  background: var(--ok);
+  color: #05070e;
+  border-radius: 50%;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 25%, transparent);
 }
+
+/* ---------- 6. Pages, Settings, Admin & Dialogs ---------- */
+html[data-style="aurora"] button.primary,
+html[data-style="aurora"] .button.primary { border-radius: var(--r-pill); }
 
 html[data-style="aurora"] .card,
 html[data-style="aurora"] .tiles > div,
@@ -279,7 +380,7 @@ html[data-style="aurora"] dialog.ask {
   border-radius: var(--r-lg);
   background:
     radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 68%),
-    var(--aurora-glass);
+    var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
   transition: transform .22s var(--ease), border-color .22s var(--ease), box-shadow .22s var(--ease);
 }
@@ -292,7 +393,7 @@ html[data-style="aurora"] .teams-page .team-list a:hover {
 
 html[data-style="aurora"] .seg {
   border-radius: var(--r-pill);
-  background: var(--aurora-glass);
+  background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
 }
 
@@ -301,17 +402,20 @@ html[data-style="aurora"] .seg button.on {
   box-shadow: 0 4px 14px var(--aurora-spot);
 }
 
-/* ---------- 8. Motion & High-Contrast Floors ---------- */
-html[data-style="aurora"][data-motion="reduced"] .tcard:has(.st.working),
-html[data-style="aurora"][data-motion="reduced"] .reqgroup:has(.st.working),
+/* ---------- 7. Motion & High-Contrast Floors ---------- */
+html[data-style="aurora"][data-motion="reduced"] .aurora-executing,
 html[data-style="aurora"][data-motion="reduced"] .computer-view:has(.state-pill[data-pill="working"]),
 html[data-style="aurora"][data-motion="reduced"] .computer-view:has(.state-pill[data-pill="waking"]) {
   animation: none;
   border-color: var(--aurora-beam-a);
 }
 
+html[data-style="aurora"][data-motion="reduced"] .aurora-executing::after {
+  display: none;
+}
+
 @media (forced-colors: active) {
-  html[data-style="aurora"] body,
+  html[data-style="aurora"] .aurora-bg-canvas { display: none; }
   html[data-style="aurora"] nav.side,
   html[data-style="aurora"] aside.detail,
   html[data-style="aurora"] .say,
