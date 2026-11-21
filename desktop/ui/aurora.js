@@ -69,7 +69,6 @@
     if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
     if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"]')) return "executing";
-    if (document.querySelector(".say:focus-within")) return "thinking";
     return "idle";
   }
 
@@ -162,14 +161,70 @@
     }
   }
 
-  function markStaggered(selector) {
-    let idx = 0;
-    document.querySelectorAll(selector).forEach((el) => {
-      if (el.dataset.auroraEntered) return;
-      el.dataset.auroraEntered = "1";
+  // Entrances play once per thing the person sees arrive, never per repaint.
+  // The app redraws a region by replacing its markup (app.js paint), so every
+  // redraw makes new nodes: an entrance keyed on the node replayed the whole
+  // view, panel or conversation on each live update, which read as the window
+  // flashing. Each entrance is keyed on what is shown instead: the route, the
+  // panel, and an answer's own blocks.
+  let viewKey = null;
+  let panelKey = null;
+  let heroKey = null;
+  const answerSeen = new Set();
+  const ANSWER_SEEN_MAX = 5000;
+  const CARD_SELECTOR = ".hello-card, .explore-card, .hello-caps > *, .teams-page .team-list a, .tiles > div";
+
+  function stagger(root) {
+    root.querySelectorAll(CARD_SELECTOR).forEach((el, idx) => {
       el.style.setProperty("--aurora-delay", `${Math.min(idx, MAX_STAGGER_ITEMS) * STAGGER_STEP_MS}ms`);
       el.classList.add("aurora-stagger");
-      idx++;
+    });
+  }
+
+  function markEntrances() {
+    if (!active) return;
+    const route = location.hash || "#/";
+    // A view arrives when the route changes, not when the route repaints.
+    const main = document.querySelector("#main > *:not(section.conv)");
+    if (main) {
+      const key = `${route}|${main.id || (main.getAttribute("class") || "").split(/\s+/)[0]}`;
+      if (key !== viewKey) {
+        viewKey = key;
+        main.classList.add("aurora-view-in");
+        stagger(main);
+      }
+    }
+    // The new-conversation hero arrives once per visit to its route.
+    const hero = document.querySelector(".hello-head");
+    if (hero && heroKey !== route) {
+      heroKey = route;
+      hero.classList.add("aurora-view-in");
+      const thread = hero.closest(".thread");
+      if (thread) stagger(thread);
+    } else if (!hero) {
+      heroKey = null;
+    }
+    // A panel arrives when what it shows changes (side-panel.js data-panel).
+    const body = document.querySelector("aside.detail:not([hidden]) .detail-body");
+    const pk = body ? body.dataset.panel || "" : null;
+    if (body && pk !== panelKey) {
+      for (const child of body.children) child.classList.add("aurora-view-in");
+    }
+    panelKey = pk;
+    // An answer's blocks enter as they stream in; blocks already shown, and
+    // every block of an answer met for the first time, are only recorded.
+    if (answerSeen.size > ANSWER_SEEN_MAX) answerSeen.clear();
+    document.querySelectorAll('.entry[data-kind="answer"][data-entry]').forEach((entry) => {
+      const id = entry.dataset.entry;
+      if (!id) return;
+      const known = answerSeen.has(id) || entry.classList.contains("enter");
+      answerSeen.add(id);
+      entry.querySelectorAll(".answer-body > *").forEach((node, idx) => {
+        const k = `${id}:${idx}`;
+        if (answerSeen.has(k)) return;
+        answerSeen.add(k);
+        if (known) node.classList.add("aurora-stream-in");
+      });
     });
   }
 
@@ -236,11 +291,6 @@
         wrap.appendChild(c);
         head.insertBefore(wrap, head.firstChild);
         orbs.add(c);
-        const thread = head.closest(".thread");
-        if (thread && !thread.dataset.auroraHeroTop) {
-          thread.dataset.auroraHeroTop = "1";
-          thread.scrollTop = 0;
-        }
       }
     });
 
@@ -253,26 +303,13 @@
       el.classList.toggle("aurora-executing", running);
     });
 
-    // 5. Choreographed entrances on newly mounted views, tabs, bento cards & messages
-    document.querySelectorAll("#main > *:not(section.conv), .detail-body > *, .hello-head").forEach((el) => {
-      if (!el.dataset.auroraView) {
-        el.dataset.auroraView = "1";
-        el.classList.add("aurora-view-in");
-      }
-    });
-    markStaggered(".hello-card, .explore-card, .hello-caps > *, .teams-page .team-list a, .tiles > div");
-    markStaggered(".thread > .entry");
+    // 5. Entrances, keyed on what is shown (see markEntrances)
+    markEntrances();
 
-    // 6. Masked entrance on newly rendered answer blocks
-    document.querySelectorAll('.entry[data-kind="answer"] .answer-body > *').forEach((node) => {
-      if (!node.dataset.auroraSeen) {
-        node.dataset.auroraSeen = "1";
-        node.classList.add("aurora-stream-in");
-      }
-    });
-
-    // Prune detached orbs
+    // Prune detached orbs; outside full motion no loop runs, so a new orb is
+    // drawn once here instead of staying blank.
     for (const c of orbs) if (!c.isConnected) orbs.delete(c);
+    if (motionMode() !== "full") for (const c of orbs) if (!c.dataset.drawn) { c.dataset.drawn = "1"; drawOrb(c); }
 
     const next = detectState();
     if (next !== currentState) {
@@ -611,8 +648,13 @@
   });
 
   let domTimer = 0;
-  const bodyObs = new MutationObserver(() => {
-    if (!active || domTimer) return;
+  const bodyObs = new MutationObserver((records) => {
+    if (!active) return;
+    // Entrances are marked in this callback, before the browser draws the
+    // new nodes: marked a timer later, a node was drawn, hidden, then faded
+    // back in.
+    if (records.some((r) => r.addedNodes.length)) markEntrances();
+    if (domTimer) return;
     domTimer = setTimeout(() => { domTimer = 0; enhanceDynamicDom(); }, 45);
   });
 
@@ -626,8 +668,6 @@
     });
     document.addEventListener("pointermove", onPointerMove, { passive: true });
     document.addEventListener("pointerdown", onPointerMove, { passive: true });
-    document.addEventListener("focusin", () => { if (active) enhanceDynamicDom(); }, true);
-    document.addEventListener("focusout", () => { if (active) enhanceDynamicDom(); }, true);
     window.addEventListener("resize", () => { if (active) resizeCanvases(); }, { passive: true });
     reconcile();
   }

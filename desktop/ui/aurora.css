@@ -21,13 +21,13 @@
 }
 
 @keyframes auroraMaskIn {
-  from { opacity: 0; filter: blur(4px); transform: translateY(6px); }
-  to { opacity: 1; filter: blur(0px); transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes auroraViewIn {
-  from { opacity: 0; filter: blur(4px); transform: translateY(10px) scale(0.992); }
-  to { opacity: 1; filter: blur(0px); transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(10px) scale(0.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes auroraStaggerIn {
@@ -68,11 +68,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-field-can
   height: 100vh;
   z-index: 0;
   pointer-events: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas {
-  filter: blur(48px) saturate(1.15);
-  transform: scale(1.08);
 }
 
 html[data-style="obsidian-aurora"] .aurora-bg-canvas {
@@ -384,19 +379,32 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view {
   box-shadow: var(--shadow);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view:has(.state-pill[data-pill="working"]),
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view:has(.state-pill[data-pill="waking"]),
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-executing {
+/* The execution beam is a ring drawn over the card's own edge: the card keeps
+   its surface, so it does not change color when work starts or stops. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.computer-view:has(.state-pill[data-pill="working"]), .computer-view:has(.state-pill[data-pill="waking"]), .aurora-executing) {
   position: relative;
-  overflow: hidden;
-  border: 1.5px solid transparent;
-  background:
-    linear-gradient(var(--surface), var(--surface)) padding-box,
-    conic-gradient(from var(--aurora-angle), transparent 190deg, var(--aurora-beam-a) 285deg, var(--aurora-beam-b) 338deg, #ffffff 355deg, transparent 360deg) border-box;
+  border-color: color-mix(in srgb, var(--aurora-beam-a) 40%, var(--aurora-rim));
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.computer-view:has(.state-pill[data-pill="working"]), .computer-view:has(.state-pill[data-pill="waking"]), .aurora-executing)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(from var(--aurora-angle), transparent 0deg, transparent 240deg, var(--aurora-beam-a) 300deg, var(--aurora-beam-b) 338deg, rgba(255, 255, 255, 0.9) 354deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] :is(.computer-view:has(.state-pill[data-pill="working"]), .computer-view:has(.state-pill[data-pill="waking"]), .aurora-executing)::before {
   animation: auroraBeamSpin 2.2s linear infinite;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-executing::after {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-executing::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -671,17 +679,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg button.on {
 }
 
 /* ---------- 7. Motion & High-Contrast Floors ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .aurora-executing,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .computer-view:has(.state-pill[data-pill="working"]),
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .computer-view:has(.state-pill[data-pill="waking"]) {
-  animation: none;
-  border-color: var(--aurora-beam-a);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .aurora-executing::after {
-  display: none;
-}
-
 @media (forced-colors: active) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-field-canvas { display: none; }
