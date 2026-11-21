@@ -104,3 +104,15 @@ fn aurora_composition_is_one_frame_with_boxes_above_the_input() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// Magnus is an avatar, not an image: replaceable, following the state in
+/// colour, shape and words, and still with reduced motion
+/// (`desktop/tests/aurora-avatar.mjs`).
+#[test]
+fn aurora_magnus_is_an_avatar_that_follows_the_state() {
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-avatar.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

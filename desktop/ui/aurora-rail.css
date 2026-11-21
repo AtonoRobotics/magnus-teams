@@ -3,7 +3,9 @@
    Search, Conversations, Explore and Settings. The full sidebar slides in
    over the stage from Conversations or Ctrl+B, in app.js's navigation
    drawer, and its pin keeps it open as a sidebar beside the stage. Its rows
-   take the room their words need. */
+   take the room their words need.
+   It also draws the avatar's button (aurora-avatar.js), which stands for
+   Magnus at the top of the navigation and in a new conversation. */
 
 /* The rail's two controls are Aurora's; other styles never show them. */
 .aurora-rail-open,
@@ -106,5 +108,51 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .group {
     padding: 8px 8px 2px;
+  }
+}
+
+/* ---------- The avatar ---------- */
+.aurora-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: var(--avatar-size, 28px);
+  height: var(--avatar-size, 28px);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: transform .2s var(--ease);
+}
+
+.aurora-avatar:hover {
+  transform: scale(1.06);
+}
+
+.aurora-avatar:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.aurora-avatar > canvas {
+  pointer-events: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo:has(> .aurora-avatar) {
+  width: auto;
+  height: auto;
+}
+
+.aurora-avatar-hero {
+  justify-self: center;
+  align-self: center;
+  margin: 0 auto 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-avatar {
+    transition: none;
   }
 }

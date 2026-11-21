@@ -52,11 +52,6 @@
   to { opacity: 0; transform: translateX(100%); }
 }
 
-@keyframes auroraRipple {
-  0% { transform: scale(0.84); opacity: 0.6; }
-  100% { transform: scale(1.85); opacity: 0; }
-}
-
 /* ---------- 1. Living Ambient Shader Canvas & Floating Bento Shell ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) {
   --aurora-mx: 50%;
@@ -332,13 +327,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .
   opacity: 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-nav {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .new-chat.primary-nav {
   border-radius: var(--r-pill);
   background: linear-gradient(135deg, color-mix(in srgb, var(--aurora-beam-a) 16%, var(--surface)), color-mix(in srgb, var(--aurora-beam-b) 14%, var(--surface)));
@@ -500,40 +488,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero {
   gap: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-hero-presence {
-  position: relative;
-  width: 72px;
-  height: 72px;
-  display: grid;
-  place-items: center;
-  margin: 0 auto 6px;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-ripple {
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  border: 1px solid var(--aurora-beam-a);
-  opacity: 0;
-  pointer-events: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-ripple {
-  animation: auroraRipple 1.8s var(--ease) infinite;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-ripple.r2 {
-  animation-delay: 0.65s;
-}
-
 html[data-style="aurora"] .hello-hero { align-items: center; text-align: center; }
 html[data-style="aurora"] .hello-head { align-items: center; }
 html[data-style="aurora"] .hello-title { font-size: 34px; font-weight: 600; letter-spacing: -0.035em; }
 html[data-style="aurora"] .hello-caps, html[data-style="aurora"] .hero-tabs { justify-content: center; }
 
-html[data-style="obsidian-aurora"] .aurora-hero-presence {
-  margin: 0 0 6px;
-}
 html[data-style="obsidian-aurora"] .hello-title { font-size: 30px; font-weight: 600; letter-spacing: -0.03em; }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.on {

@@ -35,7 +35,7 @@ const AuroraReasoning = (() => {
 
   /**
    * One answer's pill, by its entry's id.
-   * @typedef {{ task: string, el: HTMLElement, steps: Array<{ text: string, state: string }>, phase: string, started: number, ended: number, open: boolean, chosen: boolean, loading: boolean }} Reason
+   * @typedef {{ task: string, el: HTMLElement, steps: Array<{ text: string, state: string }>, phase: string, started: number, ended: number, open: boolean, chosen: boolean, loading: boolean, outcome?: string }} Reason
    * @type {Map<string, Reason>}
    */
   const kept = new Map();
@@ -81,6 +81,10 @@ const AuroraReasoning = (() => {
   function draw(r) {
     const el = r.el;
     el.dataset.phase = r.phase;
+    // For the avatar (aurora-avatar.js): how the run ended, and whether its
+    // plan is laid out with nothing started yet.
+    if (r.outcome) el.dataset.outcome = r.outcome;
+    el.toggleAttribute("data-planned", r.phase === "working" && r.steps.length > 0 && r.steps.every(s => s.state === "todo"));
     el.toggleAttribute("data-open", r.open && r.steps.length > 0);
     el.toggleAttribute("data-steps", r.steps.length > 0);
     el.querySelector(".aurora-reason-toggle")?.setAttribute("aria-expanded", String(r.open && r.steps.length > 0));
@@ -124,7 +128,7 @@ const AuroraReasoning = (() => {
     } else {
       r.steps.forEach(s => { s.state = "done"; });
     }
-    if (ENDS.includes(t.status)) return end(r, t.status === "completed");
+    if (ENDS.includes(t.status)) { r.outcome = t.status; return end(r, t.status === "completed"); }
     const writing = !!document.querySelector(`[data-live="${CSS.escape(r.task)}"]`)?.textContent?.trim();
     r.phase = t.status === "suspended" || t.waiting_on ? "needs" : r.steps.some(s => s.state === "active") ? "working" : writing ? "writing" : r.steps.length ? "working" : "thinking";
   }
@@ -177,7 +181,7 @@ const AuroraReasoning = (() => {
       } else if (r) {
         // The answer came, the turn ended without one, or it waits on the person.
         if (entry.getAttribute("data-kind") === "answer") end(r, true);
-        else if (entry.querySelector(".msg > .bad")) end(r, false);
+        else if (entry.querySelector(".msg > .bad")) { r.outcome = r.outcome || "failed"; end(r, false); }
         else if (r.phase !== "done" && r.phase !== "stopped") r.phase = "needs";
         const body = entry.querySelector(".answer-body"), msg = entry.querySelector(".msg") || entry;
         const parent = body ? body.parentElement || entry : msg;

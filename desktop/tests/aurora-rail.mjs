@@ -155,6 +155,17 @@ try {
   assert.ok(s.sidebar === "rail" && s.navWidth === 64, `the rail again: ${JSON.stringify(s)}`);
   assert.equal(s.focus, "Conversations", "unpinned, the focus is on Conversations");
 
+  // The avatar stands for Magnus at the rail's top and in a new conversation
+  // (aurora-avatar.js).
+  await page.evaluate(() => { location.hash = "#/chat/new"; });
+  await page.locator(".hello-head .aurora-avatar-hero").waitFor();
+  assert.ok(await page.locator("nav.side .aurora-avatar-nav").isVisible(), "the avatar is at the rail's top");
+  assert.match(await page.locator(".aurora-avatar-hero").getAttribute("aria-label") || "", /^Magnus is /);
+  const top = await page.evaluate(() => { const t = document.querySelector(".hello-head")?.closest(".thread"), a = document.querySelector(".aurora-avatar-hero"); return { scroll: t?.scrollTop, seen: !!a && a.getBoundingClientRect().top >= (t?.getBoundingClientRect().top || 0) }; });
+  assert.deepEqual(top, { scroll: 0, seen: true }, "a new conversation opens at its top, with Magnus in view");
+  await page.waitForTimeout(700);
+  await shot("4-new");
+
   // 7. Another style keeps the navigation as it was.
   await page.evaluate(() => Theme.set({ style: "obsidian" }));
   await until(() => document.body.dataset.navigation === "expanded", "another style");
