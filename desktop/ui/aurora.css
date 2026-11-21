@@ -45,6 +45,13 @@
   to { opacity: 1; transform: translateX(0) scale(1); }
 }
 
+/* The closing panel travels its own width in the time its column folds, so
+   the widening conversation pushes it out instead of sliding under it. */
+@keyframes auroraPanelLeave {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
+}
+
 @keyframes auroraRipple {
   0% { transform: scale(0.84); opacity: 0.6; }
   100% { transform: scale(1.85); opacity: 0; }
@@ -54,6 +61,8 @@
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) {
   --aurora-mx: 50%;
   --aurora-my: 50%;
+  /* How long the stage takes to slide (the mockup's .55s). */
+  --aurora-stage-ms: 520ms;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body {
@@ -202,21 +211,56 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   animation: auroraMaskIn .28s var(--ease) both;
 }
 
+/* The workspace slides like the mockup's stage: the shell keeps four columns
+   whether or not work is open (splitter and panel at 0px when closed), so the
+   browser can interpolate them; grid tracks only animate between lists of the
+   same length. The panel keeps its own width while its column grows, so it
+   slides in from the right edge instead of reflowing from nothing. */
 @media (min-width: 761px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr) 0px 0px;
     padding: 12px;
-    column-gap: 12px;
+    column-gap: 0;
     row-gap: 12px;
   }
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell {
     grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) var(--panel-width, 360px);
-    column-gap: 0;
   }
 
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell > main {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] body:not([data-navigation=drawer]) .shell {
+    transition: grid-template-columns var(--aurora-stage-ms) var(--ease), grid-template-rows var(--aurora-stage-ms) var(--ease);
+  }
+
+  /* Dragging the splitter or resizing the window follows the pointer. */
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] body:not([data-navigation=drawer]) .shell:has(> #workspace-splitter:active),
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"][data-aurora-resizing] body:not([data-navigation=drawer]) .shell {
+    transition: none;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > main {
     margin-left: 12px;
   }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
+    box-sizing: border-box;
+    min-width: var(--panel-width, 360px);
+  }
+
+  /* The top bar's row grows in with the work instead of pushing it down. */
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .workspace-bar {
+    overflow: hidden;
+  }
+}
+
+/* A closed panel's last frame, drawn by aurora.js where the panel was, slides
+   out while its column folds. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.aurora-detail-ghost {
+  position: fixed;
+  z-index: 5;
+  margin: 0;
+  pointer-events: none;
+  animation: auroraPanelLeave var(--aurora-stage-ms) var(--ease) both;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #main.team-main {
@@ -317,7 +361,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-side {
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] aside.detail.opening {
-  animation: auroraPanelGlide .32s var(--ease) both;
+  animation: auroraPanelGlide var(--aurora-stage-ms) var(--ease) both;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .detail-head,

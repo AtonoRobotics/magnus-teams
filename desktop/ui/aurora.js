@@ -305,6 +305,8 @@
 
     // 5. Entrances, keyed on what is shown (see markEntrances)
     markEntrances();
+    watchDetail();
+    noteDetailRect();
 
     // Prune detached orbs; outside full motion no loop runs, so a new orb is
     // drawn once here instead of staying blank.
@@ -614,6 +616,10 @@
     if (fieldCanvas) { fieldCanvas.remove(); fieldCanvas = null; }
     document.querySelectorAll(".aurora-hero-presence, .aurora-orb, .aurora-state-pill").forEach((el) => el.remove());
     document.querySelectorAll(".aurora-executing").forEach((el) => el.classList.remove("aurora-executing"));
+    document.querySelectorAll(".aurora-detail-ghost").forEach((el) => el.remove());
+    if (detailObs) { detailObs.disconnect(); detailObs = null; }
+    detailEl = null;
+    detailRect = null;
     orbs.clear();
   }
 
@@ -628,6 +634,84 @@
       drawField(0, false);
       for (const c of orbs) if (c.isConnected) drawOrb(c);
     }
+  }
+
+  // ---------- The stage: the panel slides in and out like the mockup's ----------
+  // The shell's columns animate (aurora.css). Opening, the panel keeps its
+  // width and slides in as its column grows. Closing, app.js hides and
+  // empties the panel at once; its last frame is kept where it was and slides
+  // out while the column folds.
+  const RESIZE_SETTLE_MS = 160;
+  const GHOST_FALLBACK_MS = 900;
+  const STAGE_PIN_MS = 700;
+  let detailEl = null;
+  let detailObs = null;
+  let detailRect = null;
+  let resizeTimer = 0;
+
+  function noteDetailRect() {
+    if (!detailEl || detailEl.hidden) return;
+    const r = detailEl.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) detailRect = r;
+  }
+
+  function watchDetail() {
+    const el = document.getElementById("detail");
+    if (!el || el === detailEl) return;
+    if (detailObs) detailObs.disconnect();
+    detailEl = el;
+    detailRect = null;
+    detailObs = new MutationObserver(onDetailChange);
+    detailObs.observe(el, { attributes: true, attributeFilter: ["hidden"], childList: true });
+  }
+
+  function onDetailChange(records) {
+    if (!active || !detailEl || !detailEl.hidden) return;
+    const rect = detailRect;
+    detailRect = null;
+    if (motionMode() !== "full" || !rect || !records.some((r) => r.type === "attributes")) return;
+    const removed = records.flatMap((r) => (r.type === "childList" ? [...r.removedNodes] : []));
+    if (!removed.length) return;
+    const ghost = document.createElement("aside");
+    ghost.className = "detail aurora-detail-ghost";
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.inert = true;
+    for (const n of removed) ghost.appendChild(n);
+    // A frame put back in the document would load again: keep its space only.
+    ghost.querySelectorAll("iframe").forEach((f) => {
+      const keep = document.createElement("div");
+      keep.style.cssText = f.style.cssText;
+      keep.className = f.className;
+      f.replaceWith(keep);
+    });
+    ghost.querySelectorAll("[id]").forEach((n) => n.removeAttribute("id"));
+    Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+    const done = () => ghost.remove();
+    ghost.addEventListener("animationend", done, { once: true });
+    setTimeout(done, GHOST_FALLBACK_MS);
+    document.body.appendChild(ghost);
+  }
+
+  // A conversation read at its end stays at its end while its column changes width.
+  function onStageTransition(e) {
+    if (!active || e.propertyName !== "grid-template-columns" || !(e.target instanceof Element) || !e.target.matches(".shell")) return;
+    const t = document.getElementById("thread");
+    if (!t || t.scrollHeight - t.scrollTop - t.clientHeight > 80) return;
+    const until = performance.now() + STAGE_PIN_MS;
+    const pin = () => {
+      if (!t.isConnected) return;
+      t.scrollTop = t.scrollHeight;
+      if (performance.now() < until) requestAnimationFrame(pin);
+    };
+    requestAnimationFrame(pin);
+  }
+
+  function onResize() {
+    if (!active) return;
+    resizeCanvases();
+    document.documentElement.dataset.auroraResizing = "";
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { delete document.documentElement.dataset.auroraResizing; }, RESIZE_SETTLE_MS);
   }
 
   function reconcile() {
@@ -668,7 +752,11 @@
     });
     document.addEventListener("pointermove", onPointerMove, { passive: true });
     document.addEventListener("pointerdown", onPointerMove, { passive: true });
-    window.addEventListener("resize", () => { if (active) resizeCanvases(); }, { passive: true });
+    window.addEventListener("resize", onResize, { passive: true });
+    document.addEventListener("transitionrun", onStageTransition);
+    // The panel's place, taken as the person reaches to close it.
+    document.addEventListener("pointerdown", () => { if (active) noteDetailRect(); }, { capture: true, passive: true });
+    document.addEventListener("keydown", () => { if (active) noteDetailRect(); }, true);
     reconcile();
   }
 

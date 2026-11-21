@@ -10,7 +10,10 @@
 // - a panel showing something new enters;
 // - the hero arriving does not move the conversation's scroll;
 // - focusing the composer does not change Aurora's state;
-// - a card that starts working keeps its own surface.
+// - a card that starts working keeps its own surface;
+// - the stage slides like the mockup's: opening work grows the panel's column
+//   over time (not in one jump) with the panel at its own width, so it slides
+//   in; closing leaves the panel's last frame sliding out, then gone.
 //
 // MAGNUS_CHROMIUM  Chrome to drive
 import assert from "node:assert/strict";
@@ -107,6 +110,37 @@ try {
   check("a card that starts working keeps its own surface", () => assert.equal(cardAfter, cardBefore));
   check("a computer that starts working keeps its own surface", () => assert.equal(screenAfter, screenBefore));
   check("a computer that starts working wears the beam ring", () => assert.match(ring, /conic-gradient/));
+
+  // The stage, with the app's layout.css under Aurora's.
+  const sp = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  sp.on("pageerror", e => failures.push(`page error: ${e.message}`));
+  await sp.setContent(page.replace(`<style>${ui("aurora.css")}</style>`, `<style>${ui("layout.css")}${ui("aurora.css")}</style>`)
+    .replace('<body><div class="shell">', '<body data-navigation="expanded" data-workspace="conversation"><div class="shell" style="--nav-width:228px;--panel-width:360px;--splitter-width:16px;--conversation-min-width:560px;--workspace-height:900px;height:900px"><div class="workspace-bar"></div>')
+    .replace('<aside class="detail" id="detail">', '<div id="workspace-splitter" hidden></div><aside class="detail" id="detail" hidden>'));
+  await sp.waitForTimeout(400);
+  const track = () => sp.evaluate(() => getComputedStyle(document.querySelector(".shell")).gridTemplateColumns.split(" ").map(parseFloat));
+  const closed = await track();
+  await sp.evaluate(() => { document.getElementById("detail").hidden = false; document.getElementById("workspace-splitter").hidden = false; document.body.classList.add("with-detail"); document.body.dataset.workspace = "split"; });
+  await sp.waitForTimeout(120);
+  const mid = await track();
+  const midPanel = await sp.evaluate(() => document.getElementById("detail").getBoundingClientRect().width);
+  await sp.waitForTimeout(900);
+  const open = await track();
+  check("closed, the shell keeps the panel's columns at 0px", () => assert.deepEqual([closed.length, closed[2], closed[3]], [4, 0, 0], JSON.stringify(closed)));
+  check("opening work grows the panel's column over time", () => assert.ok(mid.length === 4 && mid[3] > 0 && mid[3] < 360, JSON.stringify(mid)));
+  check("the panel keeps its own width while its column grows", () => assert.equal(Math.round(midPanel), 360));
+  check("open, the panel's column is the panel's width", () => assert.equal(Math.round(open[3]), 360, JSON.stringify(open)));
+  // Close as app.js closePanel does: hide, then empty, in one task.
+  await sp.evaluate(() => document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+  await sp.evaluate(() => { const d = document.getElementById("detail"); d.hidden = true; d.innerHTML = ""; document.getElementById("workspace-splitter").hidden = true; document.body.classList.remove("with-detail"); document.body.dataset.workspace = "conversation"; });
+  await sp.waitForTimeout(80);
+  const ghost = await sp.evaluate(() => { const g = document.querySelector("aside.aurora-detail-ghost"); return g ? { text: g.textContent.trim(), width: Math.round(g.getBoundingClientRect().width), ids: g.querySelectorAll("[id]").length } : null; });
+  const closing = await track();
+  await sp.waitForTimeout(1100);
+  const gone = await sp.evaluate(() => !document.querySelector("aside.aurora-detail-ghost"));
+  check("closing leaves the panel's last frame sliding out where it was", () => assert.deepEqual(ghost, { text: "activity", width: 360, ids: 0 }));
+  check("closing folds the panel's column over time", () => assert.ok(closing[3] > 0 && closing[3] < 360, JSON.stringify(closing)));
+  check("the closed panel's last frame is gone once it has slid out", () => assert.ok(gone));
 } finally {
   await browser.close();
 }
