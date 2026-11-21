@@ -14,10 +14,13 @@ export async function screencast(context, page, out, name) {
   const cdp = await context.newCDPSession(page);
   /** @type {Array<{ data: string, at: number }>} */
   const shots = [];
-  cdp.on("Page.screencastFrame", (/** @type {any} */ f) => { shots.push({ data: f.data, at: f.metadata.timestamp }); cdp.send("Page.screencastAck", { sessionId: f.sessionId }).catch(() => {}); });
+  let stopped = false;
+  // Chrome sends the next frame only once this one is acknowledged.
+  cdp.on("Page.screencastFrame", (/** @type {any} */ f) => { shots.push({ data: f.data, at: f.metadata.timestamp }); cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch((/** @type {Error} */ e) => { if (!stopped) console.error(`screencast: ${e.message}`); }); });
   const view = page.viewportSize();
   await cdp.send("Page.startScreencast", { format: "jpeg", quality: 85, everyNthFrame: 1, maxWidth: view.width, maxHeight: view.height });
   return async (/** @type {?{x:number,y:number,width:number,height:number}} */ crop) => {
+    stopped = true;
     await cdp.send("Page.stopScreencast").catch(() => {});
     const dir = join(out, `frames-${name}`);
     mkdirSync(dir, { recursive: true });
@@ -38,13 +41,14 @@ export async function screencast(context, page, out, name) {
  * such moment) and the app right.
  * @param {any} browser @param {string} out
  * @param {Array<{ title: string, mockup: ?Buffer, app: Buffer, note?: string }>} rows
+ * @param {[string, string]} [heads] the two columns' names
  */
-export async function sheet(browser, out, rows) {
+export async function sheet(browser, out, rows, heads = ["Mockup (website/)", "App, Aurora"]) {
   const img = (/** @type {Buffer} */ b) => `<img src="data:image/png;base64,${b.toString("base64")}">`;
   const html = rows.map((r, i) => `<tr><th colspan="2">${i + 1}. ${r.title}</th></tr><tr><td>${r.mockup ? img(r.mockup) : `<p class="none">${r.note || "The mockup has no such moment."}</p>`}</td><td>${img(r.app)}</td></tr>`).join("");
   const page = await browser.newPage({ viewport: { width: 1240, height: 800 } });
   await page.setContent(`<!doctype html><style>body{margin:0;padding:20px;background:#0b0d12;color:#e8eef9;font:15px system-ui,sans-serif}table{border-collapse:collapse;width:1200px}th{text-align:left;padding:18px 6px 8px;font-weight:600}td{width:50%;vertical-align:top;padding:4px 6px}img{width:100%;border-radius:8px;display:block}.head td{color:#8592a8;font-weight:600;padding-bottom:0}.none{color:#8592a8;padding:24px;border:1px dashed #2a3142;border-radius:8px;margin:0}</style>
-    <table><tr class="head"><td>Mockup (website/)</td><td>App, Aurora</td></tr>${html}</table>`);
+    <table><tr class="head"><td>${heads[0]}</td><td>${heads[1]}</td></tr>${html}</table>`);
   await page.screenshot({ path: join(out, "filmstrip.png"), fullPage: true });
   await page.close();
 }

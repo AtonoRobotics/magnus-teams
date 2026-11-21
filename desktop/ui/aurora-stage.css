@@ -52,6 +52,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
   flex: none;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 12px;
   margin-top: 14px;
 }

@@ -77,3 +77,15 @@ fn aurora_says_what_magnus_is_doing_as_it_does_it() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// Aurora's sizes move: the bento grows and folds over time, the
+/// conversation above it gives up and takes back its room with it, and a
+/// conversation read to its end stays there (`desktop/tests/aurora-sizes.mjs`).
+#[test]
+fn aurora_sizes_move() {
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-sizes.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

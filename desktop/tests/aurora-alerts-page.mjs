@@ -6,7 +6,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ui = name => readFileSync(join(here, "../ui", name), "utf8");
+const read = (/** @type {string} */ name) => readFileSync(join(here, "../ui", name), "utf8");
 
 // What app.js gives these scripts, cut to what they read; the answer, the
 // thread and the canvas are drawn again at once, as app.js does.
@@ -56,7 +56,12 @@ document.addEventListener("click", e => {
 
 export const ask = (id, thread, sentence) => ({ id, thread, kind: "approval", can_respond: true, summary: sentence, ask: { sentence, offers: ["allow", "dont_allow"] } });
 
-export const page = (motion, background = "off") => `<!doctype html><html><head><style>${["base.css", "layout.css", "chat.css", "teams.css", "aurora.css", "aurora-widgets.css", "aurora-stage.css"].map(ui).join("\n")}</style></head>
+/**
+ * @param {string} motion @param {string} [background]
+ * @param {Record<string, string>} [files] sheets or scripts used in place of
+ *   desktop/ui's, by name, such as an earlier version to film beside this one
+ */
+export const page = (motion, background = "off", files = {}) => { const ui = (/** @type {string} */ name) => files[name] ?? read(name); return `<!doctype html><html><head><style>${["base.css", "layout.css", "chat.css", "teams.css", "aurora.css", "aurora-widgets.css", "aurora-stage.css"].map(ui).join("\n")}</style></head>
 <body data-navigation="expanded" data-workspace="conversation"><script>${ui("theme.js")}</script><script>Theme.set({ style: "aurora", mode: "dark", motion: "${motion}", background: "${background}" });</script>
 <div class="shell" style="--nav-width:228px;--panel-width:360px;--splitter-width:16px;--conversation-min-width:560px;--workspace-height:900px;height:900px"><div class="workspace-bar"></div>
   <nav class="side"></nav>
@@ -66,5 +71,5 @@ export const page = (motion, background = "off") => `<!doctype html><html><head>
   <div id="workspace-splitter" hidden></div><aside class="detail" id="detail" hidden></aside>
 </div>
 <script>${stubs}</script><script>${ui("asks.js")}</script><script>${ui("notices.js")}</script>
-<script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script><script>${ui("aurora-alerts.js")}</script></body></html>`;
+<script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script><script>${ui("aurora-alerts.js")}</script></body></html>`; };
 

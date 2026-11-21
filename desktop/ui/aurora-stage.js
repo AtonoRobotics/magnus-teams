@@ -23,6 +23,10 @@
 //   boxes narrow and move over. When work the person is watching finishes or
 //   needs them, its result slides open on its own. Close slides it out.
 // - A new block of an answer streams in word by word.
+// - Sizes move (decisions/2026-11-21-aurora-sizes.md): when boxes come or go
+//   the bento grows or shrinks over time, and the conversation with it,
+//   instead of jumping; a box that keeps its place rides with the bento, and
+//   a conversation read to its end stays at its end.
 "use strict";
 
 const AuroraStage = (() => {
@@ -32,6 +36,8 @@ const AuroraStage = (() => {
   const MOVE_MS = 460;
   const LEAVE_MS = 320;
   const JUMP_PX = 24;
+  /** How near its end a conversation counts as read to its end. */
+  const END_PX = 24;
   const WORD_STEP_MS = 34;
   const WORDS_STREAMED = 120;
   const SHOWN_BOXES = 4;
@@ -40,6 +46,8 @@ const AuroraStage = (() => {
   /** How long an answered box shows the answer before it goes. */
   const ANSWER_SHOWN_MS = 900;
   const MOVE_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
+  /** The bento folding: slow while a leaving box fades, then quick. */
+  const FOLD_EASE = "cubic-bezier(0.65, 0, 0.35, 1)";
   const html = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   let files = { at: 0, list: [], loading: null };
@@ -150,16 +158,21 @@ const AuroraStage = (() => {
       ${foot}`;
   }
 
-  // Where each box is, so a change can slide them from there.
-  /** @type {WeakMap<Element, DOMRect>} */
+  // Where each box is in the bento, so a change can slide them from there.
+  // Measured within the bento: when the bento itself moves (it grows, the
+  // conversation shrinks), a box that keeps its place moves with it, once.
+  /** @type {WeakMap<Element, { left: number, top: number }>} */
   let at = new WeakMap();
   const boxesIn = bento => [...bento.querySelectorAll(":scope > .stage-tile:not(.stage-tile-leaving)")];
-  function remember(bento) { boxesIn(bento).forEach(b => at.set(b, b.getBoundingClientRect())); }
+  /** @param {Element} b @param {DOMRect} box */
+  const within = (b, box) => { const r = b.getBoundingClientRect(); return { left: r.left - box.left, top: r.top - box.top }; };
+  function remember(bento) { const box = bento.getBoundingClientRect(); boxesIn(bento).forEach(b => at.set(b, within(b, box))); }
   const moving = () => document.documentElement.dataset.motion === "full";
   function slide(bento, min) {
     if (!moving()) return remember(bento);
+    const box = bento.getBoundingClientRect();
     for (const b of boxesIn(bento)) {
-      const from = at.get(b), to = b.getBoundingClientRect();
+      const from = at.get(b), to = within(b, box);
       at.set(b, to);
       if (!from || b.classList.contains("stage-tile-enter")) continue;
       const dx = from.left - to.left, dy = from.top - to.top;
@@ -175,6 +188,7 @@ const AuroraStage = (() => {
    */
   function place(bento, list) {
     remember(bento);
+    const was = sizeOf(bento);
     const want = new Set(list.map(c => c.key));
     const box = bento.getBoundingClientRect();
     for (const b of boxesIn(bento)) {
@@ -212,7 +226,34 @@ const AuroraStage = (() => {
     }
     bento.querySelectorAll(":scope > .stage-tile-leaving").forEach(b => bento.append(b));
     bento.dataset.count = String(list.length);
+    grow(bento, was);
     slide(bento, 1);
+  }
+
+  /** The bento's height and the room above it, as drawn now. @param {HTMLElement} bento */
+  function sizeOf(bento) {
+    return { height: bento.getBoundingClientRect().height, margin: parseFloat(getComputedStyle(bento).marginTop) || 0 };
+  }
+
+  /**
+   * The bento grows or shrinks from the size it was drawn at to the size it
+   * has now, and the conversation above it with it. Growing, it keeps pace
+   * with the box rising in; shrinking, it waits for the leaving box to fade
+   * before its room closes. A conversation read to its end is kept at its
+   * end while it shrinks.
+   * @param {HTMLElement} bento @param {{ height: number, margin: number }} was
+   */
+  function grow(bento, was) {
+    bento.getAnimations().forEach(a => { if (a.id === "stage-grow") a.cancel(); });
+    if (!moving()) return;
+    const now = sizeOf(bento);
+    if (Math.abs(now.height - was.height) < 1 && Math.abs(now.margin - was.margin) < 1) return;
+    const a = bento.animate([{ height: `${was.height}px`, marginTop: `${was.margin}px` }, { height: `${now.height}px`, marginTop: `${now.margin}px` }], { duration: MOVE_MS, easing: now.height < was.height ? FOLD_EASE : MOVE_EASE });
+    a.id = "stage-grow";
+    const thread = bento.parentElement?.querySelector(":scope > section.conv .thread");
+    if (!thread || thread.scrollHeight - thread.scrollTop - thread.clientHeight > END_PX) return;
+    const keep = () => { thread.scrollTop = thread.scrollHeight; if (a.playState === "running") requestAnimationFrame(keep); };
+    requestAnimationFrame(keep);
   }
 
   /** The conversation head's row of the panel's icons: every view, always. */
