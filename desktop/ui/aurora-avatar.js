@@ -15,7 +15,7 @@
 //
 // The avatar is a button: its name says the state in words, so the state is
 // never only a colour or a shape, and clicking it shows what Magnus is doing
-// (what waits on the person if anything does, else Activity). The orb leans
+// (the decision waiting on the person if one is, else Activity). The orb leans
 // toward the pointer. With reduced motion or none, it is drawn once for each
 // state, still. It does not draw while the window is hidden.
 "use strict";
@@ -195,11 +195,14 @@ const AuroraAvatar = (() => {
   // person, if anything does, else Activity.
   document.addEventListener("click", e => {
     const b = /** @type {HTMLElement} */ (e.target).closest?.(".aurora-avatar");
-    if (!b || typeof openPanel !== "function") return;
+    if (!b) return;
     e.preventDefault();
     e.stopPropagation();
-    const waiting = typeof needsMe === "function" && needsMe().length > 0;
-    openPanel(waiting ? "needs" : "activity", { history: true, focus: true, opener: b });
+    // The decision waiting longest opens on the canvas; with none, Activity
+    // (which Aurora shows as a page, not on the canvas).
+    const first = typeof needsMe === "function" ? needsMe()[0] : null;
+    if (first?.id) openPanel(`item:${first.id}`, { history: true, focus: true, opener: b });
+    else location.hash = "#/activity";
   }, true);
 
   // The avatar leans toward the pointer near it.

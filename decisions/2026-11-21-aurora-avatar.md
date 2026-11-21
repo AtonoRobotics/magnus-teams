@@ -33,8 +33,9 @@ Step D of the Aurora composition (`2026-11-21-aurora-composition.md`).
   leans toward the pointer.
 - **It is a button.** Its name says the state in words ("Magnus is waiting on
   you. Show what Magnus is doing"), and the line above the composer still
-  says it as text. Clicking it opens what waits on the person if anything
-  does, else Activity, as the app does when it opens.
+  says it as text. Clicking it opens the decision waiting longest on the
+  canvas if one waits, else the Activity page (Aurora shows Activity as a
+  page, not on the canvas).
 - **Motion.** In full motion it moves; with reduced motion or none it is
   drawn once for each change of state, still. It draws nothing while the
   window is hidden.

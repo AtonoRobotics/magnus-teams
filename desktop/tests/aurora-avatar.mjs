@@ -10,7 +10,7 @@
 //   ending well and then ready again; failed when one ends badly; a run
 //   stopped by the person, or one already ended when first seen, is ready;
 // - the orb's colour follows the state;
-// - clicking it shows what waits on the person, else Activity;
+// - clicking it opens the decision waiting on the person, else Activity;
 // - it leans toward the pointer;
 // - it moves in full motion, is still with reduced motion, and stops
 //   drawing while the window is hidden;
@@ -122,8 +122,9 @@ try {
   await p.click(".aurora-avatar-hero");
   await p.evaluate(() => { FX.needs = [{ id: "i1" }]; });
   await p.click(".aurora-avatar-nav");
-  const opened = await p.evaluate(() => FX.opened);
-  check("clicking it shows Activity, or what waits on the person", () => assert.deepEqual(opened, ["activity", "needs"]));
+  const opened = await p.evaluate(() => ({ panels: FX.opened, hash: location.hash }));
+  check("clicking it shows Activity, or the decision waiting on the person", () => assert.deepEqual(opened, { panels: ["item:i1"], hash: "#/activity" }));
+  await p.evaluate(() => { FX.needs = []; });
 
   // Motion: moving in full, still when reduced, stopped while hidden.
   await tick();
