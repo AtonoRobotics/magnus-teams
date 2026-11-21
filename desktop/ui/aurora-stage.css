@@ -1,10 +1,20 @@
 /* The Aurora stage (aurora-stage.js), as the mockup's agent demo: the
-   conversation is the main card with a row of cards under it, and anything
-   opened is the artifact canvas sliding in beside them. */
+   conversation is the main card with the bento under it (boxes that come and
+   go as they are relevant), and anything opened is the artifact canvas
+   sliding in beside them. */
 
 @keyframes stageArtifactIn {
   from { opacity: 0; transform: translateX(18px); }
   to { opacity: 1; transform: none; }
+}
+
+@keyframes stageTileIn {
+  from { opacity: 0; transform: translateY(10px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes stageTileOut {
+  to { opacity: 0; transform: scale(.94); }
 }
 
 @keyframes stageWordIn {
@@ -12,18 +22,17 @@
   to { opacity: 1; transform: none; }
 }
 
-/* ---------- The conversation and its cards ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> .stage-tiles) {
+/* ---------- The conversation and its bento ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> .stage-bento) {
   display: flex;
   flex-direction: column;
-  gap: 14px;
   background: transparent;
   border-color: transparent;
   box-shadow: none;
   overflow: visible;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> .stage-tiles) > section.conv {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> .stage-bento) > section.conv {
   flex: 1;
   height: auto;
   min-height: 0;
@@ -36,16 +45,61 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has
   overflow: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tiles {
+/* Two columns, as the mockup's bento; a lone box, or the most urgent of
+   three, takes the whole row. With nothing relevant the bento folds away. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
+  position: relative;
   flex: none;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(184px, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-  padding: 1px 1px 3px;
+  margin-top: 14px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento[data-count="0"] {
+  height: 0;
+  margin-top: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento:is([data-count="1"], [data-count="3"]) > .stage-tile:first-child {
+  grid-column: 1 / -1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile.stage-tile-enter {
+  animation: stageTileIn .42s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile.stage-tile-leaving {
+  pointer-events: none;
+  animation: stageTileOut .32s var(--ease) both;
+}
+
+/* Every view, always one click away, in the conversation's head. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-btn {
+  position: relative;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: #05070e;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile {
@@ -269,7 +323,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="redu
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> .stage-tiles) > section.conv) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> .stage-bento) > section.conv) {
     background: Canvas;
     backdrop-filter: none;
     border-color: CanvasText;

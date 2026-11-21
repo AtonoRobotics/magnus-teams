@@ -4,15 +4,20 @@
 
 In Aurora and Obsidian 2 Aurora:
 
-- The conversation is the main card. Under it, in its column, is a row of
-  cards, one for each companion view with the panel's icons: Live Workspace,
-  Approvals, Up Next, Recent Work, Rules, Files, Apps and the computer. Each
-  opens what it shows.
-- The conversation drives the cards. Work it starts lights Live Workspace
-  with the execution beam and what the work is doing now; a decision waiting
-  turns Approvals amber with what waits; finished work turns Live Workspace
-  mint with its result. The cards move to put what needs the person first,
-  sliding to their new places.
+- The conversation is the main card. Under it is the bento, two columns as
+  in the mockup: a box appears while something is relevant and leaves when it
+  stops, and the boxes already there slide to their new places. Live
+  Workspace while work in this conversation runs (with the beam and what it is
+  doing), waits on the person (amber) or has just finished (mint, with its
+  result); Approvals while a decision waits; Up Next while a routine is due
+  within a day; Files while a file is new; Apps while one needs attention;
+  the computer while it works or asks for the person; Recent Work while work
+  in another conversation has just finished. What needs the person comes
+  first; a lone box, or the most urgent of three, spans the row. With nothing
+  relevant the bento folds away.
+- Every view stays one click away: the conversation's head carries the
+  panel's icons for Approvals (with its count), Tasks, Routines, Rules, Files
+  and Apps.
 - There is no panel beside the conversation. The overview is the cards.
   Anything opened (a task, a file, a decision, the full view behind a card)
   is the artifact canvas: it slides in on the right and the conversation and
@@ -24,8 +29,10 @@ In Aurora and Obsidian 2 Aurora:
 - Other styles keep the panel as it was.
 
 This supersedes `2026-11-20-aurora-bento.md`. The owner chose the mockup's
-layout (cards under the conversation, not beside it) and asked that the
-interplay of the conversation and the cards follow the mockup's agent demo.
+layout (cards under the conversation, not beside it), asked that the
+interplay of the conversation and the cards follow the mockup's agent demo,
+and then that the boxes come and go as they are relevant instead of standing
+in a constant row.
 
 ## Reason
 
