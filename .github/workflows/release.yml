@@ -69,6 +69,10 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "appliance_version=$av" >> "$GITHUB_OUTPUT"
 
+      - name: Pinned Node
+        # The same Node on every machine (ci/ensure-node.sh, .node-version).
+        run: sh ci/ensure-node.sh >> "$GITHUB_PATH"
+
       - name: Fast checks
         # A release after a fast run has them passed for this commit; a manual
         # one runs the same script here.

@@ -58,6 +58,7 @@ image_log=/tmp/magnus-teams-image-$name.log
 cmd=
 for a in "$@"; do cmd="$cmd '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
 case "$1 ${2:-}" in "cargo test") cmd="cargo build --workspace --bins &&$cmd" ;; esac
+# Node is the pinned one (ci/ensure-node.sh), not Strix Beta's own.
 # The browser checks load playwright-core from browser/node_modules, which
 # the copy leaves out. Strix Beta's disk is garbage-collected before the run
 # and again after it (ci/strix-gc.sh), and the run's exit status is kept.
@@ -65,4 +66,4 @@ case "$1 ${2:-}" in "cargo test") cmd="cargo build --workspace --bins &&$cmd" ;;
 # info and incremental caches made each NAME's build directory 80-95 GB,
 # which is what filled the disk (decisions/2026-11-13-strix-capacity.md).
 gc="STRIX_GC_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres sh \$HOME/$dir/ci/strix-gc.sh $name"
-exec $ssh_ "$host" "$gc; (export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/targets/$name CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only; cd $dir && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && { img=\$(MAGNUS_SANDBOX_STORE=\$HOME/$images MAGNUS_SANDBOX_KEEP=4 sandbox/image.sh 2>$image_log) || { echo 'the sandbox image did not build:' >&2; tail -20 $image_log >&2; exit 1; }; } && echo \"sandbox image: \$(basename \$img)\" >&2 && export MAGNUS_GUEST_KERNEL=\$img/vmlinux MAGNUS_GUEST_ROOTFS=\$img/rootfs.ext4 && $cmd); rc=\$?; touch \$HOME/magnus-teams-ci/.used/$name; rm -f \$HOME/magnus-teams-ci/.running/$name; $gc; exit \$rc"
+exec $ssh_ "$host" "$gc; (export PATH=\$HOME/.cargo/bin:\$PATH MAGNUS_TEST_PG=postgres://postgres:magnus_dev@127.0.0.1:54361/postgres CARGO_TARGET_DIR=\$HOME/magnus-teams-ci/targets/$name CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only; cd $dir && node_bin=\$(sh ci/ensure-node.sh) && export PATH=\$node_bin:\$PATH && { [ -d browser/node_modules ] || (cd browser && npm ci --no-audit --no-fund >/dev/null); } && { img=\$(MAGNUS_SANDBOX_STORE=\$HOME/$images MAGNUS_SANDBOX_KEEP=4 sandbox/image.sh 2>$image_log) || { echo 'the sandbox image did not build:' >&2; tail -20 $image_log >&2; exit 1; }; } && echo \"sandbox image: \$(basename \$img)\" >&2 && export MAGNUS_GUEST_KERNEL=\$img/vmlinux MAGNUS_GUEST_ROOTFS=\$img/rootfs.ext4 && $cmd); rc=\$?; touch \$HOME/magnus-teams-ci/.used/$name; rm -f \$HOME/magnus-teams-ci/.running/$name; $gc; exit \$rc"

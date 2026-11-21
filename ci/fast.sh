@@ -13,6 +13,19 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# One Node and one timezone on every machine that runs these
+# (decisions/2026-11-20-one-node-and-one-timezone.md). The zone is UTC+14
+# with no daylight saving: its date differs from UTC's for 14 hours of each
+# day, so a check that mixes a UTC date with a local one fails on most runs,
+# on every machine alike, instead of passing on one and failing on another.
+export TZ=Pacific/Kiritimati
+want=v$(tr -d ' \n' < .node-version)
+have=$(node --version 2>/dev/null || echo none)
+if [ "$have" != "$want" ]; then
+  echo "::error::the checks run on Node $want (.node-version), and this is $have; put it first: PATH=\"\$(sh ci/ensure-node.sh):\$PATH\""
+  exit 1
+fi
+
 check() {
   echo "::group::$*"
   if "$@"; then
@@ -30,6 +43,7 @@ check sh ci/production-guard-check.sh
 check sh ci/strix-gc-check.sh
 check sh ci/ratchet-check.sh
 check sh ci/release-gate-check.sh
+check sh ci/toolchain-check.sh
 check python3 -I sandbox/desktop/test_desktop.py
 check python3 -I sandbox/test_images.py
 for f in desktop/tests/*-check.mjs; do

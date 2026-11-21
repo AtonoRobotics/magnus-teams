@@ -36,7 +36,7 @@ refs=$(grep -cF 'ref: ${{ github.event.workflow_run.head_sha || github.sha }}' "
 # One list of checks.
 grep -qx 'name: fast' "$fast" || bad "fast.yml is not named 'fast', which release.yml waits for"
 has "$fast" 'run: sh ci/fast.sh' || bad "fast.yml does not run ci/fast.sh"
-others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' || true)
+others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' || true)
 [ -z "$others" ] || bad "fast.yml runs checks outside ci/fast.sh: $others"
 has "$release" 'run: sh ci/fast.sh' || bad "a manual release does not run ci/fast.sh"
 has "$script" 'for f in desktop/tests/*-check.mjs; do' || bad "ci/fast.sh does not run every desktop/tests/*-check.mjs"
