@@ -24,6 +24,7 @@ mod sign_in;
 mod sign_in_target;
 mod slack;
 mod standing;
+pub(crate) mod web;
 
 pub use admin::{org_credential, OrgCredential, Refusal};
 pub use routes::router;

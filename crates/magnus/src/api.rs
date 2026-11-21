@@ -84,6 +84,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
     use {owner::*, sign_in::*, work::*};
     Router::new()
         .route("/", get(|| crate::ui::assets::ui_file(Path("index.html".into()))))
+        .route(crate::connectors::web::RETURN_PATH, get(crate::connectors::web::connected))
         .route("/{file}", get(crate::ui::assets::ui_file))
         .route("/fonts/{file}", get(crate::ui::assets::ui_font))
         .route("/v1/health", get(health))

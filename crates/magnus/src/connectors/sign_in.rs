@@ -375,9 +375,10 @@ impl Kernel {
                 bail!("sign in to {} from the Magnus app on this computer", c.title.as_deref().unwrap_or(&c.name));
             }
         }
-        // A loopback address, or Slack's one registered https address. The
-        // token exchange repeats whichever was sent here.
-        if loopback(redirect_uri).is_err() && redirect_uri != SLACK_OAUTH_CALLBACK {
+        // A loopback address, Slack's one registered https address, or, from
+        // a browser, this server's own return address. The token exchange
+        // repeats whichever was sent here.
+        if loopback(redirect_uri).is_err() && redirect_uri != SLACK_OAUTH_CALLBACK && !self.is_web_return(c, redirect_uri) {
             loopback(redirect_uri)?;
         }
         let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(c).await?;

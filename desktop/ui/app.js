@@ -2867,9 +2867,13 @@ async function connectApp(name) {
   // The one screen connecting shows; accepting it is all the approval Magnus
   // needs to use the app (spec rev 140). Signing in again needs no new one.
   const again = card && card.state === "needs_attention", signsIn = !card || card.signs_in !== false;
-  if (signsIn && !Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
+  // A browser has no listener on this computer: the sign-in comes back to
+  // the server's own address instead, where it is finished (connect-web.js).
+  const web = signsIn && !Magnus.loopbackOpen, back = web ? ConnectWeb.returnFor(card) : null;
+  if (web && !back) { toast(ConnectWeb.why(card, name)); return; }
   if (!again && !await consentToConnect(name)) return;
   if (!signsIn) { toast("Connected."); connectorsChanged(); return; }
+  if (back) return ConnectWeb.go({ name, title: card?.title || name }, back, redirect => Server.connectors.signIn(name, redirect)).catch(e => toast(e.body?.message || e.message));
   const listenAt = card && (card.handoff || (onThisComputer(card.redirect_uri) ? card.redirect_uri : null));
   const caught = await Magnus.loopbackOpen(listenAt || null);
   const redirect = card && card.redirect_uri && !onThisComputer(card.redirect_uri) ? card.redirect_uri : caught;
@@ -3650,6 +3654,8 @@ async function boot() {
   App.prefs = await Server.preferences.get().catch(() => null);
   if (typeof autoDetectTimezone === "function") autoDetectTimezone();
   await Promise.all([refresh(), pollVersions()]);
+  // Back from an app's sign-in in this browser: it is finished here.
+  ConnectWeb.finish(connectorsChanged).catch(() => {});
   // Opening the app shows what changed since the last session: with
   // news, and landing on home, the needs panel opens beside it (#367).
   App.reported = new Set();

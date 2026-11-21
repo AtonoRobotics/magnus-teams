@@ -70,7 +70,12 @@ function teamAppsHtml(home) {
 /** A Team Admin signs an app in for the workspace, as a person connects
  * their own from the Library: the browser, then the sign-in caught here. */
 async function connectWorkspaceApp(ws, name, title) {
-  if (!Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
+  if (!Magnus.loopbackOpen) {
+    // In a browser the sign-in comes back to the server's own address (connect-web.js).
+    const card = (Team.home?.apps || []).find(a => a.name === name), back = ConnectWeb.returnFor(card);
+    if (!back) { toast(ConnectWeb.why(card || { title }, name)); return; }
+    return ConnectWeb.go({ name, title, ws }, back, redirect => Server.workspaces.appSignIn(ws, name, redirect)).catch(err => toast(err.body?.message || err.message));
+  }
   try {
     const caught = await Magnus.loopbackOpen(null);
     const r = await Server.workspaces.appSignIn(ws, name, caught);

@@ -6,7 +6,7 @@
 // it and one action, with no protocol words; a connector opens to what
 // Magnus can do with it and what it asks for. The page renders in light
 // and dark, and at phone width with no sideways scroll. Connecting is
-// the desktop app's, at Google's own page. Nothing on the connect path, and
+// the desktop app's for Gmail, at Google's own page. Nothing on the connect path, and
 // nothing in the owner's Connectors settings, asks anyone to type anything:
 // no client ID, secret or address. No fakes (owner, 2026-11-01).
 //
@@ -145,7 +145,7 @@ await step("the Library renders in light and dark, and at phone width with no si
 await step("connecting happens in the desktop app, on the app's own page, and asks nothing here", async () => {
   if (await typed("main")) throw new Error("the Library asks for something to be typed");
   await page.locator("[data-connector=google-gmail]").getByRole("button", { name: "Connect Gmail" }).click();
-  await page.getByText("Connect apps from the Magnus desktop app.").waitFor({ timeout: T });
+  await page.getByText("Gmail can be connected only from the Magnus desktop app: its sign-in comes back only to the desktop app.").waitFor({ timeout: T });
   for (const scope of ["main", "#detail", "[role=dialog]", ".sheet", ".toast"]) if (await typed(scope)) throw new Error(`connecting asks for something to be typed in Magnus (${scope})`);
 });
 
