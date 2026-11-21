@@ -27,7 +27,11 @@ function extractFn(src, signature) {
 }
 
 const now = Date.now();
-const recentIso = new Date(now - 3600_000).toISOString();
+// A task one hour ago crosses a calendar boundary during the first hour of a
+// day. Use local noon so this fixture is unambiguously "today" in every run.
+const todayNoon = new Date(now);
+todayNoon.setHours(12, 0, 0, 0);
+const recentIso = todayNoon.toISOString();
 const oldIso = new Date(now - 14 * 86400_000).toISOString();
 const sampleFiles = [
   { id: "f1", name: "brief.md", media_type: "text/markdown", size: 2048, source: "delivered", at: recentIso, origin: { kind: "upload" } },
