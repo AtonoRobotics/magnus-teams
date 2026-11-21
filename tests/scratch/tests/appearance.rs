@@ -25,12 +25,13 @@ fn aurora_motion_plays_for_what_arrives_not_for_a_repaint() {
     println!("{said}");
 }
 
-/// Aurora shows the workspace as a bento under the conversation instead of
-/// opening the companion panel beside it (`desktop/tests/aurora-bento.mjs`).
+/// Aurora draws the column beside the conversation as the mockup's stage:
+/// cards that move, and an artifact canvas they fold beside
+/// (`desktop/tests/aurora-stage.mjs`).
 #[test]
-fn aurora_shows_a_bento_in_place_of_the_companion_panel() {
+fn aurora_draws_the_panel_as_a_stage_of_cards() {
     let out =
-        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-bento.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-stage.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
     let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert!(out.status.success(), "{said}");
     println!("{said}");

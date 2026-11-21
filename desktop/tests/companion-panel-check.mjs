@@ -1,5 +1,5 @@
 // Companion inspector, file type filters, style-aware Appearance switching,
-// modal ask/askText confirmations, and solid (unblurred) modal backdrops.
+// and modal ask/askText confirmations.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -128,10 +128,16 @@ const snippets = [
   extractFn(app, "function companionFooter()"),
   extractFn(app, "function timelineRowHtml(t)"),
   extractFn(app, "function timelineGroups(active, done)"),
+  extractFn(app, "function needsInlineCard(i)"),
+  extractFn(app, "function schedRows(scheds, hb)"),
+  app.slice(app.indexOf("const guardrailsRow = "), app.indexOf("\n", app.indexOf("const guardrailsRow = "))),
+  extractFn(app, "function activityParts(composed)"),
   extractFn(app, "function activityView(composed)"),
   extractFn(app, "function needsView(composed)"),
   extractFn(app, "function panelTabs(kind)"),
   extractFn(app, "function libFileKind(f)"),
+  app.slice(app.indexOf("const FILE_SVG_SHEET = "), app.indexOf("\n", app.indexOf("const FILE_SVG_DOC = "))),
+  extractFn(app, "function fileBadge(f)"),
   extractFn(app, "async function filesView()"),
   extractFn(app, "function navigationTree()"),
   extractFn(app, "function appearanceSection(el)"),
@@ -276,11 +282,7 @@ clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
 // 5. Desktop auto-open, rules panel handler, and multi-theme CSS rules.
-assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*companionBeside\(\)\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= Theme\.LAYOUT_BOUNDS\.autoOpenMinWidthPx\)/);
-// A style with a bento (Aurora) shows the companion under the conversation
-// instead, so neither place opens the panel on its own there.
-assert.equal((app.match(/!Panel\.userClosed\s*&&\s*companionBeside\(\)/g) || []).length, 2);
-assert.match(app, /const companionBeside = \(\) => typeof Bento === "undefined" \|\| !Bento\.wanted\(\);/);
+assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= Theme\.LAYOUT_BOUNDS\.autoOpenMinWidthPx\)/);
 assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < B\.autoOpenMinWidthPx \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
@@ -293,13 +295,10 @@ assert.match(read("layout.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
 assert.match(read("layout.css"), /html\[data-style="studio"\]\s*nav\.side/);
 assert.match(read("pages.css"), /\.gbox\s*\{\s*border:\s*0;/);
 
-// 6. No native browser confirm()/alert()/prompt() dialogs or backdrop-filter blur in any desktop UI script or stylesheet.
+// 6. No native browser confirm()/alert()/prompt() dialogs in any desktop UI script.
 for (const file of readdirSync(uiDir).filter(f => f.endsWith(".js"))) {
   const src = read(file);
   assert.ok(!/(?:^|[^\w.])(?:window\.)?(?:confirm|alert|prompt)\(/m.test(src), `${file} uses native confirm(), alert(), or prompt()`);
-}
-for (const file of readdirSync(uiDir).filter(f => f.endsWith(".css"))) {
-  assert.ok(!/backdrop-filter\s*:/i.test(read(file)), `${file} uses backdrop-filter`);
 }
 
 // 7. Personal and Team right side panels share SidePanel (side-panel.js).

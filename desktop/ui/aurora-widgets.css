@@ -1,162 +1,14 @@
 /* Aurora & Obsidian 2 Aurora widgets, drawn as the mockup draws them: the
-   bento under the conversation (bento.js), the request card's reasoning
-   pill and tiles, the approval card as an artifact panel, and pill buttons.
-   aurora.css holds the frame, the ambient canvas and the motion. */
+   request card's reasoning pill and tiles, the approval card as an artifact
+   panel, and pill buttons. aurora.css holds the frame, the ambient canvas
+   and the motion; aurora-stage.css the column beside the conversation. */
 
 @keyframes auroraSpark {
   0%, 100% { opacity: 1; }
   50% { opacity: .45; }
 }
 
-/* ---------- 1. The bento: the conversation as the main card, tiles under it ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> .bento-tiles) {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  overflow: visible;
-  container-type: inline-size;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) main > section.conv:has(+ .bento-tiles) {
-  position: relative;
-  flex: 1;
-  height: auto;
-  min-height: 0;
-  border-radius: var(--r-xl);
-  border: 1px solid var(--aurora-rim);
-  background: var(--aurora-glass);
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-}
-
-/* A running conversation wears the beam ring, not the sweep over its text. */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) main > section.conv.aurora-executing::after {
-  content: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-tiles {
-  flex: none;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body.short-viewport .bento-tiles {
-  display: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  padding: 14px 16px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--aurora-rim);
-  background:
-    radial-gradient(220px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 70%),
-    var(--aurora-glass);
-  color: var(--fg);
-  text-decoration: none;
-  overflow: hidden;
-  transition: border-color .3s var(--ease), transform .22s var(--ease), box-shadow .22s var(--ease);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini:hover {
-  border-color: var(--line-strong);
-  box-shadow: var(--shadow);
-  text-decoration: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .bento-mini:hover {
-  transform: translateY(-2px);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini[data-tone="needs"] {
-  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini strong {
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-desc {
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--fg2);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .mini-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--muted);
-  transition: background .3s var(--ease), box-shadow .3s var(--ease);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini[data-tone="run"] .mini-dot {
-  background: var(--aurora-beam-a);
-  box-shadow: 0 0 10px var(--aurora-beam-a);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini[data-tone="needs"] .mini-dot {
-  background: var(--warn);
-  box-shadow: 0 0 10px var(--warn);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini[data-tone="done"] .mini-dot {
-  background: var(--ok);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini[data-tone="stopped"] .mini-dot {
-  background: var(--bad);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .bento-mini:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
-  animation: auroraSpark 2.4s ease-in-out infinite;
-}
-
-/* Narrow (the panel open on a small window, or a phone): one row of compact
-   tiles that scrolls sideways, so the conversation keeps its height. */
-@container (max-width: 680px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-tiles {
-    grid-template-columns: none;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(168px, 1fr);
-    gap: 10px;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
-  }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini { padding: 12px 14px; scroll-snap-align: start; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-desc { display: none; }
-}
-
-/* ---------- 2. The request card: a reasoning pill over tiles ---------- */
+/* ---------- 1. The request card: a reasoning pill over tiles ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head {
   margin: 2px 0 8px;
   padding: 9px 14px;
@@ -241,7 +93,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.sto
   background: color-mix(in srgb, var(--bad) 14%, transparent);
 }
 
-/* ---------- 3. An approval as the mockup's artifact panel ---------- */
+/* ---------- 2. An approval as the mockup's artifact panel ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval {
   display: flex;
   flex-direction: column;
@@ -282,7 +134,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .ask-answers {
   border-top: 1px solid var(--aurora-rim);
 }
 
-/* ---------- 4. Buttons and chips as pills ---------- */
+/* ---------- 3. Buttons and chips as pills ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primary, .button.primary) {
   border-radius: var(--r-pill);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--aurora-beam-a) 22%, transparent);
@@ -312,12 +164,4 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.ask-answers,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chip {
   border-radius: var(--r-pill);
   border: 1px solid var(--aurora-rim);
-}
-
-@media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .bento-mini,
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) main > section.conv:has(+ .bento-tiles) {
-    background: Canvas;
-    border-color: CanvasText;
-  }
 }

@@ -71,7 +71,7 @@
   function detectState() {
     if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
-    if (document.querySelector('.st.need, .bento-mini[data-tone="needs"]')) return "needs";
+    if (document.querySelector('.st.need, .stage-card[data-card="approvals"][data-tone="needs"]')) return "needs";
     if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"]')) return "executing";
     return "idle";
   }
@@ -227,7 +227,7 @@
         const k = `${id}:${idx}`;
         if (answerSeen.has(k)) return;
         answerSeen.add(k);
-        if (known) node.classList.add("aurora-stream-in");
+        if (known) { node.classList.add("aurora-stream-in"); globalThis.AuroraStage?.stream(node); }
       });
     });
   }
@@ -297,9 +297,6 @@
         orbs.add(c);
       }
     });
-
-    // 3b. The bento under the conversation in place of the companion panel
-    if (typeof Bento !== "undefined") Bento.draw();
 
     // 4. Mark active tool/work containers for rotating conic-gradient execution beams
     document.querySelectorAll(".reqgroup.chatcard, .tcard, .companion-active-card").forEach((el) => {
@@ -624,7 +621,6 @@
     document.querySelectorAll(".aurora-hero-presence, .aurora-orb, .aurora-state-pill").forEach((el) => el.remove());
     document.querySelectorAll(".aurora-executing").forEach((el) => el.classList.remove("aurora-executing"));
     document.querySelectorAll(".aurora-detail-ghost").forEach((el) => el.remove());
-    if (typeof Bento !== "undefined") Bento.clear();
     if (detailObs) { detailObs.disconnect(); detailObs = null; }
     detailEl = null;
     detailRect = null;
@@ -745,7 +741,7 @@
     // Entrances are marked in this callback, before the browser draws the
     // new nodes: marked a timer later, a node was drawn, hidden, then faded
     // back in.
-    if (records.some((r) => r.addedNodes.length)) { if (typeof Bento !== "undefined") Bento.draw(); markEntrances(); }
+    if (records.some((r) => r.addedNodes.length)) markEntrances();
     if (domTimer) return;
     domTimer = setTimeout(() => { domTimer = 0; enhanceDynamicDom(); }, 45);
   });

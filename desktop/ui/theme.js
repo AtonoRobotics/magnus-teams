@@ -122,10 +122,10 @@
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
   const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["obsidian-aurora", "Obsidian 2 Aurora"], ["prism", "Prism"], ["studio", "Studio"], ["aurora", "Aurora"]];
-  // Styles that show the workspace as a bento in the conversation's column
-  // and open the panel beside it only when the person opens something.
-  const BENTO_STYLES = ["aurora", "obsidian-aurora"];
-  const bento = style => BENTO_STYLES.includes(style);
+  // Styles that draw the column beside the conversation as a stage of cards
+  // with a canvas for what is opened (aurora-stage.js).
+  const STAGE_STYLES = ["aurora", "obsidian-aurora"];
+  const stage = style => STAGE_STYLES.includes(style);
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
@@ -269,7 +269,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens, bento };
+  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens, stage };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";

@@ -18,7 +18,8 @@ kind of style lives, so a change goes in one place and shows.
 | The Admin section's own parts | `admin.css` |
 | Sign-in and first run | `onboarding.css` |
 | Aurora and Obsidian 2 Aurora: the frame, ambient canvas and motion | `aurora.css` |
-| Aurora's widgets: the bento, request and approval cards, pill buttons | `aurora-widgets.css` |
+| Aurora's widgets: request and approval cards, pill buttons | `aurora-widgets.css` |
+| Aurora's stage: the cards and the artifact canvas beside the conversation | `aurora-stage.css` |
 
 `index.html` loads the sheets in that order, and later wins a tie. The
 server serves each of them (`crates/magnus/src/ui/assets.rs`), and the

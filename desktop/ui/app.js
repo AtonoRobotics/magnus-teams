@@ -1230,7 +1230,7 @@ async function refresh() {
   if (health) App.health = health;
   sidebar();
   banners();
-  await Promise.all([App.redraw?.(), drawPanel()]);
+  await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
 }
 
 // Above the conversation: how the agent changed since the person last
@@ -1441,13 +1441,10 @@ function chosenModel(root) {
 
 // Lays out a conversation; its view, or false when the person moved on
 // while it loaded.
-// A style with a bento (bento.js) shows the companion in the conversation's
-// column; the panel opens beside it only for what the person opens.
-const companionBeside = () => typeof Bento === "undefined" || !Bento.wanted();
 async function chatLayout(main, thread, project) {
   const seq = App.seq;
   App.thread = thread;
-  if (!Panel.what && !Panel.userClosed && companionBeside() && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000) {
+  if (!Panel.what && !Panel.userClosed && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000) {
     openPanel(needsMe().length ? "needs" : "activity", { auto: true });
   }
   sidebar();
@@ -1516,7 +1513,7 @@ async function home(main, panel = App.openAfter) {
   App.threads = threads;
   if (seq !== App.seq) return;
   let targetPanel = panel, panelOpts;
-  if (!targetPanel && !Panel.what && !Panel.userClosed && companionBeside() && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
+  if (!targetPanel && !Panel.what && !Panel.userClosed && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
     targetPanel = needsMe().length ? "needs" : "activity";
     panelOpts = { auto: true };
   }
@@ -2200,7 +2197,32 @@ function timelineGroups(active, done) {
     <div class="gbox"><ul class="tlist tl-stack">${list.map(timelineRowHtml).join("")}</ul></div>
   </details>`).join("");
 }
-function activityView(composed) {
+// A decision waiting on the person, with its app's icon and its answers.
+function needsInlineCard(i) {
+  const ic = SidePanel.brand(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) || `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
+  const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
+  const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
+  return `<div class="gbox needs-inline-card">
+    <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span></a>
+    <div class="needs-inline-acts">
+      <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
+      <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
+    </div>
+  </div>`;
+}
+// The schedules coming up, each with its app's icon or a calendar (a bell
+// for the heartbeat), or the offer to start the heartbeat.
+function schedRows(scheds, hb) {
+  return scheds.length ? scheds.slice(0, 3).map(sc => {
+    const isHb = /heartbeat/i.test(sc.title || sc.text || "");
+    const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
+    return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
+  }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`;
+}
+const guardrailsRow = () => `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
+// The overview's parts, which the panel stacks and an Aurora stage
+// (aurora-stage.js) lays out as cards.
+function activityParts(composed) {
   const active = App.tasks.filter(t => !ENDED.includes(t.status));
   const done = App.tasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
   const pending = needsMe();
@@ -2215,18 +2237,7 @@ function activityView(composed) {
     viewAllOpen: "needs",
     clearedHref: "#/inbox",
     clearedOpen: "needs",
-    rowsHtml: pending.slice(0, 1).map(i => {
-      const ic = SidePanel.brand(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) || `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
-      const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
-      const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
-      return `<div class="gbox needs-inline-card">
-        <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span></a>
-        <div class="needs-inline-acts">
-          <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
-          <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
-        </div>
-      </div>`;
-    }).join(""),
+    rowsHtml: pending.slice(0, 1).map(needsInlineCard).join(""),
   });
   const curTask = active[0];
   const units = curTask?.plan?.units || [];
@@ -2255,21 +2266,22 @@ function activityView(composed) {
   const schedCard = `<section class="companion-scheds">
     <div class="companion-sec-head"><span>Up Next</span><a class="sec-head-link" href="#/schedules" data-open="schedules">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</a></div>
     <div class="scheds-list">
-      ${scheds.length ? scheds.slice(0, 3).map(sc => {
-        const isHb = /heartbeat/i.test(sc.title || sc.text || "");
-        const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
-        return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
-      }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
+      ${schedRows(scheds, hb)}
     </div>
   </section>`;
-  return `${needsBanner}
-    ${activeCard}
+  const updates = (feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : "";
+  return { active, done, pending, scheds, hb, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
+}
+function activityView(composed) {
+  const p = activityParts(composed);
+  return `${p.needsBanner}
+    ${p.activeCard}
     <section class="companion-timeline">
       <div class="companion-sec-head"><span>Recent Work</span><span>Today</span></div>
-      ${recentHtml}
+      ${p.recentHtml}
     </section>
-    ${schedCard}
-    ${(feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}
+    ${p.schedCard}
+    ${p.updates}
     ${activityLinks("activity")}`;
 }
 
@@ -2305,7 +2317,7 @@ function needsView(composed) {
         <details class="appr-payload" data-key="hist:${esc(i.id)}"><summary class="small">View details</summary><div class="gbox appr-payload-box">${i.kind === "approval" ? askContent(i.details || {}) : fieldValue(i.details || i.resolution || {})}</div></details>
       </div></div>
     </div>`).join("")}</div></section>` : "";
-  const guardrails = `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
+  const guardrails = guardrailsRow();
   if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
   return `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>
     ${list([...now, ...later])}${guardrails}${historyHtml}`;
@@ -2354,6 +2366,8 @@ function deliverable(t) {
 const Panel = { anchors:{}, layers:{}, unwatch:null, opener:null, focusNext:false, drawn:null, what: null, layer: "outcome", seq: 0, live: null, liveFor: null, liveText: "", autoOpened: false, userClosed: false, lib: { q: "", project: "", kind: "all" } };
 
 function openPanel(what, options={}) {
+  // Aurora's overview is the cards under the conversation, not a panel.
+  if (what === "activity" && typeof AuroraStage !== "undefined" && AuroraStage.on()) { if (Panel.what) closePanel(!options.auto); return; }
   if (options.history && Panel.what!==what) {
     history.replaceState({...history.state,work:Panel.what},"",location.href);
     history.pushState({...history.state,work:what},"",location.href);
@@ -2393,6 +2407,7 @@ function closePanel(restoreFocus=false) {
   stopPanelLive();
   hush();
   Panel.what = null; Panel.drawn=null;
+  if (typeof AuroraStage !== "undefined") AuroraStage.closed();
   Panel.rendered=null;Resources.forget("Work");
   const el = $("#detail");
   if (!el) return;
@@ -2456,7 +2471,13 @@ async function drawPanel() {
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" })); liveStatusLines(el);
+  // An Aurora stage (aurora-stage.js) shows what is open as a canvas beside
+  // the conversation and its cards.
+  const stage = typeof AuroraStage !== "undefined" && AuroraStage.on();
+  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, body }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
+  if (n !== Panel.seq || !Panel.what) return;
+  const changed = paint(el, markup); liveStatusLines(el);
+  if (stage) AuroraStage.settle(el, changed);
   if (typeof showKillControl === "function" && typeof AdminState !== "undefined" && AdminState.standing?.admin) showKillControl();
   if (!changed) {
     reportOpenedSoon();
@@ -2873,6 +2894,19 @@ function libFileKind(f) {
 
 // Files: every file uploaded or delivered, as a view over the same files
 // the conversations show.
+const FILE_SVG_SHEET = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-width="1.2"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="#10B981" stroke-width="1.2" stroke-linecap="round"/></svg>';
+const FILE_SVG_DOC = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#F43F5E" fill-opacity="0.18" stroke="#F43F5E" stroke-width="1.2"/><path d="M5.5 6.5h5M5.5 9.5h3.5" stroke="#F43F5E" stroke-width="1.2" stroke-linecap="round"/></svg>';
+// A file's badge by its kind, in the Files view and an Aurora stage's card.
+function fileBadge(f) {
+  const n = (f.name || "").toLowerCase(), k = libFileKind(f);
+  if (n.endsWith(".pdf") || f.media_type === "application/pdf") return `<span class="lib-badge pdf">${FILE_SVG_DOC}<span class="sr">PDF</span></span>`;
+  if (/\.(csv|xlsx?|tsv)$/.test(n) || f.media_type === "text/csv") return `<span class="lib-badge sheet">${FILE_SVG_SHEET}<span class="sr">CSV</span></span>`;
+  if (n.endsWith(".json") || f.media_type === "application/json") return `<span class="lib-badge json">${FILE_SVG_SHEET}<span class="sr">JSON</span></span>`;
+  if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css|patch|diff)$/.test(n)) return `<span class="lib-badge code">${FILE_SVG_SHEET}<span class="sr">CODE</span></span>`;
+  if (k === "pages") return `<span class="lib-badge page">${FILE_SVG_DOC}<span class="sr">MD</span></span>`;
+  if (k === "media") return `<span class="lib-badge media">${FILE_SVG_SHEET}<span class="sr">IMG</span></span>`;
+  return `<span class="lib-badge">${FILE_SVG_DOC}<span class="sr">FILE</span></span>`;
+}
 async function filesView() {
   const { q, project, kind = "all" } = Panel.lib;
   const { files } = await Server.files.list({ q, project });
@@ -2880,19 +2914,7 @@ async function filesView() {
   const DAY_MS = 86_400_000, weekCutoff = Date.now() - 7 * DAY_MS;
   const recent = shown.filter(f => { const t = Date.parse(f.at || ""); return !Number.isNaN(t) && t >= weekCutoff; });
   const older = shown.filter(f => { const t = Date.parse(f.at || ""); return Number.isNaN(t) || t < weekCutoff; });
-  const svgSheet = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-width="1.2"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="#10B981" stroke-width="1.2" stroke-linecap="round"/></svg>';
-  const svgDoc = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#F43F5E" fill-opacity="0.18" stroke="#F43F5E" stroke-width="1.2"/><path d="M5.5 6.5h5M5.5 9.5h3.5" stroke="#F43F5E" stroke-width="1.2" stroke-linecap="round"/></svg>';
-  const badgeFor = f => {
-    const n = (f.name || "").toLowerCase(), k = libFileKind(f);
-    if (n.endsWith(".pdf") || f.media_type === "application/pdf") return `<span class="lib-badge pdf">${svgDoc}<span class="sr">PDF</span></span>`;
-    if (/\.(csv|xlsx?|tsv)$/.test(n) || f.media_type === "text/csv") return `<span class="lib-badge sheet">${svgSheet}<span class="sr">CSV</span></span>`;
-    if (n.endsWith(".json") || f.media_type === "application/json") return `<span class="lib-badge json">${svgSheet}<span class="sr">JSON</span></span>`;
-    if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css|patch|diff)$/.test(n)) return `<span class="lib-badge code">${svgSheet}<span class="sr">CODE</span></span>`;
-    if (k === "pages") return `<span class="lib-badge page">${svgDoc}<span class="sr">MD</span></span>`;
-    if (k === "media") return `<span class="lib-badge media">${svgSheet}<span class="sr">IMG</span></span>`;
-    return `<span class="lib-badge">${svgDoc}<span class="sr">FILE</span></span>`;
-  };
-  const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${badgeFor(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><span class="mono small muted lib-size">${esc(kb(f.size))}</span><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
+  const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${fileBadge(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><span class="mono small muted lib-size">${esc(kb(f.size))}</span><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
   const listHtml = !shown.length
     ? `<p class="empty">${q || project || kind !== "all" ? "No file matches." : "No files yet. Upload one, or ask Magnus for a document."}</p>`
     : recent.length && older.length

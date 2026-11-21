@@ -2,7 +2,7 @@
    living ambient shader canvas, liquid-glass presence orbs, rotating
    conic-gradient execution beams, masked streaming, and state-reactive
    navigation & right sidebar.
-   Zero backdrop-filter (decisions/2026-11-20-aurora-solid-surfaces.md).
+   Frosted glass: the islands blur what is behind them, as the mockup does.
    Existing static themes (obsidian, obsidian-2, prism, studio) stay untouched. */
 
 @property --aurora-angle {
@@ -302,6 +302,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitt
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .navigation-drawer,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail {
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   background: var(--aurora-glass);
 }
 
@@ -363,6 +365,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #find input {
 /* ---------- 3. Dynamic Right Sidebar, Companion Orb, Tabs & Live Computer ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.detail,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-side {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   background: var(--aurora-glass);
 }
 
@@ -372,6 +376,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .detail-head,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .workspace-bar {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   background: var(--aurora-glass-strong);
   border-bottom: 1px solid var(--aurora-rim);
 }
@@ -523,6 +529,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.o
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hello-card,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-radius: var(--r-lg);
   border: 1px solid var(--aurora-rim);
   background:
@@ -554,6 +562,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 
 html[data-style="aurora"] .entry.me { align-self: flex-end; align-items: flex-end; }
 html[data-style="aurora"] .msg.me {
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   align-self: flex-end;
   width: auto;
   max-width: 78%;
@@ -591,6 +601,8 @@ html[data-style="obsidian-aurora"] .fchip-inline[data-ext="sql"] .fchip-tag { co
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .tcard,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .sub-agent {
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-radius: var(--r-md);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
@@ -609,6 +621,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot {
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   position: relative;
   border-radius: var(--r-composer);
   border: 1px solid var(--line-strong);
@@ -695,6 +709,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .tiles > div,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .teams-page .team-list a,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) dialog.ask {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border-radius: var(--r-lg);
   background:
     radial-gradient(240px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 68%),
@@ -734,6 +750,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg button.on {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card {
     background: Canvas;
+    backdrop-filter: none;
     border-color: CanvasText;
   }
 }
