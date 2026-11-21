@@ -3241,7 +3241,8 @@ function appearanceSection(el) {
   };
   const draw = () => {
     const p = Theme.prefs(), look = Theme.look;
-    const isBlueDefault = p.style === "prism" || p.style === "studio" || p.style === "obsidian-2";
+    const isAurora = p.style === "aurora" || p.style === "obsidian-aurora";
+    const isBlueDefault = p.style === "prism" || p.style === "studio" || p.style === "obsidian-2" || p.style === "aurora";
     const defAccent = isBlueDefault ? "blue" : "graphite";
     const defHex = isBlueDefault ? "#7C8CFF" : (look.mode === "light" ? "#111111" : "#F5F5F5");
     const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111111" : a.swatch;
@@ -3254,6 +3255,10 @@ function appearanceSection(el) {
       studio: "Studio uses a two-column editorial hero, bento cards, uppercase nav groups, and an elevated pill composer.",
       aurora: "Aurora brings living ambient light shaders, liquid-glass presence orbs, floating workspace islands, and dynamic execution beams across desktop and mobile.",
     }[p.style] || "";
+    const bgPicker = isAurora
+      ? `<h3 id="bg-h">Motion background</h3><div class="seg" role="radiogroup" aria-labelledby="bg-h">${Theme.BACKGROUNDS.map(([k, l]) => radio("background", k, l)).join("")}</div>
+      <p class="small faint">${esc(Theme.BACKGROUND_HINTS[p.background] || "")}</p>`
+      : "";
     paint(el, `<h2>Appearance</h2><div class="appearance">
       ${Theme.saved === false ? `<p class="small" role="status">Appearance changed for this session but was not saved on this device.</p>` : ""}
       <h3 id="style-h">Theme</h3><div class="seg" role="radiogroup" aria-labelledby="style-h">${Theme.STYLES.map(([k, l]) => radio("style", k, l)).join("")}</div>
@@ -3261,6 +3266,7 @@ function appearanceSection(el) {
       <h3 id="mode-h">Mode</h3><div class="seg" role="radiogroup" aria-labelledby="mode-h">${Theme.MODES.map(([k, l]) => radio("mode", k, l)).join("")}</div>
       <h3 id="acc-h">Accent color</h3><div class="swatches ag-swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => { const sc = swatchColor(a); return radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${sc};background:${sc}`); }).join("")}<label class="swatch-custom" title="Pick any custom hex color"><span class="swatch-custom-inner" aria-hidden="true">+</span><input type="color" data-custom-accent value="${esc(currentHex)}" aria-label="Custom accent color"></label><div class="hex-box"><span class="hex-dot" aria-hidden="true"></span><input type="text" class="hex-input" data-custom-hex value="${esc(currentHex)}" maxlength="7" aria-label="Custom accent hex"></div>${p.accent !== defAccent ? `<button type="button" class="link small" data-look="accent" data-value="${esc(defAccent)}">Reset to default</button>` : ""}</div>
       <p class="small faint">${isBlueDefault ? "Default uses Indigo." : "Default uses Monochrome graphite."} Custom colors automatically preserve legible contrast.</p>
+      ${bgPicker}
       <h3 id="mot-h">Motion</h3><div class="seg" role="radiogroup" aria-labelledby="mot-h">${Theme.MOTIONS.map(([k, l]) => radio("motion", k, l)).join("")}</div>
       <p class="small muted" data-motion-hint>${esc(Theme.MOTION_HINTS[p.motion])}${look.motion !== p.motion ? " Your computer asks for reduced motion, so Magnus uses quick fades." : ""}</p>
       <p class="small faint">Magnus also follows your computer's setting for reduced motion.</p></div>`);

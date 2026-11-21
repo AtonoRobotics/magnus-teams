@@ -21,8 +21,23 @@
 }
 
 @keyframes auroraMaskIn {
-  from { opacity: 0; filter: blur(4px); transform: translateY(5px); }
+  from { opacity: 0; filter: blur(4px); transform: translateY(6px); }
   to { opacity: 1; filter: blur(0px); transform: translateY(0); }
+}
+
+@keyframes auroraViewIn {
+  from { opacity: 0; filter: blur(4px); transform: translateY(10px) scale(0.992); }
+  to { opacity: 1; filter: blur(0px); transform: translateY(0) scale(1); }
+}
+
+@keyframes auroraStaggerIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes auroraDotPulse {
+  0%, 100% { transform: scale(1); opacity: 0.95; }
+  50% { transform: scale(1.38); opacity: 0.45; }
 }
 
 @keyframes auroraPanelGlide {
@@ -45,27 +60,31 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body {
   background: var(--bg);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-field-canvas {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
   z-index: 0;
   pointer-events: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas {
   filter: blur(48px) saturate(1.15);
   transform: scale(1.08);
 }
 
 html[data-style="obsidian-aurora"] .aurora-bg-canvas {
-  opacity: 0.58;
+  opacity: 0.68;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell {
   position: relative;
   z-index: 1;
   background: transparent;
-  padding: 6px;
-  row-gap: 6px;
+  padding: 10px;
+  row-gap: 10px;
   box-sizing: border-box;
 }
 
@@ -77,11 +96,12 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > aside.de
   overflow: hidden;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main {
   border-radius: var(--r-xl);
   border: 1px solid var(--aurora-rim);
   background: var(--aurora-glass);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-bar {
@@ -96,13 +116,64 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigat
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head {
   background: transparent;
-  border-bottom-color: var(--aurora-rim);
+  border-bottom-color: transparent;
+  padding: 12px 20px 6px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  background: var(--aurora-glass-strong);
+  border: 1px solid var(--aurora-rim);
+  color: var(--fg2);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  flex: none;
+  transition: border-color .28s var(--ease), box-shadow .28s var(--ease), color .28s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-state-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--aurora-beam-a);
+  box-shadow: 0 0 10px var(--aurora-beam-a);
+  flex: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-state-dot {
+  animation: auroraDotPulse 2.4s ease-in-out infinite;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="thinking"] .aurora-state-dot {
+  background: var(--aurora-beam-b);
+  box-shadow: 0 0 12px var(--aurora-beam-b);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-state-dot {
+  background: var(--ok);
+  box-shadow: 0 0 12px var(--ok);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="takeover"] .aurora-state-dot {
+  background: var(--warn);
+  box-shadow: 0 0 12px var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="executing"] .aurora-state-pill {
+  border-color: var(--aurora-beam-a);
+  box-shadow: 0 0 18px var(--aurora-spot);
+  color: var(--fg);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .workspace-bar {
-  border-radius: var(--r-lg);
+  border-radius: var(--r-pill);
   border: 1px solid var(--aurora-rim);
-  padding: 2px 10px;
+  padding: 2px 12px;
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
@@ -133,14 +204,14 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .navigation-drawe
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .navigation-drawer[open] {
-  animation: auroraMaskIn .26s var(--ease) both;
+  animation: auroraMaskIn .28s var(--ease) both;
 }
 
 @media (min-width: 761px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell {
-    padding: 8px;
-    column-gap: 8px;
-    row-gap: 8px;
+    padding: 12px;
+    column-gap: 12px;
+    row-gap: 12px;
   }
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell {
@@ -149,7 +220,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   }
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell > main {
-    margin-left: 8px;
+    margin-left: 12px;
   }
 }
 
@@ -157,7 +228,20 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #main.team-main {
   background: transparent;
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter {
+  background: transparent;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter:hover,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter:focus-visible {
+  background: transparent;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter::after {
+  display: block;
+  top: 42%;
+  bottom: 42%;
+  left: calc(50% - 1.5px);
   width: 3px;
   border-radius: var(--r-pill);
   background: var(--aurora-rim);
@@ -166,7 +250,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitt
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter:hover::after {
   background: var(--aurora-beam-a);
-  transform: scaleY(1.08);
+  transform: scaleY(1.22);
 }
 
 /* ---------- 2. Left Navigation Island & Living Brand Orb ---------- */
@@ -396,10 +480,18 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card:hov
   box-shadow: var(--shadow);
 }
 
-/* ---------- 5. Masked Streaming, Chat Work Cards, File Chips & Composer ---------- */
+/* ---------- 5. Choreographed Entrances, Masked Streaming, Work Cards & Composer ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .entry.enter,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-stream-in {
   animation: auroraMaskIn .38s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-view-in {
+  animation: auroraViewIn .34s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-stagger {
+  animation: auroraStaggerIn .40s var(--ease) var(--aurora-delay, 0ms) both;
 }
 
 html[data-style="aurora"] .entry.me { align-self: flex-end; align-items: flex-end; }
@@ -445,6 +537,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .sub-agent {
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup.chatcard {
+  margin-left: 0;
+  padding: 6px 8px;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot {
@@ -561,6 +660,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg {
   border: 1px solid var(--aurora-rim);
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .appearance .seg {
+  flex-wrap: wrap;
+  border-radius: var(--r-md);
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg button.on {
   border-radius: var(--r-pill);
   box-shadow: 0 4px 14px var(--aurora-spot);
@@ -579,7 +683,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="redu
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas { display: none; }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas,
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-field-canvas { display: none; }
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.detail,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say,

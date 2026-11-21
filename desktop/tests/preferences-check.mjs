@@ -19,10 +19,14 @@ assert.equal(T.STYLE_TOKENS.prism['r-pill'], '999px');
 assert.equal(T.STYLE_TOKENS.studio['r-composer'], '22px');
 assert.equal(T.STYLE_TOKENS.aurora['r-pill'], '999px');
 assert.deepEqual([...T.MODES.map(m => m[0])], ['light', 'dark', 'system']);
+assert.deepEqual([...T.BACKGROUNDS.map(b => b[0])], ['off', 'particles', 'ribbons', 'constellation']);
 
 // Validation and clamping.
-const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', navigation: 'floating', panelWidthPx: 9999 });
-assert.deepEqual({ ...p }, { style: 'obsidian', mode: 'dark', accent: 'graphite', motion: 'full', navigation: 'expanded', panelWidthPx: 560 });
+const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', background: 'lasers', navigation: 'floating', panelWidthPx: 9999 });
+assert.deepEqual({ ...p }, { style: 'obsidian', mode: 'dark', accent: 'graphite', motion: 'full', background: 'particles', navigation: 'expanded', panelWidthPx: 560 });
+assert.equal(T.preferences({ background: 'ribbons' }).background, 'ribbons');
+assert.equal(T.preferences({ background: 'constellation' }).background, 'constellation');
+assert.equal(T.preferences({ background: 'off' }).background, 'off');
 assert.equal(T.preferences({ panelWidthPx: 10 }).panelWidthPx, 300);
 assert.equal(T.preferences({}).panelWidthPx, 360);
 assert.equal(T.preferences({ style: 'obsidian-2' }).style, 'obsidian-2');
@@ -43,7 +47,7 @@ assert.equal(v2({ theme: 'dark' }).mode, 'dark');
 assert.equal(v2({ theme: 'ember' }).mode, 'dark');
 assert.equal(v2({ theme: 'corporate' }).mode, 'light');
 assert.equal(v2({ theme: 'dark', followComputer: true }).mode, 'system');
-assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'obsidian', mode: 'dark', accent: 'amber', motion: 'reduced', navigation: 'compact', panelWidthPx: 480 });
+assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'obsidian', mode: 'dark', accent: 'amber', motion: 'reduced', background: 'particles', navigation: 'compact', panelWidthPx: 480 });
 
 // In the page: per-person storage, legacy read once and left intact, a
 // failed write keeps the choice for the session and says so, and old records
@@ -56,6 +60,8 @@ const page = { localStorage: { getItem: k => store.get(k) ?? null, setItem: (k, 
 page.window = page; vm.runInNewContext(source, page); const U = page.Theme;
 U.scope('appliance-a', 'alice'); assert.equal(U.prefs().accent, 'amber'); assert.equal(U.prefs().mode, 'dark'); assert.equal(U.prefs().style, 'obsidian');
 assert.equal('material' in JSON.parse(store.get('magnus.ui.v2.appliance-a.alice')), false);
+U.set({ style: 'aurora', background: 'constellation' });
+assert.equal(U.look.background, 'constellation'); assert.equal(page.document.documentElement.dataset.background, 'constellation');
 U.set({ style: 'prism', accent: 'blue' });
 assert.equal(U.look.style, 'prism'); assert.equal(U.prefs().style, 'prism'); assert.equal(page.document.documentElement.dataset.style, 'prism');
 U.set({ accent: 'emerald' }); assert.equal(U.prefs().mode, 'dark', 'an accent never changes the mode');

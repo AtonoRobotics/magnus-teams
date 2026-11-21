@@ -104,13 +104,13 @@
   };
   const OBSIDIAN_AURORA_LIGHT = {
     ...OBSIDIAN2_LIGHT,
-    "aurora-glass": "rgba(246,247,249,0.84)", "aurora-glass-strong": "rgba(255,255,255,0.92)",
+    "aurora-glass": "rgba(246,247,249,0.78)", "aurora-glass-strong": "rgba(255,255,255,0.92)",
     "aurora-rim": "rgba(15,23,42,0.11)", "aurora-beam-a": "#3B5BDB", "aurora-beam-b": "#64748B",
     "aurora-spot": "rgba(59,91,219,0.09)",
   };
   const OBSIDIAN_AURORA_DARK = {
     ...OBSIDIAN2_DARK,
-    "aurora-glass": "rgba(16,16,20,0.82)", "aurora-glass-strong": "rgba(22,22,27,0.92)",
+    "aurora-glass": "rgba(16,16,20,0.72)", "aurora-glass-strong": "rgba(22,22,27,0.90)",
     "aurora-rim": "rgba(255,255,255,0.11)", "aurora-beam-a": "#E4E4E7", "aurora-beam-b": "#7C8CFF",
     "aurora-spot": "rgba(255,255,255,0.09)",
   };
@@ -155,13 +155,20 @@
     },
   };
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
+  const BACKGROUNDS = [["off", "Off"], ["particles", "Particles"], ["ribbons", "Ribbons"], ["constellation", "Constellation"]];
+  const BACKGROUND_HINTS = {
+    off: "Soft ambient color wash only.",
+    particles: "Sparse translucent 3D depth motes drifting slowly behind the workspace.",
+    ribbons: "Slow luminous silk ribbons flowing softly behind the workspace.",
+    constellation: "Sparse 3D depth motes linked by faint near-plane filaments.",
+  };
   const MOTIONS = [["full", "Full"], ["reduced", "Reduced"], ["off", "Off"]];
   const MOTION_HINTS = {
     full: "Panels glide, cards update smoothly, and finished work gets a quiet moment.",
     reduced: "Quick fades instead of movement.",
     off: "No animation. Everything changes instantly.",
   };
-  const DEFAULTS = { style: "obsidian", mode: "dark", accent: "graphite", motion: "full" };
+  const DEFAULTS = { style: "obsidian", mode: "dark", accent: "graphite", motion: "full", background: "particles" };
   const LAYOUT_BOUNDS = {
     navExpandedWidthPx: 228,
     navCompactWidthPx: 64,
@@ -205,7 +212,8 @@
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
     const style = STYLES.some(s => s[0] === p.style) ? p.style : DEFAULTS.style;
     const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
-    return { style, mode: dark ? "dark" : "light", motion, accent };
+    const background = BACKGROUNDS.some(b => b[0] === p.background) ? p.background : DEFAULTS.background;
+    return { style, mode: dark ? "dark" : "light", motion, accent, background };
   }
 
   function tokens(look) {
@@ -245,6 +253,7 @@
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
       accent: isHex(v.accent) ? v.accent : member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
+      background: member(v.background, BACKGROUNDS.map(x => x[0]), DEFAULTS.background),
       navigation: member(v.navigation, ["expanded", "compact"], LAYOUT.navigation),
       panelWidthPx: rawPanelWidth !== null
         ? Math.max(LAYOUT_BOUNDS.panelMinWidthPx, Math.min(LAYOUT_BOUNDS.panelMaxWidthPx, rawPanelWidth))
@@ -256,7 +265,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens };
+  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";
@@ -294,7 +303,7 @@
     const look = effective(current, Theme.os()), el = document.documentElement, t = tokens(look);
     for (const [k, v] of Object.entries(t)) el.style.setProperty(`--${k}`, v);
     el.style.colorScheme = look.mode;
-    Object.assign(el.dataset, { style: look.style, mode: look.mode, motion: look.motion, accent: look.accent });
+    Object.assign(el.dataset, { style: look.style, mode: look.mode, motion: look.motion, accent: look.accent, background: look.background });
     delete el.dataset.material;
     Theme.look = look;
     for (const f of document.querySelectorAll("iframe.composed")) {
