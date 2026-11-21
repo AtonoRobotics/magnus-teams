@@ -8,14 +8,11 @@
   50% { opacity: .45; }
 }
 
-/* ---------- 1. The request card: a reasoning pill over tiles ---------- */
+/* ---------- 1. A request's tasks: a status line over light rows ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head {
-  margin: 2px 0 8px;
-  padding: 9px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--aurora-rim);
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
-  font-size: 13px;
+  margin: 0 0 2px;
+  padding: 2px 8px;
+  font-size: 12.5px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head > :first-child {
@@ -56,18 +53,18 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .rg-rows {
   display: grid;
-  gap: 8px;
+  gap: 2px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .rg-row {
-  min-height: 44px;
-  padding: 8px 12px;
+  min-height: 32px;
+  padding: 4px 8px;
 }
 
 /* A task's standing as a status dot: its icon in a tinted ring. */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--muted) 14%, transparent);
   transition: background .3s var(--ease), box-shadow .3s var(--ease);

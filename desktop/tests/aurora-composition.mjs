@@ -9,6 +9,12 @@
 // - what comes to be told before the page is first drawn waits: once a
 //   conversation is drawn, a decision leaves no pop-up and a message is a
 //   box; once a page with no conversation is drawn, it is a pop-up;
+// - the thread is the conversation's words (step B): a request's tasks are
+//   a light list, not a card; what happened while the person was away is a
+//   box, not a banner over the thread, and opened it goes; Live Workspace
+//   says how far a request of several tasks has got;
+// - a box is no taller than its words need, and a decision's answers fit
+//   one row of a half-width box;
 // - another style has no frame.
 //
 // MAGNUS_CHROMIUM  Chrome to drive
@@ -90,6 +96,42 @@ try {
   await q.waitForTimeout(300);
   const noStage = await q.evaluate(() => document.querySelectorAll('#notices .notice[data-notice="team:w1:n2"]').length);
   check("once a page with no conversation is drawn, it is a pop-up", () => assert.equal(noStage, 1));
+
+  // The thread as words.
+  await p.evaluate(() => {
+    const conv = document.querySelector("#main > section.conv");
+    const b = document.createElement("div"); b.id = "banners";
+    b.innerHTML = '<div class="banner small banner-row" role="status"><span>Updates since your last session.</span></div>';
+    conv.querySelector("#thread").before(b);
+    App.feed = { ended: [{}, {}], arrived: [], decided: [{}] };
+    App.tasks = [{ task_id: "t1", thread: "c1", title: "San Diego trip for two", status: "completed", ended_at: new Date().toISOString() }, { task_id: "t2", thread: "c1", title: "Carbon fiber tube suppliers", status: "running", created_at: new Date().toISOString() }];
+    document.getElementById("thread").insertAdjacentHTML("beforeend", '<div class="entry agent" data-entry="g1"><div class="reqgroup chatcard"><div class="rg-head"><span>From this request</span><span class="small muted num">1 of 2 done</span></div><ul class="rg-rows"><li class="tcard"><a class="rg-row" href="#"><span class="st done"></span><span class="rg-main"><span class="ttl">San Diego trip for two</span></span></a></li><li class="tcard"><a class="rg-row" href="#"><span class="st working"></span><span class="rg-main"><span class="ttl">Carbon fiber tube suppliers</span></span></a></li></ul></div></div>');
+    return AuroraStage.refresh();
+  });
+  await p.waitForTimeout(700);
+  const words = await p.evaluate(() => {
+    const g = document.querySelector(".reqgroup.chatcard"), cs = getComputedStyle(g);
+    const away = document.querySelector('.stage-tile[data-tile="away"]');
+    return {
+      banner: getComputedStyle(document.querySelector("#banners .banner-row")).display,
+      away: away && away.querySelector(".stage-tile-title").textContent,
+      live: document.querySelector('.stage-tile[data-tile="live"] .stage-tile-desc')?.textContent,
+      card: { background: cs.backgroundColor, border: cs.borderTopColor, shadow: cs.boxShadow, blur: cs.backdropFilter },
+      row: Math.round(g.querySelector(".rg-row").getBoundingClientRect().height),
+      box: Math.round(document.querySelector('.stage-tile[data-tile="away"]').getBoundingClientRect().height),
+    };
+  });
+  check("a request's tasks are a light list in the thread, not a card", () => assert.deepEqual([words.card, words.row <= 34], [{ background: clear, border: clear, shadow: "none", blur: "none" }, true], JSON.stringify(words)));
+  check("what happened while away is a box, not a banner over the thread", () => assert.deepEqual([words.banner, words.away], ["none", "2 finished · 1 decided"]));
+  check("Live Workspace says how far a request of several tasks has got", () => assert.equal(words.live, "Working… · 1 of 2 done"));
+  check("a box is no taller than its words need", () => assert.ok(words.box <= 86, JSON.stringify(words)));
+  await p.click('.stage-tile[data-tile="away"]');
+  await p.waitForTimeout(600);
+  const seen = await p.evaluate(() => ({ dismissed: App.feedDismissed, box: !!document.querySelector('.stage-tile[data-tile="away"]:not(.stage-tile-leaving)') }));
+  check("opened, what happened while away goes until the next session", () => assert.deepEqual(seen, { dismissed: true, box: false }));
+  // Two boxes: the decision's is half the row.
+  const half = await p.evaluate(() => { const b = document.querySelector('.stage-tile[data-tile="approval:i2"]'); return { width: Math.round(b.getBoundingClientRect().width), answers: Math.round(b.querySelector(".ask-answers").getBoundingClientRect().height) }; });
+  check("a decision's answers fit one row of a half-width box", () => assert.ok(half.answers <= 30 && half.width < 360, JSON.stringify(half)));
 
   // Another style: no frame.
   await p.evaluate(() => Theme.set({ style: "obsidian" }));

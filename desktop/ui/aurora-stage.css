@@ -62,6 +62,12 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > mai
   }
 }
 
+/* What happened while the person was away is a box, not a banner over the
+   thread. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv:has(> .stage-bento) > #banners > .banner-row {
+  display: none;
+}
+
 /* On a desktop the frame is the card; on a phone, with no frame, the
    conversation is. */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> section.conv) > section.conv {
@@ -150,9 +156,9 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-radius: var(--r-md);
   border: 1px solid var(--aurora-rim);
   background:
@@ -187,8 +193,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-label
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-ic {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex: none;
   border-radius: 6px;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
@@ -263,13 +269,17 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile a.sta
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 2px 0 0;
+  justify-content: flex-start;
+  gap: 4px;
+  margin: 3px 0 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers button {
-  padding: 5px 12px;
-  font-size: 12.5px;
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 12px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .aurora-confirmed-row {
@@ -283,7 +293,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-title {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -293,9 +303,9 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-title
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.4;
   color: var(--fg2);
 }

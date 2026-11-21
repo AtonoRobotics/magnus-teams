@@ -100,9 +100,11 @@ const AuroraStage = (() => {
     const last = latest(here.filter(t => ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
     const list = [];
     const live = { key: "live", label: "Live Workspace", icon: "sparkles" };
+    // A request that became several tasks says how far it has got.
+    const tally = here.length > 1 ? ` · ${here.filter(t => t.status === "completed").length} of ${here.length} done` : "";
     if (run) {
       const step = stepOf(run);
-      list.push({ ...live, tone: waits(run) ? "needs" : "run", open: `task:${run.task_id}`, href: `#/task/${enc(run.task_id)}`, title: named(run), desc: waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…" });
+      list.push({ ...live, tone: waits(run) ? "needs" : "run", open: `task:${run.task_id}`, href: `#/task/${enc(run.task_id)}`, title: named(run), desc: `${waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…"}${tally}` });
     } else if (last) {
       list.push({ ...live, tone: last.status === "completed" ? "done" : "idle", open: `task:${last.task_id}`, href: `#/task/${enc(last.task_id)}`, title: named(last), desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped") });
     }
@@ -134,6 +136,13 @@ const AuroraStage = (() => {
     const connectors = (typeof Lib !== "undefined" && Array.isArray(Lib.all) ? Lib.all : App.connectors) || [];
     const asking = connectors.filter(c => ATTENTION.includes(stateOf(c)));
     if (asking.length) list.push({ key: "apps", label: "Apps", icon: "grid", tone: "needs", open: `connector:${asking[0].name}`, href: "#/apps", title: asking[0].title, desc: asking.length > 1 ? `${asking.length} apps need attention` : "Needs attention to keep working" });
+    // What happened while the person was away, in place of the banner over
+    // the thread; opened, it goes until the next session.
+    const feed = App.feed;
+    if (feed && !App.feedDismissed) {
+      const said = [[feed.ended?.length, "finished"], [feed.arrived?.length, "new for you"], [feed.decided?.length, "decided"]].filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
+      if (said.length) list.push({ key: "away", label: "Since you were away", icon: "clock", tone: "idle", open: "activity", href: "#/activity", title: said.join(" · "), desc: "See what happened" });
+    }
     const elsewhere = latest(tasks.filter(t => t.thread !== App.thread && ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
     if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}` });
     // A box answered keeps its place while it shows the answer.
@@ -327,6 +336,12 @@ const AuroraStage = (() => {
   // A message opened, or its place visited, is no longer new.
   document.addEventListener("click", e => {
     const t = /** @type {HTMLElement} */ (e.target);
+    // What happened while away, opened, is seen until the next session.
+    if (t.closest?.('.stage-tile[data-tile="away"]') && typeof App !== "undefined") {
+      App.feedDismissed = true;
+      if (typeof banners === "function") banners();
+      refresh();
+    }
     const box = t.closest?.(".stage-tile[data-note]");
     if (box instanceof HTMLElement) {
       const n = notes.get(box.dataset.note || "");
