@@ -77,3 +77,28 @@ async function rulesSection(el) {
   };
   await draw();
 }
+
+// Settings, Data and privacy, "What Magnus may do on its own": beside the
+// grants, the person's accepted rules that allow (what they chose "Allow
+// always" for among them), each removed in one tap, after which it asks
+// again (decisions/2026-11-19-handle-things-like-this-on-an-ask.md).
+/** @param {PersonRule} r */
+function allowsOnItsOwn(r) {
+  return r.accepted && !!r.compiled && (r.compiled.effect || "allow") === "allow";
+}
+
+/** @param {?HTMLElement} el */
+async function allowRules(el) {
+  if (!el) return;
+  const rules = ((await Server.rules.list()).rules || []).filter(allowsOnItsOwn);
+  paint(el, rules.map(r => `<div class="spread" data-allow-rule="${esc(r.id)}"><div><strong>${esc(r.words || "Always allow")}</strong>
+      <div class="small muted">${esc(ruleMatchText(r.compiled))}${r.used ? ` · used ${r.used} time${r.used === 1 ? "" : "s"}` : ""}</div></div>
+      <button data-allow-rule-remove>Remove</button></div>`).join("") || `<p class="small faint">None yet. Choose "Allow always" when Magnus asks before something that can be undone.</p>`);
+  el.onclick = async e => {
+    const b = e.target.closest("[data-allow-rule-remove]");
+    if (!b) return;
+    b.disabled = true;
+    try { await Server.rules.remove(b.closest("[data-allow-rule]").dataset.allowRule); toast("Removed. Magnus asks you again next time."); await allowRules(el); }
+    catch (err) { toast(err.message); b.disabled = false; }
+  };
+}

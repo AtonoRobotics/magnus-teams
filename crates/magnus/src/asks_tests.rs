@@ -28,25 +28,44 @@ fn to(d: &[&str]) -> Vec<String> {
     d.iter().map(|s| s.to_string()).collect()
 }
 
-/// Allow covers the rest of the task: later actions of the same kind to the
-/// same destinations, and nothing else (spec rev 140, How an ask looks).
+/// Allow covers the rest of the task: any later action, of any tool in any
+/// app, that goes nowhere the person did not allow
+/// (decisions/2026-11-19-allow-covers-the-task.md).
 #[test]
-fn allow_covers_the_task_by_kind_and_destinations() {
+fn allow_covers_the_task_wherever_it_goes_nowhere_new() {
     let allow = approval("task", "t1", Some(OUTSIDE_REQUEST), Some("h1"), Some(&["bob@corp.example"]));
     let bob = to(&["bob@corp.example"]);
     assert!(covers(&allow, &query(&bob, Some(Reason::OutsideRequest), "h2")), "Allow did not cover a later send to the same person");
     assert!(covers(&allow, &query(&bob, None, "h3")), "Allow did not cover an unasked send of the same kind");
     assert!(!covers(&allow, &query(&to(&["eve@evil.example"]), Some(Reason::OutsideRequest), "h4")), "Allow covered another destination");
     assert!(!covers(&allow, &query(&to(&["bob@corp.example", "eve@evil.example"]), None, "h5")), "Allow covered an added destination");
-    assert!(!covers(&allow, &query(&[], None, "h6")), "Allow for a destination covered an action with none");
+    assert!(covers(&allow, &query(&[], None, "h6")), "Allow did not cover an action that goes nowhere new");
     let other_task = approval("task", "t2", Some(OUTSIDE_REQUEST), None, Some(&["bob@corp.example"]));
     assert!(!covers(&other_task, &query(&bob, None, "h7")), "Allow reached another task");
+    // Before, each tool asked again: a commit, then a pull request, then a comment.
     let mut other_tool = allow.clone();
-    other_tool.tool = "mail__delete".into();
-    assert!(!covers(&other_tool, &query(&bob, None, "h8")), "Allow reached another kind of action");
-    let mut riskier = allow.clone();
-    riskier.risk = Some("reversible_write".into());
-    assert!(!covers(&riskier, &query(&bob, None, "h9")), "Allow covered the action once it was classed riskier");
+    other_tool.tool = "github__push_files".into();
+    other_tool.destinations = Some(vec![]);
+    assert!(covers(&other_tool, &query(&[], None, "h8")), "Allow for one tool did not cover another in the same task");
+    assert!(!covers(&other_tool, &query(&bob, None, "h8")), "Allow that named no one covered a send to someone");
+    let mut other_risk = allow.clone();
+    other_risk.risk = Some("reversible_write".into());
+    assert!(covers(&other_risk, &query(&bob, None, "h9")), "Allow did not cover a riskier action of the same task");
+    let mut someone_elses = allow.clone();
+    someone_elses.person = "carol".into();
+    assert!(!covers(&someone_elses, &query(&bob, None, "h10")), "another person's Allow covered the action");
+}
+
+/// An approval from before rev 140 still covers only the action it was given for.
+#[test]
+fn an_old_window_or_standing_approval_covers_only_its_own_tool() {
+    for scope in ["window", "standing"] {
+        let mut old = approval(scope, "t0", None, None, None);
+        old.until = Some(chrono::Utc::now() + chrono::Duration::hours(1));
+        assert!(covers(&old, &query(&[], None, "h")), "{scope}");
+        old.tool = "mail__delete".into();
+        assert!(!covers(&old, &query(&[], None, "h")), "{scope} reached another tool");
+    }
 }
 
 /// A payment asks every time: no Allow covers another. Private data to a
@@ -79,8 +98,9 @@ fn a_payment_asks_every_time_and_case_three_is_allowed_for_the_task() {
 }
 
 /// Allow always saves a narrow rule: this person, this app's tool, these
-/// destinations. It is offered wherever a rule can answer: an action Auto
-/// Review asked about, and case 3.
+/// destinations, or for an action that can be undone and names none, that
+/// tool. It is offered for an action Auto Review asked about that can be
+/// undone, and for case 3 to a named destination.
 #[test]
 fn allow_always_makes_a_narrow_rule() {
     let rule = always_rule("alice", "mail", "mail__send", &to(&["Bob <bob@corp.example>"])).unwrap();
@@ -92,7 +112,18 @@ fn allow_always_makes_a_narrow_rule() {
     assert!(!covers("alice", "mail__send", "eve@evil.example"), "the rule reached another destination");
     assert!(!covers("alice", "mail__delete", "bob@corp.example"), "the rule reached another tool");
     assert!(!covers("carol", "mail__send", "bob@corp.example"), "the rule reached another person");
-    assert!(always_rule("alice", "mail", "mail__send", &[]).is_err(), "Allow always saved a rule with no destination");
+    // Where no destination is named, the rule is the one tool, wherever it goes.
+    let tool_wide = always_rule("alice", "tasks", "tasks__update", &[]).unwrap();
+    assert!(tool_wide.destinations.is_empty() && tool_wide.effect == crate::rules::Effect::Allow);
+    let tfacts = |name| crate::policy::ToolFacts { name, app: "tasks", risk: Risk::ReversibleWrite, audience: Audience::Public };
+    assert!(crate::policy::rule_covers(&tool_wide.cedar, &person("alice"), &tfacts("tasks__update"), "").unwrap());
+    assert!(!crate::policy::rule_covers(&tool_wide.cedar, &person("alice"), &tfacts("tasks__delete"), "").unwrap(), "the rule reached another tool");
+    assert!(!crate::policy::rule_covers(&tool_wide.cedar, &person("carol"), &tfacts("tasks__update"), "").unwrap(), "the rule reached another person");
+    assert!(always_offered(Some(Reason::OutsideRequest), "reversible_write", &[]));
+    assert!(!always_offered(Some(Reason::OutsideRequest), "irreversible", &to(&["bob@corp.example"])), "what cannot be undone was allowed for every task");
+    assert!(!always_offered(Some(Reason::NewDestination), "reversible_write", &[]), "case 3 was allowed always with no destination");
+    assert!(!always_offered(Some(Reason::Payment), "financial", &to(&["shop.example"])));
+    assert!(!always_offered(Some(Reason::AskFirst), "reversible_write", &[]));
     assert_eq!(Reason::ALL.iter().filter(|r| r.always()).collect::<Vec<_>>(), vec![&Reason::OutsideRequest, &Reason::NewDestination]);
 }
 
@@ -125,6 +156,9 @@ fn no_ask_outside_the_four_can_be_produced() {
         (crate::payments::RULE, Reason::Payment),
         (NEW_DESTINATION, Reason::NewDestination),
         (LOCAL_ASK_FIRST, Reason::AskFirst),
+        (crate::desktop::ASK_RULE, Reason::AskFirst),
+        (crate::desktop::PROGRAM_ASK, Reason::AskFirst),
+        (crate::desktop::CODE_ASK, Reason::AskFirst),
         ("person_rule:rule_1", Reason::AskFirst),
     ];
     for (rule, reason) in four {
@@ -219,23 +253,105 @@ fn the_card_is_one_sentence_three_answers_and_no_reasoning() {
     let bob: Person = serde_json::from_value(json!({ "id": "bob", "groups": [] })).unwrap();
     let c = card(&s, &alice, &item(OUTSIDE_REQUEST, "irreversible", "alice"));
     assert_eq!(c["sentence"], "Magnus wants to send in Mail, to eve@evil.example.");
-    assert_eq!(c["offers"], json!(["allow", "allow_always", "dont_allow"]));
+    // What cannot be undone is allowed for this action or this task, never
+    // every task; the person may hand this kind of work to Magnus instead.
+    assert_eq!(c["offers"], json!(["allow_once", "allow", "handle", "dont_allow"]));
     assert_eq!(c["allow_scope"], "task");
+    // What can be undone may be allowed always, named destination or not.
+    let undoable = card(&s, &alice, &item(OUTSIDE_REQUEST, "reversible_write", "alice"));
+    assert_eq!(undoable["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]));
+    let mut nowhere = item(OUTSIDE_REQUEST, "reversible_write", "alice");
+    nowhere.details["ask_destinations"] = json!([]);
+    assert_eq!(card(&s, &alice, &nowhere)["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]), "Allow always needed a destination");
     let text = c.to_string();
     for word in ["Auto Review", "taint", "untrusted", "rule", "policy", "never named"] {
         assert!(!text.contains(word), "the card carries {word}: {text}");
     }
-    assert_eq!(card(&s, &bob, &item(OUTSIDE_REQUEST, "irreversible", "alice"))["offers"], json!(["allow", "dont_allow"]), "Allow always was offered for someone else");
+    assert_eq!(
+        card(&s, &bob, &item(OUTSIDE_REQUEST, "reversible_write", "alice"))["offers"],
+        json!(["allow_once", "allow", "dont_allow"]),
+        "Allow always was offered for someone else"
+    );
     let pay = card(&s, &alice, &item(crate::payments::MONEY_RULE, "financial", "alice"));
     assert_eq!((pay["offers"].clone(), pay["allow_scope"].clone()), (json!(["allow", "dont_allow"]), json!("once")));
-    let taint = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
-    // Case 3: Allow for the rest of the task and Allow always, as on every card (spec, How an ask looks).
-    assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow", "allow_always", "dont_allow"]), json!("task")));
+    let taint = card(&s, &alice, &item(NEW_DESTINATION, "reversible_write", "alice"));
+    // Case 3: Allow for the rest of the task, and Allow always for what can be undone.
+    assert_eq!((taint["offers"].clone(), taint["allow_scope"].clone()), (json!(["allow_once", "allow", "allow_always", "dont_allow"]), json!("task")));
+    let lasting = card(&s, &alice, &item(NEW_DESTINATION, "irreversible", "alice"));
+    assert_eq!(lasting["offers"], json!(["allow_once", "allow", "dont_allow"]), "what cannot be undone was allowed always after untrusted input");
+    let mut unnamed = item(NEW_DESTINATION, "reversible_write", "alice");
+    unnamed.details["ask_destinations"] = json!([]);
+    assert!(!card(&s, &alice, &unnamed)["offers"].as_array().unwrap().contains(&json!("allow_always")), "case 3 offered Allow always with no destination named");
     let shown = without_reasoning(&item(OUTSIDE_REQUEST, "irreversible", "alice").details);
     for k in REASONING_FIELDS {
         assert!(shown.get(k).is_none(), "{k} stayed on the user's item");
     }
     assert_eq!(shown["input"]["to"], "eve@evil.example", "the exact content is not one tap away");
+}
+
+/// A program's own ask on the person's computer offers Allow always for
+/// that program, and says so; the person's or a lower layer's ask first
+/// about it does not (decisions/2026-11-19-allow-a-program-always.md).
+#[test]
+fn a_programs_own_ask_offers_allow_always_for_the_program() {
+    let s = State::default();
+    let mo: Person = serde_json::from_value(json!({ "id": "mo", "groups": [] })).unwrap();
+    let ana: Person = serde_json::from_value(json!({ "id": "ana", "groups": [] })).unwrap();
+    let program = |rule: &str| {
+        let mut i = item(rule, "irreversible", "mo");
+        i.details["tool"] = json!("desktop_blender__run_python");
+        i.details["app"] = json!("desktop_blender");
+        i.details["app_title"] = Value::Null;
+        i.details["ask_destinations"] = json!([]);
+        i
+    };
+    let c = card(&s, &mo, &program(crate::desktop::PROGRAM_ASK));
+    assert_eq!(c["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]));
+    assert_eq!((c["always_covers"].clone(), c["sentence"].clone()), (json!("Blender"), json!("Magnus wants to run python in Blender.")));
+    for theirs in [crate::desktop::ASK_RULE, "person_rule:rule_1"] {
+        let c = card(&s, &mo, &program(theirs));
+        assert_eq!(c["offers"], json!(["allow_once", "allow", "dont_allow"]), "{theirs} offered Allow always");
+        assert!(c["always_covers"].is_null());
+    }
+    assert_eq!(card(&s, &ana, &program(crate::desktop::PROGRAM_ASK))["offers"], json!(["allow_once", "allow", "dont_allow"]), "Allow always was offered for someone else");
+    assert!(card(&s, &mo, &item(OUTSIDE_REQUEST, "irreversible", "mo"))["always_covers"].is_null(), "an app's card named a program");
+}
+
+/// "Handle things like this" is offered where Allow always is not, on an
+/// ask Auto Review raised about what cannot be undone in one of the
+/// person's apps, to the person whose work it is: never a payment, case 3,
+/// an ask-first rule, an action outside an app, or someone else
+/// (decisions/2026-11-19-handle-things-like-this-on-an-ask.md).
+#[test]
+fn handle_is_offered_where_allow_always_is_not() {
+    let s = State::default();
+    let alice: Person = serde_json::from_value(json!({ "id": "alice", "groups": [] })).unwrap();
+    let bob: Person = serde_json::from_value(json!({ "id": "bob", "groups": [] })).unwrap();
+    let offers = |viewer: &Person, i: &Item| card(&s, viewer, i)["offers"].as_array().cloned().unwrap_or_default();
+    let handles = |viewer: &Person, i: &Item| offers(viewer, i).contains(&json!("handle"));
+    let mut send = item(OUTSIDE_REQUEST, "irreversible", "alice");
+    send.details["audience"] = json!("public");
+    assert!(handles(&alice, &send));
+    // The form starts from the action's app, with what it needs lifted.
+    let form = card(&s, &alice, &send)["handle"].clone();
+    assert_eq!((form["apps"].clone(), form["allow"].clone(), form["period"].clone()), (json!(["mail"]), json!(["irreversible", "send"]), json!("week")), "{form}");
+    let mut own = send.clone();
+    own.details["audience"] = json!("private");
+    assert_eq!(card(&s, &alice, &own)["handle"]["allow"], json!(["irreversible"]), "a change that stays with the person lifted sending");
+    assert!(handles(&alice, &item(crate::boundary::REVIEWER_FLAG, "irreversible", "alice")), "the reviewer's flag is case 1 too");
+    assert!(!handles(&bob, &send), "Handle was offered to someone whose work it is not");
+    assert!(card(&s, &bob, &send)["handle"].is_null());
+    for (rule, risk) in [(OUTSIDE_REQUEST, "reversible_write"), (NEW_DESTINATION, "irreversible"), (crate::payments::MONEY_RULE, "financial"), (LOCAL_ASK_FIRST, "irreversible")] {
+        let i = item(rule, risk, "alice");
+        assert!(!handles(&alice, &i), "Handle was offered on {rule} ({risk}): {:?}", offers(&alice, &i));
+    }
+    assert!(!handles(&alice, &item(OUTSIDE_REQUEST, "financial", "alice")), "Handle was offered on spending money, which no grant covers");
+    let mut outside = item(OUTSIDE_REQUEST, "irreversible", "alice");
+    outside.details["tool"] = json!("delete_file");
+    outside.details["app"] = json!("local");
+    assert!(!handles(&alice, &outside), "Handle was offered for an action in no app");
+    assert!(!handle_offered(Some(Reason::OutsideRequest), "irreversible", &[], "mailbox__send", "mail"), "an app's name matched another app's tools");
+    assert!(handle_offered(Some(Reason::OutsideRequest), "irreversible", &[], "mail__send", "mail"));
 }
 
 /// A saved card's ask says on its card that it is the saved card, what it

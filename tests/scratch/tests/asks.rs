@@ -1,7 +1,7 @@
 //! An ask end to end (spec rev 140, How an ask looks): the person sees the
 //! server's card, never the reasoning, and the agent never sees the card;
-//! Allow covers the rest of the task for the same kind and destinations,
-//! Allow always saves a narrow rule that answers next time, and Don't allow
+//! Allow is this action, Allow for this task covers the rest of the task
+//! wherever it goes nowhere new, Allow always saves a narrow rule that answers next time, and Don't allow
 //! stops that action while the agent carries on without it.
 
 use magnus_invariants::{mcp, *};
@@ -44,7 +44,7 @@ async fn the_person_sees_one_sentence_and_the_agent_never_sees_it() {
     let card = alice.wait_item(&t, "approval").await;
     let sentence = card["ask"]["sentence"].as_str().unwrap_or_default().to_string();
     assert!(sentence.starts_with("Magnus wants to") && sentence.contains("bob@corp.example"), "{card}");
-    assert_eq!(card["ask"]["offers"], json!(["allow", "allow_always", "dont_allow"]), "{card}");
+    assert_eq!(card["ask"]["offers"], json!(["allow_once", "allow", "allow_always", "dont_allow"]), "{card}");
     assert_eq!(card["ask"]["allow_scope"], "task", "{card}");
     for hidden in ["why", "rule", "taint", "reason"] {
         assert!(card["details"][hidden].is_null(), "the card carries {hidden}: {card}");

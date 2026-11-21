@@ -25,7 +25,7 @@ function rulesHtml(v) {
   return `<h2>Rules</h2>
     <section class="card" data-auto-review><h3>Auto Review</h3>
       <label><input type="checkbox" data-auto-review-acts${ar.acts ? " checked" : ""}> Auto Review clears actions on its own for the workspace</label>
-      <p class="small muted">Off, it still reviews every action that leaves a computer, and what it would allow asks the person first unless something they set up covers it.${ar.set_here ? "" : " Now as the server's config says."}</p></section>
+      <p class="small muted" data-auto-review-help>Off, it still reviews every action that leaves a computer, and every action it would allow becomes an approval card for the person, unless something they set up covers it: each review is then asked twice, once of Auto Review and once of the person.${ar.set_here ? "" : " Now as the server's config says."}</p></section>
     <h3>Workspace rules</h3>
     <p class="small muted">They apply to everyone. A block or ask first here wins over anyone's own allow.</p>
     ${v.rules?.length ? `<ul class="admin-rules" data-rules>${v.rules.map(({ id, rule }) => `<li data-rule="${esc(id)}"><span class="chip${rule.effect === "block" ? " bad" : ""}">${esc(ruleText(rule))}</span>${rule.words ? ` <span class="small">"${esc(rule.words)}"</span>` : ""} <button class="link" data-rule-remove>Remove</button></li>`).join("")}</ul>` : `<p class="small muted" data-rules>No workspace rules yet.</p>`}

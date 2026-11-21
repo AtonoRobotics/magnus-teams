@@ -118,6 +118,25 @@ pub fn over(base: &Value, over: &Value) -> Value {
     v
 }
 
+/// The event that sets a grant, its policy written from the fields: set
+/// alone (`set_grant`), or with the decision it comes from (an approval
+/// card's "Handle things like this", `ask_grants`).
+pub fn grant_set(person: &str, id: &str, f: &Fields, card: Option<String>, label: Option<Label>) -> anyhow::Result<Ev> {
+    let cedar = crate::policy::grant_cedar(person, &f.apps, &f.allow)?;
+    Ok(Ev::GrantSet {
+        id: id.into(),
+        person: person.into(),
+        title: f.title.clone(),
+        apps: f.apps.clone(),
+        allow: f.allow.clone(),
+        period: f.period.clone(),
+        max_usd: f.max_usd,
+        card,
+        cedar,
+        label: label.filter(|l| l.untrusted || l.private),
+    })
+}
+
 impl Kernel {
     /// The names of the apps `person` may use: what a grant may cover.
     fn app_names(&self, person: &Person) -> Vec<String> {
@@ -163,20 +182,7 @@ impl Kernel {
 
     /// Set a grant: the kernel writes its policy from the fields.
     pub async fn set_grant(&self, actor: &str, person: &str, id: &str, f: &Fields, card: Option<String>, label: Option<Label>) -> anyhow::Result<()> {
-        let cedar = crate::policy::grant_cedar(person, &f.apps, &f.allow)?;
-        let ev = Ev::GrantSet {
-            id: id.into(),
-            person: person.into(),
-            title: f.title.clone(),
-            apps: f.apps.clone(),
-            allow: f.allow.clone(),
-            period: f.period.clone(),
-            max_usd: f.max_usd,
-            card,
-            cedar,
-            label: label.filter(|l| l.untrusted || l.private),
-        };
-        self.emit(actor, ev).await.map(|_| ())
+        self.emit(actor, grant_set(person, id, f, card, label)?).await.map(|_| ())
     }
 
     /// The person's apps as a grant form offers them: name and title.

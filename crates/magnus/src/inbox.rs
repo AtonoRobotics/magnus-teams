@@ -26,7 +26,7 @@ pub fn may_respond(_s: &State, p: &Person, i: &Item) -> bool {
         "approval" => i.person == p.id,
         // Setting policy is separate from approving (E7).
         "policy_proposal" => crate::people::rights(p).may_write_policy_layer(i.details["layer"].as_str().unwrap_or_default()),
-        crate::consent::APP_TOOLS => crate::people::rights(p).decides_app_tools(),
+        crate::consent::APP_TOOLS | crate::definition_card::DEFINITION_CHANGE => crate::people::rights(p).decides_app_tools(),
         "deletion_request" => crate::people::rights(p).decides_deletion_requests(),
         // A message shared with someone is theirs alone, the owner's too.
         "shared" => i.person == p.id,
@@ -140,11 +140,13 @@ impl Kernel {
         match (inbox_kind(&item.kind), decision.as_str()) {
             ("approval", "approve") => {
                 use crate::asks::Reason;
-                // Allow ("task") covers the rest of the task for the same kind
-                // and destinations; Allow always saves a narrow rule as well;
-                // "once" is Allow where only this action may be allowed.
+                // Allow for this task ("task") covers the rest of the task,
+                // every tool; Allow always saves a narrow rule as well;
+                // "once" is Allow for this action alone; "handle" sets a
+                // grant for this kind of work and allows the rest of the
+                // task as "task" does (`ask_grants`).
                 let scope = body["scope"].as_str().unwrap_or("once").to_string();
-                if !["once", "task", "always"].contains(&scope.as_str()) {
+                if !["once", "task", "always", "handle"].contains(&scope.as_str()) {
                     return Ok(Answer::Invalid(format!("unknown scope {scope}")));
                 }
                 let rule = item.details["rule"].as_str().map(String::from);
@@ -156,17 +158,26 @@ impl Kernel {
                 let tool = item.details["tool"].as_str().unwrap_or_default().to_string();
                 let app = item.details["app"].as_str().unwrap_or_default().to_string();
                 if scope == "always" {
-                    if !reason.is_some_and(Reason::always) || p.id != item.person || dests.is_empty() || app.is_empty() {
+                    if !crate::asks::always_offered_for(&item.details, &dests) || p.id != item.person {
                         return Ok(Answer::Invalid("Allow always is not offered for this".into()));
                     }
-                    let compiled = match crate::asks::always_rule(&item.person, &app, &tool, &dests) {
+                    let compiled = match crate::asks::always_rule_for(&item.person, &item.details, &dests) {
                         Ok(c) => c,
                         Err(e) => return Ok(Answer::Invalid(e)),
                     };
                     let rule_id = new_id("rule");
-                    let words = format!("Always allow: {}", item.summary);
+                    let words = match crate::asks::program_always(rule.as_deref(), &app) {
+                        Some(program) => format!("Always allow {} on my computers", program.title),
+                        None => format!("Always allow: {}", item.summary),
+                    };
                     evs.push((&actor, Ev::Rule(crate::rules::Change::Proposed { id: rule_id.clone(), person: item.person.clone(), compiled: Some(compiled), words: Some(words) })));
                     evs.push((&actor, Ev::Rule(crate::rules::Change::Accepted { id: rule_id })));
+                }
+                if scope == "handle" {
+                    match self.grant_from_ask(p, &item, body).await? {
+                        Ok(ev) => evs.push((&actor, ev)),
+                        Err(why) => return Ok(Answer::Invalid(why)),
+                    }
                 }
                 evs.push((&actor, resolve(Some(scope.clone()))));
                 evs.push((
@@ -178,7 +189,13 @@ impl Kernel {
                         task: item.task.clone().unwrap_or_default(),
                         tool,
                         input_hash: item.details["input_hash"].as_str().map(String::from),
-                        scope: if scope == "always" { "once".into() } else { scope },
+                        scope: if scope == "always" {
+                            "once".into()
+                        } else if scope == "handle" {
+                            "task".into()
+                        } else {
+                            scope
+                        },
                         until: None,
                         reason: rule,
                         risk: item.details["risk"].as_str().map(String::from),
@@ -439,7 +456,14 @@ impl Kernel {
                 evs.push((&actor, resolve(None)));
                 evs.extend(crate::consent::kept(&item).into_iter().map(|e| (actor.as_str(), e)));
             }
-            (crate::consent::APP_TOOLS, "disconnect") => {
+            // A changed definition no model could screen: pinned as its card
+            // showed it, while that is the one held (definition_card.rs).
+            (crate::definition_card::DEFINITION_CHANGE, "accept") => {
+                let held = self.read(|s| s.tools.held.get(item.details["tool"].as_str().unwrap_or_default()).map(|h| h.hash.clone()));
+                evs.push((&actor, resolve(None)));
+                evs.extend(crate::definition_card::accepted(&item, held.as_deref(), &p.id).map(|e| (actor.as_str(), e)));
+            }
+            (crate::consent::APP_TOOLS | crate::definition_card::DEFINITION_CHANGE, "disconnect") => {
                 evs.push((&actor, resolve(None)));
                 removed = item.details["app"].as_str().map(String::from);
             }

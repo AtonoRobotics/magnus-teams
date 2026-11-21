@@ -1,16 +1,24 @@
 // An ask as the person sees it (spec rev 140, How an ask looks): one plain
 // sentence the server wrote from the action's fields, the exact content one
-// tap away, and Allow, Allow always and Don't allow. Nothing else: the
-// rule, the policy, the taint and the reviewer's reasoning are for the
-// developer view (askReasoning below, drawn by dev.js).
+// tap away, and Allow (this action), Allow for this task (every action of
+// the task), Allow always (every task) and Don't allow, as the server
+// offers them (decisions/2026-11-19-allow-covers-the-task.md); where Allow
+// always is not offered, "Handle things like this", which opens the grant
+// form in place (decisions/2026-11-19-handle-things-like-this-on-an-ask.md).
+// Nothing else: the rule, the policy, the taint and the reviewer's
+// reasoning are for the developer view (askReasoning below, drawn by dev.js).
 "use strict";
 
-const ASK_LABELS = { allow: "Allow", allow_always: "Allow always", dont_allow: "Don't allow" };
+const ASK_LABELS = { allow_once: "Allow", allow: "Allow for this task", allow_always: "Allow always", handle: "Handle things like this", dont_allow: "Don't allow" };
 
 // A site's Allow holds for that site from then on, and says so.
 function askLabel(a, offer) {
   const sites = a.destinations || [];
   if (offer === "allow" && a.allow_covers === "site" && sites.length) return sites.length === 1 ? `Allow ${sites[0]}` : "Allow these sites";
+  // A payment's only Allow is for this action.
+  if (offer === "allow" && a.allow_scope !== "task") return "Allow";
+  // On a program's own ask, Allow always is for the whole program on the person's computers.
+  if (offer === "allow_always" && a.always_covers) return `Allow ${a.always_covers} always`;
   return ASK_LABELS[offer];
 }
 
@@ -52,13 +60,37 @@ function askSpendGuardrail(i, d) {
   return `<p class="consequence small" data-spend-guardrail><strong>Spend guardrail:</strong> ${cap} · Vault-only credentials</p>`;
 }
 
+// "Handle things like this": the grant form (app.js `grantForm`) in place,
+// starting from the task's title, the action's app and what it needs lifted.
+// Choosing it sets the grant and allows the rest of this task.
+function askHandleForm(i, a) {
+  const h = a.handle || {};
+  const f = { title: h.title || "", apps: h.apps || [], allow: h.allow || [], period: h.period || "week", max_usd: h.max_usd };
+  const apps = h.your_apps?.length ? h.your_apps : (h.apps || []).map(name => ({ name, title: h.app_title || name }));
+  return `<details class="ask-handle" data-ask-handle="${esc(i.id)}" data-key="ask-handle:${esc(i.id)}"><summary>${esc(ASK_LABELS.handle)}</summary>
+    <p class="small muted">This task goes ahead now. From then on, Magnus does this kind of your work without asking in tasks it starts for it, within the budget. Spending money always asks; change or revoke it in Settings.</p>
+    ${grantForm(`ask-${i.id}`, f, apps)}
+    <div class="row"><button class="primary" data-item="${esc(i.id)}" data-decision="approve:handle" data-offer="handle">${esc(ASK_LABELS.handle)}</button></div></details>`;
+}
+
+// The grant a card's form holds goes with its Handle (app.js `respond`):
+// false, with the reason said, when it lacks a title or an app.
+function askHandle(btn, body) {
+  const g = readGrantForm(btn.closest("[data-ask-handle]"));
+  if (!g.title) { toast("Say what kind of work it is."); return false; }
+  if (!g.apps.length) { toast("Choose at least one app."); return false; }
+  body.grant = g;
+  return true;
+}
+
 // The card. `canRespond` is whether this person may answer it.
 function askCard(i, canRespond) {
   const a = i.ask || {};
   const d = i.details || {};
-  const scope = { allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
+  const scope = { allow_once: "approve:once", allow: a.allow_scope === "task" ? "approve:task" : "approve:once", allow_always: "approve:always", dont_allow: "reject" };
+  const offers = a.offers || [];
   const buttons = canRespond
-    ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(askLabel(a, o))}</button>`).join("")}</div>`
+    ? `<div class="row ask-answers">${offers.filter(o => o !== "handle").map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(askLabel(a, o))}</button>`).join("")}</div>${offers.includes("handle") ? askHandleForm(i, a) : ""}`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
   return `<div class="ask" data-ask="${esc(i.id)}"${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
@@ -73,7 +105,7 @@ function askResolved(i) {
   const r = i.resolution || {};
   const said = { approve: "Allowed", reject: "Not allowed", expired: "No one answered in time" }[r.decision] || r.decision || "";
   const site = i.ask && i.ask.allow_covers === "site" && r.scope === "once";
-  const scope = site ? " for this site from now on" : { task: " for the rest of this work", always: " always" }[r.scope] || "";
+  const scope = site ? " for this site from now on" : { task: " for the rest of this work", always: " always", handle: " for the rest of this work, and Magnus handles things like this on its own" }[r.scope] || "";
   return `<p class="ask-sentence">${esc((i.ask && i.ask.sentence) || i.summary || "")}</p><p class="small muted">${esc(said + scope)}</p>`;
 }
 
@@ -96,6 +128,7 @@ function decisionRows(ds) {
 }
 
 globalThis.askCard = askCard;
+globalThis.askHandle = askHandle;
 globalThis.askResolved = askResolved;
 globalThis.askReasoning = askReasoning;
 globalThis.decisionRows = decisionRows;

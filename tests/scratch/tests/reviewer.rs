@@ -1,6 +1,7 @@
 //! The reviewer: a removable module that judges every send before it
 //! leaves, and the completion criteria no code check covers (#179). It can
-//! block a send with a reason shown on the task, or flag one for the person;
+//! block a send with a reason shown on the task, or flag one for Auto Review
+//! to weigh;
 //! nothing it returns lets through a send the kernel would ask about.
 
 use magnus_invariants::appliance::Person;
@@ -107,10 +108,11 @@ async fn a_blocked_send_never_leaves_and_the_person_sees_why() {
     assert_eq!(rev["acted"], 2, "the module acted on the blocked send and the rewrite, not on the checks beside it: {reg}");
 }
 
-/// A flagged send waits for the person: their approval sends it, without
-/// the reviewer flagging it again.
+/// A flag is the reviewer's advice to Auto Review, not a card of its own:
+/// the reviewer is "quality, never a security control", and Auto Review
+/// weighs the flag with the send (decisions/2026-11-19-an-outage-asks-no-one.md).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
+async fn a_flag_goes_to_auto_review_not_to_the_person() {
     let mail = mcp::mail().start().await;
     let agent = script(|c| async move {
         match c.turn() {
@@ -138,18 +140,11 @@ async fn a_flagged_send_waits_for_the_person_whose_approval_sends_it() {
     let dana = app.api("dana");
     let (t, run) = trial(&dana, "rev", "flag", "Email bob hello.", json!({ "reviewer": true })).await;
 
-    let card = dana.wait_item(&t, "approval").await;
-    let why = ask_reasoning(&dana, &run, card["id"].as_str().unwrap_or_default()).await;
-    assert_eq!(why["rule"], "reviewer:flag", "the flag is not marked as the reviewer's: {why}");
-    assert_eq!(why["reason"], "outside_request", "a flag is not case 1: {why}");
-    assert!(why["why"].as_str().unwrap_or_default().contains("mallory"), "the reviewer's reason is not in the developer view: {why}");
-    assert!(card["details"]["why"].is_null() && card["details"]["rule"].is_null(), "the person's card shows the reviewer's reasoning: {card}");
-    assert!(mail.calls_to("send").is_empty(), "the flagged send left before the person approved");
-    assert!(dana.respond(card["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     let done = dana.wait_settled(&t).await;
     assert_eq!(done["status"], "completed", "{done}");
-    assert_eq!(mail.calls_to("send").len(), 1, "the approved send did not go");
-    assert!(dana.open_items(&t, "approval").await.is_empty(), "the reviewer flagged the approved send again");
+    assert!(dana.open_items(&t, "approval").await.is_empty(), "the reviewer's flag became a card for the person");
+    let seen = m.reviews().iter().any(|r| r.text().contains("the send reviewer flagged it") && r.text().contains("mallory was never named"));
+    assert!(seen, "Auto Review did not weigh the reviewer's flag");
     assert_eq!(reviewer_replies(&dana, &run).await, 1, "the send, not the retry; completion is not reviewed (spec rev 147)");
 }
 
@@ -190,10 +185,12 @@ async fn a_send_the_kernel_asks_about_still_asks() {
     assert_eq!(mail.effects("send"), 1, "the approved send did not go");
 }
 
-/// A once approval covers one flagged send: the bypass consumes it, so a
-/// repeated identical send is judged again instead of riding along (#385).
+/// A repeated identical send is judged again by the reviewer instead of
+/// riding along on the first judgment (#385). Its flag goes to Auto Review
+/// with each send, not to the person as a card
+/// (decisions/2026-11-19-an-outage-asks-no-one.md).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_repeated_send_after_a_once_approval_is_judged_again() {
+async fn a_repeated_send_is_judged_again() {
     let mail = mcp::mail().start().await;
     let agent = script(|c| async move {
         match c.turn() {
@@ -221,13 +218,10 @@ async fn a_repeated_send_after_a_once_approval_is_judged_again() {
     let dana = app.api("dana");
     let (t, run) = trial(&dana, "rev", "once", "Email bob hello.", json!({ "reviewer": true })).await;
 
-    let first = dana.wait_item(&t, "approval").await;
-    assert_eq!(ask_reasoning(&dana, &run, first["id"].as_str().unwrap_or_default()).await["rule"], "reviewer:flag", "{first}");
-    assert!(dana.respond(first["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
-    // The approved send goes; the identical repeat is flagged again.
-    let second = dana.wait_item(&t, "approval").await;
-    assert_eq!(ask_reasoning(&dana, &run, second["id"].as_str().unwrap_or_default()).await["rule"], "reviewer:flag", "the repeat rode the consumed approval: {second}");
-    assert_ne!(second["id"], first["id"], "the same card came back");
-    assert_eq!(mail.calls_to("send").len(), 1, "the repeat sent without a judgment");
+    let done = dana.wait_settled(&t).await;
+    assert_eq!(done["status"], "completed", "{done}");
+    assert!(dana.open_items(&t, "approval").await.is_empty(), "the reviewer's flag became a card for the person");
     assert_eq!(reviewer_replies(&dana, &run).await, 2, "both sends were not judged");
+    assert!(m.reviews().iter().any(|r| r.text().contains("the send reviewer flagged it")), "Auto Review did not weigh the reviewer's flag");
+    assert_eq!(mail.calls_to("send").len(), 2, "a send Auto Review allowed did not go");
 }

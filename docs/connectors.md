@@ -188,7 +188,7 @@ one commit), 2026-11-02.
 ### Guarding the user's computer
 
 - [x] Every local tool call passes the appliance's Cedar policy before the bridge forwards it (a program's tool, `desktop_<program>__<tool>`, goes through the boundary's policy stage, and `desktop_gate` decides again with the run's task and taint before it is handed to the computer)
-- [x] The default policy requires the user's approval for tools that execute code inside a local program (a tool not classed otherwise runs code and is irreversible, so the default asks: case 4 of the four asks, `by_default_code_in_a_program_asks_the_person`)
+- [x] The default policy requires the user's approval for tools that execute code inside a local program (a tool not classed otherwise runs code and is irreversible, so the default asks: case 4 of the four asks, `by_default_code_in_a_program_asks_the_person`; the person may answer it with "Allow <program> always" for their own computers, unless a lower layer's or their own ask first asks, decisions/2026-11-19-allow-a-program-always.md)
 - [x] An admin can relax it for the organisation or a group; a user can only make it stricter (ruling 5) (`an_admin_relaxes_it_for_a_group`, `a_person_can_only_tighten_it`)
 
 ## How the agent uses connectors

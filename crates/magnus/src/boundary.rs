@@ -384,8 +384,14 @@ impl Kernel {
             Err(v) => return Ok(v),
         };
 
-        // 5. The person's answer, one of the four asks, or Auto Review.
-        if let Gate::Stop(v) = self.settle(a, &run, &f, shown.as_ref(), asked).await? {
+        // 5. The person's answer, one of the four asks, or Auto Review. A
+        // purchase is asked about once, in Link (`purchase_gate`).
+        let purchase = if asked.is_none() { self.purchase_gate(a, &f, &run, shown.as_ref()).await? } else { None };
+        let gate = match purchase {
+            Some(gate) => gate,
+            None => self.settle(a, &run, &f, shown.as_ref(), asked).await?,
+        };
+        if let Gate::Stop(v) = gate {
             return Ok(v);
         }
 
@@ -527,11 +533,20 @@ impl Kernel {
     }
 
     /// The live definition, screened right before acting, so one changed
-    /// after it was listed cannot run unscreened (spec rev 140). The error
-    /// says whether trying again may work.
+    /// after it was listed cannot run unscreened (spec rev 140). A run's
+    /// own listing that still matches the pin is reused for a minute
+    /// (`pin_listing.rs`). The error says whether trying again may work.
     pub(crate) async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
-        let secret = self.connector_secret(c, person).await.ok().flatten();
-        let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+        let pinned = self.usable_pin(&f.name).ok().map(|p| p.hash);
+        let live = match crate::pin_listing::reuse(&c.name, person, run, &f.remote, pinned.as_deref()) {
+            Some(t) => vec![t],
+            None => {
+                let secret = self.connector_secret(c, person).await.ok().flatten();
+                let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+                crate::pin_listing::keep(&c.name, person, run, &live);
+                live
+            }
+        };
         let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err((format!("{} no longer offers {}", f.app, f.remote), true)) };
         if let Err(e) = self.pin(c, &f.name, t, Some(run).filter(|r| !r.is_empty())).await {
             return Err((format!("could not screen the tool definition: {e}"), true));
@@ -668,6 +683,7 @@ impl Kernel {
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
         let transmits = crate::local::may_send(a, f)
             && !own_memory
+            && !crate::payments::sends_only_the_purchase(&f.app, &a.tool)
             && !f.reaches_self
             && !is_query_tool
             && (f.risk.changes_state()

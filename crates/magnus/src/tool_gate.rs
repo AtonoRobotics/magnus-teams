@@ -11,7 +11,8 @@
 //! model cannot judge is offered on the phrases alone, as inbound text is.
 //! A definition that changed after the person connected is the case the
 //! screen exists for, so one no model could judge is held until one does,
-//! or until the person connects the app again and so accepts it as it is.
+//! or until the server's owner accepts the change on a card that shows it
+//! (`definition_card.rs`), or connects the app again.
 //! Every screen is recorded for the developer view and the run inspector.
 
 use crate::events::Ev;
@@ -34,6 +35,8 @@ pub const RELEASE: &str = "release";
 /// A definition that passed before, listed again.
 pub const KNOWN: &str = "known";
 pub const FAILED: &str = "failed";
+/// A changed definition no model could judge, accepted by the owner on its card.
+pub const ACCEPTED: &str = "accepted";
 /// A changed definition no model could judge yet.
 pub const UNSCREENED: &str = "unscreened";
 
@@ -46,7 +49,7 @@ pub enum Change {
         hash: String,
         description: String,
         input_schema: Value,
-        /// `passed`, `phrases`, `release`, `known`, `failed` or `unscreened`.
+        /// `passed`, `phrases`, `release`, `known`, `accepted`, `failed` or `unscreened`.
         verdict: String,
         #[serde(default)]
         finding: String,
@@ -112,7 +115,7 @@ impl Ledger {
     pub fn apply(&mut self, at: DateTime<Utc>, c: &Change) {
         match c {
             Change::Screened { tool, hash, description, input_schema, verdict, finding, model, run } => {
-                if [PASSED, PHRASES, RELEASE, KNOWN].contains(&verdict.as_str()) {
+                if [PASSED, PHRASES, RELEASE, KNOWN, ACCEPTED].contains(&verdict.as_str()) {
                     self.pins.insert(tool.clone(), Pin { hash: hash.clone(), description: description.clone(), input_schema: input_schema.clone(), shown: true });
                     self.held.remove(tool);
                 } else {
@@ -153,7 +156,7 @@ impl Ledger {
     pub fn usable(&self, tool: &str) -> std::result::Result<&Pin, String> {
         match (self.held.get(tool), self.pins.get(tool)) {
             (Some(h), _) if h.verdict == FAILED => Err(format!("{tool} is held back: its description failed the screen for instructions aimed at the agent ({})", h.finding)),
-            (Some(_), _) => Err(format!("{tool}'s definition changed and could not be screened yet; it is held until it is, or until the app is connected again")),
+            (Some(_), _) => Err(format!("{tool}'s definition changed and could not be screened yet; it is held until it is, or until the server's owner accepts the change")),
             (None, None) => Err(format!("{tool}'s definition has not been screened yet")),
             (None, Some(p)) => Ok(p),
         }
@@ -229,11 +232,15 @@ impl Kernel {
             crate::safety::Screen::Unanswered if first => (PHRASES, String::new(), None),
             crate::safety::Screen::Unanswered => (UNSCREENED, "no model could screen it".into(), None),
         };
-        // An unscreened change already held is not recorded again at every listing.
-        if verdict == UNSCREENED && held.as_ref().is_some_and(|h| h.hash == hash && h.verdict == UNSCREENED) {
-            return Ok(());
+        // An unscreened change already held is not recorded again at every
+        // listing; its card is put before the owner once (definition_card.rs).
+        if verdict != UNSCREENED || held.as_ref().is_none_or(|h| h.hash != hash || h.verdict != UNSCREENED) {
+            self.emit("kernel", Ev::Tools(screened(verdict, finding, model))).await?;
         }
-        self.emit("kernel", Ev::Tools(screened(verdict, finding, model))).await.map(|_| ())
+        if verdict == UNSCREENED {
+            self.changed_definition_card(c, name, t, &hash, pin.as_ref()).await?;
+        }
+        Ok(())
     }
 
     /// Why a tool may not be used now, or None when it may.
@@ -291,6 +298,16 @@ mod tests {
         assert!(l.pins.contains_key("crm__send"), "the earlier pin was dropped");
         assert_eq!(l.usable("crm__send").err(), l.refusal("crm__send"));
         assert!(l.usable("crm__send").is_err(), "a held tool was offered its earlier definition");
+    }
+
+    #[test]
+    fn the_owners_accept_pins_a_change_no_model_could_judge() {
+        let mut l = Ledger::default();
+        l.apply(Utc::now(), &screened(PHRASES, "a"));
+        l.apply(Utc::now(), &screened(UNSCREENED, "b"));
+        assert!(l.refusal("crm__send").is_some());
+        l.apply(Utc::now(), &screened(ACCEPTED, "b"));
+        assert_eq!(l.usable("crm__send").map(|p| p.hash.clone()), Ok("b".into()), "the accepted definition is not the one used");
     }
 
     #[test]
