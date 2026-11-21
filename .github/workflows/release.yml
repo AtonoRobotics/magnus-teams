@@ -1,25 +1,35 @@
-# Every push to main becomes a magnus-teams release on its own server
-# (decisions/2026-11-09-teams-own-release-and-server.md). It is built on
+# Every push to main that passes the fast tier becomes a magnus-teams release
+# on its own server (decisions/2026-11-09-teams-own-release-and-server.md).
+# It starts when the fast workflow finishes for a push to main, and builds
+# only when that run passed: a commit whose checks failed is never released
+# (decisions/2026-11-20-release-waits-for-fast.md). It is built on
 # Strix Beta, never on the production server
 # (decisions/2026-11-12-release-builds-on-strix.md): the programs, the desktop
 # app (signed there with a throwaway key only), the sandbox image and the
 # connectors' server images. The production server then fetches the build,
 # signs it with the magnus-teams key (which never leaves that server),
-# publishes the desktop app to the test and development channels, and
-# publishes its own programs and waits until it runs them
+# publishes the desktop app to its production, test and development
+# channels, and publishes its own programs and waits until it runs them
 # (release/to-appliance.sh).
 #
-# Only pushes to main and manual runs start it, never a pull request: the
-# runners are our own machines.
+# Only a fast run for a push to main in this repository and manual runs
+# start it, never a pull request: the runners are our own machines. A manual
+# run checks the commit itself first (ci/fast.sh).
 name: release
+run-name: release ${{ github.event.workflow_run.head_sha || github.sha }}
 
 on:
-  push:
+  workflow_run:
+    workflows: [fast]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
+# Releases wait for each other. A run whose fast run did not pass builds
+# nothing, and takes a group of its own so it cannot displace a release
+# waiting its turn.
 concurrency:
-  group: release
+  group: ${{ (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') && 'release' || format('release-skipped-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -27,6 +37,12 @@ permissions:
 
 jobs:
   build:
+    # The commit's own fast run passed, for a push to main in this repository.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: [self-hosted, linux, strix-build]
     timeout-minutes: 90
     outputs:
@@ -35,6 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          # The commit the fast run checked, not main's newest.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
 
       - name: Versions
@@ -52,12 +70,10 @@ jobs:
           echo "appliance_version=$av" >> "$GITHUB_OUTPUT"
 
       - name: Fast checks
-        run: |
-          cargo fmt --all --check
-          for f in desktop/tests/*-check.mjs; do node "$f"; done
-          ci/ratchet.sh size
-          ci/ratchet.sh clippy
-          cargo test --workspace --lib --bins
+        # A release after a fast run has them passed for this commit; a manual
+        # one runs the same script here.
+        if: github.event_name == 'workflow_dispatch'
+        run: sh ci/fast.sh
 
       - name: Programs
         run: |
@@ -109,6 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           # publish.sh asks git whether this build holds the commit a channel
           # was built from; a one-commit clone cannot answer, and refuses.
           fetch-depth: 0

@@ -6,7 +6,7 @@
 - `tests/invariants/`: the eight invariants as tests. `.claude/settings.json` denies edits to them. A change needs the owner.
 
 ## How work lands
-Commit small changes to `main`. A pull request is optional. The fast tier (`.github/workflows/fast.yml`) runs on every push and stays under five minutes. Heavy suites (installed app, injection, update, full invariants) run as acceptance against a release candidate, never as a gate on a push.
+Commit small changes to `main`. A pull request is optional. The fast tier (`.github/workflows/fast.yml`) runs on every push and stays under five minutes. Its checks are `ci/fast.sh`, and a push to main is released only after its fast run passes. Heavy suites (installed app, injection, update, full invariants) run as acceptance against a release candidate, never as a gate on a push.
 
 Record each new decision as a file in `decisions/` named `<date>-<slug>.md`: the choice and its reason. Commit working states and revert a failed attempt instead of patching it. A fix comes with a test that fails without it.
 
