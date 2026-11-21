@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
 const page = read("index.html"), app = read("app.js"), admin = read("admin.js"), server = read("server.js");
-const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8");
+const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
 
 // Wiring.
 const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
@@ -24,7 +24,7 @@ assert.match(app, /adminNavItem\(route\)/, "the navigation has the Admin entry")
 assert.match(app, /\n  shell\(\);\n  adminStart\(\);\n/, "signing in asks whether the person administers, and starts the stops banner");
 assert.match(app, /\n  adminStop\(\);\n/, "signing out forgets it");
 assert.ok(!/The kill switch is on\./.test(app), "the conversation no longer has a banner of its own that names no one");
-assert.match(fast, /node desktop\/tests\/admin-check\.mjs/, "the fast tier runs this check");
+assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 assert.match(admin, /Server\.admin\.stepUp\(f\.password, f\.code \|\| null\)/, "the sheet confirms the password with the server");
 assert.match(server, /stepUp: \([^)]*\) => post\("\/v1\/admin\/step-up", \{ password, code \}\)/, "the step-up goes to its route");
 assert.match(admin, /error === "code_needed"\) \{ \$\("\[data-step-up-code\]", d\)\.hidden = false;/, "the sheet asks for the code when the server needs it");

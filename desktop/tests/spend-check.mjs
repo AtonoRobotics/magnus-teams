@@ -11,7 +11,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
 const page = read("index.html"), app = read("app.js"), spend = read("admin-spend.js"), server = read("server.js");
-const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8");
+const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
 
 // Wiring.
 const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
@@ -20,7 +20,7 @@ assert.match(spend, /registerAdminSection\("spend", el => adminSpend\(el\)\);/, 
 assert.match(spend, /registerAdminSection\("models", el => adminModels\(el\)\);/, "Admin → Models is drawn");
 assert.match(server, /error\?\.status === 402 && error\.body\?\.spend_limit && typeof offerMoreSpend === "function"\) offerMoreSpend\(error\.body\)/, "a spent limit's refusal offers to ask, wherever it appears");
 assert.match(app, /spend_limit: "paused: a monthly spend limit is reached"/, "a run stopped at a limit says so");
-assert.match(fast, /node desktop\/tests\/spend-check\.mjs/, "the fast tier runs this check");
+assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 assert.match(spend, /await Server\.spend\.ask\(amount, String\(f\.reason \|\| ""\)\);/, "the person's ask is their own, not an admin call");
 assert.match(server, /ask: \([^)]*\) => post\("\/v1\/spend\/requests", \{ usd, reason \}\)/, "the person's ask goes to their own route");
 

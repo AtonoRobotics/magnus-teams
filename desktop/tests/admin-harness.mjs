@@ -20,8 +20,8 @@ export function wired(file, check) {
   assert.ok(scripts.includes(file) && scripts.indexOf(file) > scripts.indexOf("admin.js"), `index.html loads ${file} after admin.js`);
   const assets = readFileSync(join(root, "crates/magnus/src/ui/assets.rs"), "utf8");
   assert.ok(assets.includes(`("${file}", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/${file}"))`), `the server serves ${file}`);
-  const fast = readFileSync(join(root, ".github/workflows/fast.yml"), "utf8");
-  assert.ok(fast.includes(`node desktop/tests/${check}`), `the fast tier runs ${check}`);
+  const fast = readFileSync(join(root, "ci/fast.sh"), "utf8");
+  assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do") && check.endsWith("-check.mjs"), `the fast tier runs ${check}: ci/fast.sh runs every desktop/tests/*-check.mjs`);
 }
 
 /** An element: attributes, a parent, and what a section reads of it.

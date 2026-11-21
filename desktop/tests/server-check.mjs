@@ -19,7 +19,7 @@ const plain = v => JSON.parse(JSON.stringify(v ?? null));
 const scripts = [...read("desktop/ui/index.html").matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 assert.equal(scripts.indexOf("server.js"), scripts.indexOf("bridge.js") + 1, "index.html loads server.js right after bridge.js");
 assert.ok(read("crates/magnus/src/ui/assets.rs").includes(`("server.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/server.js"))`), "the server serves server.js");
-assert.match(read(".github/workflows/fast.yml"), /node desktop\/tests\/server-check\.mjs/, "the fast tier runs this check");
+assert.ok(read("ci/fast.sh").includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 // The transport carries requests; the policy is server.js's alone.
 const bridge = read("desktop/ui/bridge.js"), app = read("desktop/ui/app.js");
 assert.ok(!bridge.includes("426") && !bridge.includes("step_up"), "bridge.js holds error policy of its own");
