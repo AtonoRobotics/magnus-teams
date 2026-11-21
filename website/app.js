@@ -58,7 +58,7 @@
         cta: "Approve & Send Drafts",
         doneCta: "✓ Sent & verified",
         html: `
-          <div class="art-card"><div><strong>Northstar Logistics — Annual Renewal</strong><span>Updated 15% volume tier PDF attached · waiting for your OK</span></div><span class="art-tag">Draft Ready</span></div>
+          <div class="art-card"><div><strong>Northstar Logistics — Annual Renewal</strong><span>Attached <span class="fchip-inline" data-ext="pdf"><span class="fchip-tag">PDF</span>Q4_Volume_Tier.pdf</span> · waiting for your OK</span></div><span class="art-tag">Draft Ready</span></div>
           <div class="art-card"><div><strong>Helios Design — Kickoff Times</strong><span>Proposed Tue 10 AM &amp; Thu 2 PM from your live calendar</span></div><span class="art-tag">Draft Ready</span></div>
           <div class="art-card"><div><strong>41 Newsletters &amp; Receipts</strong><span>Filed cleanly into Finance &amp; Reading</span></div><span class="art-tag ok">Organized</span></div>
         `
@@ -83,9 +83,9 @@
         cta: "Share to #leadership",
         doneCta: "✓ Shared & confirmed",
         html: `
-          <div class="art-card"><div><strong>Slide 3 · Monthly Recurring Revenue</strong><span>$418,200 (+14.2% MoM) · North America outpaced forecast</span></div><span class="art-tag ok">Verified</span></div>
+          <div class="art-card"><div><strong>Slide 3 · Monthly Recurring Revenue</strong><span>$418,200 (+14.2% MoM) · <span class="fchip-inline" data-ext="pptx"><span class="fchip-tag">PPTX</span>Q4_Board_Deck.pptx</span></span></div><span class="art-tag ok">Verified</span></div>
           <div class="art-card"><div><strong>Slide 6 · Enterprise Retention</strong><span>118% net dollar retention · 2 renewals closing this week</span></div><span class="art-tag ok">Verified</span></div>
-          <div class="art-card"><div><strong>Speaker Notes (Slides 1–12)</strong><span>Concise talking points tailored for a 20-minute review</span></div><span class="art-tag">Ready</span></div>
+          <div class="art-card"><div><strong>Speaker Notes (Slides 1–12)</strong><span>Concise brief saved to <span class="fchip-inline" data-ext="md"><span class="fchip-tag">MD</span>leadership_notes.md</span></span></div><span class="art-tag">Ready</span></div>
         `
       }
     },
@@ -108,7 +108,7 @@
         cta: "Send Proposal to Elena",
         doneCta: "✓ Delivered & confirmed",
         html: `
-          <div class="art-card"><div><strong>Attached: Northstar_Q4_Annual_Plan.pdf</strong><span>15% volume tier applied · Q1 kickoff timeline included</span></div><span class="art-tag ok">Ready</span></div>
+          <div class="art-card"><div><strong><span class="fchip-inline" data-ext="pdf"><span class="fchip-tag">PDF</span>Northstar_Q4_Annual_Plan.pdf</span></strong><span>15% volume tier applied · Q1 kickoff timeline included</span></div><span class="art-tag ok">Ready</span></div>
           <textarea class="art-editable" aria-label="Personal renewal note">Hi Elena — attached is your updated annual plan with the 15% volume tier applied. Excited to kick off Q1 together next month!</textarea>
         `
       }
