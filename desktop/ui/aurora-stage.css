@@ -1,0 +1,331 @@
+/* The Aurora stage (aurora-stage.js), as the mockup's agent demo: the
+   conversation is the main card with the bento under it (boxes that come and
+   go as they are relevant), and anything opened is the artifact canvas
+   sliding in beside them. */
+
+@keyframes stageArtifactIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes stageTileIn {
+  from { opacity: 0; transform: translateY(10px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes stageTileOut {
+  to { opacity: 0; transform: scale(.94); }
+}
+
+@keyframes stageWordIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- The conversation and its bento ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> .stage-bento) {
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> .stage-bento) > section.conv {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--aurora-rim);
+  background: var(--aurora-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+/* Two columns, as the mockup's bento; a lone box, or the most urgent of
+   three, takes the whole row. With nothing relevant the bento folds away. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento[data-count="0"] {
+  height: 0;
+  margin-top: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento:is([data-count="1"], [data-count="3"]) > .stage-tile:first-child {
+  grid-column: 1 / -1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile.stage-tile-enter {
+  animation: stageTileIn .42s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile.stage-tile-leaving {
+  pointer-events: none;
+  animation: stageTileOut .32s var(--ease) both;
+}
+
+/* Every view, always one click away, in the conversation's head. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-btn {
+  position: relative;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-dock-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: #05070e;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--aurora-rim);
+  background:
+    radial-gradient(220px circle at var(--aurora-mx) var(--aurora-my), var(--aurora-spot), transparent 70%),
+    var(--aurora-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile:hover {
+  border-color: var(--line-strong);
+  text-decoration: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="needs"] {
+  border-color: color-mix(in srgb, var(--warn) 50%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-ic {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-ic svg.ic {
+  width: 12px;
+  height: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: #05070e;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .mini-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background .3s var(--ease), box-shadow .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="run"] .mini-dot {
+  background: var(--aurora-beam-a);
+  box-shadow: 0 0 10px var(--aurora-beam-a);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="needs"] .mini-dot {
+  background: var(--warn);
+  box-shadow: 0 0 10px var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="done"] .mini-dot {
+  background: var(--ok);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
+  animation: auroraSpark 2.4s ease-in-out infinite;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg2);
+}
+
+/* An answer's new block streams in word by word. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stream-word {
+  display: inline-block;
+  animation: stageWordIn .34s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-stream-in:has(.stream-word) {
+  animation: none;
+}
+
+/* ---------- The canvas ---------- */
+/* The column holds the canvas island, not a panel. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > aside.detail:has(> .stage-artifact) {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* With a canvas open the conversation and the canvas share the stage about
+   evenly, as the mockup's 1.02fr / .98fr; the shell's own transition moves
+   the conversation and its cards over. The canvas carries its own Close, so
+   no bar row opens above and the conversation stays where it was. */
+@media (min-width: 761px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) {
+    grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--splitter-width, 16px) clamp(var(--panel-width, 360px), calc((100% - var(--nav-width) - var(--splitter-width, 16px)) * 0.49), 760px);
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:has(> aside.detail > .stage-artifact) > .workspace-bar {
+    display: none;
+  }
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--aurora-rim);
+  background: var(--aurora-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-top {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 22px;
+  padding: 18px 0 14px;
+  border-bottom: 1px solid var(--aurora-rim);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-title {
+  flex: 1;
+  min-width: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-title h2 {
+  margin: 0;
+  font-size: 16.5px;
+  font-weight: 600;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-close {
+  flex: none;
+  min-height: 30px;
+  padding: 4px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--aurora-rim);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg2);
+  font-size: 13px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .artifact-close:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact > .artifact-content {
+  padding: 16px 22px 24px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-artifact.stage-opening {
+  animation: stageArtifactIn .55s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="reduced"] .stage-artifact.stage-opening {
+  animation: fade .15s linear both;
+}
+
+@media (forced-colors: active) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> .stage-bento) > section.conv) {
+    background: Canvas;
+    backdrop-filter: none;
+    border-color: CanvasText;
+  }
+}

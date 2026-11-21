@@ -54,30 +54,51 @@ pub fn held(team: &crate::team::Ledger, id: &str) -> Held {
     h
 }
 
-/// The team changes that move what `id` holds to `to`, or delete it.
+/// Pick the existing workspace member who receives `id`'s responsibilities in
+/// `ws`: `to` when `to` is already a member of `ws`, otherwise the
+/// highest-ranked remaining member of `ws`. An outsider (including a server
+/// admin) is never added to a workspace they do not belong to.
+fn successor_in(team: &crate::team::Ledger, ws: &str, id: &str, to: Option<&str>) -> Option<String> {
+    if let Some(to) = to.filter(|t| *t != id && team.role(ws, t).is_some()) {
+        return Some(to.to_string());
+    }
+    let w = team.workspace(ws)?;
+    w.members.iter().filter(|(m, _)| m.as_str() != id).max_by(|(a_id, a_role), (b_id, b_role)| a_role.cmp(b_role).then_with(|| b_id.cmp(a_id))).map(|(m, _)| m.clone())
+}
+
+/// Workspaces where `id` is the only member: removing `id` deletes the
+/// workspace rather than leaving an empty, ownerless workspace behind.
+pub fn sole_workspaces(team: &crate::team::Ledger, id: &str) -> Vec<String> {
+    team.all().filter(|w| w.members.len() == 1 && w.members.contains_key(id)).map(|w| w.id.clone()).collect()
+}
+
+/// The team changes that move what `id` holds to `to` (or an existing member
+/// of each workspace), or delete it.
 pub fn changes(team: &crate::team::Ledger, id: &str, h: &Held, to: Option<&str>) -> Vec<Change> {
     let mut out = vec![];
-    let join = |out: &mut Vec<Change>, ws: &str, role: Role| {
-        if let Some(to) = to {
-            let has = team.role(ws, to);
-            if has.is_none_or(|r| r < role) {
-                out.push(Change::Member { workspace: ws.into(), person: to.into(), role });
+    let promote = |out: &mut Vec<Change>, ws: &str, person: &str, min_role: Role| {
+        if let Some(current) = team.role(ws, person) {
+            if current < min_role {
+                out.push(Change::Member { workspace: ws.into(), person: person.into(), role: min_role });
             }
         }
     };
     for ws in &h.owned {
-        join(&mut out, ws, Role::Owner);
+        if let Some(next_owner) = successor_in(team, ws, id, to) {
+            promote(&mut out, ws, &next_owner, Role::Owner);
+        }
     }
     for (ws, p) in &h.projects {
         let Some(def) = team.workspace(ws).and_then(|w| w.projects.get(p)).cloned() else { continue };
-        match to {
-            Some(to) => {
-                join(&mut out, ws, Role::Member);
+        let recipient = if to.is_some() { successor_in(team, ws, id, to) } else { None };
+        match recipient {
+            Some(rec) => {
+                promote(&mut out, ws, &rec, Role::Member);
                 let mut def = def;
-                def.owner = to.into();
+                def.owner = rec.clone();
                 def.members.retain(|m| m != id);
-                if !def.members.iter().any(|m| m == to) {
-                    def.members.push(to.into());
+                if !def.members.iter().any(|m| m == &rec) {
+                    def.members.push(rec);
                 }
                 out.push(Change::Project { workspace: ws.clone(), id: p.clone(), def });
             }
@@ -86,12 +107,19 @@ pub fn changes(team: &crate::team::Ledger, id: &str, h: &Held, to: Option<&str>)
     }
     for (ws, r) in &h.routines {
         let Some(routine) = team.workspace(ws).and_then(|w| w.routines.get(r)).cloned() else { continue };
-        match to {
-            Some(to) => out.push(Change::Routine { workspace: ws.clone(), id: r.clone(), routine: crate::team::routines::Routine { by: to.into(), ..routine } }),
+        let recipient = if to.is_some() { successor_in(team, ws, id, to) } else { None };
+        match recipient {
+            Some(rec) => out.push(Change::Routine { workspace: ws.clone(), id: r.clone(), routine: crate::team::routines::Routine { by: rec, ..routine } }),
             None => out.push(Change::RoutineRemoved { workspace: ws.clone(), id: r.clone() }),
         }
     }
-    out.extend(h.member_of.iter().map(|ws| Change::Removed { workspace: ws.clone(), person: id.into() }));
+    for ws in &h.member_of {
+        if team.workspace(ws).is_some_and(|w| w.members.len() <= 1 && w.members.contains_key(id)) {
+            out.push(Change::Deleted { workspace: ws.clone() });
+        } else {
+            out.push(Change::Removed { workspace: ws.clone(), person: id.into() });
+        }
+    }
     out
 }
 
@@ -124,22 +152,7 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
     if transfer && to.is_none() {
         return refuse(StatusCode::BAD_REQUEST, "invalid", "Name who receives their projects and agents.");
     }
-    if !h.owned.is_empty() && to.is_none() {
-        return (
-            StatusCode::CONFLICT,
-            Json(json!({ "error": "workspace_owner", "message": "They own a workspace with other people in it: name who becomes its owner.", "workspaces": h.owned })),
-        )
-            .into_response();
-    }
     let given = if transfer { to.as_deref() } else { None };
-    let evs = k.read(|s| {
-        let mut c = changes(&s.team, &id, &h, given);
-        // Deleting still passes owned workspaces on.
-        if !transfer {
-            c.splice(0..0, h.owned.iter().filter_map(|ws| to.as_ref().map(|to| Change::Member { workspace: ws.clone(), person: to.clone(), role: Role::Owner })));
-        }
-        c
-    });
     let counts = json!({ "projects": h.projects.len(), "routines": h.routines.len(), "workspaces_owned": h.owned.len(), "workspaces_left": h.member_of.len() });
     let audit = Audit {
         action: "user_deleted".into(),
@@ -149,6 +162,16 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
     };
     let actor = a.actor();
     let change = async {
+        let sole = k.read(|s| sole_workspaces(&s.team, &id));
+        for ws in &sole {
+            if let Err(e) = k.delete_workspace(&actor, ws).await {
+                return refuse(StatusCode::INTERNAL_SERVER_ERROR, "failed", &format!("{e:#}"));
+            }
+        }
+        let evs = k.read(|s| {
+            let h = held(&s.team, &id);
+            changes(&s.team, &id, &h, given)
+        });
         let team: Vec<(&str, Ev)> = evs.into_iter().map(|c| (actor.as_str(), Ev::Team(c))).collect();
         if !team.is_empty() {
             if let Err(e) = k.emit_all(team).await {
@@ -206,6 +229,21 @@ mod tests {
         }
         let w = l.workspace("w").unwrap();
         assert!(w.projects.is_empty() && w.routines.is_empty(), "deleting kept their team projects or routines");
+        assert_eq!(l.role("w", "bo"), Some(Role::Owner), "deleting left a populated workspace without an owner");
         assert_eq!(held(&l, "bo"), Held { member_of: vec!["w".into()], ..Default::default() });
+    }
+
+    #[test]
+    fn removing_never_adds_an_outsider_or_admin_to_a_workspace() {
+        let mut l = team();
+        let h = held(&l, "ann");
+        for c in changes(&l, "ann", &h, Some("server_admin")) {
+            l.apply(&c);
+        }
+        assert_eq!(l.role("w", "server_admin"), None, "an outsider was added to the workspace during removal");
+        assert_eq!(l.role("w", "bo"), Some(Role::Owner), "existing workspace member was not promoted to owner");
+        let w = l.workspace("w").unwrap();
+        assert_eq!(w.projects["p"].owner, "bo");
+        assert_eq!(w.routines["r"].by, "bo");
     }
 }

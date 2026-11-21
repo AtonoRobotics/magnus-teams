@@ -284,6 +284,13 @@ impl Kernel {
                 msgs.push(Message { role: Role::User, content: user, state: None });
             }
         }
+        let trailing: Vec<Block> = run.notices.iter().filter(|(s, _, _)| *s as usize > run.replies.len()).map(|(_, _, t)| Block::Text { text: t.clone() }).collect();
+        if !trailing.is_empty() {
+            match msgs.last_mut() {
+                Some(m) if m.role == Role::User => m.content.extend(trailing),
+                _ => msgs.push(Message { role: Role::User, content: trailing, state: None }),
+            }
+        }
         let system = self.run_kind(&run.id).prompt().text();
         let harness = self.harness_context(run);
         let (person, relationship) = self.person_context(run).await?;

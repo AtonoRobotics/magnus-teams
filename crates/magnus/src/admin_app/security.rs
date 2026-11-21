@@ -42,6 +42,9 @@ async fn policy(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) ->
     }
     let mut v = body_json(r).await;
     v["identity_provider"] = json!(k.oidc.get().map(|o| o.issuer().to_string()));
+    if v.get("unenrolled_count").is_none() {
+        v["unenrolled_count"] = json!(k.accounts.unenrolled_totp_count().await.unwrap_or(0));
+    }
     Json(v).into_response()
 }
 

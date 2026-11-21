@@ -182,12 +182,15 @@ impl Kernel {
             hex::encode(&sha2::Sha256::digest(serde_json::to_vec(&tools)?)[..16])
         };
         let step = run.replies.len() as u32;
-        let (adapter, model) = run.model();
+        let (primary_adapter, primary_model) = run.model();
+        let mut active_adapter = primary_adapter.to_string();
+        let mut active_model = primary_model.to_string();
+        let mut fallback_idx = 0usize;
         // The prompt's tokens, asked of the adapter once: what it would
         // send, not the kernel's bytes (#323). The quote below prices the
         // same prompt every attempt, while what is left is re-read. An
         // adapter that cannot measure falls back to the kernel's bytes.
-        let input_tokens = match self.adapters.estimate_prompt(adapter, model, &system, messages.clone(), tools.clone()).await {
+        let mut input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
             Ok(n) => n,
             Err(e) => {
                 tracing::warn!("prompt estimate for {run_id}: {e:#}; pricing the kernel's bytes");
@@ -206,7 +209,7 @@ impl Kernel {
             // the full output, at the model's prices. What is left bounds
             // the output; when the prompt alone does not fit, the run stops
             // for budget here, before anything is asked (#273).
-            let max_tokens = match self.clamped_max_tokens(run_id, &left, adapter, model, input_tokens, run.config.max_tokens).await? {
+            let max_tokens = match self.clamped_max_tokens(run_id, &left, &active_adapter, &active_model, input_tokens, run.config.max_tokens).await? {
                 Some(n) => n,
                 None => return Ok(Flow::Stop),
             };
@@ -229,7 +232,12 @@ impl Kernel {
             .await?;
             let live = self.live_text.clone();
             let rid = run_id.to_string();
-            let out = self.adapters.complete(adapter, model, &system, messages.clone(), tools.clone(), max_tokens, |t| live.send(&rid, t)).await;
+            let out = self
+                .adapters
+                .complete_with_reasoning(&active_adapter, &active_model, &system, messages.clone(), tools.clone(), max_tokens, run.config.reasoning.as_deref(), |t| {
+                    live.send(&rid, t)
+                })
+                .await;
             live.end(&rid);
             match out {
                 Ok(t) => {
@@ -295,6 +303,32 @@ impl Kernel {
                             return Ok(Flow::Continue);
                         }
                         class => {
+                            if matches!(class, ErrorClass::Unavailable | ErrorClass::UsageLimit) {
+                                let allowed = self.allowed_models(&run.person).await;
+                                let mut switched = false;
+                                while let Some(entry) = self.cfg.model.fallbacks.get(fallback_idx) {
+                                    fallback_idx += 1;
+                                    if let Some((fa, fm)) = entry.split_once('/').map(|(a, m)| (a.trim(), m.trim())).filter(|(a, m)| !a.is_empty() && !m.is_empty()) {
+                                        if (fa != active_adapter || fm != active_model) && crate::spend::access::permits(&allowed, fa, fm) {
+                                            active_adapter = fa.to_string();
+                                            active_model = fm.to_string();
+                                            input_tokens = match self.adapters.estimate_prompt(&active_adapter, &active_model, &system, messages.clone(), tools.clone()).await {
+                                                Ok(n) => n,
+                                                Err(err) => {
+                                                    tracing::warn!("prompt estimate for {run_id} on fallback {active_adapter}/{active_model}: {err:#}; pricing the kernel's bytes");
+                                                    estimated_input_tokens(&system, &messages, &tools)
+                                                }
+                                            };
+                                            attempt += 1;
+                                            switched = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if switched {
+                                    continue;
+                                }
+                            }
                             let (reason, what) = match class {
                                 ErrorClass::Unavailable => ("provider", "The model provider is unavailable"),
                                 ErrorClass::UsageLimit => ("usage_limit", "The model provider's usage limit was reached"),

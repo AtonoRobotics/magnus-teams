@@ -87,7 +87,7 @@ async function teamPeople(center, side, ws) {
   const home = Team.home, admin = isTeamAdmin(home);
   const candidates = admin ? await Server.workspaces.people(ws).catch(() => []) : [];
   paint(center, teamPeopleHtml(home, candidates));
-  paint(side, "");
+  if (side?.isConnected) TeamPanel.side(side, ws, null, null);
   bindInvite(center, ws);
   const again = async () => { await loadHome(ws); return teamPeople(center, side, ws); };
   const who = e => e.target.closest("[data-member]");

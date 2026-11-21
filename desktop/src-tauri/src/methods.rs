@@ -4,6 +4,7 @@
 //! (desktop/tests/methods-check.mjs keeps the two lists together).
 
 /// Every method the app sends for the page, as the page names it.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /// The method named `name`, or the message the page shows for another.

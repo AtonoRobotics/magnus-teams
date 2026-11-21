@@ -231,7 +231,7 @@ fn raw(to: &[String], cc: &[String], bcc: &[String], subj: &str, body: &str, rep
     }
     h.extend(["MIME-Version: 1.0".to_string(), "Content-Type: text/plain; charset=UTF-8".into(), "Content-Transfer-Encoding: base64".into()]);
     let b = STANDARD.encode(body.as_bytes());
-    let wrapped: Vec<&str> = b.as_bytes().chunks(76).map(|c| std::str::from_utf8(c).unwrap()).collect();
+    let wrapped: Vec<&str> = b.as_bytes().chunks(76).filter_map(|c| std::str::from_utf8(c).ok()).collect();
     Ok(URL_SAFE.encode(format!("{}\r\n\r\n{}\r\n", h.join("\r\n"), wrapped.join("\r\n"))))
 }
 

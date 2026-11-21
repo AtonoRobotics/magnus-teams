@@ -191,7 +191,8 @@ const TeamCommand = {
     const items = foundItems(found, Team.home);
     paint(center, `<header class="team-head"><h1>Search</h1></header><form class="team-search-form" data-search><input value="${esc(q)}" aria-label="Search messages, files, tasks and knowledge" placeholder="Search messages, files, tasks and knowledge"><button class="primary">Search</button></form>
       <div class="team-scroll">${items.length ? `<ul class="team-activity-list">${items.map((it, i) => `<li><button class="link" data-found="${i}"><strong>${esc(it.label)}</strong></button> <span class="small faint">${esc(it.hint || "")}</span></li>`).join("")}</ul>` : `<p class="empty">${q ? "Nothing found." : "Type what to look for."}</p>`}</div>`);
-    paint($("#team-side"), "");
+    const side = $("#team-side");
+    if (side?.isConnected) TeamPanel.side(side, ws, null, null);
     center.onsubmit = e => { if (e.target.matches("[data-search]")) { e.preventDefault(); location.hash = teamHref(ws, { kind: "search", q: $("input", e.target).value }); } };
     center.onclick = e => { const b = e.target.closest("[data-found]"); if (b) this.run(items[Number(b.dataset.found)].run); };
   },

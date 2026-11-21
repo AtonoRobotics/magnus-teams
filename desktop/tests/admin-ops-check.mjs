@@ -31,7 +31,7 @@ await el.onclick({ target: node({ "data-ops-backup": "" }) });
 assert.ok(ctx.calls.some(c => c[0] === "POST" && c[1] === "/v1/admin/backups"));
 await el.onclick({ target: node({ "data-ops-install": "" }) });
 assert.ok(ctx.calls.some(c => c[0] === "POST" && c[1] === "/v1/admin/updates/install"));
-ctx.confirm = () => false;
+ctx.ask = async () => false;
 await el.onclick({ target: node({ "data-ops-rollback": "" }) });
 assert.ok(!ctx.calls.some(c => c[1] === "/v1/admin/updates/rollback"), "rolled back without asking");
 await el.onchange({ target: node({ "data-ops-channel": "", value: "beta" }) });

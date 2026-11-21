@@ -1,0 +1,167 @@
+/* Aurora & Obsidian 2 Aurora widgets, drawn as the mockup draws them: the
+   request card's reasoning pill and tiles, the approval card as an artifact
+   panel, and pill buttons. aurora.css holds the frame, the ambient canvas
+   and the motion; aurora-stage.css the column beside the conversation. */
+
+@keyframes auroraSpark {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+/* ---------- 1. The request card: a reasoning pill over tiles ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head {
+  margin: 2px 0 8px;
+  padding: 9px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--aurora-rim);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  font-size: 13px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head > :first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--fg2);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard > .rg-head > :first-child::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--aurora-beam-b);
+  box-shadow: 0 0 12px var(--aurora-beam-b);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard:has(.st.working) > .rg-head > :first-child::before {
+  background: var(--aurora-beam-a);
+  box-shadow: 0 0 12px var(--aurora-beam-a);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard:has(.st.done):not(:has(.st.working, .st.need, .st.stopped)) > .rg-head > :first-child::before {
+  background: var(--ok);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard:has(.st.need) > .rg-head > :first-child::before {
+  background: var(--warn);
+  box-shadow: 0 0 12px var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .chatcard:has(.st.working, .st.need) > .rg-head > :first-child::before {
+  animation: auroraSpark 2.4s ease-in-out infinite;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .rg-rows {
+  display: grid;
+  gap: 8px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .rg-row {
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+/* A task's standing as a status dot: its icon in a tinted ring. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  transition: background .3s var(--ease), box-shadow .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.working {
+  background: color-mix(in srgb, var(--aurora-beam-a) 16%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--aurora-beam-a) 40%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.working svg { color: var(--aurora-beam-a); }
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.done {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.need {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chatcard .st.stopped {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+
+/* ---------- 2. An approval as the mockup's artifact panel ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval > .spread {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--aurora-rim);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval .ask-sentence {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval :is(.consequence, .ask-content) {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--aurora-rim);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card.item.approval .ask {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .ask-answers {
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--aurora-rim);
+}
+
+/* ---------- 3. Buttons and chips as pills ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primary, .button.primary) {
+  border-radius: var(--r-pill);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--aurora-beam-a) 22%, transparent);
+  transition: box-shadow .2s var(--ease), transform .2s var(--ease), filter .2s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primary, .button.primary):hover {
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--aurora-beam-a) 34%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] :is(button.primary, .button.primary):hover {
+  transform: translateY(-1px);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.ask-answers, .cc-act, .needs-inline-acts, .card-acts) button:not(.primary):not(.link) {
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-strong);
+  background: var(--aurora-glass);
+  color: var(--fg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.ask-answers, .cc-act, .needs-inline-acts, .card-acts) button:not(.primary):not(.link):hover {
+  background: var(--aurora-glass-strong);
+  border-color: var(--fg2);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chip {
+  border-radius: var(--r-pill);
+  border: 1px solid var(--aurora-rim);
+}

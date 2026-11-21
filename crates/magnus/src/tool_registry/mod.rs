@@ -62,8 +62,10 @@ pub(crate) enum Exec {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WebRead {
     No,
-    /// A search: its query can carry data out; its results hold addresses.
+    /// A search: its query passes `query_gate`; its results hold addresses.
     Query,
+    /// Isolated OpenWeb research bridge: query passes `query_gate` inside `research_web`.
+    Research,
     /// Opens the address in its `url`; what it returns holds addresses.
     OpensUrl,
     /// Reads the page already open, and returns its text.

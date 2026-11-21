@@ -360,7 +360,7 @@ async fn local_people_round_trip_and_remove_cleanly() {
     let secret = uri.split("secret=").nth(1).and_then(|s| s.split('&').next()).unwrap();
     let now = chrono::Utc::now();
     let code = crate::totp::generate(&crate::totp::base32_decode(secret).unwrap(), (now.timestamp() / 30) as u64, 6);
-    accounts.sign_in_counted_with_code_at("ada", "a-long-password", Some(&code), "console", now).await.unwrap();
+    assert!(matches!(accounts.sign_in_counted_with_code_at("ada", "a-long-password", Some(&code), "console", now).await, Ok(Ok(()))), "a correct code did not sign in");
     let ada_token = accounts.invite("ada", None).await.unwrap();
     let bea_token = accounts.invite("bea", None).await.unwrap();
     accounts.set_role("ada", Role::Admin).await.unwrap();

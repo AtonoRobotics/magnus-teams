@@ -48,12 +48,28 @@ impl Kernel {
     /// The person writes in a thread of theirs, or starts one (in a project
     /// of theirs, if they chose one), with the model they chose for this
     /// message (the appliance's when none) and any files they added to it.
+    #[allow(clippy::too_many_arguments)]
     pub async fn chat_say(
         self: &Arc<Self>,
         person: &str,
         text: String,
         thread: Option<String>,
         model: Option<(String, String)>,
+        experiment: Option<crate::events::ExperimentTag>,
+        files: Vec<String>,
+        project: Option<String>,
+    ) -> Result<Option<(String, String)>> {
+        self.chat_say_with_reasoning(person, text, thread, model, None, experiment, files, project).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn chat_say_with_reasoning(
+        self: &Arc<Self>,
+        person: &str,
+        text: String,
+        thread: Option<String>,
+        model: Option<(String, String)>,
+        reasoning: Option<String>,
         experiment: Option<crate::events::ExperimentTag>,
         files: Vec<String>,
         project: Option<String>,
@@ -76,12 +92,26 @@ impl Kernel {
             chat: Some(ChatOrigin { thread: thread.clone(), turn: true, from_run: None, conversation, opener: None }),
             label: (label != Label::PRINCIPAL).then_some(label),
             model,
+            reasoning,
             experiment,
             files,
             project,
             ..Default::default()
         };
-        let (task, _) = self.create_run(&format!("person:{person}"), person, text, vec![], o).await?;
+        let (task, _) = self.create_run(&format!("person:{person}"), person, text.clone(), vec![], o).await?;
+        let active_runs: Vec<(String, u32)> = self.read(|s| {
+            s.tasks
+                .values()
+                .filter(|t| t.person == person && t.task_id != task && t.chat.as_ref().is_some_and(|c| !c.turn && c.thread == thread))
+                .filter_map(|t| s.runs.get(&t.run_id))
+                .filter(|r| r.status == Status::Running)
+                .map(|r| (r.id.clone(), r.replies.len() as u32))
+                .collect()
+        });
+        for (run_id, step) in active_runs {
+            let note = format!("The person sent a new message in this conversation while you are working: {text}");
+            let _ = self.emit(&format!("person:{person}"), Ev::Notice { run: run_id, step, text: note }).await;
+        }
         Ok(Some((thread, task)))
     }
 

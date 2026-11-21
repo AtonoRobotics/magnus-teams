@@ -144,6 +144,8 @@ pub struct Speak {
 pub struct Model {
     pub adapter: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 fn no_settings() -> Value {

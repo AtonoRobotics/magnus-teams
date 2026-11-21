@@ -14,10 +14,13 @@
 /** @param {AdminSignIn} p */
 function signInHtml(p) {
   const n = (name, label, min, max) => `<label>${label} <input type="number" name="${name}" min="${min}" max="${max}" value="${esc(p[name])}"></label>`;
+  const unenrolled = !p.identity_provider && Number(p.unenrolled_count) > 0
+    ? `<p class="small muted" data-unenrolled-note>${esc(p.unenrolled_count)} active ${p.unenrolled_count === 1 ? "person has" : "people have"} not enrolled an authenticator app yet (each person enrolls in Settings › Account).</p>`
+    : "";
   return `<section class="card"><h3>Sign-in</h3>
     <p class="small">${p.identity_provider ? `People sign in through ${esc(p.identity_provider)}.` : "People sign in with a password kept on this server."}</p>
     <form class="stack" data-sign-in>
-      <label><input type="checkbox" name="code_required"${p.code_required ? " checked" : ""}> Everyone uses a code from an authenticator app (two-factor)</label>
+      <label><input type="checkbox" name="code_required"${p.code_required ? " checked" : ""}> Everyone uses a code from an authenticator app (two-factor)</label>${unenrolled}
       ${n("idle_minutes", "Sign out after this many minutes unused", 5, 1440)}
       ${n("max_hours", "Sign in again after this many hours", 1, 720)}
       <label><input type="checkbox" name="lockout_enabled"${p.lockout_enabled ? " checked" : ""}> Lock an account after failed attempts</label>
@@ -163,7 +166,7 @@ function wireIdp(el, failed) {
   };
   const off = $("[data-idp-off]", el);
   if (off) off.onclick = async () => {
-    if (!confirm("Sign in with passwords kept here? People without one here cannot sign in until they set one.")) return;
+    if (!await ask("Sign in with passwords kept here? People without one here cannot sign in until they set one.", "Switch to passwords", true)) return;
     try { await Server.admin.setIdentityProvider(null); toast("People sign in with passwords kept here."); await AdminState.sections.get("security")?.(el); }
     catch (err) { failed(err); }
   };

@@ -19,7 +19,7 @@ const plain = v => JSON.parse(JSON.stringify(v ?? null));
 const scripts = [...read("desktop/ui/index.html").matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 assert.equal(scripts.indexOf("server.js"), scripts.indexOf("bridge.js") + 1, "index.html loads server.js right after bridge.js");
 assert.ok(read("crates/magnus/src/ui/assets.rs").includes(`("server.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/server.js"))`), "the server serves server.js");
-assert.match(read(".github/workflows/fast.yml"), /node desktop\/tests\/server-check\.mjs/, "the fast tier runs this check");
+assert.ok(read("ci/fast.sh").includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 // The transport carries requests; the policy is server.js's alone.
 const bridge = read("desktop/ui/bridge.js"), app = read("desktop/ui/app.js");
 assert.ok(!bridge.includes("426") && !bridge.includes("step_up"), "bridge.js holds error policy of its own");
@@ -95,6 +95,8 @@ const table = [
   ["connectors.completeSignIn", ["crm", { state: "s", code: "c", iss: "i" }], "POST", "/v1/connectors/crm/sign-in/complete", { state: "s", code: "c", iss: "i" }],
   ["tasks.cancel", ["t 1"], "POST", "/v1/tasks/t%201/cancel", {}],
   ["tasks.resume", ["t1"], "POST", "/v1/tasks/t1/resume", {}],
+  ["tasks.steer", ["t 1", "use staging"], "POST", "/v1/tasks/t%201/steer", { text: "use staging" }],
+  ["tasks.stopAll", [], "POST", "/v1/tasks/stop-all", {}],
   ["schedules.create", [{ text: "Check inbox", daily_at: "08:00" }], "POST", "/v1/schedules", { text: "Check inbox", daily_at: "08:00" }],
   ["schedules.remove", ["s/1"], "DELETE", "/v1/schedules/s%2F1", undefined],
   ["schedules.resume", ["s1"], "POST", "/v1/schedules/s1/resume", {}],
@@ -110,10 +112,18 @@ const table = [
   ["rules.remove", ["r1"], "DELETE", "/v1/rules/r1", undefined],
   ["rules.save", [null, { when: "x" }], "POST", "/v1/rules", { when: "x" }],
   ["rules.save", ["r 1", { when: "x" }], "PUT", "/v1/rules/r%201", { when: "x" }],
+  ["staged.list", [], "GET", "/v1/staged", undefined],
+  ["staged.resolve", ["st 1", { outcome: "sent", scope: "recipient" }], "POST", "/v1/staged/st%201", { outcome: "sent", scope: "recipient" }],
   ["connectors.terms", ["my crm"], "GET", "/v1/connectors/my%20crm/terms", undefined],
   ["connectors.consent", ["crm", "v2"], "POST", "/v1/connectors/crm/consent", { terms: "v2" }],
   ["account.password", [], "GET", "/v1/account/password", undefined],
   ["account.setPassword", ["old", "new"], "POST", "/v1/account/password", { current_password: "old", new_password: "new" }],
+  ["account.totp", [], "GET", "/v1/account/totp", undefined],
+  ["account.beginTotp", [], "POST", "/v1/account/totp/begin", {}],
+  ["account.confirmTotp", ["123456"], "POST", "/v1/account/totp/confirm", { code: "123456" }],
+  ["account.removeTotp", [], "DELETE", "/v1/account/totp", undefined],
+  ["account.exportData", [], "GET", "/v1/account/export", undefined],
+  ["account.deleteAccount", ["DELETE"], "DELETE", "/v1/account", { confirm: "DELETE" }],
   ["account.mail", [], "GET", "/v1/mail", undefined],
   ["account.testMail", [], "POST", "/v1/mail/test", {}],
   ["account.setSecret", ["smtp/pw", "x"], "PUT", "/v1/secrets/smtp%2Fpw", { value: "x" }],
@@ -180,6 +190,10 @@ const table = [
   ["workspaces.addTask", [W, { title: "T", project: "p" }], "POST", `${w}/tasks`, { title: "T", project: "p" }],
   ["workspaces.updateTask", [W, "t 1", { status: "done" }], "PUT", `${w}/tasks/t%201`, { status: "done" }],
   ["workspaces.removeTask", [W, "t1"], "DELETE", `${w}/tasks/t1`, undefined],
+  ["workspaces.routines", [W], "GET", `${w}/routines`, undefined],
+  ["workspaces.addRoutine", [W, { channel: "c1", text: "Hi", when: "09:00" }], "POST", `${w}/routines`, { channel: "c1", text: "Hi", when: "09:00" }],
+  ["workspaces.updateRoutine", [W, "r 1", { stopped: false }], "PATCH", `${w}/routines/r%201`, { stopped: false }],
+  ["workspaces.removeRoutine", [W, "r 1"], "DELETE", `${w}/routines/r%201`, undefined],
   ["workspaces.setProjectMembers", [W, "p 1", ["ada"]], "PUT", `${w}/projects/p%201`, { members: ["ada"] }],
   ["workspaces.removeFile", [W, "a b.md"], "DELETE", `${w}/files/a%20b.md`, undefined],
   ["workspaces.knowledge", [W, "p1"], "GET", `${w}/knowledge?project=p1`, undefined],

@@ -33,7 +33,7 @@ pub(crate) fn sends_nothing_new(a: &Action, f: &Facts, known: impl Fn(&str) -> b
     match web_read(&a.tool) {
         WebRead::OpenPage | WebRead::Picture => true,
         WebRead::OpensUrl => a.input["url"].as_str().is_some_and(|u| known(u.trim())),
-        WebRead::Query | WebRead::No => false,
+        WebRead::Query | WebRead::Research | WebRead::No => false,
     }
 }
 
@@ -77,6 +77,25 @@ impl Kernel {
     pub(crate) async fn plain_web_read(&self, a: &Action, f: &Facts, run: &Run) -> Result<bool> {
         let sources = self.web_sources(run).await?;
         Ok(sends_nothing_new(a, f, |u| appears_in(u, &sources)))
+    }
+
+    /// Link-following-only provenance for an `OpenWeb` worker spawned from a
+    /// tainted `Private` run: URLs may come ONLY from this worker's own search
+    /// results, pages it loaded, or the user's original prompt — never from
+    /// the `research_web` query string written by the tainted parent model.
+    pub(crate) async fn open_web_link_allowed(&self, a: &Action, f: &Facts, run: &Run) -> Result<bool> {
+        let requester = self.requester_run(run);
+        let mut texts = if requester.task.is_empty() { vec![] } else { vec![self.asked(&requester).await?] };
+        texts.extend(self.read(|s| {
+            s.runs
+                .get(&run.id)
+                .into_iter()
+                .flat_map(|r| r.intents.values())
+                .filter(|i| is_source(&i.tool))
+                .filter_map(|i| i.result.as_ref().filter(|res| !res.is_error).map(|res| res.text.clone()))
+                .collect::<Vec<_>>()
+        }));
+        Ok(sends_nothing_new(a, f, |u| appears_in(u, &texts)))
     }
 
     /// Where an action goes (`asks::destinations`), and for a browser

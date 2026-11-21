@@ -208,4 +208,11 @@ async function adminView(main, which = "overview") {
   else paint(section, `<h2>${esc(label)}</h2><p class="empty">${esc(label)} is not in the app yet.</p>`);
 }
 
-route(/^#\/admin(?:\/([a-z]+))?$/, (main, which) => adminView(main, which));
+route(/^#\/admin(?:\/([a-z]+))?$/, async (main, which) => {
+  if (!AdminState.standing) AdminState.standing = await Server.admin.standing().catch(() => null);
+  if (AdminState.standing?.admin && typeof openSettingsModal === "function") {
+    await openSettingsModal(`admin:${which || "overview"}`);
+    return;
+  }
+  await adminView(main, which);
+});

@@ -105,6 +105,8 @@ const Server = (() => {
       timeline: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}/timeline`),
       cancel: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/cancel`),
       resume: (/** @type {Id} */ id) => post(`/v1/tasks/${enc(id)}/resume`),
+      steer: (/** @type {Id} */ id, /** @type {string} */ text) => post(`/v1/tasks/${enc(id)}/steer`, { text }),
+      stopAll: () => post("/v1/tasks/stop-all"),
       /** One of a result's actions, started as a new request. @param {Id} id @param {number|string} index @param {any} [body] */
       action: (id, index, body) => call("POST", `/v1/tasks/${enc(id)}/actions/${enc(index)}`, body),
       verdict: (/** @type {Id} */ id, /** @type {string} */ verdict, /** @type {string} */ note) => post(`/v1/tasks/${enc(id)}/verdict`, { verdict, note }),
@@ -114,6 +116,13 @@ const Server = (() => {
       /** Say which items the person has now seen. */
       opened: (/** @type {Id[]} */ ids) => post("/v1/inbox/opened", { ids }),
       answer: (/** @type {Id} */ id, /** @type {any} */ body) => post(`/v1/inbox/${enc(id)}`, body),
+    },
+
+    staged: {
+      /** Open staged drafts/actions with service read-back and destination provenance. */
+      list: () => get("/v1/staged"),
+      /** Resolve a staged item. @param {Id} id @param {{outcome: "sent"|"discarded"|"edited"|"sent_externally"|"deleted_externally", scope?: "once"|"recipient"|"domain"}} body */
+      resolve: (id, body) => post(`/v1/staged/${enc(id)}`, body),
     },
 
     /** Apps the agent made, drawn in the conversation, and the elements they may use. */
@@ -238,6 +247,12 @@ const Server = (() => {
     account: {
       password: () => get("/v1/account/password"),
       setPassword: (/** @type {string} */ current, /** @type {string} */ next) => post("/v1/account/password", { current_password: current, new_password: next }),
+      totp: () => get("/v1/account/totp"),
+      beginTotp: () => post("/v1/account/totp/begin"),
+      confirmTotp: (/** @type {string} */ code) => post("/v1/account/totp/confirm", { code }),
+      removeTotp: () => del("/v1/account/totp"),
+      exportData: () => get("/v1/account/export"),
+      deleteAccount: (/** @type {string} */ confirm) => del("/v1/account", { confirm }),
       /** The server's mail settings. */
       mail: () => get("/v1/mail"),
       testMail: () => post("/v1/mail/test"),
@@ -357,6 +372,12 @@ const Server = (() => {
       /** Share Magnus's private answer, or a whisper, with the channel. */
       shareAnswer: (/** @type {Id} */ w, /** @type {Id} */ id) => post(`${ws(w)}/answers/${enc(id)}/share`),
       shareWhisper: (/** @type {Id} */ w, /** @type {Id} */ id) => post(`${ws(w)}/whispers/${enc(id)}/share`),
+      routines: (/** @type {Id} */ w) => get(`${ws(w)}/routines`),
+      /** @param {Id} w @param {{channel: Id, text: string, every_hours: number}} body */
+      addRoutine: (w, body) => post(`${ws(w)}/routines`, body),
+      /** @param {Id} w @param {Id} id @param {{channel?: Id, text?: string, every_hours?: number}} body */
+      updateRoutine: (w, id, body) => patch(`${ws(w)}/routines/${enc(id)}`, body),
+      removeRoutine: (/** @type {Id} */ w, /** @type {Id} */ id) => del(`${ws(w)}/routines/${enc(id)}`),
     },
 
     /** A team channel or direct conversation. */

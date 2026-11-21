@@ -99,23 +99,16 @@ pub struct NewRun {
     pub budget: Option<crate::config::Budget>,
     /// Fixed ids, so a resent request finds the task it already created.
     pub ids: Option<(String, String)>,
-    /// The adapter and model the person chose; the appliance's otherwise.
     pub model: Option<(String, String)>,
-    /// A short title the model wrote when starting it.
+    pub reasoning: Option<String>,
     pub title: Option<String>,
-    /// Library files the person gave it.
     pub files: Vec<String>,
-    /// The project it starts in.
     pub project: Option<String>,
-    /// Removable modules switched on or off for this run alone, over the
-    /// model's settings (an ablation trial).
+    /// Removable modules switched on or off for this run alone.
     pub modules: std::collections::BTreeMap<String, bool>,
-    /// The scope the person confirmed for the schedule starting it.
     pub scope: Option<String>,
-    /// The grant it runs under (#235).
     pub grant: Option<String>,
-    /// The team thread it serves, recorded with the task (its `task` is
-    /// filled in), so no call of it ever runs as its requester's own.
+    /// The team thread it serves, recorded with the task.
     pub team: Option<crate::team::TeamRun>,
 }
 
@@ -199,7 +192,7 @@ impl Kernel {
             s.runs.values().filter(|r| !r.status.terminal() && r.intents.values().any(|i| i.tool.starts_with("sandbox_"))).map(|r| (r.id.clone(), r.replies.len() as u32)).collect()
         });
         for (run, step) in restarted {
-            k.emit("kernel", Ev::Notice { run, step, text: "The appliance restarted. Processes in your sandbox were stopped; files in /workspace are kept.".into() }).await?;
+            k.emit("kernel", Ev::Notice { run, step, text: "The server restarted. Processes in your sandbox were stopped; files in /workspace are kept.".into() }).await?;
         }
         Ok(k)
     }
@@ -516,6 +509,7 @@ impl Kernel {
         let config = crate::events::RunConfig {
             adapter,
             model,
+            reasoning: o.reasoning,
             max_retries: m.max_retries,
             max_tokens: m.max_tokens,
             budget,

@@ -16,8 +16,9 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("uispec.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/uispec.js")),
     ("html-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/html-frame.js")),
     ("compose.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/compose.js")),
-    ("html-frame.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/html-frame.js")),
     ("app-logos.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/app-logos.js")),
+    ("side-panel.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/side-panel.js")),
+    ("aurora-stage.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-stage.js")),
     ("app.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/app.js")),
     ("password.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/password.js")),
     ("dev.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/dev.js")),
@@ -59,6 +60,10 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("admin-ops.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/admin-ops.js")),
     ("onboarding.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/onboarding.js")),
     ("onboarding.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/onboarding.css")),
+    ("aurora.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora.css")),
+    ("aurora-widgets.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-widgets.css")),
+    ("aurora-stage.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-stage.css")),
+    ("aurora.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora.js")),
     ("discover.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/discover.js")),
     ("hero-antigravity.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/hero-antigravity.jpg")),
     ("hero-gemini.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/hero-gemini.jpg")),
@@ -79,6 +84,7 @@ fn static_file(media: &str, body: impl Into<axum::body::Body>) -> Response {
     let built = Response::builder()
         .header("content-type", media)
         .header("content-security-policy", UI_CSP)
+        .header("x-frame-options", "DENY")
         .header("x-content-type-options", "nosniff")
         .header("cache-control", "private, no-store, no-cache, must-revalidate, max-age=0")
         .body(body.into());

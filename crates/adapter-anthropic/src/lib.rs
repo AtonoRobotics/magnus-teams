@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 
 const DEFAULT_BASE: &str = "https://api.anthropic.com";
 const DEFAULT_VERSION: &str = "2023-06-01";
+const CONNECT_TIMEOUT_S: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub fn main() {
     let socket = match proto::socket_arg() {
@@ -24,7 +25,7 @@ pub fn main() {
         }
     };
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let http = reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(10)).build().expect("http client");
+    let http = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT_S).build().expect("http client");
     if let Err(e) = rt.block_on(proto::serve(&socket, move |req, sink| handle(http.clone(), req, sink))) {
         eprintln!("adapter stopped: {e:#}");
         std::process::exit(1);
@@ -190,7 +191,17 @@ fn request_body(model: &str, settings: &Value, system: &str, messages: &[proto::
     if !tools.is_empty() {
         body["tools"] = tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.input_schema })).collect();
     }
-    if let Some(budget) = settings["thinking_budget"].as_u64() {
+    const THINKING_BUDGET_LOW_TOKENS: u64 = 2048;
+    const THINKING_BUDGET_MEDIUM_TOKENS: u64 = 8192;
+    const THINKING_BUDGET_HIGH_TOKENS: u64 = 16384;
+    let budget = match settings["reasoning_effort"].as_str() {
+        Some("off") => None,
+        Some("low") => Some(THINKING_BUDGET_LOW_TOKENS),
+        Some("medium") => Some(THINKING_BUDGET_MEDIUM_TOKENS),
+        Some("high") => Some(THINKING_BUDGET_HIGH_TOKENS),
+        _ => settings["thinking_budget"].as_u64(),
+    };
+    if let Some(budget) = budget {
         body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
     }
     body

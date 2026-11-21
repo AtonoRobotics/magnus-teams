@@ -235,10 +235,11 @@ html[data-style="prism"] .ctile, html[data-style="studio"] .ctile { border-radiu
   .activity-views a { min-height: 44px; }
 }
 .rule-advanced > summary { cursor: pointer; padding: 4px 0; }
-/* Settings dismissible popup modal */
+/* Settings unified dismissible popup modal (Personal + Admin) */
 dialog.settings-modal {
-  width: min(740px, calc(100vw - 32px));
-  max-height: min(84vh, 720px);
+  width: min(980px, calc(100vw - 32px));
+  height: min(86vh, 760px);
+  max-height: min(86vh, 760px);
   padding: 0;
   border-radius: var(--r-lg);
   border: 1px solid var(--line-strong);
@@ -258,39 +259,75 @@ dialog.settings-modal::backdrop {
   justify-content: space-between;
   padding: 14px 20px;
   border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 .settings-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
-.settings-tabs {
+.settings-shell {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--line);
-  background: var(--main);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
-.settings-tabs button {
+.settings-nav {
+  width: 216px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--main);
+  overflow-y: auto;
+}
+.settings-nav-group {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg2);
+  padding: 10px 10px 4px;
+}
+.settings-nav-group:first-child { padding-top: 2px; }
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  width: 100%;
   min-height: 32px;
-  padding: 4px 12px;
-  border-radius: var(--r-pill);
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
   border: 0;
   background: transparent;
   color: var(--fg2);
   font-size: 13px;
   font-weight: 500;
+  text-align: left;
   cursor: pointer;
 }
-.settings-tabs button:hover { color: var(--fg); background: var(--row-sel); }
-.settings-tabs button.on { background: var(--seg-on); color: var(--fg); }
+.settings-nav button:hover { color: var(--fg); background: var(--row-sel); }
+.settings-nav button.on { background: var(--seg-on); color: var(--fg); font-weight: 600; }
 .settings-body {
-  padding: 20px;
+  padding: 20px 24px;
   overflow-y: auto;
   flex: 1;
   min-height: 0;
 }
 .settings-stack { display: flex; flex-direction: column; gap: 24px; }
 .settings-stack > section + section { padding-top: 20px; border-top: 1px solid var(--line); }
+@media (max-width: 720px) {
+  .settings-shell { flex-direction: column; }
+  .settings-nav {
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 8px 12px;
+  }
+  .settings-nav-group { width: 100%; padding: 4px 6px 2px; }
+  .settings-nav button { width: auto; }
+}
 @media (any-pointer: coarse) {
-  .settings-tabs button { min-height: 44px; }
+  .settings-nav button { min-height: 44px; }
 }
 /* Apps, Files & Admin Obsidian theme alignment */
 .lseg { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--seg); padding: 3px; }

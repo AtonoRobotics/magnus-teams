@@ -78,6 +78,42 @@
     "row-sel": "rgba(232,234,237,0.06)", search: "rgba(232,234,237,0.06)", "group-head": "#1E1F22", "row-hi": "#26272A",
     shadow: "0 4px 20px rgba(0,0,0,0.40)",
   };
+  const AURORA_LIGHT = {
+    ...LIGHT,
+    bg: "#F4F7FE", side: "#EEF3FC", panel: "#F6F9FF", main: "#FAFBFD", surface: "#FFFFFF", raised: "#EAF0FB",
+    bubble: "#EDF3FD", seg: "#E5ECF9", "seg-on": "#FFFFFF",
+    fg: "#0D1526", fg2: "#3B4A66", muted: "#586885", faint: "#6E7F9E",
+    line: "#DCE5F4", hair: "#E9EFFA", "line-strong": "#B8C7E2", "btn-border": "#CBD7EC", "button-bg": "#FFFFFF",
+    "row-sel": "rgba(37,99,235,0.07)", search: "rgba(37,99,235,0.06)", "group-head": "#F1F5FD", "row-hi": "#E6EFFD",
+    shadow: "0 12px 36px rgba(15,35,75,0.08)",
+    "aurora-glass": "rgba(255,255,255,0.74)", "aurora-glass-strong": "rgba(255,255,255,0.88)",
+    "aurora-rim": "rgba(37,99,235,0.14)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#8B5CF6",
+    "aurora-spot": "rgba(59,130,246,0.13)",
+  };
+  const AURORA_DARK = {
+    ...DARK,
+    bg: "#05070E", side: "#080C18", panel: "#090E1C", main: "#060913", surface: "#0E1424", raised: "#151E34",
+    bubble: "#121A2E", seg: "#0E1526", "seg-on": "#1B2640",
+    fg: "#F4F7FC", fg2: "#BBC6DC", muted: "#8393B2", faint: "#6E7F9E",
+    line: "#1C263D", hair: "#131B2E", "line-strong": "#2E3D5E", "btn-border": "#263350", "button-bg": "#0F1628",
+    "row-sel": "rgba(96,165,250,0.10)", search: "rgba(96,165,250,0.08)", "group-head": "#0C1221", "row-hi": "#16213A",
+    shadow: "0 18px 48px rgba(0,4,16,0.62)",
+    "aurora-glass": "rgba(13,19,34,0.62)", "aurora-glass-strong": "rgba(15,22,40,0.82)",
+    "aurora-rim": "rgba(186,215,255,0.12)", "aurora-beam-a": "#38BDF8", "aurora-beam-b": "#9B6DFF",
+    "aurora-spot": "rgba(79,157,255,0.20)",
+  };
+  const OBSIDIAN_AURORA_LIGHT = {
+    ...OBSIDIAN2_LIGHT,
+    "aurora-glass": "rgba(246,247,249,0.78)", "aurora-glass-strong": "rgba(255,255,255,0.92)",
+    "aurora-rim": "rgba(15,23,42,0.11)", "aurora-beam-a": "#3B5BDB", "aurora-beam-b": "#64748B",
+    "aurora-spot": "rgba(59,91,219,0.09)",
+  };
+  const OBSIDIAN_AURORA_DARK = {
+    ...OBSIDIAN2_DARK,
+    "aurora-glass": "rgba(16,16,20,0.72)", "aurora-glass-strong": "rgba(22,22,27,0.90)",
+    "aurora-rim": "rgba(255,255,255,0.11)", "aurora-beam-a": "#E4E4E7", "aurora-beam-b": "#7C8CFF",
+    "aurora-spot": "rgba(255,255,255,0.09)",
+  };
   const ACCENTS = [
     { id: "graphite", label: "Monochrome (Default)", swatch: "#F5F5F5", light: { accent: "#111111", "accent-fg": "#FFFFFF", "accent-text": "#111111", "accent-soft": "#EBEBEB" }, dark: { accent: "#F5F5F5", "accent-fg": "#000000", "accent-text": "#F5F5F5", "accent-soft": "#242424" } },
     { id: "blue", label: "Indigo", swatch: "#7C8CFF", light: { accent: "#3B5BDB", "accent-fg": "#FFFFFF", "accent-text": "#364FC7", "accent-soft": "#EDF2FF" }, dark: { accent: "#7C8CFF", "accent-fg": "#090A0D", "accent-text": "#9BA7FF", "accent-soft": "#1C2136" } },
@@ -85,7 +121,11 @@
     { id: "amber", label: "Amber", swatch: "#FBBF24", light: { accent: "#B45309", "accent-fg": "#FFFFFF", "accent-text": "#9A4A00", "accent-soft": "#FEF3C7" }, dark: { accent: "#FBBF24", "accent-fg": "#090A0D", "accent-text": "#FCD34D", "accent-soft": "#2B210E" } },
     { id: "rose", label: "Rose", swatch: "#FB7185", light: { accent: "#BE123C", "accent-fg": "#FFFFFF", "accent-text": "#BE123C", "accent-soft": "#FFF1F2" }, dark: { accent: "#FB7185", "accent-fg": "#090A0D", "accent-text": "#FDA4AF", "accent-soft": "#31161D" } },
   ];
-  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["prism", "Prism"], ["studio", "Studio"]];
+  const STYLES = [["obsidian", "Obsidian"], ["obsidian-2", "Obsidian 2"], ["obsidian-aurora", "Obsidian 2 Aurora"], ["prism", "Prism"], ["studio", "Studio"], ["aurora", "Aurora"]];
+  // Styles that draw the column beside the conversation as a stage of cards
+  // with a canvas for what is opened (aurora-stage.js).
+  const STAGE_STYLES = ["aurora", "obsidian-aurora"];
+  const stage = style => STAGE_STYLES.includes(style);
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
@@ -93,6 +133,11 @@
       "focus-ring": "0 0 0 1px var(--accent)",
     },
     "obsidian-2": {
+      "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
+      "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
+      "focus-ring": "0 0 0 1px var(--accent)",
+    },
+    "obsidian-aurora": {
       "r-xs": "5px", "r-sm": "7px", "r-md": "10px", "r-lg": "12px", "r-xl": "14px",
       "r-pill": "8px", "r-send": "50%", "r-avatar": "6px", "r-composer": "14px",
       "focus-ring": "0 0 0 1px var(--accent)",
@@ -107,15 +152,27 @@
       "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "22px",
       "focus-ring": "0 0 0 2px var(--accent-soft)",
     },
+    aurora: {
+      "r-xs": "8px", "r-sm": "12px", "r-md": "16px", "r-lg": "22px", "r-xl": "26px",
+      "r-pill": "999px", "r-send": "999px", "r-avatar": "50%", "r-composer": "24px",
+      "focus-ring": "0 0 0 3px var(--accent-soft)",
+    },
   };
   const MODES = [["light", "Light"], ["dark", "Dark"], ["system", "Match computer"]];
+  const BACKGROUNDS = [["off", "Off"], ["particles", "Particles"], ["ribbons", "Ribbons"], ["constellation", "Constellation"]];
+  const BACKGROUND_HINTS = {
+    off: "Soft ambient color wash only.",
+    particles: "Sparse translucent 3D depth motes drifting slowly behind the workspace.",
+    ribbons: "Slow luminous silk ribbons flowing softly behind the workspace.",
+    constellation: "Sparse 3D depth motes linked by faint near-plane filaments.",
+  };
   const MOTIONS = [["full", "Full"], ["reduced", "Reduced"], ["off", "Off"]];
   const MOTION_HINTS = {
     full: "Panels glide, cards update smoothly, and finished work gets a quiet moment.",
     reduced: "Quick fades instead of movement.",
     off: "No animation. Everything changes instantly.",
   };
-  const DEFAULTS = { style: "obsidian", mode: "dark", accent: "graphite", motion: "full" };
+  const DEFAULTS = { style: "obsidian", mode: "dark", accent: "graphite", motion: "full", background: "particles" };
   const LAYOUT_BOUNDS = {
     navExpandedWidthPx: 228,
     navCompactWidthPx: 64,
@@ -159,7 +216,8 @@
     const motion = os.reduceMotion && order.indexOf(p.motion) > 1 ? "reduced" : p.motion;
     const style = STYLES.some(s => s[0] === p.style) ? p.style : DEFAULTS.style;
     const accent = isHex(p.accent) ? p.accent : (ACCENTS.find(a => a.id === p.accent) || ACCENTS[0]).id;
-    return { style, mode: dark ? "dark" : "light", motion, accent };
+    const background = BACKGROUNDS.some(b => b[0] === p.background) ? p.background : DEFAULTS.background;
+    return { style, mode: dark ? "dark" : "light", motion, accent, background };
   }
 
   function tokens(look) {
@@ -167,7 +225,9 @@
     const style = STYLES.some(s => s[0] === look.style) ? look.style : DEFAULTS.style;
     const basePal = style === "prism" ? (dark ? PRISM_DARK : PRISM_LIGHT)
       : style === "obsidian-2" ? (dark ? OBSIDIAN2_DARK : OBSIDIAN2_LIGHT)
+      : style === "obsidian-aurora" ? (dark ? OBSIDIAN_AURORA_DARK : OBSIDIAN_AURORA_LIGHT)
       : style === "studio" ? (dark ? STUDIO_DARK : STUDIO_LIGHT)
+      : style === "aurora" ? (dark ? AURORA_DARK : AURORA_LIGHT)
       : (dark ? DARK : LIGHT);
     const t = { ...basePal };
     Object.assign(t, STYLE_TOKENS[style]);
@@ -197,6 +257,7 @@
       mode: member(v.mode, MODES.map(x => x[0]), DEFAULTS.mode),
       accent: isHex(v.accent) ? v.accent : member(v.accent, ACCENTS.map(x => x.id), DEFAULTS.accent),
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
+      background: member(v.background, BACKGROUNDS.map(x => x[0]), DEFAULTS.background),
       navigation: member(v.navigation, ["expanded", "compact"], LAYOUT.navigation),
       panelWidthPx: rawPanelWidth !== null
         ? Math.max(LAYOUT_BOUNDS.panelMinWidthPx, Math.min(LAYOUT_BOUNDS.panelMaxWidthPx, rawPanelWidth))
@@ -208,7 +269,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens };
+  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens, stage };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";
@@ -246,7 +307,7 @@
     const look = effective(current, Theme.os()), el = document.documentElement, t = tokens(look);
     for (const [k, v] of Object.entries(t)) el.style.setProperty(`--${k}`, v);
     el.style.colorScheme = look.mode;
-    Object.assign(el.dataset, { style: look.style, mode: look.mode, motion: look.motion, accent: look.accent });
+    Object.assign(el.dataset, { style: look.style, mode: look.mode, motion: look.motion, accent: look.accent, background: look.background });
     delete el.dataset.material;
     Theme.look = look;
     for (const f of document.querySelectorAll("iframe.composed")) {

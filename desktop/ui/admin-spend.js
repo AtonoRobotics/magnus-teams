@@ -106,15 +106,33 @@ async function adminModels(el) {
     <p class="small muted">${rule ? `May use ${rule.length} model${rule.length === 1 ? "" : "s"}.` : "No rule: every model."}</p>
     <div class="row wrap">${all.map(m => `<label class="small"><input type="checkbox" name="m" value="${esc(m)}"${rule?.includes(m) ? " checked" : ""}> ${esc(m)}</label>`).join("")}</div>
     <div class="row"><button type="submit">Save rule</button>${rule ? `<button type="button" data-rule-remove>Remove rule</button>` : ""}</div></form>`;
+  const curAdapter = o.default.adapter, curModel = o.default.model;
+  const provIds = p.providers.map(x => x.id);
+  const modelsFor = id => {
+    const found = p.providers.find(x => x.id === id);
+    const list = [...(found?.models || [])];
+    if (id === curAdapter && curModel && !list.includes(curModel)) list.unshift(curModel);
+    return list;
+  };
+  const initialModels = modelsFor(curAdapter);
   paint(el, `<div class="stack admin-models">
-    <h2>Models</h2>
-    <p>New work runs on <strong>${esc(def)}</strong> unless a person may not use it; then it runs on the first model they may.</p>
-    <h3>Providers</h3>
+    <h2>Models &amp; Providers</h2>
+    <div class="card stack" data-default-model-card>
+      <div class="small muted">Default model for new chats and tasks</div>
+      <div class="mono" style="font-size:15px">${esc(def)}</div>
+      <div class="row wrap">
+        <select id="admin-def-adapter" aria-label="Default provider">${provIds.map(id => `<option value="${esc(id)}"${id === curAdapter ? " selected" : ""}>${esc(id)}</option>`).join("")}</select>
+        <select id="admin-def-model" aria-label="Default model">${initialModels.map(m => `<option value="${esc(m)}"${m === curModel ? " selected" : ""}>${esc(m)}</option>`).join("")}</select>
+        <button type="button" class="primary" data-set-default>Use as default</button>
+      </div>
+      <p class="small muted">New work runs on <strong>${esc(def)}</strong> unless a person's access rule restricts it.</p>
+    </div>
+    <div data-provider-setup></div>
+    <h3>Provider status &amp; availability</h3>
     ${p.providers.map(x => `<div class="card stack" data-provider="${esc(x.id)}">
       <div class="row"><strong>${esc(x.id)}</strong><span class="chip${x.answers ? "" : " bad"}">${x.answers ? "Answering" : esc(x.error || "Not answering")}</span>
       <button data-provider-toggle>${x.enabled ? "Disable" : "Enable"}</button><button data-provider-test>Test</button></div>
       ${(x.models || []).length ? `<ul class="small">${(x.models || []).map(m => `<li>${esc(m)}${`${x.id}/${m}` === def ? ` <span class="chip">Default</span>` : x.enabled ? ` <button class="link" data-default="${esc(m)}">Make default</button>` : ""}</li>`).join("")}</ul>` : ""}</div>`).join("")}
-    <div data-provider-setup></div>
     <h3>Who may use which</h3>
     <p class="small muted">A person's own rule wins over their roles'. Several roles' rules add up, and everyone has the role member. The owner may use every model.</p>
     ${o.roles.map(r => `<details><summary>Role: ${esc(r)}</summary>${ruleForm(`role:${r}`, o.access.roles[r] || null)}</details>`).join("")}
@@ -124,6 +142,21 @@ async function adminModels(el) {
   const act = async (/** @type {() => Promise<any>} */ f, /** @type {string} */ said) => {
     try { await f(); toast(said); await again(); } catch (err) { if (!err.cancelled) toast(err.message); }
   };
+  const defAdapter = /** @type {?HTMLSelectElement} */ ($("#admin-def-adapter", el));
+  const defModel = /** @type {?HTMLSelectElement} */ ($("#admin-def-model", el));
+  const defBtn = $("[data-set-default]", el);
+  if (defAdapter && defModel) {
+    defAdapter.onchange = () => {
+      const list = modelsFor(defAdapter.value);
+      defModel.innerHTML = list.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    };
+  }
+  if (defBtn && defAdapter && defModel) {
+    defBtn.onclick = () => {
+      if (!defModel.value) { toast("Connect this provider first to load its models."); return; }
+      act(() => Server.admin.updateProvider(defAdapter.value, { default_model: defModel.value }), "Default model updated.");
+    };
+  }
   for (const card of el.querySelectorAll("[data-provider]")) {
     const id = /** @type {HTMLElement} */ (card).dataset.provider || "", x = p.providers.find(y => y.id === id);
     $("[data-provider-toggle]", card).onclick = () => act(() => Server.admin.updateProvider(id, { enabled: !x?.enabled }), x?.enabled ? "Disabled." : "Enabled.");
@@ -145,11 +178,14 @@ async function adminModels(el) {
     const remove = $("[data-rule-remove]", f);
     if (remove) remove.onclick = () => act(() => send(null), "Rule removed.");
   }
-  // Connecting providers (keys and sign-ins to the vault), once in Settings:
-  // the server lets the owner do it, so it shows to the owner.
+  // Connecting providers (keys and sign-ins to the vault): shown directly for the owner.
   const setup = $("[data-provider-setup]", el);
   const owner = typeof AdminState !== "undefined" && !!AdminState.standing?.owner;
-  if (setup && owner && typeof modelsSection === "function") await modelsSection(setup, { connectOnly: true });
+  if (setup && owner && typeof modelsSection === "function") {
+    await modelsSection(setup, { connectOnly: true });
+  } else if (setup) {
+    paint(setup, `<div class="card"><p class="small muted">Provider API keys and OAuth sign-ins are managed by the server owner.</p></div>`);
+  }
 }
 
 /** Where a refusal for a spent limit appears: offer to ask for more, once

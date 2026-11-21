@@ -438,7 +438,7 @@ impl Kernel {
         // it again).
         let mut said = format!("Filed {id} as {integrity}, readable by {}.", readers_text(&readers));
         if let Err(e) = self.index_id(&id).await {
-            said.push_str(&format!(" It cannot be searched yet ({e:#}); it is indexed when the appliance next starts. Do not file it again."));
+            said.push_str(&format!(" It cannot be searched yet ({e:#}); it is indexed when the server next starts. Do not file it again."));
         }
         if let Some(spec) = spec {
             said.push_str(&match self.extract_value(&run, &id, &spec).await {
@@ -681,7 +681,7 @@ async fn add(State(k): State<Arc<Kernel>>, Caller(p): Caller, Json(b): Json<Valu
         Err(err) => (json!({ "id": id, "title": title }), Err(err)),
     };
     if let Err(err) = indexed.and(read) {
-        e["warning"] = json!(format!("filed, but it cannot be searched yet ({err:#}); it is indexed when the appliance next starts"));
+        e["warning"] = json!(format!("filed, but it cannot be searched yet ({err:#}); it is indexed when the server next starts"));
     }
     (StatusCode::CREATED, Json(e)).into_response()
 }

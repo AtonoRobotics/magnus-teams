@@ -159,6 +159,7 @@ impl Kernel {
             "open_attachment" => self.open_attachment(a).await,
             "import_attachment" => self.import_attachment(a).await,
             "start_sub_agent" => self.start_sub_agent(a).await,
+            "research_web" => self.research_web(a).await,
             _ => self.add_destination_tool(a).await,
         }
     }

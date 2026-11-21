@@ -110,7 +110,7 @@ impl Accounts {
 
     /// The check over this store, its counters and its rules as cached.
     fn checker(&self) -> Checker<'_, Accounts> {
-        Checker { creds: self, lockout: &self.failures, policy: self.policy.lock().unwrap().1 }
+        Checker { creds: self, lockout: &self.failures, policy: self.policy.lock().unwrap_or_else(|e| e.into_inner()).1 }
     }
 
     /// Read the lockout rules fresh, as another process may have changed
@@ -147,14 +147,14 @@ impl Accounts {
     /// wrong ones: the appliance's own and the identity provider's alike.
     /// Reads the cached rules; async auth entries refresh them first.
     pub(super) fn locked(&self, person: &str) -> Option<DateTime<Utc>> {
-        let p = self.policy.lock().unwrap().1;
+        let p = self.policy.lock().unwrap_or_else(|e| e.into_inner()).1;
         counters(&self.failures).locked(&key(person), Utc::now(), &p)
     }
 
     /// Count a wrong password (`Lockout::failed`). Only for people of this
     /// appliance, so guessing names cannot grow the table.
     pub(super) fn failed(&self, person: &str) {
-        let p = self.policy.lock().unwrap().1;
+        let p = self.policy.lock().unwrap_or_else(|e| e.into_inner()).1;
         counters(&self.failures).failed(&key(person), Utc::now(), &p);
     }
 
@@ -227,11 +227,13 @@ impl Accounts {
     /// Check a password and, where the person enrolled one, the code from
     /// their authenticator app. A missing code answers `NeedsCode`
     /// (uncounted); a wrong code rejects and counts, like a wrong password.
+    #[cfg(test)]
     pub(super) async fn sign_in_counted_with_code(&self, person: &str, password: &str, code: Option<&str>, counter: &str) -> Result<std::result::Result<(), SignInError>> {
         self.sign_in_counted_with_code_at(person, password, code, counter, Utc::now()).await
     }
 
     /// `sign_in_counted_with_code` at `at`, for tests.
+    #[cfg(test)]
     pub(super) async fn sign_in_counted_with_code_at(
         &self,
         person: &str,

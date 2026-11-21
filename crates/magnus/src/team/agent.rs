@@ -33,6 +33,7 @@ pub(crate) enum TeamOp {
     FixEntry,
     Note,
     Create,
+    AskPersonalAgent,
     /// The one team tool a person's own agent has: reading a base its owner may.
     ReadKnowledge,
 }
@@ -133,6 +134,7 @@ impl Kernel {
         let mut text =
             format!("You are the team agent of the workspace \"{}\", working for {} in a team thread. Nothing personal to any member is available here.", w.name, t.requester);
         text.push_str(&self.workspace_apps(&t.workspace, &w));
+        text.push_str(&self.personal_agent_apps(&t.requester, &w));
         let project = w.channels.get(&t.channel).and_then(|c| c.project.clone()).filter(|p| w.may_read(Some(p), &t.requester));
         let mut bases = vec![("The workspace's knowledge base", w.entries(None))];
         if let Some(p) = &project {
@@ -168,6 +170,7 @@ impl Kernel {
 
     /// Takes a member's request. The run is theirs, so what it may do and
     /// who is asked follows them. Other people's words come in only as data.
+    #[cfg(test)]
     pub(super) async fn team_request(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, text: String) -> Result<(String, String)> {
         self.team_request_on(workspace, channel, thread, person, text, None).await
     }
@@ -229,6 +232,7 @@ impl Kernel {
             TeamOp::FixEntry => self.team_fix_entry(&t, a).await,
             TeamOp::Create => self.team_create(&t, a).await,
             TeamOp::AddFact => self.team_add_fact(&t, a).await,
+            TeamOp::AskPersonalAgent => self.team_ask_personal_agent(&t, a).await,
             TeamOp::ReadKnowledge => self.team_read_knowledge(a),
         }
     }

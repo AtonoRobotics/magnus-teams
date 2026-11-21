@@ -195,7 +195,7 @@ impl Kernel {
         if let Err(e) = recorded {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "error": format!("The vault is sealed and the sign-ins are being revoked, but recording the kill switch failed: {e:#}. Engage it again once the appliance can write."), "sealed": true }),
+                json!({ "error": format!("The vault is sealed and the sign-ins are being revoked, but recording the kill switch failed: {e:#}. Engage it again once the server can write."), "sealed": true }),
             ));
         }
         Ok(json!({ "engaged": true, "revoking": take, "sealed": kept }))

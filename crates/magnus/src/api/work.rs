@@ -129,6 +129,7 @@ pub(super) async fn submit(State(k): K, Caller(p): Caller, Body(b): Body<Value>)
     let mut files = crate::library::given_files(&k, &p, &b)?;
     let project = crate::library::chosen_project(&k, &p, &b)?;
     let model = chosen_model(&k, &b).await?;
+    let reasoning = chosen_reasoning(&b)?;
     // Files sent with the task are uploads like any other: they go to the
     // person's library, linked to this task.
     for a in b["attachments"].as_array().into_iter().flatten() {
@@ -138,11 +139,23 @@ pub(super) async fn submit(State(k): K, Caller(p): Caller, Body(b): Body<Value>)
             Err(e) => return Ok(internal(e)),
         }
     }
-    let o = crate::kernel::NewRun { model, files, project, ..Default::default() };
+    let o = crate::kernel::NewRun { model, reasoning, files, project, ..Default::default() };
     Ok(match k.create_run(&format!("person:{}", p.id), &p.id, text, crate::attachment::from_request(&b), o).await {
         Ok((task, run)) => (StatusCode::CREATED, Json(json!({ "task_id": task, "run_id": run }))).into_response(),
         Err(e) => internal(e),
     })
+}
+
+/// Optional per-request reasoning effort (`off`, `low`, `medium`, `high`).
+pub(crate) fn chosen_reasoning(b: &Value) -> Result<Option<String>, Response> {
+    let Some(raw) = b["model"]["reasoning"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    if matches!(raw, "off" | "low" | "medium" | "high") {
+        Ok(Some(raw.to_string()))
+    } else {
+        Err(err(StatusCode::BAD_REQUEST, "reasoning must be one of: off, low, medium, high"))
+    }
 }
 
 /// The model a request chose (`"model": {"adapter", "model"}`), if any,
@@ -238,9 +251,10 @@ pub(super) async fn chat_post(State(k): K, Caller(p): Caller, Body(b): Body<Valu
         return refuse(StatusCode::BAD_REQUEST, "the message has no text");
     }
     let model = chosen_model(&k, &b).await?;
+    let reasoning = chosen_reasoning(&b)?;
     let files = crate::library::given_files(&k, &p, &b)?;
     let project = crate::library::chosen_project(&k, &p, &b)?;
-    Ok(match k.chat_say(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, None, files, project).await {
+    Ok(match k.chat_say_with_reasoning(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, reasoning, None, files, project).await {
         Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task, "hidden": crate::typed_secrets::mask(&text).hidden }))).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => internal(e),
@@ -361,6 +375,56 @@ pub(super) async fn cancel(State(k): K, Caller(p): Caller, Path(id): Path<String
         v["ok"] = json!(true);
         v
     })))
+}
+
+/// Self-service emergency stop for a person's own work: cancels every active or
+/// paused task of theirs and pauses all of their active schedules.
+pub(super) async fn stop_all(State(k): K, Caller(p): Caller) -> ApiResult {
+    let (tasks, schedules): (Vec<String>, Vec<String>) = k.read(|s| {
+        let tasks = s
+            .tasks
+            .values()
+            .filter(|t| t.person == p.id && s.team.run_of(&t.task_id).is_none())
+            .filter(|t| s.runs.get(&t.run_id).is_some_and(|r| !r.status.terminal()))
+            .map(|t| t.task_id.clone())
+            .collect();
+        let schedules = s.arrangements.schedules_of(&p.id).filter(|sc| sc.ended.is_none() && sc.paused.is_none()).map(|sc| sc.id.clone()).collect();
+        (tasks, schedules)
+    });
+    let mut cancelled = 0usize;
+    for id in &tasks {
+        if k.cancel_task(&p, id, None).await.is_ok() {
+            cancelled += 1;
+        }
+    }
+    let mut paused = 0usize;
+    for id in &schedules {
+        if k.pause_schedule(&p, id, None).await.is_ok() {
+            paused += 1;
+        }
+    }
+    Ok(Json(json!({ "ok": true, "tasks_cancelled": cancelled, "schedules_paused": paused, "cancelled_tasks": cancelled, "paused_schedules": paused })).into_response())
+}
+
+/// Steer an active or paused task in flight: appends a steering note from
+/// the task's person so the agent reads it on its next step without
+/// cancelling or restarting the run.
+pub(super) async fn steer(State(k): K, Caller(p): Caller, Path(id): Path<String>, Body(b): Body<Value>) -> ApiResult {
+    let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
+    if run.status.terminal() {
+        return refuse(StatusCode::CONFLICT, "the task has already ended");
+    }
+    let text = b["text"].as_str().unwrap_or_default().trim();
+    if text.is_empty() || text.chars().count() > crate::compose::MAX_TEXT {
+        return refuse(StatusCode::BAD_REQUEST, "steer needs a short instruction");
+    }
+    let step = run.replies.len() as u32;
+    let actor = format!("person:{}", p.id);
+    k.emit(&actor, Ev::Notice { run: run.id.clone(), step, text: format!("Steering instruction from the person while this task is running: {text}") }).await?;
+    if run.status == crate::state::Status::Running {
+        k.wake(&run.id);
+    }
+    Ok(Json(json!({ "ok": true, "step": step })).into_response())
 }
 
 /// The person's verdict on an outcome that has ended: right, partly or

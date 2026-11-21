@@ -18,12 +18,12 @@ const same = (a, b) => assert.equal(JSON.stringify(a), JSON.stringify(b));
 // Wired: loaded by the page, served by the server, run by the fast tier.
 const page = read("index.html");
 const assets = readFileSync(join(root, "crates/magnus/src/ui/assets.rs"), "utf8");
-const fast = readFileSync(join(root, ".github/workflows/fast.yml"), "utf8");
+const fast = readFileSync(join(root, "ci/fast.sh"), "utf8");
 for (const f of ["agreements.js", "admin-testers.js"]) {
   assert.ok(page.includes(`<script src="${f}"></script>`), `index.html loads ${f}`);
   assert.ok(assets.includes(`include_bytes!("../../../../desktop/ui/${f}")`), `the server serves ${f}`);
 }
-assert.ok(fast.includes("node desktop/tests/agreements-check.mjs"), "the fast tier runs this check");
+assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 const app = read("app.js");
 assert.match(app, /App\.me = await Server\.me\(\);\s*\/\/[^\n]*\n\s*if \(!\(await agreementsGate\(\)\)\)/, "boot does not ask for the agreements before the app opens");
 assert.ok(app.includes(`["agreements", "Agreements", (el) => agreementsSection(el)]`), "Settings has no Agreements section");

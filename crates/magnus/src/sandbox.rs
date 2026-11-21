@@ -28,6 +28,8 @@ const FILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const PING_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a VM has to come up.
 const BOOT_TIMEOUT: Duration = Duration::from_secs(30);
+/// How often a booting VM's guest agent is polled.
+const BOOT_POLL_MS: Duration = Duration::from_millis(50);
 /// How long the image's check-tool resolver may run.
 const CHECK_TOOLS_TIMEOUT_SECONDS: u64 = 60;
 /// How long a stopping VM has to flush its disk.
@@ -158,7 +160,7 @@ impl Sandboxes {
             if start.elapsed() > BOOT_TIMEOUT {
                 return Err(anyhow!("the sandbox VM did not come up within {}s", BOOT_TIMEOUT.as_secs()));
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(BOOT_POLL_MS).await;
         }
     }
 

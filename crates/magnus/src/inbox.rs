@@ -364,6 +364,7 @@ impl Kernel {
                         config: crate::events::RunConfig {
                             adapter,
                             model,
+                            reasoning: None,
                             max_retries: m.max_retries,
                             max_tokens: m.max_tokens,
                             budget,

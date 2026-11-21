@@ -19,7 +19,13 @@ use std::sync::Arc;
 type K = State<Arc<Kernel>>;
 
 pub fn router() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/account/password", get(rules).post(change)).route("/v1/password-reset/request", post(password_reset_request)).merge(crate::mail_settings::router())
+    Router::new()
+        .route("/v1/account/password", get(rules).post(change))
+        .route("/v1/account/totp", get(totp_status).delete(totp_remove))
+        .route("/v1/account/totp/begin", post(totp_begin))
+        .route("/v1/account/totp/confirm", post(totp_confirm))
+        .route("/v1/password-reset/request", post(password_reset_request))
+        .merge(crate::mail_settings::router())
 }
 
 /// Whether this person's password is kept here, and so changed here: with no
@@ -35,6 +41,49 @@ async fn kept_here(k: &Kernel, person: &str) -> bool {
 async fn rules(State(k): K, Caller(p): Caller) -> Response {
     let here = kept_here(&k, &p.id).await;
     Json(json!({ "here": here, "min_length": k.cfg.sign_in.min_password_length, "provider": k.identity().map(|i| i.label()) })).into_response()
+}
+
+/// The signed-in person's two-factor authenticator status and explicit time-zone flag.
+async fn totp_status(State(k): K, Caller(p): Caller) -> Response {
+    let here = kept_here(&k, &p.id).await;
+    let enrolled = k.accounts.has_totp(&p.id).await;
+    let code_required = k.accounts.policy().await.map(|pol| pol.code_required).unwrap_or(false);
+    let tz_explicit = k.read(|s| s.identity.preferences_of(&p.id).and_then(|v| v.get("timezone")).is_some());
+    Json(json!({ "here": here, "enrolled": enrolled, "code_required": code_required, "timezone_explicit": tz_explicit })).into_response()
+}
+
+/// Start enrolling an authenticator app in Settings › Account.
+async fn totp_begin(State(k): K, Caller(p): Caller) -> Response {
+    if !kept_here(&k, &p.id).await {
+        let at = k.identity().map(|i| i.label()).unwrap_or_else(|| "your sign-in provider".into());
+        return err(StatusCode::CONFLICT, format!("Two-factor authentication is managed by {at}."));
+    }
+    let (secret, uri) = k.accounts.begin_totp(&p.id);
+    Json(json!({ "secret": secret, "uri": uri })).into_response()
+}
+
+/// Confirm the authenticator app with a 6-digit code from it.
+async fn totp_confirm(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> Response {
+    let code = b["code"].as_str().unwrap_or_default().trim();
+    if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
+        return err(StatusCode::BAD_REQUEST, "Enter the 6-digit code from your authenticator app.");
+    }
+    match k.accounts.confirm_totp(&p.id, code).await {
+        Ok(true) => Json(json!({ "ok": true, "enrolled": true })).into_response(),
+        Ok(false) => err(StatusCode::BAD_REQUEST, "That 6-digit code did not match. Check the time on your device and try again."),
+        Err(e) => internal(e),
+    }
+}
+
+/// Remove the signed-in person's authenticator app when the server policy does not require one.
+async fn totp_remove(State(k): K, Caller(p): Caller) -> Response {
+    if k.accounts.policy().await.map(|pol| pol.code_required).unwrap_or(false) {
+        return err(StatusCode::CONFLICT, "This server requires an authenticator code for everyone. Enrolling a new app replaces the current one.");
+    }
+    match k.accounts.remove_totp(&p.id).await {
+        Ok(_) => Json(json!({ "ok": true, "enrolled": false })).into_response(),
+        Err(e) => internal(e),
+    }
 }
 
 /// Change the signed-in person's password with their current one. A wrong

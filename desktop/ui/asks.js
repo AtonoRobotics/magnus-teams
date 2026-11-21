@@ -25,6 +25,12 @@ function askLabel(a, offer) {
 // One field of the exact content, every part of it, nothing shortened.
 function askValue(v) {
   if (v === null || v === undefined) return `<span class="faint">none</span>`;
+  if (Array.isArray(v)) {
+    if (!v.length) return `<span class="faint">none</span>`;
+    if (v.every(x => x !== null && x !== undefined && typeof x !== "object")) {
+      return `<span>${v.map(x => esc(String(x))).join(", ")}</span>`;
+    }
+  }
   if (v && typeof v === "object" && !Array.isArray(v)) {
     const entries = Object.entries(v).filter(([, x]) => x !== null && x !== undefined && typeof x !== "object");
     if (entries.length && entries.length === Object.keys(v).length) {

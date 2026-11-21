@@ -72,6 +72,9 @@ pub struct RunConfig {
     /// The verifier's model (`adapter/model`); the run's own when unset.
     #[serde(default)]
     pub verifier_model: Option<String>,
+    /// Per-run reasoning effort (`off`, `low`, `medium`, `high`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
 }
 
 impl RunConfig {

@@ -17,6 +17,7 @@ mod caller;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
+pub(crate) mod delegate;
 mod forget;
 #[cfg(test)]
 mod forget_tests;
@@ -460,6 +461,7 @@ impl Ledger {
             Change::Member { workspace, person, role } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.members.insert(person.clone(), *role);
+                    routines::apply(w, c);
                 }
             }
             Change::Removed { workspace, person } => {
@@ -472,6 +474,7 @@ impl Ledger {
                         d.members.retain(|m| m != person);
                         d.curators.retain(|c| c != person);
                     }
+                    routines::apply(w, c);
                 }
             }
             Change::Channel { workspace, channel, name } => {
@@ -646,6 +649,10 @@ impl Ledger {
 
     pub fn whispers_by(&self, workspace: &str, channel: &str, person: &str) -> Vec<&Whisper> {
         self.whispers.values().filter(|w| w.workspace == workspace && w.channel == channel && w.owner == person).collect()
+    }
+
+    pub fn whispers_of(&self, workspace: &str) -> Vec<&Whisper> {
+        self.whispers.values().filter(|w| w.workspace == workspace).collect()
     }
 
     pub fn runs_by(&self, workspace: &str, person: &str) -> Vec<&TeamRun> {

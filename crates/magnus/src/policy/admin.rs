@@ -343,7 +343,7 @@ impl Kernel {
     pub fn policy_test(&self, b: &Value) -> Result<Value, Refusal> {
         let s = |f: &str| b[f].as_str().unwrap_or_default().trim().to_string();
         let principal = s("principal");
-        let Some(person): Option<Person> = self.person(&principal) else { return Err((StatusCode::BAD_REQUEST, format!("no person {principal:?} on this appliance"))) };
+        let Some(person): Option<Person> = self.person(&principal) else { return Err((StatusCode::BAD_REQUEST, format!("no person {principal:?} on this server"))) };
         let tool = s("resource");
         if tool.is_empty() {
             return Err((StatusCode::BAD_REQUEST, "name the tool (the resource)".into()));

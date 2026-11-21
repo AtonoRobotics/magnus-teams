@@ -56,6 +56,8 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/people/{id}/account", delete(clear_account))
         .route("/v1/preferences", get(get_preferences).put(put_preferences))
         .route("/v1/deletion-requests", get(deletion_requests).post(request_deletion))
+        .route("/v1/account/export", get(export_own_data))
+        .route("/v1/account", delete(delete_own_account))
 }
 
 /// The devices signed in as the person, newest first.
@@ -242,6 +244,64 @@ async fn deletion_requests(State(k): K, Caller(p): Caller) -> ApiResult {
             .collect()
     });
     Ok(Json(json!({ "requests": list })).into_response())
+}
+
+/// Self-service data export: all of the signed-in person's own preferences,
+/// tasks, conversations, files metadata and memory entries in one JSON bundle.
+async fn export_own_data(State(k): K, Caller(p): Caller) -> ApiResult {
+    let actor = format!("person:{}", p.id);
+    let mut bundle = json!({
+        "person": p.id,
+        "name": p.name,
+        "exported_at": chrono::Utc::now(),
+        "preferences": preferences(&k, &p.id),
+    });
+    for what in crate::person_admin::KINDS {
+        match k.read_person_data(&actor, &p.name, &p, what, None).await {
+            Ok(v) => bundle[what] = v[what].clone(),
+            Err((st, m)) => return Ok(err(st, m)),
+        }
+    }
+    Ok(Json(bundle).into_response())
+}
+
+/// Self-service immediate account and data erasure (`DELETE /v1/account` with
+/// `{"confirm": "DELETE"}`). Refuses the last owner of the server so the
+/// server is never left ownerless.
+async fn delete_own_account(State(k): K, Caller(p): Caller, Json(b): Json<Value>) -> ApiResult {
+    if b["confirm"].as_str().map(str::trim) != Some("DELETE") {
+        return refuse(StatusCode::BAD_REQUEST, "Type DELETE to confirm erasing your account and data.");
+    }
+    if k.last_owner(&p.id).await {
+        return refuse(StatusCode::CONFLICT, "You are the last owner of this server: make someone else an owner first.");
+    }
+    let actor = format!("person:{}", p.id);
+    let sole = k.read(|s| crate::admin_app::remove::sole_workspaces(&s.team, &p.id));
+    for ws in &sole {
+        if let Err(e) = k.delete_workspace(&actor, ws).await {
+            return Ok(internal(e));
+        }
+    }
+    let evs = k.read(|s| {
+        let h = crate::admin_app::remove::held(&s.team, &p.id);
+        crate::admin_app::remove::changes(&s.team, &p.id, &h, None)
+    });
+    if !evs.is_empty() {
+        let team_evs: Vec<(&str, Ev)> = evs.into_iter().map(|c| (actor.as_str(), Ev::Team(c))).collect();
+        if let Err(e) = k.emit_all(team_evs).await {
+            return Ok(internal(e));
+        }
+    }
+    match k.erase_person(&actor, &p.id).await {
+        Ok(mut summary) => {
+            if k.accounts.is_local(&p.id) {
+                let _ = k.accounts.remove_person(&p.id).await;
+            }
+            summary["deleted"] = json!(true);
+            Ok(Json(summary).into_response())
+        }
+        Err((st, m)) => Ok(err(st, m)),
+    }
 }
 
 #[cfg(test)]

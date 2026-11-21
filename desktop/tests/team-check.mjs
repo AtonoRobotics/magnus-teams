@@ -22,7 +22,7 @@ const sandbox = {
   document: { addEventListener: (type, f) => (listeners[type] ||= []).push(f) }, location: { hash: "#/team/w", origin: "https://server", pathname: "/" }, setTimeout, clearTimeout, console,
 };
 sandbox.globalThis = sandbox;
-const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
+const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "side-panel.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
 vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts, ChatView };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
@@ -180,6 +180,25 @@ for (const role of ["member", "admin", "owner"]) {
   assert.doesNotMatch(html, /data-team-computer-new|a computer<\/button>/, `the ${role} is offered to set up the team computer`);
   assert.match(html, /being set up/, `the ${role} is not told the computer is coming`);
 }
+// Routines in the Team side panel: visible to members, and editable/restartable by admins.
+const withRoutines = {
+  ...noComputer,
+  channels: ["c1"],
+  routines: [
+    { id: "r1", channel: "c1", text: "Sum up the day", every_hours: 24, by: "dana", by_name: "Dana", last_at: null, stopped: null },
+    { id: "r2", channel: "c1", text: "Check alerts", every_hours: 1, by: "dana", by_name: "Dana", last_at: null, stopped: "its last 3 runs failed" },
+  ],
+};
+Team.home = { ...home, role: "member" };
+const memberRoutines = sandbox.overviewHtml(withRoutines, "w", "c1");
+assert.match(memberRoutines, /data-routines[^]*Sum up the day[^]*Daily/, "a member does not see active routines");
+assert.match(memberRoutines, /Stopped: its last 3 runs failed/, "a member does not see why a routine stopped");
+assert.doesNotMatch(memberRoutines, /data-routine-new|data-routine-restart|data-routine-remove/, "a non-admin member is offered routine management controls");
+Team.home = { ...home, role: "admin" };
+const adminRoutines = sandbox.overviewHtml(withRoutines, "w", "c1");
+assert.match(adminRoutines, /data-routine-restart="r2"/, "an admin cannot restart a stopped routine");
+assert.match(adminRoutines, /data-routine-remove="r1"/, "an admin cannot remove a routine");
+assert.match(adminRoutines, /data-routine-new/, "an admin cannot add a routine from the panel");
 Team.home = home;
 assert.equal(sandbox.workTitle("@Magnus pull together the feedback\nmore"), "Pull together the feedback", "a work card's title keeps the mention that asked");
 assert.equal(sandbox.workTitle("Magnus, sum it up"), "Magnus, sum it up");
@@ -274,5 +293,25 @@ TeamCommand.open = () => { opened++; };
 TeamCommand.dialog = { open: false, close() {} };
 for (const f of listeners.keydown) f({ ctrlKey: true, metaKey: false, altKey: false, key: "k", preventDefault() {} });
 assert.equal(opened, 1, "Ctrl+K after Escape did not open the menu again");
+
+// Personal agent delegations and member connector visibility in the right side panel.
+const panelWithDelegations = {
+  ...noComputer,
+  computer: "pc1",
+  channels: ["c1"],
+  members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }],
+  delegations: [
+    { task: "t99", channel: "c1", member: "dana", member_name: "Dana", mine: false, shared: false, status: "running", summary: "Check open PRs" },
+  ],
+  apps: [
+    { name: "github", title: "GitHub", signs_in: true, roles: ["owner", "admin", "member"] },
+    { name: "jira", title: "Jira", signs_in: false, roles: ["owner", "admin", "member"] },
+  ],
+};
+const actHtml = sandbox.overviewHtml(panelWithDelegations, "w", "c1");
+assert.match(actHtml, /data-delegations[^]*Personal agent delegations[^]*Dana's Magnus[^]*Working in personal agent/, "the Activity tab does not show personal agent delegations");
+const memHtml = sandbox.teamSideHtml(panelWithDelegations, "w", "c1", "members");
+assert.match(memHtml, /data-team-apps-card[^]*Connectors &amp; agents[^]*GitHub[^]*Delegated to member's personal Magnus/, "the Members tab does not show personal agent connector availability");
+assert.match(memHtml, /Jira[^]*Workspace app/, "the Members tab does not show team connectors");
 
 console.log("team ok");

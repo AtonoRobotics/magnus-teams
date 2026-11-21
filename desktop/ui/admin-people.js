@@ -75,6 +75,7 @@ function peopleRemoveSheet(p, people) {
       <p class="small">Their own chats, tasks, files and memory are deleted, and their devices signed out. This cannot be undone.</p>
       <fieldset><legend>Their team projects, routines and workspaces</legend>
         <label><input type="radio" name="projects" value="transfer" checked> Give them to <select name="to" aria-label="Who receives them">${others.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</select></label>
+        <p class="small muted">In workspaces they do not belong to, projects and routines go to that workspace's remaining owner or admin; workspaces with no other members are removed.</p>
         <label><input type="radio" name="projects" value="delete"> Delete them</label>
       </fieldset>
       <div class="row"><button type="button" data-cancel>Cancel</button><button class="danger" type="submit">Remove</button></div></form>`;
@@ -136,7 +137,7 @@ registerAdminSection("people", async el => {
         case "resend": paint(note, peopleInvited(await Server.admin.resendInvite(id))); return;
         case "cancel": await Server.admin.cancelInvite(id); toast("Invitation withdrawn."); break;
         case "sign-out": { const r = await Server.admin.signOut(id); toast(`Signed out of ${r.ended ?? 0} device${r.ended === 1 ? "" : "s"}.`); break; }
-        case "disable": if (!confirm(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`)) return; await Server.admin.disable(id); toast(`${p.name} is turned off.`); break;
+        case "disable": if (!await ask(`Turn off ${p.name}? They are signed out everywhere and their schedules pause.`, "Turn off", true)) return; await Server.admin.disable(id); toast(`${p.name} is turned off.`); break;
         case "enable": await Server.admin.enable(id); toast(`${p.name} is turned on.`); break;
         case "remove": {
           const body = await peopleRemoveSheet(p, people);

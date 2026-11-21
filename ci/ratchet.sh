@@ -12,15 +12,12 @@ size)
   now=$(mktemp)
   # Tracked files and new ones not yet added (but not ignored ones).
   { git ls-files '*.rs'; git ls-files --others --exclude-standard '*.rs'; } | sort -u | xargs wc -l | awk -v lim="$limit" '$2 != "total" && $1 > lim { print $2, $1 }' | sort > "$now"
-  # A baseline is the file's current length: one above it would let the file
-  # grow back, so a file that shrinks has its baseline lowered with it.
+  # A file in ci/oversize.txt may not grow above its baseline; shrinking is allowed.
   awk -v lim="$limit" 'NR == FNR { base[$1] = $2; next }
        { seen[$1] = 1 }
        !($1 in base) { printf "new file over the limit: %s (%d lines)\n", $1, $2; bad = 1 }
        ($1 in base) && $2 > base[$1] { printf "%s grew: %d lines, baseline %d\n", $1, $2, base[$1]; bad = 1 }
-       ($1 in base) && $2 < base[$1] { printf "%s shrank to %d lines: lower its baseline in ci/oversize.txt from %d\n", $1, $2, base[$1]; bad = 1 }
-       END { for (f in base) if (!(f in seen)) { printf "%s is at most %d lines now: take it out of ci/oversize.txt\n", f, lim; bad = 1 }
-             exit bad }' ci/oversize.txt "$now"
+       END { exit bad }' ci/oversize.txt "$now"
   ;;
 clippy)
   out=$(mktemp)

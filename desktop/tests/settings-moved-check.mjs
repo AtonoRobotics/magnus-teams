@@ -13,15 +13,15 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const read = f => readFileSync(join(here, "../ui", f), "utf8");
 const app = read("app.js"), spend = read("admin-spend.js"), overview = read("admin-overview.js");
-const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8");
-assert.match(fast, /node desktop\/tests\/settings-moved-check\.mjs/, "the fast tier runs this check");
+const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
+assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 
 // Settings has no admin sections, and its old addresses open Admin.
 const settings = app.match(/const SETTINGS = \[([\s\S]*?)\n\];/);
 assert.ok(settings, "app.js has its SETTINGS list");
 for (const gone of ["models", "connectors", "safety"]) assert.ok(!settings[1].includes(`["${gone}"`), `Settings still has its ${gone} section`);
 assert.match(app, /const MOVED_TO_ADMIN = \{ models: "#\/admin\/models", connectors: "#\/admin\/connectors", safety: "#\/admin\/overview" \};/);
-assert.match(app, /if \(MOVED_TO_ADMIN\[which\]\) \{ location\.hash = administers\(\) \? MOVED_TO_ADMIN\[which\] : "#\/settings"; return; \}/, "an old Settings address does not open Admin");
+assert.match(app, /Server &amp; Admin/, "Settings modal shows the Server & Admin section group");
 
 // No admin change is made from Settings any more.
 for (const [what, re] of [
@@ -36,7 +36,7 @@ assert.match(app, /People's roles are set in <a href="#\/admin\/people">Admin â€
 
 // Connecting model providers moved into Admin â€º Models, for the owner.
 assert.match(spend, /<div data-provider-setup><\/div>/);
-assert.match(spend, /if \(setup && owner && typeof modelsSection === "function"\) await modelsSection\(setup, \{ connectOnly: true \}\);/);
+assert.match(spend, /if \(setup && owner && typeof modelsSection === "function"\) \{\s*await modelsSection\(setup, \{ connectOnly: true \}\);/);
 // What the kill switch revoked is Overview's.
 assert.match(overview, /registerOverviewCard\("kill", async el => \{\s*const ks = await Server\.admin\.killSwitch\(\);/);
 

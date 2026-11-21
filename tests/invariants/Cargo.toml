@@ -12,14 +12,8 @@ publish.workspace = true
 name = "magnus-appliance"
 path = "src/bin/appliance.rs"
 
-# The Anthropic model adapter, a separate process the kernel talks to.
-[[bin]]
-name = "magnus-adapter-anthropic"
-path = "src/bin/adapter_anthropic.rs"
-
 [dependencies]
 magnus = { path = "../../crates/magnus" }
-magnus-adapter-anthropic = { path = "../../crates/adapter-anthropic" }
 axum = "0.8"
 base64 = "0.22"
 futures = "0.3"

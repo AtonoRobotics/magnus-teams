@@ -224,11 +224,11 @@ function reportOpenedSoon() {
 // ignore window.confirm and answer no without showing it, so a button
 // behind one did nothing at all (the Windows app, owner 2026-11-03:
 // Disconnect in the Library). Escape, or Back, is no.
-function ask(msg, yes) {
+function ask(msg, yes = "Approve", danger = false) {
   return new Promise(done => {
     const d = document.createElement("dialog");
     d.className = "ask";
-    d.innerHTML = `<p></p><div class="row"><button data-ask="no">Back</button><button class="primary" data-ask="yes"></button></div>`;
+    d.innerHTML = `<p></p><div class="row"><button data-ask="no">Back</button><button class="${danger ? "danger" : "primary"}" data-ask="yes"></button></div>`;
     $("p", d).textContent = msg;
     $("[data-ask=yes]", d).textContent = yes;
     d.addEventListener("click", e => { const b = e.target.closest("[data-ask]"); if (b) d.close(b.dataset.ask); });
@@ -239,15 +239,19 @@ function ask(msg, yes) {
   });
 }
 
-function askText(msg, placeholder = "", yes = "Submit") {
+function askText(msg, placeholder = "", yes = "Submit", danger = false) {
+  const opts = typeof msg === "object" && msg !== null
+    ? { title: msg.title || "", body: msg.body || "", placeholder: msg.placeholder || "", yes: msg.okLabel || msg.yes || "Submit", danger: !!msg.danger }
+    : { title: "", body: String(msg ?? ""), placeholder, yes, danger };
   return new Promise(done => {
     const d = document.createElement("dialog");
     d.className = "ask";
-    d.innerHTML = `<form><p></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="primary" data-ask="yes"></button></div></form>`;
-    $("p", d).textContent = msg;
+    d.innerHTML = `<form>${opts.title ? `<h3></h3>` : ""}<p></p><input type="text" data-ask-input required style="width:100%;margin-bottom:14px"><div class="row"><button type="button" data-ask="no">Back</button><button type="submit" class="${opts.danger ? "danger" : "primary"}" data-ask="yes"></button></div></form>`;
+    if (opts.title) $("h3", d).textContent = opts.title;
+    $("p", d).textContent = opts.body;
     const inp = $("[data-ask-input]", d);
-    inp.placeholder = placeholder;
-    $("[data-ask=yes]", d).textContent = yes;
+    inp.placeholder = opts.placeholder;
+    $("[data-ask=yes]", d).textContent = opts.yes;
     d.addEventListener("click", e => { if (e.target.closest("[data-ask=no]")) d.close("no"); });
     $("form", d).addEventListener("submit", e => { e.preventDefault(); d.close("yes"); });
     d.addEventListener("close", () => { const v = d.returnValue === "yes" ? inp.value.trim() : null; d.remove(); done(v || null); });
@@ -373,6 +377,7 @@ const UI = {
   done: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
   need: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
   working: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   stopped: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   attach: '<path d="m21 11-8.6 8.6a5 5 0 0 1-7-7l8.5-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.3-2.3l8-8"/>',
@@ -425,7 +430,7 @@ function nav() {
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
-    <div class="sect"><a href="#/trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span>Trash</span></a></div>
+    <div class="sect"><a href="#/trash" aria-label="Trash" title="Trash" ${route==="#/trash" ? 'aria-current="page" class="on"' : ""}>${icon("trash")}<span class="nav-label">Trash</span></a></div>
     <div class="foot"><div class="who"><span class="avatar" aria-hidden="true">${esc((App.me?.name || "?").trim().charAt(0).toUpperCase())}</span><div class="whoami" data-appliance="${esc(App.appliance)}"><span class="ttl" title="${esc(App.me?.id)}">${esc(App.me?.name)}</span><button class="link" data-act="sign-out">Sign out</button></div><a href="#/settings/appearance" class="icon-btn companion-theme-nav${route==="#/settings/appearance" ? " on" : ""}" aria-label="Appearance" title="Theme & accent">${icon("palette")}</a><a href="#/settings" class="icon-btn${route.startsWith("#/settings") && route!=="#/settings/appearance" ? " on" : ""}" ${route.startsWith("#/settings") ? 'aria-current="page"' : ""} aria-label="Settings" title="Settings">${icon("gear")}</a></div></div>`;
 }
 function sidebar() {
@@ -986,6 +991,7 @@ async function go() {
   // never the next view's.
   const seq = ++App.seq;
   const left = $("#main"), main = left.cloneNode(false);
+  main.className = "";
   left.replaceWith(main);
   for (const [re, view, workspace] of App.routes) {
     const m = h.match(re);
@@ -1224,7 +1230,7 @@ async function refresh() {
   if (health) App.health = health;
   sidebar();
   banners();
-  await Promise.all([App.redraw?.(), drawPanel()]);
+  await Promise.all([App.redraw?.(), drawPanel(), typeof AuroraStage !== "undefined" && AuroraStage.refresh()]);
 }
 
 // Above the conversation: how the agent changed since the person last
@@ -1318,14 +1324,16 @@ const MORE = new Set();
 function tasksView() {
   const LIMIT = { done: 15, failed: 15 };
   const sections = groupTasks(App.tasks);
-  return sections.length ? sections.map(sec => {
+  const activeCount = App.tasks.filter(t => t.status === "running" || t.status === "suspended").length + App.schedules.filter(s => !s.paused && !s.ended).length;
+  const stopBar = activeCount ? `<div class="spread" style="margin-bottom:8px"><span class="small muted">Active work running or scheduled</span><button type="button" class="danger small" data-stop-all-work>Stop my active work</button></div>` : "";
+  return sections.length ? `${stopBar}${sections.map(sec => {
     const n = sec.groups.reduce((k, g) => k + g.count[sec.state], 0);
     const cap = LIMIT[sec.state] && !MORE.has(sec.state) ? LIMIT[sec.state] : Infinity;
     const left = sec.groups.length - Math.min(cap, sec.groups.length);
     return `<section class="tsec" data-section="${sec.state}"><h3>${esc(sec.label)} <span class="count">${n}</span></h3>
       ${sec.groups.slice(0, cap).map(g => groupBlock(g, sec.state)).join("")}
       ${left ? `<button class="link small" data-more="${sec.state}">Show ${left} more</button>` : ""}</section>`;
-  }).join("") : offered("No tasks yet. Ask for something in a conversation.");
+  }).join("")}` : offered("No tasks yet. Ask for something in a conversation.");
 }
 
 // An empty Tasks or Schedules: what Magnus offered to take over when it
@@ -1396,6 +1404,8 @@ function scheduleView(id) {
 // providers list them now. The appliance's default is used until the viewer
 // picks another; a pick holds only while the default it was made under is
 // still the default, so changing the default reaches new messages (#540).
+const REASONING_LEVELS = [["", "Reasoning: Auto"], ["off", "Reasoning: Off"], ["low", "Reasoning: Low"], ["medium", "Reasoning: Medium"], ["high", "Reasoning: High"]];
+
 async function modelPicker() {
   const { default: dflt, adapters } = await Server.models.list().catch(() => ({ default: null, adapters: [] }));
   const key = m => JSON.stringify([m.adapter, m.model]);
@@ -1405,8 +1415,10 @@ async function modelPicker() {
   const saved = load("model-choice", null);
   const pick = opts.find(o => saved?.under === under && key(o) === key(saved)) || dflt || opts[0];
   const groups = [...new Set(opts.map(o => o.adapter))];
+  const savedReasoning = load("reasoning-choice", "") || "";
   return `<label class="model"><span class="sr">Model</span><select data-model data-default="${esc(under)}" aria-label="Model">${groups.map(g => `<optgroup label="${esc(g)}">${opts.filter(o => o.adapter === g).map(o =>
-    `<option value="${esc(key(o))}"${pick && key(o) === key(pick) ? " selected" : ""}>${esc(o.model)}${dflt && key(o) === key(dflt) ? " (default)" : ""}</option>`).join("")}</optgroup>`).join("")}</select></label>`;
+    `<option value="${esc(key(o))}"${pick && key(o) === key(pick) ? " selected" : ""}>${esc(o.model)}${dflt && key(o) === key(dflt) ? " (default)" : ""}</option>`).join("")}</optgroup>`).join("")}</select></label><label class="model"><span class="sr">Reasoning level</span><select data-reasoning aria-label="Reasoning level">${REASONING_LEVELS.map(([val, label]) =>
+    `<option value="${esc(val)}"${val === savedReasoning ? " selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
 }
 function chosenModel(root) {
   const sel = $("select[data-model]", root);
@@ -1414,7 +1426,10 @@ function chosenModel(root) {
   const [adapter, model] = JSON.parse(sel.value);
   // Sending on the default is not a pick: nothing is kept to outlive it.
   save("model-choice", sel.value === sel.dataset.default ? null : { adapter, model, under: sel.dataset.default });
-  return { adapter, model };
+  const rsel = $("select[data-reasoning]", root);
+  const reasoning = rsel && rsel.value ? rsel.value : undefined;
+  if (rsel) save("reasoning-choice", rsel.value || "");
+  return reasoning ? { adapter, model, reasoning } : { adapter, model };
 }
 
 // ---------- Chat ----------
@@ -1844,22 +1859,6 @@ function card(i, composed) {
         <div class="row" style="margin-top:8px"><button class="primary" data-item="${esc(i.id)}" data-decision="answer">Send answer</button></div>` : buttons(i, [])}`;
       break;
     }
-    // Asked before rev 140, when checking became internal: the criteria
-    // stand whatever is answered, and the task goes on against them.
-    case "contract_change":
-      body = `<p class="small">This task no longer needs you here: it goes on against the criteria it set.</p>${buttons(i, [["reject", "Continue", "primary"]])}`;
-      break;
-    case "review": {
-      const crit = (d.criteria || []).map(c => `<li>${esc(c.description || c.id || c)}${c.unchecked_reason ? `<div class="small faint">Its check could not run: ${esc(c.unchecked_reason)}</div>` : ""}</li>`).join("");
-      body = `<p>${esc(d.summary)}</p>
-        <div class="evidence none"><div class="small muted">The server could not check these. Check them yourself:</div><ul>${crit}</ul></div>
-        ${d.view ? `<iframe class="composed" sandbox="allow-same-origin" title="The outcome" data-view="${esc(i.id)}"></iframe>` : ""}
-        ${taintNote(d.taint)}
-        ${i.can_respond ? `<textarea rows="2" data-draft="rev-${esc(i.id)}" placeholder="If you send it back, say what is wrong" style="margin-top:10px"></textarea>` : ""}
-        ${buttons(i, [["accept", "Accept", "primary"], ["reject", "Send back"]])}`;
-      if (d.view) composed.push([i.id, d.view, i.run_id, i.task_id]);
-      break;
-    }
     case "notice": {
       const ev = d.evidence;
       const list = [];
@@ -1873,11 +1872,6 @@ function card(i, composed) {
         ${ev ? `<div class="evidence fail"><div class="small muted">Evidence</div>${fieldValue(ev)}</div>` : ""}${buttons(i, list)}`;
       break;
     }
-    case "policy_proposal":
-      body = `<p class="small"><span class="muted">Layer:</span> <span class="mono">${esc(d.layer)}</span></p>
-        ${d.rationale ? `<p>${esc(d.rationale)}</p>` : ""}<div class="what"><pre>${esc(d.cedar)}</pre></div>${taintNote(d.taint)}
-        ${buttons(i, [["accept", "Add this rule", "primary"], ["reject", "Reject"]])}`;
-      break;
     // Magnus's own idea from a task or a review: one tap starts it (spec rev
     // 140). Proposals from before then read as suggestions.
     case "suggestion": {
@@ -2159,46 +2153,38 @@ function companionHeader() {
     ? list.filter(c => (typeof stateOf === "function" ? stateOf(c) : c.state) === "connected").length
     : null;
   const subText = `${taskCount} task${taskCount === 1 ? "" : "s"} today${appCount !== null ? ` · ${appCount} app${appCount === 1 ? "" : "s"}` : ""}`;
-  return `<div class="companion-id">
-    <div class="companion-row-left">
-      <a href="#/settings/appearance" class="companion-avatar" aria-label="Customize theme and accent" title="Theme & accent"><span class="companion-m">M</span><span class="comp-dot ${st.dot}" aria-hidden="true"></span></a>
-      <div class="companion-title-col">
-        <div class="companion-name-row">
-          <h2>Magnus</h2>
-          <span class="companion-status-lbl ${st.tone}">${esc(st.label)}</span>
-        </div>
-        <div class="companion-sub">
-          <span class="muted">${subText}</span>
-        </div>
-      </div>
-    </div>
-    <div class="companion-top-acts">
-      <div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div>
-      <button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button>
-    </div>
-  </div>`;
+  return SidePanel.head({
+    letter: "M",
+    avatarHref: "#/settings/appearance",
+    avatarTitle: "Theme & accent",
+    dot: st.dot,
+    tone: st.tone,
+    label: st.label,
+    titleHtml: "Magnus",
+    subText,
+    topActs: true,
+  });
 }
 function companionFooter() {
   const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id) || (App.computers || [])[0];
   if (!comp) return "";
   const compState = controlWords(comp, false);
   const awake = comp.status === "running";
-  const pauseBtn = awake ? `<button type="button" class="danger" data-pause-computer="${esc(comp.id)}" title="Pause computer and revoke accesses">Pause</button>` : "";
-  const actBtn = awake
-    ? `<button type="button" class="link comp-wake-btn" data-open="computer:${esc(comp.id)}">Watch →</button>`
-    : `<button type="button" class="link comp-wake-btn" data-wake-computer="${esc(comp.id)}">Wake VM →</button>`;
-  return `<div class="companion-computer" data-computer-bar="${esc(comp.id)}">
-    <div class="comp-head"><span class="comp-dot ${awake ? "ok" : "idle"}" aria-hidden="true"></span><span class="muted">Cloud Computer ·</span><strong>${esc(compState.pill)}</strong></div>
-    <div class="row comp-acts">${pauseBtn}${actBtn}</div>
-  </div>`;
+  return SidePanel.computerFoot({
+    id: comp.id,
+    kindLabel: "Cloud Computer",
+    stateText: compState.pill,
+    awake,
+    pauseId: awake ? comp.id : null,
+    watchOpen: awake ? `computer:${comp.id}` : null,
+    wakeId: awake ? null : comp.id,
+  });
 }
 function timelineRowHtml(t) {
   const [ic] = standing(t);
   const ts = when(t.ended_at || t.created_at);
-  const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`) : null;
-  const brandHtml = brand
-    ? `<span class="tl-brand" aria-hidden="true">${brand.svg}</span>`
-    : `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
+  const brandHtml = SidePanel.brand(`${t.title || ""} ${t.summary || ""} ${t.text || ""}`, "tl-brand")
+    || `<span class="tl-brand tl-ic st ${ic}" aria-hidden="true">${icon(ic)}</span>`;
   return `<li class="tl-row" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}">${brandHtml}<div class="tl-info"><div class="tl-title-line"><span class="ttl">${esc(t.title || firstLine(t.text) || "Task")}</span><span class="mono faint tl-time">${esc(ts)}</span></div></div></a></li>`;
 }
 function timelineGroups(active, done) {
@@ -2217,7 +2203,32 @@ function timelineGroups(active, done) {
     <div class="gbox"><ul class="tlist tl-stack">${list.map(timelineRowHtml).join("")}</ul></div>
   </details>`).join("");
 }
-function activityView(composed) {
+// A decision waiting on the person, with its app's icon and its answers.
+function needsInlineCard(i) {
+  const ic = SidePanel.brand(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) || `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
+  const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
+  const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
+  return `<div class="gbox needs-inline-card">
+    <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span></a>
+    <div class="needs-inline-acts">
+      <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
+      <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
+    </div>
+  </div>`;
+}
+// The schedules coming up, each with its app's icon or a calendar (a bell
+// for the heartbeat), or the offer to start the heartbeat.
+function schedRows(scheds, hb) {
+  return scheds.length ? scheds.slice(0, 3).map(sc => {
+    const isHb = /heartbeat/i.test(sc.title || sc.text || "");
+    const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
+    return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
+  }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`;
+}
+const guardrailsRow = () => `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
+// The overview's parts, which the panel stacks and an Aurora stage
+// (aurora-stage.js) lays out as cards.
+function activityParts(composed) {
   const active = App.tasks.filter(t => !ENDED.includes(t.status));
   const done = App.tasks.filter(t => ENDED.includes(t.status)).sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""));
   const pending = needsMe();
@@ -2225,32 +2236,19 @@ function activityView(composed) {
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
   const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
-  const needsBanner = pending.length ? `<section class="companion-sec companion-needs-banner">
-    <div class="companion-sec-head"><span class="needs-banner-lbl"><span class="comp-dot warn" aria-hidden="true"></span>Needs your approval (${pending.length})</span><a class="needs-view-all" href="#/inbox" data-open="needs">View all →</a></div>
-    <div class="needs-inline-list">${pending.slice(0, 1).map(i => {
-      const b = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) : null;
-      const ic = b ? `<span class="gbox-ic has-logo" aria-hidden="true">${b.svg}</span>` : `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
-      const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
-      const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
-      return `<div class="gbox needs-inline-card">
-        <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span></a>
-        <div class="needs-inline-acts">
-          <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
-          <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
-        </div>
-      </div>`;
-    }).join("")}</div>
-  </section>` : `<section class="companion-sec companion-cleared-banner">
-    <span class="cleared-lbl">✓ All approvals cleared</span>
-    <a class="cleared-link" href="#/inbox" data-open="needs">Approvals</a>
-  </section>`;
+  const needsBanner = SidePanel.waitingBanner({
+    several: false,
+    count: pending.length,
+    viewAllHref: "#/inbox",
+    viewAllOpen: "needs",
+    clearedHref: "#/inbox",
+    clearedOpen: "needs",
+    rowsHtml: pending.slice(0, 1).map(needsInlineCard).join(""),
+  });
   const curTask = active[0];
   const units = curTask?.plan?.units || [];
   const doneUnits = units.filter(u => u.status === "done").length;
   const pct = units.length ? Math.round((100 * doneUnits) / units.length) : null;
-  const progressBar = pct !== null
-    ? `<div class="active-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>`
-    : "";
   const footStatus = pending.length
     ? `<span class="small muted">${esc(`Waiting on ${pending.length} approval${pending.length === 1 ? "" : "s"}`)}</span>`
     : curTask?.status === "suspended"
@@ -2258,20 +2256,15 @@ function activityView(composed) {
       : curTask && typeof statusLineSlot === "function"
         ? statusLineSlot(curTask, "small muted")
         : `<span class="small muted">${esc(curTask?.status_line || "In progress")}</span>`;
-  const activeCard = curTask ? `<section class="companion-sec">
-    <a class="gbox companion-active-card" href="#/task/${enc(curTask.task_id)}" data-open="task:${esc(curTask.task_id)}">
-      <div class="active-card-top">
-        <span class="active-card-kicker"><span class="comp-dot run" aria-hidden="true"></span>Active now</span>
-        <span class="mono active-elapsed">${esc(when(curTask.created_at))}</span>
-      </div>
-      <div class="active-card-title">${esc(curTask.title || firstLine(curTask.text) || "Running task")}</div>
-      ${progressBar}
-      <div class="active-card-foot">
-        ${footStatus}
-        <span class="small active-inspect">Inspect →</span>
-      </div>
-    </a>
-  </section>` : "";
+  const activeCard = curTask ? SidePanel.activeCard({
+    href: `#/task/${enc(curTask.task_id)}`,
+    open: `task:${curTask.task_id}`,
+    rightMeta: when(curTask.created_at),
+    title: curTask.title || firstLine(curTask.text) || "Running task",
+    pct,
+    footHtml: footStatus,
+    inspectLabel: "Inspect →",
+  }) : "";
   const recentList = (done.length ? done : active).slice(0, 3);
   const recentHtml = recentList.length
     ? `<ul class="tlist tl-stack">${recentList.map(timelineRowHtml).join("")}</ul>`
@@ -2279,22 +2272,22 @@ function activityView(composed) {
   const schedCard = `<section class="companion-scheds">
     <div class="companion-sec-head"><span>Up Next</span><a class="sec-head-link" href="#/schedules" data-open="schedules">${scheds.length} schedule${scheds.length === 1 ? "" : "s"}</a></div>
     <div class="scheds-list">
-      ${scheds.length ? scheds.slice(0, 3).map(sc => {
-        const isHb = /heartbeat/i.test(sc.title || sc.text || "");
-        const brand = typeof AppLogos !== "undefined" && AppLogos.forText ? AppLogos.forText(`${sc.title || ""} ${sc.text || ""}`) : null;
-        const icHtml = brand ? `<span class="gbox-ic sch has-logo">${brand.svg}</span>` : `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
-        return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
-      }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`}
+      ${schedRows(scheds, hb)}
     </div>
   </section>`;
-  return `${needsBanner}
-    ${activeCard}
+  const updates = (feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : "";
+  return { active, done, pending, scheds, hb, curTask, needsBanner, activeCard, recentHtml, schedCard, updates };
+}
+function activityView(composed) {
+  const p = activityParts(composed);
+  return `${p.needsBanner}
+    ${p.activeCard}
     <section class="companion-timeline">
       <div class="companion-sec-head"><span>Recent Work</span><span>Today</span></div>
-      ${recentHtml}
+      ${p.recentHtml}
     </section>
-    ${schedCard}
-    ${(feed || other.length) ? `<details class="collapsed-done" data-key="other"><summary>Updates (${other.length}${feed ? " + last session" : ""})</summary>${feed ? `<div style="margin:8px 0;">${feed}</div>` : ""}${other.map(i => card(i, composed)).join("")}</details>` : ""}
+    ${p.schedCard}
+    ${p.updates}
     ${activityLinks("activity")}`;
 }
 
@@ -2330,7 +2323,7 @@ function needsView(composed) {
         <details class="appr-payload" data-key="hist:${esc(i.id)}"><summary class="small">View details</summary><div class="gbox appr-payload-box">${i.kind === "approval" ? askContent(i.details || {}) : fieldValue(i.details || i.resolution || {})}</div></details>
       </div></div>
     </div>`).join("")}</div></section>` : "";
-  const guardrails = `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
+  const guardrails = guardrailsRow();
   if (!open.length) return `<p class="empty">You're all caught up. Nothing is waiting on you right now.</p>${guardrails}${historyHtml}`;
   return `<div class="companion-sec-head"><span>Approvals</span><span class="count">${open.length}</span></div>
     ${list([...now, ...later])}${guardrails}${historyHtml}`;
@@ -2379,6 +2372,8 @@ function deliverable(t) {
 const Panel = { anchors:{}, layers:{}, unwatch:null, opener:null, focusNext:false, drawn:null, what: null, layer: "outcome", seq: 0, live: null, liveFor: null, liveText: "", autoOpened: false, userClosed: false, lib: { q: "", project: "", kind: "all" } };
 
 function openPanel(what, options={}) {
+  // Aurora's overview is the cards under the conversation, not a panel.
+  if (what === "activity" && typeof AuroraStage !== "undefined" && AuroraStage.on()) { if (Panel.what) closePanel(!options.auto); return; }
   if (options.history && Panel.what!==what) {
     history.replaceState({...history.state,work:Panel.what},"",location.href);
     history.pushState({...history.state,work:what},"",location.href);
@@ -2418,6 +2413,7 @@ function closePanel(restoreFocus=false) {
   stopPanelLive();
   hush();
   Panel.what = null; Panel.drawn=null;
+  if (typeof AuroraStage !== "undefined") AuroraStage.closed();
   Panel.rendered=null;Resources.forget("Work");
   const el = $("#detail");
   if (!el) return;
@@ -2443,8 +2439,12 @@ const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks",
 const PANEL_TAB_PARENT = { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
-  const tabs = [["activity", "Activity"], ["needs", "Approvals"], ["files", "Files"], ["apps", "Apps"]];
-  return `<nav class="panel-tabs" aria-label="Inspector">${tabs.map(([k, l]) => `<a href="#/${k === "needs" ? "inbox" : k}" data-open="${k}" ${cur === k ? 'aria-current="page"' : ""}><span>${l}</span>${k === "needs" && n ? ` <span class="badge">${n}</span>` : ""}</a>`).join("")}</nav>`;
+  return SidePanel.tabs([
+    ["activity", "Activity", { href: "#/activity", open: "activity" }],
+    ["needs", "Approvals", { href: "#/inbox", open: "needs", badge: n }],
+    ["files", "Files", { href: "#/files", open: "files" }],
+    ["apps", "Apps", { href: "#/apps", open: "apps" }],
+  ], cur, { label: "Inspector" });
 }
 
 async function drawPanel() {
@@ -2477,7 +2477,13 @@ async function drawPanel() {
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
-  const changed = paint(el, `<div class="detail-head"><div class="dh-main">${headHtml}</div></div><div class="detail-body" data-panel="${esc(kind)}">${body}</div>${isRootCompanion ? companionFooter() : ""}`); liveStatusLines(el);
+  // An Aurora stage (aurora-stage.js) shows what is open as a canvas beside
+  // the conversation and its cards.
+  const stage = typeof AuroraStage !== "undefined" && AuroraStage.on();
+  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, body }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
+  if (n !== Panel.seq || !Panel.what) return;
+  const changed = paint(el, markup); liveStatusLines(el);
+  if (stage) AuroraStage.settle(el, changed);
   if (typeof showKillControl === "function" && typeof AdminState !== "undefined" && AdminState.standing?.admin) showKillControl();
   if (!changed) {
     reportOpenedSoon();
@@ -2598,6 +2604,7 @@ async function taskView(id, composed) {
     ${running ? `<div class="live" id="plive" aria-live="polite">${esc(Panel.liveText) || `<span class="faint">Working…</span>`}</div>` : ""}
     <div class="seg layers" role="tablist" aria-label="What to show">${[["outcome", "Result"], ["contract", "Progress"], ["trace", "Steps"]].map(([k, l]) => `<button role="tab" aria-selected="${Panel.layer === k}" class="${Panel.layer === k ? "on" : ""}" data-layer="${k}">${l}</button>`).join("")}</div>
     <section class="layer">${layers[Panel.layer]}</section>
+    ${!ENDED.includes(t.status) ? `<form class="row small" data-task-steer="${esc(id)}"><input placeholder="Steer Magnus on the next step…" aria-label="Steer Magnus" autocomplete="off"><button type="submit">Steer</button></form>` : ""}
     <div class="row pactions">${moveControl(t.task_id, t.project, App.projects)}${!ENDED.includes(t.status) ? `<button data-act="cancel" data-id="${esc(id)}">Stop</button>` : trashButton(t.task_id, "Delete task")}${t.status === "suspended" && !t.waiting_item ? `<button data-act="resume" data-id="${esc(id)}">Resume</button>` : ""}</div>`;
   Panel.task = t;
   return { head, body, after: el => Panel.layer === "outcome" && view.length && fill($("#pview", el), view, id, t) };
@@ -2893,6 +2900,19 @@ function libFileKind(f) {
 
 // Files: every file uploaded or delivered, as a view over the same files
 // the conversations show.
+const FILE_SVG_SHEET = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-width="1.2"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="#10B981" stroke-width="1.2" stroke-linecap="round"/></svg>';
+const FILE_SVG_DOC = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#F43F5E" fill-opacity="0.18" stroke="#F43F5E" stroke-width="1.2"/><path d="M5.5 6.5h5M5.5 9.5h3.5" stroke="#F43F5E" stroke-width="1.2" stroke-linecap="round"/></svg>';
+// A file's badge by its kind, in the Files view and an Aurora stage's card.
+function fileBadge(f) {
+  const n = (f.name || "").toLowerCase(), k = libFileKind(f);
+  if (n.endsWith(".pdf") || f.media_type === "application/pdf") return `<span class="lib-badge pdf">${FILE_SVG_DOC}<span class="sr">PDF</span></span>`;
+  if (/\.(csv|xlsx?|tsv)$/.test(n) || f.media_type === "text/csv") return `<span class="lib-badge sheet">${FILE_SVG_SHEET}<span class="sr">CSV</span></span>`;
+  if (n.endsWith(".json") || f.media_type === "application/json") return `<span class="lib-badge json">${FILE_SVG_SHEET}<span class="sr">JSON</span></span>`;
+  if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css|patch|diff)$/.test(n)) return `<span class="lib-badge code">${FILE_SVG_SHEET}<span class="sr">CODE</span></span>`;
+  if (k === "pages") return `<span class="lib-badge page">${FILE_SVG_DOC}<span class="sr">MD</span></span>`;
+  if (k === "media") return `<span class="lib-badge media">${FILE_SVG_SHEET}<span class="sr">IMG</span></span>`;
+  return `<span class="lib-badge">${FILE_SVG_DOC}<span class="sr">FILE</span></span>`;
+}
 async function filesView() {
   const { q, project, kind = "all" } = Panel.lib;
   const { files } = await Server.files.list({ q, project });
@@ -2900,19 +2920,7 @@ async function filesView() {
   const DAY_MS = 86_400_000, weekCutoff = Date.now() - 7 * DAY_MS;
   const recent = shown.filter(f => { const t = Date.parse(f.at || ""); return !Number.isNaN(t) && t >= weekCutoff; });
   const older = shown.filter(f => { const t = Date.parse(f.at || ""); return Number.isNaN(t) || t < weekCutoff; });
-  const svgSheet = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#10B981" fill-opacity="0.18" stroke="#10B981" stroke-width="1.2"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="#10B981" stroke-width="1.2" stroke-linecap="round"/></svg>';
-  const svgDoc = '<svg viewBox="0 0 16 16" fill="none" class="ic" aria-hidden="true"><rect x="2.5" y="2" width="11" height="12" rx="1.5" fill="#F43F5E" fill-opacity="0.18" stroke="#F43F5E" stroke-width="1.2"/><path d="M5.5 6.5h5M5.5 9.5h3.5" stroke="#F43F5E" stroke-width="1.2" stroke-linecap="round"/></svg>';
-  const badgeFor = f => {
-    const n = (f.name || "").toLowerCase(), k = libFileKind(f);
-    if (n.endsWith(".pdf") || f.media_type === "application/pdf") return `<span class="lib-badge pdf">${svgDoc}<span class="sr">PDF</span></span>`;
-    if (/\.(csv|xlsx?|tsv)$/.test(n) || f.media_type === "text/csv") return `<span class="lib-badge sheet">${svgSheet}<span class="sr">CSV</span></span>`;
-    if (n.endsWith(".json") || f.media_type === "application/json") return `<span class="lib-badge json">${svgSheet}<span class="sr">JSON</span></span>`;
-    if (/\.(js|mjs|ts|tsx|py|rs|go|sh|html|css|patch|diff)$/.test(n)) return `<span class="lib-badge code">${svgSheet}<span class="sr">CODE</span></span>`;
-    if (k === "pages") return `<span class="lib-badge page">${svgDoc}<span class="sr">MD</span></span>`;
-    if (k === "media") return `<span class="lib-badge media">${svgSheet}<span class="sr">IMG</span></span>`;
-    return `<span class="lib-badge">${svgDoc}<span class="sr">FILE</span></span>`;
-  };
-  const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${badgeFor(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><span class="mono small muted lib-size">${esc(kb(f.size))}</span><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
+  const rowHtml = f => `<li data-lib-file="${esc(f.id)}">${fileBadge(f)}<div class="rg-main">${fileChip(f)}<span class="small muted">${f.source === "delivered" ? "Delivered by Magnus" : "Uploaded by you"} · ${esc(when(f.at))} · ${fileFrom(f)}</span></div><span class="mono small muted lib-size">${esc(kb(f.size))}</span><div class="file-acts">${moveControl(f.id, f.project, App.projects, true)}<button type="button" class="icon-btn" data-file-download="${esc(f.id)}" data-name="${esc(f.name)}" title="Download ${esc(f.name)}" aria-label="Download ${esc(f.name)}">${icon("download")}</button>${trashButton(f.id, "Delete")}</div></li>`;
   const listHtml = !shown.length
     ? `<p class="empty">${q || project || kind !== "all" ? "No file matches." : "No files yet. Upload one, or ask Magnus for a document."}</p>`
     : recent.length && older.length
@@ -3166,7 +3174,11 @@ const MOVED_TO_ADMIN = { models: "#/admin/models", connectors: "#/admin/connecto
 const administers = () => typeof AdminState !== "undefined" && !!AdminState.standing?.admin;
 async function openSettingsModal(which) {
   if (which === "rules") { openPanel("rules", { history: true, focus: true }); return; }
+  if (typeof AdminState !== "undefined" && !AdminState.standing && typeof Server !== "undefined" && Server.admin?.standing) {
+    AdminState.standing = await Server.admin.standing({ background: true }).catch(() => null);
+  }
   let d = $("#settings-modal");
+  let navigatingAway = false;
   if (!d) {
     d = document.createElement("dialog");
     d.id = "settings-modal";
@@ -3176,10 +3188,12 @@ async function openSettingsModal(which) {
     d.addEventListener("click", e => { if (e.target === d) d.close(); });
     d.addEventListener("close", () => {
       d.remove();
-      if (location.hash.startsWith("#/settings")) location.hash = App.lastNonSettingsHash || "#/home";
+      if (!navigatingAway && (location.hash.startsWith("#/settings") || location.hash.startsWith("#/admin"))) {
+        location.hash = App.lastNonSettingsHash || "#/home";
+      }
     });
   }
-  const MODAL_TABS = [
+  const PERSONAL_TABS = [
     ["account", "Account & Privacy", async el => {
       el.innerHTML = `<div class="settings-stack"><section data-s="account"></section><section data-s="payments"></section><section data-s="data"></section><section data-s="agreements"></section></div>`;
       await accountSection($('[data-s="account"]', el));
@@ -3191,19 +3205,49 @@ async function openSettingsModal(which) {
     ["notifications", "Notifications", notificationsSection],
     ["updates", "Updates", updatesSection],
   ];
-  const mapKey = k => ["payments", "data", "agreements"].includes(k) ? "account" : k;
+  const ADMIN_LABELS = { models: "Models & Providers" };
+  const adminTabs = () => {
+    if (!administers() || typeof ADMIN_SECTIONS === "undefined") return [];
+    return ADMIN_SECTIONS.map(([k, label]) => [
+      `admin:${k}`,
+      ADMIN_LABELS[k] || label,
+      async el => {
+        const render = AdminState.sections.get(k);
+        if (render) await render(el);
+        else paint(el, `<h2>${esc(label)}</h2><p class="empty">${esc(label)} is not in the app yet.</p>`);
+      },
+    ]);
+  };
+  const mapKey = k => {
+    if (!k) return "account";
+    if (k.startsWith("admin:")) return k;
+    if (["models", "connectors", "people", "agents", "spend", "security", "operations", "overview"].includes(k)) {
+      return administers() ? `admin:${k}` : "account";
+    }
+    if (k === "safety") return administers() ? "admin:overview" : "account";
+    return ["payments", "data", "agreements"].includes(k) ? "account" : k;
+  };
   const renderTab = async key => {
-    const sec = MODAL_TABS.find(x => x[0] === mapKey(key)) || MODAL_TABS[0];
+    const aTabs = adminTabs();
+    const allTabs = [...PERSONAL_TABS, ...aTabs];
+    const target = mapKey(key);
+    const sec = allTabs.find(x => x[0] === target) || PERSONAL_TABS[0];
+    const btn = ([k, label]) => `<button type="button" data-settings-tab="${esc(k)}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`;
     d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="primary" data-settings-done>Done</button></div>
-      <nav class="settings-tabs" aria-label="Settings">${MODAL_TABS.map(([k, label]) =>
-        `<button type="button" data-settings-tab="${k}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`).join("")}</nav>
-      <div class="settings-body">${administers() ? `<p class="small muted" data-admin-pointer>The server's models, the organisation's connectors, people's roles, server updates and the kill switch are in <a href="#/admin">Admin</a>.</p>` : ""}<section id="setting" data-section="${sec[0]}"></section></div>`;
+      <div class="settings-shell">
+        <nav class="settings-nav" aria-label="Settings">
+          <div class="settings-nav-group">Personal</div>
+          ${PERSONAL_TABS.map(btn).join("")}
+          ${aTabs.length ? `<div class="settings-nav-group">Server &amp; Admin</div>${aTabs.map(btn).join("")}` : ""}
+        </nav>
+        <div class="settings-body"><section id="setting" data-section="${esc(sec[0])}"></section></div>
+      </div>`;
     $("[data-settings-done]", d).onclick = () => d.close();
-    d.querySelectorAll("[data-settings-tab]").forEach(btn => {
-      btn.onclick = () => renderTab(btn.dataset.settingsTab);
+    d.querySelectorAll("[data-settings-tab]").forEach(b => {
+      b.onclick = () => renderTab(b.dataset.settingsTab);
     });
     d.querySelectorAll('a[href^="#/"]').forEach(a => {
-      a.addEventListener("click", () => d.close());
+      a.addEventListener("click", () => { navigatingAway = true; d.close(); });
     });
     if (!d.open) d.showModal();
     await sec[2]($("#setting", d));
@@ -3211,12 +3255,11 @@ async function openSettingsModal(which) {
   await renderTab(which);
 }
 
-route(/^#\/settings(?:\/([a-z]+))?$/, async (main, which) => {
-  if (MOVED_TO_ADMIN[which]) { location.hash = administers() ? MOVED_TO_ADMIN[which] : "#/settings"; return; }
+route(/^#\/settings(?:\/([a-z:]+))?$/, async (main, which) => {
   await openSettingsModal(which);
 });
 // Where these lived before Settings.
-route(/^#\/models$/, () => { location.hash = administers() ? "#/admin/models" : "#/settings"; });
+route(/^#\/models$/, () => openSettingsModal(administers() ? "admin:models" : "account"));
 route(/^#\/apps$/, () => { location.hash = administers() ? "#/admin/connectors" : "#/library"; });
 
 // How Magnus looks on this device: light, dark or the computer's; an accent;
@@ -3229,7 +3272,8 @@ function appearanceSection(el) {
   };
   const draw = () => {
     const p = Theme.prefs(), look = Theme.look;
-    const isBlueDefault = p.style === "prism" || p.style === "studio" || p.style === "obsidian-2";
+    const isAurora = p.style === "aurora" || p.style === "obsidian-aurora";
+    const isBlueDefault = p.style === "prism" || p.style === "studio" || p.style === "obsidian-2" || p.style === "aurora";
     const defAccent = isBlueDefault ? "blue" : "graphite";
     const defHex = isBlueDefault ? "#7C8CFF" : (look.mode === "light" ? "#111111" : "#F5F5F5");
     const swatchColor = a => a.id === "graphite" && look.mode === "light" ? "#111111" : a.swatch;
@@ -3237,9 +3281,15 @@ function appearanceSection(el) {
     const styleDesc = {
       obsidian: "Obsidian uses tight architectural corners, flush borders, and a pure black monochrome baseline.",
       "obsidian-2": "Obsidian 2 frames the workspace in a pure black card with a matte sidebar, inline file badges, and a circular send button.",
+      "obsidian-aurora": "Obsidian 2 Aurora pairs Obsidian 2's monochrome precision and file badges with floating islands, living presence orbs, and dynamic execution beams.",
       prism: "Prism uses soft pill surfaces, rounded cards, and circular avatars.",
       studio: "Studio uses a two-column editorial hero, bento cards, uppercase nav groups, and an elevated pill composer.",
+      aurora: "Aurora brings living ambient light shaders, liquid-glass presence orbs, floating workspace islands, and dynamic execution beams across desktop and mobile.",
     }[p.style] || "";
+    const bgPicker = isAurora
+      ? `<h3 id="bg-h">Motion background</h3><div class="seg" role="radiogroup" aria-labelledby="bg-h">${Theme.BACKGROUNDS.map(([k, l]) => radio("background", k, l)).join("")}</div>
+      <p class="small faint">${esc(Theme.BACKGROUND_HINTS[p.background] || "")}</p>`
+      : "";
     paint(el, `<h2>Appearance</h2><div class="appearance">
       ${Theme.saved === false ? `<p class="small" role="status">Appearance changed for this session but was not saved on this device.</p>` : ""}
       <h3 id="style-h">Theme</h3><div class="seg" role="radiogroup" aria-labelledby="style-h">${Theme.STYLES.map(([k, l]) => radio("style", k, l)).join("")}</div>
@@ -3247,6 +3297,7 @@ function appearanceSection(el) {
       <h3 id="mode-h">Mode</h3><div class="seg" role="radiogroup" aria-labelledby="mode-h">${Theme.MODES.map(([k, l]) => radio("mode", k, l)).join("")}</div>
       <h3 id="acc-h">Accent color</h3><div class="swatches ag-swatches" role="radiogroup" aria-labelledby="acc-h">${Theme.ACCENTS.map(a => { const sc = swatchColor(a); return radio("accent", a.id, a.label, `<span class="sr">${esc(a.label)}</span>`, "swatch", `--swatch:${sc};background:${sc}`); }).join("")}<label class="swatch-custom" title="Pick any custom hex color"><span class="swatch-custom-inner" aria-hidden="true">+</span><input type="color" data-custom-accent value="${esc(currentHex)}" aria-label="Custom accent color"></label><div class="hex-box"><span class="hex-dot" aria-hidden="true"></span><input type="text" class="hex-input" data-custom-hex value="${esc(currentHex)}" maxlength="7" aria-label="Custom accent hex"></div>${p.accent !== defAccent ? `<button type="button" class="link small" data-look="accent" data-value="${esc(defAccent)}">Reset to default</button>` : ""}</div>
       <p class="small faint">${isBlueDefault ? "Default uses Indigo." : "Default uses Monochrome graphite."} Custom colors automatically preserve legible contrast.</p>
+      ${bgPicker}
       <h3 id="mot-h">Motion</h3><div class="seg" role="radiogroup" aria-labelledby="mot-h">${Theme.MOTIONS.map(([k, l]) => radio("motion", k, l)).join("")}</div>
       <p class="small muted" data-motion-hint>${esc(Theme.MOTION_HINTS[p.motion])}${look.motion !== p.motion ? " Your computer asks for reduced motion, so Magnus uses quick fades." : ""}</p>
       <p class="small faint">Magnus also follows your computer's setting for reduced motion.</p></div>`);
@@ -3263,7 +3314,7 @@ function appearanceSection(el) {
     b.focus({ preventScroll: true });
     if (b.dataset.look === "style") {
       const nextStyle = b.dataset.value, p = Theme.prefs(), patch = { style: nextStyle };
-      if ((nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2") && p.accent === "graphite") patch.accent = "blue";
+      if ((nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2" || nextStyle === "aurora") && p.accent === "graphite") patch.accent = "blue";
       else if (nextStyle === "obsidian" && p.accent === "blue") patch.accent = "graphite";
       Theme.set(patch);
       return;
@@ -3292,7 +3343,7 @@ async function accountSection(el) {
       <div class="card"><div class="spread"><div><strong>${esc(App.me.name)}</strong> <span class="faint">(${esc(App.me.id)})</span>
         <div class="small muted">Signed in to ${esc(App.appliance)}${App.me.roles?.length ? ` · roles: ${esc(App.me.roles.join(", "))}` : ""}${App.me.groups?.length ? ` · groups: ${esc(App.me.groups.join(", "))}` : ""}</div></div>
         <button data-act="sign-out">Sign out</button></div></div>
-      <div data-password></div><div data-mail></div>
+      <div data-password></div><div data-totp></div><div data-timezone></div><div data-mail></div><div data-account-privacy></div>
       <h3>Devices</h3>
       ${sessions.length ? `<table class="t" data-devices><tbody>${sessions.map(x => `<tr data-session="${esc(x.id)}"><td>${x.client === "app" ? "Magnus app" : x.client === "browser" ? "Browser" : "Device"}${x.current ? ` <span class="chip ok">this device</span>` : ""}</td>
         <td class="small muted">signed in ${esc(when(x.created))} · until ${esc(new Date(x.expires).toLocaleDateString())}</td>
@@ -3301,7 +3352,7 @@ async function accountSection(el) {
       <p class="small muted" data-guide-again>Setting up? <a href="#/start">Open the getting started guide</a>: connect your apps, set up team chat and schedule a first workflow.</p>
       ${administers() ? `<p class="small muted" data-roles-moved>People's roles are set in <a href="#/admin/people">Admin › People</a>.</p>` : ""}`);
     const pw = $("[data-password]", el);
-    if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); }
+    if (pw && !pw.childElementCount) { await passwordCard(pw); await mailCard($("[data-mail]", el)); if (typeof accountExtras === "function") await accountExtras(el); }
   };
   el.onclick = async e => {
     const b = e.target.closest("button[data-act]"); if (!b) return;
@@ -3331,15 +3382,41 @@ function systemNotificationsCard() {
 async function notificationsSection(el) {
   const draw = async () => {
     App.prefs = await Server.preferences.get();
+    const wh = App.prefs.working_hours || { start: "09:00", end: "17:00" };
+    const qh = App.prefs.quiet_hours || { start: "22:00", end: "07:00" };
+    const budget = App.prefs.interruptions_per_day ?? 5;
     paint(el, `<h2>Notifications</h2><p class="muted">Magnus tells this computer when…</p>
       <div class="card">${NOTIFY.map(([k, label, hint]) => `<label class="row toggle"><input type="checkbox" data-pref="${k}" ${App.prefs[k] ? "checked" : ""}>
         <span><span>${esc(label)}</span><span class="small muted" style="display:block">${esc(hint)}</span></span></label>`).join("")}</div>
+      <h3>Hours and interruption budget</h3>
+      <div class="card" data-hours-card>
+        <p class="small muted">Morning briefings run at the start of working hours. During quiet hours, non-urgent proactive notices wait until morning.</p>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap">
+          <label class="small">Working hours <input type="time" data-hours="working_hours" data-edge="start" value="${esc(wh.start || "09:00")}"> to <input type="time" data-hours="working_hours" data-edge="end" value="${esc(wh.end || "17:00")}"></label>
+          <label class="small">Quiet hours <input type="time" data-hours="quiet_hours" data-edge="start" value="${esc(qh.start || "22:00")}"> to <input type="time" data-hours="quiet_hours" data-edge="end" value="${esc(qh.end || "07:00")}"></label>
+          <label class="small">Daily interruption limit <input type="number" min="1" max="50" data-pref-num="interruptions_per_day" value="${esc(String(budget))}" style="width:5em"></label>
+        </div>
+      </div>
       ${systemNotificationsCard()}`);
   };
   el.onchange = async e => {
     if (e.target.closest("input[data-system-notifications]")) {
       if (e.target.checked && Magnus.notifyPermission?.() !== "granted") await Notices.turnOn(); else Notices.setSystem(e.target.checked);
       return draw();
+    }
+    const h = e.target.closest("input[data-hours]");
+    if (h) {
+      const kind = h.dataset.hours;
+      const start = $(`input[data-hours="${kind}"][data-edge="start"]`, el)?.value || "09:00";
+      const end = $(`input[data-hours="${kind}"][data-edge="end"]`, el)?.value || "17:00";
+      try { App.prefs = await Server.preferences.set({ [kind]: { start, end } }); toast("Saved."); } catch (err) { toast(err.message); }
+      return;
+    }
+    const num = e.target.closest("input[data-pref-num]");
+    if (num) {
+      const v = Math.max(1, Number(num.value) || 1);
+      try { App.prefs = await Server.preferences.set({ [num.dataset.prefNum]: v }); toast("Saved."); } catch (err) { toast(err.message); }
+      return;
     }
     const c = e.target.closest("input[data-pref]"); if (!c) return;
     try { App.prefs = await Server.preferences.set({ [c.dataset.pref]: c.checked }); toast("Saved."); } catch (err) { toast(err.message); c.checked = !c.checked; }
@@ -3577,6 +3654,7 @@ async function boot() {
   refreshUpdate(true);
   showWhatsNew();
   App.prefs = await Server.preferences.get().catch(() => null);
+  if (typeof autoDetectTimezone === "function") autoDetectTimezone();
   await Promise.all([refresh(), pollVersions()]);
   // Opening the app shows what changed since the last session: with
   // news, and landing on home, the needs panel opens beside it (#367).
@@ -3636,6 +3714,16 @@ async function boot() {
         try {
           await Server.schedules.create({ text: "Heartbeat: Check connected email, calendar, and active threads for anything urgent or stalled. Stay silent unless something needs my attention.", every_minutes: 30 });
           toast("Heartbeat enabled (every 30 min).");
+          await refresh();
+        } catch (err) { toast(err.message); b.disabled = false; }
+      }
+      else if (t.closest("[data-stop-all-work]")) {
+        const b = /** @type {HTMLButtonElement} */ (t.closest("[data-stop-all-work]"));
+        if (!await ask("Stop all of your running tasks, pause your schedules, and pause your active computers?", "Stop my active work", true)) return;
+        b.disabled = true;
+        try {
+          const r = await Server.tasks.stopAll();
+          toast(`Stopped ${r.tasks_cancelled || 0} task(s), paused ${r.schedules_paused || 0} schedule(s) and ${r.computers_paused || 0} computer(s).`);
           await refresh();
         } catch (err) { toast(err.message); b.disabled = false; }
       }

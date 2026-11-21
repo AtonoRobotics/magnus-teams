@@ -64,6 +64,9 @@ impl<'a> Admission<'a> {
             return Ok(());
         }
         let hard = |why: String| Refusal::Denied { why, rule: Some(HARD_DENIAL) };
+        if let Some(why) = self.s.compartments.refusal(&self.run.id, tool) {
+            return Err(hard(why));
+        }
         if let Some(why) = self.s.sub_agents.refusal(&self.run.id, tool) {
             return Err(hard(why));
         }

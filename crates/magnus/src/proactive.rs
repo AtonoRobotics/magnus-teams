@@ -56,7 +56,7 @@ pub struct Settings {
 pub fn settings(cfg: &crate::config::Proactive, prefs: &serde_json::Value) -> Settings {
     let num = |k: &str, dflt: u32| prefs.get(k).and_then(serde_json::Value::as_u64).map(|n| n as u32).filter(|n| *n > 0).unwrap_or(dflt);
     Settings {
-        tz: prefs.get("timezone").and_then(serde_json::Value::as_str).and_then(|z| z.parse().ok()).unwrap_or(chrono_tz::Tz::UTC),
+        tz: tz_of(prefs),
         working: prefs.get("working_hours").map(|w| window(w, "09:00", "17:00")).unwrap_or((540, 1020)),
         quiet: prefs.get("quiet_hours").map(|w| window(w, "22:00", "07:00")).unwrap_or((1320, 420)),
         every_minutes: num("review_every_minutes", cfg.review_every_minutes).max(5),
@@ -321,7 +321,7 @@ impl crate::kernel::Kernel {
     /// used to skip when any review had woken within five minutes, which
     /// silently dropped failures after a cadence review or a boot; a
     /// per-task mark is the precise dedup (a task ends once).
-    pub async fn review_wake(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
+    pub(crate) async fn review_wake(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
         if !self.cfg.proactive.on {
             return false;
         }

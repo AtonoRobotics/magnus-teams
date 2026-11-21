@@ -221,9 +221,9 @@ impl Kernel {
         let bytes = seal(&cipher, &plain)?;
         let dir = self.cfg.backup_dir();
         std::fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("magnus-{}.backup", made.format("%Y%m%dT%H%M%S%.3fZ")));
+        let file = format!("magnus-{}.backup", made.format("%Y%m%dT%H%M%S%.3fZ"));
+        let path = dir.join(&file);
         crate::vault::write_private(&path, &bytes)?;
-        let file = path.file_name().unwrap().to_string_lossy().to_string();
         self.emit(actor, Ev::BackupMade { file: file.clone(), through_seq: through, events: rows.len(), bytes: bytes.len() }).await?;
         // The restore test, on the file as written.
         let checked = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|b| open(&cipher, &b)).and_then(|v| check(&v));

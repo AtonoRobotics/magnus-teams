@@ -189,6 +189,7 @@ impl Adapters {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn complete(
         &self,
         id: &str,
@@ -197,10 +198,30 @@ impl Adapters {
         messages: Vec<Message>,
         tools: Vec<ToolSpec>,
         max_tokens: u32,
+        on_text: impl FnMut(&str),
+    ) -> Result<TurnOut, AdapterError> {
+        self.complete_with_reasoning(id, model, system, messages, tools, max_tokens, None, on_text).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn complete_with_reasoning(
+        &self,
+        id: &str,
+        model: &str,
+        system: &str,
+        messages: Vec<Message>,
+        tools: Vec<ToolSpec>,
+        max_tokens: u32,
+        reasoning: Option<&str>,
         mut on_text: impl FnMut(&str),
     ) -> Result<TurnOut, AdapterError> {
         let r = self.get(id).await.map_err(|e| AdapterError::unavailable(format!("adapter {id}: {e:#}")))?;
-        let (settings, cred_name) = Self::split_settings(&r.cfg);
+        let (mut settings, cred_name) = Self::split_settings(&r.cfg);
+        if let Some(level) = reasoning.filter(|s| !s.is_empty()) {
+            if let Some(obj) = settings.as_object_mut() {
+                obj.insert("reasoning_effort".into(), serde_json::json!(level));
+            }
+        }
         let credential = self.credential(&cred_name);
         let params = CompleteParams { model: model.into(), settings, credential, system: system.into(), messages, tools, max_tokens };
         let mut call = proto::Call::open(&r.socket, Request::Complete(params)).await.map_err(|e| AdapterError::unavailable(format!("adapter {id} unreachable: {e}")))?;

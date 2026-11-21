@@ -238,9 +238,29 @@ async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws
     };
     let knowledge = w.entries(project.as_deref()).len();
     let progress = project.as_deref().map(|id| w.progress(id));
+    let routines: Vec<Value> = w
+        .routines
+        .iter()
+        .filter(|(_, r)| channels.contains(&&r.channel))
+        .map(|(id, r)| {
+            json!({
+                "id": id,
+                "channel": r.channel,
+                "text": r.text,
+                "every_hours": r.every_hours,
+                "by": r.by,
+                "by_name": name_of(&k, &r.by),
+                "last_at": r.last_at,
+                "stopped": r.stopped,
+            })
+        })
+        .collect();
+    let delegations = k.panel_delegations(&ws, &p.id, &channels);
+    let apps = k.workspace_app_list(&w);
     Ok(Json(json!({
         "project": def, "channels": channels, "files": files, "tasks": tasks, "work": work, "members": people,
         "knowledge": knowledge, "progress": progress.map(|(d, t)| json!({ "done": d, "total": t })), "computer": k.team_computer(&ws),
+        "routines": routines, "delegations": delegations, "apps": apps,
     }))
     .into_response())
 }

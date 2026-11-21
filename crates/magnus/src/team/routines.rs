@@ -12,7 +12,7 @@ use anyhow::Result;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{delete, post};
+use axum::routing::{get, patch};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -105,6 +105,16 @@ pub(super) fn apply(w: &mut super::Workspace, c: &Change) {
                 r.stopped = Some(reason.clone());
             }
         }
+        Change::Removed { person, .. } => {
+            for r in w.routines.values_mut().filter(|r| r.by == *person && r.stopped.is_none()) {
+                r.stopped = Some("its creator left the workspace".to_string());
+            }
+        }
+        Change::Member { person, role, .. } if *role < super::Role::Admin => {
+            for r in w.routines.values_mut().filter(|r| r.by == *person && r.stopped.is_none()) {
+                r.stopped = Some("its creator is no longer a workspace admin".to_string());
+            }
+        }
         _ => {}
     }
 }
@@ -119,7 +129,29 @@ fn fire(r: &mut Routine, f: Firing) {
 }
 
 pub fn router() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/workspaces/{ws}/routines", post(add)).route("/v1/workspaces/{ws}/routines/{id}", delete(remove))
+    Router::new().route("/v1/workspaces/{ws}/routines", get(list).post(add)).route("/v1/workspaces/{ws}/routines/{id}", patch(update).delete(remove))
+}
+
+async fn list(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>) -> ApiResult {
+    let Some(w) = k.read(|s| s.team.workspace(&ws).cloned()) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
+    let items: Vec<serde_json::Value> = w
+        .routines
+        .iter()
+        .filter(|(_, r)| w.sees(&r.channel, &p.id))
+        .map(|(id, r)| {
+            json!({
+                "id": id,
+                "channel": r.channel,
+                "text": r.text,
+                "every_hours": r.every_hours,
+                "by": r.by,
+                "by_name": super::chat_routes::name_of(&k, &r.by),
+                "last_at": r.last_at,
+                "stopped": r.stopped,
+            })
+        })
+        .collect();
+    Ok(Json(items).into_response())
 }
 
 #[derive(Deserialize)]
@@ -127,6 +159,16 @@ struct NewRoutine {
     channel: String,
     text: String,
     every_hours: i64,
+}
+
+#[derive(Deserialize)]
+struct UpdateRoutine {
+    #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    every_hours: Option<i64>,
 }
 
 async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> ApiResult {
@@ -146,6 +188,30 @@ async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws):
         tracing::warn!("team routines: {e:#}");
     }
     Ok(Json(json!({ "id": id })).into_response())
+}
+
+async fn update(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>, Json(b): Json<UpdateRoutine>) -> ApiResult {
+    let Some(existing) = k.read(|s| s.team.workspace(&ws).and_then(|w| w.routines.get(&id).cloned())) else {
+        return refuse(StatusCode::NOT_FOUND, "no such routine");
+    };
+    let channel = b.channel.unwrap_or(existing.channel);
+    let text = b.text.unwrap_or(existing.text);
+    let every_hours = b.every_hours.unwrap_or(existing.every_hours);
+    if !(MIN_ROUTINE_HOURS..=MAX_ROUTINE_HOURS).contains(&every_hours) {
+        return refuse(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
+    }
+    if text.trim().is_empty() || text.chars().count() > MAX_ROUTINE_CHARS {
+        return refuse(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
+    }
+    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.channels.contains_key(&channel))) {
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
+    }
+    let routine = Routine { channel, text, every_hours, by: p.id.clone(), last_at: existing.last_at, ..Default::default() };
+    send(&k, &p, Change::Routine { workspace: ws, id, routine }).await?;
+    if let Err(e) = k.run_due_routines().await {
+        tracing::warn!("team routines: {e:#}");
+    }
+    Ok(Json(json!({ "ok": true })).into_response())
 }
 
 async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
@@ -245,5 +311,20 @@ mod tests {
         assert!(!r.due(now));
         r.last_at = Some(now - chrono::Duration::hours(2));
         assert!(r.due(now));
+    }
+
+    #[test]
+    fn a_routine_stops_when_its_creator_leaves_or_loses_admin_standing() {
+        let mut w = super::super::Workspace::default();
+        let r = Routine { channel: "c".into(), text: "Sum up".into(), every_hours: 1, by: "ann".into(), ..Default::default() };
+        apply(&mut w, &Change::Routine { workspace: "w".into(), id: "r1".into(), routine: r.clone() });
+        assert!(w.routines["r1"].stopped.is_none());
+        apply(&mut w, &Change::Member { workspace: "w".into(), person: "ann".into(), role: super::super::Role::Member });
+        assert!(w.routines["r1"].stopped.is_some(), "demoting creator below Admin did not stop their routine");
+
+        apply(&mut w, &Change::Routine { workspace: "w".into(), id: "r2".into(), routine: r });
+        assert!(w.routines["r2"].stopped.is_none());
+        apply(&mut w, &Change::Removed { workspace: "w".into(), person: "ann".into() });
+        assert!(w.routines["r2"].stopped.is_some(), "removing creator did not stop their routine");
     }
 }

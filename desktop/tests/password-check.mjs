@@ -94,4 +94,51 @@ function harness() {
   assert.doesNotMatch(pw, /const \w+ = await Magnus\.forgotPassword/, "the step reads the server's answer");
 }
 
+{
+  // Self-service TOTP enrollment, Time zone selector, and Account Export / Erase cards.
+  const h = harness();
+  h.api = async (m, p, b) => {
+    h.calls.push([m, p, b]);
+    if (m === "GET" && p === "/v1/account/totp") return { here: true, enrolled: false, code_required: false, timezone_explicit: false };
+    if (m === "POST" && p === "/v1/account/totp/begin") return { secret: "JBSWY3DPEHPK3PXP", uri: "otpauth://totp/Magnus:ada?secret=JBSWY3DPEHPK3PXP" };
+    if (m === "POST" && p === "/v1/account/totp/confirm") return { ok: true, enrolled: true };
+    if (m === "GET" && p === "/v1/preferences") return { timezone: "UTC" };
+    if (m === "PUT" && p === "/v1/preferences") return { timezone: b.timezone };
+    if (m === "DELETE" && p === "/v1/account") return { deleted: true };
+    return { ok: true };
+  };
+  h.Magnus.api = h.api;
+  const totpBox = { set innerHTML(v) { this.html = v; }, get innerHTML() { return this.html; } };
+  await h.totpCard(totpBox);
+  assert.match(totpBox.html, /Set up authenticator app/);
+  await h.$("[data-totp-begin]").onclick();
+  assert.match(totpBox.html, /JBSWY3DPEHPK3PXP/);
+  h.$("[data-totp-code]").value = "123456";
+  await h.$("[data-totp-confirm]").onclick();
+  assert.match(totpBox.html, /Enrolled/);
+
+  const tzBox = { set innerHTML(v) { this.html = v; }, get innerHTML() { return this.html; } };
+  await h.timezoneCard(tzBox);
+  assert.match(tzBox.html, /data-tz-select/);
+  h.$("[data-tz-select]").value = "America/Los_Angeles";
+  await h.$("[data-tz-select]").onchange();
+  assert.ok(h.calls.some(c => c[0] === "PUT" && c[1] === "/v1/preferences" && c[2]?.timezone === "America/Los_Angeles"));
+
+  const privBox = { set innerHTML(v) { this.html = v; }, get innerHTML() { return this.html; } };
+  let askedOpts = null;
+  h.askText = async opts => { askedOpts = opts; return "DELETE"; };
+  h.privacyAccountCard(privBox);
+  assert.match(privBox.html, /data-account-export.*data-account-erase/s);
+  await h.$("[data-account-erase]").onclick();
+  assert.equal(askedOpts?.title, "Delete your account and data?", "privacyAccountCard passes an options object with title and danger to askText");
+  assert.equal(askedOpts?.danger, true);
+  assert.ok(h.calls.some(c => c[0] === "DELETE" && c[1] === "/v1/account" && c[2]?.confirm === "DELETE"));
+}
+
+assert.match(app, /typeof msg === "object" && msg !== null/, "askText in app.js accepts an options object");
+assert.match(app, /data-hours="working_hours"/, "Settings → Notifications exposes working_hours controls");
+assert.match(app, /data-hours="quiet_hours"/, "Settings → Notifications exposes quiet_hours controls");
+assert.match(app, /data-pref-num="interruptions_per_day"/, "Settings → Notifications exposes interruptions_per_day control");
+assert.match(app, /data-stop-all-work/, "Tasks view exposes a Stop my active work button");
+
 console.log("password check passed");

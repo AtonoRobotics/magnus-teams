@@ -1,5 +1,5 @@
 // Companion inspector, file type filters, style-aware Appearance switching,
-// modal ask/askText confirmations, and solid (unblurred) modal backdrops.
+// and modal ask/askText confirmations.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -27,7 +27,11 @@ function extractFn(src, signature) {
 }
 
 const now = Date.now();
-const recentIso = new Date(now - 3600_000).toISOString();
+// A task one hour ago crosses a calendar boundary during the first hour of a
+// day. Use local noon so this fixture is unambiguously "today" in every run.
+const todayNoon = new Date(now);
+todayNoon.setHours(12, 0, 0, 0);
+const recentIso = todayNoon.toISOString();
 const oldIso = new Date(now - 14 * 86400_000).toISOString();
 const sampleFiles = [
   { id: "f1", name: "brief.md", media_type: "text/markdown", size: 2048, source: "delivered", at: recentIso, origin: { kind: "upload" } },
@@ -115,6 +119,7 @@ vm.createContext(ctx);
 vm.runInContext(themeSrc, ctx, { filename: "theme.js" });
 vm.runInContext(read("evidence.js"), ctx, { filename: "evidence.js" });
 vm.runInContext(`${read("app-logos.js")}\nglobalThis.AppLogos = AppLogos;`, ctx, { filename: "app-logos.js" });
+vm.runInContext(`${read("side-panel.js")}\nglobalThis.SidePanel = SidePanel;`, ctx, { filename: "side-panel.js" });
 const snippets = [
   extractFn(app, "function companionStatus()"),
   extractFn(app, "function dayBucketLabel(iso)"),
@@ -123,10 +128,16 @@ const snippets = [
   extractFn(app, "function companionFooter()"),
   extractFn(app, "function timelineRowHtml(t)"),
   extractFn(app, "function timelineGroups(active, done)"),
+  extractFn(app, "function needsInlineCard(i)"),
+  extractFn(app, "function schedRows(scheds, hb)"),
+  app.slice(app.indexOf("const guardrailsRow = "), app.indexOf("\n", app.indexOf("const guardrailsRow = "))),
+  extractFn(app, "function activityParts(composed)"),
   extractFn(app, "function activityView(composed)"),
   extractFn(app, "function needsView(composed)"),
   extractFn(app, "function panelTabs(kind)"),
   extractFn(app, "function libFileKind(f)"),
+  app.slice(app.indexOf("const FILE_SVG_SHEET = "), app.indexOf("\n", app.indexOf("const FILE_SVG_DOC = "))),
+  extractFn(app, "function fileBadge(f)"),
   extractFn(app, "async function filesView()"),
   extractFn(app, "function navigationTree()"),
   extractFn(app, "function appearanceSection(el)"),
@@ -284,14 +295,25 @@ assert.match(read("layout.css"), /html\[data-style="obsidian-2"\]\s*\.shell/);
 assert.match(read("layout.css"), /html\[data-style="studio"\]\s*nav\.side/);
 assert.match(read("pages.css"), /\.gbox\s*\{\s*border:\s*0;/);
 
-// 6. No native browser confirm()/prompt() dialogs or backdrop-filter blur in desktop UI.
-for (const file of ["app.js", "computers.js", "team-panel.js"]) {
+// 6. No native browser confirm()/alert()/prompt() dialogs in any desktop UI script.
+for (const file of readdirSync(uiDir).filter(f => f.endsWith(".js"))) {
   const src = read(file);
-  assert.ok(!/(?:^|[^\w.])(?:window\.)?(?:confirm|prompt)\(/m.test(src), `${file} uses native confirm() or prompt()`);
+  assert.ok(!/(?:^|[^\w.])(?:window\.)?(?:confirm|alert|prompt)\(/m.test(src), `${file} uses native confirm(), alert(), or prompt()`);
 }
-for (const file of readdirSync(uiDir).filter(f => f.endsWith(".css"))) {
-  assert.ok(!/backdrop-filter\s*:/i.test(read(file)), `${file} uses backdrop-filter`);
-}
+
+// 7. Personal and Team right side panels share SidePanel (side-panel.js).
+const teamHead = ctx.SidePanel.head({ letter: "M", dot: "run", tone: "run", label: "Working", titleHtml: "Magnus", subText: "1 running · 2 projects", topActs: false });
+assert.match(teamHead, /class="companion-row-left".*<h2>Magnus<\/h2>.*1 running · 2 projects/s);
+const teamCard = ctx.SidePanel.activeCard({
+  href: "#/team/w/c/c1",
+  rightMeta: "Step 3",
+  title: "Magnus is working for Dana",
+  pct: 50,
+  footHtml: '<span class="mono">Running tests</span>',
+});
+assert.match(teamCard, /class="gbox companion-active-card".*Step 3.*Magnus is working for Dana.*aria-valuenow="50".*Running tests/s);
+assert.match(read("team-panel.js"), /SidePanel\.shell\(/, "team-panel.js renders through shared SidePanel");
+assert.match(app, /SidePanel\.head\(/, "app.js renders through shared SidePanel");
 
 assert.match(hdr, /data-admin-kill/);
 assert.ok(!app.includes("inspector-pill"), "Companion pill removed from conversation top bar");

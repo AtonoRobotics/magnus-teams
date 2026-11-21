@@ -14,11 +14,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
 const page = read("index.html"), admin = read("admin.js"), agents = read("admin-agents.js");
-const fast = readFileSync(join(here, "../../.github/workflows/fast.yml"), "utf8");
+const fast = readFileSync(join(here, "../../ci/fast.sh"), "utf8");
 
 const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]);
 assert.ok(scripts.indexOf("admin-agents.js") > scripts.indexOf("admin.js"), "index.html loads admin-agents.js after admin.js");
-assert.match(fast, /node desktop\/tests\/admin-agents-check\.mjs/, "the fast tier runs this check");
+assert.ok(fast.includes("for f in desktop/tests/*-check.mjs; do"), "the fast tier runs every *-check.mjs, this one among them (ci/fast.sh)");
 
 const list = {
   connectors: ["github", "mail"],
