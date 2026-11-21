@@ -161,33 +161,7 @@ function wireComposer(form, record, conv) {
       if (!rejected) conv.refresh().catch(() => {});
     } finally { record.sending = false; MessageDrafts.changed(); }
   };
-  const voiceBtn = $("[data-voice-in]", form);
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (voiceBtn && !SR) voiceBtn.hidden = true;
-  let recog = null;
-  const stopVoice = () => {
-    if (recog) { try { recog.stop(); } catch { /* ignore */ } recog = null; }
-    if (voiceBtn) { voiceBtn.classList.remove("recording"); voiceBtn.setAttribute("aria-pressed", "false"); }
-  };
-  if (voiceBtn && SR) voiceBtn.onclick = () => {
-    if (recog) { stopVoice(); return; }
-    recog = new SR();
-    recog.continuous = true;
-    recog.interimResults = false;
-    recog.onresult = ev => {
-      let added = "";
-      for (let k = ev.resultIndex; k < ev.results.length; k++) if (ev.results[k].isFinal) added += ev.results[k][0].transcript;
-      if (!added.trim()) return;
-      box.value = (box.value ? `${box.value.trimEnd()} ` : "") + added.trim();
-      box.dispatchEvent(new Event("input"));
-      box.focus();
-    };
-    recog.onerror = () => stopVoice();
-    recog.onend = () => stopVoice();
-    voiceBtn.classList.add("recording");
-    voiceBtn.setAttribute("aria-pressed", "true");
-    try { recog.start(); } catch { stopVoice(); }
-  };
+  const stopVoice = wireVoice(form, box);
   onLeave(() => { stopVoice(); if (active) { read(false); active = false; unsubscribe(); } });
   // Only a missing/expired reference is marked unavailable. A connection
   // failure does not silently turn a valid attachment into a missing one.
@@ -196,4 +170,102 @@ function wireComposer(form, record, conv) {
   });
   fit(); show();
   box.setSelectionRange(...(record.selection || [box.value.length, box.value.length]));
+}
+
+/** The longest a spoken message is recorded for the server to write down. */
+const VOICE_MAX_MS = 120_000;
+
+/**
+ * The composer's mic. When the server has voice input installed, what is
+ * said is recorded and the server writes it down (POST /v1/transcribe,
+ * whisper.cpp), so it never leaves the server; this works in any web view.
+ * Otherwise the browser's own speech recognition writes it as it is said,
+ * where the browser has one. With neither, there is no mic. The person reads
+ * the words before sending them.
+ * @param {HTMLFormElement} form @param {HTMLTextAreaElement} box
+ * @returns {() => void} stops listening
+ */
+function wireVoice(form, box) {
+  const voiceBtn = /** @type {?HTMLButtonElement} */ ($("[data-voice-in]", form));
+  // The server's, when it has voice input, so what is said stays on it.
+  const recorder = !!(typeof App !== "undefined" && App.me?.voice) && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+  const SR = recorder ? null : window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!voiceBtn) return () => {};
+  if (!SR && !recorder) { voiceBtn.hidden = true; return () => {}; }
+  /** @type {any} */
+  let recog = null;
+  const add = (/** @type {string} */ said) => {
+    if (!said.trim()) return;
+    box.value = (box.value ? `${box.value.trimEnd()} ` : "") + said.trim();
+    box.dispatchEvent(new Event("input"));
+    box.focus();
+  };
+  const idle = () => {
+    voiceBtn.classList.remove("recording");
+    voiceBtn.setAttribute("aria-pressed", "false");
+    voiceBtn.title = "Speak message";
+  };
+  const stopVoice = () => {
+    if (recog) { try { recog.stop(); } catch { /* ignore */ } recog = null; }
+    idle();
+  };
+  const listening = () => {
+    voiceBtn.classList.add("recording");
+    voiceBtn.setAttribute("aria-pressed", "true");
+    voiceBtn.title = "Stop speaking";
+  };
+  if (SR) {
+    voiceBtn.onclick = () => {
+      if (recog) { stopVoice(); return; }
+      recog = new SR();
+      recog.continuous = true;
+      recog.interimResults = false;
+      recog.onresult = (/** @type {any} */ ev) => {
+        let added = "";
+        for (let k = ev.resultIndex; k < ev.results.length; k++) if (ev.results[k].isFinal) added += ev.results[k][0].transcript;
+        add(added);
+      };
+      recog.onerror = () => stopVoice();
+      recog.onend = () => stopVoice();
+      listening();
+      try { recog.start(); } catch { stopVoice(); }
+    };
+    return stopVoice;
+  }
+  // Recorded, and written down by the server.
+  /** @type {?MediaRecorder} */
+  let rec = null;
+  let limit = 0;
+  const stopRecording = () => { clearTimeout(limit); if (rec && rec.state !== "inactive") rec.stop(); };
+  voiceBtn.onclick = async () => {
+    if (rec) { stopRecording(); return; }
+    /** @type {MediaStream} */
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { toast("Magnus cannot hear you: allow the microphone for this app, then try again."); return; }
+    /** @type {Blob[]} */
+    const parts = [];
+    const r = new MediaRecorder(stream);
+    rec = r;
+    r.ondataavailable = e => { if (e.data.size) parts.push(e.data); };
+    r.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      rec = null;
+      idle();
+      const audio = new Blob(parts, { type: r.mimeType || "audio/webm" });
+      if (!audio.size) return;
+      voiceBtn.disabled = true;
+      voiceBtn.title = "Writing down what you said…";
+      try {
+        const data = await new Promise((ok, bad) => { const f = new FileReader(); f.onload = () => ok(String(f.result).split(",")[1] || ""); f.onerror = bad; f.readAsDataURL(audio); });
+        const said = await Server.transcribe(/** @type {string} */ (data));
+        add(said?.text || "");
+      } catch (err) { toast(`What you said was not written down: ${/** @type {Error} */ (err).message || err}`); }
+      finally { voiceBtn.disabled = false; voiceBtn.title = "Speak message"; }
+    };
+    r.start();
+    listening();
+    limit = window.setTimeout(stopRecording, VOICE_MAX_MS);
+  };
+  return () => { stopRecording(); stopVoice(); };
 }

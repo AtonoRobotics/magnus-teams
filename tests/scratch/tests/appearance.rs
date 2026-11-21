@@ -128,3 +128,18 @@ fn aurora_canvas_is_built_around_the_decision() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// Aurora, compact: thin scrollbars in the theme's colours, the model and
+/// reasoning as one chip, and the mic through the server's voice input
+/// (`desktop/tests/aurora-compact.mjs`).
+#[test]
+fn aurora_is_compact_and_keeps_voice_in_reach() {
+    let out = std::process::Command::new("node")
+        .arg(workspace_root().join("desktop/tests/aurora-compact.mjs"))
+        .env("MAGNUS_CHROMIUM", magnus_scratch::chromium())
+        .output()
+        .expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

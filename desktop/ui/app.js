@@ -2786,7 +2786,7 @@ function connectorBody(c) {
 
 async function showConnectorPage(main, name) {
   const c = await Server.connectors.get(name);
-  main.innerHTML = `<div class="libpage cpage"><p class="small"><a href="#/library">Apps</a></p><section class="cp" aria-label="${esc(c.title)}">${connectorBody(c)}</section></div>`;
+  main.innerHTML = `<div class="libpage cpage"><p class="small"><a href="#/library" class="cp-back" aria-label="Back to Apps">← Apps</a></p><section class="cp" aria-label="${esc(c.title)}">${connectorBody(c)}</section></div>`;
   bindConnectorActs(main);
 }
 
