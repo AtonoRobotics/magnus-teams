@@ -222,7 +222,7 @@ const Discover = (() => {
         <div class="hello-card-foot"><span class="hello-card-meta">${esc(p.tools.join(" · "))}</span><span class="hello-card-go">Try →</span></div>
       </button>`;
     }
-    return `<article class="explore-card">
+    return `<article class="explore-card" data-playbook="${esc(p.id)}">
       <div class="card-media"><img src="${esc(img)}" alt="" aria-hidden="true" loading="lazy"></div>
       <div class="explore-card-head"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span><div class="card-flow" aria-hidden="true">${flow}</div></div>
       <h3>${esc(p.title)}</h3>

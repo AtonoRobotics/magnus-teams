@@ -37,6 +37,20 @@ fn aurora_draws_the_panel_as_a_stage_of_cards() {
     println!("{said}");
 }
 
+/// Aurora's Explore is the mockup's bento: a wide image card, then pairs,
+/// and a filter change that moves (`desktop/tests/aurora-explore.mjs`).
+#[test]
+fn aurora_explore_is_the_mockups_bento() {
+    let out = std::process::Command::new("node")
+        .arg(workspace_root().join("desktop/tests/aurora-explore.mjs"))
+        .env("MAGNUS_CHROMIUM", magnus_scratch::chromium())
+        .output()
+        .expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}
+
 /// Aurora's decisions and alerts are placed on its stage, not over it: a
 /// decision beside its conversation or in its box, a message as a box, an
 /// answer said where it was given (`desktop/tests/aurora-alerts.mjs`).
