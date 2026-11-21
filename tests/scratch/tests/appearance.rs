@@ -37,6 +37,18 @@ fn aurora_draws_the_panel_as_a_stage_of_cards() {
     println!("{said}");
 }
 
+/// Aurora's pop-ups, toasts and decisions move as they come and go, and an
+/// answered decision shows the answer before it folds
+/// (`desktop/tests/aurora-alerts.mjs`).
+#[test]
+fn aurora_alerts_move_as_they_come_and_go() {
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-alerts.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}
+
 /// Aurora says what Magnus is doing where the person looks: the reasoning
 /// pill on an answer being written, and the state above the composer
 /// (`desktop/tests/aurora-reasoning.mjs`).

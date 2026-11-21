@@ -6,17 +6,17 @@
 //
 // OUT_DIR gets filmstrip.png (each moment, the mockup left and the app
 // right) and a video of each, mockup.mp4 and app.mp4, from Chrome's
-// screencast, made by the system's ffmpeg (FFMPEG overrides it).
+// screencast, made by the system's ffmpeg (FFMPEG overrides it), as filmstrip-kit.mjs does.
 //
 // The app's page has the app's own theme, sheets and Aurora scripts, and a
 // conversation as the app draws one. Its task moves through the mockup's four
 // steps at the mockup's pace (520 ms each); in the app the pill reads the
 // task every 1.5 s, so there each step shows for as long as the task is on it.
 import { createRequire } from "node:module";
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { readFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { screencast, sheet } from "./filmstrip-kit.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
@@ -57,34 +57,6 @@ section.conv { display: flex; flex-direction: column; height: 100%; } .thread { 
 <script>${stubs}</script><script>${ui("aurora.js")}</script><script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script>
 <script>const box = document.getElementById("msg"); box.addEventListener("input", () => { box.style.height = "auto"; box.style.height = box.scrollHeight + "px"; });</script></body></html>`;
 
-/**
- * Chrome's screencast of a page, as it draws, made into an MP4 cropped to
- * `crop` when stopped.
- * @param {any} context @param {any} page @param {string} name
- */
-async function screencast(context, page, name) {
-  const cdp = await context.newCDPSession(page);
-  /** @type {Array<{ data: string, at: number }>} */
-  const shots = [];
-  cdp.on("Page.screencastFrame", (/** @type {any} */ f) => { shots.push({ data: f.data, at: f.metadata.timestamp }); cdp.send("Page.screencastAck", { sessionId: f.sessionId }).catch(() => {}); });
-  const view = page.viewportSize();
-  await cdp.send("Page.startScreencast", { format: "jpeg", quality: 85, everyNthFrame: 1, maxWidth: view.width, maxHeight: view.height });
-  return async (/** @type {?{x:number,y:number,width:number,height:number}} */ crop) => {
-    await cdp.send("Page.stopScreencast").catch(() => {});
-    const dir = join(out, `frames-${name}`);
-    mkdirSync(dir, { recursive: true });
-    const list = shots.map((f, i) => {
-      writeFileSync(join(dir, `${String(i).padStart(5, "0")}.jpg`), Buffer.from(f.data, "base64"));
-      const next = shots[i + 1];
-      return `file '${String(i).padStart(5, "0")}.jpg'\nduration ${next ? Math.max(0.001, next.at - f.at).toFixed(3) : "0.5"}`;
-    });
-    writeFileSync(join(dir, "list.txt"), `${list.join("\n")}\nfile '${String(shots.length - 1).padStart(5, "0")}.jpg'\n`);
-    const cut = crop ? `crop=${Math.round(crop.width / 2) * 2}:${Math.round(crop.height / 2) * 2}:${Math.round(crop.x)}:${Math.round(crop.y)},` : "";
-    execFileSync(process.env.FFMPEG || "ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", join(dir, "list.txt"), "-vf", `${cut}fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p`, "-movflags", "+faststart", join(out, `${name}.mp4`)]);
-    rmSync(dir, { recursive: true, force: true });
-  };
-}
-
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const size = { width: 1280, height: 900 };
 /** @type {Record<string, Buffer[]>} */
@@ -102,7 +74,7 @@ try {
     const x = Math.max(0, Math.min(a.left, b.left) - 24), y = Math.max(0, a.top - 60);
     return { x, y, width: Math.min(innerWidth - x, Math.max(a.right, b.right) + 24 - x), height: Math.min(innerHeight - y, b.bottom + 24 - y) };
   });
-  const stopMockup = await screencast(mctx, m, "mockup");
+  const stopMockup = await screencast(mctx, m, out, "mockup");
   await m.waitForTimeout(300);
   const loaded = Date.now();
   await m.click('.chip-btn[data-wf="inbox"]');
@@ -117,7 +89,7 @@ try {
   // The app plays the same request.
   const actx = await browser.newContext({ viewport: size });
   const p = await actx.newPage();
-  const stopApp = await screencast(actx, p, "app");
+  const stopApp = await screencast(actx, p, out, "app");
   p.on("pageerror", e => console.error(`app page error: ${e.message}`));
   await p.setContent(appPage);
   await p.waitForTimeout(600);
@@ -150,12 +122,7 @@ try {
   await actx.close();
 
   // Each moment, the mockup left and the app right.
-  const img = b => `data:image/png;base64,${b.toString("base64")}`;
-  const rows = MOMENTS.map(([name, ms], i) => `<tr><th colspan="2">${i + 1}. ${name} <span>· ${(ms / 1000).toFixed(1)}s</span></th></tr><tr><td><img src="${img(frames.mockup[i])}"></td><td><img src="${img(frames.app[i])}"></td></tr>`).join("");
-  const sheet = await browser.newPage({ viewport: { width: 1240, height: 800 } });
-  await sheet.setContent(`<!doctype html><style>body{margin:0;padding:20px;background:#0b0d12;color:#e8eef9;font:15px system-ui,sans-serif}table{border-collapse:collapse;width:1200px}th{text-align:left;padding:18px 6px 8px;font-weight:600}th span{color:#8592a8;font-weight:400}td{width:50%;vertical-align:top;padding:4px 6px}img{width:100%;border-radius:8px;display:block}.head td{color:#8592a8;font-weight:600;padding-bottom:0}</style>
-    <table><tr class="head"><td>Mockup (website/)</td><td>App, Aurora</td></tr>${rows}</table>`);
-  await sheet.screenshot({ path: join(out, "filmstrip.png"), fullPage: true });
+  await sheet(browser, out, MOMENTS.map(([name, ms], i) => ({ title: `${name} · ${(ms / 1000).toFixed(1)}s`, mockup: frames.mockup[i], app: frames.app[i] })));
   console.log(`filmstrip written to ${out}`);
 } finally {
   await browser.close();
