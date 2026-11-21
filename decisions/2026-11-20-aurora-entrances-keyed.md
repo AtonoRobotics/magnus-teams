@@ -24,5 +24,5 @@ an unchanged conversation and panel replayed five entrance animations, each
 first drawn, then hidden, then faded back in 45 ms later. A repaint of the
 thread also reset its scroll to the top, and clicking into the composer
 swung the whole background to the "thinking" palette.
-`desktop/tests/aurora-motion-check.mjs` (run by the scratch suite's
+`desktop/tests/aurora-motion.mjs` (run by the scratch suite's
 `appearance` test) fails on each of these with the previous code.
