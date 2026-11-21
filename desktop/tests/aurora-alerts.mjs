@@ -112,8 +112,8 @@ try {
   const still = await r.evaluate(() => ({ beside: Panel.what, line: !!document.querySelector("#thread .aurora-decision-line") }));
   check("with reduced motion, decisions are in the same places", () => assert.deepEqual(still, { beside: "item:i3", line: true }));
 
-  // No conversation shown, so no stage: a message is a pop-up.
-  await r.evaluate(() => { const c = document.querySelector("#main > section.conv"); c.remove(); Notices.show({ key: "team:w1:n3", title: "Elena", body: "Hi", system: "", href: "#/team/w1" }); document.getElementById("main").append(c); });
+  // A page with no conversation, so no stage: a message is a pop-up.
+  await r.evaluate(() => { const c = document.querySelector("#main > section.conv"); const settings = document.createElement("section"); settings.textContent = "Settings"; c.replaceWith(settings); Notices.show({ key: "team:w1:n3", title: "Elena", body: "Hi", system: "", href: "#/team/w1" }); settings.replaceWith(c); });
   const noStage = await r.evaluate(() => document.querySelectorAll('#notices .notice[data-notice="team:w1:n3"]').length);
   check("with no conversation shown, a message is still a pop-up", () => assert.equal(noStage, 1));
 

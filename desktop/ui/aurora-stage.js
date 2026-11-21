@@ -1,7 +1,9 @@
 // The Aurora stage: in a style that has one (Theme.stage), the conversation
 // and its cards work as the mockup's agent demo does
 // (decisions/2026-11-20-aurora-stage.md).
-// - The conversation is the main card. Under it is the bento: a box appears
+// - One frame holds the conversation and the canvas
+//   (decisions/2026-11-21-aurora-composition.md). The input stays at the
+//   bottom; just above it is the bento: a box appears
 //   while something is relevant and leaves when it is not, and the others
 //   move to their new places. Live Workspace while work in this conversation
 //   runs (with the beam and what it is doing), waits on the person (amber) or
@@ -15,7 +17,8 @@
 //   would do and its answers; one from elsewhere is a box in the bento with
 //   its answers in the box. Answered, it says so in place, then goes.
 // - Nothing floats over the stage: a message that would be a pop-up is a
-//   box here instead (`takes`).
+//   box here instead (`takes`). One that comes while the page is still being
+//   drawn waits to see whether there is a stage to show it on.
 // - Every view stays one click away in the conversation's head: a row of the
 //   panel's icons (Approvals, Tasks, Routines, Rules, Files, Apps).
 // - There is no panel beside the conversation. Anything opened is the
@@ -58,6 +61,8 @@ const AuroraStage = (() => {
   const notes = new Map();
   /** Decisions of this conversation opened beside it once already. */
   const offered = new Set();
+  /** What came to be told before the page was first drawn. @type {Array<{ key: string, title: string, body: string, href: string, system?: string }>} */
+  const early = [];
   /** A box just answered, shown with its answer until `until`. @type {?{ box: any, until: number }} */
   let held = null;
 
@@ -250,7 +255,7 @@ const AuroraStage = (() => {
     if (Math.abs(now.height - was.height) < 1 && Math.abs(now.margin - was.margin) < 1) return;
     const a = bento.animate([{ height: `${was.height}px`, marginTop: `${was.margin}px` }, { height: `${now.height}px`, marginTop: `${now.margin}px` }], { duration: MOVE_MS, easing: now.height < was.height ? FOLD_EASE : MOVE_EASE });
     a.id = "stage-grow";
-    const thread = bento.parentElement?.querySelector(":scope > section.conv .thread");
+    const thread = bento.closest("section.conv")?.querySelector(":scope > .thread");
     if (!thread || thread.scrollHeight - thread.scrollTop - thread.clientHeight > END_PX) return;
     const keep = () => { thread.scrollTop = thread.scrollHeight; if (a.playState === "running") requestAnimationFrame(keep); };
     requestAnimationFrame(keep);
@@ -298,12 +303,20 @@ const AuroraStage = (() => {
    * A message that would be a pop-up, taken as a box of the bento instead.
    * A decision needs no box of its own here: the stage shows it already.
    * Where no conversation is shown (Settings, say), there is no stage to
-   * show it on, and it is a pop-up as in the other styles.
+   * show it on, and it is a pop-up as in the other styles. Before the page
+   * is first drawn it is held, and placed once it is (`look`).
    * @param {{ key: string, title: string, body: string, href: string }} s
    * @returns {boolean} whether the stage took it
    */
   function takes(s) {
-    if (!on() || !document.querySelector("#main > section.conv")) return false;
+    if (!on()) return false;
+    const main = document.getElementById("main");
+    if (!main?.querySelector(":scope > section.conv")) {
+      if (!main || main.firstElementChild) return false;
+      early.push(s);
+      first.observe(document.documentElement, { childList: true, subtree: true });
+      return true;
+    }
     if (s.key.startsWith("inbox:")) { refresh(); return true; }
     notes.delete(s.key);
     notes.set(s.key, { key: s.key, title: s.title, body: s.body, href: s.href, at: Date.now() });
@@ -356,24 +369,52 @@ const AuroraStage = (() => {
   }
 
   let drawing = null;
-  /** Draws the bento under the conversation and the dock in its head. */
+  /** The bento, kept when the conversation is drawn again. @type {?HTMLElement} */
+  let kept = null;
+
+  /**
+   * The bento in its place: after the thread, just above the input.
+   * @param {Element} conv
+   */
+  function bentoIn(conv) {
+    let bento = /** @type {?HTMLElement} */ (conv.querySelector(":scope > .stage-bento"));
+    if (!bento) {
+      if (!kept) {
+        kept = document.createElement("nav");
+        kept.className = "stage-bento";
+        kept.setAttribute("aria-label", "What is happening");
+        sized.observe(kept);
+        at = new WeakMap();
+      }
+      bento = kept;
+    }
+    const thread = conv.querySelector(":scope > .thread");
+    const before = conv.querySelector(":scope > .composer-slot");
+    if (thread) { if (thread.nextElementSibling !== bento) thread.after(bento); }
+    else if (before) { if (before.previousElementSibling !== bento) before.before(bento); }
+    else if (bento.parentElement !== conv) conv.append(bento);
+    return bento;
+  }
+
+  /** Draws the bento above the conversation's input and the dock in its head. */
   function refresh() {
     const main = document.getElementById("main");
     if (!main) return Promise.resolve();
     watch(main);
     const conv = main.querySelector(":scope > section.conv");
     if (!on() || !conv) {
-      main.querySelector(":scope > .stage-bento")?.remove();
+      document.querySelectorAll(".stage-bento").forEach(b => b.remove());
       document.querySelectorAll(".stage-dock").forEach(d => d.remove());
       return Promise.resolve();
     }
     if (drawing) return drawing;
     drawing = (async () => {
       const list = await boxes();
-      let bento = main.querySelector(":scope > .stage-bento");
-      if (!bento) { bento = document.createElement("nav"); bento.className = "stage-bento"; bento.setAttribute("aria-label", "What is happening"); main.append(bento); sized.observe(bento); at = new WeakMap(); }
+      const now = main.querySelector(":scope > section.conv");
+      if (!now) return;
+      const bento = bentoIn(now);
       place(bento, list);
-      const row = conv.querySelector("#conv-head .row, .conv-head .row");
+      const row = now.querySelector("#conv-head .row, .conv-head .row");
       if (row) {
         let d = row.querySelector(":scope > .stage-dock");
         if (!d) { d = document.createElement("span"); d.className = "stage-dock"; row.prepend(d); }
@@ -435,8 +476,18 @@ const AuroraStage = (() => {
   }
 
   // The first conversation drawn starts the watch, without waiting for the
-  // app's next poll.
-  const first = new MutationObserver(() => { if (document.querySelector("#main > section.conv")) { first.disconnect(); refresh(); } });
+  // app's next poll; and once the page is drawn, what came before it is
+  // placed: on the stage, or as a pop-up where there is none.
+  let started = false;
+  function look() {
+    const main = document.getElementById("main");
+    if (early.length && main?.firstElementChild) {
+      for (const s of early.splice(0)) if (!takes(s) && typeof Notices !== "undefined") Notices.popup(s);
+    }
+    if (!started && main?.querySelector(":scope > section.conv")) { started = true; refresh(); }
+    if (started && !early.length) first.disconnect();
+  }
+  const first = new MutationObserver(look);
   first.observe(document.documentElement, { childList: true, subtree: true });
 
   // The stage follows the style.

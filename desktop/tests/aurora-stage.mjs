@@ -11,11 +11,13 @@
 //   theirs;
 // - work the person watches that finishes opens its result beside the
 //   conversation on its own, and Live Workspace turns mint with the result;
-// - the canvas slides in, and the conversation and its bento narrow together
-//   over time to share the stage about evenly, the conversation not moving
+// - the canvas slides in, and the conversation narrows over time to share
+//   the stage about evenly, the conversation not moving
 //   down; Close is the app's close;
 // - a new block of an answer streams in word by word;
-// - Aurora's islands blur what is behind them;
+// - Aurora's islands blur what is behind them; the frame the conversation
+//   sits in is denser glass, without the cost of a blur the size of the
+//   window;
 // - other styles have no bento and no dock.
 //
 // MAGNUS_CHROMIUM  Chrome to drive
@@ -75,12 +77,12 @@ try {
   p.on("pageerror", e => failures.push(`page error: ${e.message}`));
   await p.setContent(page(false));
   const step = async fn => { await p.evaluate(fn); await p.evaluate(() => AuroraStage.refresh()); };
-  const shown = () => p.evaluate(() => [...document.querySelectorAll("#main > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => ({ key: t.dataset.tile, tone: t.dataset.tone, title: t.querySelector(".stage-tile-title").textContent, desc: t.querySelector(".stage-tile-desc").textContent, wide: getComputedStyle(t).gridColumnEnd === "-1", entering: t.classList.contains("stage-tile-enter"), beam: t.classList.contains("aurora-executing") })));
+  const shown = () => p.evaluate(() => [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => ({ key: t.dataset.tile, tone: t.dataset.tone, title: t.querySelector(".stage-tile-title").textContent, desc: t.querySelector(".stage-tile-desc").textContent, wide: getComputedStyle(t).gridColumnEnd === "-1", entering: t.classList.contains("stage-tile-enter"), beam: t.classList.contains("aurora-executing") })));
   await step(() => {});
   await p.waitForTimeout(200);
 
   const quiet = await shown();
-  const fold = await p.evaluate(() => Math.round(document.querySelector("#main > .stage-bento").getBoundingClientRect().height));
+  const fold = await p.evaluate(() => Math.round(document.querySelector("section.conv > .stage-bento").getBoundingClientRect().height));
   const dock = await p.evaluate(() => [...document.querySelectorAll("#conv-head .row > .stage-dock > a")].map(a => `${a.dataset.open}:${a.querySelector("svg").dataset.icon}`));
   check("with nothing relevant there are no boxes and the bento folds away", () => assert.deepEqual([quiet, fold], [[], 0]));
   check("every view stays one click away in the conversation's head, with the panel's icons", () => assert.deepEqual(dock, ["needs:need", "tasks:clock", "schedules:calendar", "rules:shield", "files:file", "apps:grid"]));
@@ -120,8 +122,8 @@ try {
   check("finished work opens its result beside the conversation on its own", () => assert.deepEqual(done.opened, ["task:t1 (auto)"]));
   check("Live Workspace turns mint with the result", () => assert.deepEqual(done.live, ["done:3-day itinerary · $912 total"]));
 
-  // The canvas slides in; the conversation and its bento narrow together.
-  const width = () => p.evaluate(() => Math.round(document.querySelector("#main > .stage-bento").getBoundingClientRect().width));
+  // The canvas slides in; the conversation narrows.
+  const width = () => p.evaluate(() => Math.round(document.querySelector("#main > section.conv").getBoundingClientRect().width));
   const wide = await width();
   const topBefore = await p.evaluate(() => Math.round(document.querySelector("#main > section.conv").getBoundingClientRect().top));
   await p.evaluate(() => {
@@ -138,7 +140,7 @@ try {
   const cols = await p.evaluate(() => getComputedStyle(document.querySelector(".shell")).gridTemplateColumns.split(" ").map(parseFloat));
   const topAfter = await p.evaluate(() => Math.round(document.querySelector("#main > section.conv").getBoundingClientRect().top));
   check("the canvas slides in with the app's close", () => assert.deepEqual(canvas, { opening: true, close: true, title: "Plan the trip" }));
-  check("the conversation and its bento narrow together over time", () => assert.ok(midway < wide && narrow < midway, JSON.stringify({ wide, midway, narrow })));
+  check("the conversation narrows over time", () => assert.ok(midway < wide && narrow < midway, JSON.stringify({ wide, midway, narrow })));
   check("the conversation stays where it was when the canvas opens", () => assert.equal(topAfter, topBefore));
   check("the conversation and the canvas share the stage about evenly", () => assert.ok(Math.abs(cols[1] - cols[3]) < 0.1 * cols[1], JSON.stringify(cols)));
 
@@ -147,8 +149,8 @@ try {
   check("a new block streams in word by word", () => assert.deepEqual(words, { words: ["The@0ms", "trip@34ms", "is@68ms", "ready@102ms", "to@136ms", "book.@170ms"], text: "The trip is ready to book.", code: 0 }));
 
   // Frosted glass.
-  const blur = await p.evaluate(() => Object.fromEntries([["nav", "nav.side"], ["composer", ".say"], ["conversation", "#main > section.conv"], ["box", ".stage-tile"], ["canvas", ".stage-artifact"], ["column", "aside.detail"]].map(([k, q]) => [k, getComputedStyle(document.querySelector(q)).backdropFilter])));
-  check("Aurora's islands blur what is behind them; the canvas's column does not", () => assert.deepEqual(blur, { nav: "blur(22px)", composer: "blur(22px)", conversation: "blur(20px)", box: "blur(20px)", canvas: "blur(20px)", column: "none" }));
+  const blur = await p.evaluate(() => Object.fromEntries([["nav", "nav.side"], ["composer", ".say"], ["box", ".stage-tile"], ["canvas", ".stage-artifact"], ["column", "aside.detail"]].map(([k, q]) => [k, getComputedStyle(document.querySelector(q)).backdropFilter]).concat([["frame", getComputedStyle(document.querySelector(".shell"), "::before").backdropFilter]])));
+  check("Aurora's islands blur what is behind them; the frame and the canvas's column do not", () => assert.deepEqual(blur, { nav: "blur(22px)", composer: "blur(22px)", frame: "none", box: "blur(20px)", canvas: "blur(20px)", column: "none" }));
 
   // Other styles have no bento and no dock.
   const plain = await p.evaluate(async () => { document.documentElement.dataset.style = "obsidian"; await AuroraStage.refresh(); return { on: AuroraStage.on(), bento: !!document.querySelector(".stage-bento"), dock: !!document.querySelector(".stage-dock") }; });

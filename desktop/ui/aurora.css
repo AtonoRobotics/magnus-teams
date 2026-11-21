@@ -245,12 +245,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   }
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > main {
+    position: relative;
+    z-index: 1;
     margin-left: 12px;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
   }
 
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > #workspace-splitter {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* The canvas is a card inset in the frame. */
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
+    position: relative;
+    z-index: 1;
     box-sizing: border-box;
     min-width: var(--panel-width, 360px);
+    height: auto;
+    margin: 10px 10px 10px 0;
   }
 
   /* The top bar's row grows in with the work instead of pushing it down. */
@@ -749,6 +764,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg button.on {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-field-canvas { display: none; }
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell::before,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.detail,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card {

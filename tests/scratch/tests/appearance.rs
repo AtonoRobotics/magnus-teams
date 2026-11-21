@@ -89,3 +89,18 @@ fn aurora_sizes_move() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// Aurora's composition: one frame for the conversation and the canvas, the
+/// boxes just above the input, and what comes before the page is drawn
+/// placed once it is (`desktop/tests/aurora-composition.mjs`).
+#[test]
+fn aurora_composition_is_one_frame_with_boxes_above_the_input() {
+    let out = std::process::Command::new("node")
+        .arg(workspace_root().join("desktop/tests/aurora-composition.mjs"))
+        .env("MAGNUS_CHROMIUM", magnus_scratch::chromium())
+        .output()
+        .expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

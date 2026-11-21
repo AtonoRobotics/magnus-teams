@@ -25,7 +25,8 @@ if (!exe) { console.error("MAGNUS_CHROMIUM is not set"); process.exit(2); }
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const failures = [];
 const check = (what, fn) => { try { fn(); console.log(`ok - ${what}`); } catch (e) { failures.push(`${what}: ${e.message}`); console.log(`not ok - ${what}`); } };
-const conv = () => Math.round(document.querySelector("#main > section.conv").getBoundingClientRect().height);
+// The conversation's room: its thread, which gives the bento its space.
+const conv = () => Math.round(document.getElementById("thread").getBoundingClientRect().height);
 // A long conversation, read to its end.
 const long = () => {
   const t = document.getElementById("thread");
