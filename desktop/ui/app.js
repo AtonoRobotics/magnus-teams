@@ -1441,10 +1441,13 @@ function chosenModel(root) {
 
 // Lays out a conversation; its view, or false when the person moved on
 // while it loaded.
+// A style with a bento (bento.js) shows the companion in the conversation's
+// column; the panel opens beside it only for what the person opens.
+const companionBeside = () => typeof Bento === "undefined" || !Bento.wanted();
 async function chatLayout(main, thread, project) {
   const seq = App.seq;
   App.thread = thread;
-  if (!Panel.what && !Panel.userClosed && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000) {
+  if (!Panel.what && !Panel.userClosed && companionBeside() && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000) {
     openPanel(needsMe().length ? "needs" : "activity", { auto: true });
   }
   sidebar();
@@ -1513,7 +1516,7 @@ async function home(main, panel = App.openAfter) {
   App.threads = threads;
   if (seq !== App.seq) return;
   let targetPanel = panel, panelOpts;
-  if (!targetPanel && !Panel.what && !Panel.userClosed && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
+  if (!targetPanel && !Panel.what && !Panel.userClosed && companionBeside() && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
     targetPanel = needsMe().length ? "needs" : "activity";
     panelOpts = { auto: true };
   }

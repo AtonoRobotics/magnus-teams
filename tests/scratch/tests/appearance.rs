@@ -24,3 +24,14 @@ fn aurora_motion_plays_for_what_arrives_not_for_a_repaint() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// Aurora shows the workspace as a bento under the conversation instead of
+/// opening the companion panel beside it (`desktop/tests/aurora-bento.mjs`).
+#[test]
+fn aurora_shows_a_bento_in_place_of_the_companion_panel() {
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-bento.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

@@ -2,7 +2,7 @@
 // 1. Soft ambient aurora shader canvas + selectable 3D motion background
 //    (Particles, Ribbons, Constellation, or Off) behind floating bento islands
 // 2. Living liquid-glass presence orbs (sidebar, companion, mobile bar, hero)
-// 3. Real-time state engine (idle, listening, thinking, executing, takeover)
+// 3. Real-time state engine (idle, listening, thinking, executing, takeover, needs)
 // 4. Choreographed view, tab, bento-card, and masked-stream entrances
 // 5. Tactile pointer/touch spotlights and gentle 3D depth parallax
 // Strictly gated on html[data-style="aurora"|"obsidian-aurora"]; zero cost elsewhere.
@@ -15,6 +15,7 @@
     thinking:  { speed: 2.65, amp: 0.28, c1: [155, 109, 255], c2: [56, 189, 248],  c3: [216, 180, 254] },
     executing: { speed: 2.30, amp: 0.24, c1: [56, 189, 248],  c2: [129, 140, 248], c3: [94, 234, 212] },
     takeover:  { speed: 1.45, amp: 0.21, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
+    needs:     { speed: 1.10, amp: 0.18, c1: [251, 191, 36],  c2: [79, 157, 255],  c3: [253, 230, 138] },
   };
   const OBSIDIAN_STATES = {
     idle:      { speed: 0.86, amp: 0.14, c1: [220, 224, 234], c2: [120, 136, 162], c3: [248, 250, 252] },
@@ -22,6 +23,7 @@
     thinking:  { speed: 2.55, amp: 0.26, c1: [124, 140, 255], c2: [216, 220, 230], c3: [224, 231, 255] },
     executing: { speed: 2.25, amp: 0.23, c1: [96, 165, 250],  c2: [228, 230, 238], c3: [186, 230, 253] },
     takeover:  { speed: 1.40, amp: 0.20, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
+    needs:     { speed: 1.05, amp: 0.17, c1: [251, 191, 36],  c2: [148, 163, 184], c3: [253, 230, 138] },
   };
   const STATE_LABELS = {
     idle: "Ready",
@@ -29,6 +31,7 @@
     thinking: "Thinking",
     executing: "Working",
     takeover: "In control",
+    needs: "Needs you",
   };
 
   const PARTICLE_COUNT_DESKTOP = 48;
@@ -68,6 +71,7 @@
   function detectState() {
     if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
+    if (document.querySelector('.st.need, .bento-mini[data-tone="needs"]')) return "needs";
     if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"]')) return "executing";
     return "idle";
   }
@@ -293,6 +297,9 @@
         orbs.add(c);
       }
     });
+
+    // 3b. The bento under the conversation in place of the companion panel
+    if (typeof Bento !== "undefined") Bento.draw();
 
     // 4. Mark active tool/work containers for rotating conic-gradient execution beams
     document.querySelectorAll(".reqgroup.chatcard, .tcard, .companion-active-card").forEach((el) => {
@@ -617,6 +624,7 @@
     document.querySelectorAll(".aurora-hero-presence, .aurora-orb, .aurora-state-pill").forEach((el) => el.remove());
     document.querySelectorAll(".aurora-executing").forEach((el) => el.classList.remove("aurora-executing"));
     document.querySelectorAll(".aurora-detail-ghost").forEach((el) => el.remove());
+    if (typeof Bento !== "undefined") Bento.clear();
     if (detailObs) { detailObs.disconnect(); detailObs = null; }
     detailEl = null;
     detailRect = null;
@@ -737,7 +745,7 @@
     // Entrances are marked in this callback, before the browser draws the
     // new nodes: marked a timer later, a node was drawn, hidden, then faded
     // back in.
-    if (records.some((r) => r.addedNodes.length)) markEntrances();
+    if (records.some((r) => r.addedNodes.length)) { if (typeof Bento !== "undefined") Bento.draw(); markEntrances(); }
     if (domTimer) return;
     domTimer = setTimeout(() => { domTimer = 0; enhanceDynamicDom(); }, 45);
   });

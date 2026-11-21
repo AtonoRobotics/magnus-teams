@@ -163,9 +163,15 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state
   box-shadow: 0 0 12px var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="takeover"] .aurora-state-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="takeover"] .aurora-state-dot,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="needs"] .aurora-state-dot {
   background: var(--warn);
   box-shadow: 0 0 12px var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="needs"] .aurora-state-pill {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--fg);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="executing"] .aurora-state-pill {
@@ -685,9 +691,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .voice-in[aria-pr
 }
 
 /* ---------- 6. Pages, Settings, Admin & Dialogs ---------- */
-html[data-style="aurora"] button.primary,
-html[data-style="aurora"] .button.primary { border-radius: var(--r-pill); }
-
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .tiles > div,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .teams-page .team-list a,

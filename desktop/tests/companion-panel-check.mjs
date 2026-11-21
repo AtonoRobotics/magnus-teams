@@ -276,7 +276,11 @@ clickLook("style", "prism");
 assert.equal(ctx.Theme.prefs().accent, "emerald", "explicit non-default accent stays when switching theme");
 
 // 5. Desktop auto-open, rules panel handler, and multi-theme CSS rules.
-assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= Theme\.LAYOUT_BOUNDS\.autoOpenMinWidthPx\)/);
+assert.match(app, /if\s*\(!targetPanel\s*&&\s*!Panel\.what\s*&&\s*!Panel\.userClosed\s*&&\s*companionBeside\(\)\s*&&\s*typeof innerWidth === "number"\s*&&\s*innerWidth >= Theme\.LAYOUT_BOUNDS\.autoOpenMinWidthPx\)/);
+// A style with a bento (Aurora) shows the companion under the conversation
+// instead, so neither place opens the panel on its own there.
+assert.equal((app.match(/!Panel\.userClosed\s*&&\s*companionBeside\(\)/g) || []).length, 2);
+assert.match(app, /const companionBeside = \(\) => typeof Bento === "undefined" \|\| !Bento\.wanted\(\);/);
 assert.match(app, /if\s*\(work\s*&&\s*Panel\.autoOpened\s*&&\s*\(shell\.clientWidth < B\.autoOpenMinWidthPx \|\| !m\.eligible\)\)/);
 assert.match(app, /\brules:\s*\(\)\s*=>\s*\(\{\s*body:\s*'<div class="rules-host"><\/div>',\s*after:\s*el\s*=>\s*rulesSection\(\$\("\.rules-host",\s*el\)\)\s*\}\)/);
 assert.match(app, /Panel\.lib\s*=\s*\{\s*q:\s*"",\s*project:\s*"",\s*kind:\s*"all"\s*\}/);
