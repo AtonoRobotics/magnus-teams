@@ -18,11 +18,8 @@ fn every_look_reaches_four_and_a_half_to_one_over_the_worst_backdrop() {
 /// real browser (`desktop/tests/aurora-motion.mjs`).
 #[test]
 fn aurora_motion_plays_for_what_arrives_not_for_a_repaint() {
-    let out = std::process::Command::new("node")
-        .arg(workspace_root().join("desktop/tests/aurora-motion.mjs"))
-        .env("MAGNUS_CHROMIUM", magnus_scratch::chromium())
-        .output()
-        .expect("node");
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-motion.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
     let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert!(out.status.success(), "{said}");
     println!("{said}");
