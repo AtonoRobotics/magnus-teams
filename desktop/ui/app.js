@@ -461,7 +461,7 @@ const Workspace = (() => {
     const shell=$(".shell"); if (!shell) return;
     const B=Theme.LAYOUT_BOUNDS, prefs=Theme.prefs(), work=!!Panel.what && !!App.workspace;
     const team=/^#\/team\//.test(location.hash);
-    const m=fit(shell.clientWidth,prefs.navigation || "expanded",prefs.panelWidthPx || B.panelDefaultWidthPx,work,team);
+    const m=fit(shell.clientWidth,Theme.navigation(prefs),prefs.panelWidthPx || B.panelDefaultWidthPx,work,team);
     if (work && Panel.autoOpened && (shell.clientWidth < B.autoOpenMinWidthPx || !m.eligible)) { closePanel(false); return m; }
     if(team)document.body.dataset.team="";else delete document.body.dataset.team;
     const prior=[...document.querySelectorAll("#thread, #detail .detail-body")].filter(el=>el.clientHeight).map(root=>{

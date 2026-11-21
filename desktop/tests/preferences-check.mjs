@@ -22,8 +22,15 @@ assert.deepEqual([...T.MODES.map(m => m[0])], ['light', 'dark', 'system']);
 assert.deepEqual([...T.BACKGROUNDS.map(b => b[0])], ['off', 'particles', 'ribbons', 'constellation']);
 
 // Validation and clamping.
-const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', background: 'lasers', navigation: 'floating', panelWidthPx: 9999 });
-assert.deepEqual({ ...p }, { style: 'obsidian', mode: 'dark', accent: 'graphite', motion: 'full', background: 'particles', navigation: 'expanded', panelWidthPx: 560 });
+const p = T.preferences({ style: 'retro', mode: 'sepia', material: 'glass', accent: 'neon', motion: 'wild', background: 'lasers', navigation: 'floating', sidebar: 'drawer', panelWidthPx: 9999 });
+assert.deepEqual({ ...p }, { style: 'obsidian', mode: 'dark', accent: 'graphite', motion: 'full', background: 'particles', navigation: 'expanded', sidebar: 'rail', panelWidthPx: 560 });
+// Aurora's navigation is a rail unless the sidebar is pinned; other styles keep the navigation chosen.
+for (const style of ['aurora', 'obsidian-aurora']) {
+  assert.equal(T.navigation(T.preferences({ style, navigation: 'expanded' })), 'compact', `${style} starts as a rail`);
+  assert.equal(T.navigation(T.preferences({ style, navigation: 'compact', sidebar: 'pinned' })), 'expanded', `${style} keeps a pinned sidebar`);
+}
+assert.equal(T.navigation(T.preferences({ style: 'obsidian', navigation: 'expanded', sidebar: 'rail' })), 'expanded');
+assert.equal(T.navigation(T.preferences({ style: 'obsidian', navigation: 'compact', sidebar: 'pinned' })), 'compact');
 assert.equal(T.preferences({ background: 'ribbons' }).background, 'ribbons');
 assert.equal(T.preferences({ background: 'constellation' }).background, 'constellation');
 assert.equal(T.preferences({ background: 'off' }).background, 'off');
@@ -47,7 +54,7 @@ assert.equal(v2({ theme: 'dark' }).mode, 'dark');
 assert.equal(v2({ theme: 'ember' }).mode, 'dark');
 assert.equal(v2({ theme: 'corporate' }).mode, 'light');
 assert.equal(v2({ theme: 'dark', followComputer: true }).mode, 'system');
-assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'obsidian', mode: 'dark', accent: 'amber', motion: 'reduced', background: 'particles', navigation: 'compact', panelWidthPx: 480 });
+assert.deepEqual({ ...v2({ theme: 'custom', mode: 'dark', accent: 'amber' }) }, { style: 'obsidian', mode: 'dark', accent: 'amber', motion: 'reduced', background: 'particles', navigation: 'compact', sidebar: 'rail', panelWidthPx: 480 });
 
 // In the page: per-person storage, legacy read once and left intact, a
 // failed write keeps the choice for the session and says so, and old records

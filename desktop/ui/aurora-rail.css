@@ -1,0 +1,110 @@
+/* Aurora's rail (decisions/2026-11-21-aurora-rail.md, aurora-rail.js).
+   The navigation is a column of icons: the avatar, New conversation,
+   Search, Conversations, Explore and Settings. The full sidebar slides in
+   over the stage from Conversations or Ctrl+B, in app.js's navigation
+   drawer, and its pin keeps it open as a sidebar beside the stage. Its rows
+   take the room their words need. */
+
+/* The rail's two controls are Aurora's; other styles never show them. */
+.aurora-rail-open,
+.aurora-rail-pin {
+  display: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side [data-nav-toggle] {
+  display: none;
+}
+
+/* ---------- The rail ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side {
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+}
+
+/* Its icons in one column, in the order the person reaches for them. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side #side {
+  display: contents;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .brand {
+  order: -2;
+  margin-bottom: 6px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .new-chat {
+  order: -1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .aurora-rail-open {
+  display: inline-grid;
+}
+
+/* The tree and Trash are in the full sidebar. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .rail-tree,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .sect:has(> a[href="#/trash"]) {
+  display: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side a:hover {
+  transform: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side :is(.icon-btn, a.primary-nav) {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* ---------- The full sidebar: pinned, or slid in ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .aurora-rail-pin {
+  display: inline-grid;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .aurora-rail-pin[aria-pressed="true"] {
+  color: var(--accent-text);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .brand-name {
+  flex: 1;
+}
+
+/* It slides in over the stage as a panel of its own, the stage still seen
+   around it, and leaves it whole. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .navigation-drawer {
+  inset: 8px auto 8px 8px;
+  width: 264px;
+  height: auto;
+  border: 1px solid var(--aurora-rim);
+  border-radius: var(--r-lg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .navigation-drawer::backdrop {
+  background: rgb(0 0 0 / .22);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] body:not([data-navigation=drawer]) .navigation-drawer[open] {
+  animation: auroraRailIn .26s var(--ease) both;
+}
+
+@keyframes auroraRailIn {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Its rows are as tall as their words need on a mouse; a touch screen
+   keeps the 44px targets layout.css gives it. */
+@media (pointer: fine) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side {
+    gap: 8px;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side #side {
+    gap: 2px;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=expanded] nav.side .group {
+    padding: 8px 8px 2px;
+  }
+}
