@@ -39,7 +39,7 @@ jobs:
       matrix:
         # `*-base` runs the same suite on the pull request's base, without
         # the owner's patches: a failure in both is not the change's.
-        suite: [invariants, invariants-base, autonomy, autonomy-base, injection, update, scratch-asks]
+        suite: [invariants, invariants-base, autonomy, autonomy-base, injection, update, scratch-asks, scratch-asks-base]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     services:
