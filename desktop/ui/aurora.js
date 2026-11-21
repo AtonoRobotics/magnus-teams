@@ -39,7 +39,7 @@
   function styleName() { return document.documentElement.dataset.style || ""; }
   function isDynamicStyle() { const s = styleName(); return s === "aurora" || s === "obsidian-aurora"; }
   function statePalette() { return styleName() === "obsidian-aurora" ? OBSIDIAN_STATES : AURORA_STATES; }
-  function isLight() { return document.documentElement.dataset.theme === "light"; }
+  function isLight() { return document.documentElement.dataset.mode === "light"; }
   function motionMode() { return document.documentElement.dataset.motion || "full"; }
 
   function detectState() {
@@ -76,7 +76,7 @@
 
   function resizeBgCanvas() {
     if (!bgCanvas) return;
-    const scale = 0.25; // Low-res blurred shader buffer for silky 60fps with minimal GPU cost
+    const scale = 0.25;
     bgCanvas.width = Math.max(160, Math.round(window.innerWidth * scale));
     bgCanvas.height = Math.max(120, Math.round(window.innerHeight * scale));
   }
@@ -103,7 +103,7 @@
       }
     });
 
-    // 2b. Mobile / drawer top workspace-bar live presence orb
+    // 2b. Mobile drawer top workspace-bar live presence orb
     document.querySelectorAll(".workspace-bar").forEach((bar) => {
       const heading = bar.querySelector(".workspace-heading");
       if (heading && !bar.querySelector(".aurora-orb-bar")) {
@@ -119,10 +119,15 @@
         const wrap = document.createElement("div");
         wrap.className = "aurora-hero-presence";
         wrap.innerHTML = '<span class="aurora-ripple" aria-hidden="true"></span><span class="aurora-ripple r2" aria-hidden="true"></span>';
-        const c = makeOrb(88, "aurora-orb-hero");
+        const c = makeOrb(72, "aurora-orb-hero");
         wrap.appendChild(c);
         head.insertBefore(wrap, head.firstChild);
         orbs.add(c);
+        const thread = head.closest(".thread");
+        if (thread && !thread.dataset.auroraHeroTop) {
+          thread.dataset.auroraHeroTop = "1";
+          thread.scrollTop = 0;
+        }
       }
     });
 
@@ -161,11 +166,12 @@
     const h = bgCanvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    const alphaBoost = isLight() ? 0.22 : 0.34;
+    const isObs = styleName() === "obsidian-aurora";
+    const alphaBoost = isLight() ? (isObs ? 0.22 : 0.30) : (isObs ? 0.36 : 0.50);
     const blobs = [
-      { x: 0.20 + Math.sin(phase * 0.38) * 0.12, y: 0.16 + Math.cos(phase * 0.31) * 0.09, r: 0.52, col: cur.c1, a: alphaBoost },
-      { x: 0.82 + Math.cos(phase * 0.33) * 0.11, y: 0.22 + Math.sin(phase * 0.42) * 0.12, r: 0.48, col: cur.c2, a: alphaBoost * 0.9 },
-      { x: 0.50 + Math.sin(phase * 0.27 + 1.8) * 0.16, y: 0.88 + Math.cos(phase * 0.29) * 0.08, r: 0.50, col: cur.c3, a: alphaBoost * 0.65 },
+      { x: 0.20 + Math.sin(phase * 0.42) * 0.14, y: 0.14 + Math.cos(phase * 0.35) * 0.10, r: 0.56, col: cur.c1, a: alphaBoost },
+      { x: 0.82 + Math.cos(phase * 0.36) * 0.13, y: 0.22 + Math.sin(phase * 0.44) * 0.13, r: 0.52, col: cur.c2, a: alphaBoost * 0.92 },
+      { x: 0.50 + Math.sin(phase * 0.30 + 1.8) * 0.18, y: 0.86 + Math.cos(phase * 0.32) * 0.10, r: 0.54, col: cur.c3, a: alphaBoost * 0.72 },
     ];
     for (const b of blobs) {
       const gx = b.x * w;
@@ -308,7 +314,7 @@
   }
 
   const htmlObs = new MutationObserver(reconcile);
-  htmlObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-style", "data-motion", "data-theme"] });
+  htmlObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-style", "data-motion", "data-mode"] });
 
   let domTimer = 0;
   const bodyObs = new MutationObserver(() => {
@@ -318,6 +324,7 @@
 
   function init() {
     bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed"] });
+    window.addEventListener("magnus-theme", reconcile);
     document.addEventListener("pointermove", onPointerMove, { passive: true });
     document.addEventListener("pointerdown", onPointerMove, { passive: true });
     document.addEventListener("focusin", () => { if (active) enhanceDynamicDom(); }, true);

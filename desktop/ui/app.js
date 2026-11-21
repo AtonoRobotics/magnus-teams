@@ -3249,8 +3249,10 @@ function appearanceSection(el) {
     const styleDesc = {
       obsidian: "Obsidian uses tight architectural corners, flush borders, and a pure black monochrome baseline.",
       "obsidian-2": "Obsidian 2 frames the workspace in a pure black card with a matte sidebar, inline file badges, and a circular send button.",
+      "obsidian-aurora": "Obsidian 2 Aurora pairs Obsidian 2's monochrome precision and file badges with floating islands, living presence orbs, and dynamic execution beams.",
       prism: "Prism uses soft pill surfaces, rounded cards, and circular avatars.",
       studio: "Studio uses a two-column editorial hero, bento cards, uppercase nav groups, and an elevated pill composer.",
+      aurora: "Aurora brings living ambient light shaders, liquid-glass presence orbs, floating workspace islands, and dynamic execution beams across desktop and mobile.",
     }[p.style] || "";
     paint(el, `<h2>Appearance</h2><div class="appearance">
       ${Theme.saved === false ? `<p class="small" role="status">Appearance changed for this session but was not saved on this device.</p>` : ""}
@@ -3275,7 +3277,7 @@ function appearanceSection(el) {
     b.focus({ preventScroll: true });
     if (b.dataset.look === "style") {
       const nextStyle = b.dataset.value, p = Theme.prefs(), patch = { style: nextStyle };
-      if ((nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2") && p.accent === "graphite") patch.accent = "blue";
+      if ((nextStyle === "prism" || nextStyle === "studio" || nextStyle === "obsidian-2" || nextStyle === "aurora") && p.accent === "graphite") patch.accent = "blue";
       else if (nextStyle === "obsidian" && p.accent === "blue") patch.accent = "graphite";
       Theme.set(patch);
       return;

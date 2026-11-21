@@ -85,8 +85,18 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main {
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-bar {
+  display: none;
   flex: none;
   pointer-events: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .aurora-orb-bar {
+  display: block;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head {
+  background: transparent;
+  border-bottom-color: var(--aurora-rim);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .workspace-bar {
@@ -295,10 +305,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view:ha
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-executing {
   position: relative;
   overflow: hidden;
-  border-color: transparent;
+  border: 1.5px solid transparent;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
-    conic-gradient(from var(--aurora-angle), transparent 210deg, var(--aurora-beam-a) 295deg, var(--aurora-beam-b) 340deg, #ffffff 356deg, transparent 360deg) border-box;
+    conic-gradient(from var(--aurora-angle), transparent 190deg, var(--aurora-beam-a) 285deg, var(--aurora-beam-b) 338deg, #ffffff 355deg, transparent 360deg) border-box;
   animation: auroraBeamSpin 2.2s linear infinite;
 }
 
@@ -317,18 +327,28 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .screen.held {
 }
 
 /* ---------- 4. Hero Presence Orb, Voice Ripples & Discover Cards ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-banner {
+  display: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero {
+  margin: 0 auto;
+  padding-top: 4px;
+  gap: 12px;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-hero-presence {
   position: relative;
-  width: 88px;
-  height: 88px;
+  width: 72px;
+  height: 72px;
   display: grid;
   place-items: center;
-  margin: 0 auto 14px;
+  margin: 0 auto 6px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-ripple {
   position: absolute;
-  inset: 6px;
+  inset: 4px;
   border-radius: 50%;
   border: 1px solid var(--aurora-beam-a);
   opacity: 0;
@@ -345,17 +365,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state
 
 html[data-style="aurora"] .hello-hero { align-items: center; text-align: center; }
 html[data-style="aurora"] .hello-head { align-items: center; }
-html[data-style="aurora"] .hero-img-ag { display: none; }
-html[data-style="aurora"] .hero-img-gem { display: block; opacity: 0.55; }
-html[data-style="aurora"] .hello-title { font-size: 36px; font-weight: 600; letter-spacing: -0.035em; }
+html[data-style="aurora"] .hello-title { font-size: 34px; font-weight: 600; letter-spacing: -0.035em; }
 html[data-style="aurora"] .hello-caps, html[data-style="aurora"] .hero-tabs { justify-content: center; }
 
 html[data-style="obsidian-aurora"] .aurora-hero-presence {
-  width: 72px;
-  height: 72px;
-  margin: 0 0 12px;
+  margin: 0 0 6px;
 }
-html[data-style="obsidian-aurora"] .hello-title { font-size: 32px; font-weight: 600; letter-spacing: -0.03em; }
+html[data-style="obsidian-aurora"] .hello-title { font-size: 30px; font-weight: 600; letter-spacing: -0.03em; }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.on {
   background: var(--fg);
@@ -450,6 +466,46 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say:focus-within {
   border-color: var(--aurora-beam-a);
   box-shadow: 0 22px 58px var(--aurora-spot), 0 0 0 1px color-mix(in srgb, var(--aurora-beam-a) 38%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar label.model {
+  min-width: 0;
+  max-width: 100%;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar label.model select {
+  min-width: 0;
+  max-width: min(170px, 42vw);
+}
+
+@media (max-width: 640px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
+    padding: 10px 12px 8px;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar {
+    gap: 6px;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar label.model {
+    padding: 0 4px;
+    max-width: calc(50% - 4px);
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar label.model select {
+    max-width: 100%;
+    font-size: 12px;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar:has(> label.model, > .whisper) > .grow {
+    flex-basis: 100%;
+    height: 0;
+  }
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar .voice-in:not([hidden]),
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar .voice-in[hidden] + button.send {
+    margin-left: auto;
+  }
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send {
