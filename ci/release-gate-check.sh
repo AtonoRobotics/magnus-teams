@@ -40,6 +40,11 @@ others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | g
 [ -z "$others" ] || bad "fast.yml runs checks outside ci/fast.sh: $others"
 has "$release" 'run: sh ci/fast.sh' || bad "a manual release does not run ci/fast.sh"
 has "$script" 'for f in desktop/tests/*-check.mjs; do' || bad "ci/fast.sh does not run every desktop/tests/*-check.mjs"
+# The lock file is checked as committed before any cargo command could
+# rewrite it, as the release build's `cargo fetch --locked` reads it.
+first_cargo=$(grep -E '^check cargo ' "$script" | grep -v 'cargo fmt' | head -1)
+[ "$first_cargo" = "check cargo fetch --locked" ] || bad "ci/fast.sh does not check Cargo.lock with 'cargo fetch --locked' before its other cargo commands (first is: $first_cargo)"
+grep -qF 'cargo fetch --locked' "$release" || bad "the release build no longer fetches with --locked"
 for f in "$root"/ci/*-check.sh; do
   n=ci/$(basename "$f")
   has "$script" "sh $n" || bad "ci/fast.sh does not run $n"

@@ -39,6 +39,9 @@ check() {
 }
 
 check cargo fmt --all --check
+# Cargo.lock as committed, as the release build fetches it: a lock file that
+# Cargo.toml has moved past fails here, not later in the release.
+check cargo fetch --locked
 check sh ci/production-guard-check.sh
 check sh ci/strix-gc-check.sh
 check sh ci/ratchet-check.sh
