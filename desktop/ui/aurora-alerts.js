@@ -1,18 +1,22 @@
-// Aurora's alerts move as the mockup's do (decisions/2026-11-21-aurora-alerts.md):
-// - a pop-up in the lower corner, and a toast, slide out when they go and the
-//   rest glide into the room left, instead of vanishing in one frame; a
-//   pop-up shows the time it has left, held while the pointer or focus is on
-//   it, and a dot for what it is about;
-// - a decision arriving rises in; answered, it shows the answer where it was,
-//   as the mockup's approve button turns to "✓ Sent & verified", then folds
-//   away, instead of the card disappearing with the next repaint.
-// notices.js, app.js and asks.js are unchanged: they remove and redraw at
-// once, and what they removed is played out here.
+// Aurora's decisions and alerts are part of the stage, not over it
+// (decisions/2026-11-21-aurora-alerts.md):
+// - a decision in a conversation is made beside it, in the canvas, or in its
+//   box under it (aurora-stage.js); the thread keeps one quiet line for it,
+//   "Needs your decision", then "✓ Allowed" once answered;
+// - answered in the canvas, the card says the answer where it was, as the
+//   mockup's approve button turns to "✓ Sent & verified", and the canvas
+//   then slides away;
+// - in a list of decisions, one arriving rises in, and one answered says
+//   the answer, then folds away;
+// - a toast, where there is no stage to say it (aurora-reasoning.js `tell`),
+//   slides out when it goes.
+// app.js and asks.js are unchanged: they remove and redraw at once, and what
+// they removed is played out here.
 "use strict";
 
-/** How long an answered decision shows its answer before folding. */
+/** How long an answered decision shows its answer before it goes. */
 const ALERT_CONFIRM_MS = 900;
-/** How long a pop-up, a toast or an answered decision takes to go. */
+/** How long a toast or an answered decision takes to go. */
 const ALERT_LEAVE_MS = 420;
 /** How long an answer is waited on to take its card away. */
 const ALERT_ANSWER_WAIT_MS = 15000;
@@ -23,9 +27,13 @@ const AuroraAlerts = (() => {
   const EASE = "cubic-bezier(.22,1,.36,1)";
   const ANSWERED = { approve: "Allowed", reject: "Declined", answer: "Sent", accept: "Accepted", dismiss: "Dismissed", resume: "Continuing", extend: "Budget doubled", keep: "Kept", disconnect: "Disconnected", endorse: "Saved as a company fact" };
   const DECISION = ".card.item:has(.ask-answers)";
+  /** Where a conversation's decision cards are: the stage shows them instead. */
+  const IN_THREAD = "section.conv .card.item[data-id]";
 
   const on = () => typeof Theme !== "undefined" && typeof Theme.stage === "function" && Theme.stage(document.documentElement.dataset.style);
   const moving = () => document.documentElement.dataset.motion === "full";
+  /** What an answer is called once given. @param {string} decision */
+  const said = decision => ANSWERED[decision] || "Done";
 
   /**
    * A node played out after its owner removed it: a copy where it was,
@@ -52,57 +60,80 @@ const AuroraAlerts = (() => {
     return ghost;
   }
 
-  // ---------- Pop-ups and toasts ----------
-  /** @param {MutationRecord} r */
-  function leftCorner(r) {
+  /** A toast that went slides out where it was. @param {MutationRecord} r */
+  function leftToast(r) {
     const box = /** @type {HTMLElement} */ (r.target);
-    if (box.id !== "notices" && box.id !== "toasts") return;
+    if (box.id !== "toasts" || !box.isConnected) return;
     for (const n of r.removedNodes) {
-      if (!(n instanceof HTMLElement) || n.classList.contains("aurora-leaving") || !n.matches(".notice, .toast") || !box.isConnected) continue;
-      playOut(n, box, r.nextSibling, box.id === "notices" ? { opacity: 0, transform: "translateX(28px) scale(.98)" } : { opacity: 0, transform: "translateY(-8px) scale(.98)" });
+      if (n instanceof HTMLElement && n.matches(".toast:not(.aurora-leaving)")) playOut(n, box, r.nextSibling, { opacity: 0, transform: "translateY(-8px) scale(.98)" });
     }
-    for (const n of r.addedNodes) if (n instanceof HTMLElement && n.matches(".notice:not(.aurora-leaving)")) arrived(n);
   }
 
-  /** A pop-up's time line restarts with notices.js's timer when the person lets go. @param {HTMLElement} el */
-  function arrived(el) {
-    const box = el.parentElement;
-    if (box && typeof NOTICE_SHOW_MS === "number") box.style.setProperty("--aurora-notice-life", `${NOTICE_SHOW_MS}ms`);
-    const restart = () => document.getAnimations().forEach(a => {
-      if (/** @type {any} */ (a).animationName === "auroraNoticeLife" && /** @type {KeyframeEffect} */ (a.effect)?.target === el) a.currentTime = 0;
-    });
-    el.addEventListener("pointerleave", restart);
-    el.addEventListener("focusout", e => { if (!el.contains(/** @type {Node} */ (/** @type {FocusEvent} */ (e).relatedTarget))) restart(); });
-  }
-
-  // ---------- Decisions ----------
-  /** Each decision met, so one rises in only the first time it shows, and
-   * only while the person stays where they are: what a new route or the
-   * first drawing shows was there already. */
-  const seen = new Set();
-  /** @type {?string} */
-  let route = null;
+  // ---------- Answers ----------
+  /** Each decision answered in this session, by its item, as what was said. @type {Map<string, string>} */
+  const given = new Map();
   /**
-   * A decision just answered, until its card goes.
-   * @type {Map<string, { card: HTMLElement, said: string, entry: string, after: string, before: string, at: number }>}
+   * A card just answered, until it goes.
+   * @type {Map<string, { card: HTMLElement, said: string, canvas: boolean, entry: string, after: string, before: string, at: number }>}
    */
   const answering = new Map();
 
   document.addEventListener("click", e => {
     const btn = /** @type {HTMLElement} */ (e.target).closest?.(".ask-answers button[data-decision]");
-    const card = btn?.closest(DECISION);
-    if (!on() || !btn || !(card instanceof HTMLElement) || !card.dataset.id) return;
-    const decision = (/** @type {HTMLElement} */ (btn).dataset.decision || "").split(":")[0];
+    if (!on() || !(btn instanceof HTMLElement) || !btn.dataset.item) return;
+    const decision = (btn.dataset.decision || "").split(":")[0];
     if (decision === "ask-more") return;
+    given.set(btn.dataset.item, said(decision));
+    const card = btn.closest(DECISION);
+    if (!(card instanceof HTMLElement) || !card.dataset.id) return;
     answering.set(card.dataset.id, {
       card,
-      said: ANSWERED[decision] || "Done",
+      said: said(decision),
+      canvas: !!card.closest(".stage-artifact"),
       entry: card.closest("[data-entry]")?.getAttribute("data-entry") || "",
       after: card.previousElementSibling?.getAttribute("data-id") || "",
       before: card.nextElementSibling?.getAttribute("data-id") || "",
       at: Date.now(),
     });
   }, true);
+
+  /** The card as answered: its answers become what was said. @param {HTMLElement} card @param {string} words */
+  function confirmed(card, words) {
+    card.classList.add("aurora-confirmed");
+    const answers = card.querySelector(".ask-answers");
+    if (!answers) return;
+    const done = document.createElement("div");
+    done.className = "aurora-confirmed-row";
+    done.innerHTML = '<span class="aurora-confirmed-pill"></span><span class="aurora-confirmed-note">Magnus has your answer.</span>';
+    const pill = done.firstElementChild;
+    if (pill) pill.textContent = `✓ ${words}`;
+    answers.replaceWith(done);
+  }
+
+  /**
+   * Answered in the canvas: the card stays there saying the answer, then the
+   * canvas slides away and the stage shows what is next.
+   * @param {string} id @param {{ card: HTMLElement, said: string }} a
+   */
+  function answeredBeside(id, a) {
+    const content = document.querySelector(".stage-artifact > .artifact-content");
+    if (!content || typeof Panel === "undefined" || Panel.what !== `item:${id}`) return;
+    confirmed(a.card, a.said);
+    content.replaceChildren(a.card);
+    setTimeout(() => {
+      if (Panel.what !== `item:${id}` || typeof closePanel !== "function") return;
+      closePanel(false);
+      if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
+    }, ALERT_CONFIRM_MS);
+  }
+
+  // ---------- Decisions in a list ----------
+  /** Each decision met, so one rises in only the first time it shows, and
+   * only while the person stays where they are: what a new route or the
+   * first drawing shows was there already. */
+  const seen = new Set();
+  /** @type {?string} */
+  let route = null;
 
   /** Decisions arriving rise in; answered ones gone from the page are played out. */
   function decisions() {
@@ -112,16 +143,18 @@ const AuroraAlerts = (() => {
       if (seen.has(id)) continue;
       if (seen.size > ALERT_SEEN_MAX) seen.clear();
       seen.add(id);
-      if (route === location.hash && moving()) c.classList.add("aurora-alert-in");
+      if (route === location.hash && moving() && !c.closest(".stage-artifact")) c.classList.add("aurora-alert-in");
     }
     if (document.querySelector("#main > *")) route = location.hash;
     for (const [id, a] of answering) {
-      if (Date.now() - a.at > ALERT_ANSWER_WAIT_MS || cards.some(c => c.dataset.id === id)) {
-        if (Date.now() - a.at > ALERT_ANSWER_WAIT_MS) answering.delete(id);
+      const late = Date.now() - a.at > ALERT_ANSWER_WAIT_MS;
+      if (late || cards.some(c => c.dataset.id === id)) {
+        if (late) answering.delete(id);
         continue;
       }
       if (a.card.isConnected) continue;
       answering.delete(id);
+      if (a.canvas) { answeredBeside(id, a); continue; }
       if (!moving()) continue;
       // Where the card was: after the decision before it, before the one
       // after it, or at the end of its entry.
@@ -135,32 +168,80 @@ const AuroraAlerts = (() => {
     }
   }
 
-  /** The card as answered: its answers become what was said. @param {HTMLElement} card @param {string} said */
-  function confirmed(card, said) {
-    card.classList.add("aurora-confirmed");
-    const answers = card.querySelector(".ask-answers");
-    if (!answers) return;
-    const done = document.createElement("div");
-    done.className = "aurora-confirmed-row";
-    done.innerHTML = '<span class="aurora-confirmed-pill"></span><span class="aurora-confirmed-note">Magnus has your answer.</span>';
-    const pill = done.firstElementChild;
-    if (pill) pill.textContent = `✓ ${said}`;
-    answers.replaceWith(done);
+  // ---------- The thread's line for each decision ----------
+  /** Each decision's line in its conversation. @type {Map<string, { el: HTMLElement, entry: string }>} */
+  const lines = new Map();
+
+  /** @param {string} id */
+  function line(id) {
+    let l = lines.get(id);
+    if (l) return l;
+    const el = document.createElement("div");
+    el.className = "aurora-decision-line";
+    el.dataset.item = id;
+    el.innerHTML = '<span class="aurora-decision-dot" aria-hidden="true"></span><span class="aurora-decision-said"></span><span class="aurora-decision-what"></span><a class="aurora-decision-open" href="#/inbox">Review</a>';
+    l = { el, entry: "" };
+    lines.set(id, l);
+    return l;
+  }
+
+  /** @param {HTMLElement} el @param {string} cls @param {string} text */
+  function words(el, cls, text) {
+    const t = el.querySelector(cls);
+    if (t && t.textContent !== text) t.textContent = text;
+  }
+
+  /**
+   * A conversation's decision cards are shown by the stage; in their place
+   * the thread keeps a line: waiting, then the answer given.
+   */
+  function threadLines() {
+    for (const card of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(IN_THREAD))) {
+      const id = card.dataset.id || "";
+      const l = line(id);
+      l.entry = card.closest("[data-entry]")?.getAttribute("data-entry") || l.entry;
+      l.el.dataset.state = "waiting";
+      words(l.el, ".aurora-decision-said", "Needs your decision");
+      words(l.el, ".aurora-decision-what", card.querySelector(".ask-sentence, h4, strong")?.textContent?.trim() || "");
+      const open = l.el.querySelector(".aurora-decision-open");
+      open?.setAttribute("data-open", `item:${id}`);
+      if (card.previousElementSibling !== l.el) card.before(l.el);
+    }
+    for (const [id, l] of lines) {
+      if (document.querySelector(`${IN_THREAD}[data-id="${CSS.escape(id)}"]`)) continue;
+      const answer = given.get(id);
+      // Gone without an answer from here: answered elsewhere, or withdrawn.
+      if (!answer) { l.el.remove(); lines.delete(id); continue; }
+      l.el.dataset.state = "answered";
+      words(l.el, ".aurora-decision-said", `✓ ${answer}`);
+      l.el.querySelector(".aurora-decision-open")?.remove();
+      const entry = l.entry ? document.querySelector(`[data-entry="${CSS.escape(l.entry)}"]`) : null;
+      if (entry && l.el.parentElement !== entry) entry.append(l.el);
+      else if (!entry) l.el.remove();
+    }
+  }
+
+  /** Leaves the page as the other styles have it. */
+  function off() {
+    document.querySelectorAll(".aurora-decision-line").forEach(el => el.remove());
+    lines.clear();
   }
 
   let queued = 0;
   const soon = () => { if (!queued) queued = requestAnimationFrame(() => { queued = 0; if (on()) decisions(); }); };
   function init() {
     new MutationObserver(records => {
-      if (!on()) return;
-      // Played out in this callback, before the browser draws the removal.
-      if (moving()) records.forEach(leftCorner);
-      if (records.some(r => r.addedNodes.length || r.removedNodes.length)) soon();
+      if (!on()) { if (lines.size) off(); return; }
+      // Played out and put in place in this callback, before the browser
+      // draws the change.
+      if (moving()) records.forEach(leftToast);
+      if (records.some(r => r.addedNodes.length || r.removedNodes.length)) { threadLines(); soon(); }
     }).observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(() => { if (on()) threadLines(); else off(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-style"] });
     soon();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  return { on, decisions, seen, answering };
+  return { on, decisions, said, seen, answering, given, lines };
 })();

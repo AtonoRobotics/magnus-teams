@@ -200,6 +200,40 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-
   box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="talk"] .mini-dot {
+  background: var(--aurora-beam-b);
+  box-shadow: 0 0 10px var(--aurora-beam-b);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="done"]:has(.aurora-confirmed-row) {
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+/* A decision's box: its title opens it, its answers are in the box. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile a.stage-tile-title {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers button {
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .aurora-confirmed-row {
+  justify-content: flex-start;
+  padding-top: 2px;
+  border-top: 0;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
   animation: auroraSpark 2.4s ease-in-out infinite;
 }

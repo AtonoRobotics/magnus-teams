@@ -1,132 +1,129 @@
-// Aurora's alerts move as the mockup's do (decisions/2026-11-21-aurora-alerts.md).
-// In a real browser, with the app's theme, sheets, notices.js and
-// aurora-alerts.js:
-// - a pop-up is glass, with a dot for what it is about and a line for the
-//   time it has left, held while the pointer is on it;
-// - a pop-up dismissed slides out where it was and the one beside it glides
-//   into the room left, instead of both moving in one frame; a toast too;
-// - a decision already there when the page is drawn does not rise in; one
-//   arriving does;
-// - a decision answered shows the answer where it was, then folds away;
-// - with reduced motion, and in other styles, things go at once as before.
+// Aurora's decisions and alerts are part of the stage, not over it
+// (decisions/2026-11-21-aurora-alerts.md). In a real browser, with the app's
+// theme and sheets, asks.js, notices.js and the Aurora scripts, on a page
+// shaped like the app's:
+// - a decision about this conversation opens beside it with its answers;
+//   the thread keeps one line for it instead of the card, and it is not also
+//   a box;
+// - a decision from elsewhere is a box under the conversation, with its
+//   answers in the box;
+// - a teammate's message is a box, not a pop-up; opened, it goes;
+// - answered beside the conversation, the card says the answer, the line
+//   above the composer says what a toast would, and the canvas then closes
+//   and the thread's line keeps the answer;
+// - answered in its box, the box says the answer, then goes;
+// - with no composer line to say it in, a toast is still a toast, and with
+//   no conversation shown, a message is still a pop-up;
+// - other styles keep their pop-ups and cards, as before.
 //
 // MAGNUS_CHROMIUM  Chrome to drive
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { page, ask } from "./aurora-alerts-page.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../..");
-const ui = name => readFileSync(join(here, "../ui", name), "utf8");
 const { chromium } = createRequire(import.meta.url)(join(root, "browser/node_modules/playwright-core"));
 const exe = process.env.MAGNUS_CHROMIUM;
 if (!exe) { console.error("MAGNUS_CHROMIUM is not set"); process.exit(2); }
-
-const stubs = `
-function $(q, r) { return (r || document).querySelector(q); }
-function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]); }
-function icon() { return "×"; }
-var Magnus = { kind: "desktop", notifyPermission: () => "granted" };
-function toast(msg, ms) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; let box = $("#toasts"); if (!box) { box = document.createElement("div"); box.id = "toasts"; document.body.append(box); } box.append(t); setTimeout(() => t.remove(), ms || 3200); }`;
-
-const card = (id, text) => `<article class="card item approval" data-id="${id}"><div class="spread"><strong>${text}</strong></div><div class="ask"><p class="ask-sentence">${text}</p><div class="row ask-answers"><button class="primary" data-item="${id}" data-decision="approve">Allow</button><button data-item="${id}" data-decision="reject">Decline</button></div></div></article>`;
-const thread = ids => `<div class="entry agent" data-entry="a:t1" data-kind="tasks">${ids.map(([id, t]) => card(id, t)).join("")}</div>`;
-
-const page = motion => `<!doctype html><html><head><style>${["base.css", "layout.css", "chat.css", "teams.css", "aurora.css", "aurora-widgets.css"].map(ui).join("\n")}
-body { margin: 0; } #main { max-width: 720px; margin: 24px auto; }</style></head>
-<body><script>${ui("theme.js")}</script><script>Theme.set({ style: "aurora", mode: "dark", motion: "${motion}", background: "off" });</script>
-<main id="main"><div class="thread" id="thread">${thread([["i1", "Send the booking to Elena?"]])}</div></main>
-<script>${stubs}</script><script>${ui("notices.js")}</script><script>${ui("aurora-alerts.js")}</script></body></html>`;
 
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const failures = [];
 const check = (what, fn) => { try { fn(); console.log(`ok - ${what}`); } catch (e) { failures.push(`${what}: ${e.message}`); console.log(`not ok - ${what}`); } };
 try {
-  const p = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const p = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   p.on("pageerror", e => failures.push(`page error: ${e.message}`));
   await p.setContent(page("full"));
-  await p.waitForTimeout(150);
+  await p.waitForTimeout(200);
 
-  // Two pop-ups: a message, then something that needs the person.
-  await p.evaluate(() => {
-    Notices.popup({ key: "team:w1:n1", title: "Elena in #launch", body: "Can you check the deck?", system: "", href: "" });
-    Notices.popup({ key: "inbox:i9", title: "A task needs you", body: "Send the booking?", system: "", href: "" });
+  // A decision here and one from elsewhere arrive.
+  await p.evaluate(([a, b]) => { FX.pending = [a, b]; drawThread(); }, [ask("i1", "c1", "Book the Lisbon flight for $412?"), ask("i2", "c9", "Pay the $912 deposit?")]);
+  await p.waitForTimeout(400);
+  const first = await p.evaluate(() => {
+    const thread = document.querySelector('#thread .card.item[data-id="i1"]');
+    const line = document.querySelector("#thread .aurora-decision-line");
+    const tiles = [...document.querySelectorAll(".stage-bento > .stage-tile:not(.stage-tile-leaving)")];
+    const box = document.querySelector('.stage-tile[data-tile="approval:i2"]');
+    return {
+      opened: FX.opened,
+      beside: !!document.querySelector('#detail .stage-artifact .card.item[data-id="i1"] .ask-answers button'),
+      cardShown: thread ? getComputedStyle(thread).display !== "none" : null,
+      line: line && { state: line.dataset.state, said: line.querySelector(".aurora-decision-said").textContent, what: line.querySelector(".aurora-decision-what").textContent, opens: line.querySelector(".aurora-decision-open")?.dataset.open },
+      tiles: tiles.map(t => t.dataset.tile),
+      box: box && { tag: box.tagName, answers: [...box.querySelectorAll(".ask-answers button")].map(b => b.textContent), title: box.querySelector("a.stage-tile-title")?.dataset.open },
+    };
   });
+  check("a decision about this conversation opens beside it, with its answers", () => assert.deepEqual([first.opened, first.beside], [["item:i1 (auto)"], true]));
+  check("the thread keeps a line for it instead of the card", () => assert.deepEqual([first.cardShown, first.line], [false, { state: "waiting", said: "Needs your decision", what: "Book the Lisbon flight for $412?", opens: "item:i1" }]));
+  check("the decision beside the conversation is not also a box", () => assert.ok(!first.tiles.includes("approval:i1"), JSON.stringify(first.tiles)));
+  check("a decision from elsewhere is a box with its answers in it", () => assert.deepEqual(first.box, { tag: "DIV", answers: ["Allow", "Don't allow"], title: "item:i2" }));
+
+  // A teammate writes: a box, not a pop-up.
+  await p.evaluate(() => Notices.show({ key: "team:w1:n1", title: "Elena in #launch", body: "Can you check the deck?", system: "", href: "#/team/w1" }));
+  await p.waitForTimeout(300);
+  const note = await p.evaluate(() => ({ popups: document.querySelectorAll("#notices .notice").length, box: document.querySelector('.stage-tile[data-tile="messages"] .stage-tile-title')?.textContent }));
+  check("a teammate's message is a box, not a pop-up", () => assert.deepEqual(note, { popups: 0, box: "Elena in #launch" }));
+  await p.click('.stage-tile[data-tile="messages"]');
   await p.waitForTimeout(500);
-  const look = await p.evaluate(() => {
-    const [a, b] = document.querySelectorAll("#notices > .notice");
-    const dot = el => getComputedStyle(el.querySelector(".notice-open > strong"), "::before").backgroundColor;
-    const life = document.getAnimations().filter(x => x.animationName === "auroraNoticeLife").map(x => x.playState);
-    return { blur: getComputedStyle(b).backdropFilter, message: dot(a), needs: dot(b), life };
+  const noteGone = await p.evaluate(() => !document.querySelector('.stage-tile[data-tile="messages"]:not(.stage-tile-leaving)'));
+  check("a message opened is no longer a box", () => assert.ok(noteGone));
+  await p.evaluate(() => { location.hash = ""; });
+
+  // Answered beside the conversation.
+  await p.click('#detail .card.item[data-id="i1"] .ask-answers button.primary');
+  await p.waitForTimeout(250);
+  const beside = await p.evaluate(() => {
+    const c = document.querySelector("#detail .stage-artifact .card.item");
+    const told = document.querySelector(".aurora-say-state[data-told] .aurora-say-told");
+    return { said: c?.querySelector(".aurora-confirmed-pill")?.textContent, buttons: c?.querySelectorAll("button").length, told: told && { text: told.textContent, role: told.getAttribute("role") }, toasts: document.querySelectorAll("#toasts .toast").length, open: Panel.what };
   });
-  check("a pop-up is glass, with a dot for what it is about", () => assert.deepEqual([look.blur, look.message], ["blur(20px)", "rgb(56, 189, 248)"]));
-  check("a pop-up that needs the person has the amber dot", () => assert.notEqual(look.needs, look.message));
-  check("each pop-up shows the time it has left", () => assert.deepEqual(look.life, ["running", "running"]));
-  await p.hover('[data-notice="inbox:i9"]');
-  await p.waitForTimeout(100);
-  const held = await p.evaluate(() => document.getAnimations().filter(x => x.animationName === "auroraNoticeLife" && x.effect.target.dataset.notice === "inbox:i9").map(x => x.playState));
-  check("the time is held while the pointer is on it", () => assert.deepEqual(held, ["paused"]));
-  await p.mouse.move(10, 10);
+  check("answered beside the conversation, the card says the answer where it was", () => assert.deepEqual([beside.said, beside.buttons, beside.open], ["✓ Allowed", 0, "item:i1"]));
+  check("what a toast would say is said above the composer, not over the stage", () => assert.deepEqual([beside.told, beside.toasts], [{ text: "Allowed.", role: "status" }, 0]));
+  await p.waitForTimeout(1000);
+  const after = await p.evaluate(() => {
+    const line = document.querySelector('#thread .aurora-decision-line[data-item="i1"]');
+    return { open: Panel.what, line: line && { state: line.dataset.state, said: line.querySelector(".aurora-decision-said").textContent, review: !!line.querySelector(".aurora-decision-open") } };
+  });
+  check("then the canvas closes, and the thread's line keeps the answer", () => assert.deepEqual(after, { open: null, line: { state: "answered", said: "✓ Allowed", review: false } }));
 
-  // The lower pop-up dismissed: it slides out where it was, the other glides down.
-  const topBefore = await p.evaluate(() => document.querySelector('[data-notice="team:w1:n1"]').getBoundingClientRect().top);
-  await p.click('[data-notice="inbox:i9"] .notice-close');
-  const ghost = await p.evaluate(() => { const g = document.querySelector("#notices > .notice.aurora-leaving"); return g ? { key: g.dataset.notice, last: g === document.getElementById("notices").lastElementChild, inert: g.inert } : null; });
-  await p.waitForTimeout(180);
-  const topMid = await p.evaluate(() => document.querySelector('[data-notice="team:w1:n1"]:not(.aurora-leaving)').getBoundingClientRect().top);
-  await p.waitForTimeout(450);
-  const topAfter = await p.evaluate(() => document.querySelector('[data-notice="team:w1:n1"]:not(.aurora-leaving)').getBoundingClientRect().top);
-  const gone = await p.evaluate(() => document.querySelectorAll("#notices > .aurora-leaving").length);
-  check("a pop-up dismissed slides out from where it was", () => assert.deepEqual(ghost, { key: "inbox:i9", last: true, inert: true }));
-  check("the pop-up beside it glides into the room left, over time", () => assert.ok(topBefore < topMid && topMid < topAfter, JSON.stringify({ topBefore, topMid, topAfter })));
-  check("the pop-up that left is gone once it has slid out", () => assert.equal(gone, 0));
+  // Answered in its box.
+  await p.click('.stage-tile[data-tile="approval:i2"] .ask-answers button.primary');
+  await p.waitForTimeout(250);
+  const inBox = await p.evaluate(() => { const b = document.querySelector('.stage-tile[data-tile="approval:i2"]:not(.stage-tile-leaving)'); return b && { said: b.querySelector(".aurora-confirmed-pill")?.textContent, buttons: b.querySelectorAll("button").length, tone: b.dataset.tone }; });
+  await p.waitForTimeout(1400);
+  const boxGone = await p.evaluate(() => !document.querySelector('.stage-tile[data-tile="approval:i2"]:not(.stage-tile-leaving)'));
+  check("answered in its box, the box says the answer", () => assert.deepEqual(inBox, { said: "✓ Allowed", buttons: 0, tone: "done" }));
+  check("then the box goes", () => assert.ok(boxGone));
 
-  // A toast leaves the same way.
-  await p.evaluate(() => toast("Allowed.", 300));
-  await p.waitForTimeout(380);
-  const toastGhost = await p.evaluate(() => document.querySelectorAll("#toasts > .toast.aurora-leaving").length);
-  await p.waitForTimeout(500);
-  const toastGone = await p.evaluate(() => document.querySelectorAll("#toasts > .toast").length);
-  check("a toast slides out when it goes, then is gone", () => assert.deepEqual([toastGhost, toastGone], [1, 0]));
+  // No composer line to say it in: a toast is still a toast.
+  await p.evaluate(() => { document.getElementById("composer").hidden = true; toast("Saved."); });
+  const fallback = await p.evaluate(() => document.querySelectorAll("#toasts .toast").length);
+  check("with no composer line shown, a toast is still a toast", () => assert.equal(fallback, 1));
 
-  // Decisions: the one drawn with the page does not rise; one arriving does.
-  const drawn = await p.evaluate(() => document.querySelector('[data-id="i1"]').classList.contains("aurora-alert-in"));
-  await p.evaluate(t => { document.getElementById("thread").innerHTML = t; }, thread([["i1", "Send the booking to Elena?"], ["i2", "Pay the $912 deposit?"]]));
-  await p.waitForTimeout(60);
-  const arrived = await p.evaluate(() => ["i1", "i2"].map(id => document.querySelector(`[data-id="${id}"]`).classList.contains("aurora-alert-in")));
-  check("a decision drawn with the page does not rise in; one arriving does", () => assert.deepEqual([drawn, arrived], [false, [false, true]]));
-
-  // The first answered: the thread is redrawn without it, as app.js does.
-  await p.evaluate(t => {
-    document.querySelector('[data-id="i1"] [data-decision="approve"]').addEventListener("click", () => setTimeout(() => { document.getElementById("thread").innerHTML = t; }, 60));
-  }, thread([["i2", "Pay the $912 deposit?"]]));
-  await p.click('[data-id="i1"] [data-decision="approve"]');
-  await p.waitForTimeout(160);
-  const answered = await p.evaluate(() => { const g = document.querySelector(".card.aurora-leaving"); return g ? { id: g.dataset.id, first: g === g.parentElement.firstElementChild, said: g.querySelector(".aurora-confirmed-pill")?.textContent, buttons: g.querySelectorAll("button").length, h: Math.round(g.getBoundingClientRect().height) } : null; });
-  await p.waitForTimeout(900);
-  const folding = await p.evaluate(() => Math.round(document.querySelector(".card.aurora-leaving")?.getBoundingClientRect().height ?? -1));
-  await p.waitForTimeout(700);
-  const folded = await p.evaluate(() => document.querySelectorAll(".card.aurora-leaving").length);
-  check("an answered decision shows the answer where it was", () => assert.deepEqual(answered && { id: answered.id, first: answered.first, said: answered.said, buttons: answered.buttons }, { id: "i1", first: true, said: "✓ Allowed", buttons: 0 }));
-  check("then folds away over time", () => assert.ok(answered.h > 0 && folding > 0 && folding < answered.h && folded === 0, JSON.stringify({ h: answered.h, folding, folded })));
-
-  // Reduced motion: things go at once.
-  const r = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  // Reduced motion: the same places, without the movement.
+  const r = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  r.on("pageerror", e => failures.push(`reduced page error: ${e.message}`));
   await r.setContent(page("reduced"));
-  await r.waitForTimeout(100);
-  await r.evaluate(() => Notices.popup({ key: "team:w1:n2", title: "Elena", body: "Hi", system: "", href: "" }));
-  await r.click(".notice-close");
-  const still = await r.evaluate(() => document.querySelectorAll("#notices > .notice").length);
-  check("with reduced motion a pop-up goes at once", () => assert.equal(still, 0));
+  await r.waitForTimeout(150);
+  await r.evaluate(a => { FX.pending = [a]; drawThread(); }, ask("i3", "c1", "Send the invite?"));
+  await r.waitForTimeout(300);
+  const still = await r.evaluate(() => ({ beside: Panel.what, line: !!document.querySelector("#thread .aurora-decision-line") }));
+  check("with reduced motion, decisions are in the same places", () => assert.deepEqual(still, { beside: "item:i3", line: true }));
 
-  // Another style: as before.
-  await p.evaluate(() => Theme.set({ style: "obsidian" }));
-  await p.evaluate(() => Notices.popup({ key: "team:w1:n3", title: "Elena", body: "Hi", system: "", href: "" }));
-  await p.click('[data-notice="team:w1:n3"] .notice-close');
-  const plain = await p.evaluate(() => document.querySelectorAll('#notices > [data-notice="team:w1:n3"], #notices > .aurora-leaving').length);
-  check("another style's pop-up goes at once, as before", () => assert.equal(plain, 0));
+  // No conversation shown, so no stage: a message is a pop-up.
+  await r.evaluate(() => { const c = document.querySelector("#main > section.conv"); c.remove(); Notices.show({ key: "team:w1:n3", title: "Elena", body: "Hi", system: "", href: "#/team/w1" }); document.getElementById("main").append(c); });
+  const noStage = await r.evaluate(() => document.querySelectorAll('#notices .notice[data-notice="team:w1:n3"]').length);
+  check("with no conversation shown, a message is still a pop-up", () => assert.equal(noStage, 1));
+
+  // Another style: pop-ups and cards as before.
+  await r.evaluate(() => Theme.set({ style: "obsidian" }));
+  await r.waitForTimeout(100);
+  await r.evaluate(() => Notices.show({ key: "team:w1:n2", title: "Elena", body: "Hi", system: "", href: "#/team/w1" }));
+  await r.waitForTimeout(100);
+  const plain = await r.evaluate(() => ({ popups: document.querySelectorAll('#notices .notice[data-notice="team:w1:n2"]').length, card: getComputedStyle(document.querySelector('#thread .card.item[data-id="i3"]')).display !== "none", lines: document.querySelectorAll(".aurora-decision-line").length }));
+  check("another style keeps its pop-ups and cards", () => assert.deepEqual(plain, { popups: 1, card: true, lines: 0 }));
 } finally {
   await browser.close();
 }

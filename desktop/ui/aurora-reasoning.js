@@ -6,7 +6,10 @@
 //   "Completed 3 steps · 12s" above it;
 // - above the composer, a line says the state Magnus is in ("Ready · standing
 //   by", "Working across your apps…"), in that state's colour;
-// - the composer grows and shrinks smoothly as the person types.
+// - the composer grows and shrinks smoothly as the person types;
+// - what the app would say in a toast ("Allowed.", "Saved.") is said in that
+//   line for as long as the toast would show (`tell`), so nothing floats
+//   over the stage (decisions/2026-11-21-aurora-alerts.md).
 // The pill is one node per answer, kept across the thread's repaints and
 // changed in place, so its changes move instead of being redrawn.
 "use strict";
@@ -200,13 +203,29 @@ const AuroraReasoning = (() => {
       if (!line) {
         line = document.createElement("div");
         line.className = "aurora-say-state";
-        line.setAttribute("aria-hidden", "true");
-        line.innerHTML = '<span class="aurora-state-dot"></span><span class="aurora-say-text"></span>';
+        line.innerHTML = '<span class="aurora-state-dot" aria-hidden="true"></span><span class="aurora-say-text" aria-hidden="true"></span><span class="aurora-say-told" role="status"></span>';
         slot.insertBefore(line, form);
       }
       const text = line.querySelector(".aurora-say-text");
       if (text && text.textContent !== words) text.textContent = words;
     });
+  }
+
+  /**
+   * Says what a toast would, in the composer's line, for `ms`.
+   * @param {string} msg @param {number} ms
+   * @returns {boolean} whether it was said here (no line shown: no)
+   */
+  function tell(msg, ms) {
+    if (!on()) return false;
+    const line = /** @type {HTMLElement|undefined} */ ([...document.querySelectorAll(".aurora-say-state")].find(l => /** @type {HTMLElement} */ (l).offsetParent !== null));
+    const told = line?.querySelector(".aurora-say-told");
+    if (!line || !told) return false;
+    told.textContent = msg;
+    line.setAttribute("data-told", "");
+    clearTimeout(Number(line.dataset.toldTimer));
+    line.dataset.toldTimer = String(setTimeout(() => { line.removeAttribute("data-told"); told.textContent = ""; }, ms));
+    return true;
   }
 
   /** Leaves the page as the other styles have it. */
@@ -245,5 +264,5 @@ const AuroraReasoning = (() => {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  return { mount, poll, on, kept };
+  return { mount, poll, on, kept, tell };
 })();

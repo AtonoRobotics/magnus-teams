@@ -8,7 +8,14 @@
 //   has just finished (mint, with its result); Approvals while a decision
 //   waits; Up Next while a routine is due soon; Files while a new file is
 //   fresh; Apps while one needs attention; the computer while it works or
-//   asks for the person; Recent Work while work elsewhere has just finished.
+//   asks for the person; Recent Work while work elsewhere has just finished;
+//   Messages while a teammate has written and the person has not looked.
+// - A decision is made where it shows (decisions/2026-11-21-aurora-alerts.md):
+//   one about this conversation opens the canvas beside it, with what it
+//   would do and its answers; one from elsewhere is a box in the bento with
+//   its answers in the box. Answered, it says so in place, then goes.
+// - Nothing floats over the stage: a message that would be a pop-up is a
+//   box here instead (`takes`).
 // - Every view stays one click away in the conversation's head: a row of the
 //   panel's icons (Approvals, Tasks, Routines, Rules, Files, Apps).
 // - There is no panel beside the conversation. Anything opened is the
@@ -28,6 +35,10 @@ const AuroraStage = (() => {
   const WORD_STEP_MS = 34;
   const WORDS_STREAMED = 120;
   const SHOWN_BOXES = 4;
+  /** How long a message stays a box when the person does not open it. */
+  const NOTE_FRESH_MS = 30 * 60_000;
+  /** How long an answered box shows the answer before it goes. */
+  const ANSWER_SHOWN_MS = 900;
   const MOVE_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
   const html = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -35,6 +46,12 @@ const AuroraStage = (() => {
   let lastArtifact = null;
   /** @type {Map<string, string>|null} each task's state when last seen */
   let seen = null;
+  /** Messages that would have been pop-ups, by key, newest last. @type {Map<string, { key: string, title: string, body: string, href: string, at: number }>} */
+  const notes = new Map();
+  /** Decisions of this conversation opened beside it once already. */
+  const offered = new Set();
+  /** A box just answered, shown with its answer until `until`. @type {?{ box: any, until: number }} */
+  let held = null;
 
   /** Whether the shown style draws the stage. */
   function on() {
@@ -76,9 +93,21 @@ const AuroraStage = (() => {
     } else if (last) {
       list.push({ ...live, tone: last.status === "completed" ? "done" : "idle", open: `task:${last.task_id}`, href: `#/task/${enc(last.task_id)}`, title: named(last), desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped") });
     }
-    const pending = needsMe();
-    if (pending.length) list.push({ key: "approvals", label: "Approvals", icon: "need", href: "#/inbox", tone: "needs", count: pending.length, open: pending.length === 1 && pending[0].id ? `item:${pending[0].id}` : "needs",
-      title: pending[0].summary || pending[0].ask?.sentence || "A decision", desc: pending.length > 1 ? `${pending.length - 1} more waiting on you` : "Nothing goes out until you approve." });
+    // The decision open beside the conversation is not also a box.
+    const pending = needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
+    if (held && held.until > Date.now()) list.push(held.box);
+    else held = null;
+    if (pending.length) {
+      const i = pending[0];
+      list.push({ key: `approval:${i.id}`, item: i.id, label: "Approvals", icon: "need", href: "#/inbox", tone: "needs", count: pending.length > 1 ? pending.length : 0, open: `item:${i.id}`,
+        title: i.ask?.sentence || i.summary || "A decision", desc: pending.length > 1 ? `${pending.length - 1} more waiting on you` : "Nothing goes out until you answer.", answers: answersOf(i) });
+    }
+    for (const [k, n] of notes) if (Date.now() - n.at > NOTE_FRESH_MS) notes.delete(k);
+    const said = [...notes.values()];
+    if (said.length) {
+      const n = said[said.length - 1];
+      list.push({ key: "messages", label: "Messages", icon: "chat", tone: "talk", open: "", note: n.key, href: n.href || "#", title: n.title, desc: `${n.body || ""}${said.length > 1 ? ` · ${said.length - 1} more` : ""}`, count: said.length > 1 ? said.length : 0 });
+    }
     const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id);
     const w = comp && typeof controlWords === "function" ? controlWords(comp, false) : null;
     if (comp && w && ["working", "asks", "waking"].includes(w.key)) {
@@ -94,15 +123,31 @@ const AuroraStage = (() => {
     if (asking.length) list.push({ key: "apps", label: "Apps", icon: "grid", tone: "needs", open: `connector:${asking[0].name}`, href: "#/apps", title: asking[0].title, desc: asking.length > 1 ? `${asking.length} apps need attention` : "Needs attention to keep working" });
     const elsewhere = latest(tasks.filter(t => t.thread !== App.thread && ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
     if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}` });
-    const rank = c => (c.tone === "needs" ? 0 : c.tone === "run" ? 1 : 2);
+    // A box answered keeps its place while it shows the answer.
+    const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" || c.tone === "talk" ? 1 : 2);
     return list.map((c, i) => [c, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c).slice(0, SHOWN_BOXES);
+  }
+
+  /**
+   * A decision's answers as its card has them (asks.js), when it is an ask
+   * the person can answer in one tap; otherwise the box opens it.
+   * @param {any} i an inbox item
+   */
+  function answersOf(i) {
+    if (i.kind !== "approval" || !i.can_respond || typeof askCard !== "function") return "";
+    const t = document.createElement("template");
+    t.innerHTML = askCard(i, true);
+    const row = t.content.querySelector(".ask-answers");
+    return row && !row.querySelector("textarea, input") ? row.outerHTML : "";
   }
 
   /** A box's inside, as the mockup's small bento box. */
   function boxInner(c) {
+    const title = c.answers ? `<a class="stage-tile-title" href="${html(c.href)}" data-open="${html(c.open)}">${html(c.title)}</a>` : `<strong class="stage-tile-title">${html(c.title)}</strong>`;
+    const foot = c.said ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>` : c.answers || `<span class="stage-tile-desc">${html(c.desc)}</span>`;
     return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span></span>
-      <strong class="stage-tile-title">${html(c.title)}</strong>
-      <span class="stage-tile-desc">${html(c.desc)}</span>`;
+      ${title}
+      ${foot}`;
   }
 
   // Where each box is, so a change can slide them from there.
@@ -141,17 +186,26 @@ const AuroraStage = (() => {
       setTimeout(() => b.remove(), LEAVE_MS);
     }
     for (const c of list) {
-      let b = bento.querySelector(`:scope > .stage-tile[data-tile="${c.key}"]:not(.stage-tile-leaving)`);
+      let b = bento.querySelector(`:scope > .stage-tile[data-tile="${CSS.escape(c.key)}"]:not(.stage-tile-leaving)`);
+      // A box with answers in it is not a link: its title is.
+      const tag = c.answers || c.said ? "DIV" : "A";
+      if (b && b.tagName !== tag) { b.remove(); b = null; }
       if (!b) {
-        b = document.createElement("a");
+        b = document.createElement(tag);
         b.dataset.tile = c.key;
         if (moving()) { b.classList.add("stage-tile-enter"); b.addEventListener("animationend", () => b.classList.remove("stage-tile-enter"), { once: true }); }
       }
       b.classList.add("stage-tile");
       b.classList.toggle("aurora-executing", c.tone === "run");
       b.dataset.tone = c.tone;
-      b.dataset.open = c.open;
-      b.setAttribute("href", c.href);
+      if (tag === "A") {
+        if (c.open) b.dataset.open = c.open; else delete b.dataset.open;
+        b.setAttribute("href", c.href);
+      } else {
+        b.setAttribute("role", "group");
+        b.setAttribute("aria-label", c.label);
+      }
+      if (c.note) b.dataset.note = c.note; else delete b.dataset.note;
       const inner = boxInner(c);
       if (b._html !== inner) { b.innerHTML = inner; b._html = inner; }
       bento.append(b);
@@ -175,11 +229,76 @@ const AuroraStage = (() => {
     const now = new Map(tasks.map(t => [t.task_id, stateOfTask(t)]));
     const was = seen;
     seen = now;
+    if (App.thread && decide(tasks)) return;
     if (!was || !App.thread) return;
     const turned = tasks.find(t => t.thread === App.thread && was.get(t.task_id) === "running" && ["completed", "needs"].includes(now.get(t.task_id) || ""));
     if (!turned || (Panel.what && !Panel.autoOpened) || Panel.what === `task:${turned.task_id}`) return;
     openPanel(`task:${turned.task_id}`, { auto: true });
   }
+
+  /**
+   * A decision about this conversation, not yet offered, opens beside it
+   * with its answers, unless the person opened something else themselves.
+   * @param {any[]} tasks @returns {boolean} whether one opened
+   */
+  function decide(tasks) {
+    if (Panel.what && !Panel.autoOpened) return false;
+    if (String(Panel.what || "").startsWith("item:")) return false;
+    const mine = new Set(tasks.filter(t => t.thread === App.thread && t.waiting_item).map(t => t.waiting_item));
+    const i = needsMe().find(x => x.id && x.can_respond !== false && !offered.has(x.id) && (x.thread === App.thread || mine.has(x.id)));
+    if (!i) return false;
+    offered.add(i.id);
+    openPanel(`item:${i.id}`, { auto: true });
+    setTimeout(refresh, 0);
+    return true;
+  }
+
+  /**
+   * A message that would be a pop-up, taken as a box of the bento instead.
+   * A decision needs no box of its own here: the stage shows it already.
+   * Where no conversation is shown (Settings, say), there is no stage to
+   * show it on, and it is a pop-up as in the other styles.
+   * @param {{ key: string, title: string, body: string, href: string }} s
+   * @returns {boolean} whether the stage took it
+   */
+  function takes(s) {
+    if (!on() || !document.querySelector("#main > section.conv")) return false;
+    if (s.key.startsWith("inbox:")) { refresh(); return true; }
+    notes.delete(s.key);
+    notes.set(s.key, { key: s.key, title: s.title, body: s.body, href: s.href, at: Date.now() });
+    refresh();
+    return true;
+  }
+
+  // A message opened, or its place visited, is no longer new.
+  document.addEventListener("click", e => {
+    const t = /** @type {HTMLElement} */ (e.target);
+    const box = t.closest?.(".stage-tile[data-note]");
+    if (box instanceof HTMLElement) {
+      const n = notes.get(box.dataset.note || "");
+      notes.delete(box.dataset.note || "");
+      if (n && !n.href) e.preventDefault();
+      refresh();
+    }
+    // A box answered keeps its place and says the answer, then goes.
+    const btn = t.closest?.(".stage-tile .ask-answers button[data-decision]");
+    const tile = btn?.closest(".stage-tile");
+    if (!btn || !(tile instanceof HTMLElement) || !on()) return;
+    const decision = (/** @type {HTMLElement} */ (btn).dataset.decision || "").split(":")[0];
+    if (decision === "ask-more") return;
+    const said = typeof AuroraAlerts !== "undefined" ? AuroraAlerts.said(decision) : "Done";
+    const id = /** @type {HTMLElement} */ (btn).dataset.item || "";
+    held = { box: { key: tile.dataset.tile, item: id, label: "Approvals", icon: "need", href: "#/inbox", tone: "done", open: `item:${id}`, title: tile.querySelector(".stage-tile-title")?.textContent || "", desc: "", said }, until: Date.now() + ANSWER_SHOWN_MS };
+    // Its answers become the answer now; the box goes once it has shown.
+    const row = tile.querySelector(".ask-answers");
+    if (row) row.outerHTML = `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(said)}</span></div>`;
+    tile.dataset.tone = "done";
+    setTimeout(refresh, ANSWER_SHOWN_MS + 20);
+  });
+  window.addEventListener("hashchange", () => {
+    for (const [k, n] of notes) if (n.href && location.hash.startsWith(n.href.split("/t/")[0])) notes.delete(k);
+    refresh();
+  });
 
   // Every change drawn in the main column may change the boxes; a narrower
   // column moves them.
@@ -242,10 +361,12 @@ const AuroraStage = (() => {
     if (!canvas || !changed) return;
     if (lastArtifact !== "open") canvas.classList.add("stage-opening");
     lastArtifact = "open";
+    // What the canvas shows is not also a box.
+    setTimeout(refresh, 0);
   }
 
   /** The canvas is gone: the next one slides in again. */
-  function closed() { lastArtifact = null; }
+  function closed() { lastArtifact = null; setTimeout(refresh, 0); }
 
   /**
    * A new block of an answer streams in word by word, as the mockup's does.
@@ -289,6 +410,6 @@ const AuroraStage = (() => {
     refresh();
   });
 
-  return { on, refresh, boxes, shell, settle, closed, stream };
+  return { on, refresh, boxes, shell, settle, closed, stream, takes, notes, offered };
 })();
 globalThis.AuroraStage = AuroraStage;

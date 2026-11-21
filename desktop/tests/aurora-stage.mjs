@@ -97,16 +97,16 @@ try {
   const slid = await p.evaluate(() => document.getAnimations().filter(a => !(a instanceof CSSAnimation) && a.effect?.target?.dataset?.tile && JSON.stringify(a.effect.getKeyframes()).includes("translate")).map(a => a.effect.target.dataset.tile));
   const decided = await shown();
   const badge = await p.evaluate(() => document.querySelector('#conv-head .stage-dock a[data-open="needs"] .stage-dock-badge')?.textContent);
-  check("a decision brings Approvals in first, amber, beside the work", () => assert.deepEqual(decided.map(t => `${t.key}:${t.tone}:${t.wide}`), ["approvals:needs:false", "live:run:false"]));
+  check("a decision brings Approvals in first, amber, beside the work", () => assert.deepEqual(decided.map(t => `${t.key}:${t.tone}:${t.wide}`), ["approval:i1:needs:false", "live:run:false"]));
   check("the box already there slides to its new place", () => assert.deepEqual(slid, ["live"]));
   check("the dock counts what waits", () => assert.equal(badge, "1"));
   await p.waitForTimeout(600);
 
   // The decision answered: Approvals leaves from where it was.
   await step(() => { FX.pending = []; });
-  const leaving = await p.evaluate(() => { const b = document.querySelector('.stage-tile[data-tile="approvals"]'); return b ? { leaving: b.classList.contains("stage-tile-leaving"), position: b.style.position } : null; });
+  const leaving = await p.evaluate(() => { const b = document.querySelector('.stage-tile[data-tile="approval:i1"]'); return b ? { leaving: b.classList.contains("stage-tile-leaving"), position: b.style.position } : null; });
   await p.waitForTimeout(500);
-  const gone = await p.evaluate(() => !document.querySelector('.stage-tile[data-tile="approvals"]'));
+  const gone = await p.evaluate(() => !document.querySelector('.stage-tile[data-tile="approval:i1"]'));
   check("the decision answered takes Approvals away, leaving from where it was", () => assert.deepEqual([leaving, gone], [{ leaving: true, position: "absolute" }, true]));
 
   // A routine comes due: Up Next comes in.

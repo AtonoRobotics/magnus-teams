@@ -262,6 +262,8 @@ function askText(msg, placeholder = "", yes = "Submit", danger = false) {
 }
 
 function toast(msg, ms = 3200) {
+  // Aurora says it on its stage, in the line above the composer.
+  if (typeof AuroraReasoning !== "undefined" && AuroraReasoning.tell(String(msg), ms)) return;
   const t = document.createElement("div");
   t.className = "toast"; t.textContent = msg; t.setAttribute("role", "status");
   // Toasts stack, newest at the bottom, rather than covering each other.

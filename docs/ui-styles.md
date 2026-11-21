@@ -18,8 +18,8 @@ kind of style lives, so a change goes in one place and shows.
 | The Admin section's own parts | `admin.css` |
 | Sign-in and first run | `onboarding.css` |
 | Aurora and Obsidian 2 Aurora: the frame, ambient canvas and motion | `aurora.css` |
-| Aurora's widgets: request and approval cards, pill buttons, an answer's reasoning pill, the composer's state line and glow, pop-ups, toasts and decisions as they come and go | `aurora-widgets.css` |
-| Aurora's stage: the cards and the artifact canvas beside the conversation | `aurora-stage.css` |
+| Aurora's widgets: request and approval cards, pill buttons, an answer's reasoning pill, the composer's state line and glow and what it is told, a decision's line in the thread, decisions confirmed in place, toasts as they go | `aurora-widgets.css` |
+| Aurora's stage: the cards (decisions with their answers, messages among them) and the artifact canvas beside the conversation | `aurora-stage.css` |
 
 `index.html` loads the sheets in that order, and later wins a tie. The
 server serves each of them (`crates/magnus/src/ui/assets.rs`), and the
