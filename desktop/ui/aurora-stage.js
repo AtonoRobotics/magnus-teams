@@ -446,10 +446,59 @@ const AuroraStage = (() => {
    * @param {{ kind: string, title: string, head?: string|null, backBtn: string, body: string }} v
    */
   function shell(v) {
+    const d = v.kind === "item" ? decision(v.body) : null;
+    if (d) {
+      return `<section class="stage-artifact stage-decision" aria-label="${html(d.title)}">
+      <div class="artifact-top"><div class="artifact-title"><p class="decision-kind">${html(d.kind)}</p><h2>${html(d.title)}</h2></div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
+      <div class="artifact-content detail-body" data-panel="item">${d.body}</div>
+    </section>`;
+    }
     return `<section class="stage-artifact" aria-label="${html(v.title)}">
       <div class="artifact-top">${v.backBtn}<div class="artifact-title">${v.head || `<h2>${html(v.title)}</h2>`}</div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
       <div class="artifact-content detail-body" data-panel="${html(v.kind)}">${v.body}</div>
     </section>`;
+  }
+
+  /**
+   * A decision on the canvas is built around the decision
+   * (decisions/2026-11-21-aurora-canvas.md): its question is the title, what
+   * it would mean is under it, and its answers at the canvas's foot. What
+   * else the card says (the app it uses, when it was asked, its task) is
+   * behind the one disclosure that shows exactly what it would do. A decision
+   * already answered, or anything that is not an ask, is drawn as it is.
+   * @param {string} body the item's card (app.js card())
+   * @returns {?{ kind: string, title: string, body: string }}
+   */
+  function decision(body) {
+    const t = document.createElement("template");
+    t.innerHTML = body;
+    const card = t.content.querySelector("article.card.item");
+    const ask = card?.querySelector(".ask[data-ask]");
+    const sentence = ask?.querySelector(".ask-sentence");
+    if (!card || !ask || !sentence || !ask.querySelector(".ask-answers")) return null;
+    const head = card.querySelector(":scope > .spread");
+    const kind = head?.querySelector(".kind")?.textContent?.trim() || "Decision";
+    const title = sentence.textContent?.trim() || kind;
+    // The question is the canvas's title; the card keeps it, unseen, for
+    // what reads the card (aurora-alerts.js).
+    /** @type {HTMLElement} */ (sentence).hidden = true;
+    const about = document.createElement("div");
+    about.className = "decision-about";
+    for (const el of [...card.children]) if (el !== head && el !== ask) about.append(el);
+    const meta = head?.querySelector(".small.faint");
+    if (meta) { const p = document.createElement("p"); p.className = "small faint decision-meta"; p.innerHTML = meta.innerHTML; about.append(p); }
+    head?.remove();
+    let more = ask.querySelector(":scope > details.ask-content");
+    if (!more && about.childNodes.length) {
+      more = document.createElement("details");
+      more.className = "ask-content";
+      const summary = document.createElement("summary");
+      summary.textContent = "Details";
+      more.append(summary);
+      ask.querySelector(":scope > .ask-answers")?.before(more);
+    }
+    if (more && about.childNodes.length) more.querySelector(":scope > summary")?.after(about);
+    return { kind, title, body: card.outerHTML };
   }
 
   /** The canvas slides in when it first opens. @param {Element} el @param {boolean} changed */

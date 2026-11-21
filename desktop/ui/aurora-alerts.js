@@ -74,7 +74,7 @@ const AuroraAlerts = (() => {
   const given = new Map();
   /**
    * A card just answered, until it goes.
-   * @type {Map<string, { card: HTMLElement, said: string, canvas: boolean, entry: string, after: string, before: string, at: number }>}
+   * @type {Map<string, { card: HTMLElement, said: string, canvas: boolean, head: string, entry: string, after: string, before: string, at: number }>}
    */
   const answering = new Map();
 
@@ -90,6 +90,9 @@ const AuroraAlerts = (() => {
       card,
       said: said(decision),
       canvas: !!card.closest(".stage-artifact"),
+      // The canvas built around the decision keeps its question as its
+      // title while it says the answer (2026-11-21-aurora-canvas.md).
+      head: card.closest(".stage-decision")?.querySelector(":scope > .artifact-top")?.outerHTML || "",
       entry: card.closest("[data-entry]")?.getAttribute("data-entry") || "",
       after: card.previousElementSibling?.getAttribute("data-id") || "",
       before: card.nextElementSibling?.getAttribute("data-id") || "",
@@ -120,6 +123,14 @@ const AuroraAlerts = (() => {
     if (!content || typeof Panel === "undefined" || Panel.what !== `item:${id}`) return;
     confirmed(a.card, a.said);
     content.replaceChildren(a.card);
+    const stage = content.parentElement;
+    const top = stage?.querySelector(":scope > .artifact-top");
+    if (a.head && stage && top) {
+      stage.classList.add("stage-decision");
+      top.outerHTML = a.head;
+      const title = stage.querySelector(":scope > .artifact-top h2")?.textContent;
+      if (title) stage.setAttribute("aria-label", title);
+    }
     setTimeout(() => {
       if (Panel.what !== `item:${id}` || typeof closePanel !== "function") return;
       closePanel(false);

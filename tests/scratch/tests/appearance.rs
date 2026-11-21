@@ -116,3 +116,15 @@ fn aurora_magnus_is_an_avatar_that_follows_the_state() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// A decision on Aurora's canvas is built around the decision: its question
+/// the title, its answers at the foot, the rest behind one disclosure
+/// (`desktop/tests/aurora-canvas.mjs`).
+#[test]
+fn aurora_canvas_is_built_around_the_decision() {
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-canvas.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

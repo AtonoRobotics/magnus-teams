@@ -402,6 +402,67 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact >
   padding: 16px 22px 24px;
 }
 
+/* ---------- A decision on the canvas (2026-11-21-aurora-canvas.md) ----------
+   Built around the decision: its question is the title, what it would mean
+   under it, the rest behind the one disclosure, and its answers at the
+   canvas's foot, in reach however long the details are. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-kind {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .artifact-title h2 {
+  font-size: 19px;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision > .artifact-content {
+  padding-bottom: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision article.card.item {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision article.card.item > .ask {
+  flex: 1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .ask-content > summary {
+  cursor: pointer;
+  color: var(--fg2);
+  font-size: 13.5px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-about {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-meta {
+  margin: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .ask-answers {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding-bottom: 18px;
+  background: linear-gradient(to bottom, transparent, var(--aurora-glass-strong) 14px);
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-artifact.stage-opening {
   animation: stageArtifactIn .55s var(--ease) both;
 }
