@@ -165,3 +165,222 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chip {
   border-radius: var(--r-pill);
   border: 1px solid var(--aurora-rim);
 }
+
+/* ---------- 4. An answer being written: the mockup's reasoning pill ----------
+   aurora-reasoning.js keeps one pill per answer and changes it in place: the
+   step it is on as its words, the steps ticking off, folding when done. */
+@keyframes auroraReasonIn {
+  from { opacity: 0; transform: translateY(3px); }
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason {
+  margin: 2px 0 10px;
+  border-radius: 16px;
+  border: 1px solid var(--aurora-rim);
+  background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  overflow: hidden;
+  transition: border-color .25s var(--ease), background .25s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .msg:has(> .aurora-reason):has(> [data-live]) > .small.faint {
+  display: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 0;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg2);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-toggle:hover {
+  color: var(--fg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-spark {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--aurora-beam-b);
+  box-shadow: 0 0 12px var(--aurora-beam-b);
+  transition: background .3s var(--ease), box-shadow .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason:is([data-phase="working"], [data-phase="writing"]) .aurora-reason-spark {
+  background: var(--aurora-beam-a);
+  box-shadow: 0 0 12px var(--aurora-beam-a);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-phase="needs"] .aurora-reason-spark {
+  background: var(--warn);
+  box-shadow: 0 0 12px var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-phase="done"] .aurora-reason-spark {
+  background: var(--ok);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 55%, transparent);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-phase="stopped"] .aurora-reason-spark {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-reason:is([data-phase="thinking"], [data-phase="working"], [data-phase="writing"], [data-phase="needs"]) .aurora-reason-spark {
+  animation: auroraSpark 2.4s ease-in-out infinite;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-chev {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--muted);
+  transition: transform .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason:not([data-steps]) .aurora-reason-chev {
+  visibility: hidden;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-open] .aurora-reason-chev {
+  transform: rotate(180deg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .38s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-open] .aurora-reason-body {
+  grid-template-rows: 1fr;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps {
+  min-height: 0;
+  margin: 0;
+  padding: 0 14px;
+  overflow: hidden;
+  list-style: none;
+  transition: padding .38s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason[data-open] .aurora-reason-steps {
+  padding: 2px 14px 10px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid color-mix(in srgb, var(--fg) 5%, transparent);
+  font-size: 13px;
+  color: var(--muted);
+  transition: color .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li[data-state="active"] {
+  color: var(--fg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li[data-state="done"] {
+  color: var(--fg2);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-reason-steps > li.aurora-reason-in {
+  animation: auroraReasonIn .34s var(--ease) both;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-check {
+  flex: none;
+  color: var(--ok);
+  font-weight: 600;
+  opacity: 0;
+  transform: scale(.6);
+  transition: opacity .25s var(--ease), transform .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason-steps > li[data-state="done"] .aurora-reason-check {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- 5. The composer: the state Magnus is in, and a glow on focus ---------- */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-say-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: .01em;
+  color: var(--muted);
+  position: relative;
+  z-index: 1;
+  transition: color .3s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="thinking"] .aurora-say-state {
+  color: color-mix(in srgb, var(--aurora-beam-b) 55%, var(--fg));
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="executing"] .aurora-say-state {
+  color: var(--aurora-beam-a);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-say-state {
+  color: var(--ok);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-state="needs"], [data-aurora-state="takeover"]) .aurora-say-state {
+  color: var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot::before {
+  content: "";
+  position: absolute;
+  inset: -6px -32px -8px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--aurora-beam-a) 20%, transparent) 0%, color-mix(in srgb, var(--aurora-beam-b) 9%, transparent) 42%, transparent 72%);
+  opacity: 0;
+  transform: scale(.94);
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity .45s var(--ease), transform .45s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot:focus-within::before {
+  opacity: 1;
+  transform: scale(1.06);
+}
+
+@media (forced-colors: active) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot::before {
+    display: none;
+  }
+}

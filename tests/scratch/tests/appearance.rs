@@ -36,3 +36,15 @@ fn aurora_draws_the_panel_as_a_stage_of_cards() {
     assert!(out.status.success(), "{said}");
     println!("{said}");
 }
+
+/// Aurora says what Magnus is doing where the person looks: the reasoning
+/// pill on an answer being written, and the state above the composer
+/// (`desktop/tests/aurora-reasoning.mjs`).
+#[test]
+fn aurora_says_what_magnus_is_doing_as_it_does_it() {
+    let out =
+        std::process::Command::new("node").arg(workspace_root().join("desktop/tests/aurora-reasoning.mjs")).env("MAGNUS_CHROMIUM", magnus_scratch::chromium()).output().expect("node");
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{said}");
+    println!("{said}");
+}

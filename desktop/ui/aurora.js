@@ -71,8 +71,10 @@
   function detectState() {
     if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
-    if (document.querySelector('.st.need, .stage-card[data-card="approvals"][data-tone="needs"]')) return "needs";
-    if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"]')) return "executing";
+    if (document.querySelector('.st.need, .stage-card[data-card="approvals"][data-tone="needs"], .aurora-reason[data-phase="needs"]')) return "needs";
+    if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"], .aurora-reason[data-phase="working"]')) return "executing";
+    // An answer being thought out or written (aurora-reasoning.js).
+    if (document.querySelector('.aurora-reason:is([data-phase="thinking"], [data-phase="writing"])')) return "thinking";
     return "idle";
   }
 
@@ -747,7 +749,7 @@
   });
 
   function init() {
-    bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed"] });
+    bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed", "data-phase"] });
     window.addEventListener("magnus-theme", reconcile);
     document.addEventListener("visibilitychange", () => {
       if (!active) return;

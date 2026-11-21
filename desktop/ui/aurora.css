@@ -617,6 +617,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup.chatcar
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot {
+  position: relative;
+  isolation: isolate;
   background: transparent;
 }
 
@@ -624,6 +626,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
   position: relative;
+  z-index: 1;
   border-radius: var(--r-composer);
   border: 1px solid var(--line-strong);
   padding: 12px 16px 10px;
