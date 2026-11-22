@@ -42,6 +42,23 @@ const head = () => page.evaluate(() => {
   return { off, chip: !!c, inside: !!r && r.left >= 0 && r.right <= vw, name: (c?.textContent || "").trim(), wordsShown: !!words && words.width > 2 };
 });
 
+/** Explore's cards whose words or buttons leave the card, run off the screen or sit on the card's label, and whether the page runs off the screen. */
+const explore = () => page.evaluate(() => {
+  const vw = document.documentElement.clientWidth;
+  const bad = [...document.querySelectorAll("#main .explore-grid > .explore-card")].flatMap(c => {
+    const f = c.getBoundingClientRect(), name = /** @type {HTMLElement} */ (c).dataset.playbook;
+    const parts = [...c.children].filter(e => !e.classList.contains("card-media") && e.getBoundingClientRect().height > 0);
+    const out = parts.filter(e => { const r = e.getBoundingClientRect(); return r.top < f.top + 8 || r.bottom > f.bottom - 8 || r.left < f.left + 8 || r.right > f.right - 8; })
+      .map(e => `${name}: ${e.tagName.toLowerCase()}.${String(e.className).split(" ")[0]} leaves the card`);
+    if (f.left < -0.5 || f.right > vw + 0.5) out.push(`${name}: the card runs off the screen ${Math.round(f.left)}..${Math.round(f.right)}`);
+    const head = c.querySelector(".explore-card-head")?.getBoundingClientRect();
+    const words = parts.filter(e => !e.classList.contains("explore-card-head"));
+    if (head && words.some(e => e.getBoundingClientRect().top < head.bottom)) out.push(`${name}: the words sit on the card's label`);
+    return out;
+  });
+  return { bad, off: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+});
+
 try {
   await page.goto(process.env.MAGNUS_URL || "");
   await page.getByLabel("Username").fill("alice");
@@ -68,6 +85,28 @@ try {
   await shot("computer");
   check("the computer's card keeps what is in it off its frame", () => assert.ok(card.least >= 8, JSON.stringify(card)));
   check("the computer's page does not run off the screen", () => assert.equal(card.off, 0));
+
+  // Explore's cards, closed and with a playbook's steps open.
+  await page.evaluate(() => { location.hash = "#/explore"; });
+  await page.locator("#main .explore-grid > .explore-card").first().waitFor({ timeout: 20000 });
+  await page.waitForTimeout(800);
+  let ex = await explore();
+  await page.locator("#main .explore-grid > .explore-card").first().scrollIntoViewIfNeeded();
+  await shot("explore");
+  check("each Explore card keeps what is in it inside its frame", () => assert.deepEqual(ex.bad, []));
+  check("Explore does not run off the screen", () => assert.equal(ex.off, 0));
+  await page.locator("#main .explore-grid > .explore-card").nth(1).locator(".explore-steps > summary").click();
+  await page.waitForTimeout(400);
+  ex = await explore();
+  await shot("explore-steps");
+  check("a card with its steps open grows to hold them", () => assert.deepEqual(ex.bad, []));
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.waitForTimeout(800);
+  ex = await explore();
+  await shot("explore-sideways");
+  check("turned sideways, each Explore card keeps what is in it inside its frame", () => assert.deepEqual(ex.bad, []));
+  check("turned sideways, Explore does not run off the screen", () => assert.equal(ex.off, 0));
+  await page.setViewportSize({ width: 390, height: 844 });
 
   // Sideways, and at desktop width.
   await page.evaluate(() => { location.hash = "#/chat/new"; });

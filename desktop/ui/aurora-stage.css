@@ -532,10 +532,15 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid {
   gap: 16px;
 }
 
+/* The shape is the least a card takes: one whose words need more grows to
+   hold them (overflow visible makes aspect-ratio a minimum), and none is
+   wider than its column (decisions/2026-11-21-explore-cards-hold-their-words.md). */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card {
   position: relative;
   isolation: isolate;
   aspect-ratio: 4 / 3;
+  min-width: 0;
+  overflow: visible;
   justify-content: flex-end;
   padding: 22px 24px;
   border-radius: var(--r-xl);
@@ -545,7 +550,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
   grid-column: 1 / -1;
   aspect-ratio: 21 / 9;
-  min-height: 320px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child > :not(.card-media, .explore-card-foot) {
@@ -567,12 +571,9 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
 }
 
 /* As the mockup's: the words at the foot over the fade, the kind of
-   playbook at the top. */
+   playbook at the top, in its own place so the words never sit on it. */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .explore-card-head {
-  position: absolute;
-  top: 18px;
-  left: 24px;
-  right: 24px;
+  margin-bottom: auto;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .explore-card-foot {
@@ -633,6 +634,5 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
 @media (max-width: 760px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
     aspect-ratio: 4 / 3;
-    min-height: 0;
   }
 }
