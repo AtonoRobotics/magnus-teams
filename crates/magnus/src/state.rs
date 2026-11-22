@@ -277,15 +277,15 @@ impl State {
             Ev::Evidence(c) => self.evidence.apply(e.at, c),
             Ev::Spend(c) => self.spend.apply(e.at, c),
             Ev::Catalog(c) => self.catalog.apply(c),
-            Ev::TaskCreated { task, person, config, attachments, chat, label, .. } => {
-                // Playbook items the run starts with carry the taint of the
-                // runs that wrote them (I2, M1), and a task from chat that of
-                // the turn that started it.
-                let pb = self.playbook_at(person, config.playbook).into_iter().fold(label.unwrap_or_default(), |l, i| l.join(i.label));
-                // So do the person's open commitments, which its context
-                // carries as they stand now (#236): words read in a mailbox
-                // do not enter a clean run untainted.
-                let pb = self.arrangements.commitments().values().filter(|c| &c.person == person && c.status == "open").fold(pb, |l, c| l.join(c.label));
+            Ev::TaskCreated { task, person, config, attachments, chat, label, explicit_label, .. } => {
+                // New tasks record their full clean starting label explicitly (M1);
+                // older events replay with the legacy playbook + commitment fold.
+                let pb = if *explicit_label {
+                    label.unwrap_or_default()
+                } else {
+                    let pb = self.playbook_at(person, config.playbook).into_iter().fold(label.unwrap_or_default(), |l, i| l.join(i.label));
+                    self.arrangements.commitments().values().filter(|c| &c.person == person && c.status == "open").fold(pb, |l, c| l.join(c.label))
+                };
                 // A schedule's run counts against it as it is created.
                 if let Some(id) = e.actor.strip_prefix("schedule:") {
                     self.arrangements.started(id, e.at);

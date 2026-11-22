@@ -129,6 +129,7 @@ pub mod state;
 mod state_canonical_tests;
 pub mod sub_agents;
 pub mod suggestions;
+pub(crate) mod tainted_recall;
 pub(crate) mod task_budget;
 pub mod task_goal;
 pub mod team;

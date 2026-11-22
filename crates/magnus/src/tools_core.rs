@@ -42,11 +42,13 @@ pub(crate) enum Op {
     KnowledgeAdd,
     ProjectRead,
     Playbook,
+    PlaybookSearch,
+    CommitmentsSearch,
 }
 
 /// Every op, for the test that each is declared: a new one is added here too.
 #[cfg(test)]
-pub(crate) const ALL: [Op; 29] = [
+pub(crate) const ALL: [Op; 31] = [
     Op::WebFetch,
     Op::WebSearch,
     Op::CreateTask,
@@ -76,6 +78,8 @@ pub(crate) const ALL: [Op; 29] = [
     Op::KnowledgeAdd,
     Op::ProjectRead,
     Op::Playbook,
+    Op::PlaybookSearch,
+    Op::CommitmentsSearch,
 ];
 
 /// The op that carries out a core tool, by its name.
@@ -272,6 +276,8 @@ impl Kernel {
                 self.emit("kernel", Ev::Playbook { item: item.clone(), op: op.clone(), person: run.person.clone(), run: a.run.clone(), text, addresses, label }).await?;
                 Ok((format!("Playbook item {item}: {op} recorded. It applies from the next task."), false, Some(json!({ "item": item }))))
             }
+            Op::PlaybookSearch => self.playbook_search(&a.run, &s("query")),
+            Op::CommitmentsSearch => self.commitments_search(&a.run, &s("query")).await,
         }
     }
 

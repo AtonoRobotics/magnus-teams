@@ -214,6 +214,8 @@ mod tests {
         for private_tool in [
             "gmail__list_messages",
             "memory_search",
+            "playbook_search",
+            "commitments_search",
             "project_read",
             "bundle_read",
             "browser_as_navigate",

@@ -689,10 +689,11 @@ pub enum Ev {
         /// Where in chat it comes from: a chat turn, or a task started there.
         #[serde(default)]
         chat: Option<ChatOrigin>,
-        /// Taint the run starts with: that of the chat turn or proposal that
-        /// started it (the person's own words carry none).
+        /// Starting taint (from chat turn/proposal; person's own words carry none).
         #[serde(default)]
         label: Option<Label>,
+        #[serde(default)]
+        explicit_label: bool,
         /// A short title the model wrote when it started the task.
         #[serde(default)]
         title: Option<String>,

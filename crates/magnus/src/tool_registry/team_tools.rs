@@ -55,6 +55,7 @@ pub(super) static DECLS: &[Decl] = &[
         TEAM,
         |_| obj(json!({ "workspace": { "type": "string" }, "project": { "type": "string" } }), &[]),
     )
+    .taint(Taint::Returned)
     .doing("Reading the knowledge base")
     .in_team(),
 ];
