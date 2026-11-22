@@ -92,6 +92,10 @@ impl State {
             compartments,
             envelopes,
             staged,
+            security,
+            prefetches,
+            memory_superseded,
+            memory_archived,
             outcomes,
             local,
             team,
@@ -129,7 +133,7 @@ impl State {
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 30] = [
+        let parts: [&mut dyn Forget; 31] = [
             computers,
             payments,
             rules,
@@ -138,6 +142,7 @@ impl State {
             compartments,
             envelopes,
             staged,
+            security,
             outcomes,
             local,
             team,
@@ -172,6 +177,10 @@ impl State {
         // What their tasks had attached goes too.
         attachments.retain(|t, _| !who.tasks.contains(t));
         openers.retain(|(x, _)| x != p);
+        prefetches.retain(|_, (owner, _, _)| owner != p);
+        let live_mem: HashSet<&str> = library.memory().iter().map(|m| m.id.as_str()).collect();
+        memory_superseded.retain(|old, _| live_mem.contains(old.as_str()));
+        memory_archived.retain(|id| live_mem.contains(id.as_str()));
     }
 }
 

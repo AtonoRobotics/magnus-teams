@@ -368,6 +368,7 @@ impl Kernel {
                         scope: d["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
                         // Its runs post in this conversation (owner, 2026-11-10).
                         thread: task.chat.as_ref().filter(|c| c.turn).map(|c| c.thread.clone()),
+                        quarantine_schema: None,
                     },
                 )
                 .await?;

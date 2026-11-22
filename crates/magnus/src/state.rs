@@ -46,6 +46,10 @@ pub struct State {
     pub compartments: crate::compartment::Ledger,
     pub envelopes: crate::envelope::Ledger,
     pub staged: crate::staging::Ledger,
+    pub security: crate::security_ledger::SecurityLedger,
+    pub prefetches: HashMap<String, (String, i64, crate::tools::Label)>,
+    pub memory_superseded: HashMap<String, String>,
+    pub memory_archived: HashSet<String>,
     pub outcomes: crate::outcomes::Ledger,
     pub local: crate::local::Ledger,
     pub team: crate::team::Ledger,
@@ -346,6 +350,17 @@ impl State {
                 if let Some(f) = work::output(&mut self.runs, e) {
                     self.library.put_file(f);
                 }
+            }
+            Ev::QueryGateRecorded(p) => self.security.apply_query_gate(p),
+            Ev::SafetyBlocked(p) => self.security.apply_safety_blocked(p),
+            Ev::MemorySuperseded(p) => {
+                self.memory_superseded.insert(p.old_id.clone(), p.new_id.clone());
+            }
+            Ev::MemoryArchived(p) => {
+                self.memory_archived.insert(p.id.clone());
+            }
+            Ev::PrefetchRecorded { run, person, label, .. } => {
+                self.prefetches.insert(run.clone(), (person.clone(), e.seq, *label));
             }
         }
         crate::outcomes::observe(self, e);

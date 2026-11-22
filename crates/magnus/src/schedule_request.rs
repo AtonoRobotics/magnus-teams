@@ -67,6 +67,7 @@ impl Kernel {
                 // Each run keeps to what she set it up to do: its goal.
                 scope: Some(goal.clone()),
                 thread: thread.clone(),
+                quarantine_schema: None,
             };
             let actor = format!("chat:{}", a.run);
             let mut evs = vec![(actor.as_str(), set)];

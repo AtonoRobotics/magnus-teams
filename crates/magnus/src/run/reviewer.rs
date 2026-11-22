@@ -73,7 +73,7 @@ impl Kernel {
     pub(crate) async fn review_send(&self, run: &Run, tool: &str, input: &Value, shown: Option<&Shown>) -> Result<SendVerdict> {
         let hash = shown.map_or_else(|| crate::boundary::input_hash(tool, input), |s| s.hash(tool, input));
         // A rewrite of a blocked send is judged again, told why the first was blocked.
-        let revises = match crate::safety::resubmission(&run.id, tool, &hash) {
+        let revises = match self.resubmission_for(&run.id, tool, &hash) {
             Some(crate::safety::Resubmission::Unchanged(why)) => return Ok(SendVerdict::Block(why)),
             Some(crate::safety::Resubmission::Revised(note)) => format!("\n\nNote: {note}"),
             None => String::new(),

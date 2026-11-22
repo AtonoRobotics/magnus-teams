@@ -189,7 +189,7 @@ impl Kernel {
     pub(crate) async fn auto_review(&self, a: &Action, f: &Facts, run: &Run, shown: Option<&Shown>, content_hash: &str, standing: &str) -> Result<Verdict> {
         // A rewrite of a blocked message is judged again, told why the first
         // was blocked; the same message stays blocked.
-        let standing = match crate::safety::resubmission(&a.run, &a.tool, content_hash) {
+        let standing = match self.resubmission_for(&a.run, &a.tool, content_hash) {
             Some(crate::safety::Resubmission::Unchanged(why)) => return Ok(Verdict::Deny(why)),
             Some(crate::safety::Resubmission::Revised(note)) => format!("{standing}; {note}"),
             None => standing.to_string(),
@@ -220,7 +220,7 @@ impl Kernel {
         };
         remember(key, &verdict);
         Ok(match verdict {
-            Verdict::Deny(reason) => Verdict::Deny(crate::safety::blocked(&a.run, &a.tool, content_hash, &reason)),
+            Verdict::Deny(reason) => Verdict::Deny(self.remember_blocked(&a.run, &a.tool, content_hash, &reason).await),
             other => other,
         })
     }

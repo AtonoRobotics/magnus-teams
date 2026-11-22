@@ -507,7 +507,8 @@ impl Kernel {
                     json!({ "call_id": a.call_id, "tool": a.tool, "reason": reason }),
                 );
                 self.emit("kernel", ev).await?;
-                Ok(Gate::Stop(self.deny(a, "reviewer", &crate::safety::blocked(&a.run, &a.tool, hash, &format!("the reviewer blocked this send: {reason}")), false, None).await?))
+                let msg = self.remember_blocked(&a.run, &a.tool, hash, &format!("the reviewer blocked this send: {reason}")).await;
+                Ok(Gate::Stop(self.deny(a, "reviewer", &msg, false, None).await?))
             }
             SendVerdict::Flag(reason) => {
                 self.raise(a, run, f, shown, Reason::OutsideRequest, crate::boundary::REVIEWER_FLAG, &format!("the reviewer flagged this send: {reason}")).await

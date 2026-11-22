@@ -314,6 +314,7 @@ impl Kernel {
                         scope: item.details["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
                         // Accepted from the inbox, outside a conversation: its own thread.
                         thread: None,
+                        quarantine_schema: None,
                     },
                 ));
             }

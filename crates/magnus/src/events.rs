@@ -1,8 +1,12 @@
 //! Every kind of event the log holds. The body of each row is one `Ev`.
 //! Secrets never appear here: a secret write records only its name.
 
+mod memory;
 mod meta;
+mod security;
+pub use memory::*;
 pub use meta::*;
+pub use security::*;
 
 use crate::tools::Label;
 use magnus_adapter_proto::{Block, ErrorClass, Usage};
@@ -97,9 +101,7 @@ pub enum Ev {
         #[serde(default)]
         after: Option<Value>,
     },
-    /// The lost-reset module found a no-progress signal and sent the run back
-    /// to the reply where the loop began, with a note; the replies from
-    /// `from` to `to` leave the model's context (they stay in the log).
+    /// Lost-reset module rewound context from `from` to `to` with a note (replies remain in log).
     ContextReset {
         run: String,
         from: u32,
@@ -107,8 +109,7 @@ pub enum Ev {
         signal: String,
         note: String,
     },
-    /// One model call of the verifier module: reviewing the contract's
-    /// criteria before work (`criteria`), or the work against them (`work`).
+    /// One verifier call reviewing contract criteria (`criteria`) or work against them (`work`).
     VerifierReply {
         run: String,
         purpose: String,
@@ -442,27 +443,21 @@ pub enum Ev {
         /// The chat card the person confirmed to create it.
         #[serde(default)]
         card: Option<String>,
-        /// The taint of the chat turn that proposed it; its tasks start with it.
         #[serde(default)]
         label: Option<Label>,
-        /// A short title the model wrote for it.
         #[serde(default)]
         title: Option<String>,
-        /// No run starts at or after this time.
         #[serde(default)]
         until: Option<chrono::DateTime<chrono::Utc>>,
-        /// No run starts after this many.
         #[serde(default)]
         max_runs: Option<u32>,
-        /// What the person confirmed each run does, on the chat card.
         #[serde(default)]
         scope: Option<String>,
-        /// The conversation it was set up in, where its runs post (none: its own thread).
         #[serde(default)]
         thread: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quarantine_schema: Option<Value>,
     },
-    /// A due schedule started no run because its last one is still open:
-    /// running, or waiting on someone. The next is due as usual.
     ScheduleSkipped {
         id: String,
         task: String,
@@ -1152,14 +1147,9 @@ pub enum Ev {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         character: Option<String>,
     },
-    /// The person had a memory forgotten; it is never read back again.
     MemoryForgotten {
         id: String,
     },
-    /// An item moved to the trash by `person`: out of every view, restorable
-    /// until it is removed. A task, a conversation, one message or answer in
-    /// one (`m:<task>`, `a:<task>`), a file, a project, a memory or a
-    /// knowledge entry.
     Trashed {
         item: String,
         person: String,
@@ -1167,17 +1157,25 @@ pub enum Ev {
     Restored {
         item: String,
     },
-    /// A trashed item removed: the content of the events `seqs` was deleted
-    /// from the store. The events stay, as the record.
     Removed {
         item: String,
         seqs: Vec<i64>,
     },
+    QueryGateRecorded(QueryGatePayload),
+    SafetyBlocked(SafetyBlockedPayload),
+    MemorySuperseded(MemorySupersededPayload),
+    MemoryArchived(MemoryArchivedPayload),
+    PrefetchRecorded {
+        run: String,
+        person: String,
+        #[serde(default)]
+        pointers: String,
+        #[serde(default)]
+        label: Label,
+    },
 }
 
-/// What each kind of event holds that a person or a source wrote. It is kept
-/// beside the log in the content store, where it can be deleted; the log
-/// keeps the rest. A dotted name is a field of a field.
+/// What each kind of event holds that a person or a source wrote (stored in `public.content`).
 pub const CONTENT: &[(&str, &[&str])] = &[
     ("task_created", &["text", "attachments", "title", "chat.conversation", "project.name", "project.instructions", "scope"]),
     ("file_uploaded", &["name", "data_b64"]),
@@ -1219,6 +1217,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("rule", &["words"]),
     ("spend", &["reason", "note"]),
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
+    ("prefetch_recorded", &["pointers"]),
 ];
 
 /// The content fields of one kind of event; none for most.

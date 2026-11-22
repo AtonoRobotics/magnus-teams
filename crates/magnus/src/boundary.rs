@@ -268,6 +268,15 @@ impl Kernel {
         data: Option<Value>,
     ) -> Result<Verdict> {
         let (text, data) = self.screen_inbound(&a.run, &a.tool, text, data, label.untrusted).await;
+        let text = if label.untrusted && !is_error && self.run_is_quarantined(&a.run) {
+            if let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) {
+                self.quarantine_tool_output(&run, &a.tool, &text).await
+            } else {
+                text
+            }
+        } else {
+            text
+        };
         // What the verifier reads taints the run like the model's own reads:
         // its words go back to the model.
         self.emit(

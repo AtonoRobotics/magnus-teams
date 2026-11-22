@@ -34,7 +34,7 @@ const MIN_OPAQUE_SECRET_LEN: usize = 32;
 const SECRET_PREFIXES: [&str; 9] = ["sk-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AIza", "AKIA", "-----BEGIN "];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct QueryBudget {
+pub struct QueryBudget {
     pub bytes_used: usize,
     pub denials: u32,
 }
@@ -211,29 +211,45 @@ pub(crate) fn charge_query_bytes(run_key: &str, query_bytes: usize) {
 impl Kernel {
     /// Shared query gate for `web_search` and `research_web`.
     ///
+    /// Scopes budgets to the causing user turn or schedule firing (`requester.task`),
+    /// persisted in `State.security` via `Ev::QueryGateRecorded` (W1.4, N6).
     /// Returns `Ok(None)` when the query may proceed, or `Ok(Some(reason))`
     /// when it must be silently denied to the model (never prompting the user).
     pub(crate) async fn check_web_query(&self, a: &Action, run: &Run, query: &str) -> Result<Option<String>> {
         let requester = self.requester_run(run);
-        let run_key = if requester.id.is_empty() { run.id.as_str() } else { requester.id.as_str() };
+        let scope_key = if !requester.task.is_empty() {
+            requester.task.as_str()
+        } else if !requester.id.is_empty() {
+            requester.id.as_str()
+        } else {
+            run.id.as_str()
+        };
 
         // 1. Always-on deterministic secret/PII scrub.
         if let Some(reason) = scrub_check(query) {
             if run.private && run.untrusted {
-                record_query_denial(run_key);
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
             }
             return Ok(Some(format!("web query denied: {reason}. Rephrase without credentials or sensitive identifiers")));
         }
 
         // 2. Clean runs (not holding both private data and untrusted content)
-        // pass without classifier latency or per-run byte caps.
+        // pass without classifier latency or per-turn byte caps.
         if !(run.private && run.untrusted) {
             return Ok(None);
         }
 
-        // 3. Per-run denial cap and shared byte budget.
+        // 3. Turn/firing-scoped denial cap and shared byte budget (persisted in State.security).
         let qbytes = query.len();
-        if let Err(reason) = check_budget_before_classify(run_key, qbytes) {
+        let persisted = self.read(|s| s.security.query_budget(scope_key));
+        if persisted.denials >= MAX_QUERY_DENIALS_PER_RUN {
+            return Ok(Some(format!("web query limit reached after {MAX_QUERY_DENIALS_PER_RUN} denied queries in this turn; carry on without further web queries")));
+        }
+        if persisted.bytes_used.saturating_add(qbytes) > MAX_TAINTED_QUERY_BYTES_PER_RUN {
+            return Ok(Some(format!("web query byte budget ({MAX_TAINTED_QUERY_BYTES_PER_RUN} bytes per turn) exceeded; use shorter queries or finish with what you have")));
+        }
+        if let Err(reason) = check_budget_before_classify(scope_key, qbytes) {
             return Ok(Some(reason));
         }
 
@@ -241,15 +257,20 @@ impl Kernel {
         // content are in the run's context. Fail closed if unreachable.
         match self.outgoing_finding(a, run).await {
             Some(None) => {
-                charge_query_bytes(run_key, qbytes);
+                charge_query_bytes(scope_key, qbytes);
+                let _ = self
+                    .emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: qbytes, denied: false }))
+                    .await;
                 Ok(None)
             }
             Some(Some(finding)) => {
-                record_query_denial(run_key);
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
                 Ok(Some(format!("web query denied: the outgoing classifier flagged sensitive data ({finding}). Rephrase using only general public terms")))
             }
             None => {
-                record_query_denial(run_key);
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
                 Ok(Some("web query denied: the outgoing classifier could not be reached while this run holds private data and untrusted content".into()))
             }
         }
