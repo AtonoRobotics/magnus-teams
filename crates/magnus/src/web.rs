@@ -18,19 +18,7 @@ pub struct Web {
 }
 
 pub(crate) fn private_ip(ip: IpAddr) -> bool {
-    // An IPv4 address written as IPv6 (`::ffff:a.b.c.d`) is reached as that
-    // IPv4 address, so it is judged as one (#196).
-    if let IpAddr::V6(v) = ip {
-        if let Some(v4) = v.to_ipv4_mapped() {
-            return private_ip(IpAddr::V4(v4));
-        }
-    }
-    match ip {
-        IpAddr::V4(v) => {
-            v.is_private() || v.is_loopback() || v.is_link_local() || v.is_unspecified() || v.is_broadcast() || v.octets()[0] == 100 && (64..128).contains(&v.octets()[1])
-        }
-        IpAddr::V6(v) => v.is_loopback() || v.is_unspecified() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80,
-    }
+    crate::net_guard::is_non_public_ip(ip)
 }
 
 /// The addresses `host` reaches on `port`, refused when any is private, so a
@@ -70,9 +58,10 @@ impl Web {
         self.search_url.is_some()
     }
 
-    /// Check a URL's host and return the address to connect to, so the
-    /// connection goes to the address that was checked (no DNS rebinding).
-    async fn check_host(&self, url: &url::Url) -> Result<Option<(String, std::net::SocketAddr)>> {
+    /// Check a URL's host and return the checked addresses to connect to, so
+    /// the connection goes only to checked addresses (no DNS rebinding) while
+    /// supporting dual-stack fallback.
+    async fn check_host(&self, url: &url::Url) -> Result<Option<(String, Vec<std::net::SocketAddr>)>> {
         anyhow::ensure!(matches!(url.scheme(), "http" | "https"), "only http and https URLs can be fetched");
         if self.allow_private {
             return Ok(None);
@@ -80,7 +69,7 @@ impl Web {
         let host = url.host_str().ok_or_else(|| anyhow!("URL has no host"))?.to_string();
         let port = url.port_or_known_default().unwrap_or(443);
         let addrs = public_addrs(&host, port).await?;
-        Ok(Some((host, addrs[0])))
+        Ok(Some((host, addrs)))
     }
 
     /// GET with every redirect hop checked like the first request.
@@ -89,12 +78,12 @@ impl Web {
         for _ in 0..6 {
             let pinned = self.check_host(&url).await?;
             let client = match &pinned {
-                Some((host, addr)) => reqwest::Client::builder()
+                Some((host, addrs)) => reqwest::Client::builder()
                     .connect_timeout(CONNECT_WAIT)
                     .timeout(FETCH_WAIT)
                     .redirect(reqwest::redirect::Policy::none())
                     .user_agent("Mozilla/5.0 (compatible; Magnus/0.1)")
-                    .resolve(host, *addr)
+                    .resolve_to_addrs(host, addrs)
                     .build()?,
                 None => self.http.clone(),
             };

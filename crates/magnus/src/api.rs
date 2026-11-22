@@ -138,6 +138,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/adapters/{id}/sign-in", post(sign_in_begin))
         .route("/v1/adapters/{id}/sign-in/complete", post(sign_in_complete))
         .route("/v1/memory", get(memory))
+        .route("/v1/memory/summary", get(memory_summary))
         .route("/v1/memory/{id}", axum::routing::delete(forget))
         .route("/v1/schedules", get(schedules).post(add_schedule))
         .route("/v1/schedules/{id}", axum::routing::delete(remove_schedule).patch(edit_schedule))
@@ -251,6 +252,10 @@ async fn memory(State(k): K, Caller(p): Caller) -> ApiResult {
         Err(e) => return Ok(internal(e)),
     };
     Ok(Json(json!({ "memory": items })).into_response())
+}
+
+async fn memory_summary(State(k): K, Caller(p): Caller) -> ApiResult {
+    Ok(Json(k.memory_summary_json(&p.id)).into_response())
 }
 
 /// Forget one of the person's own memories.

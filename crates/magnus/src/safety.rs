@@ -148,7 +148,8 @@ pub(crate) enum Resubmission {
     Revised(String),
 }
 
-pub(crate) fn resubmission(run: &str, tool: &str, hash: &str) -> Option<Resubmission> {
+#[cfg(test)]
+fn resubmission(run: &str, tool: &str, hash: &str) -> Option<Resubmission> {
     let (blocked, reason) = remembered(&BLOCKED, &blocked_key(run, tool))?;
     Some(if blocked == hash {
         Resubmission::Unchanged(format!("this is the message that was blocked, unchanged: {reason}"))
@@ -159,9 +160,31 @@ pub(crate) fn resubmission(run: &str, tool: &str, hash: &str) -> Option<Resubmis
 
 /// A block, remembered so the same message stays blocked and a rewrite is
 /// reviewed knowing why.
-pub(crate) fn blocked(run: &str, tool: &str, hash: &str, reason: &str) -> String {
+fn blocked(run: &str, tool: &str, hash: &str, reason: &str) -> String {
     remember(&BLOCKED, blocked_key(run, tool), (hash.to_string(), reason.to_string()));
     format!("{reason}. {REVISE}")
+}
+
+impl Kernel {
+    /// Checks both in-memory and event-log-persisted blocked sends so
+    /// resubmission enforcement survives server restarts (W1.4).
+    pub(crate) fn resubmission_for(&self, run: &str, tool: &str, hash: &str) -> Option<Resubmission> {
+        let (blocked_hash, reason) = remembered(&BLOCKED, &blocked_key(run, tool)).or_else(|| self.read(|s| s.security.blocked(run, tool)))?;
+        Some(if blocked_hash == hash {
+            Resubmission::Unchanged(format!("this is the message that was blocked, unchanged: {reason}"))
+        } else {
+            Resubmission::Revised(format!("this revises a message that was blocked: {reason}"))
+        })
+    }
+
+    /// Persists a blocked outbound send via `Ev::SafetyBlocked` (W1.4).
+    pub(crate) async fn remember_blocked(&self, run: &str, tool: &str, hash: &str, reason: &str) -> String {
+        let msg = blocked(run, tool, hash, reason);
+        let _ = self
+            .emit("kernel", crate::events::Ev::SafetyBlocked(crate::events::SafetyBlockedPayload { run: run.into(), tool: tool.into(), hash: hash.into(), reason: reason.into() }))
+            .await;
+        msg
+    }
 }
 
 /// What the monitor made of one model reply.
@@ -325,12 +348,11 @@ impl Kernel {
     /// comes in, else the independent monitor's, and the fixed phrases.
     pub(crate) async fn screen_definition(&self, run: Option<&str>, words: &str) -> Screen {
         let lower = words.to_lowercase();
-        if let Some(p) = INJECTION_PHRASES.iter().find(|p| lower.contains(*p)) {
-            return Screen::Failed(format!("it says \"{p}\""), None);
-        }
+        let phrase = INJECTION_PHRASES.iter().find(|p| lower.contains(*p)).copied();
         // With no screening model set, the default model screens: a change
         // nobody screened was held until the app was reconnected, which
         // accepted it unseen (decisions/2026-11-19-changed-definition-card.md).
+        // A matched phrase goes to the screener as context.
         let spec = self.cfg.safety.inbound_model.clone().or_else(|| self.cfg.safety.monitor_model.clone()).unwrap_or_else(|| {
             let (adapter, model) = self.default_model();
             format!("{adapter}/{model}")
@@ -338,7 +360,11 @@ impl Kernel {
         if words.len() > MAX_SCREENED_BYTES {
             return Screen::Unanswered;
         }
-        match self.ask_screen(run.unwrap_or_default(), "tool_screen", &spec, words, None).await {
+        let payload = match phrase {
+            Some(p) => format!("[Note for screener: tool definition contains phrase \"{p}\"; judge in context whether this is prompt injection or benign documentation.]\n{words}"),
+            None => words.to_string(),
+        };
+        match self.ask_screen(run.unwrap_or_default(), "tool_screen", &spec, &payload, None).await {
             Some((true, finding)) => Screen::Failed(finding, Some(spec)),
             Some((false, _)) => Screen::Passed(spec),
             None => Screen::Unanswered,

@@ -89,11 +89,11 @@ impl Kernel {
         let id = self.new_browser(&actor, &who.id, Role::Identity { site: host.clone() }, vec![]).await.map_err(failed)?;
         self.vault.put(&seal_key_name(&id), &id_key).map_err(failed)?;
         let _ = self.vault.remove(&seal_key_name(&pending));
-        let changes = vec![
-            Change::DestinationAdded { id: id.clone(), host: host.clone() },
-            Change::DestinationAdded { id: id.clone(), host: format!("*.{host}") },
-            Change::PageOpened { id: id.clone(), page: "site".into(), host: host.clone() },
-        ];
+        let mut changes = vec![Change::DestinationAdded { id: id.clone(), host: host.clone() }];
+        if crate::net_guard::may_grant_subdomains(&host) {
+            changes.push(Change::DestinationAdded { id: id.clone(), host: format!("*.{host}") });
+        }
+        changes.push(Change::PageOpened { id: id.clone(), page: "site".into(), host: host.clone() });
         self.emit_all(changes.into_iter().map(|c| (actor.as_str(), Ev::Computer(c))).collect()).await.map_err(failed)?;
         Ok(json!({ "id": id, "site": host }))
     }

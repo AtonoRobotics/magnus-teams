@@ -669,6 +669,7 @@ pub(super) async fn add_schedule(State(k): K, Caller(p): Caller, Body(b): Body<V
                 scope: None,
                 // Set up in settings, outside a conversation: its own thread.
                 thread: None,
+                quarantine_schema: None,
             },
         )
         .await

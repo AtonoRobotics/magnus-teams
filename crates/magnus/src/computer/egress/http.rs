@@ -193,12 +193,27 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
         Box::new(tcp)
     };
     let page = proxy.kernel.read(|s| s.computers.get(computer).and_then(|c| c.pages.iter().find(|p| p.host.eq_ignore_ascii_case(host)).map(|p| p.id.clone())));
+    let full_url = {
+        let scheme = if tls { "https" } else { "http" };
+        if head.target.starts_with("http://") || head.target.starts_with("https://") {
+            head.target.clone()
+        } else {
+            format!("{scheme}://{host}{}", head.target)
+        }
+    };
+    let asset_page = if page.is_none() {
+        let open_ids: Vec<String> = proxy.kernel.read(|s| s.computers.get(computer).map(|c| c.pages.iter().map(|p| p.id.clone()).collect()).unwrap_or_default());
+        let assets = proxy.page_assets.lock().unwrap_or_else(|e| e.into_inner());
+        open_ids.into_iter().find(|pid| assets.get(pid).is_some_and(|urls| urls.contains(&full_url)))
+    } else {
+        None
+    };
     let mut out = format!("{} {} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n", head.method, head.target);
     for (name, value) in &head.headers {
         let lower = name.to_ascii_lowercase();
-        // Plain text, so a page's markup can be read for what it loads.
-        // A compressed answer could repeat a credential where it cannot be seen.
-        if lower == "host" || HOP_BY_HOP.contains(&lower.as_str()) || ((page.is_some() || scrubber.active()) && lower == "accept-encoding") {
+        // Plain text, so a page's markup or referenced script/style can be read
+        // for what it loads. A compressed answer could repeat a credential where it cannot be seen.
+        if lower == "host" || HOP_BY_HOP.contains(&lower.as_str()) || ((page.is_some() || asset_page.is_some() || scrubber.active()) && lower == "accept-encoding") {
             continue;
         }
         out.push_str(&format!("{name}: {value}\r\n"));
@@ -226,7 +241,9 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     .context("the destination took too long to answer")??;
     let text = String::from_utf8_lossy(&response_head).into_owned();
     let status = text.lines().next().unwrap_or_default().to_string();
-    let is_html = text.lines().any(|l| l.to_ascii_lowercase().starts_with("content-type:") && l.to_ascii_lowercase().contains("html"));
+    let ctype_line = text.lines().find(|l| l.to_ascii_lowercase().starts_with("content-type:")).map(|l| l.to_ascii_lowercase()).unwrap_or_default();
+    let is_html = ctype_line.contains("html");
+    let is_script_or_css = ctype_line.contains("javascript") || ctype_line.contains("ecmascript") || ctype_line.contains("text/css");
     // Putting a surrogate back changes the length; the closing connection ends it.
     let keep = |l: &&str| !l.to_ascii_lowercase().starts_with("connection:") && !(scrubber.active() && l.to_ascii_lowercase().starts_with("content-length:"));
     let without_connection: String = scrubber.text(&text.split_inclusive('\n').filter(keep).collect::<String>());
@@ -244,7 +261,7 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
         if let Some(hash) = &mut download {
             hash.update(&buffer[..n]);
         }
-        if is_html && page.is_some() && seen.len() < MAX_PAGE_BYTES {
+        if ((is_html && page.is_some()) || (is_script_or_css && asset_page.is_some())) && seen.len() < MAX_PAGE_BYTES {
             seen.extend_from_slice(&buffer[..n]);
         }
         let clean = scrubber.push(&buffer[..n]);
@@ -257,9 +274,28 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
         super::saw_download(computer, host, hex::encode(hash.finalize()));
     }
     if let Some(page) = page {
-        if !seen.is_empty() {
-            let hosts = policy::resources_of(&String::from_utf8_lossy(&seen));
-            proxy.learned.lock().unwrap_or_else(|e| e.into_inner()).entry(page).or_default().extend(hosts);
+        if is_html && !seen.is_empty() {
+            let base = url::Url::parse(&full_url).ok();
+            let (hosts, assets) = policy::html_resources(&String::from_utf8_lossy(&seen), base.as_ref());
+            let mut learned = proxy.learned.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = learned.entry(page.clone()).or_default();
+            for h in hosts {
+                if entry.len() >= policy::MAX_LEARNED_HOSTS_PER_PAGE {
+                    break;
+                }
+                entry.insert(h);
+            }
+            drop(learned);
+            proxy.page_assets.lock().unwrap_or_else(|e| e.into_inner()).entry(page).or_default().extend(assets);
+        }
+    } else if let Some(pid) = asset_page {
+        if is_script_or_css && !seen.is_empty() {
+            let mut learned = proxy.learned.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = learned.entry(pid).or_default();
+            let remaining = policy::MAX_LEARNED_HOSTS_PER_PAGE.saturating_sub(entry.len());
+            if remaining > 0 {
+                entry.extend(policy::hosts_from_asset_body(&String::from_utf8_lossy(&seen), remaining));
+            }
         }
     }
     Ok(status)

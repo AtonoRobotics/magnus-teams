@@ -59,6 +59,7 @@ struct Proxy {
     kernel: Arc<Kernel>,
     audit: audit::Audit,
     learned: Mutex<policy::Learned>,
+    page_assets: Mutex<policy::PageAssets>,
     /// Answers already given for a scripted name, to walk its list.
     asked: Mutex<HashMap<String, usize>>,
     client_tls: Arc<rustls::ClientConfig>,
@@ -97,6 +98,7 @@ async fn listen(kernel: Arc<Kernel>, computerd: &Path, path: &Path) -> Result<()
         audit: audit::Audit::new(&kernel.cfg.database.url),
         kernel,
         learned: Mutex::new(HashMap::new()),
+        page_assets: Mutex::new(HashMap::new()),
         asked: Mutex::new(HashMap::new()),
         client_tls: Arc::new(client_tls),
     });

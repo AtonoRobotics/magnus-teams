@@ -141,15 +141,25 @@ impl Kernel {
             bases.push(("This project's knowledge base", w.entries(Some(p))));
         }
         let mut any = false;
+        let mut outside_count = 0usize;
         for (title, entries) in bases.into_iter().filter(|(_, e)| !e.is_empty()) {
+            let clean: Vec<_> = entries.into_iter().filter(|e| e.weight != Weight::Outside).collect();
+            outside_count += w.entries(if title.starts_with("This project") { project.as_deref() } else { None }).len().saturating_sub(clean.len());
+            if clean.is_empty() {
+                continue;
+            }
             any = true;
             text.push_str(&format!("\n\n{title}:\n"));
-            for e in entries.into_iter().take(MAX_ENTRIES_SHOWN) {
+            for e in clean.into_iter().take(MAX_ENTRIES_SHOWN) {
                 text.push_str(&e.line());
             }
         }
         if any {
             text.push_str(&format!("\n{CITE}"));
+        }
+        if outside_count > 0 {
+            let noun = if outside_count == 1 { "entry" } else { "entries" };
+            text.push_str(&format!("\n({outside_count} more knowledge base {noun} from outside sources; use team_read_knowledge to read them.)"));
         }
         let notes = self.live_notes(&t);
         if !notes.is_empty() {
@@ -161,11 +171,18 @@ impl Kernel {
         Some(text)
     }
 
-    pub(crate) fn playbook_for(&self, run: &Run) -> Vec<(String, String, bool)> {
+    /// Clean always-on playbook items pinned to `run.config.playbook`, plus the
+    /// pinned count of untrusted playbook items available via `playbook_search`.
+    pub(crate) fn playbook_for(&self, run: &Run) -> (Vec<(String, String)>, usize) {
         if self.run_kind(&run.id).in_team() {
-            return vec![];
+            return (vec![], 0);
         }
-        self.read(|s| s.playbook_at(&run.person, run.config.playbook).into_iter().map(|i| (i.id.clone(), i.text.clone(), i.label.untrusted)).collect())
+        self.read(|s| {
+            let all = s.playbook_at(&run.person, run.config.playbook);
+            let untrusted_count = all.iter().filter(|i| i.label.untrusted).count();
+            let clean = all.into_iter().filter(|i| !i.label.untrusted).map(|i| (i.id.clone(), i.text.clone())).collect();
+            (clean, untrusted_count)
+        })
     }
 
     /// Takes a member's request. The run is theirs, so what it may do and
@@ -325,10 +342,12 @@ impl Kernel {
         let Some(w) = w.filter(|w| w.may_read(project, &run.person)) else { return Ok(("there is no such knowledge base open to you".to_string(), true, None)) };
         let entries = w.entries(project);
         if entries.is_empty() {
-            return Ok(("that knowledge base is empty".to_string(), false, None));
+            return Ok(("that knowledge base is empty".to_string(), false, Some(serde_json::json!({ "untrusted": false, "private": true }))));
         }
-        let lines: String = entries.into_iter().take(MAX_ENTRIES_SHOWN).map(Entry::line).collect();
-        Ok((format!("{lines}\n{CITE}"), false, None))
+        let shown: Vec<_> = entries.into_iter().take(MAX_ENTRIES_SHOWN).collect();
+        let has_outside = shown.iter().any(|e| e.weight == Weight::Outside);
+        let lines: String = shown.into_iter().map(Entry::line).collect();
+        Ok((format!("{lines}\n{CITE}"), false, Some(serde_json::json!({ "untrusted": has_outside, "private": true }))))
     }
 
     async fn team_add_fact(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {

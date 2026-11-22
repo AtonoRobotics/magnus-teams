@@ -42,11 +42,13 @@ pub(crate) enum Op {
     KnowledgeAdd,
     ProjectRead,
     Playbook,
+    PlaybookSearch,
+    CommitmentsSearch,
 }
 
 /// Every op, for the test that each is declared: a new one is added here too.
 #[cfg(test)]
-pub(crate) const ALL: [Op; 29] = [
+pub(crate) const ALL: [Op; 31] = [
     Op::WebFetch,
     Op::WebSearch,
     Op::CreateTask,
@@ -76,6 +78,8 @@ pub(crate) const ALL: [Op; 29] = [
     Op::KnowledgeAdd,
     Op::ProjectRead,
     Op::Playbook,
+    Op::PlaybookSearch,
+    Op::CommitmentsSearch,
 ];
 
 /// The op that carries out a core tool, by its name.
@@ -196,7 +200,14 @@ impl Kernel {
                 Ok((format!("Delivered {name} ({size} bytes) from {} to the person.", from.said()), false, Some(json!({ "output_id": id }))))
             }
             Op::MemoryWrite => {
-                let run = self.read(|st| st.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("run"))?;
+                let (run, written_in_run) = self.read(|st| {
+                    let count = st.library.memory().iter().filter(|m| m.run == a.run).count();
+                    (st.runs.get(&a.run).cloned(), count)
+                });
+                let run = run.ok_or_else(|| anyhow!("run"))?;
+                if written_in_run >= crate::memory_index::MAX_MEMORY_WRITES_PER_RUN {
+                    return Ok((format!("memory write limit ({}) reached for this run; skip further writes.", crate::memory_index::MAX_MEMORY_WRITES_PER_RUN), true, None));
+                }
                 let label = Label { untrusted: run.untrusted, private: run.private };
                 let sources: Vec<String> = run.private_from.iter().cloned().collect();
                 let id = new_id("mem");
@@ -272,6 +283,8 @@ impl Kernel {
                 self.emit("kernel", Ev::Playbook { item: item.clone(), op: op.clone(), person: run.person.clone(), run: a.run.clone(), text, addresses, label }).await?;
                 Ok((format!("Playbook item {item}: {op} recorded. It applies from the next task."), false, Some(json!({ "item": item }))))
             }
+            Op::PlaybookSearch => self.playbook_search(&a.run, &s("query")),
+            Op::CommitmentsSearch => self.commitments_search(&a.run, &s("query")).await,
         }
     }
 

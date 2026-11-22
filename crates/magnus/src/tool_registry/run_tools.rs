@@ -193,6 +193,14 @@ pub(super) static DECLS: &[Decl] = &[
             &["op"],
         )
     }),
+    Decl::tool("playbook_search", mine("playbook", Risk::Read), Exec::Core(Op::PlaybookSearch), ALWAYS, |_| {
+        obj(json!({ "query": { "type": "string" } }), &["query"])
+    })
+    .taint(Taint::Returned),
+    Decl::tool("commitments_search", mine("commitments", Risk::Read), Exec::Core(Op::CommitmentsSearch), ALWAYS, |_| {
+        obj(json!({ "query": { "type": "string" } }), &["query"])
+    })
+    .taint(Taint::Returned),
     Decl::tool("web_search", WEB, Exec::Core(Op::WebSearch), SEARCH, |_| obj(json!({ "query": { "type": "string" } }), &["query"])).doing("Searching the web").web(WebRead::Query).in_team(),
     Decl::tool("open_attachment", Class::new("sandbox", Risk::Sandbox, Label::UNTRUSTED, Audience::Private), Exec::Core(Op::Side), SANDBOX, |_| {
         obj(json!({ "name": { "type": "string" }, "command": { "type": "string", "description": "optional: a command to run on the file, which is at /workspace/inputs/attachment" } }), &["name"])

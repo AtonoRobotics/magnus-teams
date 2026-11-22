@@ -172,6 +172,8 @@ pub struct Arrangements {
     /// card id: with the cards in their turns' results, the suggestion
     /// ledger (`suggestions::ledger`).
     cards: HashMap<String, CardState>,
+    /// Optional quarantine extraction schemas keyed by schedule id (W1.1, N12).
+    quarantine_schemas: HashMap<String, Value>,
 }
 
 /// Their schedules, their grants (none covers whoever is next known by
@@ -181,6 +183,7 @@ impl crate::forget::Forget for Arrangements {
     fn forget(&mut self, who: &crate::forget::Erased) {
         let p = who.person.as_str();
         self.schedules.retain(|_, x| x.person != p);
+        self.quarantine_schemas.retain(|id, _| self.schedules.contains_key(id));
         self.grants.retain(|_, g| g.person != p);
         self.commitments.retain(|_, c| c.person != p);
         self.cards.retain(|_, c| c.person.as_deref() != Some(p));
@@ -188,12 +191,21 @@ impl crate::forget::Forget for Arrangements {
 }
 
 impl Arrangements {
+    pub fn quarantine_schema(&self, schedule_id: &str) -> Option<&Value> {
+        self.quarantine_schemas.get(schedule_id)
+    }
+
     /// The schedule (but `ScheduleFired`), grant, commitment and card
     /// kinds; `prefs` is each person's settings, for a new schedule's zone.
     /// `State::apply` routes no other kind here.
     pub(crate) fn fold(&mut self, e: &Event, prefs: &HashMap<String, Value>) {
         match &e.ev {
-            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, thread, .. } => {
+            Ev::ScheduleSet { id, person, every_minutes, daily_at, budget, card, label, until, max_runs, thread, quarantine_schema, .. } => {
+                if let Some(schema) = quarantine_schema {
+                    self.quarantine_schemas.insert(id.clone(), schema.clone());
+                } else {
+                    self.quarantine_schemas.remove(id);
+                }
                 self.schedules.insert(
                     id.clone(),
                     Schedule {

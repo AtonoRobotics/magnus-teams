@@ -545,6 +545,7 @@ impl Kernel {
             })
         });
         let team = o.team.map(|t| (actor, Ev::Team(crate::team::TeamRun { task: task.clone(), ..t }.into())));
+        let start_label = self.clean_starting_label(person, config.playbook, o.label);
         let created = (
             actor,
             Ev::TaskCreated {
@@ -556,7 +557,8 @@ impl Kernel {
                 config,
                 experiment: o.experiment,
                 chat: o.chat,
-                label: o.label,
+                label: Some(start_label),
+                explicit_label: true,
                 title: o.title,
                 files: o.files,
                 project,

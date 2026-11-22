@@ -34,7 +34,7 @@ const MIN_OPAQUE_SECRET_LEN: usize = 32;
 const SECRET_PREFIXES: [&str; 9] = ["sk-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "AIza", "AKIA", "-----BEGIN "];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct QueryBudget {
+pub struct QueryBudget {
     pub bytes_used: usize,
     pub denials: u32,
 }
@@ -131,7 +131,32 @@ fn luhn_valid(digits: &[u8]) -> bool {
     sum % 10 == 0
 }
 
-/// Detects long (`>= 32`) mixed alphanumeric/base64 tokens that aren't URLs.
+/// Detects long (`>= 32`) mixed alphanumeric/base64 tokens, including those
+/// embedded in URL path or query segments.
+fn is_opaque_token_segment(seg: &str) -> bool {
+    if seg.len() < MIN_OPAQUE_SECRET_LEN {
+        return false;
+    }
+    let valid_chars = seg.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'/' | b'='));
+    if !valid_chars {
+        return false;
+    }
+    let has_digit = seg.bytes().any(|b| b.is_ascii_digit());
+    let has_alpha = seg.bytes().any(|b| b.is_ascii_alphabetic());
+    has_digit && has_alpha
+}
+
+fn is_opaque_url_segment(seg: &str) -> bool {
+    if !is_opaque_token_segment(seg) {
+        return false;
+    }
+    // Normal blog/doc URL slugs use multiple lowercase hyphen-separated words;
+    // opaque secrets in URLs either have <= 1 hyphen or mix upper/lower/digits.
+    let hyphens = seg.bytes().filter(|&b| b == b'-').count();
+    let has_upper = seg.bytes().any(|b| b.is_ascii_uppercase());
+    hyphens <= 1 || has_upper
+}
+
 fn contains_opaque_secret_token(s: &str) -> bool {
     for tok in s.split_whitespace() {
         let cleaned = tok.trim_matches(|c: char| matches!(c, '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';' | '.'));
@@ -139,15 +164,19 @@ fn contains_opaque_secret_token(s: &str) -> bool {
             continue;
         }
         if cleaned.starts_with("http://") || cleaned.starts_with("https://") {
+            if let Ok(parsed) = url::Url::parse(cleaned) {
+                if parsed.path().split('/').any(is_opaque_url_segment) {
+                    return true;
+                }
+                if let Some(q) = parsed.query() {
+                    if q.split('&').flat_map(|kv| kv.split('=')).any(is_opaque_url_segment) {
+                        return true;
+                    }
+                }
+            }
             continue;
         }
-        let valid_chars = cleaned.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'/' | b'='));
-        if !valid_chars {
-            continue;
-        }
-        let has_digit = cleaned.bytes().any(|b| b.is_ascii_digit());
-        let has_alpha = cleaned.bytes().any(|b| b.is_ascii_alphabetic());
-        if has_digit && has_alpha {
+        if is_opaque_token_segment(cleaned) {
             return true;
         }
     }
@@ -182,29 +211,45 @@ pub(crate) fn charge_query_bytes(run_key: &str, query_bytes: usize) {
 impl Kernel {
     /// Shared query gate for `web_search` and `research_web`.
     ///
+    /// Scopes budgets to the causing user turn or schedule firing (`requester.task`),
+    /// persisted in `State.security` via `Ev::QueryGateRecorded` (W1.4, N6).
     /// Returns `Ok(None)` when the query may proceed, or `Ok(Some(reason))`
     /// when it must be silently denied to the model (never prompting the user).
     pub(crate) async fn check_web_query(&self, a: &Action, run: &Run, query: &str) -> Result<Option<String>> {
         let requester = self.requester_run(run);
-        let run_key = if requester.id.is_empty() { run.id.as_str() } else { requester.id.as_str() };
+        let scope_key = if !requester.task.is_empty() {
+            requester.task.as_str()
+        } else if !requester.id.is_empty() {
+            requester.id.as_str()
+        } else {
+            run.id.as_str()
+        };
 
         // 1. Always-on deterministic secret/PII scrub.
         if let Some(reason) = scrub_check(query) {
             if run.private && run.untrusted {
-                record_query_denial(run_key);
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
             }
             return Ok(Some(format!("web query denied: {reason}. Rephrase without credentials or sensitive identifiers")));
         }
 
         // 2. Clean runs (not holding both private data and untrusted content)
-        // pass without classifier latency or per-run byte caps.
+        // pass without classifier latency or per-turn byte caps.
         if !(run.private && run.untrusted) {
             return Ok(None);
         }
 
-        // 3. Per-run denial cap and shared byte budget.
+        // 3. Turn/firing-scoped denial cap and shared byte budget (persisted in State.security).
         let qbytes = query.len();
-        if let Err(reason) = check_budget_before_classify(run_key, qbytes) {
+        let persisted = self.read(|s| s.security.query_budget(scope_key));
+        if persisted.denials >= MAX_QUERY_DENIALS_PER_RUN {
+            return Ok(Some(format!("web query limit reached after {MAX_QUERY_DENIALS_PER_RUN} denied queries in this turn; carry on without further web queries")));
+        }
+        if persisted.bytes_used.saturating_add(qbytes) > MAX_TAINTED_QUERY_BYTES_PER_RUN {
+            return Ok(Some(format!("web query byte budget ({MAX_TAINTED_QUERY_BYTES_PER_RUN} bytes per turn) exceeded; use shorter queries or finish with what you have")));
+        }
+        if let Err(reason) = check_budget_before_classify(scope_key, qbytes) {
             return Ok(Some(reason));
         }
 
@@ -212,24 +257,126 @@ impl Kernel {
         // content are in the run's context. Fail closed if unreachable.
         match self.outgoing_finding(a, run).await {
             Some(None) => {
-                charge_query_bytes(run_key, qbytes);
+                charge_query_bytes(scope_key, qbytes);
+                let _ = self
+                    .emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: qbytes, denied: false }))
+                    .await;
                 Ok(None)
             }
             Some(Some(finding)) => {
-                record_query_denial(run_key);
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
                 Ok(Some(format!("web query denied: the outgoing classifier flagged sensitive data ({finding}). Rephrase using only general public terms")))
             }
             None => {
-                record_query_denial(run_key);
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
                 Ok(Some("web query denied: the outgoing classifier could not be reached while this run holds private data and untrusted content".into()))
             }
         }
     }
+
+    /// Evaluates a model-constructed URL in a tainted (`private && untrusted`)
+    /// run using the same deterministic scrub, turn-scoped byte budget, denial
+    /// retry cap, and outgoing classifier as `check_web_query`.
+    ///
+    /// - When the outgoing classifier clears the URL, navigation proceeds
+    ///   autonomously without interrupting the user.
+    /// - When scrubbing, budgets, or the classifier flag sensitive data, the
+    ///   call is silently denied.
+    /// - When no classifier is configured/reachable, `browser_*` and
+    ///   queryless `web_fetch` fall back to the site-scoped envelope/approval
+    ///   gate (`UrlVerdict::Ask`) instead of dead-ending, while query-bearing
+    ///   `web_fetch` URLs remain silently denied.
+    pub(crate) async fn check_web_url(&self, a: &Action, run: &Run, f: &crate::boundary::Facts, raw_url: &str) -> Result<UrlVerdict> {
+        let trimmed = raw_url.trim();
+        let Ok(parsed) = url::Url::parse(trimmed) else {
+            return Ok(UrlVerdict::Deny("web URL denied: invalid URL".into()));
+        };
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Ok(UrlVerdict::Deny("web URL denied: only http and https URLs are allowed".into()));
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Ok(UrlVerdict::Deny("web URL denied: credentials in URL userinfo are not allowed".into()));
+        }
+
+        let requester = self.requester_run(run);
+        let scope_key = if !requester.task.is_empty() {
+            requester.task.as_str()
+        } else if !requester.id.is_empty() {
+            requester.id.as_str()
+        } else {
+            run.id.as_str()
+        };
+
+        if let Some(reason) = scrub_check(trimmed) {
+            record_query_denial(scope_key);
+            let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
+            return Ok(UrlVerdict::Deny(format!("web URL denied: {reason}. Remove credentials or sensitive identifiers")));
+        }
+
+        let url_bytes = trimmed.len();
+        let persisted = self.read(|s| s.security.query_budget(scope_key));
+        if persisted.denials >= MAX_QUERY_DENIALS_PER_RUN {
+            return Ok(UrlVerdict::Deny(format!("web query limit reached after {MAX_QUERY_DENIALS_PER_RUN} denied requests in this turn; carry on without further web requests")));
+        }
+        if persisted.bytes_used.saturating_add(url_bytes) > MAX_TAINTED_QUERY_BYTES_PER_RUN {
+            return Ok(UrlVerdict::Deny(format!("web query byte budget ({MAX_TAINTED_QUERY_BYTES_PER_RUN} bytes per turn) exceeded; finish with what you have")));
+        }
+        if let Err(reason) = check_budget_before_classify(scope_key, url_bytes) {
+            return Ok(UrlVerdict::Deny(reason));
+        }
+
+        match self.outgoing_finding(a, run).await {
+            Some(None) => {
+                charge_query_bytes(scope_key, url_bytes);
+                let _ = self
+                    .emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: url_bytes, denied: false }))
+                    .await;
+                Ok(UrlVerdict::Allow)
+            }
+            Some(Some(finding)) => {
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
+                Ok(UrlVerdict::Deny(format!(
+                    "web URL denied: the outgoing classifier flagged sensitive data ({finding}). Use web_search or research_web with public terms instead"
+                )))
+            }
+            None => Ok(fallback_url_verdict(&f.app, parsed.query().is_some())),
+        }
+    }
+}
+
+fn fallback_url_verdict(app: &str, has_query: bool) -> UrlVerdict {
+    if app == "web" && has_query {
+        return UrlVerdict::Deny(
+            "cannot open a constructed URL with query parameters while this conversation holds private data and untrusted content; use web_search or research_web to find a public link first"
+                .into(),
+        );
+    }
+    UrlVerdict::Ask
+}
+
+/// Decision returned by [`Kernel::check_web_url`] for a constructed URL in a
+/// tainted (`private && untrusted`) run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum UrlVerdict {
+    Allow,
+    Ask,
+    Deny(String),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_denies_query_bearing_web_fetch_and_asks_for_browser_navigation() {
+        assert!(matches!(fallback_url_verdict("web", true), UrlVerdict::Deny(_)));
+        assert_eq!(fallback_url_verdict("web", false), UrlVerdict::Ask);
+        assert_eq!(fallback_url_verdict("browser", false), UrlVerdict::Ask);
+        assert_eq!(fallback_url_verdict("browser", true), UrlVerdict::Ask);
+    }
 
     #[test]
     fn scrub_catches_secrets_and_pii_and_allows_normal_queries() {
@@ -242,6 +389,8 @@ mod tests {
         assert!(scrub_check("ssn 123-45-6789 lookup").is_some());
         assert!(scrub_check("card 4532-0151-1283-0366").is_some());
         assert!(scrub_check("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
+        assert!(scrub_check("https://evil.test/exfil/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
+        assert!(scrub_check("https://evil.test/?tok=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
     }
 
     #[test]

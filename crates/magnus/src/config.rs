@@ -98,6 +98,8 @@ pub struct Config {
     /// The facts the agreements state about whoever runs the server; all required.
     #[serde(default)]
     pub legal: crate::legal::Settings,
+    #[serde(default)]
+    pub memory: crate::memory_index::MemoryConfig,
 }
 
 #[derive(Deserialize, Clone, Debug)]

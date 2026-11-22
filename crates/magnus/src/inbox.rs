@@ -331,6 +331,7 @@ impl Kernel {
                         scope: item.details["scope"].as_str().map(str::trim).filter(|s| !s.is_empty()).map(String::from),
                         // Accepted from the inbox, outside a conversation: its own thread.
                         thread: None,
+                        quarantine_schema: None,
                     },
                 ));
             }
@@ -353,6 +354,8 @@ impl Kernel {
                 let m = &self.cfg.model;
                 let fresh = new_id("run");
                 evs.push((&actor, resolve(None)));
+                let pb_ver = self.read(|s| s.library.playbook_version());
+                let start_label = self.clean_starting_label(&item.person, pb_ver, from.map(|f| f.2));
                 evs.push((
                     &actor,
                     Ev::TaskCreated {
@@ -375,11 +378,12 @@ impl Kernel {
                             verifier_model: self.cfg.verifier.model.clone(),
                             instructions: crate::run::instructions_version(),
                             harness: crate::kernel::HARNESS_VERSION.into(),
-                            playbook: self.read(|s| s.library.playbook_version()),
+                            playbook: pb_ver,
                         },
                         experiment: None,
                         chat: None,
-                        label: from.map(|f| f.2),
+                        label: Some(start_label),
+                        explicit_label: true,
                         title: item.details["title"].as_str().map(String::from),
                         files: vec![],
                         project: None,

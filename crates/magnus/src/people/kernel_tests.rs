@@ -23,6 +23,7 @@ fn schedule(id: &str) -> Ev {
         max_runs: None,
         scope: None,
         thread: None,
+        quarantine_schema: None,
     }
 }
 

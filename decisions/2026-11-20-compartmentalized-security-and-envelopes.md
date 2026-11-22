@@ -22,8 +22,8 @@
    - Sending a staged item offers fixed kernel scope steps (`once`, `recipient`, `domain`) written as standing grants, and `Ev::Staged(Change::Resolved)` tracks closure including external Gmail/Outlook draft send/delete reconciliation.
    - Unstageable actions (payments, destructive deletes, ACL/visibility changes, webhooks, `add_computer_destination`) and user/workspace `AskFirst` rules keep modal approval cards.
 
-4. **Narrowed CaMeL Quarantined Reader (`crates/magnus/src/quarantine.rs`):**
-   - Applied only to unattended schedules/routines whose envelope can reach someone other than their owner; owner-only routines run normally. Zero-tool, schema-constrained extraction strips undeclared keys and bounds strings (which remain untrusted text).
+4. **Narrowed CaMeL Quarantined Reader (`crates/magnus/src/quarantine.rs`, `crates/magnus/src/quarantine_runtime.rs`):**
+   - Wired into unattended schedules/routines whose routine-scoped writable envelope can reach someone other than their owner (excluding read-only `Host` entries); owner-only routines run normally. Zero-tool, schema-constrained extraction allows typed fields (`boolean`, `number`, `enum`) and stores free text behind opaque handles (`$q1`, `$q2`, ...) rejected in destination fields and checked via `outgoing_finding` + action review after body expansion.
 
 **Reason.** Sticky thread-wide booleans plus modal approvals for web lookups caused approval fatigue and security theater without stopping BEC/past-contact exfiltration. Structural compartmentalization, lazy user-only typed envelopes, and draft-first staging eliminate internet approval prompts while tightening the actual exfiltration boundary.
 

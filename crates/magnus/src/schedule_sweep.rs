@@ -184,7 +184,24 @@ impl Kernel {
                     modules: [("verifier".to_string(), true), (crate::outcomes::MODULE.to_string(), true)].into(),
                     ..Default::default()
                 };
-                self.create_run(&format!("schedule:{}", sc.id), &sc.person, w.text(sc.seq).to_string(), vec![], o).await
+                let prompt_text = w.text(sc.seq).to_string();
+                let res = self.create_run(&format!("schedule:{}", sc.id), &sc.person, prompt_text.clone(), vec![], o).await;
+                if let Ok((_, ref run_id)) = res {
+                    let (_, dests) = crate::envelope::resolve::extract_literal_destinations(&prompt_text);
+                    let routine_env = crate::envelope::Envelope {
+                        scope_id: sc.id.clone(),
+                        allowed_destinations: dests,
+                        allowed_write_apps: Default::default(),
+                        user_named: vec![],
+                        grant_ids: vec![],
+                    };
+                    let owner_email = self.person(&sc.person).map(|p| p.id).filter(|id| id.contains('@'));
+                    if crate::quarantine::routine_needs_quarantine(&routine_env, owner_email.as_deref()) {
+                        let schema = self.read(|s| s.arrangements.quarantine_schema(&sc.id).cloned());
+                        crate::quarantine_runtime::activate_quarantine(run_id, schema);
+                    }
+                }
+                res
             }
             Err(e) => Err(e),
         };

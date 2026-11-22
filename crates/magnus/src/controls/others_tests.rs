@@ -26,6 +26,7 @@ async fn an_admin_stops_someone_elses_work_and_changes_none_of_it() {
         max_runs: None,
         scope: None,
         thread: None,
+        quarantine_schema: None,
     };
     k.emit("person:mo", set("sched_a")).await.unwrap();
     for who in [&sam, &ana] {
