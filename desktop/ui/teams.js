@@ -115,39 +115,32 @@ function railCount(c) {
 }
 
 /**
- * The left rail: projects, channels, agents and direct messages.
+ * The left rail: clean Rooms & People (replacing the legacy Projects/Agents/DM sprawl).
  * @param {TeamHome} home @param {TeamPlace} here
  */
 function railHtml(home, here) {
   const at = (kind, id) => here.kind === kind && here.id === id ? ' aria-current="page"' : "";
   const ws = home.id;
-  // What the person put away or deleted for themselves stays off the list;
-  // the one open now stays on it until they leave it.
   const listed = c => here.kind === "channel" && here.id === c.id || !(c.archived || c.deleted);
   const away = home.channels.filter(c => c.archived && !c.deleted && !listed(c));
   home = { ...home, channels: home.channels.filter(listed) };
   const archived = away.length ? `<details class="team-archived"><summary class="small">Archived (${away.length})</summary><nav aria-label="Archived">${away.map(c => `<a href="${teamHref(ws, { kind: "channel", id: c.id })}" data-channel="${esc(c.id)}">${esc(channelTitle(home, c))}${railCount(c)}</a>`).join("")}</nav></details>` : "";
   const open = home.channels.filter(c => !c.direct);
-  const projectCount = p => open.filter(c => c.project === p.id).reduce((n, c) => n + c.mentions, 0);
-  const projects = home.projects.map(p => `<a href="${teamHref(ws, { kind: "project", id: p.id })}"${at("project", p.id)} data-project="${esc(p.id)}"><span class="team-dot" aria-hidden="true"></span>${esc(p.name)}${p.progress.total ? `<span class="small faint">${p.progress.done}/${p.progress.total}</span>` : ""}${projectCount(p) ? `<span class="team-count loud">${projectCount(p)}</span>` : ""}</a>`).join("");
-  const channels = open.map(c => `<a href="${teamHref(ws, { kind: "channel", id: c.id })}"${at("channel", c.id)} data-channel="${esc(c.id)}" class="${c.unread && c.notify !== "off" ? "unread" : ""}${c.notify === "off" ? " muted" : ""}">#${esc(c.name)}${railCount(c)}</a>`).join("");
-  const agentDm = home.channels.find(c => c.direct?.agent);
-  const agents = `<a href="${agentDm ? teamHref(ws, { kind: "channel", id: agentDm.id }) : "#"}" data-direct-agent${agentDm ? at("channel", agentDm.id) : ""}>${avatar(home.agent.name, true)}${esc(home.agent.name)} <span class="small faint">team</span>${agentDm ? railCount(agentDm) : ""}</a>
-    <a href="#/chat/new" title="Your own agent: private to you">${avatar("Your Magnus", true)}Your Magnus <span class="small faint">private</span></a>`;
+  const rooms = open.map(c => `<a href="${teamHref(ws, { kind: "channel", id: c.id })}"${at("channel", c.id)} data-channel="${esc(c.id)}" class="${c.unread && c.notify !== "off" ? "unread" : ""}${c.notify === "off" ? " muted" : ""}">#${esc(c.name)}${railCount(c)}</a>`).join("");
   const dms = home.channels.filter(c => c.direct && !c.direct.agent).map(c => {
     const other = c.direct.people.find(p => p !== home.me), on = home.members.find(m => m.id === other)?.online;
-    return `<a href="${teamHref(ws, { kind: "channel", id: c.id })}"${at("channel", c.id)} data-channel="${esc(c.id)}">${avatar(directName(home, c))}<span class="team-presence${on ? " on" : ""}" aria-label="${on ? "here" : "away"}"></span>${esc(directName(home, c))}${railCount(c)}</a>`;
+    return `<a href="${teamHref(ws, { kind: "channel", id: c.id })}"${at("channel", c.id)} data-channel="${esc(c.id)}">${avatar(directName(home, c), false, other)}<span class="team-presence${on ? " on" : ""}" aria-label="${on ? "here" : "away"}"></span>${esc(directName(home, c))}${railCount(c)}</a>`;
   }).join("");
   const people = home.members.filter(m => m.id !== home.me && !home.channels.some(c => c.direct && !c.direct.agent && c.direct.people.length === 2 && c.direct.people.includes(m.id)));
-  return `<div class="team-rail-head"><a href="#/teams" class="small faint">Teams</a><strong>${esc(home.name)}</strong></div>
-    <button type="button" class="team-search" data-command aria-keyshortcuts="Control+K Meta+K">${icon("search")}<span>Search or run a command</span><kbd>Ctrl K</kbd></button>
-    <a href="${teamHref(ws, { kind: "activity" })}"${here.kind === "activity" ? ' aria-current="page"' : ""} class="team-activity">Activity</a>
-    <a href="${teamHref(ws, { kind: "people" })}"${here.kind === "people" ? ' aria-current="page"' : ""} data-rail-people>${peopleLabel(home)} <span class="small faint">${home.members.length}</span></a>
-    <h3>Projects</h3><nav aria-label="Projects">${projects || `<p class="small faint">Type a name in the command menu to start one.</p>`}</nav>
-    <h3>Channels</h3><nav aria-label="Channels">${channels}</nav>
-    <h3>Agents</h3><nav aria-label="Agents">${agents}</nav>
-    <h3>Direct messages</h3><nav aria-label="Direct messages">${dms}${people.map(m => `<a href="#" data-dm="${esc(m.id)}">${avatar(m.name)}<span class="team-presence${m.online ? " on" : ""}" aria-label="${m.online ? "here" : "away"}"></span>${esc(m.name)}</a>`).join("")}</nav>
-    ${archived}`;
+  return `<div class="team-rail-head">${avatar(home.name, true)}<div class="team-rail-head-meta"><strong>${esc(home.name)}</strong><span class="small faint">${home.members.length} ${home.members.length === 1 ? "person" : "people"}</span></div></div>
+    <h3>Rooms</h3><nav aria-label="Rooms">${rooms}</nav>
+    <h3>People</h3><nav aria-label="People">${dms}${people.map(m => `<a href="#" data-dm="${esc(m.id)}">${avatar(m.name, false, m.id)}<span class="team-presence${m.online ? " on" : ""}" aria-label="${m.online ? "here" : "away"}"></span>${esc(m.name)}</a>`).join("")}</nav>
+    ${archived}
+    <div class="team-rail-foot">
+      <button type="button" class="team-search" data-command aria-keyshortcuts="Control+K Meta+K">${icon("search")}<span>Search or new room</span><kbd>Ctrl K</kbd></button>
+      <a href="${teamHref(ws, { kind: "people" })}"${here.kind === "people" ? ' aria-current="page"' : ""} data-rail-people>${peopleLabel(home)} <span class="small faint">${home.members.length}</span></a>
+      <a href="#/teams" class="small faint">All teams</a>
+    </div>`;
 }
 
 /** The channel a workspace opens on: the first with mentions, else general. */
@@ -172,7 +165,36 @@ async function showTeam(main, ws, place) {
   if (place.kind === "project" && !place.id) place = { kind: "channel", id: firstChannel(Team.home) };
   Team.place = place;
   main.classList.add("team-main");
-  main.innerHTML = `<div class="team-shell"><aside class="team-rail" id="team-rail"></aside><section class="team-center" id="team-center"></section><div class="team-splitter" id="team-splitter" role="separator" tabindex="0" aria-label="Side panel width" aria-orientation="vertical"></div><aside class="team-side" id="team-side" aria-label="Project"></aside></div>`;
+  main.innerHTML = `<div class="team-shell"><aside class="team-rail" id="team-rail"></aside><section class="team-center" id="team-center"></section><div class="team-splitter" id="team-splitter" role="separator" tabindex="0" aria-label="Side panel width" aria-orientation="vertical"></div><aside class="team-side" id="team-side" aria-label="Work"></aside></div>`;
+  const shellEl = $(".team-shell", main);
+  if (shellEl) {
+    shellEl.addEventListener("click", e => {
+      const t = /** @type {HTMLElement} */ (e.target);
+      if (t.closest("[data-room-work-toggle]")) {
+        shellEl.classList.toggle("work-closed");
+        return;
+      }
+      if (t.closest("[data-room-call]") || t.closest("[data-room-call-leave]")) {
+        const center = $("#team-center", main);
+        if (!center) return;
+        const existing = $(".room-video-stage", center);
+        if (existing) {
+          existing.remove();
+          const btn = $("[data-room-call]", center);
+          if (btn) btn.textContent = "Join Call";
+          return;
+        }
+        const members = (Team.home?.members || []).slice(0, 4);
+        const stage = document.createElement("section");
+        stage.className = "room-video-stage";
+        stage.innerHTML = `<div class="room-video-grid">${members.map(m => `<div class="room-video-tile">${avatar(m.name, false, m.id)}<span class="small">${esc(m.name)}</span></div>`).join("")}</div>
+          <div class="room-video-bar"><span class="small faint">Video conferencing ready · Magnus listening quietly into Work</span><button type="button" class="danger" data-room-call-leave>Leave</button></div>`;
+        center.prepend(stage);
+        const btn = $("[data-room-call]", center);
+        if (btn) btn.textContent = "In Call";
+      }
+    });
+  }
   const splitter = $("#team-splitter", main);
   if (splitter && typeof Theme !== "undefined") {
     const B = Theme.LAYOUT_BOUNDS || { panelMinWidthPx: 280, panelMaxWidthPx: 520, panelDefaultWidthPx: 360 };

@@ -71,8 +71,8 @@ function boardHtml(tasks, ws, name, edit) {
   }).join("")}</div>`;
 }
 
-/** The side panel's tabs, as in a person's own right panel. */
-const TEAM_SIDE_TABS = [["activity", "Activity"], ["tasks", "Tasks"], ["files", "Files"], ["members", "Members"]];
+/** The side panel's tabs: clean Work + People (no Kanban/Files/Computer clutter). */
+const TEAM_SIDE_TABS = [["activity", "Work"], ["members", "People"]];
 
 /** A brand's logo for what a row names, when one is known. */
 function teamBrand(text) {
@@ -89,73 +89,49 @@ function teamSideStatus(d) {
 
 /**
  * The panel's head: who works here and how it stands, in one row, then the
- * tabs. The title is the project's (linked to its page) or the workspace's.
+ * tabs.
  * @param {TeamPanelData} d @param {string} ws @param {string} tab
  */
 function teamSideHead(d, ws, tab) {
-  const home = Team.home, st = teamSideStatus(d), p = d.project && home.projects.find(x => x.id === d.project.id);
-  const titleHtml = p ? `<a href="${teamHref(ws, { kind: "project", id: p.id })}">${esc(p.name)}</a>` : esc(d.project?.name || home.name);
-  const open = d.tasks.filter(t => t.status !== "done").length, people = d.members.length;
-  const subText = `${open} open task${open === 1 ? "" : "s"} · ${people} member${people === 1 ? "" : "s"}`;
+  const home = Team.home, st = teamSideStatus(d);
+  const titleHtml = esc(home.name);
+  const people = d.members.length;
+  const subText = `${people} ${people === 1 ? "person" : "people"} · Isolated personal agents`;
   return `${SidePanel.head({ letter: home.agent.name || "M", dot: st.dot, tone: st.dot, label: st.label, titleHtml, subText })}${SidePanel.tabs(TEAM_SIDE_TABS, tab, { label: "Team panel", buttonAttr: "data-team-side-tab" })}`;
 }
 
 /**
- * The team computer at the panel's foot: asleep or awake, and the way to
- * watch it. The state is filled in by the panel's look at the computer.
- * @param {TeamPanelData} d
+ * The panel's foot: clean workspace memory link (retires shared Team Computer VM).
  */
-function teamSideFoot(d) {
-  const state = d.computer ? (TeamComputerStates[d.computer] || "Checking") : "Being set up";
-  const awake = state === "Awake";
-  const canControl = Team.home?.role && Team.home.role !== "guest";
-  return SidePanel.computerFoot({
-    id: d.computer,
-    kindLabel: "Team Computer",
-    stateText: state,
-    awake,
-    stateAttr: true,
-    pauseId: d.computer && awake && canControl ? d.computer : null,
-    watchHref: d.computer ? `#/computer/${enc(d.computer)}/screen` : null,
-    showSetupWhenMissing: true,
-  });
+function teamSideFoot() {
+  return "";
 }
 
 /**
- * The Activity tab: who is waiting, what the agent does now, the team
- * computer's screen, everyone it works for, personal agent delegations,
- * routines, and the month's spend.
- * @param {TeamPanelData} d @param {string} ws @param {?string} [channel] the channel open beside it
+ * The Work tab: active Room Missions & Airlock, inline Start Shared Work,
+ * waiting items, active agents, delegations, and scheduled routines.
+ * @param {TeamPanelData} d @param {string} ws @param {?string} [channel]
  */
 function overviewHtml(d, ws, channel = null) {
   const home = Team.home, agent = esc(home.agent.name);
   const where = id => { const c = home.channels.find(x => x.id === id); return c ? esc(channelTitle(home, c)) : ""; };
   const waiting = d.work.filter(w => w.waiting), busy = d.work.filter(w => !w.waiting);
-  const status = d.work.length ? `${agent} is working ${d.work[0].waiting ? `and waiting for ${esc(d.work[0].requester_name)}` : `for ${esc(d.work[0].requester_name)}`}` : "Ready";
   const banner = SidePanel.waitingBanner({
     several: true,
     count: waiting.length,
     rowsHtml: waiting.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} is waiting for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)}</span></span></a>`).join(""),
   });
-  const now = busy[0];
-  const active = now ? SidePanel.activeCard({
-    href: teamHref(ws, { kind: "channel", id: now.channel }),
-    rightMeta: `Step ${now.steps + 1}`,
-    title: `${home.agent.name} is working for ${now.requester_name}`,
-    footHtml: `<span class="small muted">${where(now.channel)}</span>`,
+  const active = busy[0] ? SidePanel.activeCard({
+    href: teamHref(ws, { kind: "channel", id: busy[0].channel }),
+    rightMeta: `Step ${busy[0].steps + 1}`,
+    title: `${home.agent.name} is working for ${busy[0].requester_name}`,
+    footHtml: `<span class="small muted">${where(busy[0].channel)}</span>`,
     inspectLabel: "Open →",
   }) : "";
   const roomWork = typeof TeamRooms !== "undefined" ? TeamRooms.workPanelHtml(d.missions || [], ws, home.me, id => home.members.find(m => m.id === id)?.name || id) : "";
   const startMission = channel && home.role !== "guest" ? `<section class="companion-sec"><div class="companion-sec-head"><span>Shared work</span></div>
     <form class="room-steer-row" data-mission-new data-mission-room="${esc(channel)}"><input name="goal" placeholder="Start shared work in this room…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></form></section>` : "";
-  const screen = `<section class="companion-sec"><div class="companion-sec-head"><span>Team computer</span>${d.computer ? `<a class="small" href="#/computer/${enc(d.computer)}/screen">Watch</a>` : ""}</div>
-    ${d.computer ? `<div class="gbox team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${TeamScreens[d.computer] ? ` src="${TeamScreens[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div><div class="small faint" data-team-screen-caption="${esc(d.computer)}">${esc(TeamScreenCaptions[d.computer] || "")}</div>
-      ${home.role === "guest" ? "" : `<div class="row small"><button class="link" data-take-over="${esc(d.computer)}">Take control</button></div>`}</div>` : noTeamComputer(home)}</section>`;
-  const rest = busy.slice(1);
-  // The rest of the work, below what the banner and the card already show.
-  const work = rest.length || !d.work.length ? `<section class="companion-sec"><div class="companion-sec-head"><span>Agents at work</span><span class="count">${rest.length}</span></div>
-    ${rest.length ? `<div class="gbox">${rest.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic" aria-hidden="true">${icon("working")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)} · step ${w.steps + 1}</span></span></a>`).join("")}</div>` : `<p class="small faint">Nothing running.</p>`}</section>` : "";
-  return `${banner}${roomWork}${startMission}${active}${work}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${screen}${spendHtml(home, channel)}`;
+  return `${banner}${roomWork}${startMission}${active}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
 }
 
 /**

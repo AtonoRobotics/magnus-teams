@@ -53,7 +53,7 @@ for (const h of [owner, admin, member]) {
   const rail = sandbox.railHtml(h, { kind: "channel", id: "c1" });
   const link = rail.match(/<a href="#\/team\/w\/people"[^>]*data-rail-people>([^]*?)<\/a>/);
   assert.ok(link, `the rail has no way to the people page for a workspace ${h.role}`);
-  assert.ok(rail.indexOf("data-rail-people") < rail.indexOf("<h3>Projects</h3>"), "the way to the people page is below the projects and channels");
+  assert.ok(rail.includes("<h3>Rooms</h3>") && rail.includes("<h3>People</h3>"), "the redesigned rail shows Rooms and People");
   assert.match(link[1], /3<\/span>$/, "the rail does not say how many people are in");
   if (h.role === "member") assert.doesNotMatch(link[1], /add or remove/, "a member is told they add or remove people");
   else assert.match(link[1], /add or remove/, `a ${h.role} is not told where to add or remove people`);
