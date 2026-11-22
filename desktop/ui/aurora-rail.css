@@ -170,6 +170,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .
   display: none;
 }
 
+nav.side button.aurora-avatar-nav {
+  min-width: 0;
+  min-height: 0;
+}
+
 .aurora-avatar-bar {
   display: none;
   flex: none;

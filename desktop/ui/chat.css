@@ -506,6 +506,7 @@ button.hello-card:hover .hello-card-go { color: var(--accent-text); transform: t
   border-top: 1px solid var(--line);
   margin-top: 4px;
 }
+.aurora-hello-chips { display: none; }
 button.hello-chip {
   min-height: 44px;
   width: 100%;

@@ -221,7 +221,7 @@ const ChatView = (() => {
       const starter = ev.target.closest(".hello-chip");
       if (starter) {
         const box = $("textarea", view.section);
-        if (box) { box.value = starter.textContent; box.dispatchEvent(new Event("input", { bubbles: true })); box.focus(); }
+        if (box) { box.value = starter.dataset.starterPrompt || starter.textContent; box.dispatchEvent(new Event("input", { bubbles: true })); box.focus(); }
         return;
       }
       const b = ev.target.closest("[data-msg-act]");

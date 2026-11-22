@@ -61,4 +61,14 @@ assert.match(capsHtml, /Alice Chen/);
 assert.match(capsHtml, /Salesforce/);
 assert.match(capsHtml, /is-preset/);
 
+// 5. True 3-island Aurora Teams layout: drop outer .shell::before, animate Work Canvas, mount live AuroraAvatar in .room-orb.
+const stageCss = readFileSync(join(here, "../ui/aurora-stage.css"), "utf8");
+const teamsCss = readFileSync(join(here, "../ui/teams.css"), "utf8");
+const avatarJs = readFileSync(join(here, "../ui/aurora-avatar.js"), "utf8");
+assert.match(stageCss, /body\[data-team\]:not\(\[data-navigation=drawer\]\)\s*\.shell::before\s*\{\s*display:\s*none;/);
+assert.match(teamsCss, /\.team-shell\s*\{\s*gap:\s*10px;\s*padding:\s*0;/);
+assert.match(teamsCss, /\.team-shell\s*\{\s*transition:\s*grid-template-columns/);
+assert.match(avatarJs, /\.team-rail-head\s+\.room-orb/);
+assert.match(avatarJs, /\.room-video-listening\s+\.room-orb/);
+
 console.log("team rooms check passed");

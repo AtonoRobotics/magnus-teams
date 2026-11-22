@@ -46,8 +46,15 @@ const AuroraStage = (() => {
   /** How near its end a conversation counts as read to its end. */
   const END_PX = 24;
   const WORD_STEP_MS = 34;
+  const WORD_ANIM_MS = 340;
+  const WORD_UNWRAP_BUFFER_MS = 80;
   const WORDS_STREAMED = 120;
   const SHOWN_BOXES = 4;
+  const PREVIEW_ROWS_MAX = 4;
+  const PREVIEW_BODY_MAX_CHARS = 260;
+  const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files"]);
+  const PREVIEW_HEADER_RE = /^(to|recipient|recipients|cc|bcc|channel|room|destination|url|host|site|file|path|calendar|event|subject|title|summary|amount|total|price|max_usd)$/i;
+  const PREVIEW_BODY_RE = /^(body|message|text|content|note|description|html|draft)$/i;
   /** After a box's time is up, so it is up when it is looked at. */
   const LEAVE_SLACK_MS = 50;
   /** How long a message stays a box when the person does not open it. */
@@ -279,11 +286,21 @@ const AuroraStage = (() => {
     requestAnimationFrame(keep);
   }
 
-  /** The conversation head's row of the panel's icons: every view, always. */
+  /** The conversation head's slim dock: Approvals direct, other views in one popover. */
   function dock() {
     const n = needsMe().length;
-    const views = [["needs", "#/inbox", "need", "Approvals"], ["tasks", "#/tasks", "clock", "Tasks"], ["schedules", "#/schedules", "calendar", "Routines"], ["rules", "#/rules", "shield", "Rules"], ["files", "#/files", "file", "Files"], ["apps", "#/apps", "grid", "Apps"]];
-    return views.map(([open, href, ic, label]) => `<a class="icon-btn stage-dock-btn" href="${href}" data-open="${open}" title="${label}" aria-label="${label}${open === "needs" && n ? `, ${n} waiting` : ""}">${icon(ic)}${open === "needs" && n ? `<span class="stage-dock-badge" aria-hidden="true">${n}</span>` : ""}</a>`).join("");
+    const more = [
+      ["tasks", "#/tasks", "clock", "Tasks"],
+      ["schedules", "#/schedules", "calendar", "Routines"],
+      ["rules", "#/rules", "shield", "Rules"],
+      ["files", "#/files", "file", "Files"],
+      ["apps", "#/apps", "grid", "Apps"],
+    ];
+    const items = more.map(([open, href, ic, label]) =>
+      `<a class="stage-dock-item" role="menuitem" href="${href}" data-open="${open}">${icon(ic)}<span>${label}</span></a>`
+    ).join("");
+    return `<a class="icon-btn stage-dock-btn" href="#/inbox" data-open="needs" title="Approvals" aria-label="Approvals${n ? `, ${n} waiting` : ""}">${icon("need")}${n ? `<span class="stage-dock-badge" aria-hidden="true">${n}</span>` : ""}</a>`
+      + `<details class="stage-dock-more"><summary class="icon-btn stage-dock-btn" aria-label="Workspace views" title="Workspace views">${icon("grid")}</summary><div class="stage-dock-menu" role="menu" aria-label="Workspace views">${items}</div></details>`;
   }
 
   // Work the person is watching that just finished or now needs them opens
@@ -386,9 +403,47 @@ const AuroraStage = (() => {
     tile.dataset.tone = "done";
     setTimeout(refresh, ANSWER_SHOWN_MS + 20);
   });
+  // Dismiss the Views popover when an item is chosen, on outside click, or on Escape.
+  document.addEventListener("click", e => {
+    const t = /** @type {HTMLElement} */ (e.target);
+    const chosen = t.closest?.(".stage-dock-item");
+    if (chosen) {
+      const m = chosen.closest(".stage-dock-more");
+      if (m instanceof HTMLDetailsElement) m.open = false;
+      return;
+    }
+    if (!t.closest?.(".stage-dock-more")) {
+      document.querySelectorAll(".stage-dock-more[open]").forEach(m => { /** @type {HTMLDetailsElement} */ (m).open = false; });
+    }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    const openMenu = document.querySelector(".stage-dock-more[open]");
+    if (!(openMenu instanceof HTMLDetailsElement)) return;
+    openMenu.open = false;
+    /** @type {HTMLElement|null} */ (openMenu.querySelector(":scope > summary"))?.focus();
+  });
+
   window.addEventListener("hashchange", () => {
     for (const [k, n] of notes) if (n.href && location.hash.startsWith(n.href.split("/t/")[0])) notes.delete(k);
     refresh();
+  });
+
+  // Honor manual #workspace-splitter drags/keys; double-click returns to content-adaptive sizing.
+  document.addEventListener("pointerdown", e => {
+    const sep = /** @type {HTMLElement} */ (e.target).closest?.("#workspace-splitter");
+    if (!sep || e.button !== 0) return;
+    const mark = () => { document.body.dataset.splitterCustom = "1"; };
+    window.addEventListener("pointermove", mark, { once: true });
+    window.addEventListener("pointerup", () => window.removeEventListener("pointermove", mark), { once: true });
+  });
+  document.addEventListener("keydown", e => {
+    if (e.target instanceof Element && e.target.id === "workspace-splitter" && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+      document.body.dataset.splitterCustom = "1";
+    }
+  });
+  document.addEventListener("dblclick", e => {
+    if (/** @type {HTMLElement} */ (e.target).closest?.("#workspace-splitter")) delete document.body.dataset.splitterCustom;
   });
 
   // Every change drawn in the main column may change the boxes; a narrower
@@ -400,7 +455,7 @@ const AuroraStage = (() => {
     if (watched.has(main)) return;
     watched.add(main);
     new MutationObserver(records => {
-      if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .stage-dock"))) return;
+      if (queued || records.every(r => r.target instanceof Element && r.target.closest(".stage-bento, .stage-dock, .aurora-canvas-row"))) return;
       queued = requestAnimationFrame(() => { queued = 0; refresh(); });
     }).observe(main, { childList: true, subtree: true });
   }
@@ -410,6 +465,31 @@ const AuroraStage = (() => {
   let leaving;
   /** The bento, kept when the conversation is drawn again. @type {?HTMLElement} */
   let kept = null;
+
+  /**
+   * Adds a quiet "Inspect Canvas →" footer row on completed answers backed by
+   * a finished task or rich artifact so users can reopen work after its bento
+   * tile auto-dismisses.
+   * @param {Element} conv
+   */
+  function annotateAnswers(conv) {
+    const tasks = typeof App !== "undefined" && Array.isArray(App.tasks) ? App.tasks : [];
+    const byId = new Map(tasks.map(t => [t.task_id, t]));
+    conv.querySelectorAll('.entry[data-kind="answer"] > .msg.magnus[data-task]').forEach(msg => {
+      if (msg.querySelector(":scope > .aurora-canvas-row")) return;
+      const id = /** @type {HTMLElement} */ (msg).dataset.task || "";
+      if (!id) return;
+      const t = byId.get(id);
+      const rich = Boolean(msg.querySelector(".shown-frame, .previews, .fchip-inline"));
+      if (!t && !rich) return;
+      if (t && !ended(t) && !rich) return;
+      const meta = t ? `${named(t)}${t.summary ? ` · ${firstLine(t.summary)}` : ""}` : "Work result";
+      const row = document.createElement("div");
+      row.className = "aurora-canvas-row";
+      row.innerHTML = `<span class="aurora-canvas-meta">${html(meta)}</span><button type="button" class="aurora-canvas-open" data-open="task:${html(id)}">Inspect Canvas →</button>`;
+      msg.append(row);
+    });
+  }
 
   /**
    * The bento in its place: after the thread, just above the input.
@@ -452,6 +532,7 @@ const AuroraStage = (() => {
     if (!on() || !conv) {
       document.querySelectorAll(".stage-bento").forEach(b => b.remove());
       document.querySelectorAll(".stage-dock").forEach(d => d.remove());
+      document.querySelectorAll(".aurora-canvas-row").forEach(r => r.remove());
       return Promise.resolve();
     }
     if (drawing) return drawing;
@@ -472,8 +553,14 @@ const AuroraStage = (() => {
         let d = row.querySelector(":scope > .stage-dock");
         if (!d) { d = document.createElement("span"); d.className = "stage-dock"; row.prepend(d); }
         const markup = dock();
-        if (d._html !== markup) { d.innerHTML = markup; d._html = markup; }
+        if (d._html !== markup) {
+          const wasOpen = Boolean(d.querySelector(".stage-dock-more")?.hasAttribute("open"));
+          d.innerHTML = markup;
+          d._html = markup;
+          if (wasOpen) d.querySelector(".stage-dock-more")?.setAttribute("open", "");
+        }
       }
+      annotateAnswers(now);
       follow();
     })().catch(() => { /* The bento waits for the next change. */ }).finally(() => { drawing = null; });
     return drawing;
@@ -484,26 +571,64 @@ const AuroraStage = (() => {
    * @param {{ kind: string, title: string, head?: string|null, backBtn: string, body: string }} v
    */
   function shell(v) {
+    const size = WIDE_CANVAS.has(v.kind) ? "wide" : "compact";
     const d = v.kind === "item" ? decision(v.body) : null;
     if (d) {
-      return `<section class="stage-artifact stage-decision" aria-label="${html(d.title)}">
+      return `<section class="stage-artifact stage-decision" data-canvas-size="compact" aria-label="${html(d.title)}">
       <div class="artifact-top"><div class="artifact-title"><p class="decision-kind">${html(d.kind)}</p><h2>${html(d.title)}</h2></div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
       <div class="artifact-content detail-body" data-panel="item">${d.body}</div>
     </section>`;
     }
-    return `<section class="stage-artifact" aria-label="${html(v.title)}">
+    return `<section class="stage-artifact" data-canvas-size="${size}" aria-label="${html(v.title)}">
       <div class="artifact-top">${v.backBtn}<div class="artifact-title">${v.head || `<h2>${html(v.title)}</h2>`}</div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
       <div class="artifact-content detail-body" data-panel="${html(v.kind)}">${v.body}</div>
     </section>`;
   }
 
   /**
+   * Extracts a clean read-only preview of human-facing fields (To, Subject,
+   * Body, URL, Amount) from `.ask-content .what .field` without altering the
+   * exact audit payload inside `<details>`.
+   * @param {Element} more
+   * @returns {HTMLElement|null}
+   */
+  function decisionPreview(more) {
+    const rows = [];
+    const seenKeys = new Set();
+    let bodyText = "";
+    for (const field of more.querySelectorAll(".what > .field")) {
+      const label = field.firstElementChild?.textContent?.trim() || "";
+      const valEl = field.children[1];
+      const val = valEl?.textContent?.trim() || "";
+      if (!label || !val || val === "none") continue;
+      const lower = label.toLowerCase();
+      if (PREVIEW_BODY_RE.test(lower)) {
+        if (!bodyText) bodyText = val.length > PREVIEW_BODY_MAX_CHARS ? `${val.slice(0, PREVIEW_BODY_MAX_CHARS).trimEnd()}…` : val;
+      } else if (PREVIEW_HEADER_RE.test(lower) && !seenKeys.has(lower) && rows.length < PREVIEW_ROWS_MAX) {
+        seenKeys.add(lower);
+        const nice = label.replace(/_/g, " ");
+        rows.push([nice[0].toUpperCase() + nice.slice(1), val]);
+      }
+    }
+    if (!rows.length && !bodyText) return null;
+    const card = document.createElement("div");
+    card.className = "decision-preview";
+    card.setAttribute("role", "region");
+    card.setAttribute("aria-label", "Action preview");
+    const rowsHtml = rows.length
+      ? `<div class="decision-preview-rows">${rows.map(([k, v]) => `<div class="decision-preview-row"><span class="decision-preview-key">${html(k)}</span><span class="decision-preview-val">${html(v)}</span></div>`).join("")}</div>`
+      : "";
+    const bodyHtml = bodyText ? `<p class="decision-preview-body">${html(bodyText)}</p>` : "";
+    card.innerHTML = `${rowsHtml}${bodyHtml}`;
+    return card;
+  }
+
+  /**
    * A decision on the canvas is built around the decision
    * (decisions/2026-11-21-aurora-canvas.md): its question is the title, what
-   * it would mean is under it, and its answers at the canvas's foot. What
-   * else the card says (the app it uses, when it was asked, its task) is
-   * behind the one disclosure that shows exactly what it would do. A decision
-   * already answered, or anything that is not an ask, is drawn as it is.
+   * it would mean is under it, a scannable draft preview surfaces key fields,
+   * and its answers sit at the canvas's foot. Raw fields and metadata stay
+   * intact behind the single disclosure.
    * @param {string} body the item's card (app.js card())
    * @returns {?{ kind: string, title: string, body: string }}
    */
@@ -535,7 +660,15 @@ const AuroraStage = (() => {
       more.append(summary);
       ask.querySelector(":scope > .ask-answers")?.before(more);
     }
-    if (more && about.childNodes.length) more.querySelector(":scope > summary")?.after(about);
+    if (more) {
+      const preview = decisionPreview(more);
+      if (preview) {
+        more.before(preview);
+        const sum = more.querySelector(":scope > summary");
+        if (sum && (sum.textContent === "See exactly what it would do" || sum.textContent === "Details")) sum.textContent = "See exact details";
+      }
+      if (about.childNodes.length) more.querySelector(":scope > summary")?.after(about);
+    }
     return { kind, title, body: card.outerHTML };
   }
 
@@ -553,15 +686,19 @@ const AuroraStage = (() => {
   function closed() { lastArtifact = null; setTimeout(refresh, 0); }
 
   /**
-   * A new block of an answer streams in word by word, as the mockup's does.
-   * @param {Element} block
+   * A new block of an answer streams in word by word, continuing sequentially
+   * from `startIndex`, then unwraps its temporary spans back to plain text.
+   * @param {Element} block @param {number} [startIndex]
+   * @returns {number} next word cursor
    */
-  function stream(block) {
-    if (!on() || !moving()) return;
+  function stream(block, startIndex = 0) {
+    if (!on() || !moving()) return startIndex;
     const walk = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
     const texts = [];
     for (let n = walk.nextNode(); n; n = walk.nextNode()) if (n.textContent.trim() && !n.parentElement?.closest("pre, code, svg")) texts.push(n);
-    let i = 0;
+    let i = startIndex;
+    /** @type {HTMLSpanElement[]} */
+    const wrapped = [];
     for (const n of texts) {
       const frag = document.createDocumentFragment();
       for (const p of n.textContent.split(/(\s+)/)) {
@@ -571,10 +708,19 @@ const AuroraStage = (() => {
         w.className = "stream-word";
         w.style.animationDelay = `${i++ * WORD_STEP_MS}ms`;
         w.textContent = p;
+        wrapped.push(w);
         frag.append(w);
       }
       n.replaceWith(frag);
     }
+    if (wrapped.length) {
+      const waitMs = (i - 1) * WORD_STEP_MS + WORD_ANIM_MS + WORD_UNWRAP_BUFFER_MS;
+      setTimeout(() => {
+        for (const w of wrapped) if (w.isConnected) w.replaceWith(document.createTextNode(w.textContent || ""));
+        if (block.isConnected) block.normalize();
+      }, waitMs);
+    }
+    return i;
   }
 
   // The first conversation drawn starts the watch, without waiting for the

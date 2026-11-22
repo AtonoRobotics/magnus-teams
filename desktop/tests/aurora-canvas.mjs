@@ -77,6 +77,8 @@ try {
       consequence: seen(c.querySelector(".consequence")),
       sentenceInCard: c.querySelector('.card.item[data-id="i1"] .ask-sentence')?.textContent,
       sentenceSeen: seen(c.querySelector(".ask-sentence")),
+      previewSeen: seen(c.querySelector(".decision-preview")),
+      previewText: c.querySelector(".decision-preview")?.textContent || "",
       decision: !!c.querySelector(".card.item:has(.ask-answers)"),
     };
   });
@@ -84,6 +86,7 @@ try {
   check("the card's own head is gone from the canvas", () => assert.equal(body.head, false));
   check("what it would mean is seen under the title", () => assert.equal(body.consequence, true));
   check("the card keeps the question, unseen, for what reads it", () => assert.deepEqual([body.sentenceInCard, body.sentenceSeen], [sentence, false]));
+  check("a clean read-only draft preview surfaces key fields above the disclosure", () => assert.ok(body.previewSeen && body.previewText.includes("sales@tubes.example") && body.previewText.includes("Please quote 40 tubes."), body.previewText));
   check("it is still the decision's card, its answers in it", () => assert.equal(body.decision, true));
 
   /** Where the answers are against the canvas's foot. */

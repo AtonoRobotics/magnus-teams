@@ -83,9 +83,12 @@ try {
 
   const quiet = await shown();
   const fold = await p.evaluate(() => Math.round(document.querySelector("section.conv > .stage-bento").getBoundingClientRect().height));
-  const dock = await p.evaluate(() => [...document.querySelectorAll("#conv-head .row > .stage-dock > a")].map(a => `${a.dataset.open}:${a.querySelector("svg").dataset.icon}`));
+  const dock = await p.evaluate(() => ({
+    direct: [...document.querySelectorAll("#conv-head .row > .stage-dock > a")].map(a => `${a.dataset.open}:${a.querySelector("svg").dataset.icon}`),
+    menu: [...document.querySelectorAll("#conv-head .row > .stage-dock .stage-dock-menu a")].map(a => `${a.dataset.open}:${a.querySelector("svg").dataset.icon}`),
+  }));
   check("with nothing relevant there are no boxes and the bento folds away", () => assert.deepEqual([quiet, fold], [[], 0]));
-  check("every view stays one click away in the conversation's head, with the panel's icons", () => assert.deepEqual(dock, ["needs:need", "tasks:clock", "schedules:calendar", "rules:shield", "files:file", "apps:grid"]));
+  check("Approvals sits in the head and the other views live in the compact Views popover", () => assert.deepEqual(dock, { direct: ["needs:need"], menu: ["tasks:clock", "schedules:calendar", "rules:shield", "files:file", "apps:grid"] }));
 
   // Work starts in this conversation: Live Workspace comes in, lit.
   await step(() => { App.tasks = [{ task_id: "t1", thread: "c1", title: "Plan the trip", status: "running", status_line: "Comparing flights" }]; });
@@ -142,7 +145,14 @@ try {
   check("the canvas slides in with the app's close", () => assert.deepEqual(canvas, { opening: true, close: true, title: "Plan the trip" }));
   check("the conversation narrows over time", () => assert.ok(midway < wide && narrow < midway, JSON.stringify({ wide, midway, narrow })));
   check("the conversation stays where it was when the canvas opens", () => assert.equal(topAfter, topBefore));
-  check("the conversation and the canvas share the stage about evenly", () => assert.ok(Math.abs(cols[1] - cols[3]) < 0.1 * cols[1], JSON.stringify(cols)));
+  check("wide canvas (task) takes ~54% of the stage", () => assert.ok(cols[3] > cols[1] && cols[3] <= 820, JSON.stringify(cols)));
+  await p.evaluate(() => {
+    const el = document.getElementById("detail");
+    el.innerHTML = AuroraStage.shell({ kind: "needs", title: "Approvals", head: null, backBtn: "", body: "<p>Pending</p>" });
+  });
+  await p.waitForTimeout(600);
+  const compactCols = await p.evaluate(() => getComputedStyle(document.querySelector(".shell")).gridTemplateColumns.split(" ").map(parseFloat));
+  check("compact canvas (approvals/lists) stays between 380px and 460px", () => assert.ok(compactCols[3] >= 379 && compactCols[3] <= 461, JSON.stringify(compactCols)));
 
   // A new block of an answer streams in word by word; code stays as it is.
   const words = await p.evaluate(() => { AuroraStage.stream(document.querySelector(".answer-body")); return { words: [...document.querySelectorAll("#block .stream-word")].map(w => `${w.textContent}@${w.style.animationDelay}`), text: document.getElementById("block").textContent, code: document.querySelectorAll("#code .stream-word").length }; });

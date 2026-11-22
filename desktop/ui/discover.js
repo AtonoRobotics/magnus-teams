@@ -367,6 +367,9 @@ const Discover = (() => {
   function heroHtml() {
     const list = state.heroCat === "all" ? PLAYBOOKS.slice(0, 4) : PLAYBOOKS.filter(p => p.cat === state.heroCat).slice(0, 4);
     const tabs = CATEGORIES.map(c => `<button type="button" class="hero-tab${state.heroCat === c.id ? " on" : ""}" data-hero-cat="${esc(c.id)}" aria-pressed="${state.heroCat === c.id}">${esc(c.label)}</button>`).join("");
+    const auroraChips = PLAYBOOKS.slice(0, 4).map(p =>
+      `<button type="button" class="hello-chip aurora-hello-chip" data-starter-prompt="${esc(p.prompt)}">${esc(p.title)}</button>`
+    ).join("");
     return `<div class="hello-hero">
       <div class="hello-head">
         ${bannerHtml()}
@@ -379,6 +382,7 @@ const Discover = (() => {
           <a href="#/explore" class="hello-cap">${icon("sparkles")}<span>All playbooks</span></a>
         </div>
       </div>
+      <div class="aurora-hello-chips" aria-label="Suggested starters">${auroraChips}</div>
       <div class="hero-tabs" role="tablist" aria-label="Playbook categories">${tabs}</div>
       <div class="hello-cards">${list.map(p => cardHtml(p, false)).join("")}</div>
       <div class="hello-pillars">

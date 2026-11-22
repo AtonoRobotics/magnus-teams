@@ -212,6 +212,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > main {
     position: relative;
     z-index: 1;
+    width: auto;
     margin-left: 12px;
     background: transparent;
     border-color: transparent;
@@ -446,22 +447,76 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .screen.held {
 }
 
 /* ---------- 4. Hero Presence Orb, Voice Ripples & Discover Cards ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-banner {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-banner,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero :is(.hello-caps, .hero-tabs, .hello-cards, .hello-pillars) {
   display: none;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero {
-  margin: 0 auto;
-  padding-top: 4px;
-  gap: 12px;
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .thread:has(.hello-hero) {
+  justify-content: center;
 }
 
-html[data-style="aurora"] .hello-hero { align-items: center; text-align: center; }
-html[data-style="aurora"] .hello-head { align-items: center; }
-html[data-style="aurora"] .hello-title { font-size: 34px; font-weight: 600; letter-spacing: -0.035em; }
-html[data-style="aurora"] .hello-caps, html[data-style="aurora"] .hero-tabs { justify-content: center; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero {
+  align-items: center;
+  text-align: center;
+  justify-content: center;
+  max-width: 600px;
+  margin: auto;
+  padding: 20px 12px;
+  gap: 16px;
+}
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-head {
+  align-items: center;
+  gap: 10px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-sub {
+  max-width: 46ch;
+}
+
+html[data-style="aurora"] .hello-title { font-size: 34px; font-weight: 600; letter-spacing: -0.035em; }
 html[data-style="obsidian-aurora"] .hello-title { font-size: 30px; font-weight: 600; letter-spacing: -0.03em; }
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-hello-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 560px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.aurora-hello-chip {
+  width: auto;
+  min-height: 36px;
+  padding: 8px 15px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--aurora-rim);
+  background: var(--aurora-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--fg2);
+  font-size: 13px;
+  font-weight: 450;
+  transition: border-color .22s var(--ease), background-color .22s var(--ease), color .22s var(--ease), transform .22s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.aurora-hello-chip::after {
+  display: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.aurora-hello-chip:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--aurora-glass-strong);
+  transform: translateY(-1px);
+}
+
+@media (any-pointer: coarse) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.aurora-hello-chip {
+    min-height: 44px;
+  }
+}
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.on {
   background: var(--fg);
@@ -469,7 +524,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.o
   border-color: transparent;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hello-card,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -481,7 +535,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card {
   transition: transform .24s var(--ease), border-color .24s var(--ease), box-shadow .24s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hello-card:hover,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-card:hover {
   transform: translateY(-3px);
   border-color: var(--line-strong);

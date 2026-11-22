@@ -217,11 +217,15 @@
       if (!id) return;
       const known = answerSeen.has(id) || entry.classList.contains("enter");
       answerSeen.add(id);
+      let wordCursor = 0;
       entry.querySelectorAll(".answer-body > *").forEach((node, idx) => {
         const k = `${id}:${idx}`;
         if (answerSeen.has(k)) return;
         answerSeen.add(k);
-        if (known) { node.classList.add("aurora-stream-in"); globalThis.AuroraStage?.stream(node); }
+        if (known) {
+          node.classList.add("aurora-stream-in");
+          if (globalThis.AuroraStage?.stream) wordCursor = globalThis.AuroraStage.stream(node, wordCursor);
+        }
       });
     });
   }
