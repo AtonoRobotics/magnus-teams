@@ -344,6 +344,7 @@ const Server = (() => {
       join: (/** @type {string} */ code) => post(`/v1/invites/${enc(code)}/join`),
       home: (/** @type {Id} */ w) => get(`${ws(w)}/home`),
       capabilities: (/** @type {Id} */ w) => get(`${ws(w)}/capabilities`),
+      memory: (/** @type {Id} */ w, /** @type {string} */ q = "") => get(`${ws(w)}/memory${query({ q })}`),
       missions: (/** @type {Id} */ w, /** @type {Id} */ room) => get(`${ws(w)}/rooms/${enc(room)}/missions`),
       createMission: (/** @type {Id} */ w, /** @type {Id} */ room, /** @type {any} */ body) => post(`${ws(w)}/rooms/${enc(room)}/missions`, body),
       releaseLane: (/** @type {Id} */ w, /** @type {Id} */ m, /** @type {Id} */ l, /** @type {any} */ body = {}) => post(`${ws(w)}/missions/${enc(m)}/lanes/${enc(l)}/release`, body),

@@ -11,7 +11,7 @@ use crate::compartment::query_gate::scrub_check;
 use crate::events::{Ev, ProfileAvatar, TeamMissionEvent};
 use crate::kernel::{Kernel, NewRun};
 use crate::tools::Label;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
@@ -25,6 +25,7 @@ const MAX_RELEASE_CHARS: usize = 16_000;
 const MAX_STEER_CHARS: usize = 2_000;
 const STEER_POLL_MS: Duration = Duration::from_millis(250);
 const MAX_STEER_POLL_TICKS: u32 = 3600;
+const DEFAULT_MEMORY_LIMIT: usize = 20;
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -32,6 +33,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/missions/{mission}/lanes/{lane}/release", post(release_lane))
         .route("/v1/workspaces/{ws}/missions/{mission}/lanes/{lane}/steer", post(steer_lane))
         .route("/v1/workspaces/{ws}/capabilities", get(workspace_capabilities))
+        .route("/v1/workspaces/{ws}/memory", get(workspace_memory))
         .route("/v1/profile/avatar", put(set_avatar))
         .route("/v1/profile/team-apps", put(set_app_visibility))
 }
@@ -211,4 +213,18 @@ async fn set_app_visibility(State(k): K, h: HeaderMap, Json(b): Json<AppVisibili
         .await
         .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
     Ok(Json(json!({ "app": app, "hidden": b.hidden })).into_response())
+}
+
+#[derive(Deserialize)]
+struct MemoryQuery {
+    #[serde(default)]
+    q: String,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn workspace_memory(State(k): K, Member { .. }: Member<at::Guest>, Path(ws): Path<String>, Query(mq): Query<MemoryQuery>) -> ApiResult {
+    let limit = mq.limit.unwrap_or(DEFAULT_MEMORY_LIMIT).min(100);
+    let items = k.read(|s| s.missions.search_workspace_memory(&ws, &mq.q, limit));
+    Ok(Json(items).into_response())
 }
