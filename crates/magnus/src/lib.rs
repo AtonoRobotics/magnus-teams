@@ -165,5 +165,6 @@ pub mod update;
 pub mod vault;
 pub mod watch_reads;
 pub mod web;
+pub(crate) mod web_open;
 pub(crate) mod web_reads;
 pub mod world_map;

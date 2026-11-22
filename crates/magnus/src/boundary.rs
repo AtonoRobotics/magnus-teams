@@ -686,15 +686,15 @@ impl Kernel {
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || (f.app == "browser" && !a.tool.starts_with("browser_as_")));
         let mut url_cleared = false;
         if web_or_browser_read && !is_query_tool && untrusted && private {
-            if self.plain_web_read(a, f, run).await? {
+            // An address the person wrote or the web returned, a site the
+            // person named, or a popular site's bare home page opens on its
+            // own; anything else is refused without a card
+            // (decisions/2026-11-22-browsing-without-asks.md).
+            let raw_url = a.input["url"].as_str().unwrap_or_default();
+            if self.plain_web_read(a, f, run).await? || self.opens_on_its_own(run, raw_url).await? {
                 url_cleared = true;
             } else {
-                let raw_url = a.input["url"].as_str().unwrap_or_default();
-                // A constructed URL is never cleared here: it asks (case 3)
-                // or is denied (decisions/2026-11-22-a-classifier-clear-is-not-a-pass.md).
-                if let crate::compartment::query_gate::UrlVerdict::Deny(why) = self.check_web_url(a, run, f, raw_url).await? {
-                    return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
-                }
+                return Ok(Err(self.deny(a, "policy", crate::web_open::WRITTEN_ADDRESS_REFUSED, false, None).await?));
             }
         }
 
