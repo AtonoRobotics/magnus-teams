@@ -128,9 +128,17 @@ function overviewHtml(d, ws, channel = null) {
     footHtml: `<span class="small muted">${where(busy[0].channel)}</span>`,
     inspectLabel: "Open →",
   }) : "";
-  const roomWork = typeof TeamRooms !== "undefined" ? TeamRooms.workPanelHtml(d.missions || [], ws, home.me, id => home.members.find(m => m.id === id)?.name || id) : "";
-  const startMission = channel && home.role !== "guest" ? `<section class="companion-sec"><div class="companion-sec-head"><span>Shared work</span></div>
-    <form class="room-steer-row" data-mission-new data-mission-room="${esc(channel)}"><input name="goal" placeholder="Start shared work in this room…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></form></section>` : "";
+  const missions = d.missions || [];
+  const roomWork = typeof TeamRooms !== "undefined" && missions.length
+    ? TeamRooms.workPanelHtml(missions, ws, home.me, id => home.members.find(m => m.id === id)?.name || id)
+    : `<div class="room-empty-work"><div class="small"><strong>Work Canvas</strong></div><p class="small muted">Start shared work below or mention @${agent} in chat. Your requests share automatically; teammates review their own slice privately first.</p></div>`;
+  const others = home.members.filter(m => m.id !== home.me);
+  const memberPicks = others.map(m => `<label class="room-pick small"><input type="checkbox" name="member" value="${esc(m.id)}"> ${esc(m.name)}</label>`).join("");
+  const startMission = channel && home.role !== "guest" ? `<section class="companion-sec"><div class="companion-sec-head"><span>Start shared work</span></div>
+    <form class="room-mission-form" data-mission-new data-mission-room="${esc(channel)}">
+      <div class="room-steer-row"><input name="goal" placeholder="e.g. Draft Friday's board update…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></div>
+      <div class="room-picks">${memberPicks}<label class="room-pick small"><input type="checkbox" name="open_web" value="1"> Public web</label></div>
+    </form></section>` : "";
   return `${banner}${roomWork}${startMission}${active}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
 }
 
@@ -298,10 +306,15 @@ const TeamPanel = {
         if (!goal || !room || !Server.workspaces.createMission) return;
         const at = this.sideAt;
         if (!at) return;
-        await Server.workspaces.createMission(at.ws, room, {
-          goal,
-          lanes: [{ kind: "member_agent", target_member: Team.home?.me, objective: goal, scope: "room_work" }],
-        }).catch(() => {});
+        const lanes = [{ kind: "member_agent", target_member: Team.home?.me, objective: goal, scope: "room_work" }];
+        for (const cb of form.querySelectorAll('input[name="member"]:checked')) {
+          const memberId = /** @type {HTMLInputElement} */ (cb).value;
+          if (memberId) lanes.push({ kind: "member_agent", target_member: memberId, objective: goal, scope: "room_work" });
+        }
+        if (form.querySelector('input[name="open_web"]:checked')) {
+          lanes.push({ kind: "open_web", objective: goal, scope: "public_research" });
+        }
+        await Server.workspaces.createMission(at.ws, room, { goal, lanes }).catch(() => {});
         this.side(at.el, at.ws, at.d?.project?.id || null, at.channel);
       });
       el.addEventListener("click", async e => {

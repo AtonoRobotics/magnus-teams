@@ -98,9 +98,10 @@ function channelFaces(home, c, project) {
 function channelTools(home, c, project, pinsOnly) {
   const helpful = c.mode === "when_helpful";
   const ext = typeof TeamRooms !== "undefined" ? TeamRooms.renderSlot("headerActions", { ws: home.id, channel: c.id }) : "";
+  const camSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`;
   return `${channelFaces(home, c, project)}${ext}
-    <button type="button" class="room-call-btn" data-room-call>Join Call</button>
-    <button type="button" data-room-work-toggle>Work</button>
+    <button type="button" class="room-call-btn" data-room-call>${camSvg}<span>Join Call</span></button>
+    <button type="button" class="room-work-btn" data-room-work-toggle><span class="room-work-dot" aria-hidden="true"></span><span>Work</span></button>
     <details class="room-more"><summary aria-label="Room options">⋯</summary><div class="room-more-menu">
       ${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span>Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Joins when helpful</option></select></label>`}
       <label class="small"><span>Notifications</span><select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>

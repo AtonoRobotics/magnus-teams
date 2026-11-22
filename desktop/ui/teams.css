@@ -45,7 +45,14 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-splitter { 
 .team-avatar.agent { background: var(--accent-soft); color: var(--accent-text); }
 .team-presence { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); margin-left: -12px; margin-top: 14px; flex: none; }
 .team-presence.on { background: var(--ok); border-color: var(--ok); }
-.room-call-btn { border-color: var(--ok); color: var(--ok); background: transparent; font-weight: 500; }
+.room-call-btn { display: inline-flex; align-items: center; gap: 6px; border-color: var(--ok); color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); font-weight: 500; }
+.room-work-btn { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.room-work-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.room-empty-work { padding: 14px; border-radius: var(--r-md); background: var(--raised); border: 1px dashed var(--line-strong); display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.room-empty-work p { margin: 0; }
+.room-mission-form { display: flex; flex-direction: column; gap: 8px; }
+.room-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+.room-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); cursor: pointer; }
 .room-more { position: relative; }
 .room-more > summary { list-style: none; cursor: pointer; padding: 5px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); color: var(--fg2); font-size: 13px; }
 .room-more > summary::-webkit-details-marker { display: none; }
