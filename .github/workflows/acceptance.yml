@@ -98,7 +98,7 @@ jobs:
             cargo build --workspace --bins
             # A test the base does not have yet is left out there.
             extra=""
-            [ -e tests/scratch/tests/cross_thread_reply.rs ] && extra="--test cross_thread_reply"
+            for t in cross_thread_reply staged_exfil; do [ -e tests/scratch/tests/$t.rs ] && extra="$extra --test $t"; done
             cargo test -p magnus-scratch --no-fail-fast --test asks --test reviewer --test destination_preview --test web_reads $extra
           else
             ci/acceptance.sh "$suite"
