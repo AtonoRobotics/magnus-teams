@@ -464,7 +464,7 @@ mod tests {
     use serde_json::{json, Value};
 
     fn rec(status: &str, is_error: bool) -> ResultRec {
-        ResultRec { seq: 0, text: String::new(), is_error, status: status.into(), data: None }
+        ResultRec { seq: 0, text: String::new(), is_error, status: status.into(), data: None, private: false }
     }
 
     /// A control's event names the chat run that did it, or the button.

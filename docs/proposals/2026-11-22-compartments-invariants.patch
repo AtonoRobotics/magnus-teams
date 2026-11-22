@@ -1,5 +1,5 @@
 # Owner patch for tests/invariants/tests/inv4_compartments.rs
-# (decisions/2026-11-22-browsing-without-asks.md). Apply with:
+# (decisions/2026-11-22-requests-checked-for-private-data.md). Apply with:
 #   git apply docs/proposals/2026-11-22-compartments-invariants.patch
 #
 # Two tests have failed since they were added (23d0914) because their setup
@@ -11,12 +11,14 @@
 # - a_fabricated_url_in_turn_2_after_turn_1_taint_is_still_denied submitted
 #   turn 2 as a separate task, which starts clean and holds nothing from
 #   turn 1. Turn 2 is now a follow-up in the same chat, which carries turn
-#   1's taint, and no card may be shown.
+#   1's private values, and its URL carries the mail's private figure
+#   (decisions/2026-11-22-requests-checked-for-private-data.md: an address is
+#   refused for what it carries, not for being made up). No card may be shown.
 
 diff --git a/tests/invariants/tests/inv4_compartments.rs b/tests/invariants/tests/inv4_compartments.rs
 --- a/tests/invariants/tests/inv4_compartments.rs
 +++ b/tests/invariants/tests/inv4_compartments.rs
-@@ -96,44 +96,52 @@
+@@ -96,44 +96,53 @@
  async fn a_cross_thread_reply_to_an_untrusted_sender_is_staged() {
      let w = world().await;
      let news = w.web.url("/news");
@@ -58,14 +60,16 @@ diff --git a/tests/invariants/tests/inv4_compartments.rs b/tests/invariants/test
 -/// 5. If turn 1 reads an injected email, a model-fabricated URL in turn 2 is
 -/// still silently denied because untrusted + private data remain in context.
 +/// 5. If turn 1 of a conversation reads private mail and an injected page, a
-+/// model-fabricated URL in turn 2 of that conversation is still silently
-+/// denied: the conversation carries turn 1's taint. (A separate task starts
-+/// clean and holds nothing from turn 1, so it is not this case.)
++/// URL in turn 2 of that conversation carrying the mail's private data is
++/// still silently denied: the conversation carries turn 1's private values.
++/// (A separate task starts clean and holds nothing from turn 1, so it is not
++/// this case.)
  #[tokio::test(flavor = "multi_thread")]
  async fn a_fabricated_url_in_turn_2_after_turn_1_taint_is_still_denied() {
      let w = world().await;
-     let (news, collect) = (w.web.url("/news"), w.web.url("/collect?d=turn1-secret"));
+-    let (news, collect) = (w.web.url("/news"), w.web.url("/collect?d=turn1-secret"));
 -    let model = FakeModel::start(steps(vec![plan("turn 1"), tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": news })), complete("read")])).await;
++    let (news, collect) = (w.web.url("/news"), w.web.url("/collect?d=revenue-41.7M"));
 +    let model = FakeModel::start(steps(vec![tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": news })), Reply::Text("read".into())])).await;
      let app = appliance(&w, &model).await;
      let alice = app.api("alice");

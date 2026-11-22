@@ -75,6 +75,9 @@ pub struct ResultRec {
     pub is_error: bool,
     pub status: String,
     pub data: Option<Value>,
+    /// Read from a private source: its values must not leave in a web
+    /// address (`private_values`).
+    pub private: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -367,7 +370,7 @@ pub(super) fn fold_run(runs: &mut HashMap<String, Run>, e: &Event) {
             r.decisions.push(DecisionRec { seq: e.seq, call_id: call_id.clone(), tool: tool.clone(), stage: stage.clone(), outcome: outcome.clone(), rule: rule.clone() });
         }
         Ev::ToolResult { call_id, key, status, text, is_error, label, data, sources, check, .. } => {
-            let rec = ResultRec { seq: e.seq, text: text.clone(), is_error: *is_error, status: status.clone(), data: data.clone() };
+            let rec = ResultRec { seq: e.seq, text: text.clone(), is_error: *is_error, status: status.clone(), data: data.clone(), private: label.private && !*check };
             if let Some(i) = key.as_ref().and_then(|k| r.intents.get_mut(k)) {
                 i.result = Some(rec.clone());
             }

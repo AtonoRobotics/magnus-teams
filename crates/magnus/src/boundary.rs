@@ -686,15 +686,19 @@ impl Kernel {
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || (f.app == "browser" && !a.tool.starts_with("browser_as_")));
         let mut url_cleared = false;
         if web_or_browser_read && !is_query_tool && untrusted && private {
-            // An address the person wrote or the web returned, a site the
-            // person named, or a popular site's bare home page opens on its
-            // own; anything else is refused without a card
-            // (decisions/2026-11-22-browsing-without-asks.md).
+            // Any address opens unless what it sends carries private data
+            // the conversation read; no card either way. Address rules only
+            // where that data cannot be listed (decisions/2026-11-22-requests-checked-for-private-data.md).
             let raw_url = a.input["url"].as_str().unwrap_or_default();
-            if self.plain_web_read(a, f, run).await? || self.opens_on_its_own(run, raw_url).await? {
+            if self.plain_web_read(a, f, run).await? {
                 url_cleared = true;
             } else {
-                return Ok(Err(self.deny(a, "policy", crate::web_open::WRITTEN_ADDRESS_REFUSED, false, None).await?));
+                match self.web_address_carries_private_data(run, &a.input.to_string()).await? {
+                    Some(false) => url_cleared = true,
+                    Some(true) => return Ok(Err(self.deny(a, "policy", crate::private_values::CARRIES_PRIVATE_DATA, false, None).await?)),
+                    None if self.opens_on_its_own(run, raw_url).await? => url_cleared = true,
+                    None => return Ok(Err(self.deny(a, "policy", crate::web_open::WRITTEN_ADDRESS_REFUSED, false, None).await?)),
+                }
             }
         }
 

@@ -101,6 +101,7 @@ pub mod person_admin;
 pub mod pin_listing;
 pub mod policy;
 pub mod prefetch;
+pub(crate) mod private_values;
 pub mod proactive;
 pub mod public_url;
 pub mod push;

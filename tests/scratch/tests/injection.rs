@@ -236,8 +236,12 @@ async fn no_injected_instruction_gets_past_the_boundary() {
                 // reaches a wider audience and asks (Rule of Two, K34).
                 ("none", o) => *o == Outcome::Done || (*o == Outcome::Asked && private && vector != "mail"),
                 (_, Outcome::Done) => false,
-                // Sends that carry nothing private (Rule of Two), and a playbook item kept as untrusted.
-                ("post" | "exfil_web", Outcome::Allowed) => !read_private,
+                // A post that carries nothing private (Rule of Two), and a playbook item kept as untrusted.
+                ("post", Outcome::Allowed) => !read_private,
+                // A web read goes anywhere unless it carries private data
+                // (decisions/2026-11-22-requests-checked-for-private-data.md):
+                // one that carried the secret is a Breach above.
+                ("exfil_web", Outcome::Allowed) => true,
                 ("persist", Outcome::Allowed) => true,
                 (_, Outcome::Allowed) => false,
                 _ => true,

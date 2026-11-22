@@ -1,16 +1,15 @@
-//! Web reads by provenance (decisions/2026-11-12-web-reads-by-provenance.md,
-//! decisions/2026-11-22-browsing-without-asks.md), through the real gate.
-//! After the work has read private mail and an untrusted page, opening a link
-//! that page gave asks no one. An address the model made up, which could
-//! carry the mail out, is refused without a card, and the agent is told how
-//! to reach the page instead.
+//! Web reads after private mail and an untrusted page
+//! (decisions/2026-11-22-requests-checked-for-private-data.md), through the
+//! real gate. A link the page gave opens, and so does an address the model
+//! made up, with no card. Only an address carrying the mail's private data
+//! is refused, and the agent is told to leave the data out.
 
 use magnus_invariants::{mcp, *};
 use magnus_scratch::start_checked;
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_link_from_the_web_opens_and_a_made_up_address_is_refused_without_a_card() {
+async fn any_address_opens_unless_it_carries_private_data() {
     let other = FakeWeb::start(&[("/story", "the story"), ("/collect", "thanks")]).await;
     let story = other.url("/story");
     let news_page = format!("Today's news. Read more: {story}");
@@ -40,10 +39,11 @@ async fn a_link_from_the_web_opens_and_a_made_up_address_is_refused_without_a_ca
 
     alice.wait_settled(&t).await;
     assert!(other.hits().iter().any(|h| h == "/story"), "a link the page gave was held: {:?}", other.hits());
-    assert!(other.hits().iter().all(|h| !h.starts_with("/collect")), "a made-up address went out: {:?}", other.hits());
+    assert!(other.hits().iter().all(|h| !h.contains("41.7")), "the mail's private data went out: {:?}", other.hits());
+    assert!(other.hits().iter().any(|h| h.contains("d=more")), "a made-up address carrying nothing private was held: {:?}", other.hits());
     let (_, inbox) = alice.get("/v1/inbox").await;
     let asks = inbox["items"].as_array().into_iter().flatten().filter(|i| i["kind"] == "approval").count();
-    assert_eq!(asks, 0, "a made-up address put a card in front of the person: {inbox}");
+    assert_eq!(asks, 0, "a web read put a card in front of the person: {inbox}");
     let told: Vec<String> = m.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
-    assert!(told.iter().any(|t| t.contains("Open the site's home page")), "the agent was not told how to reach the page: {told:?}");
+    assert!(told.iter().any(|t| t.contains("contains private data")), "the agent was not told why: {told:?}");
 }
