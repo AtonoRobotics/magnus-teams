@@ -109,6 +109,7 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::envelope::Destination;
 
     #[test]
     fn quarantine_applies_only_to_routines_reaching_others() {
