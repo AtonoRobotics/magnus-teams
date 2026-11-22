@@ -262,6 +262,8 @@ function askText(msg, placeholder = "", yes = "Submit", danger = false) {
 }
 
 function toast(msg, ms = 3200) {
+  // Aurora says it on its stage, in the line above the composer.
+  if (typeof AuroraReasoning !== "undefined" && AuroraReasoning.tell(String(msg), ms)) return;
   const t = document.createElement("div");
   t.className = "toast"; t.textContent = msg; t.setAttribute("role", "status");
   // Toasts stack, newest at the bottom, rather than covering each other.
@@ -357,7 +359,9 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","app_tools","definition_change","deletion_request","endorsement"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","app_tools","definition_change","deletion_request","endorsement"]);
+// Magnus's own ideas (suggestions) are no decision waiting: they are in
+// Explore's For you (explore-ideas.js).
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -459,7 +463,7 @@ const Workspace = (() => {
     const shell=$(".shell"); if (!shell) return;
     const B=Theme.LAYOUT_BOUNDS, prefs=Theme.prefs(), work=!!Panel.what && !!App.workspace;
     const team=/^#\/team\//.test(location.hash);
-    const m=fit(shell.clientWidth,prefs.navigation || "expanded",prefs.panelWidthPx || B.panelDefaultWidthPx,work,team);
+    const m=fit(shell.clientWidth,Theme.navigation(prefs),prefs.panelWidthPx || B.panelDefaultWidthPx,work,team);
     if (work && Panel.autoOpened && (shell.clientWidth < B.autoOpenMinWidthPx || !m.eligible)) { closePanel(false); return m; }
     if(team)document.body.dataset.team="";else delete document.body.dataset.team;
     const prior=[...document.querySelectorAll("#thread, #detail .detail-body")].filter(el=>el.clientHeight).map(root=>{
@@ -1178,6 +1182,10 @@ async function pollInbox() {
     // bring back everything already waiting.
     const fresh = needsMe().filter(i => !told.has(i.id));
     for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox" });
+    // Ideas waiting in Explore: the one notice for them, once.
+    const ideas = items.filter(i => ExploreIdeas.isNotice(i) && i.status === "open" && !told.has(i.id));
+    for (const i of ideas) Notices.show({ key: `inbox:${i.id}`, title: "Ideas in Explore", body: i.summary, system: i.summary, href: "#/explore" });
+    fresh.push(...ideas);
     if (fresh.length) save("told", [...told, ...fresh.map(i => i.id)].slice(-500));
     sidebar();
   } catch (e) {
@@ -1336,15 +1344,14 @@ function tasksView() {
   }).join("")}` : offered("No tasks yet. Ask for something in a conversation.");
 }
 
-// An empty Tasks or Schedules: what Magnus offered to take over when it
-// opened a conversation itself (at the first sign-in, or for a newly
-// connected app) and the person has not answered, each linking to its
-// conversation, in Magnus's voice. With none, the plain line.
+// An empty Tasks or Schedules: what Magnus offered to take over (its ideas
+// in Explore's For you, explore-ideas.js) that the person has not answered,
+// each linking there, in Magnus's voice. With none, the plain line.
 function offered(none) {
-  const cards = App.threads.filter(t => t.opener).flatMap(t => (t.open_cards || []).map(c => ({ ...c, thread: t.thread })));
-  if (!cards.length) return `<p class="empty">${esc(none)}</p>`;
+  const ideas = ExploreIdeas.open(App.inbox);
+  if (!ideas.length) return `<p class="empty">${esc(none)}</p>`;
   return `<div class="empty" data-offered><p>Nothing here yet. I had a look around, and these are mine to take off your hands as soon as you say so:</p>
-    <ul class="tlist">${cards.map(c => `<li class="trow" data-offer="${esc(c.card)}"><a href="#/chat/${enc(c.thread)}"><span class="ttl">${esc(c.title)}</span></a></li>`).join("")}</ul></div>`;
+    <ul class="tlist">${ideas.map(i => `<li class="trow" data-offer="${esc(i.id)}"><a href="#/explore"><span class="ttl">${esc(i.details?.title || i.summary)}</span></a></li>`).join("")}</ul></div>`;
 }
 
 // A schedule's next run and its last result, in one line.
@@ -1860,6 +1867,11 @@ function card(i, composed) {
       break;
     }
     case "notice": {
+      // Ideas waiting in Explore: where they are, nothing stopped.
+      if (ExploreIdeas.isNotice(i)) {
+        body = `<p class="small"><a href="#/explore">Open Explore</a> to start or dismiss them.</p>${buttons(i, [["dismiss", "Dismiss"]])}`;
+        break;
+      }
       const ev = d.evidence;
       const list = [];
       // A schedule's own notice stands for no run to continue: its Resume does that.
@@ -2234,7 +2246,7 @@ function activityParts(composed) {
   const pending = needsMe();
   const scheds = App.schedules.filter(sc => !sc.ended);
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
-  const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
+  const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i) && !ExploreIdeas.isIdea(i));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
   const needsBanner = SidePanel.waitingBanner({
     several: false,
@@ -2790,7 +2802,7 @@ function connectorBody(c) {
 
 async function showConnectorPage(main, name) {
   const c = await Server.connectors.get(name);
-  main.innerHTML = `<div class="libpage cpage"><p class="small"><a href="#/library">Apps</a></p><section class="cp" aria-label="${esc(c.title)}">${connectorBody(c)}</section></div>`;
+  main.innerHTML = `<div class="libpage cpage"><p class="small"><a href="#/library" class="cp-back" aria-label="Back to Apps">← Apps</a></p><section class="cp" aria-label="${esc(c.title)}">${connectorBody(c)}</section></div>`;
   bindConnectorActs(main);
 }
 
@@ -2871,9 +2883,13 @@ async function connectApp(name) {
   // The one screen connecting shows; accepting it is all the approval Magnus
   // needs to use the app (spec rev 140). Signing in again needs no new one.
   const again = card && card.state === "needs_attention", signsIn = !card || card.signs_in !== false;
-  if (signsIn && !Magnus.loopbackOpen) { toast("Connect apps from the Magnus desktop app."); return; }
+  // A browser has no listener on this computer: the sign-in comes back to
+  // the server's own address instead, where it is finished (connect-web.js).
+  const web = signsIn && !Magnus.loopbackOpen, back = web ? ConnectWeb.returnFor(card) : null;
+  if (web && !back) { toast(ConnectWeb.why(card, name)); return; }
   if (!again && !await consentToConnect(name)) return;
   if (!signsIn) { toast("Connected."); connectorsChanged(); return; }
+  if (back) return ConnectWeb.go({ name, title: card?.title || name }, back, redirect => Server.connectors.signIn(name, redirect)).catch(e => toast(e.body?.message || e.message));
   const listenAt = card && (card.handoff || (onThisComputer(card.redirect_uri) ? card.redirect_uri : null));
   const caught = await Magnus.loopbackOpen(listenAt || null);
   const redirect = card && card.redirect_uri && !onThisComputer(card.redirect_uri) ? card.redirect_uri : caught;
@@ -3656,6 +3672,8 @@ async function boot() {
   App.prefs = await Server.preferences.get().catch(() => null);
   if (typeof autoDetectTimezone === "function") autoDetectTimezone();
   await Promise.all([refresh(), pollVersions()]);
+  // Back from an app's sign-in in this browser: it is finished here.
+  ConnectWeb.finish(connectorsChanged).catch(() => {});
   // Opening the app shows what changed since the last session: with
   // news, and landing on home, the needs panel opens beside it (#367).
   App.reported = new Set();

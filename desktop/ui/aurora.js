@@ -71,8 +71,10 @@
   function detectState() {
     if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
-    if (document.querySelector('.st.need, .stage-card[data-card="approvals"][data-tone="needs"]')) return "needs";
-    if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"]')) return "executing";
+    if (document.querySelector('.st.need, .stage-card[data-card="approvals"][data-tone="needs"], .aurora-reason[data-phase="needs"]')) return "needs";
+    if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"], .aurora-reason[data-phase="working"]')) return "executing";
+    // An answer being thought out or written (aurora-reasoning.js).
+    if (document.querySelector('.aurora-reason:is([data-phase="thinking"], [data-phase="writing"])')) return "thinking";
     return "idle";
   }
 
@@ -244,14 +246,7 @@
     if (!active) return;
     ensureCanvases();
 
-    // 1. Left sidebar brand orb
-    document.querySelectorAll("nav.side .brand .logo").forEach((logo) => {
-      if (!logo.querySelector(".aurora-orb-nav")) {
-        const c = makeOrb(24, "aurora-orb-nav");
-        logo.appendChild(c);
-        orbs.add(c);
-      }
-    });
+    // 1. The navigation's avatar is aurora-avatar.js's.
 
     // 2. Right sidebar companion avatar orb
     document.querySelectorAll(".companion-avatar").forEach((av) => {
@@ -285,18 +280,7 @@
       }
     });
 
-    // 3. Discover / New Chat hero presence orb with voice ripples
-    document.querySelectorAll(".hello-head").forEach((head) => {
-      if (!head.querySelector(".aurora-orb-hero")) {
-        const wrap = document.createElement("div");
-        wrap.className = "aurora-hero-presence";
-        wrap.innerHTML = '<span class="aurora-ripple" aria-hidden="true"></span><span class="aurora-ripple r2" aria-hidden="true"></span>';
-        const c = makeOrb(72, "aurora-orb-hero");
-        wrap.appendChild(c);
-        head.insertBefore(wrap, head.firstChild);
-        orbs.add(c);
-      }
-    });
+    // 3. The new conversation's avatar is aurora-avatar.js's.
 
     // 4. Mark active tool/work containers for rotating conic-gradient execution beams
     document.querySelectorAll(".reqgroup.chatcard, .tcard, .companion-active-card").forEach((el) => {
@@ -618,7 +602,7 @@
     delete document.documentElement.dataset.auroraState;
     if (bgCanvas) { bgCanvas.remove(); bgCanvas = null; }
     if (fieldCanvas) { fieldCanvas.remove(); fieldCanvas = null; }
-    document.querySelectorAll(".aurora-hero-presence, .aurora-orb, .aurora-state-pill").forEach((el) => el.remove());
+    document.querySelectorAll(".aurora-orb, .aurora-state-pill").forEach((el) => el.remove());
     document.querySelectorAll(".aurora-executing").forEach((el) => el.classList.remove("aurora-executing"));
     document.querySelectorAll(".aurora-detail-ghost").forEach((el) => el.remove());
     if (detailObs) { detailObs.disconnect(); detailObs = null; }
@@ -747,7 +731,7 @@
   });
 
   function init() {
-    bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed"] });
+    bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed", "data-phase"] });
     window.addEventListener("magnus-theme", reconcile);
     document.addEventListener("visibilitychange", () => {
       if (!active) return;

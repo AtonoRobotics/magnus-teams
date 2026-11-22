@@ -52,11 +52,6 @@
   to { opacity: 0; transform: translateX(100%); }
 }
 
-@keyframes auroraRipple {
-  0% { transform: scale(0.84); opacity: 0.6; }
-  100% { transform: scale(1.85); opacity: 0; }
-}
-
 /* ---------- 1. Living Ambient Shader Canvas & Floating Bento Shell ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) {
   --aurora-mx: 50%;
@@ -105,7 +100,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > mai
   border: 1px solid var(--aurora-rim);
   background: var(--aurora-glass);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  overflow: hidden;
+  /* A page taller than the window scrolls (Explore, Apps, Settings); a
+     conversation scrolls its own thread inside. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-bar {
@@ -245,12 +243,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   }
 
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > main {
+    position: relative;
+    z-index: 1;
     margin-left: 12px;
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
   }
 
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell > #workspace-splitter {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* The canvas is a card inset in the frame. */
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell > aside.detail {
+    position: relative;
+    z-index: 1;
     box-sizing: border-box;
     min-width: var(--panel-width, 360px);
+    height: auto;
+    margin: 10px 10px 10px 0;
   }
 
   /* The top bar's row grows in with the work instead of pushing it down. */
@@ -315,13 +328,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo > svg {
   opacity: 0;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-nav {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .new-chat.primary-nav {
@@ -428,6 +434,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-comput
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view {
   position: relative;
+  /* The frame holds what is in it: nothing touches its edge. */
+  padding: 12px;
   border-radius: var(--r-lg);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);
@@ -485,40 +493,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero {
   gap: 12px;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-hero-presence {
-  position: relative;
-  width: 72px;
-  height: 72px;
-  display: grid;
-  place-items: center;
-  margin: 0 auto 6px;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-ripple {
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  border: 1px solid var(--aurora-beam-a);
-  opacity: 0;
-  pointer-events: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-ripple {
-  animation: auroraRipple 1.8s var(--ease) infinite;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-ripple.r2 {
-  animation-delay: 0.65s;
-}
-
 html[data-style="aurora"] .hello-hero { align-items: center; text-align: center; }
 html[data-style="aurora"] .hello-head { align-items: center; }
 html[data-style="aurora"] .hello-title { font-size: 34px; font-weight: 600; letter-spacing: -0.035em; }
 html[data-style="aurora"] .hello-caps, html[data-style="aurora"] .hero-tabs { justify-content: center; }
 
-html[data-style="obsidian-aurora"] .aurora-hero-presence {
-  margin: 0 0 6px;
-}
 html[data-style="obsidian-aurora"] .hello-title { font-size: 30px; font-weight: 600; letter-spacing: -0.03em; }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.hero-tab.on {
@@ -609,14 +588,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .sub-agent {
   transition: border-color .25s var(--ease), box-shadow .25s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup.chatcard {
+/* In the thread, a request's tasks and a schedule set up are a light list,
+   not a card: the boxes above the input carry their state
+   (decisions/2026-11-21-aurora-composition.md). */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.reqgroup.chatcard, .reqgroup.sched-state, .reqgroup.chatcard .tcard) {
   margin-left: 0;
-  padding: 6px 8px;
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup.sched-state .card-acts {
+  gap: 10px;
+  padding: 0 8px 2px 40px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot {
+  position: relative;
+  isolation: isolate;
   background: transparent;
 }
 
@@ -624,6 +616,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say {
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
   position: relative;
+  z-index: 1;
   border-radius: var(--r-composer);
   border: 1px solid var(--line-strong);
   padding: 12px 16px 10px;
@@ -746,6 +739,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .seg button.on {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-bg-canvas,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-field-canvas { display: none; }
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell::before,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.detail,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say,
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .card {

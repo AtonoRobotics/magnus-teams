@@ -222,7 +222,7 @@ const Discover = (() => {
         <div class="hello-card-foot"><span class="hello-card-meta">${esc(p.tools.join(" · "))}</span><span class="hello-card-go">Try →</span></div>
       </button>`;
     }
-    return `<article class="explore-card">
+    return `<article class="explore-card" data-playbook="${esc(p.id)}">
       <div class="card-media"><img src="${esc(img)}" alt="" aria-hidden="true" loading="lazy"></div>
       <div class="explore-card-head"><span class="chip ${esc(p.cls)}">${esc(p.mode)}</span><div class="card-flow" aria-hidden="true">${flow}</div></div>
       <h3>${esc(p.title)}</h3>
@@ -326,6 +326,7 @@ const Discover = (() => {
             <button type="button" data-open-setup>Setup guide</button>
           </div>
         </div>
+        ${typeof ExploreIdeas !== "undefined" && typeof card === "function" ? ExploreIdeas.html(App.inbox, i => card(i)) : ""}
         <section class="explore-apps" aria-label="Connected apps">
           <div class="spread"><strong>Your connected apps <span class="muted small">(${connected.length} connected)</span></strong><a href="#/library" class="small">Manage all apps →</a></div>
           <div class="explore-app-row">${appStrip || '<span class="small muted">No apps configured on this server yet.</span>'}</div>
@@ -338,6 +339,13 @@ const Discover = (() => {
       </div>`);
     };
     draw();
+    // An idea started or dismissed here redraws it, from the inbox as the
+    // server has it then.
+    if (typeof App !== "undefined" && typeof onLeave === "function") {
+      const redraw = async () => { if (typeof pollInbox === "function") await pollInbox(); draw(); };
+      App.redraw = redraw;
+      onLeave(() => { if (App.redraw === redraw) App.redraw = null; });
+    }
     main.onclick = e => {
       const t = /** @type {HTMLElement} */ (e.target);
       const cat = t.closest("[data-exp-cat]");

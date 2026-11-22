@@ -13,7 +13,7 @@ const root = join(here, "../..");
 const read = p => readFileSync(p, "utf8");
 
 /** The sheets, in the order the page loads them: later wins a tie. */
-export const SHEETS = ["base.css", "layout.css", "chat.css", "pages.css", "teams.css", "computer.css", "admin.css", "onboarding.css", "aurora.css", "aurora-widgets.css", "aurora-stage.css"];
+export const SHEETS = ["base.css", "layout.css", "chat.css", "pages.css", "teams.css", "computer.css", "admin.css", "onboarding.css", "aurora.css", "aurora-widgets.css", "aurora-stage.css", "aurora-rail.css", "aurora-compact.css"];
 const SHEET_LINES_MAX = 800;
 
 // 1. The page loads exactly these sheets in this order, and the server serves each.

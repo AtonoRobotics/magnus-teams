@@ -12,8 +12,11 @@
   <header class="site-header">
     <div class="container nav-inner">
       <a href="#top" class="brand" aria-label="Magnus home">
-        <svg class="brand-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" rx="14" fill="#18181C" stroke="#2E2E36" stroke-width="2" />
+          <polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="#949EB2" />
+          <polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="#F5F5F7" />
+          <polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="#949EB2" />
         </svg>
         <span>Magnus</span>
       </a>
@@ -27,15 +30,16 @@
   </header>
 
   <main>
-    <!-- Interactive Cinematic Hero -->
+    <!-- Interactive Obsidian 2 Hero -->
     <section class="hero" id="top">
+      <canvas class="hero-particles" id="hero-particles" aria-hidden="true"></canvas>
       <div class="hero-bg-wash" aria-hidden="true"></div>
       <div class="container hero-inner">
-        <!-- Living Presence Liquid-Glass Orb Shader -->
+        <!-- Living Presence Titanium-Glass Orb Shader -->
         <div class="presence-stage" id="presence-stage" aria-hidden="true">
           <span class="voice-ripple"></span>
           <span class="voice-ripple r2"></span>
-          <canvas class="presence-canvas" id="presence-canvas" width="112" height="112"></canvas>
+          <canvas class="presence-canvas" id="presence-canvas" width="104" height="104"></canvas>
         </div>
         <div class="presence-state-label" id="presence-state-label" data-state="idle">Ready · standing by</div>
 
@@ -44,7 +48,7 @@
           Ask Magnus once. Watch it plan, work across your apps, and slide open the finished result — always waiting for your final say.
         </p>
 
-        <!-- Live Sandboxed Prompt Bar with Radial Spotlight -->
+        <!-- Live Sandboxed Obsidian 2 Composer Bar with Circular Send Button -->
         <div class="prompt-spotlight-wrap" id="prompt-spotlight-wrap">
           <div class="prompt-spotlight" aria-hidden="true"></div>
           <form class="prompt-form" id="hero-prompt-form" autocomplete="off">
@@ -62,7 +66,12 @@
                 <line x1="12" y1="19" x2="12" y2="22" />
               </svg>
             </button>
-            <button type="submit" class="btn btn-primary btn-sm" id="prompt-run-btn">Run</button>
+            <button type="submit" class="send-circle-btn" id="prompt-run-btn" aria-label="Run prompt" title="Run prompt">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5" />
+                <polyline points="5 12 12 5 19 12" />
+              </svg>
+            </button>
           </form>
 
           <div class="prompt-chips" role="group" aria-label="Try a choreographed workflow">
@@ -72,73 +81,75 @@
           </div>
         </div>
 
-        <!-- Floating Glass Bento Grid + Slide-Out Split-Screen Artifact Canvas -->
-        <div class="workspace-stage" id="workspace-stage">
-          <div class="bento-col">
-            <!-- Main Choreographed Reasoning & Masked Stream Card -->
-            <div class="beam-box bento-main" id="bento-main">
-              <div class="reasoning-pill" id="reasoning-pill">
-                <button type="button" class="reasoning-toggle" id="reasoning-toggle">
-                  <span class="reasoning-head-left">
-                    <span class="reasoning-spark" aria-hidden="true"></span>
-                    <span id="reasoning-summary">Ready for your next request</span>
-                  </span>
-                  <svg class="reasoning-chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
-                <div class="reasoning-body">
-                  <div class="reasoning-steps" id="reasoning-steps"></div>
+        <!-- Framed Pure-Black Obsidian 2 Bento Workspace + Split-Screen Artifact Canvas -->
+        <div class="obsidian-frame">
+          <div class="workspace-stage" id="workspace-stage">
+            <div class="bento-col">
+              <!-- Main Choreographed Reasoning & Masked Stream Card -->
+              <div class="beam-box bento-main" id="bento-main">
+                <div class="reasoning-pill" id="reasoning-pill">
+                  <button type="button" class="reasoning-toggle" id="reasoning-toggle">
+                    <span class="reasoning-head-left">
+                      <span class="reasoning-spark" aria-hidden="true"></span>
+                      <span id="reasoning-summary">Ready for your next request</span>
+                    </span>
+                    <svg class="reasoning-chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  <div class="reasoning-body">
+                    <div class="reasoning-steps" id="reasoning-steps"></div>
+                  </div>
+                </div>
+
+                <div class="stream-output" id="stream-output" aria-live="polite"></div>
+
+                <div class="artifact-trigger-row">
+                  <span class="artifact-trigger-meta" id="artifact-trigger-meta">Interactive artifact · ready for review</span>
+                  <button type="button" class="btn btn-sm" id="open-artifact-btn">Inspect Canvas →</button>
                 </div>
               </div>
 
-              <div class="stream-output" id="stream-output" aria-live="polite"></div>
+              <!-- Live Tool Execution Bento Tiles (Titanium-Indigo Conic Beam Borders) -->
+              <div class="beam-box bento-mini" id="bento-tile-a">
+                <div class="bento-label">
+                  <span>Live Workspace</span>
+                  <span class="mini-dot"></span>
+                </div>
+                <strong id="tile-a-title">Connected Apps</strong>
+                <p id="tile-a-desc">Standing by across Gmail, Drive, and Slack.</p>
+              </div>
 
-              <div class="artifact-trigger-row">
-                <span class="artifact-trigger-meta" id="artifact-trigger-meta">Interactive artifact · ready for review</span>
-                <button type="button" class="btn btn-sm" id="open-artifact-btn">Inspect Canvas →</button>
+              <div class="beam-box bento-mini" id="bento-tile-b">
+                <div class="bento-label">
+                  <span>Human Control</span>
+                  <span class="mini-dot"></span>
+                </div>
+                <strong id="tile-b-title">Draft-First Safety</strong>
+                <p id="tile-b-desc">Nothing sends until you click approve.</p>
               </div>
             </div>
 
-            <!-- Live Tool Execution Bento Tiles (Conic-Gradient Beam Borders) -->
-            <div class="beam-box bento-mini" id="bento-tile-a">
-              <div class="bento-label">
-                <span>Live Workspace</span>
-                <span class="mini-dot"></span>
+            <!-- Dedicated Split-Screen Interactive Artifact Canvas -->
+            <aside class="beam-box artifact-panel" id="artifact-panel" aria-label="Interactive deliverable canvas">
+              <div class="artifact-shell">
+                <div class="artifact-top">
+                  <h3 id="artifact-title">Staged Morning Drafts</h3>
+                  <button type="button" class="artifact-close" id="artifact-close-btn">Close</button>
+                </div>
+                <div class="artifact-content" id="artifact-content"></div>
+                <div class="artifact-foot">
+                  <span style="font-size:12.5px;color:var(--ink-muted);" id="artifact-foot-note">Nothing leaves your inbox until you approve.</span>
+                  <button type="button" class="btn btn-primary btn-sm" id="artifact-action-btn">Approve &amp; Send</button>
+                </div>
               </div>
-              <strong id="tile-a-title">Connected Apps</strong>
-              <p id="tile-a-desc">Standing by across Gmail, Drive, and Slack.</p>
-            </div>
-
-            <div class="beam-box bento-mini" id="bento-tile-b">
-              <div class="bento-label">
-                <span>Human Control</span>
-                <span class="mini-dot"></span>
-              </div>
-              <strong id="tile-b-title">Draft-First Safety</strong>
-              <p id="tile-b-desc">Nothing sends until you click approve.</p>
-            </div>
+            </aside>
           </div>
-
-          <!-- Dedicated Split-Screen Interactive Artifact Canvas -->
-          <aside class="beam-box artifact-panel" id="artifact-panel" aria-label="Interactive deliverable canvas">
-            <div class="artifact-shell">
-              <div class="artifact-top">
-                <h3 id="artifact-title">Staged Morning Drafts</h3>
-                <button type="button" class="artifact-close" id="artifact-close-btn">Close</button>
-              </div>
-              <div class="artifact-content" id="artifact-content"></div>
-              <div class="artifact-foot">
-                <span style="font-size:12.5px;color:var(--ink-muted);" id="artifact-foot-note">Nothing leaves your inbox until you approve.</span>
-                <button type="button" class="btn btn-primary btn-sm" id="artifact-action-btn">Approve &amp; Send</button>
-              </div>
-            </div>
-          </aside>
         </div>
       </div>
     </section>
 
-    <!-- Visual Story Showcase -->
+    <!-- Visual Story Showcase (Bespoke Obsidian 2 Photography) -->
     <section class="section" id="showcase">
       <div class="container">
         <div class="section-head">
@@ -148,7 +159,7 @@
 
         <div class="visual-grid">
           <article class="visual-card wide">
-            <img src="assets/aurora-morning.jpg" alt="Calm sunlit desk representing morning clarity" loading="lazy" />
+            <img src="assets/obsidian-morning.jpg" alt="Architectural obsidian desk with a crisp shaft of dawn light and smoked glass prism" loading="lazy" />
             <div class="visual-card-body">
               <h3>Wake up to a clear morning.</h3>
               <p>Magnus reads overnight emails, summarizes long threads, and stages replies in your voice — waiting for a single click.</p>
@@ -156,7 +167,7 @@
           </article>
 
           <article class="visual-card">
-            <img src="assets/aurora-team.jpg" alt="Floating translucent glass waves representing team flow" loading="lazy" />
+            <img src="assets/obsidian-team.jpg" alt="Parallel smoked obsidian glass layers connected by fine titanium-silver and indigo light filaments" loading="lazy" />
             <div class="visual-card-body">
               <h3>Built for the whole team.</h3>
               <p>Drop Magnus into any project. Everyone sees finished decks and updates, while your private drafts stay strictly yours.</p>
@@ -164,7 +175,7 @@
           </article>
 
           <article class="visual-card">
-            <img src="assets/aurora-trust.jpg" alt="Frosted crystal shield glowing serenely" loading="lazy" />
+            <img src="assets/obsidian-trust.jpg" alt="Smoked obsidian crystal cube encasing a brushed titanium geometric core" loading="lazy" />
             <div class="visual-card-body">
               <h3>Peace of mind, built in.</h3>
               <p>Nothing goes out without your approval, your passwords stay unseen, and every finished task comes with proof.</p>
@@ -175,7 +186,7 @@
     </section>
 
     <!-- 3 Human Promises -->
-    <section class="section" style="padding-top:24px;">
+    <section class="section" style="padding-top:16px;">
       <div class="container">
         <div class="promises-grid">
           <div class="promise-card">
@@ -218,11 +229,11 @@
       </div>
     </section>
 
-    <!-- Closing Aurora Banner -->
+    <!-- Closing Obsidian Horizon Banner -->
     <section class="finale-wrap">
       <div class="container">
         <div class="finale-banner">
-          <img src="assets/aurora-hero.jpg" alt="" aria-hidden="true" loading="lazy" />
+          <img src="assets/obsidian-horizon.jpg" alt="" aria-hidden="true" loading="lazy" />
           <div class="finale-content">
             <h2>Less busywork.<br />More of what matters.</h2>
             <p>Available for Windows, Linux, and your browser.</p>
@@ -236,8 +247,11 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+        <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" rx="14" fill="#18181C" stroke="#2E2E36" stroke-width="2" />
+          <polygon points="18.7,23 24.7,23 16.3,50 10.3,50" fill="#949EB2" />
+          <polygon points="34.4,19 40.4,19 30.8,50 24.8,50" fill="#F5F5F7" />
+          <polygon points="47.7,23 53.7,23 45.3,50 39.3,50" fill="#949EB2" />
         </svg>
         <span>Magnus · Atono Robotics</span>
       </div>
@@ -249,19 +263,28 @@
     </div>
   </footer>
 
-  <dialog class="download-modal" id="download-dialog" aria-labelledby="download-dialog-title">
+  <dialog class="download-modal" id="download-dialog" aria-labelledby="download-modal-title">
     <div class="modal-head">
-      <h3 id="download-dialog-title">Get Magnus</h3>
-      <button type="button" class="btn btn-sm" id="close-download-dialog">Close</button>
+      <h3 id="download-modal-title">Get Magnus</h3>
+      <button type="button" class="artifact-close" id="close-download-dialog">Close</button>
     </div>
     <div class="modal-body">
-      <a href="#top" class="download-option"><div><strong>Windows App</strong><span>Desktop app for Windows</span></div><span>Download</span></a>
-      <a href="#top" class="download-option"><div><strong>Linux App</strong><span>AppImage &amp; Debian package</span></div><span>Download</span></a>
-      <a href="#top" class="download-option"><div><strong>Open in Browser</strong><span>Start right away on the web</span></div><span>Launch</span></a>
+      <a href="#top" class="download-option" data-pick-download>
+        <div><strong>Magnus for Windows</strong><span>Desktop app · automatic updates</span></div>
+        <span class="art-tag">Download</span>
+      </a>
+      <a href="#top" class="download-option" data-pick-download>
+        <div><strong>Magnus for Linux</strong><span>AppImage &amp; Debian package</span></div>
+        <span class="art-tag">Download</span>
+      </a>
+      <a href="#top" class="download-option" data-pick-download>
+        <div><strong>Open in Browser</strong><span>No install needed · sign in directly</span></div>
+        <span class="art-tag ok">Launch</span>
+      </a>
     </div>
   </dialog>
 
-  <script src="shader.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="shader.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

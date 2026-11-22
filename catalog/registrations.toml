@@ -7,11 +7,28 @@
 # kind: "desktop" (an installed-app client: a local address on any port,
 # PKCE, and a secret at the exchange), "confidential" (a secret at the
 # exchange), "public" (no secret at all).
+#
+# web: the registration a sign-in from a web browser goes through (this
+# one's own name, or a separate client's), and returns: the servers' return
+# addresses that client lists with its provider. A browser on a server whose
+# return address is not listed connects the app from the desktop app
+# (decisions/2026-11-21-connect-registered-apps-on-the-web.md).
 
 [google]
 client_id = "49379713533-dsn4smd6ln2bmempp2afv187ua7d96ei.apps.googleusercontent.com"
 name = "Magnus Desktop"
 kind = "desktop"
+# A desktop client takes only local addresses: a browser signs in through
+# the web client.
+web = "google_web"
+
+[google_web]
+# Alpha Vector's web client with Google, the repository's GOOGLE_WEB_CLIENT_ID,
+# provisioned with its secret by the release; named nowhere here, like
+# Asana's.
+kind = "confidential"
+name = "Magnus Web"
+returns = ["https://teams.pyrallon.ai/connected"]
 
 [microsoft]
 client_id = "60d920e7-11d2-422c-bf02-f630fa667e6f"
@@ -21,22 +38,38 @@ client_id = "60d920e7-11d2-422c-bf02-f630fa667e6f"
 tenant = "f1524b07-679e-443c-838b-594fb9e8576a"
 authority = "common"
 kind = "public"
+# The desktop's local address is a public client's; a web address on the
+# same registration is a confidential one's, which sends its secret.
+web = "microsoft_web"
+
+[microsoft_web]
+client_id = "60d920e7-11d2-422c-bf02-f630fa667e6f"
+authority = "common"
+kind = "confidential"
+name = "Magnus (web return of the Microsoft registration)"
+returns = ["https://teams.pyrallon.ai/connected"]
 
 [github]
 client_id = "Ov23li1N51zzH3xdWmnZ"
 kind = "confidential"
 name = "AtonoRobotics OAuth app"
+web = "github"
+returns = ["https://teams.pyrallon.ai/connected"]
 
 [vercel]
 client_id = "cl_EllegSL81aZuZvXopuGRac7tkgnzQF3a"
 # Vercel's authorization server takes no client secret.
 kind = "public"
 name = "Magnus by Alpha Vector"
+web = "vercel"
+returns = ["https://teams.pyrallon.ai/connected"]
 
 [slack]
 client_id = "11834120966001.12476293303073"
 kind = "confidential"
 name = "Magnus (Veyra workspace)"
+web = "slack"
+returns = ["https://teams.pyrallon.ai/connected"]
 
 [sentry]
 client_id = "197a5cfaccce1a5380164b4262ebb5515220a718e95759a4297d47e9cf45ea3"
@@ -48,7 +81,9 @@ name = "Magnus (Alpha Vector organisation, not yet published)"
 # repository's ASANA_CLIENT_ID, provisioned with its secret by the release,
 # and is named nowhere here: magnus-teams registered it, and the catalog's
 # IDs are shared with the magnus-claude lineage
-# (decisions/2026-11-10-asana-and-shopify.md). Its one redirect is
-# http://127.0.0.1:17322/callback.
+# (decisions/2026-11-10-asana-and-shopify.md). Its redirects are
+# http://127.0.0.1:17322/callback and the server's return address.
 kind = "confidential"
 name = "Magnus (Asana MCP app)"
+web = "asana"
+returns = ["https://teams.pyrallon.ai/connected"]

@@ -17,3 +17,9 @@ The fast tier is the gate AGENTS.md names, so a release follows its verdict inst
 **Cost.** A release starts once the fast run ends, about six minutes after the push. A release after a fast run no longer repeats the checks on Strix, which took about four minutes of each release build. Push to running on the server grows by about two minutes.
 
 **Not done here.** Pinning one Node version and timezone for both runners, running acceptance before the production channel, and tightening the ratchets are separate changes.
+
+## The lock file is checked as committed
+
+**Choice.** `ci/fast.sh` runs `cargo fetch --locked` straight after `cargo fmt`, before any other cargo command could rewrite `Cargo.lock`. `ci/release-gate-check.sh` keeps it there.
+
+**Why.** The first release after this change (run 44876019783) failed at `cargo fetch --locked`. Main's `Cargo.lock` still listed `magnus-adapter-anthropic` as a dependency of a crate that had dropped it. The release's own copy of the checks had run `cargo test`, which rewrote the lock file in the runner's checkout before the locked fetch read it, and the hosted fast run rewrote its own copy the same way, so nothing ever failed. The gate now reads the lock file as the release build does.

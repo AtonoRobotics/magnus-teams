@@ -613,6 +613,8 @@ async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
         ("VERCEL_CLIENT_SECRET", "secret-vercel-never-sent".into()),
         ("SLACK_CLIENT_SECRET", "secret-slack".into()),
         ("GOOGLE_WEB_CLIENT_ID", "id-google-web".into()),
+        ("GOOGLE_WEB_CLIENT_SECRET", "secret-google-web".into()),
+        ("MICROSOFT_CLIENT_SECRET", "secret-microsoft-web".into()),
         ("ASANA_CLIENT_ID", "id-asana-teams".into()),
         ("ASANA_CLIENT_SECRET", "secret-asana".into()),
     ];
@@ -638,7 +640,8 @@ async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
         "google: GOOGLE_DESKTOP_CLIENT_ID match",
         "github: GH_OAUTH_CLIENT_ID differs",
         "slack: SLACK_CLIENT_ID not set",
-        "google: GOOGLE_WEB_CLIENT_ID differs",
+        "google_web: GOOGLE_WEB_CLIENT_ID set (the catalog names no client ID",
+        "microsoft_web (confidential): client ID from the catalog, client secret provisioned",
         "asana: ASANA_CLIENT_ID set (the catalog names no client ID",
     ] {
         assert!(printed.contains(line), "said {line:?}:\n{printed}");
@@ -651,7 +654,11 @@ async fn the_provisioning_sends_each_client_and_never_prints_a_value() {
     assert_eq!(body("slack"), serde_json::json!({ "actor": "release", "client_secret": "secret-slack" }));
     // Asana's client is only ever provisioned: the catalog names no ID.
     assert_eq!(body("asana"), serde_json::json!({ "actor": "release", "client_id": "id-asana-teams", "client_secret": "secret-asana" }));
-    assert!(got.iter().all(|(p, _)| p != "microsoft" && p != "sentry"), "nothing set, nothing sent: {got:?}");
+    // A browser's sign-in goes through Google's web client, and Microsoft's
+    // registration with its secret (decisions/2026-11-21-connect-registered-apps-on-the-web.md).
+    assert_eq!(body("google_web"), serde_json::json!({ "actor": "release", "client_id": "id-google-web", "client_secret": "secret-google-web" }));
+    assert_eq!(body("microsoft_web"), serde_json::json!({ "actor": "release", "client_secret": "secret-microsoft-web" }));
+    assert!(got.iter().all(|(p, _)| p != "microsoft" && p != "sentry"), "nothing set, nothing sent (a public client is sent no secret): {got:?}");
 }
 
 /// Every script the release job runs is committed executable: a fresh

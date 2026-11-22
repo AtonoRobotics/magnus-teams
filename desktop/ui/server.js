@@ -97,6 +97,8 @@ const Server = (() => {
     search: (/** @type {string} */ q) => get(`/v1/search?q=${enc(q)}`),
     /** Read aloud: one sentence's audio. */
     speak: (/** @type {string} */ text) => post("/v1/speak", { text }),
+    /** Voice input: what was said, written down by the server. */
+    transcribe: (/** @type {string} */ data_b64) => post("/v1/transcribe", { data_b64 }),
     /** The person opened Home: the updates since they last did. */
     homeOpened: () => post("/v1/home/opened"),
 

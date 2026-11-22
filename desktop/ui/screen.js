@@ -154,7 +154,7 @@ function computerChip(computers) {
   if (!c) return "";
   const w = controlWords(c, false), agent = agentName(c);
   const words = { working: `${agent} is using your computer`, mine: "You are in control of your computer", held: `${w.pill} of your computer`, asks: w.pill, paused: "Your computer is paused", queued: "Your computer is waiting for room", waking: "Your computer is waking", asleep: "Your computer is asleep" }[w.key] || "Your computer";
-  return `<button type="button" class="computer-chip" data-pill="${w.key}" data-open="computer:${esc(c.id)}" title="Show its screen beside the conversation"><svg viewBox="0 0 24 24" aria-hidden="true">${UI.computer}</svg>${esc(words)}</button>`;
+  return `<button type="button" class="computer-chip" data-pill="${w.key}" data-open="computer:${esc(c.id)}" title="Show its screen beside the conversation"><svg viewBox="0 0 24 24" aria-hidden="true">${UI.computer}</svg><span class="computer-chip-words">${esc(words)}</span></button>`;
 }
 
 // The screen pinned beside the conversation: the same frame and strip as

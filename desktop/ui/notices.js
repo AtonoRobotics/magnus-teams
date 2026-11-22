@@ -45,7 +45,8 @@ const Notices = {
     if (this.seen.size > NOTICE_SEEN_MAX) this.seen.delete(this.seen.values().next().value);
     const away = document.hidden || !document.hasFocus();
     if (!away && s.href && location.hash.startsWith(s.href.split("/t/")[0])) return;
-    this.popup(s);
+    // Aurora shows it on its stage instead of over it.
+    if (!(typeof AuroraStage !== "undefined" && AuroraStage.takes(s))) this.popup(s);
     if (away && this.systemOn()) Magnus.notify?.(s.title, s.system, () => { if (s.href) location.hash = s.href; });
   },
 

@@ -151,6 +151,9 @@ async fn card(k: &Kernel, c: &Connector, person: &str) -> Value {
         // registered one exactly. Not shown.
         "redirect_uri": c.redirect_uri,
         "handoff": c.handoff,
+        // Whether a browser can connect it here, and where its sign-in
+        // comes back to on the server's public address (`web.rs`). Not shown.
+        "web_sign_in": k.web_sign_in(c), "web_return": k.web_return(c),
         // The app asked for more access than the sign-in holds: approving
         // it is signing in again, asking for that too.
         "more_access": !k.wanted_scopes(c, person).is_empty(),

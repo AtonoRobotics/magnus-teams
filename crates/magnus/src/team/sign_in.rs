@@ -99,6 +99,8 @@ impl Kernel {
                     "roles": w.connectors.get(&c.name).cloned().unwrap_or_default(),
                     "signs_in": signs_in_per_person(c),
                     "signed_in": signs_in_per_person(c) && self.workspace_signed_in(&w.id, c),
+                    "web_sign_in": self.web_sign_in(c),
+                    "web_return": self.web_return(c),
                 })
             })
             .collect();

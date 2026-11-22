@@ -1,7 +1,8 @@
-/* The Aurora stage (aurora-stage.js), as the mockup's agent demo: the
-   conversation is the main card with the bento under it (boxes that come and
-   go as they are relevant), and anything opened is the artifact canvas
-   sliding in beside them. */
+/* The Aurora stage (aurora-stage.js), adapted from the mockup's agent demo
+   (decisions/2026-11-21-aurora-composition.md): the conversation sits in the
+   one frame (aurora.css), with the bento just above its input (boxes that
+   come and go as they are relevant), and anything opened is the artifact
+   canvas sliding in beside it. */
 
 @keyframes stageArtifactIn {
   from { opacity: 0; transform: translateX(18px); }
@@ -23,7 +24,7 @@
 }
 
 /* ---------- The conversation and its bento ---------- */
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> .stage-bento) {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > main:has(> section.conv) {
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -32,33 +33,82 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > mai
   overflow: visible;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> .stage-bento) > section.conv {
+@media (min-width: 761px) {
+  /* One frame holds the work: the page or conversation, and the canvas
+     beside it (decisions/2026-11-21-aurora-composition.md). It spans the
+     columns they share, so it stays still while they trade room inside it;
+     what sits in it is drawn over it. Placed by the grid but out of its
+     flow, it takes no part in sizing the columns. It is denser glass rather
+     than blurred: a blur the size of the window cost a quarter of the frame
+     rate (51 to 38 fps on Strix Beta), and text reads better on a calm
+     surface. The smaller islands on it keep their blur. */
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body:not([data-navigation=drawer]) .shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    grid-row: 2;
+    grid-column: 2 / -1;
+    z-index: 0;
+    margin-left: 12px;
+    border-radius: var(--r-xl);
+    border: 1px solid var(--aurora-rim);
+    background: var(--aurora-glass-strong);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    pointer-events: none;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-team]:not([data-navigation=drawer]) .shell::before {
+    grid-row: 1 / 3;
+  }
+}
+
+/* What happened while the person was away is a box, not a banner over the
+   thread. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv:has(> .stage-bento) > #banners > .banner-row {
+  display: none;
+}
+
+/* On a desktop the frame is the card; on a phone, with no frame, the
+   conversation is. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> section.conv) > section.conv {
   flex: 1;
   height: auto;
   min-height: 0;
-  border-radius: var(--r-xl);
-  border: 1px solid var(--aurora-rim);
-  background: var(--aurora-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
 
-/* Two columns, as the mockup's bento; a lone box, or the most urgent of
-   three, takes the whole row. With nothing relevant the bento folds away. */
+@media (max-width: 760px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .shell > main:has(> section.conv) > section.conv {
+    border-radius: var(--r-xl);
+    border: 1px solid var(--aurora-rim);
+    background: var(--aurora-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* Two columns, as the mockup's bento, just above the input and as wide as
+   it; a lone box, or the most urgent of three, takes the whole row. With
+   nothing relevant the bento folds away. */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
   position: relative;
   flex: none;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 14px;
+  align-content: start;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 728px;
+  margin: 8px auto 0;
+  padding: 0 16px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento[data-count="0"] {
   height: 0;
   margin-top: 0;
+  overflow: visible;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento:is([data-count="1"], [data-count="3"]) > .stage-tile:first-child {
@@ -106,9 +156,9 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-radius: var(--r-md);
   border: 1px solid var(--aurora-rim);
   background:
@@ -143,8 +193,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-label
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-ic {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex: none;
   border-radius: 6px;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
@@ -176,6 +226,50 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-badge
   text-align: center;
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: -2px -4px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close::after {
+  content: "";
+  position: absolute;
+  inset: -13px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close svg.ic {
+  width: 12px;
+  height: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile:hover, .stage-tile:focus-within) .stage-tile-close {
+  opacity: 1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg);
+}
+
+@media (hover: none) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .stage-tile-close {
+    opacity: 1;
+  }
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .mini-dot {
   width: 7px;
   height: 7px;
@@ -200,12 +294,50 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-
   box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 65%, transparent);
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="talk"] .mini-dot {
+  background: var(--aurora-beam-b);
+  box-shadow: 0 0 10px var(--aurora-beam-b);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile[data-tone="done"]:has(.aurora-confirmed-row) {
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+/* A decision's box: its title opens it, its answers are in the box. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile a.stage-tile-title {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px;
+  margin: 3px 0 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .ask-answers button {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .aurora-confirmed-row {
+  justify-content: flex-start;
+  padding-top: 2px;
+  border-top: 0;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-tile:is([data-tone="run"], [data-tone="needs"]) .mini-dot {
   animation: auroraSpark 2.4s ease-in-out infinite;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-title {
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,9 +347,9 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-title
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-desc {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   overflow: hidden;
-  font-size: 13px;
+  font-size: 12.5px;
   line-height: 1.4;
   color: var(--fg2);
 }
@@ -314,6 +446,67 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-artifact >
   padding: 16px 22px 24px;
 }
 
+/* ---------- A decision on the canvas (2026-11-21-aurora-canvas.md) ----------
+   Built around the decision: its question is the title, what it would mean
+   under it, the rest behind the one disclosure, and its answers at the
+   canvas's foot, in reach however long the details are. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-kind {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .artifact-title h2 {
+  font-size: 19px;
+  line-height: 1.35;
+  text-wrap: pretty;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision > .artifact-content {
+  padding-bottom: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision article.card.item {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision article.card.item > .ask {
+  flex: 1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .ask-content > summary {
+  cursor: pointer;
+  color: var(--fg2);
+  font-size: 13.5px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-about {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .decision-meta {
+  margin: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-decision .ask-answers {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding-bottom: 18px;
+  background: linear-gradient(to bottom, transparent, var(--aurora-glass-strong) 14px);
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .stage-artifact.stage-opening {
   animation: stageArtifactIn .55s var(--ease) both;
 }
@@ -323,9 +516,123 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="redu
 }
 
 @media (forced-colors: active) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> .stage-bento) > section.conv) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile, .stage-artifact, .shell > main:has(> section.conv) > section.conv) {
     background: Canvas;
     backdrop-filter: none;
     border-color: CanvasText;
+  }
+}
+
+/* ---------- Explore as the mockup's bento ----------
+   The first playbook a wide 21:9 image card, the rest 4:3 image cards in
+   pairs; the image fills the card under a dark fade and zooms on hover.
+   aurora-explore.js slides them when the filter changes. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid {
+  position: relative;
+  gap: 16px;
+}
+
+/* The shape is the least a card takes: one whose words need more grows to
+   hold them (overflow visible makes aspect-ratio a minimum), and none is
+   wider than its column (decisions/2026-11-21-explore-cards-hold-their-words.md). */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card {
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 4 / 3;
+  min-width: 0;
+  overflow: visible;
+  justify-content: flex-end;
+  padding: 22px 24px;
+  border-radius: var(--r-xl);
+  color: #f5f7fb;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
+  grid-column: 1 / -1;
+  aspect-ratio: 21 / 9;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child > :not(.card-media, .explore-card-foot) {
+  max-width: 620px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .card-media {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: auto;
+  height: auto;
+  margin: 0;
+  border-radius: inherit;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .card-media::after {
+  background: linear-gradient(180deg, rgba(0, 0, 0, .1) 0%, rgba(0, 0, 0, .5) 42%, rgba(0, 0, 0, .94) 78%);
+}
+
+/* As the mockup's: the words at the foot over the fade, the kind of
+   playbook at the top, in its own place so the words never sit on it. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .explore-card-head {
+  margin-bottom: auto;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .explore-card-foot {
+  margin-top: 0;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card .card-media img {
+  opacity: .92;
+  transition: transform .8s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:hover .card-media img {
+  transform: scale(1.03);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card h3 {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child h3 {
+  font-size: clamp(22px, 2.6vw, 29px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card p.muted {
+  color: rgba(235, 240, 250, .8);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card.explore-leaving {
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* On a phone the conversation's head keeps everything in it on the screen:
+   its row may wrap, and the computer chip says its state by its icon and
+   its name (decisions/2026-11-21-aurora-phone.md). */
+@media (max-width: 760px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head > .row {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head .computer-chip-words {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* On a phone, as the mockup's: one column, the first card 4:3 too. */
+@media (max-width: 760px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
+    aspect-ratio: 4 / 3;
   }
 }

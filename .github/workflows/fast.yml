@@ -39,6 +39,9 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v5
+      - name: Pinned Node
+        # The same Node on every machine (ci/ensure-node.sh, .node-version).
+        run: sh ci/ensure-node.sh >> "$GITHUB_PATH"
       - name: Install the pinned toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2

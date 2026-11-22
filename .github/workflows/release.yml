@@ -69,6 +69,10 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "appliance_version=$av" >> "$GITHUB_OUTPUT"
 
+      - name: Pinned Node
+        # The same Node on every machine (ci/ensure-node.sh, .node-version).
+        run: sh ci/ensure-node.sh >> "$GITHUB_PATH"
+
       - name: Fast checks
         # A release after a fast run has them passed for this commit; a manual
         # one runs the same script here.
@@ -164,7 +168,9 @@ jobs:
           GOOGLE_DESKTOP_CLIENT_SECRET: ${{ secrets.GOOGLE_DESKTOP_CLIENT_SECRET }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+          GOOGLE_WEB_CLIENT_SECRET: ${{ secrets.GOOGLE_WEB_CLIENT_SECRET }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
           GH_OAUTH_CLIENT_ID: ${{ secrets.GH_OAUTH_CLIENT_ID }}
           GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
           VERCEL_CLIENT_ID: ${{ secrets.VERCEL_CLIENT_ID }}

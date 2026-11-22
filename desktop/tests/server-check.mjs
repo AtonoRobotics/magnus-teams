@@ -40,6 +40,7 @@ const table = [
   ["version", [], "GET", "/v1/version", undefined],
   ["search", ["a b&c"], "GET", "/v1/search?q=a%20b%26c", undefined],
   ["speak", ["Hello."], "POST", "/v1/speak", { text: "Hello." }],
+  ["transcribe", ["c291bmQ="], "POST", "/v1/transcribe", { data_b64: "c291bmQ=" }],
   ["homeOpened", [], "POST", "/v1/home/opened", {}],
   ["tasks.get", ["t 1"], "GET", "/v1/tasks/t%201", undefined],
   ["tasks.timeline", ["t1"], "GET", "/v1/tasks/t1/timeline", undefined],

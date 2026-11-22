@@ -126,6 +126,10 @@
   // with a canvas for what is opened (aurora-stage.js).
   const STAGE_STYLES = ["aurora", "obsidian-aurora"];
   const stage = style => STAGE_STYLES.includes(style);
+  // Each style names the avatar that stands for Magnus (aurora-avatar.js);
+  // a style that names none draws its own mark.
+  const AVATARS = { aurora: "orb", "obsidian-aurora": "orb" };
+  const avatar = style => AVATARS[style] || null;
   const STYLE_TOKENS = {
     obsidian: {
       "r-xs": "4px", "r-sm": "6px", "r-md": "8px", "r-lg": "10px", "r-xl": "10px",
@@ -188,7 +192,11 @@
     panelDefaultWidthPx: 360,
     panelMaxWidthPx: 560,
   };
-  const LAYOUT = { navigation: "expanded", panelWidthPx: LAYOUT_BOUNDS.panelDefaultWidthPx };
+  const LAYOUT = { navigation: "expanded", sidebar: "rail", panelWidthPx: LAYOUT_BOUNDS.panelDefaultWidthPx };
+  // Aurora's navigation is a rail whose full sidebar slides in when asked
+  // for, unless the person pins it (decisions/2026-11-21-aurora-rail.md);
+  // other styles keep the navigation the person chose.
+  const navigation = p => stage(p.style) ? (p.sidebar === "pinned" ? "expanded" : "compact") : p.navigation;
 
   const isHex = v => typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v);
   const mixHex = (a, b, w) => "#" + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - w) + parseInt(b.slice(i, i + 2), 16) * w).toString(16).padStart(2, "0")).join("");
@@ -259,6 +267,7 @@
       motion: member(v.motion, MOTIONS.map(x => x[0]), DEFAULTS.motion),
       background: member(v.background, BACKGROUNDS.map(x => x[0]), DEFAULTS.background),
       navigation: member(v.navigation, ["expanded", "compact"], LAYOUT.navigation),
+      sidebar: member(v.sidebar, ["rail", "pinned"], LAYOUT.sidebar),
       panelWidthPx: rawPanelWidth !== null
         ? Math.max(LAYOUT_BOUNDS.panelMinWidthPx, Math.min(LAYOUT_BOUNDS.panelMaxWidthPx, rawPanelWidth))
         : LAYOUT.panelWidthPx,
@@ -269,7 +278,7 @@
     const l = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [.2126, .7152, .0722][i], 0);
     const x = l(a), y = l(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
   }
-  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, preferences, contrast, effective, tokens, stage };
+  root.Theme = { LIGHT, DARK, ACCENTS, STYLES, STYLE_TOKENS, MODES, BACKGROUNDS, BACKGROUND_HINTS, MOTIONS, MOTION_HINTS, DEFAULTS, LAYOUT_BOUNDS, LAYOUT, navigation, avatar, preferences, contrast, effective, tokens, stage };
   if (typeof document === "undefined") return;
 
   const LEGACY_KEY = "magnus.appearance";
