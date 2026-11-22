@@ -31,7 +31,10 @@ where the private data cannot be listed does a page action go to
 
 Web reads no longer bring the Rule of Two's ask: what a read can carry out is
 checked directly. Writes to people (mail, posts, records) keep the envelope,
-drafts and asks they have. `web_search` keeps its query gate.
+drafts and asks they have. `web_search` and `research_web` keep their query
+gate, and the same check runs first in it: a query, or a research worker's
+task, carrying a private value never leaves, whatever the classifier says.
+That task is the only way data reaches a worker that browses without limit.
 
 **Reason.** The owner: an agent that cannot use the internet without
 approval of every address is more work than doing it by hand; the address

@@ -22,7 +22,7 @@ const LONG_TOKEN_CHARS: usize = 16;
 const MIN_ENCODED_CHARS: usize = 12;
 
 /// What the agent is told when a request would carry private data.
-pub(crate) const CARRIES_PRIVATE_DATA: &str = "this web address contains private data the conversation read (from the person's mail, files or other private apps), so it was not opened. Leave that data out of the address and try again";
+pub(crate) const CARRIES_PRIVATE_DATA: &str = "this web request contains private data the conversation read (from the person's mail, files or other private apps), so it was not opened. Leave that data out of the address and try again";
 
 fn tokens(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !(c.is_alphanumeric() || matches!(c, '.' | '@' | '-' | '_' | '+')))

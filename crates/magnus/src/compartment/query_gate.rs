@@ -225,6 +225,15 @@ impl Kernel {
             run.id.as_str()
         };
 
+        // 0. A query (or a research worker's task) carrying a private value
+        // the conversation read never leaves, whatever a classifier says
+        // (decisions/2026-11-22-requests-checked-for-private-data.md).
+        if run.private && run.untrusted && self.web_address_carries_private_data(run, query).await? == Some(true) {
+            record_query_denial(scope_key);
+            let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
+            return Ok(Some(format!("web query denied: {}", crate::private_values::CARRIES_PRIVATE_DATA)));
+        }
+
         // 1. Always-on deterministic secret/PII scrub.
         if let Some(reason) = scrub_check(query) {
             if run.private && run.untrusted {
