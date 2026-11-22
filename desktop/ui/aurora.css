@@ -434,6 +434,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-comput
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .computer-view {
   position: relative;
+  /* The frame holds what is in it: nothing touches its edge. */
+  padding: 12px;
   border-radius: var(--r-lg);
   background: var(--aurora-glass-strong);
   border: 1px solid var(--aurora-rim);

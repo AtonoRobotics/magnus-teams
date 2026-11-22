@@ -564,6 +564,27 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
   z-index: 0;
 }
 
+/* On a phone the conversation's head keeps everything in it on the screen:
+   its row may wrap, and the computer chip says its state by its icon and
+   its name (decisions/2026-11-21-aurora-phone.md). */
+@media (max-width: 760px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head > .row {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head .computer-chip-words {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 /* On a phone, as the mockup's: one column, the first card 4:3 too. */
 @media (max-width: 760px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
