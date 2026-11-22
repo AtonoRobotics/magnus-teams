@@ -662,11 +662,6 @@ impl Kernel {
                 return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
             }
         }
-        let link_only = self.read(|s| s.compartments.of(&a.run).is_link_following_only());
-        if link_only && f.connector.is_none() && wr == crate::tool_registry::WebRead::OpensUrl && !self.open_web_link_allowed(a, f, run).await? {
-            let why = "this OpenWeb worker only follows links from its own search results, loaded pages, or the user's request; search first and open a returned link";
-            return Ok(Err(self.deny(a, "policy", why, false, None).await?));
-        }
         let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || (f.app == "browser" && !a.tool.starts_with("browser_as_")));
         let mut url_cleared = false;

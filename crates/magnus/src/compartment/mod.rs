@@ -27,12 +27,11 @@ use std::sync::Arc;
 /// Fraction of parent budget granted to an `OpenWeb` research worker.
 const RESEARCH_BUDGET_SHARE: f64 = 0.25;
 
-/// Tools always admitted in an `OpenWeb` compartment (read-only browsing & search).
-const OPEN_WEB_READ_TOOLS: [&str; 6] = ["web_search", "web_fetch", "browser_navigate", "browser_snapshot", "browser_screenshot", "browser_back"];
+/// Tools always admitted in an `OpenWeb` compartment (autonomous public browsing & search).
+const OPEN_WEB_READ_TOOLS: [&str; 7] = ["web_search", "web_fetch", "browser_navigate", "browser_click", "browser_snapshot", "browser_screenshot", "browser_back"];
 
-/// Interactive public browser tools admitted only in an unrestricted `OpenWeb`
-/// run (never when `link_following_only` is true).
-const OPEN_WEB_INTERACT_TOOLS: [&str; 3] = ["browser_click", "browser_type", "browser_select"];
+/// Form-entry tools admitted only in an unrestricted `OpenWeb` run.
+const OPEN_WEB_INTERACT_TOOLS: [&str; 2] = ["browser_type", "browser_select"];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -124,7 +123,7 @@ pub(crate) fn open_web_tools(link_following_only: bool, has_search: bool, has_br
         tools.push("web_search".to_string());
     }
     if has_browser {
-        for t in ["browser_navigate", "browser_snapshot", "browser_screenshot", "browser_back"] {
+        for t in ["browser_navigate", "browser_click", "browser_snapshot", "browser_screenshot", "browser_back"] {
             tools.push(t.to_string());
         }
         if !link_following_only {
