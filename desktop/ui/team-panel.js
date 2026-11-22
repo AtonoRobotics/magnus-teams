@@ -145,6 +145,9 @@ function overviewHtml(d, ws, channel = null) {
     footHtml: `<span class="small muted">${where(now.channel)}</span>`,
     inspectLabel: "Open →",
   }) : "";
+  const roomWork = typeof TeamRooms !== "undefined" ? TeamRooms.workPanelHtml(d.missions || [], ws, home.me, id => home.members.find(m => m.id === id)?.name || id) : "";
+  const startMission = channel && home.role !== "guest" ? `<section class="companion-sec"><div class="companion-sec-head"><span>Shared work</span></div>
+    <form class="room-steer-row" data-mission-new data-mission-room="${esc(channel)}"><input name="goal" placeholder="Start shared work in this room…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></form></section>` : "";
   const screen = `<section class="companion-sec"><div class="companion-sec-head"><span>Team computer</span>${d.computer ? `<a class="small" href="#/computer/${enc(d.computer)}/screen">Watch</a>` : ""}</div>
     ${d.computer ? `<div class="gbox team-screen"><img data-team-screen="${esc(d.computer)}" alt="The team computer's screen"${TeamScreens[d.computer] ? ` src="${TeamScreens[d.computer]}"` : ""}><div class="small"><strong>${status}</strong></div><div class="small faint" data-team-screen-caption="${esc(d.computer)}">${esc(TeamScreenCaptions[d.computer] || "")}</div>
       ${home.role === "guest" ? "" : `<div class="row small"><button class="link" data-take-over="${esc(d.computer)}">Take control</button></div>`}</div>` : noTeamComputer(home)}</section>`;
@@ -152,7 +155,7 @@ function overviewHtml(d, ws, channel = null) {
   // The rest of the work, below what the banner and the card already show.
   const work = rest.length || !d.work.length ? `<section class="companion-sec"><div class="companion-sec-head"><span>Agents at work</span><span class="count">${rest.length}</span></div>
     ${rest.length ? `<div class="gbox">${rest.map(w => `<a class="gbox-row" href="${teamHref(ws, { kind: "channel", id: w.channel })}"><span class="gbox-ic" aria-hidden="true">${icon("working")}</span><span class="gbox-main"><span class="gbox-lbl">${agent} for ${esc(w.requester_name)}</span><span class="small muted">${where(w.channel)} · step ${w.steps + 1}</span></span></a>`).join("")}</div>` : `<p class="small faint">Nothing running.</p>`}</section>` : "";
-  return `${banner}${active}${screen}${work}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
+  return `${banner}${roomWork}${startMission}${active}${work}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${screen}${spendHtml(home, channel)}`;
 }
 
 /**
@@ -222,12 +225,19 @@ function teamFilesHtml(d, ws) {
  */
 function membersCardHtml(d, ws) {
   const home = Team.home, admin = isTeamAdmin(home);
-  const face = m => `<span class="team-face" title="${esc(m.name)}">${avatar(m.name)}<span class="sr">${esc(m.name)}</span></span>`;
+  const face = m => `<span class="team-face" title="${esc(m.name)}">${avatar(m.name, false, m.id)}<span class="sr">${esc(m.name)}</span></span>`;
+  const caps = d.capabilities || Team.capabilities?.[ws] || [];
+  const capHtml = typeof TeamRooms !== "undefined" && caps.length
+    ? `<section class="companion-sec"><div class="companion-sec-head"><span>People &amp; personal apps</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></div>${TeamRooms.peopleCapabilitiesHtml(caps, home.me)}</section>`
+    : `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></div><div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}${avatar(home.agent.name, true)}</div></div></section>`;
+  const myAv = Team.avatars?.[home.me] || { kind: "default" };
+  const avatarSec = typeof UserAvatar !== "undefined"
+    ? `<section class="companion-sec"><div class="companion-sec-head"><span>Your avatar</span></div>${UserAvatar.pickerHtml(home.me_name || home.me, myAv)}</section>`
+    : "";
   const apps = d.apps || home.apps || [];
   const appsSec = apps.length ? `<section class="companion-sec" data-team-apps-card><div class="companion-sec-head"><span>Connectors &amp; agents</span><a class="small" href="${teamHref(ws, { kind: "people" })}">${admin ? "Configure" : "View"}</a></div>
     <div class="gbox">${apps.map(a => `<div class="gbox-row"><span class="gbox-main"><span class="gbox-lbl">${esc(a.title || a.name)}</span><span class="small muted">${a.signs_in ? "Delegated to member's personal Magnus" : a.roles?.length ? `Workspace app (${a.roles.join(", ")})` : "Not granted"}</span></span></div>`).join("")}</div></section>` : "";
-  return `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></div>
-    <div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}${avatar(home.agent.name, true)}</div></div></section>${appsSec}`;
+  return `${capHtml}${avatarSec}${appsSec}`;
 }
 
 /**
@@ -274,8 +284,18 @@ const TeamPanel = {
   /** The right panel beside a channel: its project's, or the workspace's. */
   async side(el, ws, project, channel = null) {
     if (!el || !el.isConnected) return;
-    const d = await this.load(ws, project).catch(() => null);
+    const [d, missions, caps] = await Promise.all([
+      this.load(ws, project).catch(() => null),
+      channel && Server.workspaces.missions ? Server.workspaces.missions(ws, channel).catch(() => []) : Promise.resolve([]),
+      Server.workspaces.capabilities ? Server.workspaces.capabilities(ws).catch(() => []) : Promise.resolve([]),
+    ]);
     if (!d || !el.isConnected) return;
+    d.missions = missions || [];
+    d.capabilities = caps || [];
+    if (caps?.length) {
+      Team.capabilities[ws] = caps;
+      for (const m of caps) if (m.avatar) Team.avatars[m.id] = m.avatar;
+    }
     this.paintSide(el, d, ws, channel);
   },
 
@@ -287,6 +307,41 @@ const TeamPanel = {
   paintSide(el, d, ws, channel) {
     this.sideAt = { el, d, ws, channel };
     paint(el, teamSideHtml(d, ws, channel, this.sideTab));
+    if (typeof TeamRooms !== "undefined" && !el.dataset.roomsWired) {
+      el.dataset.roomsWired = "1";
+      TeamRooms.wire(el, ws, () => {
+        const at = this.sideAt;
+        if (at) this.side(at.el, at.ws, at.d?.project?.id || null, at.channel);
+      });
+      el.addEventListener("submit", async e => {
+        const form = /** @type {HTMLFormElement} */ (e.target).closest("[data-mission-new]");
+        if (!form) return;
+        e.preventDefault();
+        const goal = (/** @type {HTMLInputElement | null} */ (form.querySelector('input[name="goal"]'))?.value || "").trim();
+        const room = /** @type {HTMLElement} */ (form).dataset.missionRoom || "";
+        if (!goal || !room || !Server.workspaces.createMission) return;
+        const at = this.sideAt;
+        if (!at) return;
+        await Server.workspaces.createMission(at.ws, room, {
+          goal,
+          lanes: [{ kind: "member_agent", target_member: Team.home?.me, objective: goal, scope: "room_work" }],
+        }).catch(() => {});
+        this.side(at.el, at.ws, at.d?.project?.id || null, at.channel);
+      });
+      el.addEventListener("click", async e => {
+        const t = /** @type {HTMLElement} */ (e.target);
+        const preset = t.closest("[data-avatar-preset]");
+        const def = t.closest("[data-avatar-default]");
+        if (!preset && !def) return;
+        const avatarVal = preset ? { kind: "preset", id: /** @type {HTMLElement} */ (preset).dataset.avatarPreset } : { kind: "default" };
+        if (Server.profile?.setAvatar) {
+          await Server.profile.setAvatar(avatarVal).catch(() => {});
+          if (Team.home?.me) Team.avatars[Team.home.me] = avatarVal;
+          const at = this.sideAt;
+          if (at) this.paintSide(at.el, at.d, at.ws, at.channel);
+        }
+      });
+    }
     this.look(el, d.computer);
   },
 

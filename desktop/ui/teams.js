@@ -23,7 +23,7 @@ const teamRoleLabel = r => ({ owner: "Team Admin (owner)", admin: "Team Admin", 
  */
 
 /** What the open workspace looks like now, kept between views so a switch paints at once. */
-const Team = { ws: null, /** @type {?TeamHome} */ home: null, /** @type {TeamPlace} */ place: { kind: "channel" }, homes: {}, loop: 0 };
+const Team = { ws: null, /** @type {?TeamHome} */ home: null, /** @type {TeamPlace} */ place: { kind: "channel" }, homes: {}, avatars: {}, capabilities: {}, loop: 0 };
 
 route(/^#\/teams$/, main => showTeams(main));
 route(/^#\/join\/([^/]+)$/, (main, code) => joinTeam(main, code));
@@ -86,8 +86,13 @@ async function joinTeam(main, code) {
   catch (err) { paint(main, `<div class="banner bad">${esc(err.message)}</div><p><a href="#/teams">Teams</a></p>`); }
 }
 
-/** An avatar: initials, or the agent's mark. */
-function avatar(name, agent = false) {
+/** An avatar: UserAvatar (photo/preset/initials) for people, or the agent's mark. */
+function avatar(name, agent = false, personId = null) {
+  if (!agent && typeof UserAvatar !== "undefined") {
+    const id = personId || Team.home?.members?.find(m => m.name === name)?.id;
+    const av = id ? Team.avatars[id] : null;
+    if (av && av.kind !== "default") return UserAvatar.html(name, av, "sm");
+  }
   const letters = agent ? "M" : String(name || "?").split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
   return `<span class="team-avatar${agent ? " agent" : ""}" aria-hidden="true">${esc(letters)}</span>`;
 }
