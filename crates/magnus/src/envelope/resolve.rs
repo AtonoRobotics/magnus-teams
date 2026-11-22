@@ -33,13 +33,32 @@ fn extract_tool() -> ToolSpec {
     }
 }
 
-/// Deterministic extraction of literal emails, `owner/repo`s, and URL hosts
-/// from the user's own prompt text.
+/// Returns `true` if `candidate` literally appears in `prompt` (case-insensitive,
+/// ignoring surrounding punctuation or URL scheme), preventing the extraction
+/// model from hallucinating destinations the user never wrote (M5).
+pub(crate) fn prompt_contains_literal(prompt: &str, candidate: &str) -> bool {
+    let needle = candidate.trim().trim_matches(|c: char| matches!(c, '<' | '>' | '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';' | '.')).trim_end_matches('/').to_ascii_lowercase();
+    if needle.is_empty() {
+        return false;
+    }
+    let hay = prompt.to_ascii_lowercase();
+    if hay.contains(&needle) {
+        return true;
+    }
+    // Also match when the model strips `http://` or `https://` from a prompt URL.
+    if let Some(bare) = needle.strip_prefix("https://").or_else(|| needle.strip_prefix("http://")) {
+        return !bare.is_empty() && hay.contains(bare);
+    }
+    false
+}
+
+/// Deterministic extraction of literal emails, `owner/repo`s, Slack channel IDs,
+/// and URL hosts from the user's own prompt text.
 pub fn extract_literal_destinations(prompt: &str) -> (Vec<String>, BTreeSet<Destination>) {
     let mut named = Vec::new();
     let mut dests = BTreeSet::new();
     for raw in prompt.split_whitespace() {
-        let tok = raw.trim_matches(|c: char| matches!(c, ',' | ';' | ':' | '(' | ')' | '[' | ']' | '<' | '>' | '"' | '\'' | '.'));
+        let tok = raw.trim_matches(|c: char| matches!(c, ',' | ';' | ':' | '(' | ')' | '[' | ']' | '<' | '>' | '"' | '\'' | '.' | '`'));
         if tok.is_empty() {
             continue;
         }
@@ -51,9 +70,50 @@ pub fn extract_literal_destinations(prompt: &str) -> (Vec<String>, BTreeSet<Dest
                 named.push(tok.to_string());
                 dests.insert(d);
             }
+        } else if let Some(d) = parse_literal_github_repo(tok) {
+            named.push(tok.to_string());
+            dests.insert(d);
+        } else if is_literal_slack_channel_id(tok) {
+            if let Some(d) = Destination::parse_slack_channel("default", tok) {
+                named.push(tok.to_string());
+                dests.insert(d);
+            }
         }
     }
     (named, dests)
+}
+
+fn parse_literal_github_repo(tok: &str) -> Option<Destination> {
+    if tok.contains("://") || tok.contains('@') || tok.starts_with('/') || tok.starts_with('.') {
+        return None;
+    }
+    let (owner, repo) = tok.split_once('/')?;
+    if owner.is_empty() || repo.is_empty() || repo.contains('/') {
+        return None;
+    }
+    let valid_owner = owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    let valid_repo = repo.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+    if !valid_owner || !valid_repo {
+        return None;
+    }
+    Destination::parse_github_repo(tok)
+}
+
+fn is_literal_slack_channel_id(tok: &str) -> bool {
+    tok.len() >= 9 && matches!(tok.as_bytes().first(), Some(b'C' | b'G' | b'D')) && tok.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+}
+
+fn validate_model_candidate(prompt: &str, candidate: &str) -> Option<Destination> {
+    if !prompt_contains_literal(prompt, candidate) {
+        return None;
+    }
+    Destination::parse_email(candidate).or_else(|| Destination::parse_github_repo(candidate)).or_else(|| Destination::parse_slack_channel("default", candidate)).or_else(|| {
+        if candidate.contains('.') && !candidate.contains(' ') {
+            Destination::parse_host(candidate)
+        } else {
+            None
+        }
+    })
 }
 
 fn parsed_from_model(blocks: &[Block]) -> Option<(Vec<String>, Vec<String>)> {
@@ -64,6 +124,13 @@ fn parsed_from_model(blocks: &[Block]) -> Option<(Vec<String>, Vec<String>)> {
 }
 
 impl Kernel {
+    fn is_registered_app(&self, app: &str) -> bool {
+        if crate::tools::BUILTINS.iter().any(|b| b.app.eq_ignore_ascii_case(app)) || self.cfg.connectors.iter().any(|c| c.name.eq_ignore_ascii_case(app)) {
+            return true;
+        }
+        self.read(|s| s.apps.connectors().keys().any(|name| name.eq_ignore_ascii_case(app)))
+    }
+
     /// Lazily compile (or return cached) write envelope for `run`.
     ///
     /// Sees ONLY the requester's original prompt text and active standing
@@ -88,22 +155,20 @@ impl Kernel {
         let mut allowed_write_apps = BTreeSet::new();
 
         // Model-assisted extraction on user-only prompt text (never tool results),
-        // validated deterministically by the kernel.
+        // validated deterministically by the kernel against literal prompt tokens.
         if !prompt.trim().is_empty() {
             let messages = vec![Message { role: Role::User, content: vec![Block::Text { text: prompt.clone() }], state: None }];
             if let Ok(Ok(Some(blocks))) = tokio::time::timeout(EXTRACT_TIMEOUT, self.reviewer_call(run, "envelope_extract", EXTRACT_SYSTEM, messages, vec![extract_tool()])).await {
                 if let Some((candidates, apps)) = parsed_from_model(&blocks) {
                     for c in candidates {
-                        // Kernel validation: accept only concrete, normalized destinations
-                        // (or names resolved against explicit user-named tokens).
-                        if let Some(d) = Destination::parse_email(&c).or_else(|| Destination::parse_github_repo(&c)) {
+                        if let Some(d) = validate_model_candidate(&prompt, &c) {
                             user_named.push(c);
                             allowed_destinations.insert(d);
                         }
                     }
                     for app in apps {
                         let a = app.trim().to_ascii_lowercase();
-                        if !a.is_empty() {
+                        if !a.is_empty() && self.is_registered_app(&a) {
                             allowed_write_apps.insert(a);
                         }
                     }
@@ -153,11 +218,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn literal_extractor_parses_emails_and_hosts_only_from_prompt() {
-        let (names, dests) = extract_literal_destinations("Send the report to Jane <jane@company.com> and check https://docs.example.org/spec.");
+    fn literal_extractor_parses_emails_repos_channels_and_hosts_only_from_prompt() {
+        let (names, dests) = extract_literal_destinations(
+            "Send the report to Jane <jane@company.com>, review AtonoRobotics/magnus-teams, post to C0123456789, and check https://docs.example.org/spec.",
+        );
         assert!(names.iter().any(|n| n.contains("jane@company.com")));
         assert!(dests.contains(&Destination::parse_email("jane@company.com").unwrap()));
+        assert!(dests.contains(&Destination::parse_github_repo("AtonoRobotics/magnus-teams").unwrap()));
+        assert!(dests.contains(&Destination::parse_slack_channel("default", "C0123456789").unwrap()));
         assert!(dests.contains(&Destination::parse_host("docs.example.org").unwrap()));
         assert!(!dests.contains(&Destination::parse_email("attacker@evil.com").unwrap()));
+    }
+
+    #[test]
+    fn model_candidates_not_literally_in_prompt_are_rejected() {
+        let prompt = "Send an update to Jane about the release.";
+        assert!(validate_model_candidate(prompt, "jane@company.com").is_none(), "guessed email must be rejected");
+        assert!(validate_model_candidate(prompt, "AtonoRobotics/magnus-teams").is_none());
+        assert!(validate_model_candidate(prompt, "C0123456789").is_none());
+
+        let prompt2 = "Post to C0123456789 and open PR on AtonoRobotics/magnus-teams";
+        assert_eq!(validate_model_candidate(prompt2, "C0123456789"), Some(Destination::parse_slack_channel("default", "C0123456789").unwrap()));
+        assert_eq!(validate_model_candidate(prompt2, "AtonoRobotics/magnus-teams"), Some(Destination::parse_github_repo("AtonoRobotics/magnus-teams").unwrap()));
     }
 }
