@@ -112,6 +112,28 @@ impl Kernel {
         self.emit("kernel", notice).await?;
         Ok(())
     }
+
+    /// On-demand Explore scan: starts a fresh background `Review` run for
+    /// `person` that reads their connected apps and leaves `suggestion` items
+    /// in Explore's For you (opening no conversation). Returns `Ok(false)` if
+    /// the kill switch is on or a review scan is already running for `person`.
+    pub async fn scan_for_ideas(self: &Arc<Self>, person: &str) -> anyhow::Result<bool> {
+        if self.read(|s| s.vault.kill_switch()) {
+            return Ok(false);
+        }
+        let _one = STARTING.lock().await;
+        let already_running = self.read(|s| {
+            s.runs.values().any(|r| r.person == person && r.status == crate::state::Status::Running && crate::run::kind::RunKind::of(s, &r.id) == crate::run::kind::RunKind::Review)
+        });
+        if already_running {
+            return Ok(false);
+        }
+        let (task, run) = (crate::kernel::new_id("task"), crate::kernel::new_id("run"));
+        let title = title(&Opener { app: None, app_title: None });
+        let o = NewRun { ids: Some((task, run)), title: Some(title), ..Default::default() };
+        self.create_run("review", person, OPENER.to_string(), vec![], o).await?;
+        Ok(true)
+    }
 }
 
 /// A notice's reason when ideas are waiting in Explore.

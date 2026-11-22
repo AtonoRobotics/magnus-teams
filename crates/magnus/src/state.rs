@@ -47,6 +47,7 @@ pub struct State {
     pub envelopes: crate::envelope::Ledger,
     pub staged: crate::staging::Ledger,
     pub security: crate::security_ledger::SecurityLedger,
+    pub missions: crate::team::missions::MissionLedger,
     pub prefetches: HashMap<String, (String, i64, crate::tools::Label)>,
     pub memory_superseded: HashMap<String, String>,
     pub memory_archived: HashSet<String>,
@@ -353,6 +354,7 @@ impl State {
             }
             Ev::QueryGateRecorded(p) => self.security.apply_query_gate(p),
             Ev::SafetyBlocked(p) => self.security.apply_safety_blocked(p),
+            Ev::TeamMission(ev) => self.missions.apply(ev),
             Ev::MemorySuperseded(p) => {
                 self.memory_superseded.insert(p.old_id.clone(), p.new_id.clone());
             }

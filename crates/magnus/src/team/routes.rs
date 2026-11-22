@@ -54,6 +54,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .merge(super::membership::router())
         .merge(super::notices::router())
         .merge(super::message_actions::router())
+        .merge(super::mission_routes::router())
         .merge(super::sign_in::router())
 }
 

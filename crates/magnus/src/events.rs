@@ -3,10 +3,9 @@
 
 mod memory;
 mod meta;
+mod mission;
 mod security;
-pub use memory::*;
-pub use meta::*;
-pub use security::*;
+pub use {memory::*, meta::*, mission::*, security::*};
 
 use crate::tools::Label;
 use magnus_adapter_proto::{Block, ErrorClass, Usage};
@@ -1163,6 +1162,7 @@ pub enum Ev {
     },
     QueryGateRecorded(QueryGatePayload),
     SafetyBlocked(SafetyBlockedPayload),
+    TeamMission(TeamMissionEvent),
     MemorySuperseded(MemorySupersededPayload),
     MemoryArchived(MemoryArchivedPayload),
     PrefetchRecorded {

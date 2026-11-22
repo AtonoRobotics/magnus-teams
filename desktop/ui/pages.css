@@ -521,7 +521,15 @@ html[data-style="prism"] .explore-card, html[data-style="studio"] .explore-card 
 .explore-steps > summary { cursor: pointer; color: var(--accent-text); font-weight: 500; }
 .explore-steps ol { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; color: var(--fg2); }
 .explore-prompt { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--raised); border: 1px solid var(--hair); color: var(--fg2); white-space: pre-wrap; }
-.explore-card-foot { margin-top: auto; padding-top: 4px; display: flex; justify-content: flex-end; }
+.explore-card-foot { margin-top: auto; padding-top: 4px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.explore-guardrail { display: inline-flex; align-items: center; gap: 6px; color: var(--fg2); }
+.explore-guardrail svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--ok); }
+.explore-inline { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--raised); border: 1px solid var(--line); }
+.explore-inline label { display: flex; flex-direction: column; gap: 4px; color: var(--fg2); }
+.explore-inline-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.explore-connect { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--raised); color: var(--fg); font-size: 13px; font-weight: 500; text-decoration: none; }
+.explore-connect:hover { border-color: var(--fg); text-decoration: none; }
+.explore-scan-msg { margin-top: 6px; color: var(--accent-text); }
 /* Magnus's own ideas, For you (explore-ideas.js): their cards are the
    inbox's, two to a row, one on a phone. */
 .explore-ideas { display: flex; flex-direction: column; gap: 10px; }

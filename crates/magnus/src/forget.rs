@@ -118,6 +118,7 @@ impl State {
             tools,
             spend,
             catalog,
+            missions,
             // The person's own records.
             tasks,
             runs,
@@ -133,7 +134,7 @@ impl State {
             // again (2026-11-11-an-erased-persons-id-is-not-given-again.md).
             last_seq: _,
         } = self;
-        let parts: [&mut dyn Forget; 31] = [
+        let parts: [&mut dyn Forget; 32] = [
             computers,
             payments,
             rules,
@@ -146,6 +147,7 @@ impl State {
             outcomes,
             local,
             team,
+            missions,
             account_links,
             legal,
             push,

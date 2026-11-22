@@ -7,7 +7,7 @@
 //! zero-tool, schema-constrained Quarantined call; bounded strings returned
 //! remain untrusted text and may populate message bodies, never destination
 //! fields outside the routine's envelope.
-use crate::envelope::{Destination, Envelope};
+use crate::envelope::Envelope;
 use crate::kernel::Kernel;
 use crate::state::Run;
 use anyhow::Result;
@@ -109,6 +109,7 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::envelope::Destination;
 
     #[test]
     fn quarantine_applies_only_to_routines_reaching_others() {

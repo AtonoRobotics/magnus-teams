@@ -41,7 +41,10 @@ mod membership_tests;
 #[cfg(test)]
 mod message_action_tests;
 mod message_actions;
+pub mod mission_routes;
+pub mod missions;
 mod notices;
+pub mod orchestrator;
 mod own_view;
 #[cfg(test)]
 mod own_view_tests;

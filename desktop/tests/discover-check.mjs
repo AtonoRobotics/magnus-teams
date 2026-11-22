@@ -66,11 +66,23 @@ assert.match(main.innerHTML, /GitHub/);
 assert.match(main.innerHTML, /Daily PR Review Queue/);
 
 // Filter by Engineering category.
-main.onclick({ target: { closest: sel => (sel === "[data-exp-cat]" ? { dataset: { expCat: "eng" } } : null) } });
+await main.onclick({ target: { closest: sel => (sel === "[data-exp-cat]" ? { dataset: { expCat: "eng" } } : null) } });
 assert.match(main.innerHTML, /Daily PR Review Queue/);
 assert.doesNotMatch(main.innerHTML, /Morning Inbox/);
+// GitHub is unconnected in the fixture, so GitHub playbooks show a Connect CTA instead of a dead-end Run button.
+assert.match(main.innerHTML, /Connect GitHub/);
+assert.match(main.innerHTML, /Read-only · never touches code/);
 
-// 4. usePlaybook preloads prompt and navigates to #/chat/new.
+// 4. Inline configure & run opens inline fields and substitutes placeholders cleanly.
+await main.onclick({ target: { closest: sel => (sel === "[data-exp-cat]" ? { dataset: { expCat: "research" } } : null) } });
+await main.onclick({ target: { closest: sel => (sel === "[data-explore-config]" ? { dataset: { exploreConfig: "market-matrix" } } : null) } });
+assert.match(main.innerHTML, /data-explore-field="market-matrix:space"/);
+main.oninput({ target: { id: "", dataset: { exploreField: "market-matrix:space" }, value: "robotics" } });
+await main.onclick({ target: { closest: sel => (sel === "[data-explore-launch]" ? { dataset: { exploreLaunch: "market-matrix" } } : null) } });
+assert.match(sandbox.App.appSearch, /competitors in robotics/);
+assert.equal(sandbox.location.hash, "#/chat/new");
+
+// 5. usePlaybook preloads prompt and navigates to #/chat/new.
 Discover.usePlaybook("supplier-rfq");
 assert.match(sandbox.App.appSearch, /compare prices across suppliers/);
 assert.equal(sandbox.location.hash, "#/chat/new");
