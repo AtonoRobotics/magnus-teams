@@ -1,0 +1,9 @@
+# Wave 3: Label-safe bi-temporal curator, split Living Mental Model, bounded ambient watch, and Firecracker peer-agent hooks
+
+**Choice.**
+1. **Bi-temporal curator (`crates/magnus/src/memory_curator.rs`):** Supersession checks ONLY the `untrusted` bit (`!run_label.untrusted || old_label.untrusted`, so tainted runs cannot poison-by-deletion clean facts while clean private runs can supersede clean non-private facts). Merging never crosses `untrusted` bits. Tier-2 untrusted facts older than `TIER2_COLD_DAYS = 30` are moved to cold archive (`Ev::MemoryArchived`), never silently deleted.
+2. **Split Living Mental Model (`crates/magnus/src/mental_model.rs`) & Provenance API (`GET /v1/memory/summary`):** Keep the always-on Clean Model (`<= 6 KB`) strictly separate from on-demand Untrusted-Derived Notes. Implicit edit-diff learning extracts ONLY user-inserted spans plus a boolean `had_deletions` flag, never deleted model/untrusted words.
+3. **Bounded Ambient Watch (`crates/magnus/src/ambient_watch.rs`):** Zero-tool typed triage (`TriageDecision`), capped at `MAX_AMBIENT_RUNS_PER_HOUR = 10` and `MAX_AMBIENT_RUNS_PER_DAY = 50`, staging Magnus-held drafts/cards only.
+4. **Peer-Agent Delegation (`crates/magnus/src/peer_agent.rs`):** Ship server-side Firecracker `Role::Computer` VM execution first (deferring local-machine OS sandboxing to a separate decision), requiring a provider API key in the vault. The egress proxy strips client-supplied auth headers (`Authorization`, `x-api-key`, `OpenAI-Organization`, `OpenAI-Project`) before surrogate-injecting the user's vault key, and tags all peer-agent outputs `BOTH { untrusted: true, private: true }`.
+
+**Reason.** Completes the zero-tending, zero-ceremony autonomous memory & peer-agent foundation while strictly preserving all 8 invariants and backward-compatible binary/config rollback.
