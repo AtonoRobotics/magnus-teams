@@ -1,0 +1,87 @@
+# Owner patch for tests/invariants/tests/inv4_compartments.rs
+# (decisions/2026-11-22-browsing-without-asks.md). Apply with:
+#   git apply docs/proposals/2026-11-22-compartments-invariants.patch
+#
+# Two tests have failed since they were added (23d0914) because their setup
+# never produced the case they name; the rules they test hold:
+# - a_cross_thread_reply_to_an_untrusted_sender_is_staged read `notes__list`,
+#   which the fake notes app does not have (it only saves), so the run held
+#   no private data and sending was right. It now reads a finance report.
+#   tests/scratch/tests/cross_thread_reply.rs passes with the same change.
+# - a_fabricated_url_in_turn_2_after_turn_1_taint_is_still_denied submitted
+#   turn 2 as a separate task, which starts clean and holds nothing from
+#   turn 1. Turn 2 is now a follow-up in the same chat, which carries turn
+#   1's taint, and no card may be shown.
+
+diff --git a/tests/invariants/tests/inv4_compartments.rs b/tests/invariants/tests/inv4_compartments.rs
+--- a/tests/invariants/tests/inv4_compartments.rs
++++ b/tests/invariants/tests/inv4_compartments.rs
+@@ -96,44 +96,52 @@
+ async fn a_cross_thread_reply_to_an_untrusted_sender_is_staged() {
+     let w = world().await;
+     let news = w.web.url("/news");
+-    let notes = mcp::notes().start().await;
++    // The private read must exist: the fake notes app only saves, so
++    // `notes__list` was refused and the run never held private data.
++    let finance = mcp::finance().start().await;
+     let model = FakeModel::start(steps(vec![
+         plan("reply"),
+-        tool("notes__list", json!({})),
++        tool("finance__get_report", json!({ "quarter": "Q3" })),
+         tool("web_fetch", json!({ "url": news })),
+-        tool("mail__send", json!({ "to": "sender@external.example", "subject": "Re: hi", "body": "Private notes summary" })),
++        tool("mail__send", json!({ "to": "sender@external.example", "subject": "Re: hi", "body": "Private report summary" })),
+         complete("done"),
+     ]))
+     .await;
+     let spec = Spec::default().app("mail", &w.mail, "public", "private", &[("list_inbox", "read"), ("send", "irreversible")]).app(
+-        "notes",
+-        &notes,
++        "finance",
++        &finance,
+         "private",
+         "private",
+-        &[("list", "read")],
++        &[("get_report", "read")],
+     );
+     let app = Appliance::start(spec, &model).await;
+-    let policy = org_policy(&[permit_execute("mail__send"), permit_execute("notes__list")].join("\n"));
++    let policy = org_policy(&[permit_execute("mail__send"), permit_execute("finance__get_report")].join("\n"));
+     let alice = app.api("alice");
+     assert!(alice.put_policy("org", &policy).await.is_success());
+-    let id = alice.submit("Reply to sender@external.example after checking my notes and the news.").await;
++    let id = alice.submit("Reply to sender@external.example after checking the Q3 report and the news.").await;
+     alice.wait_settled(&id).await;
+     assert_eq!(w.mail.effects("send"), 0, "cross-thread reply to untrusted sender was sent instead of staged");
+ }
+ 
+-/// 5. If turn 1 reads an injected email, a model-fabricated URL in turn 2 is
+-/// still silently denied because untrusted + private data remain in context.
++/// 5. If turn 1 of a conversation reads private mail and an injected page, a
++/// model-fabricated URL in turn 2 of that conversation is still silently
++/// denied: the conversation carries turn 1's taint. (A separate task starts
++/// clean and holds nothing from turn 1, so it is not this case.)
+ #[tokio::test(flavor = "multi_thread")]
+ async fn a_fabricated_url_in_turn_2_after_turn_1_taint_is_still_denied() {
+     let w = world().await;
+     let (news, collect) = (w.web.url("/news"), w.web.url("/collect?d=turn1-secret"));
+-    let model = FakeModel::start(steps(vec![plan("turn 1"), tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": news })), complete("read")])).await;
++    let model = FakeModel::start(steps(vec![tool("mail__list_inbox", json!({})), tool("web_fetch", json!({ "url": news })), Reply::Text("read".into())])).await;
+     let app = appliance(&w, &model).await;
+     let alice = app.api("alice");
+-    let t1 = alice.submit("Read my inbox and news.").await;
+-    alice.wait_settled(&t1).await;
+-    model.set_script(steps(vec![plan("turn 2"), tool("web_fetch", json!({ "url": collect })), complete("done")]));
+-    let t2 = alice.submit("Now check another link.").await;
+-    alice.wait_settled(&t2).await;
++    let (st, t1) = alice.post("/v1/chat", json!({ "text": "Read my inbox and news." })).await;
++    assert_eq!(st.as_u16(), 201, "{t1}");
++    alice.wait_settled(t1["task_id"].as_str().unwrap()).await;
++    model.set_script(steps(vec![tool("web_fetch", json!({ "url": collect })), Reply::Text("done".into())]));
++    let (st, t2) = alice.post("/v1/chat", json!({ "text": "Now check another link.", "thread": t1["thread"] })).await;
++    assert_eq!(st.as_u16(), 201, "{t2}");
++    alice.wait_settled(t2["task_id"].as_str().unwrap()).await;
++    assert!(w.web.hits().iter().any(|h| h == "/news"), "turn 1 did not read the page: {:?}", w.web.hits());
+     assert!(w.web.hits().iter().all(|h| !h.starts_with("/collect")), "turn 2 leaked turn 1 private data: {:?}", w.web.hits());
++    assert!(alice.inbox().await.iter().all(|i| i["kind"] != "approval"), "a fabricated URL interrupted the person instead of silently denying");
+ }
