@@ -7,8 +7,11 @@ judgement when it is one of these (`boundary.rs` policy stage,
 
 1. an address the person wrote, or one a search or a loaded page returned,
    exactly (`web_reads`, unchanged);
-2. any address on a site the person named in their own words (`stripe.com`,
-   `https://docs.example.org/spec`), or under it (`docs.stripe.com`);
+2. an address with no query on a site the person named in their own words
+   (`stripe.com`, `https://docs.example.org/spec`), or under it
+   (`docs.stripe.com`); on a shared site, where anyone can publish at a path
+   or subdomain and see who visits (GitHub, Notion, Google, Medium, hosting
+   platforms, shorteners: `web_open::SHARED_HOSTS`), only its home page;
 3. the bare https home page (nothing after the host) of one of the
    most-visited sites: origins of rank 10,000 or better in the Chrome UX
    Report, shipped in `crates/magnus/data/popular_sites.txt` and refreshed
@@ -45,6 +48,11 @@ their words, as it does for the write envelope. A deep path on a popular
 site is not opened on its own, because some such sites show page owners
 which paths were visited (a GitHub repository's traffic page, site
 analytics), so a path there could carry data out.
+
+A review the same day found the first version let a named shared site open
+at any depth: "check github.com" let `github.com/<attacker>/<data>` out,
+which that repository's owner sees in its traffic. Hence the query ban and
+the shared-site rule.
 
 Tests: `web_open::tests`, `tests/scratch/tests/web_reads.rs`
 (`a_link_from_the_web_opens_and_a_made_up_address_is_refused_without_a_card`),

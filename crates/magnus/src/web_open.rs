@@ -5,7 +5,9 @@
 //! An address carries data out only to someone who sees the request. So,
 //! besides an address the person wrote or the web returned (`web_reads`),
 //! a run opens on its own:
-//! - any address on a site the person named in their own words;
+//! - an address with no query on a site the person named in their own
+//!   words, or only its home page when anyone can publish there
+//!   (`SHARED_HOSTS`);
 //! - the bare home page of one of the most-visited sites, which carries
 //!   nothing and whose visits an attacker cannot see.
 //!
@@ -75,15 +77,76 @@ pub(crate) fn named_hosts(words: &str) -> Vec<String> {
 }
 
 /// Whether `raw` is a web address on one of `hosts` or under it.
+/// Sites where anyone can publish at a path or a subdomain and see who
+/// visits it (repository traffic, page analytics, request logs), or that
+/// redirect anywhere. Naming one names its home page only.
+const SHARED_HOSTS: &[&str] = &[
+    "github.com",
+    "github.io",
+    "githubusercontent.com",
+    "gitlab.com",
+    "gitlab.io",
+    "bitbucket.org",
+    "notion.so",
+    "notion.site",
+    "medium.com",
+    "substack.com",
+    "wordpress.com",
+    "blogspot.com",
+    "google.com",
+    "forms.gle",
+    "goo.gl",
+    "bit.ly",
+    "tinyurl.com",
+    "t.co",
+    "x.com",
+    "twitter.com",
+    "reddit.com",
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "tiktok.com",
+    "youtube.com",
+    "dropbox.com",
+    "box.com",
+    "sharepoint.com",
+    "live.com",
+    "amazonaws.com",
+    "cloudfront.net",
+    "azurewebsites.net",
+    "vercel.app",
+    "netlify.app",
+    "pages.dev",
+    "workers.dev",
+    "web.app",
+    "firebaseapp.com",
+    "herokuapp.com",
+    "glitch.me",
+    "replit.app",
+    "huggingface.co",
+    "hackmd.io",
+    "pastebin.com",
+    "webhook.site",
+    "linktr.ee",
+];
+
+fn is_shared_host(host: &str) -> bool {
+    SHARED_HOSTS.iter().any(|s| host == *s || host.ends_with(&format!(".{s}")))
+}
+
+/// Whether `raw` is a web address on one of `hosts`: a site the person
+/// named, at any path or subdomain but with no query, or only the home page
+/// of a shared site (`SHARED_HOSTS`), where a path could reach someone else.
 pub(crate) fn on_named_host(raw: &str, hosts: &[String]) -> bool {
     let Ok(u) = url::Url::parse(raw.trim()) else { return false };
-    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() {
+    if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() || u.query().is_some() || u.fragment().is_some() {
         return false;
     }
     let Some(url::Host::Domain(d)) = u.host() else { return false };
     let d = d.to_ascii_lowercase();
     let d = d.strip_prefix("www.").unwrap_or(&d);
-    hosts.iter().map(|h| h.strip_prefix("www.").unwrap_or(h)).any(|h| d == h || d.ends_with(&format!(".{h}")))
+    let home = matches!(u.path(), "" | "/");
+    hosts.iter().map(|h| h.strip_prefix("www.").unwrap_or(h)).any(|h| if is_shared_host(h) || is_shared_host(d) { home && d == h } else { d == h || d.ends_with(&format!(".{h}")) })
 }
 
 impl Kernel {
@@ -134,7 +197,9 @@ mod tests {
         let hosts = named_hosts("Compare the plans on stripe.com and https://docs.example.org/spec, then email jane@company.com.");
         assert_eq!(hosts, vec!["docs.example.org".to_string(), "stripe.com".to_string()]);
         assert!(on_named_host("https://stripe.com/pricing", &hosts));
-        assert!(on_named_host("https://www.stripe.com/pricing?plan=pro", &hosts));
+        assert!(on_named_host("https://www.stripe.com/pricing", &hosts));
+        assert!(!on_named_host("https://stripe.com/pricing?d=revenue-41.7M", &hosts), "a query can carry data");
+        assert!(!on_named_host("https://stripe.com/pricing#revenue", &hosts));
         assert!(on_named_host("https://docs.stripe.com/api", &hosts));
         assert!(on_named_host("https://docs.example.org/other", &hosts));
         assert!(!on_named_host("https://company.com/", &hosts), "an email's domain is not a named site");
@@ -142,5 +207,23 @@ mod tests {
         assert!(!on_named_host("https://evilstripe.com/x", &hosts));
         assert!(!on_named_host("https://user@stripe.com/x", &hosts));
         assert!(named_hosts("Read my inbox and the news.").is_empty());
+    }
+
+    /// Naming a site where anyone can publish names its home page only:
+    /// a path or subdomain there could reach the attacker's own page.
+    #[test]
+    fn a_named_shared_site_opens_at_its_home_page_only() {
+        let hosts = named_hosts("Check github.com and notion.so for the roadmap.");
+        assert!(on_named_host("https://github.com", &hosts));
+        assert!(on_named_host("https://github.com/", &hosts));
+        assert!(on_named_host("https://www.notion.so/", &hosts));
+        assert!(!on_named_host("https://github.com/attacker/repo/revenue-41.7M", &hosts));
+        assert!(!on_named_host("https://attacker.github.io/revenue", &hosts));
+        assert!(!on_named_host("https://gist.github.com/attacker", &hosts));
+        assert!(!on_named_host("https://attacker.notion.site/x", &hosts));
+        assert!(!on_named_host("https://github.com/?q=revenue", &hosts));
+        let docs = named_hosts("Read docs.google.com for me.");
+        assert!(!on_named_host("https://docs.google.com/forms/d/e/x/formResponse", &docs));
+        assert!(!on_named_host("https://drive.google.com/x", &named_hosts("Search google.com")));
     }
 }
