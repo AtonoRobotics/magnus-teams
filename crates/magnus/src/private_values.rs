@@ -68,7 +68,9 @@ fn b64_decode(s: &str) -> Option<String> {
 fn readings(url: &str) -> Vec<String> {
     let decoded = percent_encoding::percent_decode_str(&url.replace('+', " ")).decode_utf8_lossy().to_string();
     let mut out = vec![url.to_lowercase(), decoded.to_lowercase()];
-    for seg in decoded.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=' | '-' | '_'))).filter(|s| s.len() >= MIN_ENCODED_CHARS) {
+    // `=` ends a key (`d=`) as often as it pads base64, so runs are split on
+    // it and decoded with and without padding.
+    for seg in decoded.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '-' | '_'))).filter(|s| s.len() >= MIN_ENCODED_CHARS) {
         out.extend(b64_decode(seg).map(|s| s.to_lowercase()));
         out.extend(hex_decode(seg).map(|s| s.to_lowercase()));
     }
