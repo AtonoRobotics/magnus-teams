@@ -42,6 +42,7 @@ const table = [
   ["speak", ["Hello."], "POST", "/v1/speak", { text: "Hello." }],
   ["transcribe", ["c291bmQ="], "POST", "/v1/transcribe", { data_b64: "c291bmQ=" }],
   ["homeOpened", [], "POST", "/v1/home/opened", {}],
+  ["explore.scan", [], "POST", "/v1/explore/scan", {}],
   ["tasks.get", ["t 1"], "GET", "/v1/tasks/t%201", undefined],
   ["tasks.timeline", ["t1"], "GET", "/v1/tasks/t1/timeline", undefined],
   ["tasks.action", ["t1", 2, { fence: "f", values: {} }], "POST", "/v1/tasks/t1/actions/2", { fence: "f", values: {} }],

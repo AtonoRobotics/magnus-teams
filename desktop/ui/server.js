@@ -101,6 +101,8 @@ const Server = (() => {
     transcribe: (/** @type {string} */ data_b64) => post("/v1/transcribe", { data_b64 }),
     /** The person opened Home: the updates since they last did. */
     homeOpened: () => post("/v1/home/opened"),
+    /** Explore: trigger a read-only background scan for fresh ideas in For you. */
+    explore: { scan: () => post("/v1/explore/scan") },
 
     tasks: {
       get: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}`),

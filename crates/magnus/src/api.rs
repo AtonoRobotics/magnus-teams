@@ -122,6 +122,7 @@ pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
         .route("/v1/inbox/opened", post(inbox_opened))
         .route("/v1/staged", get(crate::staging::list_route))
         .route("/v1/staged/{id}", post(crate::staging::resolve_route))
+        .route("/v1/explore/scan", post(explore_scan))
         .route("/v1/home/opened", post(home_opened))
         .route("/v1/policies", get(policies))
         .route("/v1/policies/{*layer}", put(put_policy))
@@ -256,6 +257,13 @@ async fn memory(State(k): K, Caller(p): Caller) -> ApiResult {
 
 async fn memory_summary(State(k): K, Caller(p): Caller) -> ApiResult {
     Ok(Json(k.memory_summary_json(&p.id)).into_response())
+}
+
+async fn explore_scan(State(k): K, Caller(p): Caller) -> ApiResult {
+    match k.scan_for_ideas(&p.id).await {
+        Ok(started) => Ok(Json(json!({ "started": started })).into_response()),
+        Err(e) => Ok(err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))),
+    }
 }
 
 /// Forget one of the person's own memories.
