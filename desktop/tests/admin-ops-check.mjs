@@ -30,7 +30,12 @@ assert.match(el.html, /8 CPUs, load 0\.5 · memory 42% used · disk 90% used/);
 await el.onclick({ target: node({ "data-ops-backup": "" }) });
 assert.ok(ctx.calls.some(c => c[0] === "POST" && c[1] === "/v1/admin/backups"));
 await el.onclick({ target: node({ "data-ops-install": "" }) });
-assert.ok(ctx.calls.some(c => c[0] === "POST" && c[1] === "/v1/admin/updates/install"));
+assert.equal(ctx.calls.filter(c => c[0] === "POST" && c[1] === "/v1/admin/updates/install").length, 1);
+assert.match(el.html, /Updating to 1\.3\.0…/, "pending install shows updating chip");
+assert.match(el.html, /data-ops-install disabled>Installing 1\.3\.0…/, "install button stays disabled while update is pending");
+// A second click on a disabled install button must not send another POST.
+await el.onclick({ target: node({ "data-ops-install": "", disabled: "" }) });
+assert.equal(ctx.calls.filter(c => c[0] === "POST" && c[1] === "/v1/admin/updates/install").length, 1, "duplicate install click fired a second request");
 ctx.ask = async () => false;
 await el.onclick({ target: node({ "data-ops-rollback": "" }) });
 assert.ok(!ctx.calls.some(c => c[1] === "/v1/admin/updates/rollback"), "rolled back without asking");

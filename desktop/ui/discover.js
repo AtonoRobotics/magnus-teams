@@ -447,26 +447,16 @@ const Discover = (() => {
       return `<div class="explore-grid">${filtered.length ? filtered.map(p => cardHtml(p, true, ctx)).join("") : '<p class="muted">No playbooks match that filter.</p>'}</div>`;
     };
 
-    const drawGridOnly = () => {
-      if (typeof main.querySelector !== "function") { draw(); return; }
-      const grid = main.querySelector(".explore-grid");
-      if (!grid) { draw(); return; }
-      grid.outerHTML = gridHtml();
-      for (const btn of main.querySelectorAll("[data-exp-cat]")) {
-        const on = /** @type {HTMLElement} */ (btn).dataset.expCat === state.exploreCat;
-        btn.classList.toggle("on", on);
-        btn.setAttribute("aria-pressed", String(on));
-      }
-    };
+    const ideasMarkup = () => typeof ExploreIdeas !== "undefined" && typeof card === "function" ? ExploreIdeas.html(App.inbox, i => card(i)) : "";
 
-    const draw = () => {
+    const pageHtml = () => {
       const tabs = CATEGORIES.map(c => `<button type="button" class="hero-tab${state.exploreCat === c.id ? " on" : ""}" data-exp-cat="${esc(c.id)}" aria-pressed="${state.exploreCat === c.id}">${esc(c.label)}</button>`).join("");
       const appStrip = mine.slice(0, 8).map((/** @type {any} */ c) => {
         const on = c.state === "connected";
         return `<a href="#/library/${enc(c.name)}" class="explore-app${on ? " on" : ""}"><span>${esc(c.title || c.name)}</span><span class="chip ${on ? "ok" : ""}">${on ? "Connected" : "Connect"}</span></a>`;
       }).join("");
       const scanNotice = state.scanMsg ? `<p class="small muted explore-scan-msg">${esc(state.scanMsg)}</p>` : "";
-      paint(main, `<div class="explore-page">
+      return `<div class="explore-page">
         <div class="explore-hero">
           <div>
             <h1>Explore what Magnus can do</h1>
@@ -478,7 +468,7 @@ const Discover = (() => {
             <button type="button" data-open-setup>Setup guide</button>
           </div>
         </div>
-        ${typeof ExploreIdeas !== "undefined" && typeof card === "function" ? ExploreIdeas.html(App.inbox, i => card(i)) : ""}
+        <div data-explore-ideas>${typeof ExploreIdeas !== "undefined" && typeof card === "function" ? ExploreIdeas.html(App.inbox, i => card(i)) : ""}</div>
         <section class="explore-apps" aria-label="Connected apps">
           <div class="spread"><strong>Your connected apps <span class="muted small">(${connected.length} connected)</span></strong><a href="#/library" class="small">Manage all apps →</a></div>
           <div class="explore-app-row">${appStrip || '<span class="small muted">No apps configured on this server yet.</span>'}</div>
@@ -488,8 +478,58 @@ const Discover = (() => {
           <input type="search" id="explore-search" placeholder="Filter playbooks…" value="${esc(state.query)}" aria-label="Filter playbooks">
         </div>
         ${gridHtml()}
-      </div>`);
+      </div>`;
     };
+
+    let lastGridMarkup = "";
+    let lastScanMarkup = "";
+    const draw = () => {
+      const nextGrid = gridHtml();
+      const nextScan = state.scanMsg ? `<p class="small muted explore-scan-msg">${esc(state.scanMsg)}</p>` : "";
+      if (typeof main.querySelector === "function" && main.querySelector(".explore-page")) {
+        const ideasBox = main.querySelector("[data-explore-ideas]");
+        if (ideasBox) paint(ideasBox, ideasMarkup());
+        const scanBtn = /** @type {?HTMLButtonElement} */ (main.querySelector("[data-explore-scan]"));
+        if (scanBtn) {
+          scanBtn.disabled = !!state.scanning;
+          scanBtn.textContent = state.scanning ? "Scanning…" : "Scan for new ideas";
+        }
+        if (nextScan !== lastScanMarkup) {
+          const heroText = main.querySelector(".explore-hero > div");
+          const existing = main.querySelector(".explore-scan-msg");
+          if (existing) existing.remove();
+          if (heroText && nextScan) heroText.insertAdjacentHTML("beforeend", nextScan);
+          lastScanMarkup = nextScan;
+        }
+        if (nextGrid !== lastGridMarkup) {
+          const grid = main.querySelector(".explore-grid");
+          if (grid) { grid.outerHTML = nextGrid; lastGridMarkup = nextGrid; }
+        }
+        main._html = pageHtml();
+        return;
+      }
+      lastGridMarkup = nextGrid;
+      lastScanMarkup = nextScan;
+      paint(main, pageHtml());
+    };
+
+    const drawGridOnly = () => {
+      if (typeof main.querySelector !== "function") { draw(); return; }
+      const grid = main.querySelector(".explore-grid");
+      if (!grid) { draw(); return; }
+      const nextGrid = gridHtml();
+      if (nextGrid !== lastGridMarkup) {
+        grid.outerHTML = nextGrid;
+        lastGridMarkup = nextGrid;
+      }
+      for (const btn of main.querySelectorAll("[data-exp-cat]")) {
+        const on = /** @type {HTMLElement} */ (btn).dataset.expCat === state.exploreCat;
+        btn.classList.toggle("on", on);
+        btn.setAttribute("aria-pressed", String(on));
+      }
+      main._html = pageHtml();
+    };
+
     draw();
     // An idea started or dismissed here redraws it, from the inbox as the
     // server has it then.

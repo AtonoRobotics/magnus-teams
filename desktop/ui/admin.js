@@ -64,11 +64,14 @@ function stepUp() {
       <p class="small bad" role="alert" data-step-up-error hidden></p>
       <div class="row"><button type="button" data-step-up-cancel>Cancel</button><button class="primary" type="submit">Confirm</button></div>
     </form>`;
-    const form = $("form", d), error = $("[data-step-up-error]", d);
-    let ok = false;
+    const form = $("form", d), error = $("[data-step-up-error]", d), submit = $("[type=submit]", d);
+    let ok = false, busy = false;
     $("[data-step-up-cancel]", d).onclick = () => d.close();
     form.onsubmit = async e => {
       e.preventDefault();
+      if (busy) return;
+      busy = true;
+      if (submit) { submit.disabled = true; submit.textContent = "Confirming…"; }
       const f = Object.fromEntries(new FormData(form));
       try {
         await Server.admin.stepUp(f.password, f.code || null);
@@ -76,6 +79,8 @@ function stepUp() {
       } catch (err) {
         if (err?.body?.error === "code_needed") { $("[data-step-up-code]", d).hidden = false; $("[name=code]", d).focus(); }
         error.textContent = err?.body?.message || err.message; error.hidden = false;
+        busy = false;
+        if (submit) { submit.disabled = false; submit.textContent = "Confirm"; }
       }
     };
     d.addEventListener("close", () => { d.remove(); AdminState.stepping = null; done(ok); });

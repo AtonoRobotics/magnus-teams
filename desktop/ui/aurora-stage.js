@@ -201,12 +201,15 @@ const AuroraStage = (() => {
     if (!moving()) return remember(bento);
     const box = bento.getBoundingClientRect();
     for (const b of boxesIn(bento)) {
-      const from = at.get(b), to = within(b, box);
+      const from = at.get(b);
+      b.getAnimations?.().forEach(a => { if (a.id === "stage-slide") a.cancel(); });
+      const to = within(b, box);
       at.set(b, to);
       if (!from || b.classList.contains("stage-tile-enter")) continue;
       const dx = from.left - to.left, dy = from.top - to.top;
       if (Math.abs(dx) < min && Math.abs(dy) < min) continue;
-      b.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: MOVE_MS, easing: MOVE_EASE });
+      const a = b.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: MOVE_MS, easing: MOVE_EASE });
+      a.id = "stage-slide";
     }
   }
 
@@ -449,8 +452,17 @@ const AuroraStage = (() => {
   // Every change drawn in the main column may change the boxes; a narrower
   // column moves them.
   const watched = new WeakSet();
+  /** @type {WeakMap<Element, number>} */
+  const lastBentoWidth = new WeakMap();
   let queued = 0;
-  const sized = new ResizeObserver(entries => entries.forEach(e => slide(e.target, JUMP_PX)));
+  const sized = new ResizeObserver(entries => entries.forEach(e => {
+    const w = Math.round(e.contentRect?.width ?? e.target.getBoundingClientRect().width);
+    const prev = lastBentoWidth.get(e.target);
+    lastBentoWidth.set(e.target, w);
+    if (prev === undefined || Math.abs(w - prev) < 1) return;
+    if (e.target.getAnimations?.().some(a => a.id === "stage-grow" && a.playState === "running")) return;
+    slide(e.target, JUMP_PX);
+  }));
   function watch(main) {
     if (watched.has(main)) return;
     watched.add(main);

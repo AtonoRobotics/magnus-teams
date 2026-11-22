@@ -31,11 +31,14 @@ const AuroraExplore = (() => {
   document.addEventListener("click", e => { if (/** @type {HTMLElement} */ (e.target).closest?.("[data-exp-cat]")) grab(); }, true);
   document.addEventListener("input", e => { if (/** @type {HTMLElement} */ (e.target).id === "explore-search") grab(); }, true);
 
+  const EXPLORE_LEAVE_FALLBACK_MS = EXPLORE_LEAVE_MS + 140;
+
   /** The change, played from where things were. @param {Element} grid */
   function play(grid) {
     const was = before;
     before = null;
     if (!was) return;
+    grid.querySelectorAll(":scope > .explore-leaving").forEach(n => n.remove());
     const box = grid.getBoundingClientRect();
     let arriving = 0;
     for (const c of /** @type {NodeListOf<HTMLElement>} */ (grid.querySelectorAll(CARDS))) {
@@ -59,11 +62,18 @@ const AuroraExplore = (() => {
       node.inert = true;
       Object.assign(node.style, { position: "absolute", left: `${rect.left - box.left}px`, top: `${rect.top - box.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, margin: "0" });
       grid.append(node);
+      const done = () => node.remove();
       const a = node.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.96)" }], { duration: EXPLORE_LEAVE_MS, easing: EASE, fill: "forwards" });
-      a.onfinish = () => node.remove();
-      a.oncancel = () => node.remove();
+      a.onfinish = done;
+      a.oncancel = done;
+      setTimeout(done, EXPLORE_LEAVE_FALLBACK_MS);
     }
   }
+
+  window.addEventListener("hashchange", () => {
+    before = null;
+    document.querySelectorAll(".explore-leaving").forEach(n => n.remove());
+  });
 
   // The page drawn again with the change: played before it shows.
   new MutationObserver(records => {

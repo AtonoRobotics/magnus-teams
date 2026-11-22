@@ -708,17 +708,15 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
   z-index: 0;
 }
 
-/* On a phone the conversation's head keeps everything in it on the screen:
-   its row may wrap, and the computer chip says its state by its icon and
-   its name (decisions/2026-11-21-aurora-phone.md). */
-@media (max-width: 760px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head > .row {
-    min-width: 0;
-    max-width: 100%;
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
+/* Container-responsive conversation head: keeps Approvals, Views, Your
+   computer, Project select, and Trash inside the column at any desktop split
+   width or phone viewport (decisions/2026-11-21-aurora-phone.md). */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) section.conv {
+  container-type: inline-size;
+  container-name: aurora-conv;
+}
 
+@container aurora-conv (max-width: 680px) {
   html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head .computer-chip-words {
     position: absolute;
     width: 1px;
@@ -726,6 +724,31 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head select {
+    max-width: 112px;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head .conv-proj {
+    max-width: 88px;
+  }
+}
+
+@container aurora-conv (max-width: 500px) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    column-gap: 8px;
+    padding: 10px 14px 6px;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head > .row {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    margin-left: auto;
   }
 }
 

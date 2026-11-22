@@ -135,7 +135,10 @@ pub async fn update_install<R: Runtime>(handle: AppHandle<R>) -> Result<(), Stri
         }
         let _ = std::fs::write(&f, serde_json::to_vec(&json!({ "version": update.version, "notes": update.body, "from": crate::app_version() })).unwrap_or_default());
     }
-    update.install(&bytes).map_err(|e| e.to_string())?;
+    if let Err(e) = update.install(&bytes) {
+        *ups.ready.lock().unwrap() = Some((update, bytes));
+        return Err(e.to_string());
+    }
     handle.restart();
 }
 

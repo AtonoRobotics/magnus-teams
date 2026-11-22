@@ -395,6 +395,7 @@ const UI = {
   palette: '<circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><circle cx="10" cy="15" r="1"/>',
   pencil: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  team: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18 14.5a6 6 0 0 1 3 5.5"/>',
 };
 const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0 0 24 24" aria-hidden="true">${UI[k]}</svg>`;
 
@@ -429,8 +430,10 @@ function navigationTree() {
 function nav() {
   const route=location.hash || "#/home";
   const adminNav=adminNavItem(route);
+  const onTeams=route === "#/teams" || route.startsWith("#/team/");
+  const onApps=route.startsWith("#/library");
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/teams" class="nav-teams primary-nav${onTeams ? " on" : ""}" ${onTeams ? 'aria-current="page"' : ""} aria-label="Teams" title="Teams">${icon("team")}<span class="nav-label">Teams</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">Apps</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
@@ -470,8 +473,9 @@ const Workspace = (() => {
       const rect=root.getBoundingClientRect(), nodes=[...root.querySelectorAll("[data-entry], iframe, h2, h3, p")], node=nodes.find(n=>n.getBoundingClientRect().bottom>rect.top);
       return {root,node,top:root.scrollTop,offset:node ? node.getBoundingClientRect().top-rect.top : 0,follow:root.id==="thread" && root.scrollHeight-root.scrollTop-root.clientHeight<=80};
     });
+    const railDrawerOpen = m.nav==="compact" && typeof AuroraRail!=="undefined" && AuroraRail.open && $("#navigation-drawer")?.open;
     shell.style.setProperty("--nav-width",`${m.navWidth}px`);shell.style.setProperty("--panel-width",`${m.panel}px`);shell.style.setProperty("--conversation-min-width",`${B.conversationMinWidthPx}px`);shell.style.setProperty("--splitter-width",`${B.splitterWidthPx}px`);
-    document.body.dataset.navigation=m.nav;document.body.dataset.workspace=!work ? "conversation" : m.split ? "split" : "single";document.body.dataset.region=region;
+    document.body.dataset.navigation=railDrawerOpen ? "expanded" : m.nav;document.body.dataset.workspace=!work ? "conversation" : m.split ? "split" : "single";document.body.dataset.region=region;
     const height=Math.min(innerHeight,window.visualViewport?.height || innerHeight);shell.style.setProperty("--workspace-height",`${height}px`);shell.style.setProperty("--workspace-top",`${window.visualViewport?.offsetTop || 0}px`);document.body.classList.toggle("short-viewport",height<B.shortViewportMaxHeightPx);
     const toggle=$("[data-nav-toggle]");if(toggle){toggle.setAttribute("aria-label",m.nav==="expanded" ? "Collapse navigation" : "Expand navigation");toggle.title=toggle.getAttribute("aria-label");toggle.setAttribute("aria-expanded",String(m.nav==="expanded"));}
     $("[data-open-drawer]").hidden=m.nav!=="drawer";
@@ -482,7 +486,7 @@ const Workspace = (() => {
     $(".workspace-heading").textContent=App.workspace ? "Conversation" : location.hash.startsWith("#/library") ? "Apps" : location.hash.startsWith("#/settings") ? "Settings" : location.hash.startsWith("#/admin") ? "Admin" : location.hash.startsWith("#/dev") ? "Developer" : "Magnus";
     $(".workspace-heading").hidden=work;
     const separator=$("#workspace-splitter");separator.hidden=!m.split;separator.setAttribute("aria-valuenow",String(Math.round(m.panel)));separator.setAttribute("aria-valuemin",String(m.min));separator.setAttribute("aria-valuemax",String(m.max));separator.setAttribute("aria-valuetext",`${Math.round(m.panel)} pixels`);
-    if (m.nav!=="drawer" && $("#navigation-drawer").open) closeDrawer(false);
+    if (m.nav!=="drawer" && !railDrawerOpen && $("#navigation-drawer").open) closeDrawer(false);
     for(const a of prior){if(!a.root.clientHeight)continue;a.root.scrollTop=a.follow ? a.root.scrollHeight : a.node?.isConnected ? a.root.scrollTop+a.node.getBoundingClientRect().top-a.root.getBoundingClientRect().top-a.offset : a.top;}
     reportOpenedSoon();
     return m;
@@ -1226,7 +1230,12 @@ async function refresh() {
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
   const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
   const workspaces = Server.workspaces.list().then(r => { if (Array.isArray(r)) App.workspaces = r; }, () => {});
-  const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces]);
+  const version = Server.version({ background: true }).then(v => {
+    if (!v?.version) return;
+    if (App.serverVersion && App.serverVersion !== v.version) refreshUpdate(true);
+    App.serverVersion = v.version;
+  }, () => {});
+  const [tasks, schedules, threads, projects, connectors, health] = await Promise.all([get("/v1/tasks", "tasks"), get("/v1/schedules", "schedules"), get("/v1/chat", "threads"), get("/v1/projects", "projects"), get("/v1/connectors", "connectors"), Resources.read("Server", "/v1/health"), pollInbox(), computers, workspaces, version]);
   if (!App.me) return;
   // Magnus's own background reviews are plumbing, not the person's tasks
   // (owner, 2026-11-07): developers see them in the run inspector.
@@ -3602,9 +3611,21 @@ async function refreshUpdate(look = false) {
   await App.redrawUpdates?.();
 }
 
+let restartingUpdate = false;
 async function restartToUpdate() {
+  if (restartingUpdate) return;
+  restartingUpdate = true;
+  const btns = $$("[data-act=restart-update]");
+  for (const b of btns) { b.disabled = true; b.textContent = "Restarting…"; }
   toast("Installing the update; Magnus restarts in a moment.", 10000);
-  try { await Magnus.updateInstall(); } catch (e) { toast(`The update did not install: ${e.message}`); refreshUpdate(); }
+  try {
+    await Magnus.updateInstall();
+  } catch (e) {
+    restartingUpdate = false;
+    for (const b of btns) { b.disabled = false; b.textContent = "Restart to update"; }
+    toast(`The update did not install: ${e.message}`);
+    refreshUpdate();
+  }
 }
 
 // What changed, in the release's own plain words, once after an update.

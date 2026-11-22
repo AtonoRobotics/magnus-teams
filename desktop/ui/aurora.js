@@ -183,7 +183,7 @@
     if (!active) return;
     const route = location.hash || "#/";
     // A view arrives when the route changes, not when the route repaints.
-    const main = document.querySelector("#main > *:not(section.conv)");
+    const main = document.querySelector("#main > *:not(section.conv):not(.aurora-page-bar)");
     if (main) {
       const key = `${route}|${main.id || (main.getAttribute("class") || "").split(/\s+/)[0]}`;
       if (key !== viewKey) {
@@ -530,17 +530,26 @@
   // empties the panel at once; its last frame is kept where it was and slides
   // out while the column folds.
   const RESIZE_SETTLE_MS = 160;
-  const GHOST_FALLBACK_MS = 900;
+  const GHOST_FALLBACK_MS = 650;
   const STAGE_PIN_MS = 700;
+  const DOM_ENHANCE_DEBOUNCE_MS = 45;
   let detailEl = null;
   let detailObs = null;
   let detailRect = null;
+  let detailHash = "";
   let resizeTimer = 0;
+
+  function clearDetailGhosts() {
+    document.querySelectorAll(".aurora-detail-ghost").forEach((el) => el.remove());
+  }
 
   function noteDetailRect() {
     if (!detailEl || detailEl.hidden) return;
     const r = detailEl.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) detailRect = r;
+    if (r.width > 0 && r.height > 0) {
+      detailRect = r;
+      detailHash = location.hash || "";
+    }
   }
 
   function watchDetail() {
@@ -549,6 +558,7 @@
     if (detailObs) detailObs.disconnect();
     detailEl = el;
     detailRect = null;
+    detailHash = "";
     detailObs = new MutationObserver(onDetailChange);
     detailObs.observe(el, { attributes: true, attributeFilter: ["hidden"], childList: true });
   }
@@ -556,10 +566,14 @@
   function onDetailChange(records) {
     if (!active || !detailEl || !detailEl.hidden) return;
     const rect = detailRect;
+    const hash = detailHash;
     detailRect = null;
+    detailHash = "";
+    if (hash && hash !== (location.hash || "")) { clearDetailGhosts(); return; }
     if (motionMode() !== "full" || !rect || !records.some((r) => r.type === "attributes")) return;
     const removed = records.flatMap((r) => (r.type === "childList" ? [...r.removedNodes] : []));
     if (!removed.length) return;
+    clearDetailGhosts();
     const ghost = document.createElement("aside");
     ghost.className = "detail aurora-detail-ghost";
     ghost.setAttribute("aria-hidden", "true");
@@ -622,12 +636,21 @@
   let domTimer = 0;
   function handleDom(records) {
     if (!active) return;
+    // Ignore purely internal Aurora animation/ghost updates so we do not loop.
+    const relevant = records.some((r) => {
+      if (r.type === "childList") {
+        const nodes = [...r.addedNodes, ...r.removedNodes];
+        return nodes.some((n) => !(n instanceof Element) || !n.classList.contains("aurora-detail-ghost"));
+      }
+      return !(r.target instanceof Element && r.target.classList.contains("aurora-detail-ghost"));
+    });
+    if (!relevant) return;
     // Entrances are marked in this callback, before the browser draws the
     // new nodes: marked a timer later, a node was drawn, hidden, then faded
     // back in.
     if (records.some((r) => r.addedNodes.length)) markEntrances();
     if (domTimer) return;
-    domTimer = setTimeout(() => { domTimer = 0; enhanceDynamicDom(); }, 45);
+    domTimer = setTimeout(() => { domTimer = 0; enhanceDynamicDom(); }, DOM_ENHANCE_DEBOUNCE_MS);
   }
 
   function init() {
@@ -638,6 +661,11 @@
       new MutationObserver(handleDom).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed", "data-phase", "data-tone"] });
     }
     window.addEventListener("magnus-theme", reconcile);
+    window.addEventListener("hashchange", () => {
+      detailRect = null;
+      detailHash = "";
+      clearDetailGhosts();
+    });
     document.addEventListener("visibilitychange", () => {
       if (!active) return;
       if (document.hidden && rafId) { cancelAnimationFrame(rafId); rafId = 0; }

@@ -227,7 +227,7 @@ nav.side .brand .logo { display: grid; place-items: center; width: 20px; height:
 body[data-navigation="compact"] nav.side .brand .logo { display: none; }
 nav.side .new-chat { border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); font-weight: 500; min-height: 32px; }
 nav.side .new-chat:hover { background: var(--raised); }
-body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-explore { width: 44px; padding: 0; justify-content: center; }
+body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-explore, body[data-navigation="compact"] nav.side .nav-teams, body[data-navigation="compact"] nav.side .nav-apps { width: 44px; padding: 0; justify-content: center; }
 /* Search… ⌘K trigger */
 #find input:hover { background: var(--row-sel); }
 #find .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: var(--r-xs); border: 1px solid var(--line); color: var(--muted); pointer-events: none; }

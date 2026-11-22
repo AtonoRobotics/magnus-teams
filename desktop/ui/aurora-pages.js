@@ -10,8 +10,9 @@ const AuroraPages = (() => {
   /** The conversation last shown, to go back to. */
   let conversation = "";
 
+  const isConversationHash = (/** @type {string} */ h) => !h || /^#\/(?:chat(?:\/|$)|home$|$)/.test(h);
   /** Where the close goes: the last conversation, else a new one. */
-  const back = () => conversation || "#/chat/new";
+  const back = () => (conversation && conversation !== location.hash && isConversationHash(conversation)) ? conversation : "#/chat/new";
 
   /** The page's own way out, if it has one, near its top. @param {HTMLElement} main */
   function ownWayOut(main) {
@@ -30,7 +31,7 @@ const AuroraPages = (() => {
     if (!main) return;
     const mine = main.querySelector(":scope > .aurora-page-bar");
     const talk = !!main.querySelector(":scope > section.conv, .hello-head, #thread");
-    if (talk) conversation = location.hash || "";
+    if (talk && isConversationHash(location.hash)) conversation = location.hash || "#/home";
     const want = on() && !talk && !!main.firstElementChild && !ownWayOut(main);
     if (!want) { mine?.remove(); return; }
     const title = main.querySelector("h1")?.textContent?.trim() || "this page";

@@ -91,8 +91,8 @@ const Server = (() => {
 
     /** Who is signed in. */
     me: () => get("/v1/me"),
-    /** What this server runs. */
-    version: () => get("/v1/version"),
+    /** What this server runs. @param {CallOptions} [opts] */
+    version: opts => get("/v1/version", opts),
     /** Search everything of the person's. */
     search: (/** @type {string} */ q) => get(`/v1/search?q=${enc(q)}`),
     /** Read aloud: one sentence's audio. */

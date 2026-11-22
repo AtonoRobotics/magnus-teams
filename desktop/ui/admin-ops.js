@@ -13,16 +13,47 @@
  * @typedef {{services: Array<{name: string, up: boolean, note?: ?string}>, host: {cpus: number, load: ?number, memory_used: ?number, disk_used: ?number}}} AdminHealth
  */
 
+/** How often to poll for the server coming back after an update starts. */
+const OPS_UPDATE_POLL_MS = 2000;
+/** How long to keep showing pending update progress while waiting for restart. */
+const OPS_UPDATE_WAIT_MS = 180000;
+
+/** @type {?{kind: "install"|"rollback", from: string, to: string, startedAt: number}} */
+let opsPending = null;
+/** @type {ReturnType<typeof setInterval>|null} */
+let opsPollTimer = null;
+let opsInFlight = false;
+
+/** Stop polling for a server restart after an update. */
+function opsStopWatch() {
+  if (opsPollTimer) { clearInterval(opsPollTimer); opsPollTimer = null; }
+}
+
+/** Active pending update state for `u`, clearing stale entries once the server version changes or fails.
+ * @param {AdminUpdates} u */
+function opsActiveUpdate(u) {
+  if (u.updating) return u.updating;
+  if (!opsPending) return null;
+  if (u.version !== opsPending.from || Date.now() - opsPending.startedAt > OPS_UPDATE_WAIT_MS) {
+    opsPending = null;
+    opsStopWatch();
+    return null;
+  }
+  return { from: opsPending.from, to: opsPending.to, rollback: opsPending.kind === "rollback" };
+}
+
 /** A fraction as a whole percentage. @param {?number} f */
 const opsPercent = f => typeof f === "number" ? `${Math.round(f * 100)}%` : "–";
 
 /** @param {AdminUpdates} u */
 function opsUpdates(u) {
+  const active = opsActiveUpdate(u);
+  const busy = !!active;
   const last = u.last ? `<p class="small${u.last.what === "failed" ? " bad" : " muted"}">Last: ${esc(u.last.what)} ${esc(u.last.to)} ${esc(when(u.last.at))}${u.last.detail ? `: ${esc(u.last.detail)}` : ""}</p>` : "";
   return `<section class="card" data-ops-updates><h3>Updates</h3>
-    <p>Magnus ${esc(u.version)}${u.updating ? ` <span class="chip">${u.updating.rollback ? "Rolling back" : "Updating"} to ${esc(u.updating.to)}</span>` : ""}</p>
-    ${u.available ? `<p>${esc(u.latest?.version)} is available.</p><button class="primary" data-ops-install>Install ${esc(u.latest?.version)}</button>` : `<p class="small muted">Up to date${u.automatic ? "; updates install on their own" : ""}.</p>`}
-    ${u.previous ? `<button data-ops-rollback>Roll back to ${esc(u.previous)}</button>` : ""}
+    <p>Magnus ${esc(u.version)}${active ? ` <span class="chip">${active.rollback ? "Rolling back" : "Updating"} to ${esc(active.to || "new release")}…</span>` : ""}</p>
+    ${u.available ? `<p>${esc(u.latest?.version)} is available.</p><button class="primary" data-ops-install${busy ? " disabled" : ""}>${busy && !active.rollback ? `Installing ${esc(u.latest?.version)}…` : `Install ${esc(u.latest?.version)}`}</button>` : `<p class="small muted">Up to date${u.automatic ? "; updates install on their own" : ""}.</p>`}
+    ${u.previous ? `<button data-ops-rollback${busy ? " disabled" : ""}>${busy && active.rollback ? `Rolling back to ${esc(u.previous)}…` : `Roll back to ${esc(u.previous)}`}</button>` : ""}
     ${last}
     ${u.server ? `<label class="small">This server updates from <select data-ops-server-channel aria-label="Server channel">${u.server.channels.map(c => `<option value="${esc(c.channel)}"${c.channel === u.server?.channel ? " selected" : ""}>${esc(c.channel)}${c.published ? ` (${esc(c.published)})` : ""}</option>`).join("")}</select></label>` : ""}
     <label class="small">Desktop apps of everyone else follow <select data-ops-channel aria-label="Desktop channel">${(u.desktop?.channels || []).map(c => `<option value="${esc(c.channel)}"${c.channel === u.desktop.everyone ? " selected" : ""}>${esc(c.channel)}${c.published ? ` (${esc(c.published)})` : ""}</option>`).join("")}</select></label>
@@ -60,21 +91,72 @@ function opsHealth(h) {
     <p class="small muted">${esc(h.host.cpus)} CPUs, load ${esc(h.host.load ?? "–")} · memory ${opsPercent(h.host.memory_used)} used · disk ${opsPercent(h.host.disk_used)} used</p></section>`;
 }
 
+/** Poll until the server restarts onto the new version, then check for the matching desktop update.
+ * @param {HTMLElement} el @param {string} fromVersion @param {() => Promise<void>} again */
+function opsWatchRestart(el, fromVersion, again) {
+  if (el.isConnected !== true) return;
+  opsStopWatch();
+  const startedAt = Date.now();
+  opsPollTimer = setInterval(async () => {
+    if (!opsPending || Date.now() - startedAt > OPS_UPDATE_WAIT_MS) { opsStopWatch(); return; }
+    try {
+      const v = await Server.version({ background: true });
+      if (v?.version && v.version !== fromVersion) {
+        opsPending = null;
+        opsStopWatch();
+        if (typeof App !== "undefined") App.serverVersion = v.version;
+        if (typeof refreshUpdate === "function") refreshUpdate(true);
+        if (el.isConnected) again().catch(() => {});
+      }
+    } catch { /* server is restarting */ }
+  }, OPS_UPDATE_POLL_MS);
+}
+
 registerAdminSection("operations", async el => {
   const [u, b, c, h] = await Promise.all([Server.admin.updates(), Server.admin.backups(), Server.admin.computers(), Server.admin.health()]);
+  if (typeof App !== "undefined" && u?.version) App.serverVersion = u.version;
   paint(el, `<h2>Operations</h2><div class="admin-cards">${opsUpdates(u)}${opsBackups(b)}${opsComputers(c)}${opsHealth(h)}</div>`);
   const again = () => AdminState.sections.get("operations")?.(el);
   /** @param {any} err */
   const failed = err => { if (!err.cancelled) toast(err.body?.error || err.message); };
   el.onclick = async e => {
     const t = /** @type {HTMLElement} */ (e.target);
+    if (opsInFlight || t.hasAttribute?.("disabled")) return;
+    const isInstall = t.matches("[data-ops-install]");
+    const isRollback = t.matches("[data-ops-rollback]");
+    const isBackup = t.matches("[data-ops-backup]");
+    if (!isInstall && !isRollback && !isBackup) return;
+    if ((isInstall || isRollback) && opsActiveUpdate(u)) return;
+    opsInFlight = true;
+    t.setAttribute?.("disabled", "");
     try {
-      if (t.matches("[data-ops-install]")) { if (!await ask("Install the update now? Magnus restarts, and running tasks continue after.", "Install")) return; await Server.admin.install(); toast("Installing."); }
-      else if (t.matches("[data-ops-rollback]")) { if (!await ask("Go back to the release kept? Magnus restarts.", "Roll back", true)) return; await Server.admin.rollback(); toast("Rolling back."); }
-      else if (t.matches("[data-ops-backup]")) { t.setAttribute("disabled", ""); await Server.admin.backUp(); toast("Backed up."); }
-      else return;
-    } catch (err) { failed(err); }
-    await again();
+      if (isInstall) {
+        if (!await ask("Install the update now? Magnus restarts, and running tasks continue after.", "Install")) { t.removeAttribute?.("disabled"); return; }
+        const res = await Server.admin.install();
+        if (res?.status !== "up_to_date") {
+          opsPending = { kind: "install", from: u.version, to: u.latest?.version || res?.latest || "", startedAt: Date.now() };
+          opsWatchRestart(el, u.version, again);
+        }
+        toast("Installing update. Magnus will restart when ready.");
+      } else if (isRollback) {
+        if (!await ask("Go back to the release kept? Magnus restarts.", "Roll back", true)) { t.removeAttribute?.("disabled"); return; }
+        await Server.admin.rollback();
+        opsPending = { kind: "rollback", from: u.version, to: u.previous || "", startedAt: Date.now() };
+        opsWatchRestart(el, u.version, again);
+        toast("Rolling back. Magnus will restart when ready.");
+      } else if (isBackup) {
+        await Server.admin.backUp();
+        toast("Backed up.");
+      }
+    } catch (err) {
+      opsPending = null;
+      opsStopWatch();
+      t.removeAttribute?.("disabled");
+      failed(err);
+    } finally {
+      opsInFlight = false;
+    }
+    try { await again(); } catch { /* server may already be restarting */ }
   };
   el.onchange = async e => {
     const s = /** @type {HTMLSelectElement} */ (e.target);

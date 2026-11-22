@@ -36,7 +36,7 @@ const AuroraRail = (() => {
     show.type = "button";
     show.className = "icon-btn aurora-rail-open";
     show.setAttribute("aria-label", "Conversations");
-    show.title = "Conversations (Ctrl+B)";
+    show.title = "Sidebar & conversations (Ctrl+B)";
     show.setAttribute("aria-keyshortcuts", "Control+B Meta+B");
     show.setAttribute("aria-haspopup", "dialog");
     show.innerHTML = SIDEBAR;
@@ -113,6 +113,10 @@ const AuroraRail = (() => {
   });
 
   window.addEventListener("magnus-theme", label);
+  window.addEventListener("hashchange", () => {
+    const d = /** @type {?HTMLDialogElement} */ ($("#navigation-drawer"));
+    if (d?.open) { picked = true; d.close(); }
+  });
 
   // The drawer and the sidebar are drawn when the app starts, and drawn
   // again whole when it starts again: then the body's children change.
