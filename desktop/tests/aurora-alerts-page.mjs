@@ -71,5 +71,5 @@ export const page = (motion, background = "off", files = {}) => { const ui = (/*
   <div id="workspace-splitter" hidden></div><aside class="detail" id="detail" hidden></aside>
 </div>
 <script>${stubs}</script><script>${ui("asks.js")}</script><script>${ui("notices.js")}</script>
-<script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script><script>${ui("aurora-alerts.js")}</script></body></html>`; };
+<script>${ui("aurora-boxes.js")}</script><script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script><script>${ui("aurora-alerts.js")}</script></body></html>`; };
 

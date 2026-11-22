@@ -67,7 +67,7 @@ const page = fresh => `<!doctype html><html data-style="aurora" data-mode="dark"
   <nav class="side"><div class="brand"><span class="logo"><svg></svg></span></div></nav>
   <main id="main"><section class="conv"><header class="conv-head" id="conv-head"><div class="conv-title"><h1>Plan the trip</h1></div><div class="row"></div></header><div class="thread" id="thread"><div class="entry agent" data-entry="a1" data-kind="answer"><div class="answer-body"><p id="block">The trip is <strong>ready</strong> to book.</p><pre id="code">keep this</pre></div></div></div><div id="composer" class="composer-slot"><div class="say"><textarea id="msg"></textarea></div></div></section></main>
   <div id="workspace-splitter" hidden></div><aside class="detail" id="detail" hidden></aside>
-</div><script>${stubs(fresh)}</script><script>${ui("aurora-stage.js")}</script></body></html>`;
+</div><script>${stubs(fresh)}</script><script>${ui("aurora-boxes.js")}</script><script>${ui("aurora-stage.js")}</script></body></html>`;
 
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const failures = [];
@@ -163,6 +163,51 @@ try {
   await f.evaluate(() => AuroraStage.refresh());
   const file = await f.evaluate(() => [...document.querySelectorAll(".stage-tile")].map(t => `${t.dataset.tile}:${t.dataset.open}:${t.querySelector(".stage-tile-title").textContent}`));
   check("a new file brings Files in, opening the file", () => assert.deepEqual(file, ["files:file:f1:Itinerary.pdf"]));
+
+  // Boxes come and go (decisions/2026-11-21-aurora-boxes-come-and-go.md).
+  const keys = () => f.evaluate(() => [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => `${t.dataset.tile}:${t.dataset.tone}`));
+  // Time passes: the page's clock moves on by `ms`, and the stage looks again.
+  const later = ms => f.evaluate(async ms => { const real = Date.now; Date.now = () => real() + ms; await AuroraStage.refresh(); }, ms);
+  // Work that keeps running does not keep its box: it leaves on its own.
+  await f.evaluate(() => { App.tasks = [{ task_id: "t9", thread: "c1", title: "Watch the inbox", status: "running", status_line: "Reading new mail" }]; return AuroraStage.refresh(); });
+  const running = await keys();
+  await f.waitForTimeout(15_400);
+  const after = await keys();
+  check("work that keeps running shows its box, which then leaves on its own", () => assert.deepEqual([running, after], [["live:run", "files:done"], []]));
+  // A new status line is not a change; needing the person is, and stays.
+  await f.evaluate(() => { App.tasks[0].status_line = "Reading more mail"; return AuroraStage.refresh(); });
+  const sameWork = await keys();
+  await f.evaluate(() => { App.tasks[0].status = "suspended"; FX.pending = [{ id: "i9", summary: "Reply to Dana?" }]; return AuroraStage.refresh(); });
+  await later(60_000);
+  const wanting = await keys();
+  check("a new status line brings nothing back; work that needs the person, and a decision, stay", () => assert.deepEqual([sameWork, wanting], [[], ["live:needs", "approval:i9:needs"]]));
+  // Every box has a Close: shown on hover, it puts the box away and opens nothing.
+  await f.hover('.stage-tile[data-tile="approval:i9"]');
+  await f.waitForTimeout(300);
+  const closeShown = await f.evaluate(() => getComputedStyle(document.querySelector('.stage-tile[data-tile="approval:i9"] .stage-tile-close')).opacity);
+  const opened = await f.evaluate(() => FX.opened.length);
+  await f.click('.stage-tile[data-tile="approval:i9"] .stage-tile-close');
+  await f.evaluate(() => AuroraStage.refresh());
+  const closedOne = await f.evaluate(() => ({ keys: [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => t.dataset.tile), opened: FX.opened.length, hash: location.hash }));
+  check("every box has a Close, shown on hover; closed, the box goes and nothing opens", () => assert.deepEqual([closeShown, closedOne], ["1", { keys: ["live"], opened, hash: "" }]));
+  // A closed decision stays away; the next one waiting takes the box.
+  await f.evaluate(() => AuroraStage.refresh());
+  const stillClosed = await keys();
+  await f.evaluate(() => { FX.pending = [{ id: "i9", summary: "Reply to Dana?" }, { id: "i10", summary: "Pay the invoice?" }]; return AuroraStage.refresh(); });
+  const another = await f.evaluate(() => [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => `${t.dataset.tile}:${t.querySelector(".stage-tile-title").textContent}`));
+  check("a closed decision stays away; the next one waiting takes the box", () => assert.deepEqual([stillClosed, another], [["live:needs"], ["live:Watch the inbox", "approval:i10:Pay the invoice?"]]));
+  // A box the pointer is on stays, and leaves its time after the pointer goes.
+  await f.mouse.move(5, 5);
+  await f.evaluate(() => { FX.pending = []; App.tasks = [{ task_id: "t10", thread: "c1", title: "Sort the files", status: "running", status_line: "Sorting" }]; return AuroraStage.refresh(); });
+  await f.hover('.stage-tile[data-tile="live"]');
+  await later(60_000);
+  const hovered = await keys();
+  await f.mouse.move(5, 5);
+  await f.waitForTimeout(100);
+  const justLeft = await keys();
+  await later(16_000);
+  const leftAlone = await keys();
+  check("a box the pointer is on stays, and leaves its time after the pointer goes", () => assert.deepEqual([hovered, justLeft, leftAlone], [["live:run"], ["live:run"], []]));
 } finally {
   await browser.close();
 }

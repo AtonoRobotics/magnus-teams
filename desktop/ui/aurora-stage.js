@@ -30,6 +30,10 @@
 //   the bento grows or shrinks over time, and the conversation with it,
 //   instead of jumping; a box that keeps its place rides with the bento, and
 //   a conversation read to its end stays at its end.
+// - Boxes come and go (decisions/2026-11-21-aurora-boxes-come-and-go.md,
+//   aurora-boxes.js): one that wants the person stays until it is dealt
+//   with; any other shows when it appears or changes, then leaves. Each has
+//   a Close, which puts it away until it changes.
 "use strict";
 
 const AuroraStage = (() => {
@@ -44,6 +48,8 @@ const AuroraStage = (() => {
   const WORD_STEP_MS = 34;
   const WORDS_STREAMED = 120;
   const SHOWN_BOXES = 4;
+  /** After a box's time is up, so it is up when it is looked at. */
+  const LEAVE_SLACK_MS = 50;
   /** How long a message stays a box when the person does not open it. */
   const NOTE_FRESH_MS = 30 * 60_000;
   /** How long an answered box shows the answer before it goes. */
@@ -112,11 +118,11 @@ const AuroraStage = (() => {
     const pending = needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
     if (held && held.until > Date.now()) list.push(held.box);
     else held = null;
-    if (pending.length) {
-      const i = pending[0];
-      list.push({ key: `approval:${i.id}`, item: i.id, label: "Approvals", icon: "need", href: "#/inbox", tone: "needs", count: pending.length > 1 ? pending.length : 0, open: `item:${i.id}`,
-        title: i.ask?.sentence || i.summary || "A decision", desc: pending.length > 1 ? `${pending.length - 1} more waiting on you` : "Nothing goes out until you answer.", answers: answersOf(i) });
-    }
+    // A decision whose box was closed leaves the box to the next one waiting.
+    const ask = i => ({ key: `approval:${i.id}`, item: i.id, label: "Approvals", icon: "need", href: "#/inbox", tone: "needs", count: pending.length > 1 ? pending.length : 0, open: `item:${i.id}`,
+      title: i.ask?.sentence || i.summary || "A decision", desc: pending.length > 1 ? `${pending.length - 1} more waiting on you` : "Nothing goes out until you answer." });
+    const open = pending.find(i => !AuroraBoxes.isClosed(ask(i)));
+    if (open) list.push({ ...ask(open), answers: answersOf(open) });
     for (const [k, n] of notes) if (Date.now() - n.at > NOTE_FRESH_MS) notes.delete(k);
     const said = [...notes.values()];
     if (said.length) {
@@ -147,7 +153,7 @@ const AuroraStage = (() => {
     if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}` });
     // A box answered keeps its place while it shows the answer.
     const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" || c.tone === "talk" ? 1 : 2);
-    return list.map((c, i) => [c, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c).slice(0, SHOWN_BOXES);
+    return list.map((c, i) => [c, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c);
   }
 
   /**
@@ -166,8 +172,10 @@ const AuroraStage = (() => {
   /** A box's inside, as the mockup's small bento box. */
   function boxInner(c) {
     const title = c.answers ? `<a class="stage-tile-title" href="${html(c.href)}" data-open="${html(c.open)}">${html(c.title)}</a>` : `<strong class="stage-tile-title">${html(c.title)}</strong>`;
+    // A box just answered goes on its own in a moment: it needs no Close.
+    const close = c.said ? "" : `<button type="button" class="stage-tile-close" aria-label="Close ${html(c.label)}" title="Close">${icon("close")}</button>`;
     const foot = c.said ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>` : c.answers || `<span class="stage-tile-desc">${html(c.desc)}</span>`;
-    return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span></span>
+    return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
       ${title}
       ${foot}`;
   }
@@ -234,6 +242,7 @@ const AuroraStage = (() => {
         b.setAttribute("aria-label", c.label);
       }
       if (c.note) b.dataset.note = c.note; else delete b.dataset.note;
+      b.dataset.sign = AuroraBoxes.sign(c);
       const inner = boxInner(c);
       if (b._html !== inner) { b.innerHTML = inner; b._html = inner; }
       bento.append(b);
@@ -333,6 +342,19 @@ const AuroraStage = (() => {
     return true;
   }
 
+  // A box closed is put away until it changes; nothing behind it opens.
+  document.addEventListener("click", e => {
+    const x = /** @type {HTMLElement} */ (e.target).closest?.(".stage-tile-close");
+    const tile = x?.closest(".stage-tile");
+    if (!(tile instanceof HTMLElement)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    AuroraBoxes.close(tile.dataset.sign || "");
+    if (tile.dataset.tile === "away" && typeof App !== "undefined") { App.feedDismissed = true; if (typeof banners === "function") banners(); }
+    if (tile.dataset.note) notes.delete(tile.dataset.note);
+    refresh();
+  }, true);
+
   // A message opened, or its place visited, is no longer new.
   document.addEventListener("click", e => {
     const t = /** @type {HTMLElement} */ (e.target);
@@ -384,6 +406,8 @@ const AuroraStage = (() => {
   }
 
   let drawing = null;
+  /** The next box to leave on its own. @type {ReturnType<typeof setTimeout>|undefined} */
+  let leaving;
   /** The bento, kept when the conversation is drawn again. @type {?HTMLElement} */
   let kept = null;
 
@@ -399,6 +423,14 @@ const AuroraStage = (() => {
         kept.className = "stage-bento";
         kept.setAttribute("aria-label", "What is happening");
         sized.observe(kept);
+        // Boxes the person was on leave SHOWN_FOR_MS after they go.
+        const away = () => setTimeout(() => {
+          if (!kept || kept.matches(":hover, :focus-within")) return;
+          AuroraBoxes.left(boxesIn(kept).map(b => b.dataset.sign || ""));
+          refresh();
+        }, 0);
+        kept.addEventListener("pointerleave", away);
+        kept.addEventListener("focusout", away);
         at = new WeakMap();
       }
       bento = kept;
@@ -424,11 +456,17 @@ const AuroraStage = (() => {
     }
     if (drawing) return drawing;
     drawing = (async () => {
-      const list = await boxes();
+      const all = await boxes();
       const now = main.querySelector(":scope > section.conv");
       if (!now) return;
       const bento = bentoIn(now);
+      const held = new Set(bento.matches(":hover, :focus-within") ? boxesIn(bento).map(b => b.dataset.sign || "") : []);
+      const list = AuroraBoxes.shown(all, Date.now(), held).slice(0, SHOWN_BOXES);
       place(bento, list);
+      // A box that leaves on its own leaves on time, with nothing else changing.
+      clearTimeout(leaving);
+      const wait = AuroraBoxes.next(list);
+      if (wait !== null) leaving = setTimeout(refresh, wait + LEAVE_SLACK_MS);
       const row = now.querySelector("#conv-head .row, .conv-head .row");
       if (row) {
         let d = row.querySelector(":scope > .stage-dock");

@@ -226,6 +226,50 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-badge
   text-align: center;
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  margin: -2px -4px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close::after {
+  content: "";
+  position: absolute;
+  inset: -13px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close svg.ic {
+  width: 12px;
+  height: 12px;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.stage-tile:hover, .stage-tile:focus-within) .stage-tile-close {
+  opacity: 1;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile-close:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg);
+}
+
+@media (hover: none) {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .stage-tile-close {
+    opacity: 1;
+  }
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-tile .mini-dot {
   width: 7px;
   height: 7px;

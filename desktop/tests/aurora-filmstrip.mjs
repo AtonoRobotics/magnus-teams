@@ -54,7 +54,7 @@ section.conv { display: flex; flex-direction: column; height: 100%; } .thread { 
 <div class="thread" id="thread"></div>
 <div class="composer-slot" id="slot"><form class="say" onsubmit="return false"><textarea id="msg" rows="1" placeholder="Ask Magnus to handle something for your team..."></textarea><div class="say-bar"><span class="grow"></span><button type="button" class="icon-btn voice-in" aria-pressed="false" aria-label="Voice input"><svg class="ic"></svg></button><button class="send primary" aria-label="Send">Send</button></div></form></div>
 </section></main></div>
-<script>${stubs}</script><script>${ui("aurora.js")}</script><script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script>
+<script>${stubs}</script><script>${ui("aurora.js")}</script><script>${ui("aurora-boxes.js")}</script><script>${ui("aurora-stage.js")}</script><script>${ui("aurora-reasoning.js")}</script>
 <script>const box = document.getElementById("msg"); box.addEventListener("input", () => { box.style.height = "auto"; box.style.height = box.scrollHeight + "px"; });</script></body></html>`;
 
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
