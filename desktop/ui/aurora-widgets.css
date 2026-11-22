@@ -138,6 +138,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primar
   transition: box-shadow .2s var(--ease), transform .2s var(--ease), filter .2s var(--ease);
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .appr-hist-row .ask-answers button[data-offer="allow"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(button.primary, .button.primary):hover {
   box-shadow: 0 14px 36px color-mix(in srgb, var(--aurora-beam-a) 34%, transparent);
 }

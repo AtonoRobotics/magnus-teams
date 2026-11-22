@@ -46,13 +46,14 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) ::-webkit-scrollb
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip {
   position: relative;
   min-width: 0;
+  flex: 0 1 auto;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip > summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: min(260px, 52vw);
+  max-width: min(260px, 46vw);
   min-height: 30px;
   padding: 0 10px;
   border-radius: var(--r-pill);

@@ -78,7 +78,7 @@
     if (typeof AuroraCore !== "undefined") return AuroraCore.refreshState();
     if (document.querySelector('.voice-in[aria-pressed="true"], .room-video-listening')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
-    if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .aurora-reason[data-phase="needs"]')) return "needs";
+    if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .detail-body[data-panel="needs"] .ask-answers, .aurora-reason[data-phase="needs"]')) return "needs";
     if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"], .aurora-reason[data-phase="working"]')) return "executing";
     // An answer being thought out or written (aurora-reasoning.js).
     if (document.querySelector('.aurora-reason:is([data-phase="thinking"], [data-phase="writing"])')) return "thinking";
@@ -468,6 +468,7 @@
   // Tactile pointer/touch spotlight + gentle 3D background parallax
   let pointerQueued = false;
   let lastEv = null;
+  let lastSpotEl = null;
   function onPointerMove(e) {
     if (!active || motionMode() !== "full") return;
     lastEv = e;
@@ -479,8 +480,12 @@
       if (!ev) return;
       parTargetX = ((ev.clientX / Math.max(1, window.innerWidth)) - 0.5) * 0.09;
       parTargetY = ((ev.clientY / Math.max(1, window.innerHeight)) - 0.5) * 0.09;
-      if (!(ev.target instanceof Element)) return;
-      const targetEl = ev.target.closest(".hello-card, .explore-card, .card, .say, .stage-tile, .companion-active-card, .gbox");
+      const targetEl = ev.target instanceof Element ? ev.target.closest(".hello-card, .explore-card, .card, .say, .stage-tile, .companion-active-card, .gbox") : null;
+      if (lastSpotEl && lastSpotEl !== targetEl) {
+        lastSpotEl.style.removeProperty("--aurora-mx");
+        lastSpotEl.style.removeProperty("--aurora-my");
+      }
+      lastSpotEl = targetEl;
       if (!targetEl) return;
       const rect = targetEl.getBoundingClientRect();
       targetEl.style.setProperty("--aurora-mx", `${((ev.clientX - rect.left) / Math.max(1, rect.width)) * 100}%`);

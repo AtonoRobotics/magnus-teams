@@ -3195,8 +3195,19 @@ async function openSettingsModal(which) {
     d.className = "settings-modal";
     d.setAttribute("aria-label", "Settings");
     document.body.append(d);
-    d.addEventListener("click", e => { if (e.target === d) d.close(); });
+    const onHash = () => {
+      if (!location.hash.startsWith("#/settings") && !location.hash.startsWith("#/admin") && location.hash !== "#/models") {
+        navigatingAway = true;
+        if (d.open) d.close();
+      }
+    };
+    window.addEventListener("hashchange", onHash);
+    d.addEventListener("click", e => {
+      if (e.target === d) { d.close(); return; }
+      if (/** @type {Element} */ (e.target).closest?.('a[href^="#/"]')) { navigatingAway = true; d.close(); }
+    });
     d.addEventListener("close", () => {
+      window.removeEventListener("hashchange", onHash);
       d.remove();
       if (!navigatingAway && (location.hash.startsWith("#/settings") || location.hash.startsWith("#/admin"))) {
         location.hash = App.lastNonSettingsHash || "#/home";

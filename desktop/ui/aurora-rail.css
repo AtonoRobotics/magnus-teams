@@ -178,6 +178,7 @@ nav.side button.aurora-avatar-nav {
 .aurora-avatar-bar {
   display: none;
   flex: none;
+  margin: 0 4px 0 2px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .aurora-avatar-bar {

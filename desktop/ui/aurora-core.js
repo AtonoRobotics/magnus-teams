@@ -56,7 +56,7 @@ const AuroraCore = (() => {
   function detect() {
     if (document.querySelector('.voice-in[aria-pressed="true"], .room-video-listening')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "control";
-    if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .aurora-reason[data-phase="needs"]')) return "waiting";
+    if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .detail-body[data-panel="needs"] .ask-answers, .aurora-reason[data-phase="needs"]')) return "waiting";
 
     const pills = [...document.querySelectorAll(".aurora-reason")].filter(p => p.isConnected);
     const last = /** @type {HTMLElement|undefined} */ (pills[pills.length - 1]);

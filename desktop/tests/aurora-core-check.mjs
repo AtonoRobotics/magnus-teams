@@ -138,6 +138,9 @@ function makeHarness({ style = "aurora", motion = "full" } = {}) {
   h.setSelectors([".stage-decision"]);
   assert.equal(h.core.refreshState(), "waiting");
 
+  h.setSelectors(['.detail-body[data-panel="needs"] .ask-answers']);
+  assert.equal(h.core.refreshState(), "waiting");
+
   h.setSelectors(['.voice-in[aria-pressed="true"]']);
   assert.equal(h.core.refreshState(), "listening");
   assert.equal(h.documentElement.dataset.auroraState, "listening");

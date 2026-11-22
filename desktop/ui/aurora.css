@@ -54,8 +54,8 @@
 
 /* ---------- 1. Living Ambient Shader Canvas & Floating Bento Shell ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) {
-  --aurora-mx: 50%;
-  --aurora-my: 50%;
+  --aurora-mx: -999px;
+  --aurora-my: -999px;
   /* How long the stage takes to slide (the mockup's .55s). */
   --aurora-stage-ms: 520ms;
 }
@@ -192,6 +192,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
     grid-template-columns: var(--nav-width) minmax(0, 1fr) 0px 0px;
     padding: 12px;
     column-gap: 0;
+    row-gap: 0;
+  }
+
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-workspace=split]:not([data-navigation=drawer]) .shell:not(:has(> aside.detail > .stage-artifact)) {
     row-gap: 12px;
   }
 
@@ -684,12 +688,11 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar label.mo
     max-width: 100%;
     font-size: 12px;
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar:has(> label.model, > .whisper) > .grow {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar:has(> .whisper) > .grow {
     flex-basis: 100%;
     height: 0;
   }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar .voice-in:not([hidden]),
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar .voice-in[hidden] + button.send {
+  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .say-bar:has(> .whisper) .attachment-picker {
     margin-left: auto;
   }
 }

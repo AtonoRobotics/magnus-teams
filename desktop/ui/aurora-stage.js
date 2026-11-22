@@ -121,8 +121,8 @@ const AuroraStage = (() => {
     } else if (last) {
       list.push({ ...live, tone: last.status === "completed" ? "done" : "idle", open: `task:${last.task_id}`, href: `#/task/${enc(last.task_id)}`, title: named(last), desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped") });
     }
-    // The decision open beside the conversation is not also a box.
-    const pending = needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
+    // Approvals already open beside the conversation (either the list or this decision) are not also a box.
+    const pending = Panel.what === "needs" ? [] : needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
     if (held && held.until > Date.now()) list.push(held.box);
     else held = null;
     // A decision whose box was closed leaves the box to the next one waiting.
