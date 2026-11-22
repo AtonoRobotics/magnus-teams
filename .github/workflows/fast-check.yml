@@ -1,0 +1,39 @@
+name: fast check
+on:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: magnus_dev
+        ports:
+          - 54340:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.commit }}
+      - name: Pinned Node
+        # The same Node on every machine (ci/ensure-node.sh, .node-version).
+        run: sh ci/ensure-node.sh >> "$GITHUB_PATH"
+      - name: Install the pinned toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      # Every check is in ci/fast.sh, which a manual release runs too.
+      - run: sh ci/fast.sh

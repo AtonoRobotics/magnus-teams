@@ -46,6 +46,7 @@ check sh ci/production-guard-check.sh
 check sh ci/strix-gc-check.sh
 check sh ci/ratchet-check.sh
 check sh ci/release-gate-check.sh
+check python3 -I ci/push-commit-batches-test.py
 check sh ci/toolchain-check.sh
 check python3 -I sandbox/desktop/test_desktop.py
 check python3 -I sandbox/test_images.py

@@ -1,0 +1,32 @@
+# Check the earlier commits independently so only the tip's verdict gates release.
+name: earlier commits in push
+on:
+  push:
+    branches: ["**"]
+permissions:
+  contents: read
+jobs:
+  commits:
+    if: github.event.before != github.event.after && !github.event.deleted
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      batches: ${{ steps.commits.outputs.batches }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Find earlier commits
+        id: commits
+        run: python3 -I ci/push-commit-batches.py >> "$GITHUB_OUTPUT"
+
+  fast:
+    needs: commits
+    if: needs.commits.outputs.batches != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.commits.outputs.batches) }}
+    uses: ./.github/workflows/push-commit-batch.yml
+    with:
+      commits: ${{ toJSON(matrix.commits) }}

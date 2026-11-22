@@ -1,0 +1,19 @@
+name: check a batch of commits
+on:
+  workflow_call:
+    inputs:
+      commits:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  fast:
+    name: ${{ matrix.commit }}
+    strategy:
+      fail-fast: false
+      matrix:
+        commit: ${{ fromJSON(inputs.commits) }}
+    uses: ./.github/workflows/fast-check.yml
+    with:
+      commit: ${{ matrix.commit }}

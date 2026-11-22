@@ -4,7 +4,7 @@
 #   - ci/fast.sh refuses a Node other than .node-version's before it checks
 #     anything, and runs every check with TZ=Pacific/Kiritimati;
 #   - ci/ensure-node.sh has a digest for .node-version's version;
-#   - fast.yml, the release build and ci/on-strix-beta.sh put that Node first.
+#   - fast-check.yml, the release build and ci/on-strix-beta.sh put that Node first.
 # Uses a stand-in node and cargo, so nothing is built or downloaded.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,7 +37,7 @@ fi
 
 grep -q "^  $want) digest=[0-9a-f]\{64\} ;;" "$root/ci/ensure-node.sh" || bad "ci/ensure-node.sh has no digest for Node $want"
 step='run: sh ci/ensure-node.sh >> "$GITHUB_PATH"'
-grep -qF "$step" "$root/.github/workflows/fast.yml" || bad "fast.yml does not put the pinned Node first"
+grep -qF "$step" "$root/.github/workflows/fast-check.yml" || bad "fast-check.yml does not put the pinned Node first"
 # The release build puts it first before anything runs Node: its checks and npm.
 awk -v step="$step" 'index($0, step) { seen = 1 } /name: (Fast checks|Images)/ && !seen { exit 1 }' "$root/.github/workflows/release.yml" \
   && grep -qF "$step" "$root/.github/workflows/release.yml" || bad "the release build does not put the pinned Node first"

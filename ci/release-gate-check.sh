@@ -11,6 +11,9 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 release=$root/.github/workflows/release.yml
 fast=$root/.github/workflows/fast.yml
+fast_check=$root/.github/workflows/fast-check.yml
+earlier=$root/.github/workflows/push-commits.yml
+batch=$root/.github/workflows/push-commit-batch.yml
 script=$root/ci/fast.sh
 fail=0
 bad() { echo "FAIL: $*" >&2; fail=1; }
@@ -35,9 +38,15 @@ refs=$(grep -cF 'ref: ${{ github.event.workflow_run.head_sha || github.sha }}' "
 
 # One list of checks.
 grep -qx 'name: fast' "$fast" || bad "fast.yml is not named 'fast', which release.yml waits for"
-has "$fast" 'run: sh ci/fast.sh' || bad "fast.yml does not run ci/fast.sh"
-others=$(grep -E '^[[:space:]]*(- )?run:' "$fast" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' || true)
-[ -z "$others" ] || bad "fast.yml runs checks outside ci/fast.sh: $others"
+has "$fast" 'uses: ./.github/workflows/fast-check.yml' || bad "fast.yml does not use the shared fast check"
+has "$fast" 'commit: ${{ github.sha }}' || bad "fast.yml does not check the pushed tip"
+has "$earlier" 'uses: ./.github/workflows/push-commit-batch.yml' || bad "push-commits.yml does not check the earlier commits"
+has "$batch" 'uses: ./.github/workflows/fast-check.yml' || bad "push-commit-batch.yml does not use the shared fast check"
+has "$batch" 'commit: ${{ matrix.commit }}' || bad "push-commit-batch.yml does not check each listed commit"
+has "$fast_check" 'ref: ${{ inputs.commit }}' || bad "fast-check.yml does not check out the requested commit"
+has "$fast_check" 'run: sh ci/fast.sh' || bad "fast-check.yml does not run ci/fast.sh"
+others=$(grep -E '^[[:space:]]*(- )?run:' "$fast_check" | grep -vF 'sh ci/fast.sh' | grep -vF 'rustup show' | grep -vF 'sh ci/ensure-node.sh' || true)
+[ -z "$others" ] || bad "fast-check.yml runs checks outside ci/fast.sh: $others"
 has "$release" 'run: sh ci/fast.sh' || bad "a manual release does not run ci/fast.sh"
 has "$script" 'for f in desktop/tests/*-check.mjs; do' || bad "ci/fast.sh does not run every desktop/tests/*-check.mjs"
 # The lock file is checked as committed before any cargo command could
