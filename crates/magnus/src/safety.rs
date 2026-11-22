@@ -148,6 +148,16 @@ pub(crate) enum Resubmission {
     Revised(String),
 }
 
+#[cfg(test)]
+fn resubmission(run: &str, tool: &str, hash: &str) -> Option<Resubmission> {
+    let (blocked, reason) = remembered(&BLOCKED, &blocked_key(run, tool))?;
+    Some(if blocked == hash {
+        Resubmission::Unchanged(format!("this is the message that was blocked, unchanged: {reason}"))
+    } else {
+        Resubmission::Revised(format!("this revises a message that was blocked: {reason}"))
+    })
+}
+
 /// A block, remembered so the same message stays blocked and a rewrite is
 /// reviewed knowing why.
 fn blocked(run: &str, tool: &str, hash: &str, reason: &str) -> String {
