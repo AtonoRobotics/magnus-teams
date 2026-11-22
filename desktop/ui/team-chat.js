@@ -94,13 +94,21 @@ function channelFaces(home, c, project) {
   return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
-/** What only a channel's head has: who is in it, how the agent takes part, notifications, pins, archive. */
+/** Clean Room header: faces, Join Call, Work toggle, and a compact overflow menu for secondary controls. */
 function channelTools(home, c, project, pinsOnly) {
   const helpful = c.mode === "when_helpful";
-  return `${channelFaces(home, c, project)}${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span class="sr">Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Magnus replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Magnus joins when it can help</option></select></label>`}
-      <select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select>
-      <button type="button" data-pins aria-pressed="${pinsOnly}">${pinsOnly ? "All messages" : "Pinned"}</button>
-      <button type="button" data-archive="${c.archived ? "off" : "on"}" title="${c.archived ? "Back to your list" : "Off your list until someone writes here"}">${c.archived ? "Unarchive" : "Archive"}</button>${c.direct ? `<button type="button" class="danger" data-clear-conversation>Delete conversation</button>` : ""}`;
+  const ext = typeof TeamRooms !== "undefined" ? TeamRooms.renderSlot("headerActions", { ws: home.id, channel: c.id }) : "";
+  const camSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`;
+  return `${channelFaces(home, c, project)}${ext}
+    <button type="button" class="room-call-btn" data-room-call>${camSvg}<span>Join Call</span></button>
+    <button type="button" class="room-work-btn" data-room-work-toggle><span class="room-work-dot" aria-hidden="true"></span><span>Work</span></button>
+    <details class="room-more"><summary aria-label="Room options">⋯</summary><div class="room-more-menu">
+      ${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span>Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Joins when helpful</option></select></label>`}
+      <label class="small"><span>Notifications</span><select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+      <button type="button" data-pins aria-pressed="${pinsOnly}">${pinsOnly ? "All messages" : "Pinned messages"}</button>
+      <button type="button" data-archive="${c.archived ? "off" : "on"}">${c.archived ? "Unarchive room" : "Archive room"}</button>
+      ${c.direct ? `<button type="button" class="danger" data-clear-conversation>Delete conversation</button>` : ""}
+    </div></details>`;
 }
 
 /** Drafts survive a switch of channel and a restart, where storage allows. */

@@ -60,12 +60,11 @@ const home = {
 Team.home = home; Team.ws = "w";
 const rail = sandbox.railHtml(home, { kind: "channel", id: "c1" });
 assert.match(rail, /Alpha &#60;Vector&#62;/, "the workspace's name was not escaped");
-assert.match(rail, /Magnus alpha<span class="small faint">1\/3<\/span>/, "a project's progress is not at a glance");
+assert.match(rail, /<h3>Rooms<\/h3>/, "the rail lists Rooms");
 assert.match(rail, /#magnus-alpha<span class="team-count loud" aria-label="2 mentions">2<\/span>/, "mentions are not counted in the rail");
 assert.match(rail, /data-channel="c1"[^>]*aria-current="page"|aria-current="page" data-channel="c1"/, "the open channel is not marked");
 assert.doesNotMatch(rail.match(/data-channel="c2"[^]*?<\/a>/)[0], /team-count/, "a channel with notifications off still shows a count");
-assert.match(rail, /data-direct-agent[^]*Magnus <span class="small faint">team<\/span>/, "the team agent is not listed among the agents");
-assert.match(rail, /Your Magnus <span class="small faint">private<\/span>/);
+assert.match(rail, /<h3>People<\/h3>/, "the rail lists People");
 assert.match(rail, /team-presence on[^]*Dana/, "presence is not shown for a direct message");
 assert.match(rail, /data-dm="leo"/, "someone without a conversation yet cannot be messaged");
 assert.doesNotMatch(rail, /data-dm="dana"/, "someone already in a direct message is listed twice");
@@ -154,31 +153,24 @@ assert.match(board, /href="#\/team\/w\/c\/c1\/t\/m1">From the conversation/, "a 
 assert.match(board, /data-new-task="todo"/, "a task cannot be added by typing");
 assert.doesNotMatch(sandbox.boardHtml([], "w", name, false), /data-new-task/, "a guest can add tasks");
 assert.match(sandbox.progressBar({ done: 1, total: 4 }), /aria-valuenow="25"/);
-const overview = sandbox.overviewHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w");
-assert.match(overview, /data-team-screen="pc1"/, "the panel does not show the team computer's screen");
+const overview = sandbox.overviewHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1");
 assert.match(overview, /Magnus is working for Dana/, "the panel does not say whom the agent works for");
-assert.match(overview, /data-take-over="pc1"/, "the team computer cannot be taken over from the panel");
+assert.match(overview, /data-mission-new/, "the panel offers inline shared work creation");
 assert.match(sandbox.teamFilesHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w"), /notes\.md[^]*lib-size/, "the Files tab does not list the files with their size");
-// The side panel is laid out as a person's own right panel: one head row
-// with the agent's status, four tabs, the open tab, the computer at its foot.
+// The redesigned side panel has two intuitive tabs: Work (activity) and People (members).
 const side = sandbox.teamSideHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1", "activity");
 assert.match(side, /class="companion-id"[^]*companion-status-lbl run">Working · 1 active</, "the side panel's head does not say how the agent stands");
-assert.deepEqual([...side.matchAll(/data-team-side-tab="(\w+)"/g)].map(m => m[1]), ["activity", "tasks", "files", "members"], "the side panel does not have its four tabs");
+assert.deepEqual([...side.matchAll(/data-team-side-tab="(\w+)"/g)].map(m => m[1]), ["activity", "members"], "the side panel has Work and People tabs");
 assert.match(side, /data-team-side-tab="activity" aria-current="page"/, "the open tab is not marked");
 assert.match(side, /Active now[^]*Magnus is working for Dana/, "the agent's current work is not the Active now card");
-assert.match(side, /class="companion-computer" data-computer-bar="pc1"/, "the team computer is not at the panel's foot");
-assert.doesNotMatch(side, /notes\.md|data-members-card/, "the Activity tab carries the other tabs' content");
-assert.match(sandbox.teamSideHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1", "members"), /data-members-card/, "the Members tab does not show the members");
+assert.doesNotMatch(side, /notes\.md|data-members-card/, "the Work tab carries the other tabs' content");
+assert.match(sandbox.teamSideHtml({ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, "w", "c1", "members"), /data-members-card/, "the People tab does not show the members");
 assert.match(sandbox.teamSideHtml({ ...{ project: null, channels: ["c1"], files: [{ name: "notes.md", size: 1, by: "leo", by_name: "Leo", project: null }], tasks: [], work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: false, steps: 1 }], members: [{ id: "dana", name: "Dana" }], knowledge: 0, progress: null, computer: "pc1" }, work: [{ task: "t1", channel: "c1", requester: "dana", requester_name: "Dana", waiting: true, steps: 1 }] }, "w", "c1", "activity"), /Waiting on someone \(1\)[^]*Magnus is waiting for Dana/, "work waiting on a person is not at the top");
 const noComputer = { project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null };
-// One computer, always there (spec rev 142): nobody sets the team computer
-// up, an admin no more than a member; before the server has made it, the
-// panel says it is coming.
 for (const role of ["member", "admin", "owner"]) {
   Team.home = { ...home, role };
   const html = sandbox.overviewHtml(noComputer, "w");
-  assert.doesNotMatch(html, /data-team-computer-new|a computer<\/button>/, `the ${role} is offered to set up the team computer`);
-  assert.match(html, /being set up/, `the ${role} is not told the computer is coming`);
+  assert.doesNotMatch(html, /data-team-computer-new|a computer<\/button>/, `the ${role} is offered to set up a shared team computer`);
 }
 // Routines in the Team side panel: visible to members, and editable/restartable by admins.
 const withRoutines = {

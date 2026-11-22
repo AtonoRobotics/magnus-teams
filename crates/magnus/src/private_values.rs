@@ -109,7 +109,26 @@ fn private_texts(s: &State, run: &Run) -> Option<Vec<String>> {
     (!texts.is_empty() || !run.private).then_some(texts)
 }
 
+/// What the agent is told when a public page action from a private
+/// conversation cannot be checked, and the research worker should do it.
+const RESEARCH_INSTEAD: &str = "public web browsing does not run inside a private conversation; call research_web with a clean public query instead (it runs in an isolated OpenWeb worker with autonomous search, page fetch, and browser navigation/clicking)";
+
 impl Kernel {
+    /// Whether a public web read (`read`) or page action from a run holding
+    /// untrusted content and private data may go: `Err` says why not. Where
+    /// the private data cannot all be listed, reads fall back to the address
+    /// rules (`web_open`) and page actions to the research worker.
+    pub(crate) async fn public_web_send(&self, a: &crate::boundary::Action, run: &Run, read: bool) -> anyhow::Result<Result<(), &'static str>> {
+        let url = a.input["url"].as_str().unwrap_or_default();
+        Ok(match self.web_address_carries_private_data(run, &a.input.to_string()).await? {
+            Some(false) => Ok(()),
+            Some(true) => Err(CARRIES_PRIVATE_DATA),
+            None if read && self.opens_on_its_own(run, url).await? => Ok(()),
+            None if read => Err(crate::web_open::WRITTEN_ADDRESS_REFUSED),
+            None => Err(RESEARCH_INSTEAD),
+        })
+    }
+
     /// Whether `url`, which a run holding untrusted content and private data
     /// would open, carries private data. `None` when the run's private data
     /// cannot all be listed, and the address rules (`web_open`) decide.

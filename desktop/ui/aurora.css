@@ -284,6 +284,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.aurora-deta
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #main.team-main {
   background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter {

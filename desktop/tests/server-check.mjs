@@ -176,6 +176,7 @@ const table = [
   ["workspaces.join", ["a/b"], "POST", "/v1/invites/a%2Fb/join", {}],
   ["workspaces.home", [W], "GET", `${w}/home`, undefined],
   ["workspaces.capabilities", [W], "GET", `${w}/capabilities`, undefined],
+  ["workspaces.memory", [W, "q3"], "GET", `${w}/memory?q=q3`, undefined],
   ["workspaces.missions", [W, "r1"], "GET", `${w}/rooms/r1/missions`, undefined],
   ["workspaces.createMission", [W, "r1", { goal: "g" }], "POST", `${w}/rooms/r1/missions`, { goal: "g" }],
   ["workspaces.releaseLane", [W, "m1", "l1", { save_standing_rule: true }], "POST", `${w}/missions/m1/lanes/l1/release`, { save_standing_rule: true }],

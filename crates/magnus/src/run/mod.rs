@@ -110,15 +110,15 @@ fn harness_text(who: &str, search: bool, sandbox: bool, browser: bool, watched: 
         s.push_str(&format!("\nYou also wake on your own when something new arrives in their connected apps: {list}, and at once where the service pushes a notification. Each arrival starts a review in which you read it and decide whether to tell them, suggest work, act within a grant, or stay quiet. So you do get notified of their new email and other items in these apps.\n"));
     }
     if search {
-        s.push_str("\nYou can search the web with web_search, and fetch any page with web_fetch.\n");
+        s.push_str("\nFor any public web search, research, or browsing, prefer research_web — it runs in an isolated OpenWeb worker with no private data and full autonomous web search, page fetch, and browser navigation/clicking. You can search the web with web_search, and fetch any page with web_fetch.\n");
     } else {
-        s.push_str("\nYou cannot search the web; you can still fetch a page when given its address.\n");
+        s.push_str("\nYou cannot search the web; you can still fetch a page when given its address or delegate public browsing to research_web.\n");
     }
     if sandbox {
         s.push_str("\nYou have a sandbox, a fresh VM from the sandbox image with /workspace: check your work there the way it allows, by running your tests or a demo, before you report it.\n");
     }
     if browser {
-        s.push_str("\nYou can drive a web browser with the browser tools.\n");
+        s.push_str("\nYou can drive a web browser with the browser tools (for public browsing while holding private data, use research_web).\n");
     }
     s
 }

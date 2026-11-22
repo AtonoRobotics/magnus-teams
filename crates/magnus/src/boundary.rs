@@ -677,28 +677,20 @@ impl Kernel {
                 return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
             }
         }
-        let link_only = self.read(|s| s.compartments.of(&a.run).is_link_following_only());
-        if link_only && f.connector.is_none() && wr == crate::tool_registry::WebRead::OpensUrl && !self.open_web_link_allowed(a, f, run).await? {
-            let why = "this OpenWeb worker only follows links from its own search results, loaded pages, or the user's request; search first and open a returned link";
-            return Ok(Err(self.deny(a, "policy", why, false, None).await?));
-        }
         let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
-        let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || (f.app == "browser" && !a.tool.starts_with("browser_as_")));
+        let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
+        let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
-        if web_or_browser_read && !is_query_tool && untrusted && private {
-            // Any address opens unless what it sends carries private data
-            // the conversation read; no card either way. Address rules only
-            // where that data cannot be listed (decisions/2026-11-22-requests-checked-for-private-data.md).
-            let raw_url = a.input["url"].as_str().unwrap_or_default();
-            if self.plain_web_read(a, f, run).await? {
+        // Any address, click or typed entry goes unless what it sends carries
+        // private data the conversation read; no card either way
+        // (decisions/2026-11-22-requests-checked-for-private-data.md).
+        if ((web_or_browser_read && !is_query_tool) || public_browser) && untrusted && private {
+            if web_or_browser_read && self.plain_web_read(a, f, run).await? {
                 url_cleared = true;
+            } else if let Err(why) = self.public_web_send(a, run, web_or_browser_read).await? {
+                return Ok(Err(self.deny(a, "policy", why, false, None).await?));
             } else {
-                match self.web_address_carries_private_data(run, &a.input.to_string()).await? {
-                    Some(false) => url_cleared = true,
-                    Some(true) => return Ok(Err(self.deny(a, "policy", crate::private_values::CARRIES_PRIVATE_DATA, false, None).await?)),
-                    None if self.opens_on_its_own(run, raw_url).await? => url_cleared = true,
-                    None => return Ok(Err(self.deny(a, "policy", crate::web_open::WRITTEN_ADDRESS_REFUSED, false, None).await?)),
-                }
+                url_cleared = true;
             }
         }
 

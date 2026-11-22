@@ -20,6 +20,15 @@ page), against the private values the conversation has read
   carried in with nothing on record), the address rules of
   `decisions/2026-11-22-browsing-without-asks.md` decide, as before.
 
+Merged with `main`'s `decisions/2026-11-22-no-webpage-approval-cards.md` and
+`decisions/2026-11-22-openweb-autonomous-browsing.md` the same day: the agent
+is still told to prefer `research_web` for public research, and the `OpenWeb`
+worker, which holds nothing private, browses with no address limit. Where
+that decision refused every address, click and typed entry the main run made
+itself, this check now lets each go unless it carries private data; only
+where the private data cannot be listed does a page action go to
+`research_web` instead.
+
 Web reads no longer bring the Rule of Two's ask: what a read can carry out is
 checked directly. Writes to people (mail, posts, records) keep the envelope,
 drafts and asks they have. `web_search` keeps its query gate.

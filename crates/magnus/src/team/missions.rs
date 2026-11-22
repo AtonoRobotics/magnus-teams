@@ -53,6 +53,40 @@ pub struct Mission {
     pub complete: bool,
 }
 
+/// Simplified 2-role model (`Member` / `Admin`) mapped from legacy 4-tier `Role`
+/// so old event logs replay cleanly while new UI & APIs drop RBAC bureaucracy.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TeamRole {
+    Member,
+    Admin,
+}
+
+impl From<super::Role> for TeamRole {
+    fn from(r: super::Role) -> Self {
+        match r {
+            super::Role::Admin | super::Role::Owner => TeamRole::Admin,
+            super::Role::Guest | super::Role::Member => TeamRole::Member,
+        }
+    }
+}
+
+/// One entry in unified `workspace:<id>` memory, indexed exclusively from
+/// explicitly released `TeamContribution`s or completed Mission deliverables.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct WorkspaceMemoryItem {
+    pub id: String,
+    pub scope: String,
+    pub mission: String,
+    pub room: String,
+    pub title: String,
+    pub body: String,
+    pub released_by: String,
+    /// Workspace memory is always labeled `untrusted: true` when read into a
+    /// member's Personal Agent so teammates cannot inject another member's run.
+    pub untrusted: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct MissionLedger {
     missions: BTreeMap<String, Mission>,
@@ -62,6 +96,8 @@ pub struct MissionLedger {
     avatars: BTreeMap<String, ProfileAvatar>,
     /// Personal apps a user chose to hide from Team capability discovery.
     hidden_apps: BTreeMap<String, BTreeSet<String>>,
+    /// Unified `workspace:<id>` memory entries populated only from released contributions.
+    workspace_memory: BTreeMap<String, Vec<WorkspaceMemoryItem>>,
 }
 
 impl crate::forget::Forget for MissionLedger {
@@ -131,13 +167,34 @@ impl MissionLedger {
                     }
                 }
             }
-            TeamMissionEvent::LaneReleased { mission, lane, contribution, released_by, .. } => {
-                if let Some(l) = self.missions.get_mut(mission).and_then(|m| m.lanes.get_mut(lane)) {
-                    l.contribution = Some(contribution.clone());
-                    l.released_by = Some(released_by.clone());
-                    l.private_draft = None;
-                    l.scrub_flagged = false;
-                    l.status = LaneStatus::Released;
+            TeamMissionEvent::LaneReleased { workspace, mission, lane, contribution, released_by } => {
+                let mut meta: Option<(String, String)> = None;
+                if let Some(m) = self.missions.get_mut(mission) {
+                    if let Some(l) = m.lanes.get_mut(lane) {
+                        l.contribution = Some(contribution.clone());
+                        l.released_by = Some(released_by.clone());
+                        l.private_draft = None;
+                        l.scrub_flagged = false;
+                        l.status = LaneStatus::Released;
+                        meta = Some((m.room.clone(), l.objective.clone()));
+                    }
+                }
+                if let Some((room, title)) = meta {
+                    let scope = crate::memory_index::MemoryScope::Workspace(workspace.clone()).key();
+                    let entries = self.workspace_memory.entry(workspace.clone()).or_default();
+                    let is_dup = entries.iter().any(|e| crate::memory_index::token_overlap_similarity(&e.body, contribution) >= crate::memory_index::DEDUP_TOKEN_OVERLAP_THRESHOLD);
+                    if !is_dup {
+                        entries.push(WorkspaceMemoryItem {
+                            id: format!("{mission}:{lane}"),
+                            scope,
+                            mission: mission.clone(),
+                            room,
+                            title,
+                            body: contribution.clone(),
+                            released_by: released_by.clone(),
+                            untrusted: true,
+                        });
+                    }
                 }
             }
             TeamMissionEvent::LaneFailed { mission, lane, reason, .. } => {
@@ -191,6 +248,22 @@ impl MissionLedger {
 
     pub fn is_app_hidden(&self, person: &str, app: &str) -> bool {
         self.hidden_apps.get(person).is_some_and(|s| s.contains(app))
+    }
+
+    /// Searches unified `workspace:<id>` memory (newest first, optional substring
+    /// filter on title/body/room). Every returned entry carries `untrusted: true`.
+    pub fn search_workspace_memory(&self, workspace: &str, query: &str, limit: usize) -> Vec<WorkspaceMemoryItem> {
+        let q = query.trim().to_ascii_lowercase();
+        let Some(items) = self.workspace_memory.get(workspace) else {
+            return Vec::new();
+        };
+        items
+            .iter()
+            .rev()
+            .filter(|i| q.is_empty() || i.title.to_ascii_lowercase().contains(&q) || i.body.to_ascii_lowercase().contains(&q) || i.room.to_ascii_lowercase().contains(&q))
+            .take(limit)
+            .cloned()
+            .collect()
     }
 
     /// Returns all missions in `(workspace, room)` formatted for `viewer`.
@@ -315,5 +388,64 @@ mod tests {
         ledger.apply(&TeamMissionEvent::AppVisibilitySet { person: "bob".into(), app: "google-gmail".into(), hidden: true });
         assert!(ledger.is_app_hidden("bob", "google-gmail"));
         assert!(!ledger.is_app_hidden("bob", "github"));
+    }
+
+    #[test]
+    fn workspace_memory_indexes_only_released_contributions_and_dedups() {
+        let mut ledger = MissionLedger::default();
+        ledger.apply(&TeamMissionEvent::Started {
+            workspace: "ws1".into(),
+            room: "q3".into(),
+            mission: "m1".into(),
+            goal: "Board".into(),
+            requester: "alice".into(),
+            leader_run: None,
+        });
+        ledger.apply(&TeamMissionEvent::LaneDispatched {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l1".into(),
+            kind: LaneKind::MemberAgent,
+            target_member: Some("bob".into()),
+            objective: "Release blockers".into(),
+            scope: "blockers".into(),
+            auto_release: false,
+            child_task: None,
+            child_run: None,
+        });
+        ledger.apply(&TeamMissionEvent::LaneDraftReady {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l1".into(),
+            owner: "bob".into(),
+            draft: "SECRET_UNRELEASED_DRAFT".into(),
+            scrub_flagged: false,
+        });
+        assert!(ledger.search_workspace_memory("ws1", "", 10).is_empty(), "unreleased draft must never enter workspace memory");
+
+        ledger.apply(&TeamMissionEvent::LaneReleased {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l1".into(),
+            contribution: "Stripe webhook retry timeout #418 is in review.".into(),
+            released_by: "bob".into(),
+        });
+        // Duplicate release text is deduplicated.
+        ledger.apply(&TeamMissionEvent::LaneReleased {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l1".into(),
+            contribution: "Stripe webhook retry timeout #418 is in review.".into(),
+            released_by: "bob".into(),
+        });
+        let found = ledger.search_workspace_memory("ws1", "stripe", 10);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].scope, "workspace:ws1");
+        assert!(found[0].untrusted);
+
+        assert_eq!(TeamRole::from(crate::team::Role::Owner), TeamRole::Admin);
+        assert_eq!(TeamRole::from(crate::team::Role::Admin), TeamRole::Admin);
+        assert_eq!(TeamRole::from(crate::team::Role::Member), TeamRole::Member);
+        assert_eq!(TeamRole::from(crate::team::Role::Guest), TeamRole::Member);
     }
 }
