@@ -26,10 +26,26 @@ use tokio::sync::{oneshot, Notify};
 
 /// A program's app name is this and its id: `desktop_blender`.
 pub const APP_PREFIX: &str = "desktop_";
-/// Set on an ask that only a person can answer: the person's own rule
-/// (policy asks first) or a tool that runs code inside a program. Case 4 of
-/// the four asks.
+/// Set on a program's ask that a layer below the organisation's (a group's,
+/// the person's own, the task's) makes by forbidding `execute`: their own
+/// ask first, which no allow rule answers. Case 4 of the four asks. An ask
+/// recorded before `PROGRAM_ASK` existed carries it too, and stays as asked.
 pub const ASK_RULE: &str = "kernel:local_program";
+/// Set on a program's ask that only the organisation's layer makes (by
+/// default, before a tool that may run code). Case 4 of the four asks, and
+/// the one the person may answer with Allow always for that program on
+/// their own computers (decisions/2026-11-19-allow-a-program-always.md).
+pub const PROGRAM_ASK: &str = "kernel:program";
+/// Set on the organisation's ask before a program's tool that runs code
+/// (owner, 2026-11-19; decisions/2026-11-19-code-asks-once-per-task.md).
+/// Case 4. Allow always for the program never answers it: code in a
+/// program can reach the whole computer. It asks once per task (Allow for
+/// this task covers the rest), unless the person's own request asked for
+/// that code to run (`code_asked_for`).
+pub const CODE_ASK: &str = "kernel:program_code";
+/// What Auto Review is told about code a program would run: the bar is the
+/// person's request asking for it, not serving it.
+const CODE_STANDING: &str = "this runs code inside a program on the person's own computer, which can reach the whole computer: allow it only if what the person asked specifically asks for running code, a script or a macro in this program; otherwise ask";
 /// How long a call waits for the computer to answer.
 pub(crate) const JOB_WAIT: Duration = Duration::from_secs(120);
 /// Within this of its last poll or report, a computer counts as online.
@@ -399,14 +415,33 @@ pub fn pick(views: &[DeviceView], program: &str, named: Option<&str>) -> std::re
 /// What a policy decision means for a program's tool. Policy's own ask
 /// stands here as a person's ask: the default asks before code runs, and
 /// a person's forbid of `execute` makes a program's tool ask them first.
-pub fn ask_of(outcome: &Outcome, f: &Facts) -> Option<std::result::Result<(String, Option<String>), String>> {
+/// When a layer below the organisation's asks (`tightened`), the ask is
+/// `ASK_RULE`, which no allow rule answers; otherwise `PROGRAM_ASK`.
+pub fn ask_of(outcome: &Outcome, f: &Facts, tightened: bool) -> Option<std::result::Result<(String, Option<String>), String>> {
     let p = program_of_app(&f.app)?;
+    let rule = if tightened { ASK_RULE } else { PROGRAM_ASK };
     match outcome {
         Outcome::Allow { .. } => None,
         Outcome::Deny { reason, .. } => Some(Err(reason.clone())),
-        Outcome::Ask { .. } if executes_code(p, &f.remote) => Some(Ok((format!("{} runs code inside {} on the person's computer", f.remote, p.title), Some(ASK_RULE.to_string())))),
-        Outcome::Ask { .. } => Some(Ok((format!("policy asks before {} in {}", f.remote, p.title), Some(ASK_RULE.to_string())))),
+        Outcome::Ask { .. } if executes_code(p, &f.remote) => {
+            let rule = if tightened { ASK_RULE } else { CODE_ASK };
+            Some(Ok((format!("{} runs code inside {} on the person's computer", f.remote, p.title), Some(rule.to_string()))))
+        }
+        Outcome::Ask { .. } => Some(Ok((format!("policy asks before {} in {}", f.remote, p.title), Some(rule.to_string())))),
     }
+}
+
+/// The organisation's layer as it stands when only the layers below it are
+/// asked about: it permits everything.
+const ORG_PERMITS_ALL: &str = "permit(principal, action, resource);";
+
+/// Whether a layer below the organisation's (a group's, the person's own,
+/// the task's) keeps this tool from running without a person: with the
+/// organisation's layer permitting everything, it still does not run.
+pub fn tightened(policies: &BTreeMap<String, String>, person: &Person, task: Option<&str>, facts: &ToolFacts, untrusted: bool, private: bool) -> Result<bool> {
+    let mut lower = policies.clone();
+    lower.insert("org".to_string(), ORG_PERMITS_ALL.to_string());
+    Ok(!matches!(crate::policy::decide(&lower, person, task, facts, untrusted, private)?, Outcome::Allow { .. }))
 }
 
 impl Kernel {
@@ -423,10 +458,60 @@ impl Kernel {
         }
         let run = self.read(|s| s.runs.get(&a.run).cloned())?;
         let policies = self.read(|s| s.org.policies().clone());
-        match crate::policy::decide(&policies, person, Some(&run.task), &ToolFacts::from(f), run.untrusted, run.private) {
-            Ok(outcome) => ask_of(&outcome, f),
+        let facts = ToolFacts::from(f);
+        let decided = crate::policy::decide(&policies, person, Some(&run.task), &facts, run.untrusted, run.private).and_then(|outcome| {
+            let lower = matches!(outcome, Outcome::Ask { .. }) && tightened(&policies, person, Some(&run.task), &facts, run.untrusted, run.private)?;
+            Ok((outcome, lower))
+        });
+        match decided {
+            Ok((outcome, lower)) => ask_of(&outcome, f, lower),
             Err(e) => Some(Err(format!("policy could not decide: {e:#}"))),
         }
+    }
+
+    /// The person's rule that lets this program run without asking, saved
+    /// by Allow always on a program's own ask (`rules::compile_program_allow`).
+    /// It answers that ask alone (`PROGRAM_ASK`): never a lower layer's or
+    /// the person's ask first, a payment or case 3; and only while the
+    /// person could approve the action themselves.
+    pub(crate) fn program_rule(&self, run: &crate::state::Run, f: &Facts, asked: &str) -> Option<String> {
+        if asked != PROGRAM_ASK || f.connector.is_some() || program_of_app(&f.app).is_none() || f.risk == Risk::Financial {
+            return None;
+        }
+        let person = self.person(&run.person)?;
+        if !crate::people::rights(&person).may_approve(f.risk) {
+            return None;
+        }
+        let facts = ToolFacts::from(f);
+        self.rules_for(&run.person).into_iter().filter(|r| r.live() && r.effect() == crate::rules::Effect::Allow).find_map(|r| {
+            let c = r.compiled.as_ref()?;
+            let program_wide = c.connector == f.app && c.tool.is_empty() && c.destinations.is_empty();
+            (program_wide && crate::policy::rule_covers(&c.cedar, &person, &facts, "").unwrap_or(false)).then_some(r.id)
+        })
+    }
+
+    /// Whether the person's own request asked for this code to run in the
+    /// program: Auto Review judges, held to the request asking for it
+    /// (`CODE_STANDING`). Some(Pass) runs it with no card; Some(Stop) is
+    /// Auto Review's denial; None leaves the ask to be raised, as it is when
+    /// Auto Review is unsure or cannot answer (the ask is the default here).
+    pub(crate) async fn code_asked_for(
+        &self,
+        a: &Action,
+        run: &crate::state::Run,
+        f: &Facts,
+        shown: Option<&crate::boundary::Shown>,
+        hash: &str,
+    ) -> Result<Option<crate::boundary::Gate>> {
+        use crate::auto_review::Verdict;
+        Ok(match self.auto_review(a, f, run, shown, hash, CODE_STANDING).await? {
+            Verdict::Allow(why) => {
+                self.decision(a, "allow", "auto_review", &format!("the person's request asked for this code to run: {why}"), Some(CODE_ASK.to_string())).await?;
+                Some(crate::boundary::Gate::Pass)
+            }
+            Verdict::Deny(why) => Some(crate::boundary::Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?)),
+            Verdict::Ask(_) | Verdict::Unavailable(_) => None,
+        })
     }
 
     /// Carry out a program's tool, or say where each program stands.

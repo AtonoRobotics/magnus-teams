@@ -1,0 +1,7 @@
+# A run re-lists an app's tools at most once a minute before acting
+
+## Choice
+`Kernel::check_pin` no longer lists the app's tools over the network before every connector call. A run reuses its own listing of an app for `PIN_RELIST_INTERVAL` (60 seconds, `crates/magnus/src/pin_listing.rs`), keyed by app, person and run, and only while the listed definition hashes to the tool's usable pin. It lists again when the listing is older than the interval, lacks the tool, or differs from the pin (a changed, held or unpinned tool). A new run always lists afresh, and a call outside a run (no run id) is never served from a listing. The reused definition goes through the same `pin` and `tool_refusal` as a fresh one.
+
+## Reason
+Item 8 of `docs/proposals/2026-11-19-approvals-review.md`: a listing per action is a round trip on every connector call and denies the action when the listing fails, and no person sees what it protects. The pin's protection stays where it matters: a definition changed between tasks is caught before the next task acts with it (invariant 1's `a_changed_tool_definition_is_disabled_and_hidden` changes the definition between two tasks, and keying by run keeps that deterministic), and any mismatch with the pin lists again. What is given up is a change made in the middle of one run within a minute of its last listing, the window the proposal accepts. The cache is a module static rather than a kernel field because `kernel.rs` is at its 800-line limit; its entries carry the run id, so kernels in one test process do not share them.

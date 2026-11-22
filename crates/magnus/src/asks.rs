@@ -10,8 +10,8 @@
 //! An ask is a card the client draws in the conversation the work came
 //! from and in the approval list. The agent never writes or sees it: the
 //! run only waits. Its sentence is the server's, made from structured
-//! fields. Allow covers the rest of the task (same kind, same
-//! destinations), Allow always saves a narrow rule, Don't allow stops the
+//! fields. Allow covers the rest of the task (any action going nowhere
+//! the person did not allow), Allow always saves a narrow rule, Don't allow stops the
 //! action. A payment and case 3 are allowed one action at a time.
 //!
 //! Every approval card is made here, by `raise`, from a `Reason`: there is
@@ -59,7 +59,12 @@ impl Reason {
         if r == NEW_DESTINATION {
             return Some(Reason::NewDestination);
         }
-        if r == LOCAL_ASK_FIRST || r == crate::desktop::ASK_RULE || r.starts_with(crate::rule_effects::PERSON_RULE) {
+        if r == LOCAL_ASK_FIRST
+            || r == crate::desktop::ASK_RULE
+            || r == crate::desktop::PROGRAM_ASK
+            || r == crate::desktop::CODE_ASK
+            || r.starts_with(crate::rule_effects::PERSON_RULE)
+        {
             return Some(Reason::AskFirst);
         }
         None
@@ -134,12 +139,14 @@ pub(crate) fn destinations(a: &Action, f: &Facts, shown: Option<&Shown>) -> Vec<
 }
 
 /// Whether an Allow given for `approved` covers an action going to `now`:
-/// the same destinations, or fewer of them. An approval from before
-/// destinations were kept covers as it did then.
+/// every place the action goes is one the person allowed. An action that
+/// names no destination (a commit, a deploy, a task update) adds none, so
+/// it is covered; a recipient the Allow did not name is not. An approval
+/// from before destinations were kept covers as it did then.
 pub fn same_destinations(approved: Option<&[String]>, now: &[String]) -> bool {
     match approved {
         None => true,
-        Some(list) => list.is_empty() == now.is_empty() && now.iter().all(|d| list.iter().any(|x| x.eq_ignore_ascii_case(d))),
+        Some(list) => now.iter().all(|d| list.iter().any(|x| x.eq_ignore_ascii_case(d))),
     }
 }
 
@@ -158,22 +165,25 @@ pub struct Query<'a> {
 }
 
 /// Whether one approval covers this action. Allow ("task") covers the rest
-/// of its task for the same tool, risk and destinations (spec, How an ask
-/// looks). Never a payment, covered only by the approval of that very
-/// action; and case 3 only by an Allow the person gave on a case-3 card.
+/// of its task: every later action of any tool, in any app, that goes to no
+/// destination the person did not allow
+/// (decisions/2026-11-19-allow-covers-the-task.md). Never a payment,
+/// covered only by the approval of that very action; and case 3 only by an
+/// Allow the person gave on a case-3 card.
 pub fn covers(ap: &Approval, q: &Query) -> bool {
-    if ap.person != q.person || ap.tool != q.tool || ap.risk.as_deref() != Some(q.risk) {
+    if ap.person != q.person {
         return false;
     }
+    let same_action = ap.tool == q.tool && ap.risk.as_deref() == Some(q.risk);
     let given = Reason::of(ap.reason.as_deref());
     let same_case = q.reason != Some(Reason::NewDestination) || given == Some(Reason::NewDestination);
     let wide = same_case && q.reason.is_none_or(Reason::task_wide) && given.is_none_or(Reason::task_wide);
     match ap.scope.as_str() {
-        "once" => !ap.used && q.tasks.contains(&ap.task) && ap.input_hash.as_deref() == Some(q.hash),
+        "once" => same_action && !ap.used && q.tasks.contains(&ap.task) && ap.input_hash.as_deref() == Some(q.hash),
         "task" => wide && q.tasks.contains(&ap.task) && same_destinations(ap.destinations.as_deref(), q.destinations),
         // Written before rev 140, read as they were given.
-        "window" => wide && ap.until.is_some_and(|u| u > q.now),
-        "standing" => wide,
+        "window" => same_action && wide && ap.until.is_some_and(|u| u > q.now),
+        "standing" => same_action && wide,
         _ => false,
     }
 }
@@ -187,14 +197,95 @@ pub fn remembered(approvals: &[Approval], person: &str, destination: &str) -> bo
 }
 
 /// The narrow rule Allow always saves: this person, this app and tool, these
-/// destinations, allow automatically.
+/// destinations, allow automatically; for a reversible action that names
+/// none, this tool wherever it goes (`rules::compile_tool_allow`).
 pub fn always_rule(person: &str, app: &str, tool: &str, destinations: &[String]) -> std::result::Result<crate::rules::Compiled, String> {
+    if destinations.is_empty() {
+        return crate::rules::compile_tool_allow(person, app, tool);
+    }
     crate::rules::compile(person, app, tool, destinations, false, crate::rules::Effect::Allow)
+}
+
+/// Whether what cannot be undone, or costs money, is at stake: such an ask
+/// is answered for one action or for its task, never for every task.
+fn lasting(risk: &str) -> bool {
+    matches!(Risk::parse(risk), Some(Risk::Irreversible | Risk::Financial | Risk::Prohibited) | None)
+}
+
+/// Whether Allow always is offered on this ask (owner, 2026-11-19): for
+/// an action that can be undone, whether or not it names a destination;
+/// for case 3, only an action that can be undone to a destination the
+/// person can see named (invariant 4);
+/// never for what cannot be undone that Auto Review asked about, which is
+/// allowed for one task at a time; never a payment or an ask-first rule.
+/// A program's own ask is the one exception, by its rule: `program_always`.
+pub fn always_offered(reason: Option<Reason>, risk: &str, dests: &[String]) -> bool {
+    match reason {
+        Some(Reason::NewDestination) => !dests.is_empty() && !lasting(risk),
+        Some(Reason::OutsideRequest) => !lasting(risk),
+        _ => false,
+    }
+}
+
+/// The program a program's own ask is about (`desktop::PROGRAM_ASK`), which
+/// Allow always answers for that program on the person's computers. None
+/// for every other ask: a lower layer's or the person's ask first, a
+/// payment, case 3 (decisions/2026-11-19-allow-a-program-always.md).
+pub fn program_always(rule: Option<&str>, app: &str) -> Option<&'static crate::desktop::Program> {
+    if rule != Some(crate::desktop::PROGRAM_ASK) {
+        return None;
+    }
+    crate::desktop::program_of_app(app)
+}
+
+/// Whether Allow always is offered on an approval item, from its fields:
+/// on a program's own ask, or as `always_offered` says. The card offers it
+/// and the inbox accepts it by this one test.
+pub fn always_offered_for(d: &Value, dests: &[String]) -> bool {
+    let app = d["app"].as_str().unwrap_or_default();
+    !app.is_empty() && (program_always(d["rule"].as_str(), app).is_some() || always_offered(Reason::of(d["rule"].as_str()), d["risk"].as_str().unwrap_or_default(), dests))
+}
+
+/// The rule Allow always saves for an approval item: on a program's own
+/// ask, that program on the person's computers; otherwise `always_rule`.
+pub fn always_rule_for(person: &str, d: &Value, dests: &[String]) -> std::result::Result<crate::rules::Compiled, String> {
+    let app = d["app"].as_str().unwrap_or_default();
+    if program_always(d["rule"].as_str(), app).is_some() {
+        return crate::rules::compile_program_allow(person, app);
+    }
+    always_rule(person, app, d["tool"].as_str().unwrap_or_default(), dests)
+}
+
+/// Whether "Handle things like this" is offered on this ask (owner,
+/// 2026-11-19; decisions/2026-11-19-handle-things-like-this-on-an-ask.md):
+/// on a case-1 ask where Allow always is not offered, for an action in an
+/// app (`app__tool`) that a grant can cover: what cannot be undone. Never a
+/// payment, case 3 or an ask-first rule, which no grant answers.
+pub fn handle_offered(reason: Option<Reason>, risk: &str, dests: &[String], tool: &str, app: &str) -> bool {
+    reason == Some(Reason::OutsideRequest)
+        && !always_offered(reason, risk, dests)
+        && Risk::parse(risk) == Some(Risk::Irreversible)
+        && !app.is_empty()
+        && tool.strip_prefix(app).is_some_and(|rest| rest.starts_with("__"))
+}
+
+/// What the grant form on a card starts from: the action's app, and its
+/// exclusion lifted (what cannot be undone, and sending when it reaches
+/// beyond the person). The title and budget are added where the person's
+/// task and the server's limit are known (`ask_grants`).
+fn handle_prefill(d: &Value) -> Value {
+    let mut allow = vec!["irreversible"];
+    if d["audience"].as_str().is_some_and(|a| a != "private") {
+        allow.push("send");
+    }
+    json!({ "apps": [d["app"]], "app_title": d["app_title"], "allow": allow, "period": "week" })
 }
 
 /// The plain name of where an action happens.
 fn place(app: &str, title: Option<&str>) -> String {
-    match (app, title) {
+    // A program on the person's computer is named by its title: Blender.
+    let program = crate::desktop::program_of_app(app).map(|p| p.title);
+    match (app, title.or(program)) {
         (_, Some(t)) if !t.trim().is_empty() => t.trim().to_string(),
         ("local", _) => "your computer".into(),
         ("team", _) => "the team workspace".into(),
@@ -298,9 +389,20 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
     let dests = item_destinations(d);
     let say = item_sentence(d, &dests);
     let task_wide = reason.is_some_and(Reason::task_wide);
-    let mut offers = vec!["allow"];
-    if reason.is_some_and(Reason::always) && viewer.id == i.person && !dests.is_empty() && d["app"].as_str().is_some_and(|a| !a.is_empty()) {
+    // Allow (this action), Allow for this task (`allow`, every tool of the
+    // task), Allow always (every task), Don't allow. A payment: this action.
+    let mut offers = if task_wide { vec!["allow_once", "allow"] } else { vec!["allow"] };
+    if viewer.id == i.person && always_offered_for(d, &dests) {
         offers.push("allow_always");
+    }
+    // On a program's own ask, Allow always is for the whole program: the card says which.
+    let program = program_always(d["rule"].as_str(), d["app"].as_str().unwrap_or_default()).map(|p| p.title);
+    // Where Allow always is not offered, the person's standing authority
+    // for this kind of work instead: a grant, set from the card.
+    let (risk, app) = (d["risk"].as_str().unwrap_or_default(), d["app"].as_str().unwrap_or_default());
+    let handle = viewer.id == i.person && handle_offered(reason, risk, &dests, d["tool"].as_str().unwrap_or_default(), app);
+    if handle {
+        offers.push("handle");
     }
     offers.push("dont_allow");
     let thread = i.task.as_ref().and_then(|t| s.tasks.get(t)).and_then(|t| t.chat.as_ref()).map(|c| c.thread.clone());
@@ -312,7 +414,9 @@ pub fn card(s: &State, viewer: &Person, i: &Item) -> Value {
         "offers": offers,
         "allow_scope": if task_wide { "task" } else { "once" },
         "allow_covers": if site { Some("site") } else { None },
+        "always_covers": program,
         "conversation": thread,
+        "handle": if handle { handle_prefill(d) } else { Value::Null },
     })
 }
 
@@ -366,7 +470,7 @@ impl Kernel {
         if !may {
             return None;
         }
-        self.covering_rule(a, run, f, shown).map(Cover::Rule)
+        self.covering_rule(a, run, f, shown, reason == Some(Reason::NewDestination)).map(Cover::Rule)
     }
 
     async fn record_cover(&self, a: &Action, cover: Cover, rule: Option<String>) -> Result<()> {
@@ -401,14 +505,29 @@ impl Kernel {
             self.record_cover(a, c, asked.map(|(_, r)| r)).await?;
             return Ok(Gate::Pass);
         }
+        // A program the person allowed always on their computers answers its own ask.
+        if let Some(id) = asked.as_ref().and_then(|(_, r)| self.program_rule(run, f, r)) {
+            self.record_cover(a, Cover::Rule(id), asked.map(|(_, r)| r)).await?;
+            return Ok(Gate::Pass);
+        }
+        // Code a program would run asks once per task, unless the person's
+        // own request asked for it (decisions/2026-11-19-code-asks-once-per-task.md).
+        if asked.as_ref().is_some_and(|(_, r)| r == crate::desktop::CODE_ASK) {
+            if let Some(gate) = self.code_asked_for(a, run, f, shown, &hash).await? {
+                return Ok(gate);
+            }
+        }
         if let Some((why, rule)) = asked {
             let Some(reason) = reason else { return Err(anyhow::anyhow!("{rule} is not one of the four asks")) };
             return self.raise(a, run, f, shown, reason, &rule, &why).await;
         }
-        // An enabled send reviewer judges first; its flag is case 1.
+        // An enabled send reviewer judges first: its block stands, and its
+        // flag is something Auto Review weighs, not a card of its own.
+        let mut flag = None;
         if run.config.module("reviewer") && crate::boundary::is_reviewed_send(a, f) {
-            if let Gate::Stop(v) = self.reviewer_stage(a, run, f, shown, &hash).await? {
-                return Ok(Gate::Stop(v));
+            match self.reviewer_stage(a, run, f, shown, &hash).await? {
+                Ok(flagged) => flag = flagged,
+                Err(v) => return Ok(Gate::Stop(v)),
             }
         }
         // A grant or schedule the person set up answers for them, as an
@@ -421,7 +540,11 @@ impl Kernel {
             other => other,
         };
         let said = if standing.is_some() { "covered by a grant or schedule the person set up" } else { "asked for by the person" };
-        match self.auto_review(a, f, run, shown, &hash, said).await? {
+        let said = match &flag {
+            Some(why) => format!("{said}; the send reviewer flagged it: {why}"),
+            None => said.to_string(),
+        };
+        match self.auto_review(a, f, run, shown, &hash, &said).await? {
             crate::auto_review::Verdict::Allow(why) if self.auto_review_acts() || standing.is_some() => {
                 match standing {
                     Some(s) => self.record_standing(a, run, &None, s).await?,
@@ -434,6 +557,8 @@ impl Kernel {
             }
             crate::auto_review::Verdict::Deny(why) => Ok(Gate::Stop(self.deny(a, "auto_review", &why, false, None).await?)),
             crate::auto_review::Verdict::Ask(why) => self.raise(a, run, f, shown, Reason::OutsideRequest, OUTSIDE_REQUEST, &why).await,
+            // An outage is not a decision: not done, no one asked, the agent tries again.
+            crate::auto_review::Verdict::Unavailable(why) => Ok(Gate::Stop(self.deny(a, "auto_review", &why, true, None).await?)),
         }
     }
 
@@ -489,12 +614,13 @@ impl Kernel {
     }
 
     /// The send reviewer's judgment (#179): a pass lets the send on to Auto
-    /// Review, a block denies it with its reason on the task, a flag is an
-    /// ask of case 1.
-    async fn reviewer_stage(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, hash: &str) -> Result<Gate> {
+    /// Review, a block denies it with its reason on the task, a flag goes on
+    /// to Auto Review with the send (Ok(Some(why))): the reviewer is
+    /// "quality, never a security control", so its flag is no card of its own.
+    async fn reviewer_stage(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, hash: &str) -> Result<std::result::Result<Option<String>, Verdict>> {
         use crate::run::reviewer::SendVerdict;
         match self.review_send(run, &a.tool, &a.input, shown).await? {
-            SendVerdict::Pass | SendVerdict::Unavailable => Ok(Gate::Pass),
+            SendVerdict::Pass | SendVerdict::Unavailable => Ok(Ok(None)),
             SendVerdict::Block(reason) => {
                 let (_, ev) = crate::kernel::notice_event(
                     Some(run.task.clone()),
@@ -508,11 +634,9 @@ impl Kernel {
                 );
                 self.emit("kernel", ev).await?;
                 let msg = self.remember_blocked(&a.run, &a.tool, hash, &format!("the reviewer blocked this send: {reason}")).await;
-                Ok(Gate::Stop(self.deny(a, "reviewer", &msg, false, None).await?))
+                Ok(Err(self.deny(a, "reviewer", &msg, false, None).await?))
             }
-            SendVerdict::Flag(reason) => {
-                self.raise(a, run, f, shown, Reason::OutsideRequest, crate::boundary::REVIEWER_FLAG, &format!("the reviewer flagged this send: {reason}")).await
-            }
+            SendVerdict::Flag(reason) => Ok(Ok(Some(reason))),
         }
     }
 }

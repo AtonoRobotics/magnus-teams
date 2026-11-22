@@ -31,6 +31,14 @@ pub(super) struct Spend {
     pub status_details: Value,
     #[serde(default)]
     pub card: Option<Value>,
+    /// What the request is for, where Link reports it. Kept as Link sent
+    /// it, so a shape not expected here never fails reading the request.
+    #[serde(default)]
+    pub amount: Value,
+    #[serde(default)]
+    pub currency: Value,
+    #[serde(default)]
+    pub merchant_name: Value,
 }
 
 #[derive(Serialize, Deserialize)]

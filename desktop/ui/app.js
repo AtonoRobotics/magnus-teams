@@ -359,7 +359,7 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","app_tools","deletion_request","endorsement"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","app_tools","definition_change","deletion_request","endorsement"]);
 // Magnus's own ideas (suggestions) are no decision waiting: they are in
 // Explore's For you (explore-ideas.js).
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
@@ -1817,7 +1817,7 @@ route(/^#\/chat\/([^/]+)$/, async (main, thread) => {
 
 const KIND = {
   approval: "Approval", question: "Question", review: "Review", notice: "Stopped", message: "Note from the agent", observation: "Observation", interrupt: "Interruption",
-  policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed",
+  policy_proposal: "Policy proposal", suggestion: "Suggestion", app_tools: "App changed", definition_change: "Tool changed",
   monitor: "Safety monitor", secure_form: "Secure sign-in", takeover_request: "Take over", payment: "Purchase", contract_change: "Contract change", deletion_request: "Deletion request", shared: "Shared with you", endorsement: "Company fact?",
 };
 const TIER = { read: "reads", sandbox: "workspace only", reversible_write: "can be undone", irreversible: "cannot be undone", financial: "money", prohibited: "prohibited" };
@@ -1942,6 +1942,10 @@ function card(i, composed) {
     // One card per app, never per tool, and never a description (spec rev 140).
     case "app_tools":
       body = appToolsCard(i);
+      break;
+    // A changed definition no model could screen: the change, shown.
+    case "definition_change":
+      body = definitionChangeCard(i);
       break;
     default:
       body = `<div class="what">${fieldValue(d)}</div>`;
@@ -2102,11 +2106,13 @@ async function respond(btn, root) {
   if (btn.dataset.text) body.text = btn.dataset.text;
   else if (box && box.value.trim()) body.text = box.value.trim();
   if (decision === "answer" && !body.text) { toast("Write an answer first."); return; }
+  if (scope === "handle" && !askHandle(btn, body)) return;
   btn.disabled = true;
   try {
     await Server.inbox.answer(id, body);
     delete drafts[`ans-${id}`]; delete drafts[`rev-${id}`]; delete drafts[`cc-${id}`];
     if (decision === "approve" && scope === "always") toast("Allowed from now on. You can review or remove this anytime in Settings → Rules.", 5000);
+    else if (scope === "handle") toast("Allowed. Magnus handles things like this from now on; see it in Settings → Data and privacy.", 5000);
     else toast({ endorse: "It is now a company fact.", approve: "Allowed.", reject: "Done.", accept: "Accepted.", answer: "Sent.", dismiss: "Dismissed.", resume: "Continuing.", extend: "Budget doubled.", keep: "Kept.", disconnect: "Disconnected." }[decision] || "Done.");
     await refresh();
   } catch (e) { toast(e.message); btn.disabled = false; }
@@ -3514,7 +3520,8 @@ async function dataSection(el) {
         <div class="row" style="margin-top:8px"><input id="newnote" aria-label="New note" style="flex:1" placeholder="For example: fewer jokes"><button data-act="note-add">Add</button></div></div>
       <h3>What Magnus may do on its own</h3>
       <div class="card" data-grants><p class="small muted">Kinds of your work you let Magnus handle without asking, within your organisation's policy, each with what was done under it. They are yours alone; spending money always asks.</p>
-        ${granted.grants.map(g => grantRow(g, granted.apps, editing)).join("") || `<p class="small faint">None yet. Choose "Handle things like this" on a task Magnus proposes, or ask Magnus.</p>`}</div>
+        ${granted.grants.map(g => grantRow(g, granted.apps, editing)).join("") || `<p class="small faint">None yet. Choose "Handle things like this" when Magnus asks before something that cannot be undone.</p>`}</div>
+      <div class="card"><p class="small muted">What you chose "Allow always" for, and your other rules that allow: Magnus does these without asking. Remove one and it asks you again.</p><div data-allow-rules></div></div>
       <h3>What you and Magnus said you'd do</h3>
       <div class="card" data-commitments><p class="small muted">What you or Magnus said you would do, recognised from your conversations and what Magnus read for you, with for whom and by when. Open ones are in every task and chat of yours; no one else sees them.</p>
         ${commitments.map(c => commitmentRow(c, editingC)).join("") || `<p class="small faint">None yet.</p>`}</div>
@@ -3528,6 +3535,7 @@ async function dataSection(el) {
         ${requests.length ? `<table class="t small" data-deletions style="margin-top:10px"><tbody>${requests.map(q => `<tr><td>${esc(q.what)}${isOwner() && q.person !== App.me.id ? ` <span class="faint">(${esc(q.person)})</span>` : ""}</td>
           <td>${q.decision ? `<span class="chip ${STATE[q.decision]?.[0] || ""}">${esc(STATE[q.decision]?.[1] || q.decision)}</span>${q.note ? ` <span class="muted">${esc(q.note)}</span>` : ""}` : `<span class="chip warn">asked</span> due ${esc(new Date(q.due).toLocaleDateString())}`}</td></tr>`).join("")}</tbody></table>` : ""}</div>
       ${administers() ? `<p class="small muted" data-backups-moved>Backups and restore checks are in <a href="#/admin/operations">Admin › Operations</a>.</p>` : ""}`);
+    await allowRules($("[data-allow-rules]", el));
   };
   el.onchange = async e => {
     const c = e.target.closest("input[data-pref]"); if (!c) return;

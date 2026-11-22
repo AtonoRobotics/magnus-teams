@@ -49,6 +49,14 @@ fn strongest(rules: Vec<Rule>, person: &crate::config::Person, facts: &ToolFacts
     live.iter().find(|r| r.effect() == Effect::Block).or_else(|| live.first()).cloned()
 }
 
+/// Whether the kernel's own ask stands over the person's ask-first rule. A
+/// program's own ask (`desktop::PROGRAM_ASK`, `desktop::CODE_ASK`) does not:
+/// Allow always or the request may answer it, so the person's ask first
+/// takes its place and still asks.
+fn kernel_ask_stands(ask: &Ask) -> bool {
+    ask.as_ref().is_some_and(|(_, rule)| rule.as_deref().is_some_and(|r| r.starts_with("kernel:") && r != crate::desktop::PROGRAM_ASK && r != crate::desktop::CODE_ASK))
+}
+
 impl Kernel {
     /// The person's own block or ask-first rule that takes in this action.
     pub(crate) fn stopping_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<Rule> {
@@ -80,7 +88,7 @@ impl Kernel {
             let why = format!("{} is blocked by {}{}", a.tool, whose(r, "the person's own rule"), quoted_words(r));
             return Ok(Err(self.deny(a, "policy", &why, false, Some(format!("{PERSON_RULE}{}", r.id))).await?));
         }
-        if ask.as_ref().is_some_and(|(_, rule)| rule.as_deref().is_some_and(|r| r.starts_with("kernel:"))) {
+        if kernel_ask_stands(&ask) {
             return Ok(Ok(ask));
         }
         if let Some(r) = found {
@@ -129,6 +137,19 @@ mod tests {
         let allow = crate::rules::compile("alice", "computer", SOURCE_TOOL, &["data.example".into()], false, Effect::Allow).unwrap();
         assert!(policy::rule_covers(&allow.cedar, &alice, &facts, "data.example").unwrap());
         assert!(!policy::rule_covers(&allow.cedar, &alice, &facts, "other.example").unwrap());
+    }
+
+    /// The person's ask first takes the place of a program's own ask, which
+    /// Allow always may answer; every other kernel ask stands.
+    #[test]
+    fn a_persons_ask_first_replaces_a_programs_own_ask() {
+        let asked = |rule: &str| -> Ask { Some(("why".into(), Some(rule.into()))) };
+        assert!(!kernel_ask_stands(&asked(crate::desktop::PROGRAM_ASK)), "a program's ask hid the person's ask first");
+        assert!(!kernel_ask_stands(&asked(crate::desktop::CODE_ASK)), "a program's code ask hid the person's ask first");
+        assert!(kernel_ask_stands(&asked(crate::desktop::ASK_RULE)));
+        assert!(kernel_ask_stands(&asked(crate::asks::NEW_DESTINATION)));
+        assert!(kernel_ask_stands(&asked(crate::asks::LOCAL_ASK_FIRST)));
+        assert!(!kernel_ask_stands(&None));
     }
 
     fn rule(id: &str, effect: Effect, tool: &str, to: &[&str], accepted: bool) -> Rule {

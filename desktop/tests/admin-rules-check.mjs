@@ -22,6 +22,9 @@ assert.match(el.html, /<span class="chip">Ask first: anything in shopify<\/span>
 assert.match(el.html, /A block or ask first here wins over anyone's own allow/);
 assert.doesNotMatch(el.html, /data-auto-review-acts checked/, "Auto Review shows on when the workspace turned it off");
 assert.doesNotMatch(el.html, /as the server's config says/, "a setting made here is called the config's");
+// Turning it off doubles every review: what it would allow asks the person
+// too (docs/proposals/2026-11-19-approvals-review.md, item 10).
+assert.match(el.html, /data-auto-review-help>Off, [^<]*every action it would allow becomes an approval card for the person[^<]*asked twice/, "the switch does not say that off asks the person of every review");
 
 // Auto Review.
 const box = ctx.$("[data-auto-review-acts]");

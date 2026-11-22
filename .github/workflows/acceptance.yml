@@ -1,0 +1,105 @@
+# Acceptance on a hosted runner: the heavy suites (ci/acceptance.sh) that
+# need no KVM, run only when someone asks for them, never as a gate on a
+# push (AGENTS.md, "How work lands"; decisions/2026-11-19-acceptance-on-github.md).
+# Asked for by running the workflow by hand, or by labelling a pull request
+# `acceptance`. The suites that need KVM and guest images (the computer's
+# kill switch, the desktop look, the eighth autonomy scenario) stay on
+# Strix Beta.
+#
+# Owner patches waiting in docs/proposals/*-invariants.patch are applied to
+# this run's checkout first, so a change and the invariant changes it needs
+# are tested together before the owner applies them; nothing is committed.
+name: acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: "ci/acceptance.sh suites"
+        default: "invariants autonomy injection update"
+      owner_patches:
+        description: "Apply docs/proposals/*-invariants.patch first"
+        type: boolean
+        default: true
+  pull_request:
+    types: [labeled, synchronize]
+# A run that is skipped (a push before the label) never cancels one that
+# runs: only runs that will run share the group.
+concurrency:
+  group: acceptance-${{ github.ref }}-${{ (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'acceptance')) && 'run' || github.run_id }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  suites:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'acceptance')
+    strategy:
+      fail-fast: false
+      matrix:
+        # `*-base` runs the same suite on the pull request's base, without
+        # the owner's patches: a failure in both is not the change's.
+        suite: [invariants, invariants-base, autonomy, autonomy-base, injection, injection-base, update, scratch-asks, scratch-asks-base]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: magnus_dev
+        ports:
+          - 54340:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ endsWith(matrix.suite, '-base') && github.event.pull_request.base.sha || '' }}
+      - name: Skip a suite not asked for
+        id: asked
+        env:
+          SUITES: ${{ github.event.inputs.suites || 'invariants autonomy injection update' }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          SUITE=${SUITE%-base}
+          case " $SUITES scratch-asks " in *" $SUITE "*) echo "run=true" >> "$GITHUB_OUTPUT" ;; *) echo "run=false" >> "$GITHUB_OUTPUT" ;; esac
+      - name: Apply the owner's pending invariant patches
+        if: steps.asked.outputs.run == 'true' && !endsWith(matrix.suite, '-base') && (github.event_name != 'workflow_dispatch' || github.event.inputs.owner_patches == 'true')
+        run: |
+          for p in docs/proposals/*-invariants.patch; do
+            [ -e "$p" ] || continue
+            if git apply --check "$p" 2>/dev/null; then git apply "$p" && echo "applied $p"; else echo "already applied or stale: $p"; fi
+          done
+      - name: Install the pinned toolchain
+        if: steps.asked.outputs.run == 'true'
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        if: steps.asked.outputs.run == 'true'
+        with:
+          key: acceptance
+      - name: Run the suite
+        if: steps.asked.outputs.run == 'true'
+        env:
+          MAGNUS_CHROMIUM: /usr/bin/google-chrome
+        run: |
+          suite="${{ matrix.suite }}"
+          suite=${suite%-base}
+          if [ "$suite" = invariants ]; then
+            # Every invariant file runs and reports, so one that needs a
+            # computer (KVM, the magnus group) hides none of the others.
+            cargo build --workspace --bins
+            cargo test -p magnus-invariants --no-fail-fast -- --test-threads=1
+          elif [ "$suite" = scratch-asks ]; then
+            # The scratch tests this kind of change touches most: asks, the
+            # send reviewer and a definition changed under its pin.
+            cargo build --workspace --bins
+            # A test the base does not have yet is left out there.
+            extra=""
+            for t in cross_thread_reply staged_exfil; do [ -e tests/scratch/tests/$t.rs ] && extra="$extra --test $t"; done
+            cargo test -p magnus-scratch --no-fail-fast --test asks --test reviewer --test destination_preview --test web_reads $extra
+          else
+            ci/acceptance.sh "$suite"
+          fi

@@ -1,15 +1,15 @@
-//! Web reads by provenance (decisions/2026-11-12-web-reads-by-provenance.md),
-//! through the real gate. After the work has read private mail and an
-//! untrusted page, opening a link that page gave asks no one. An address
-//! the model made up, which could carry the mail out, still asks. That ask
-//! names the site, and one Allow holds for the site from then on.
+//! Web reads after private mail and an untrusted page
+//! (decisions/2026-11-22-requests-checked-for-private-data.md), through the
+//! real gate. A link the page gave opens, and so does an address the model
+//! made up, with no card. Only an address carrying the mail's private data
+//! is refused, and the agent is told to leave the data out.
 
 use magnus_invariants::{mcp, *};
 use magnus_scratch::start_checked;
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_link_from_the_web_needs_no_ask_and_a_made_up_address_asks_once_per_site() {
+async fn any_address_opens_unless_it_carries_private_data() {
     let other = FakeWeb::start(&[("/story", "the story"), ("/collect", "thanks")]).await;
     let story = other.url("/story");
     let news_page = format!("Today's news. Read more: {story}");
@@ -37,16 +37,13 @@ async fn a_link_from_the_web_needs_no_ask_and_a_made_up_address_asks_once_per_si
     let alice = app.api("alice");
     let t = alice.submit("Read my inbox and the news page.").await;
 
-    let card = alice.wait_item(&t, "approval").await;
-    assert!(other.hits().iter().any(|h| h == "/story"), "a link the page gave was held: {:?}", other.hits());
-    assert!(other.hits().iter().all(|h| !h.starts_with("/collect")), "a made-up address went out unasked: {:?}", other.hits());
-    assert_eq!(card["ask"]["allow_covers"], "site", "{card}");
-    assert_eq!(card["ask"]["destinations"], json!(["127.0.0.1"]), "{card}");
-
-    assert!(alice.respond(card["id"].as_str().unwrap_or_default(), json!({ "decision": "approve", "scope": "once" })).await.is_success());
     alice.wait_settled(&t).await;
+    assert!(other.hits().iter().any(|h| h == "/story"), "a link the page gave was held: {:?}", other.hits());
+    assert!(other.hits().iter().all(|h| !h.contains("41.7")), "the mail's private data went out: {:?}", other.hits());
+    assert!(other.hits().iter().any(|h| h.contains("d=more")), "a made-up address carrying nothing private was held: {:?}", other.hits());
     let (_, inbox) = alice.get("/v1/inbox").await;
-    let asks = inbox["items"].as_array().into_iter().flatten().filter(|i| i["kind"] == "approval" && i["status"] != "resolved").count();
-    assert_eq!(asks, 0, "the allowed site asked again: {inbox}");
-    assert!(other.hits().iter().any(|h| h.contains("d=more")), "the allowed site was not reached: {:?}", other.hits());
+    let asks = inbox["items"].as_array().into_iter().flatten().filter(|i| i["kind"] == "approval").count();
+    assert_eq!(asks, 0, "a web read put a card in front of the person: {inbox}");
+    let told: Vec<String> = m.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
+    assert!(told.iter().any(|t| t.contains("contains private data")), "the agent was not told why: {told:?}");
 }

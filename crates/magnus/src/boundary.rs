@@ -393,8 +393,14 @@ impl Kernel {
             Err(v) => return Ok(v),
         };
 
-        // 5. The person's answer, one of the four asks, or Auto Review.
-        if let Gate::Stop(v) = self.settle(a, &run, &f, shown.as_ref(), asked).await? {
+        // 5. The person's answer, one of the four asks, or Auto Review. A
+        // purchase is asked about once, in Link (`purchase_gate`).
+        let purchase = if asked.is_none() { self.purchase_gate(a, &f, &run, shown.as_ref()).await? } else { None };
+        let gate = match purchase {
+            Some(gate) => gate,
+            None => self.settle(a, &run, &f, shown.as_ref(), asked).await?,
+        };
+        if let Gate::Stop(v) = gate {
             return Ok(v);
         }
 
@@ -536,11 +542,20 @@ impl Kernel {
     }
 
     /// The live definition, screened right before acting, so one changed
-    /// after it was listed cannot run unscreened (spec rev 140). The error
-    /// says whether trying again may work.
+    /// after it was listed cannot run unscreened (spec rev 140). A run's
+    /// own listing that still matches the pin is reused for a minute
+    /// (`pin_listing.rs`). The error says whether trying again may work.
     pub(crate) async fn check_pin(&self, c: &Connector, f: &Facts, person: &str, run: &str) -> std::result::Result<(), (String, bool)> {
-        let secret = self.connector_secret(c, person).await.ok().flatten();
-        let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+        let pinned = self.usable_pin(&f.name).ok().map(|p| p.hash);
+        let live = match crate::pin_listing::reuse(&c.name, person, run, &f.remote, pinned.as_deref()) {
+            Some(t) => vec![t],
+            None => {
+                let secret = self.connector_secret(c, person).await.ok().flatten();
+                let live = self.app_tools(c, secret.as_ref().map(|s| s.expose())).await.map_err(|e| (format!("could not read {}'s tool definitions ({e})", f.app), true))?;
+                crate::pin_listing::keep(&c.name, person, run, &live);
+                live
+            }
+        };
         let Some(t) = live.iter().find(|t| t.name == f.remote) else { return Err((format!("{} no longer offers {}", f.app, f.remote), true)) };
         if let Err(e) = self.pin(c, &f.name, t, Some(run).filter(|r| !r.is_empty())).await {
             return Err((format!("could not screen the tool definition: {e}"), true));
@@ -666,22 +681,23 @@ impl Kernel {
         let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
-        if web_or_browser_read && !is_query_tool && untrusted && private {
-            if self.plain_web_read(a, f, run).await? {
+        // Any address, click or typed entry goes unless what it sends carries
+        // private data the conversation read; no card either way
+        // (decisions/2026-11-22-requests-checked-for-private-data.md).
+        if ((web_or_browser_read && !is_query_tool) || public_browser) && untrusted && private {
+            if web_or_browser_read && self.plain_web_read(a, f, run).await? {
                 url_cleared = true;
+            } else if let Err(why) = self.public_web_send(a, run, web_or_browser_read).await? {
+                return Ok(Err(self.deny(a, "policy", why, false, None).await?));
             } else {
-                let raw_url = a.input["url"].as_str().unwrap_or_default();
-                let crate::compartment::query_gate::UrlVerdict::Deny(why) = self.check_web_url(a, run, f, raw_url).await?;
-                return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
+                url_cleared = true;
             }
-        } else if public_browser && !web_or_browser_read && untrusted && private {
-            let why = "public web browsing does not run inside a private conversation; call research_web with a clean public query instead (it runs in an isolated OpenWeb worker with autonomous search, page fetch, and browser navigation/clicking)";
-            return Ok(Err(self.deny(a, "policy", why, false, None).await?));
         }
 
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
         let transmits = crate::local::may_send(a, f)
             && !own_memory
+            && !crate::payments::sends_only_the_purchase(&f.app, &a.tool)
             && !f.reaches_self
             && !is_query_tool
             && (f.risk.changes_state()

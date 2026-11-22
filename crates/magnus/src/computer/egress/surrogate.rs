@@ -60,7 +60,9 @@ pub(super) async fn swapped(k: &Kernel, computer: &str, mut head: Head, host: &s
     use crate::auto_review::Verdict;
     match k.review_credential_use(&person, computer, &head.method, host, &head.target).await {
         Verdict::Allow(_) => {}
-        Verdict::Deny(reason) | Verdict::Ask(reason) => return Err((head, format!("the approval authority did not allow this credential: {reason}"))),
+        Verdict::Deny(reason) | Verdict::Ask(reason) | Verdict::Unavailable(reason) => {
+            return Err((head, format!("the approval authority did not allow this credential: {reason}")))
+        }
     }
     let mut scrubber = Scrubber::default();
     for (index, token, real) in swaps {
