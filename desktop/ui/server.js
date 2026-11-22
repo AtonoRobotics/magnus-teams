@@ -103,6 +103,11 @@ const Server = (() => {
     homeOpened: () => post("/v1/home/opened"),
     /** Explore: trigger a read-only background scan for fresh ideas in For you. */
     explore: { scan: () => post("/v1/explore/scan") },
+    /** User profile display avatar and team-app capability visibility. */
+    profile: {
+      setAvatar: (/** @type {any} */ avatar) => put("/v1/profile/avatar", avatar),
+      setTeamAppVisibility: (/** @type {string} */ app, /** @type {boolean} */ hidden) => put("/v1/profile/team-apps", { app, hidden }),
+    },
 
     tasks: {
       get: (/** @type {Id} */ id) => get(`/v1/tasks/${enc(id)}`),
@@ -338,6 +343,11 @@ const Server = (() => {
       remove: (/** @type {Id} */ w) => del(ws(w)),
       join: (/** @type {string} */ code) => post(`/v1/invites/${enc(code)}/join`),
       home: (/** @type {Id} */ w) => get(`${ws(w)}/home`),
+      capabilities: (/** @type {Id} */ w) => get(`${ws(w)}/capabilities`),
+      missions: (/** @type {Id} */ w, /** @type {Id} */ room) => get(`${ws(w)}/rooms/${enc(room)}/missions`),
+      createMission: (/** @type {Id} */ w, /** @type {Id} */ room, /** @type {any} */ body) => post(`${ws(w)}/rooms/${enc(room)}/missions`, body),
+      releaseLane: (/** @type {Id} */ w, /** @type {Id} */ m, /** @type {Id} */ l, /** @type {any} */ body = {}) => post(`${ws(w)}/missions/${enc(m)}/lanes/${enc(l)}/release`, body),
+      steerLane: (/** @type {Id} */ w, /** @type {Id} */ m, /** @type {Id} */ l, /** @type {string} */ instruction) => post(`${ws(w)}/missions/${enc(m)}/lanes/${enc(l)}/steer`, { instruction }),
       activity: (/** @type {Id} */ w) => get(`${ws(w)}/activity`),
       /** The side panel, for a project or the whole workspace. @param {Id} w @param {?Id} [project] */
       panel: (w, project) => get(`${ws(w)}/panel${query({ project })}`),
