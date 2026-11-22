@@ -359,7 +359,9 @@ const chip = st => { const [c, l] = STATUS[st] || ["", st]; return `<span class=
 // it in a panel, and the sidebar. Everything it shows is read together
 // (refresh), so a task, a schedule or a decision is one object wherever it
 // appears, and acting on it anywhere redraws every place it is shown.
-const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","suggestion","app_tools","deletion_request","endorsement"]);
+const DECISION_KINDS=new Set(["monitor","secure_form","takeover_request","payment","approval","question","contract_change","review","policy_proposal","app_tools","deletion_request","endorsement"]);
+// Magnus's own ideas (suggestions) are no decision waiting: they are in
+// Explore's For you (explore-ideas.js).
 const needsDecision=i=>i.status==="open" && i.can_respond && (DECISION_KINDS.has(i.kind) || (i.kind==="notice" && i.blocking)) && !(i.details?.notify_at && Date.parse(i.details.notify_at)>Date.now());
 const needsMe = () => App.inbox.filter(needsDecision);
 
@@ -1180,6 +1182,10 @@ async function pollInbox() {
     // bring back everything already waiting.
     const fresh = needsMe().filter(i => !told.has(i.id));
     for (const i of fresh.filter(wants)) Notices.show({ key: `inbox:${i.id}`, title: i.blocking ? "A task needs you" : "Something for you", body: i.summary, system: i.summary, href: "#/inbox" });
+    // Ideas waiting in Explore: the one notice for them, once.
+    const ideas = items.filter(i => ExploreIdeas.isNotice(i) && i.status === "open" && !told.has(i.id));
+    for (const i of ideas) Notices.show({ key: `inbox:${i.id}`, title: "Ideas in Explore", body: i.summary, system: i.summary, href: "#/explore" });
+    fresh.push(...ideas);
     if (fresh.length) save("told", [...told, ...fresh.map(i => i.id)].slice(-500));
     sidebar();
   } catch (e) {
@@ -1338,15 +1344,14 @@ function tasksView() {
   }).join("")}` : offered("No tasks yet. Ask for something in a conversation.");
 }
 
-// An empty Tasks or Schedules: what Magnus offered to take over when it
-// opened a conversation itself (at the first sign-in, or for a newly
-// connected app) and the person has not answered, each linking to its
-// conversation, in Magnus's voice. With none, the plain line.
+// An empty Tasks or Schedules: what Magnus offered to take over (its ideas
+// in Explore's For you, explore-ideas.js) that the person has not answered,
+// each linking there, in Magnus's voice. With none, the plain line.
 function offered(none) {
-  const cards = App.threads.filter(t => t.opener).flatMap(t => (t.open_cards || []).map(c => ({ ...c, thread: t.thread })));
-  if (!cards.length) return `<p class="empty">${esc(none)}</p>`;
+  const ideas = ExploreIdeas.open(App.inbox);
+  if (!ideas.length) return `<p class="empty">${esc(none)}</p>`;
   return `<div class="empty" data-offered><p>Nothing here yet. I had a look around, and these are mine to take off your hands as soon as you say so:</p>
-    <ul class="tlist">${cards.map(c => `<li class="trow" data-offer="${esc(c.card)}"><a href="#/chat/${enc(c.thread)}"><span class="ttl">${esc(c.title)}</span></a></li>`).join("")}</ul></div>`;
+    <ul class="tlist">${ideas.map(i => `<li class="trow" data-offer="${esc(i.id)}"><a href="#/explore"><span class="ttl">${esc(i.details?.title || i.summary)}</span></a></li>`).join("")}</ul></div>`;
 }
 
 // A schedule's next run and its last result, in one line.
@@ -1862,6 +1867,11 @@ function card(i, composed) {
       break;
     }
     case "notice": {
+      // Ideas waiting in Explore: where they are, nothing stopped.
+      if (ExploreIdeas.isNotice(i)) {
+        body = `<p class="small"><a href="#/explore">Open Explore</a> to start or dismiss them.</p>${buttons(i, [["dismiss", "Dismiss"]])}`;
+        break;
+      }
       const ev = d.evidence;
       const list = [];
       // A schedule's own notice stands for no run to continue: its Resume does that.
@@ -2230,7 +2240,7 @@ function activityParts(composed) {
   const pending = needsMe();
   const scheds = App.schedules.filter(sc => !sc.ended);
   const hb = scheds.find(sc => /heartbeat/i.test(sc.title || sc.text || ""));
-  const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i));
+  const other = App.inbox.filter(i => i.status === "open" && !needsDecision(i) && !ExploreIdeas.isIdea(i));
   const feed = App.feed && (App.feed.ended.length || App.feed.arrived.length || App.feed.decided.length) ? feedRows(App.feed) : "";
   const needsBanner = SidePanel.waitingBanner({
     several: false,

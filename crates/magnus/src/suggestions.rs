@@ -4,8 +4,9 @@
 //! `suggest` is Magnus's own idea of work it could do for the person, once
 //! (a task) or regularly (a schedule): a one-line goal, the evidence that it
 //! would help, and what it would read, change or send. From a chat turn it
-//! is a card in the thread; from a task or a review, which have no thread,
-//! it is a `suggestion` in the person's inbox (#393). The person accepts it
+//! is a card in the thread; from a task, a review or an opener, which have
+//! no thread, it is a `suggestion` item, shown in the For you section of
+//! the person's Explore page (#393; 2026-11-21-ideas-go-to-explore). The person accepts it
 //! with one action, and accepting grants the work it describes; they may
 //! also put it off ("Not now") or decline it with a reason. The evidence
 //! must point at something real, a tool result the run read or a task of
@@ -282,7 +283,7 @@ impl Kernel {
             }
             data["call_id"] = json!(a.call_id);
             let item = self.item(&run, "suggestion", format!("Magnus suggests: {title}"), data).await?;
-            return Ok((format!("Suggestion {item} is in the person's inbox. Nothing happens until they accept it."), false, None));
+            return Ok((format!("Suggestion {item} is in the For you section of the person's Explore page. Nothing happens until they accept it."), false, None));
         }
         let card = crate::chat::derived("card", key);
         data["card"] = json!(card);

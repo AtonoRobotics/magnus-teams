@@ -58,23 +58,25 @@ pub fn character_version() -> String {
     version_of("character.md", CHARACTER)
 }
 
-/// What Magnus opens a conversation with by itself (`openers.rs`): at the
-/// person's cold start, and for an app they connected (`{app}` its name).
+/// What Magnus looks around with by itself, as its own background work with
+/// no conversation (`openers.rs`): at the person's cold start, and for an
+/// app they connected (`{app}` its name).
 pub const OPENER: &str = include_str!("../../instructions/opener.md");
 pub const OPENER_APP: &str = include_str!("../../instructions/opener-app.md");
 
-/// A chat turn's instructions, the openings a turn may start with included,
-/// so a turn's version names the text it opened with.
+/// A chat turn's instructions.
 pub fn chat_instructions_version() -> String {
-    version_of("chat.md", &[CHAT_INSTRUCTIONS, OPENER, OPENER_APP].concat())
+    version_of("chat.md", CHAT_INSTRUCTIONS)
 }
 
 /// What a proactive review run runs under: read the person's state, decide
 /// nothing, an observation, an interruption, a proposal, or an act (#237).
 pub const REVIEW_INSTRUCTIONS: &str = concat!(include_str!("../../instructions/review.md"), "\n", include_str!("../../instructions/character.md"));
 
+/// A review's, the openers it may run with included, so a run's version
+/// names the text it started with.
 pub fn review_instructions_version() -> String {
-    version_of("review.md", REVIEW_INSTRUCTIONS)
+    version_of("review.md", &[REVIEW_INSTRUCTIONS, OPENER, OPENER_APP].concat())
 }
 
 /// The instructions a model call was sent, as each call logs them: the

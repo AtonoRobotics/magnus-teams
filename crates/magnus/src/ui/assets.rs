@@ -77,6 +77,7 @@ const UI: &[(&str, &str, &[u8])] = &[
     ("aurora-rail.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-rail.css")),
     ("aurora-compact.css", "text/css; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora-compact.css")),
     ("aurora.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/aurora.js")),
+    ("explore-ideas.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/explore-ideas.js")),
     ("discover.js", "text/javascript; charset=utf-8", include_bytes!("../../../../desktop/ui/discover.js")),
     ("hero-antigravity.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/hero-antigravity.jpg")),
     ("hero-gemini.jpg", "image/jpeg", include_bytes!("../../../../desktop/ui/hero-gemini.jpg")),

@@ -25,6 +25,10 @@ impl Kernel {
             if let Err(e) = k.memory_pass(&run2).await {
                 tracing::warn!("memory pass on {run2}: {e:#}");
             }
+            // Ideas an opener or a review left in Explore: one notice.
+            if let Err(e) = k.tell_ideas(&run2).await {
+                tracing::warn!("ideas notice for {run2}: {e:#}");
+            }
         });
         // A task done or failed wakes a review: not a review itself, not
         // a poll (routine reads are not news, #406), not a chat turn,
