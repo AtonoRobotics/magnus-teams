@@ -358,22 +358,20 @@ fn url_verdict(finding: Option<Option<String>>, app: &str, has_query: bool) -> U
     }
 }
 
-fn fallback_url_verdict(app: &str, has_query: bool) -> UrlVerdict {
-    if app == "web" && has_query {
-        return UrlVerdict::Deny(
-            "cannot open a constructed URL with query parameters while this conversation holds private data and untrusted content; use web_search or research_web to find a public link first"
-                .into(),
-        );
-    }
-    UrlVerdict::Ask
+fn fallback_url_verdict(_app: &str, _has_query: bool) -> UrlVerdict {
+    UrlVerdict::Deny(
+        "cannot open a constructed URL directly from a private conversation with untrusted content; call research_web with a clean public query instead (it runs in an isolated OpenWeb worker with autonomous search, page fetch, and browser navigation/clicking)"
+            .into(),
+    )
 }
 
 /// Decision returned by [`Kernel::check_web_url`] for a constructed URL in a
-/// tainted (`private && untrusted`) run. There is no `Allow`: a constructed
-/// URL in such a run is asked about (or denied), never cleared by a model.
+/// tainted (`private && untrusted`) run. There is no `Allow` and no `Ask`:
+/// a constructed URL in a tainted private run is always denied and redirected
+/// to `research_web` (isolated `OpenWeb` worker), never interrupting the user
+/// with a webpage approval card.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UrlVerdict {
-    Ask,
     Deny(String),
 }
 
@@ -383,23 +381,25 @@ mod tests {
 
     /// The injection suite's CRM case: after an untrusted, private read, a
     /// fetch to a collector with the data in its query was let through
-    /// because the classifier saw nothing sensitive in it.
+    /// because the classifier saw nothing sensitive in it. Constructed URLs
+    /// in a tainted Private run are always denied (redirected to `research_web`)
+    /// regardless of classifier output, with zero webpage approval cards.
     #[test]
     fn a_classifier_clear_does_not_let_a_constructed_url_go_unasked() {
         assert!(matches!(url_verdict(Some(None), "web", true), UrlVerdict::Deny(_)));
-        assert_eq!(url_verdict(Some(None), "web", false), UrlVerdict::Ask);
-        assert_eq!(url_verdict(Some(None), "browser", true), UrlVerdict::Ask);
-        assert_eq!(url_verdict(Some(None), "browser", false), UrlVerdict::Ask);
+        assert!(matches!(url_verdict(Some(None), "web", false), UrlVerdict::Deny(_)));
+        assert!(matches!(url_verdict(Some(None), "browser", true), UrlVerdict::Deny(_)));
+        assert!(matches!(url_verdict(Some(None), "browser", false), UrlVerdict::Deny(_)));
         assert_eq!(url_verdict(Some(None), "web", false), url_verdict(None, "web", false));
         assert!(matches!(url_verdict(Some(Some("an account number".into())), "browser", false), UrlVerdict::Deny(_)));
     }
 
     #[test]
-    fn fallback_denies_query_bearing_web_fetch_and_asks_for_browser_navigation() {
-        assert!(matches!(fallback_url_verdict("web", true), UrlVerdict::Deny(_)));
-        assert_eq!(fallback_url_verdict("web", false), UrlVerdict::Ask);
-        assert_eq!(fallback_url_verdict("browser", false), UrlVerdict::Ask);
-        assert_eq!(fallback_url_verdict("browser", true), UrlVerdict::Ask);
+    fn fallback_always_denies_and_redirects_to_research_web() {
+        for (app, has_query) in [("web", true), ("web", false), ("browser", false), ("browser", true)] {
+            let UrlVerdict::Deny(why) = fallback_url_verdict(app, has_query);
+            assert!(why.contains("research_web"), "{app}/{has_query}: {why}");
+        }
     }
 
     #[test]
