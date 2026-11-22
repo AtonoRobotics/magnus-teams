@@ -80,6 +80,7 @@ pub mod mail_settings;
 pub mod mailer;
 pub mod measured;
 pub mod message_file;
+pub(crate) mod net_guard;
 pub mod oauth;
 pub mod oidc;
 pub mod openers;

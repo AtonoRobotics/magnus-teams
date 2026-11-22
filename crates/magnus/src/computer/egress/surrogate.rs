@@ -82,8 +82,57 @@ pub(super) struct Scrubber {
 
 impl Scrubber {
     fn add(&mut self, real: String, token: String) {
-        if real.len() >= MIN_ECHO_BYTES {
-            self.pairs.push((real.into_bytes(), token.into_bytes()));
+        if real.len() < MIN_ECHO_BYTES {
+            return;
+        }
+        let tok_bytes = token.into_bytes();
+        let mut push_unique = |needle: Vec<u8>| {
+            if needle.len() >= MIN_ECHO_BYTES && !self.pairs.iter().any(|(r, _)| r == &needle) {
+                self.pairs.push((needle, tok_bytes.clone()));
+            }
+        };
+        let raw = real.as_bytes();
+        push_unique(raw.to_vec());
+        // Hex (lower and upper).
+        let hex_lower = hex::encode(raw);
+        push_unique(hex_lower.to_ascii_uppercase().into_bytes());
+        push_unique(hex_lower.into_bytes());
+        // URL-encoded (upper and lower %XX).
+        let mut url_upper = String::with_capacity(raw.len() * 3);
+        let mut url_lower = String::with_capacity(raw.len() * 3);
+        for &b in raw {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+                url_upper.push(b as char);
+                url_lower.push(b as char);
+            } else {
+                url_upper.push_str(&format!("%{b:02X}"));
+                url_lower.push_str(&format!("%{b:02x}"));
+            }
+        }
+        push_unique(url_upper.into_bytes());
+        push_unique(url_lower.into_bytes());
+        // JSON-escaped string interior.
+        if let Ok(json_s) = serde_json::to_string(&real) {
+            if let Some(inner) = json_s.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                push_unique(inner.as_bytes().to_vec());
+            }
+        }
+        // All 3 shifted base64 alignments (standard and URL-safe), trimming
+        // leading/trailing boundary characters affected by neighboring bytes.
+        use base64::Engine;
+        for engine in [&base64::engine::general_purpose::STANDARD, &base64::engine::general_purpose::URL_SAFE] {
+            for offset in 0..3usize {
+                let mut buf = vec![0u8; offset];
+                buf.extend_from_slice(raw);
+                let enc = engine.encode(&buf);
+                let trimmed = enc.trim_end_matches('=');
+                let skip_start = if offset == 0 { 0 } else { offset + 1 };
+                let drop_end = if buf.len() % 3 == 0 { 0 } else { 1 };
+                if trimmed.len() > skip_start + drop_end {
+                    let core = &trimmed[skip_start..trimmed.len() - drop_end];
+                    push_unique(core.as_bytes().to_vec());
+                }
+            }
         }
     }
 
@@ -189,5 +238,28 @@ mod tests {
         assert!(!bound_to("api.example.com", "api.example.com.evil.test"));
         assert!(bound_to("*.example.com", "a.example.com"));
         assert!(!bound_to("*.example.com", "example.com"));
+    }
+
+    #[test]
+    fn encoded_secret_echoes_are_scrubbed() {
+        use base64::Engine;
+        let secret = "REAL/SECRET+VALUE=123";
+        let mut s = Scrubber::default();
+        s.add(secret.into(), "surrogate".into());
+
+        // Hex (lower & upper)
+        assert!(!s.text(&format!("hex={}", hex::encode(secret.as_bytes()))).contains(&hex::encode(secret.as_bytes())));
+        assert!(!s.text(&format!("HEX={}", hex::encode(secret.as_bytes()).to_ascii_uppercase())).contains(&hex::encode(secret.as_bytes()).to_ascii_uppercase()));
+
+        // URL-encoded
+        let url_enc = "REAL%2FSECRET%2BVALUE%3D123";
+        assert!(!s.text(&format!("q={url_enc}")).contains(url_enc));
+
+        // 3 shifted base64 alignments
+        for prefix in ["", "x", "xy"] {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(format!("{prefix}{secret}tail"));
+            let scrubbed = s.text(&b64);
+            assert!(scrubbed.contains("surrogate"), "base64 prefix '{prefix}' was not scrubbed: {scrubbed}");
+        }
     }
 }

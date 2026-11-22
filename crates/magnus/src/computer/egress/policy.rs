@@ -52,19 +52,127 @@ pub fn classify(registries: &[String], c: &Computer, learned: &Learned, live: &d
     Err(format!("{host} is not a declared destination"))
 }
 
-/// The hosts a page's own markup loads from.
-pub fn resources_of(html: &str) -> BTreeSet<String> {
+/// Maximum number of subresource hosts learned per open page.
+pub const MAX_LEARNED_HOSTS_PER_PAGE: usize = 32;
+
+/// Exact script/style URLs referenced by an open page's own HTML (1-level-deep
+/// SPA host learning only; off-page URLs fetched by the guest never learn hosts).
+pub type PageAssets = HashMap<String, BTreeSet<String>>;
+
+const EMBEDDED_SRC_TAGS: [&str; 6] = ["script", "img", "source", "iframe", "video", "audio"];
+const EMBEDDED_HREF_TAGS: [&str; 1] = ["link"];
+
+/// Parse HTML tags and return `(hosts, script_or_style_urls)` referenced by
+/// embedded resource elements (`<script src>`, `<link href>`, `<img src/srcset>`,
+/// `<source>`, `<iframe src>`, `<video>`, `<audio>`). Navigation links
+/// (`<a href>`) are deliberately excluded.
+pub fn html_resources(html: &str, base_url: Option<&url::Url>) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut hosts = BTreeSet::new();
-    for attribute in ["src=", "href="] {
-        let mut rest = html;
-        while let Some(at) = rest.find(attribute) {
-            rest = &rest[at + attribute.len()..];
-            let quoted = rest.strip_prefix('"').or_else(|| rest.strip_prefix('\''));
-            let Some(after_quote) = quoted else { continue };
-            let end = after_quote.find(['"', '\'']).unwrap_or(after_quote.len());
-            if let Some(host) = url::Url::parse(&after_quote[..end]).ok().and_then(|u| u.host_str().map(String::from)) {
-                hosts.insert(host);
+    let mut asset_urls = BTreeSet::new();
+    let mut rest = html;
+    while let Some(lt) = rest.find('<') {
+        rest = &rest[lt + 1..];
+        let Some(gt) = rest.find('>') else { break };
+        let tag_body = &rest[..gt];
+        rest = &rest[gt + 1..];
+        let trimmed = tag_body.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.starts_with('!') || trimmed.starts_with('?') {
+            continue;
+        }
+        let name_end = trimmed.find(|c: char| c.is_ascii_whitespace() || c == '/').unwrap_or(trimmed.len());
+        let tag_name = trimmed[..name_end].to_ascii_lowercase();
+        let attrs = &trimmed[name_end..];
+        let is_src_tag = EMBEDDED_SRC_TAGS.contains(&tag_name.as_str());
+        let is_href_tag = EMBEDDED_HREF_TAGS.contains(&tag_name.as_str());
+        if !is_src_tag && !is_href_tag {
+            continue;
+        }
+        let mut record_url = |raw: &str, is_asset: bool| {
+            let parsed = url::Url::parse(raw).ok().or_else(|| base_url.and_then(|b| b.join(raw).ok()));
+            let Some(u) = parsed else { return };
+            if !matches!(u.scheme(), "http" | "https") {
+                return;
             }
+            if let Some(host) = u.host_str() {
+                if hosts.len() < MAX_LEARNED_HOSTS_PER_PAGE {
+                    hosts.insert(host.to_ascii_lowercase());
+                }
+            }
+            if is_asset {
+                asset_urls.insert(u.as_str().to_string());
+            }
+        };
+        if is_src_tag {
+            for val in attr_values(attrs, "src") {
+                record_url(&val, tag_name == "script");
+            }
+            for val in attr_values(attrs, "srcset") {
+                for entry in val.split(',') {
+                    if let Some(u) = entry.split_whitespace().next() {
+                        record_url(u, false);
+                    }
+                }
+            }
+        }
+        if is_href_tag {
+            for val in attr_values(attrs, "href") {
+                record_url(&val, true);
+            }
+        }
+    }
+    (hosts, asset_urls)
+}
+
+fn attr_values(attrs: &str, name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let lower = attrs.to_ascii_lowercase();
+    let needle = format!("{name}=");
+    let mut offset = 0;
+    while let Some(pos) = lower[offset..].find(&needle) {
+        let abs = offset + pos;
+        let boundary_ok = abs == 0 || attrs.as_bytes()[abs - 1].is_ascii_whitespace();
+        let val_start = abs + needle.len();
+        offset = val_start;
+        if !boundary_ok {
+            continue;
+        }
+        let after = attrs[val_start..].trim_start();
+        let Some(first) = after.chars().next() else { continue };
+        let val = if first == '"' || first == '\'' {
+            let inner = &after[1..];
+            let end = inner.find(first).unwrap_or(inner.len());
+            &inner[..end]
+        } else {
+            let end = after.find(|c: char| c.is_ascii_whitespace() || c == '>').unwrap_or(after.len());
+            &after[..end]
+        };
+        if !val.is_empty() {
+            out.push(val.to_string());
+        }
+    }
+    out
+}
+
+/// Extract HTTP(S) host literals from a JS or CSS asset body that was
+/// explicitly referenced by an open page's own HTML (1 level deep, capped).
+pub fn hosts_from_asset_body(body: &str, remaining_cap: usize) -> BTreeSet<String> {
+    let mut hosts = BTreeSet::new();
+    if remaining_cap == 0 {
+        return hosts;
+    }
+    for scheme in ["https://", "http://"] {
+        let mut rest = body;
+        while let Some(at) = rest.find(scheme) {
+            rest = &rest[at..];
+            let end = rest.find(|c: char| c.is_ascii_whitespace() || matches!(c, '"' | '\'' | '`' | ')' | ']' | '}' | '<' | '>' | ',' | ';')).unwrap_or(rest.len());
+            let candidate = &rest[..end];
+            if let Some(host) = url::Url::parse(candidate).ok().and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase())) {
+                hosts.insert(host);
+                if hosts.len() >= remaining_cap {
+                    return hosts;
+                }
+            }
+            rest = &rest[scheme.len()..];
         }
     }
     hosts
@@ -104,12 +212,32 @@ mod tests {
         let mut c = computer(&mut l);
         c.pages.push(OpenPage { id: "p1".into(), host: "news.test".into() });
         let mut learned = Learned::new();
-        learned.insert("p1".into(), resources_of(r#"<img src="https://cdn.test/a.png"><a href='https://link.test/'>x</a>"#));
+        let (hosts, assets) =
+            html_resources(r#"<img src="https://cdn.test/a.png"><script src="https://cdn.jsdelivr.net/npm/app@1/main.js"></script><a href='https://link.test/'>x</a>"#, None);
+        assert!(hosts.contains("cdn.test"));
+        assert!(hosts.contains("cdn.jsdelivr.net"));
+        assert!(!hosts.contains("link.test"), "<a href> must not be learned as a subresource");
+        assert!(assets.contains("https://cdn.jsdelivr.net/npm/app@1/main.js"));
+        // An off-page script on the same learned CDN is NOT in assets, so its
+        // body must never teach further hosts (P2).
+        assert!(!assets.contains("https://cdn.jsdelivr.net/npm/attacker-pkg/x.js"));
+        learned.insert("p1".into(), hosts);
         assert!(classify(&[], &c, &learned, &|_| false, "news.test", 443, "GET").is_ok());
         assert!(classify(&[], &c, &learned, &|_| false, "cdn.test", 443, "GET").is_ok());
+        assert!(classify(&[], &c, &learned, &|_| false, "link.test", 443, "GET").is_err());
         assert!(classify(&[], &c, &learned, &|_| false, "cdn.test", 443, "POST").is_err(), "a page's resource took a write");
         c.pages.clear();
         assert!(classify(&[], &c, &learned, &|_| false, "cdn.test", 443, "GET").is_err(), "a closed page's resource went through");
+    }
+
+    #[test]
+    fn asset_body_learning_is_capped() {
+        let mut js = String::new();
+        for i in 0..50 {
+            js.push_str(&format!("fetch('https://api{i}.example.test/v1');\n"));
+        }
+        let found = hosts_from_asset_body(&js, MAX_LEARNED_HOSTS_PER_PAGE);
+        assert_eq!(found.len(), MAX_LEARNED_HOSTS_PER_PAGE);
     }
 
     /// A source granted to one task is reached while that task runs, and

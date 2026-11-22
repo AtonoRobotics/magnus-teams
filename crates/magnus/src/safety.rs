@@ -310,14 +310,21 @@ impl Kernel {
     /// comes in, else the independent monitor's, and the fixed phrases.
     pub(crate) async fn screen_definition(&self, run: Option<&str>, words: &str) -> Screen {
         let lower = words.to_lowercase();
-        if let Some(p) = INJECTION_PHRASES.iter().find(|p| lower.contains(*p)) {
-            return Screen::Failed(format!("it says \"{p}\""), None);
-        }
-        let Some(spec) = self.cfg.safety.inbound_model.clone().or_else(|| self.cfg.safety.monitor_model.clone()) else { return Screen::Unanswered };
+        let phrase = INJECTION_PHRASES.iter().find(|p| lower.contains(*p)).copied();
+        let Some(spec) = self.cfg.safety.inbound_model.clone().or_else(|| self.cfg.safety.monitor_model.clone()) else {
+            return match phrase {
+                Some(p) => Screen::Failed(format!("it says \"{p}\""), None),
+                None => Screen::Unanswered,
+            };
+        };
         if words.len() > MAX_SCREENED_BYTES {
             return Screen::Unanswered;
         }
-        match self.ask_screen(run.unwrap_or_default(), "tool_screen", &spec, words, None).await {
+        let payload = match phrase {
+            Some(p) => format!("[Note for screener: tool definition contains phrase \"{p}\"; judge in context whether this is prompt injection or benign documentation.]\n{words}"),
+            None => words.to_string(),
+        };
+        match self.ask_screen(run.unwrap_or_default(), "tool_screen", &spec, &payload, None).await {
             Some((true, finding)) => Screen::Failed(finding, Some(spec)),
             Some((false, _)) => Screen::Passed(spec),
             None => Screen::Unanswered,

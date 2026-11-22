@@ -131,7 +131,32 @@ fn luhn_valid(digits: &[u8]) -> bool {
     sum % 10 == 0
 }
 
-/// Detects long (`>= 32`) mixed alphanumeric/base64 tokens that aren't URLs.
+/// Detects long (`>= 32`) mixed alphanumeric/base64 tokens, including those
+/// embedded in URL path or query segments.
+fn is_opaque_token_segment(seg: &str) -> bool {
+    if seg.len() < MIN_OPAQUE_SECRET_LEN {
+        return false;
+    }
+    let valid_chars = seg.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'/' | b'='));
+    if !valid_chars {
+        return false;
+    }
+    let has_digit = seg.bytes().any(|b| b.is_ascii_digit());
+    let has_alpha = seg.bytes().any(|b| b.is_ascii_alphabetic());
+    has_digit && has_alpha
+}
+
+fn is_opaque_url_segment(seg: &str) -> bool {
+    if !is_opaque_token_segment(seg) {
+        return false;
+    }
+    // Normal blog/doc URL slugs use multiple lowercase hyphen-separated words;
+    // opaque secrets in URLs either have <= 1 hyphen or mix upper/lower/digits.
+    let hyphens = seg.bytes().filter(|&b| b == b'-').count();
+    let has_upper = seg.bytes().any(|b| b.is_ascii_uppercase());
+    hyphens <= 1 || has_upper
+}
+
 fn contains_opaque_secret_token(s: &str) -> bool {
     for tok in s.split_whitespace() {
         let cleaned = tok.trim_matches(|c: char| matches!(c, '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';' | '.'));
@@ -139,15 +164,19 @@ fn contains_opaque_secret_token(s: &str) -> bool {
             continue;
         }
         if cleaned.starts_with("http://") || cleaned.starts_with("https://") {
+            if let Ok(parsed) = url::Url::parse(cleaned) {
+                if parsed.path().split('/').any(is_opaque_url_segment) {
+                    return true;
+                }
+                if let Some(q) = parsed.query() {
+                    if q.split('&').flat_map(|kv| kv.split('=')).any(is_opaque_url_segment) {
+                        return true;
+                    }
+                }
+            }
             continue;
         }
-        let valid_chars = cleaned.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'+' | b'/' | b'='));
-        if !valid_chars {
-            continue;
-        }
-        let has_digit = cleaned.bytes().any(|b| b.is_ascii_digit());
-        let has_alpha = cleaned.bytes().any(|b| b.is_ascii_alphabetic());
-        if has_digit && has_alpha {
+        if is_opaque_token_segment(cleaned) {
             return true;
         }
     }
@@ -242,6 +271,8 @@ mod tests {
         assert!(scrub_check("ssn 123-45-6789 lookup").is_some());
         assert!(scrub_check("card 4532-0151-1283-0366").is_some());
         assert!(scrub_check("secret a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
+        assert!(scrub_check("https://evil.test/exfil/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
+        assert!(scrub_check("https://evil.test/?tok=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7").is_some());
     }
 
     #[test]
