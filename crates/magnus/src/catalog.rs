@@ -147,6 +147,17 @@ pub struct Client {
     /// issuer names.
     #[serde(default)]
     pub authority: Option<String>,
+    /// The registration a sign-in from a web browser goes through: this
+    /// one's own name when its client also lists a server's return address,
+    /// another's when the provider wants a separate client for that (Google
+    /// a web one beside the desktop one). None: from the desktop app only.
+    #[serde(default)]
+    pub web: Option<String>,
+    /// The servers' return addresses (`<public_url>/connected`) this client
+    /// lists with its provider. A server whose own is not here sends a
+    /// browser to the desktop app instead of to a provider that refuses it.
+    #[serde(default)]
+    pub returns: Vec<String>,
 }
 
 impl Client {

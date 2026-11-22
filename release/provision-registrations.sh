@@ -75,18 +75,19 @@ print(json.dumps(b) if len(b) > 1 else "")')
 }
 
 provision google GOOGLE_DESKTOP
+provision google_web GOOGLE_WEB
 provision microsoft MICROSOFT
+# The same Microsoft registration, with its secret, for a browser's sign-in.
+provision microsoft_web MICROSOFT
 provision github GH_OAUTH
 provision vercel VERCEL
 provision slack SLACK
 provision sentry SENTRY
 provision asana ASANA
 
-# The repository's other Google clients and Microsoft's tenant, compared
+# The repository's other Google client and Microsoft's tenant, compared
 # only, so a mismatch is seen: the catalog's Google client is a desktop one.
-for prefix in GOOGLE GOOGLE_WEB; do
-  echo "google: ${prefix}_CLIENT_ID $(compare "${prefix}_CLIENT_ID" "$(field google client_id)") the catalog's client ID (not provisioned: the catalog's client is a desktop one)"
-done
+echo "google: GOOGLE_CLIENT_ID $(compare GOOGLE_CLIENT_ID "$(field google client_id)") the catalog's client ID (not provisioned: the catalog's client is a desktop one)"
 echo "microsoft: MICROSOFT_TENANT_ID $(compare MICROSOFT_TENANT_ID "$(field microsoft tenant)") the catalog's tenant"
 
 exit $failed

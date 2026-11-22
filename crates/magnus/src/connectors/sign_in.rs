@@ -370,8 +370,10 @@ impl Kernel {
         if let Some(s) = self.via_relay(c) {
             return self.relay_sign_in(c, person, s).await;
         }
+        // A fixed redirect is the desktop's; a browser's comes back to this
+        // server where the provider's client lists that address.
         if let Some(fixed) = &c.redirect_uri {
-            if redirect_uri != fixed {
+            if redirect_uri != fixed && !self.is_web_return(c, redirect_uri) {
                 bail!("sign in to {} from the Magnus app on this computer", c.title.as_deref().unwrap_or(&c.name));
             }
         }
@@ -390,10 +392,11 @@ impl Kernel {
             bail!("the app's authorization server does not support PKCE (S256), which MCP requires");
         }
         // A catalog connector signs in through Alpha Vector's own client
-        // with its provider, from the catalog; its secret, when it has one,
-        // is the one Alpha Vector provisioned to this appliance.
+        // with its provider, from the catalog (from a browser, the client
+        // that lists this server's return address); its secret, when it has
+        // one, is the one Alpha Vector provisioned to this appliance.
         let shown = c.title.clone().unwrap_or_else(|| c.name.clone());
-        let registered: Option<(String, Option<String>)> = match &c.registration {
+        let registered: Option<(String, Option<String>)> = match self.sign_in_registration(c, redirect_uri) {
             Some(provider) => Some(crate::registrations::client(&self.vault, provider).map_err(|e| {
                 tracing::warn!("{provider}'s client: {e:#}");
                 anyhow!("{} cannot be connected on this server yet: Alpha Vector has not finished setting it up here", shown)
