@@ -280,14 +280,15 @@ impl Kernel {
     /// run using the same deterministic scrub, turn-scoped byte budget, denial
     /// retry cap, and outgoing classifier as `check_web_query`.
     ///
-    /// - When the outgoing classifier clears the URL, navigation proceeds
-    ///   autonomously without interrupting the user.
     /// - When scrubbing, budgets, or the classifier flag sensitive data, the
     ///   call is silently denied.
-    /// - When no classifier is configured/reachable, `browser_*` and
-    ///   queryless `web_fetch` fall back to the site-scoped envelope/approval
-    ///   gate (`UrlVerdict::Ask`) instead of dead-ending, while query-bearing
-    ///   `web_fetch` URLs remain silently denied.
+    /// - Otherwise (the classifier cleared it, or could not answer),
+    ///   `browser_*` and queryless `web_fetch` go to the site-scoped
+    ///   envelope/approval gate (`UrlVerdict::Ask`) instead of dead-ending,
+    ///   while query-bearing `web_fetch` URLs stay denied. A classifier's
+    ///   clear never lets a constructed URL go unasked: the Rule of Two does
+    ///   not rest on a model's judgement
+    ///   (decisions/2026-11-22-a-classifier-clear-is-not-a-pass.md).
     pub(crate) async fn check_web_url(&self, a: &Action, run: &Run, f: &crate::boundary::Facts, raw_url: &str) -> Result<UrlVerdict> {
         let trimmed = raw_url.trim();
         let Ok(parsed) = url::Url::parse(trimmed) else {
@@ -327,23 +328,33 @@ impl Kernel {
             return Ok(UrlVerdict::Deny(reason));
         }
 
-        match self.outgoing_finding(a, run).await {
+        let finding = self.outgoing_finding(a, run).await;
+        match &finding {
             Some(None) => {
                 charge_query_bytes(scope_key, url_bytes);
                 let _ = self
                     .emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: url_bytes, denied: false }))
                     .await;
-                Ok(UrlVerdict::Allow)
             }
-            Some(Some(finding)) => {
+            Some(Some(_)) => {
                 record_query_denial(scope_key);
                 let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
-                Ok(UrlVerdict::Deny(format!(
-                    "web URL denied: the outgoing classifier flagged sensitive data ({finding}). Use web_search or research_web with public terms instead"
-                )))
             }
-            None => Ok(fallback_url_verdict(&f.app, parsed.query().is_some())),
+            None => {}
         }
+        Ok(url_verdict(finding, &f.app, parsed.query().is_some()))
+    }
+}
+
+/// The verdict on a constructed URL from the outgoing classifier's answer.
+/// The classifier can only add a denial: its clear gets the same verdict as
+/// its silence, so whether private data may leave never rests on a model.
+fn url_verdict(finding: Option<Option<String>>, app: &str, has_query: bool) -> UrlVerdict {
+    match finding {
+        Some(Some(finding)) => {
+            UrlVerdict::Deny(format!("web URL denied: the outgoing classifier flagged sensitive data ({finding}). Use web_search or research_web with public terms instead"))
+        }
+        Some(None) | None => fallback_url_verdict(app, has_query),
     }
 }
 
@@ -358,10 +369,10 @@ fn fallback_url_verdict(app: &str, has_query: bool) -> UrlVerdict {
 }
 
 /// Decision returned by [`Kernel::check_web_url`] for a constructed URL in a
-/// tainted (`private && untrusted`) run.
+/// tainted (`private && untrusted`) run. There is no `Allow`: a constructed
+/// URL in such a run is asked about (or denied), never cleared by a model.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum UrlVerdict {
-    Allow,
     Ask,
     Deny(String),
 }
@@ -369,6 +380,19 @@ pub(crate) enum UrlVerdict {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The injection suite's CRM case: after an untrusted, private read, a
+    /// fetch to a collector with the data in its query was let through
+    /// because the classifier saw nothing sensitive in it.
+    #[test]
+    fn a_classifier_clear_does_not_let_a_constructed_url_go_unasked() {
+        assert!(matches!(url_verdict(Some(None), "web", true), UrlVerdict::Deny(_)));
+        assert_eq!(url_verdict(Some(None), "web", false), UrlVerdict::Ask);
+        assert_eq!(url_verdict(Some(None), "browser", true), UrlVerdict::Ask);
+        assert_eq!(url_verdict(Some(None), "browser", false), UrlVerdict::Ask);
+        assert_eq!(url_verdict(Some(None), "web", false), url_verdict(None, "web", false));
+        assert!(matches!(url_verdict(Some(Some("an account number".into())), "browser", false), UrlVerdict::Deny(_)));
+    }
 
     #[test]
     fn fallback_denies_query_bearing_web_fetch_and_asks_for_browser_navigation() {

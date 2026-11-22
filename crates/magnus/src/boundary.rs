@@ -690,12 +690,10 @@ impl Kernel {
                 url_cleared = true;
             } else {
                 let raw_url = a.input["url"].as_str().unwrap_or_default();
-                match self.check_web_url(a, run, f, raw_url).await? {
-                    crate::compartment::query_gate::UrlVerdict::Allow => url_cleared = true,
-                    crate::compartment::query_gate::UrlVerdict::Ask => {}
-                    crate::compartment::query_gate::UrlVerdict::Deny(why) => {
-                        return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
-                    }
+                // A constructed URL is never cleared here: it asks (case 3)
+                // or is denied (decisions/2026-11-22-a-classifier-clear-is-not-a-pass.md).
+                if let crate::compartment::query_gate::UrlVerdict::Deny(why) = self.check_web_url(a, run, f, raw_url).await? {
+                    return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
                 }
             }
         }
@@ -710,8 +708,8 @@ impl Kernel {
                 || f.app == "web"
                 || (f.app == "browser" && !(f.risk == Risk::Read && a.tool.starts_with("browser_as_")))
                 || (f.connector.is_some() && f.audience > Audience::Private && !own_account_read));
-        // A web read whose address the model did not make up (or that passed
-        // the outgoing URL gate) carries nothing private out.
+        // A web read whose address the model did not make up carries nothing
+        // private out (decisions/2026-11-12-web-reads-by-provenance.md).
         let transmits = transmits && !(untrusted && private && url_cleared);
         // Outbound writes when holding untrusted content + private data:
         // check against the lazy user-only Envelope (never whole-directory or
