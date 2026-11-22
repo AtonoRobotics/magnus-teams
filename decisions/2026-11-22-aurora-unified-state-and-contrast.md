@@ -1,0 +1,14 @@
+# Aurora unified 9-state engine, single avatar, and WCAG contrast fixes
+
+## Choice
+- Introduce `desktop/ui/aurora-core.js` (`AuroraCore`) as the single runtime hub for Aurora and Obsidian 2 Aurora:
+  - One canonical 9-state model (`ready`, `listening`, `thinking`, `planning`, `working`, `waiting`, `control`, `done`, `failed`) published as `data-aurora-avatar-state` alongside the backwards-compatible base state (`data-aurora-state`).
+  - Fix the stale `.stage-card` selector so pending approval bento tiles (`.stage-tile[data-tone="needs"]`) and open decision panels (`.stage-decision`) transition the ambient canvas, orb, and status line to `waiting` (`needs`).
+  - One shared `requestAnimationFrame` clock (`AuroraCore.onFrame`) and one coordinated `MutationObserver` (`AuroraCore.onDom` / `AuroraCore.onMain`) shared by `aurora.js`, `aurora-avatar.js`, `aurora-orb.js`, `aurora-reasoning.js`, `aurora-compact.js`, `aurora-pages.js`, and `aurora-alerts.js` (with standalone fallbacks when tests load a module in isolation).
+- Remove the redundant `.aurora-state-pill` in `.conv-head` and the duplicate `drawOrb()` canvas renderer in `aurora.js`; mount `AuroraAvatar` across every presence surface (rail, mobile bar, companion side, team rail, video-call listening chip, new-conversation hero) with concentric voice ripples when listening and dual counter-orbiting ribbons in active orb states.
+- Fix verified layout and contrast defects across both `aurora` and `obsidian-aurora` (light and dark):
+  - Add `--ok-fg`, `--warn-fg`, `--aurora-exec-text`, and `--aurora-sweep` tokens in `theme.js`, tune `AURORA_LIGHT.faint` (`#586885`) and `AURORA_DARK.faint` (`#8393B2`), and expand `theme-check.mjs` to enforce `>= 4.5:1` on `faint`, badge foregrounds, and executing status text across all 108 style/mode/accent combinations.
+  - Hide the underlying rail SVG when `.aurora-avatar` is mounted so the 28px orb centers cleanly in the 36px brand slot, clip `.stage-tile` overflow, enable pointer spotlight tracking on `.stage-tile`, avoid double-nested executing beams on borderless chat cards, align `.aurora-reason` radius to `var(--r-md)`, and support WCAG-calibrated `.fchip-inline` pills for business documents (`pdf`, `pptx`, `docx`, `xlsx`, `csv`) in both Aurora styles.
+
+## Reason
+Previously Aurora ran three parallel state engines (one watching a removed `.stage-card` class), two separate orb renderers, six subtree `MutationObserver`s, a 400ms avatar polling timer, and multiple uncoordinated `requestAnimationFrame` loops. Unifying on `AuroraCore` and `AuroraAvatar` eliminates state contradictions (such as the header pill claiming "Ready" while the avatar showed "waiting on you"), cuts idle/streaming DOM and paint overhead, and brings every Aurora badge, muted label, and executing status line above WCAG AA 4.5:1.

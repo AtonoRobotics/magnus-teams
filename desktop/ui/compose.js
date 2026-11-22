@@ -113,6 +113,8 @@ const Compose = (() => {
     html: ["html", "<>"], htm: ["html", "<>"], rs: ["rs", "RS"], css: ["css", "{}"],
     md: ["md", "M↓"], json: ["json", "{}"], py: ["py", "PY"], sh: ["sh", ">_"],
     yml: ["yml", "YML"], yaml: ["yml", "YML"], toml: ["toml", "TOML"], sql: ["sql", "SQL"],
+    pdf: ["pdf", "PDF"], pptx: ["pptx", "PPTX"], ppt: ["pptx", "PPT"],
+    docx: ["docx", "DOC"], doc: ["docx", "DOC"], xlsx: ["xlsx", "XLS"], xls: ["xlsx", "XLS"], csv: ["csv", "CSV"],
   };
   function inlineCode(raw) {
     const clean = raw.replace(/\n/g, " ");

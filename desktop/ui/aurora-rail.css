@@ -112,7 +112,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
 }
 
 /* ---------- The avatar ---------- */
+@keyframes auroraVoiceRipple {
+  0% { transform: scale(0.85); opacity: 0.55; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+
 .aurora-avatar {
+  position: relative;
   display: inline-grid;
   place-items: center;
   width: var(--avatar-size, 28px);
@@ -140,9 +146,60 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   pointer-events: none;
 }
 
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-avatar[data-state="listening"]::before,
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-avatar[data-state="listening"]::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ok) 65%, transparent);
+  pointer-events: none;
+  animation: auroraVoiceRipple 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .aurora-avatar[data-state="listening"]::after {
+  animation-delay: 0.65s;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo:has(> .aurora-avatar) {
   width: auto;
   height: auto;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .brand .logo:has(> .aurora-avatar) > svg {
+  display: none;
+}
+
+.aurora-avatar-bar {
+  display: none;
+  flex: none;
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .aurora-avatar-bar {
+  display: inline-grid;
+}
+
+.aurora-avatar-side {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .room-orb:has(> .aurora-avatar) {
+  display: inline-grid;
+  place-items: center;
+  width: auto;
+  height: auto;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (any-pointer: coarse) {
+  .aurora-avatar-nav::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
 }
 
 .aurora-avatar-hero {

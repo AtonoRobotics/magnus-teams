@@ -240,14 +240,16 @@ const AuroraAlerts = (() => {
 
   let queued = 0;
   const soon = () => { if (!queued) queued = requestAnimationFrame(() => { queued = 0; if (on()) decisions(); }); };
+  function handleDom(/** @type {MutationRecord[]} */ records) {
+    if (!on()) { if (lines.size) off(); return; }
+    // Played out and put in place in this callback, before the browser
+    // draws the change.
+    if (moving()) records.forEach(leftToast);
+    if (records.some(r => r.addedNodes.length || r.removedNodes.length)) { threadLines(); soon(); }
+  }
   function init() {
-    new MutationObserver(records => {
-      if (!on()) { if (lines.size) off(); return; }
-      // Played out and put in place in this callback, before the browser
-      // draws the change.
-      if (moving()) records.forEach(leftToast);
-      if (records.some(r => r.addedNodes.length || r.removedNodes.length)) { threadLines(); soon(); }
-    }).observe(document.body, { childList: true, subtree: true });
+    if (typeof AuroraCore !== "undefined") AuroraCore.onDom(handleDom);
+    else new MutationObserver(handleDom).observe(document.body, { childList: true, subtree: true });
     new MutationObserver(() => { if (on()) threadLines(); else off(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-style"] });
     soon();
   }

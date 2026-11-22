@@ -80,8 +80,12 @@ const AuroraCompact = (() => {
   }, true);
 
   window.addEventListener("magnus-theme", place);
-  const seen = new MutationObserver(() => { if (on() && document.querySelector(".say-bar > label.model")) place(); });
-  const start = () => { place(); seen.observe(document.body, { childList: true, subtree: true }); };
+  const checkBar = () => { if (on() && document.querySelector(".say-bar > label.model")) place(); };
+  const start = () => {
+    place();
+    if (typeof AuroraCore !== "undefined") AuroraCore.onDom(records => { if (records.some(r => r.addedNodes.length)) checkBar(); });
+    else new MutationObserver(checkBar).observe(document.body, { childList: true, subtree: true });
+  };
   if (document.body) start(); else document.addEventListener("DOMContentLoaded", start);
 
   return { place, words };

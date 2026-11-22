@@ -11,27 +11,33 @@
 (function () {
   const AURORA_STATES = {
     idle:      { speed: 0.92, amp: 0.16, c1: [79, 157, 255],  c2: [56, 189, 248],  c3: [167, 139, 250] },
+    ready:     { speed: 0.92, amp: 0.16, c1: [79, 157, 255],  c2: [56, 189, 248],  c3: [167, 139, 250] },
     listening: { speed: 1.65, amp: 0.26, c1: [52, 211, 153],  c2: [56, 189, 248],  c3: [167, 243, 208] },
     thinking:  { speed: 2.65, amp: 0.28, c1: [155, 109, 255], c2: [56, 189, 248],  c3: [216, 180, 254] },
+    planning:  { speed: 1.80, amp: 0.20, c1: [129, 140, 248], c2: [94, 234, 212],  c3: [199, 210, 254] },
     executing: { speed: 2.30, amp: 0.24, c1: [56, 189, 248],  c2: [129, 140, 248], c3: [94, 234, 212] },
+    working:   { speed: 2.30, amp: 0.24, c1: [56, 189, 248],  c2: [129, 140, 248], c3: [94, 234, 212] },
     takeover:  { speed: 1.45, amp: 0.21, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
+    control:   { speed: 1.45, amp: 0.21, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
     needs:     { speed: 1.10, amp: 0.18, c1: [251, 191, 36],  c2: [79, 157, 255],  c3: [253, 230, 138] },
+    waiting:   { speed: 1.10, amp: 0.18, c1: [251, 191, 36],  c2: [79, 157, 255],  c3: [253, 230, 138] },
+    done:      { speed: 0.72, amp: 0.12, c1: [52, 211, 153],  c2: [16, 185, 129],  c3: [209, 250, 229] },
+    failed:    { speed: 0.65, amp: 0.10, c1: [251, 113, 133], c2: [225, 29, 72],   c3: [254, 205, 211] },
   };
   const OBSIDIAN_STATES = {
     idle:      { speed: 0.86, amp: 0.14, c1: [220, 224, 234], c2: [120, 136, 162], c3: [248, 250, 252] },
+    ready:     { speed: 0.86, amp: 0.14, c1: [220, 224, 234], c2: [120, 136, 162], c3: [248, 250, 252] },
     listening: { speed: 1.58, amp: 0.24, c1: [52, 211, 153],  c2: [148, 163, 184], c3: [209, 250, 229] },
     thinking:  { speed: 2.55, amp: 0.26, c1: [124, 140, 255], c2: [216, 220, 230], c3: [224, 231, 255] },
+    planning:  { speed: 1.75, amp: 0.19, c1: [124, 140, 255], c2: [148, 163, 184], c3: [224, 231, 255] },
     executing: { speed: 2.25, amp: 0.23, c1: [96, 165, 250],  c2: [228, 230, 238], c3: [186, 230, 253] },
+    working:   { speed: 2.25, amp: 0.23, c1: [96, 165, 250],  c2: [228, 230, 238], c3: [186, 230, 253] },
     takeover:  { speed: 1.40, amp: 0.20, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
+    control:   { speed: 1.40, amp: 0.20, c1: [251, 191, 36],  c2: [245, 158, 11],  c3: [254, 243, 199] },
     needs:     { speed: 1.05, amp: 0.17, c1: [251, 191, 36],  c2: [148, 163, 184], c3: [253, 230, 138] },
-  };
-  const STATE_LABELS = {
-    idle: "Ready",
-    listening: "Listening",
-    thinking: "Thinking",
-    executing: "Working",
-    takeover: "In control",
-    needs: "Needs you",
+    waiting:   { speed: 1.05, amp: 0.17, c1: [251, 191, 36],  c2: [148, 163, 184], c3: [253, 230, 138] },
+    done:      { speed: 0.70, amp: 0.11, c1: [52, 211, 153],  c2: [148, 163, 184], c3: [209, 250, 229] },
+    failed:    { speed: 0.62, amp: 0.10, c1: [251, 113, 133], c2: [148, 163, 184], c3: [254, 205, 211] },
   };
 
   const PARTICLE_COUNT_DESKTOP = 48;
@@ -45,10 +51,11 @@
   const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a.toFixed(3)})`;
 
   let rafId = 0;
+  let unsubFrame = null;
   let lastTs = 0;
   let phase = 0;
   let active = false;
-  let currentState = "idle";
+  let currentState = "ready";
   let cur = { speed: 0.92, amp: 0.16, c1: [...AURORA_STATES.idle.c1], c2: [...AURORA_STATES.idle.c2], c3: [...AURORA_STATES.idle.c3] };
   let bgCanvas = null;
   let fieldCanvas = null;
@@ -59,7 +66,6 @@
   let parTargetY = 0;
   let parX = 0;
   let parY = 0;
-  const orbs = new Set();
 
   function styleName() { return document.documentElement.dataset.style || ""; }
   function isDynamicStyle() { const s = styleName(); return s === "aurora" || s === "obsidian-aurora"; }
@@ -69,28 +75,14 @@
   function bgStyle() { return document.documentElement.dataset.background || "particles"; }
 
   function detectState() {
-    if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
+    if (typeof AuroraCore !== "undefined") return AuroraCore.refreshState();
+    if (document.querySelector('.voice-in[aria-pressed="true"], .room-video-listening')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
-    if (document.querySelector('.st.need, .stage-card[data-card="approvals"][data-tone="needs"], .aurora-reason[data-phase="needs"]')) return "needs";
+    if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .aurora-reason[data-phase="needs"]')) return "needs";
     if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"], .aurora-reason[data-phase="working"]')) return "executing";
     // An answer being thought out or written (aurora-reasoning.js).
     if (document.querySelector('.aurora-reason:is([data-phase="thinking"], [data-phase="writing"])')) return "thinking";
     return "idle";
-  }
-
-  function makeOrb(size, cls) {
-    const c = document.createElement("canvas");
-    c.className = `aurora-orb ${cls}`;
-    c.setAttribute("aria-hidden", "true");
-    c.dataset.size = String(size);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    c.width = size * dpr;
-    c.height = size * dpr;
-    c.style.width = `${size}px`;
-    c.style.height = `${size}px`;
-    const ctx = c.getContext("2d");
-    if (ctx) ctx.scale(dpr, dpr);
-    return c;
   }
 
   function spawnParticle(randomZ) {
@@ -234,56 +226,13 @@
     });
   }
 
-  function updateStatePills() {
-    const label = STATE_LABELS[currentState] || STATE_LABELS.idle;
-    document.querySelectorAll(".aurora-state-pill").forEach((pill) => {
-      const txt = pill.querySelector(".aurora-state-text");
-      if (txt && txt.textContent !== label) txt.textContent = label;
-    });
-  }
-
   function enhanceDynamicDom() {
     if (!active) return;
     ensureCanvases();
 
-    // 1. The navigation's avatar is aurora-avatar.js's.
-
-    // 2. Right sidebar companion avatar orb
-    document.querySelectorAll(".companion-avatar").forEach((av) => {
-      if (!av.querySelector(".aurora-orb-side")) {
-        const c = makeOrb(30, "aurora-orb-side");
-        av.appendChild(c);
-        orbs.add(c);
-      }
-    });
-
-    // 2b. Mobile drawer top workspace-bar live presence orb
-    document.querySelectorAll(".workspace-bar").forEach((bar) => {
-      const heading = bar.querySelector(".workspace-heading");
-      if (heading && !bar.querySelector(".aurora-orb-bar")) {
-        const c = makeOrb(22, "aurora-orb-bar");
-        bar.insertBefore(c, heading);
-        orbs.add(c);
-      }
-    });
-
-    // 2c. Live state pill inside conversation header so active threads stay visibly alive
-    document.querySelectorAll(".conv-head").forEach((head) => {
-      if (!head.querySelector(".aurora-state-pill")) {
-        const pill = document.createElement("span");
-        pill.className = "aurora-state-pill";
-        pill.setAttribute("aria-hidden", "true");
-        pill.innerHTML = `<span class="aurora-state-dot"></span><span class="aurora-state-text">${STATE_LABELS[currentState] || STATE_LABELS.idle}</span>`;
-        const row = head.querySelector(".row");
-        if (row) head.insertBefore(pill, row);
-        else head.appendChild(pill);
-      }
-    });
-
-    // 3. The new conversation's avatar is aurora-avatar.js's.
-
-    // 4. Mark active tool/work containers for rotating conic-gradient execution beams
-    document.querySelectorAll(".reqgroup.chatcard, .tcard, .companion-active-card").forEach((el) => {
+    // Mark active tool/work containers for rotating conic-gradient execution beams
+    // (skip borderless inline task lists inside the thread; their bento box carries the beam).
+    document.querySelectorAll(".tcard:not(.reqgroup.chatcard .tcard), .companion-active-card").forEach((el) => {
       const running =
         el.matches(".companion-active-card") ||
         el.matches('.tcard[data-status="running"], .tcard[data-status="working"], .tcard[data-status="queued"]') ||
@@ -291,22 +240,16 @@
       el.classList.toggle("aurora-executing", running);
     });
 
-    // 5. Entrances, keyed on what is shown (see markEntrances)
+    // Entrances, keyed on what is shown (see markEntrances)
     markEntrances();
     watchDetail();
     noteDetailRect();
 
-    // Prune detached orbs; outside full motion no loop runs, so a new orb is
-    // drawn once here instead of staying blank.
-    for (const c of orbs) if (!c.isConnected) orbs.delete(c);
-    if (motionMode() !== "full") for (const c of orbs) if (!c.dataset.drawn) { c.dataset.drawn = "1"; drawOrb(c); }
-
     const next = detectState();
     if (next !== currentState) {
       currentState = next;
-      document.documentElement.dataset.auroraState = next;
+      if (typeof AuroraCore === "undefined") document.documentElement.dataset.auroraState = next;
     }
-    updateStatePills();
   }
 
   function drawAmbientBg() {
@@ -489,67 +432,7 @@
     else drawParticlesField(ctx, dt, animate, kind === "constellation");
   }
 
-  function drawOrb(canvas) {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const size = Number(canvas.dataset.size || 24);
-    const cx = size / 2;
-    const cy = size / 2;
-    const breath = 1 + Math.sin(phase * 1.55) * (cur.amp * 0.28);
-    const baseR = size * 0.35 * breath;
-
-    ctx.clearRect(0, 0, size, size);
-    const glow = ctx.createRadialGradient(cx, cy, baseR * 0.25, cx, cy, size * 0.5);
-    glow.addColorStop(0, rgba(cur.c1, 0.48));
-    glow.addColorStop(0.6, rgba(cur.c2, 0.20));
-    glow.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.save();
-    ctx.beginPath();
-    const steps = size > 48 ? 60 : 28;
-    for (let i = 0; i <= steps; i++) {
-      const a = (i / steps) * Math.PI * 2;
-      const wobble = (Math.sin(a * 3 + phase * 1.8) * 0.085 + Math.cos(a * 5 - phase * 2.3) * 0.055) * baseR * cur.amp * 4;
-      const r = baseR + wobble;
-      const x = cx + Math.cos(a) * r;
-      const y = cy + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.clip();
-
-    const core = ctx.createRadialGradient(cx - baseR * 0.28, cy - baseR * 0.32, baseR * 0.1, cx, cy, baseR * 1.25);
-    core.addColorStop(0, rgba(cur.c3, 0.96));
-    core.addColorStop(0.45, rgba(cur.c1, 0.88));
-    core.addColorStop(0.85, rgba(cur.c2, 0.68));
-    core.addColorStop(1, "rgba(8,12,24,0.92)");
-    ctx.fillStyle = core;
-    ctx.fillRect(0, 0, size, size);
-
-    ctx.globalCompositeOperation = "lighter";
-    const ox = cx + Math.cos(phase * 1.4) * baseR * 0.36;
-    const oy = cy + Math.sin(phase * 1.6) * baseR * 0.36;
-    const rib = ctx.createRadialGradient(ox, oy, 1, ox, oy, baseR * 0.8);
-    rib.addColorStop(0, rgba(cur.c3, 0.64));
-    rib.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = rib;
-    ctx.fillRect(0, 0, size, size);
-    ctx.restore();
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, Math.max(1, baseR - 0.8), -Math.PI * 0.85, -Math.PI * 0.15);
-    ctx.strokeStyle = "rgba(255,255,255,0.48)";
-    ctx.lineWidth = size > 48 ? 1.5 : 0.95;
-    ctx.lineCap = "round";
-    ctx.stroke();
-  }
-
-  function tick(now) {
-    if (!active || document.hidden) { rafId = 0; return; }
-    const dt = Math.min((now - lastTs) / 1000, 0.05);
-    lastTs = now;
+  function renderFrame(dt) {
     const pal = statePalette();
     const target = pal[currentState] || pal.idle;
     const blend = 1 - Math.exp(-dt * 4.5);
@@ -567,9 +450,14 @@
     if (mm === "full") phase += dt * cur.speed;
     drawAmbientBg();
     drawField(dt, mm === "full");
-    for (const c of orbs) if (c.isConnected) drawOrb(c);
+  }
 
-    if (mm !== "full") { rafId = 0; return; }
+  function tick(now) {
+    if (!active || document.hidden) { rafId = 0; return; }
+    const dt = Math.min((now - lastTs) / 1000, 0.05);
+    lastTs = now;
+    renderFrame(dt);
+    if (motionMode() !== "full") { rafId = 0; return; }
     rafId = requestAnimationFrame(tick);
   }
 
@@ -588,7 +476,7 @@
       parTargetX = ((ev.clientX / Math.max(1, window.innerWidth)) - 0.5) * 0.09;
       parTargetY = ((ev.clientY / Math.max(1, window.innerHeight)) - 0.5) * 0.09;
       if (!(ev.target instanceof Element)) return;
-      const targetEl = ev.target.closest(".hello-card, .explore-card, .card, .say, .companion-active-card, .gbox");
+      const targetEl = ev.target.closest(".hello-card, .explore-card, .card, .say, .stage-tile, .companion-active-card, .gbox");
       if (!targetEl) return;
       const rect = targetEl.getBoundingClientRect();
       targetEl.style.setProperty("--aurora-mx", `${((ev.clientX - rect.left) / Math.max(1, rect.width)) * 100}%`);
@@ -599,20 +487,24 @@
   function teardown() {
     active = false;
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-    delete document.documentElement.dataset.auroraState;
+    if (unsubFrame) { unsubFrame(); unsubFrame = null; }
+    if (typeof AuroraCore === "undefined") delete document.documentElement.dataset.auroraState;
     if (bgCanvas) { bgCanvas.remove(); bgCanvas = null; }
     if (fieldCanvas) { fieldCanvas.remove(); fieldCanvas = null; }
-    document.querySelectorAll(".aurora-orb, .aurora-state-pill").forEach((el) => el.remove());
     document.querySelectorAll(".aurora-executing").forEach((el) => el.classList.remove("aurora-executing"));
     document.querySelectorAll(".aurora-detail-ghost").forEach((el) => el.remove());
     if (detailObs) { detailObs.disconnect(); detailObs = null; }
     detailEl = null;
     detailRect = null;
-    orbs.clear();
   }
 
   function startLoop() {
     if (!active || document.hidden) return;
+    if (typeof AuroraCore !== "undefined") {
+      if (!unsubFrame) unsubFrame = AuroraCore.onFrame((_now, dt) => { if (active) renderFrame(dt); });
+      AuroraCore.wake();
+      return;
+    }
     lastTs = performance.now();
     if (motionMode() === "full") {
       if (!rafId) rafId = requestAnimationFrame(tick);
@@ -620,7 +512,6 @@
       if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       drawAmbientBg();
       drawField(0, false);
-      for (const c of orbs) if (c.isConnected) drawOrb(c);
     }
   }
 
@@ -705,7 +596,7 @@
   function reconcile() {
     if (isDynamicStyle()) {
       active = true;
-      document.documentElement.dataset.auroraState = currentState;
+      if (typeof AuroraCore === "undefined") document.documentElement.dataset.auroraState = currentState === "ready" ? "idle" : currentState;
       enhanceDynamicDom();
       startLoop();
     } else if (active) {
@@ -720,7 +611,7 @@
   });
 
   let domTimer = 0;
-  const bodyObs = new MutationObserver((records) => {
+  function handleDom(records) {
     if (!active) return;
     // Entrances are marked in this callback, before the browser draws the
     // new nodes: marked a timer later, a node was drawn, hidden, then faded
@@ -728,10 +619,15 @@
     if (records.some((r) => r.addedNodes.length)) markEntrances();
     if (domTimer) return;
     domTimer = setTimeout(() => { domTimer = 0; enhanceDynamicDom(); }, 45);
-  });
+  }
 
   function init() {
-    bodyObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed", "data-phase"] });
+    if (typeof AuroraCore !== "undefined") {
+      AuroraCore.onDom(handleDom);
+      AuroraCore.onState((s) => { currentState = s; });
+    } else {
+      new MutationObserver(handleDom).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-pill", "data-status", "aria-pressed", "data-phase", "data-tone"] });
+    }
     window.addEventListener("magnus-theme", reconcile);
     document.addEventListener("visibilitychange", () => {
       if (!active) return;

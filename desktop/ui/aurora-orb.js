@@ -48,15 +48,28 @@ const ORB_TURN_MS = 600;
   /** @type {Set<{ draw: (t: number) => void }>} */
   const live = new Set();
   let frame = 0;
+  let unsubCore = null;
+  function tickAll(/** @type {number} */ now) {
+    const sec = now / 1000;
+    for (const o of live) o.draw(sec);
+  }
   function loop(/** @type {number} */ now) {
     frame = 0;
     if (document.hidden || !moving() || !live.size) return;
-    for (const o of live) o.draw(now / 1000);
+    tickAll(now);
     frame = requestAnimationFrame(loop);
   }
-  const wake = () => { if (!frame && moving() && !document.hidden && live.size) frame = requestAnimationFrame(loop); };
+  const wake = () => {
+    if (typeof AuroraCore !== "undefined") {
+      if (live.size && !unsubCore) unsubCore = AuroraCore.onFrame(now => tickAll(now));
+      else if (!live.size && unsubCore) { unsubCore(); unsubCore = null; }
+      AuroraCore.wake();
+      return;
+    }
+    if (!frame && moving() && !document.hidden && live.size) frame = requestAnimationFrame(loop);
+  };
   document.addEventListener("visibilitychange", wake);
-  window.addEventListener("magnus-theme", () => { wake(); for (const o of live) o.draw(performance.now() / 1000); });
+  window.addEventListener("magnus-theme", () => { wake(); tickAll(performance.now()); });
 
   AuroraAvatar.define("orb", (host, { size }) => {
     const c = document.createElement("canvas");
@@ -117,15 +130,19 @@ const ORB_TURN_MS = 600;
       core.addColorStop(1, "rgba(8,12,24,0.92)");
       ctx.fillStyle = core;
       ctx.fillRect(0, 0, size, size);
-      if (to.mark === "swirl" || to.mark === "") {
+      // Dual counter-orbiting internal light ribbons (matching magnus-website.html optical depth).
+      if (to.mark !== "bar" && to.mark !== "tick") {
         ctx.globalCompositeOperation = "lighter";
-        const spin = to.mark === "swirl" ? 2.2 : 1.4;
-        const ox = cx + Math.cos(ph * spin) * r * 0.4, oy = cy + Math.sin(ph * spin * 1.1) * r * 0.4;
-        const rib = ctx.createRadialGradient(ox, oy, 1, ox, oy, r * 0.8);
-        rib.addColorStop(0, rgba(p.c3, to.mark === "swirl" ? 0.8 : 0.6));
-        rib.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.fillStyle = rib;
-        ctx.fillRect(0, 0, size, size);
+        const spin = to.mark === "swirl" ? 1.8 : 1.2;
+        for (let k2 = 0; k2 < 2; k2++) {
+          const ox = cx + Math.cos(ph * (spin + k2 * 0.55) + k2 * 2.1) * r * 0.4;
+          const oy = cy + Math.sin(ph * (spin * 1.15 + k2 * 0.45) + k2 * 1.4) * r * 0.4;
+          const rib = ctx.createRadialGradient(ox, oy, 1, ox, oy, r * 0.82);
+          rib.addColorStop(0, rgba(k2 === 0 ? p.c3 : p.c2, to.mark === "swirl" ? 0.72 : 0.56));
+          rib.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = rib;
+          ctx.fillRect(0, 0, size, size);
+        }
       }
       ctx.restore();
       // The shine, then the state's own mark.

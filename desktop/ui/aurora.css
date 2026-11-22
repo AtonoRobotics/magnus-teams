@@ -106,36 +106,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > mai
   overflow-y: auto;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-bar {
-  display: none;
-  flex: none;
-  pointer-events: none;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .aurora-orb-bar {
-  display: block;
-}
-
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head {
   background: transparent;
   border-bottom-color: transparent;
   padding: 12px 20px 6px;
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-state-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 11px;
-  border-radius: var(--r-pill);
-  background: var(--aurora-glass-strong);
-  border: 1px solid var(--aurora-rim);
-  color: var(--fg2);
-  font-size: 11.5px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  flex: none;
-  transition: border-color .28s var(--ease), box-shadow .28s var(--ease), color .28s var(--ease);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-state-dot {
@@ -151,31 +125,24 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   animation: auroraDotPulse 2.4s ease-in-out infinite;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="thinking"] .aurora-state-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="thinking"], [data-aurora-avatar-state="planning"], [data-aurora-state="thinking"]) .aurora-state-dot {
   background: var(--aurora-beam-b);
   box-shadow: 0 0 12px var(--aurora-beam-b);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-state-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="listening"], [data-aurora-avatar-state="done"], [data-aurora-state="listening"]) .aurora-state-dot {
   background: var(--ok);
   box-shadow: 0 0 12px var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="takeover"] .aurora-state-dot,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="needs"] .aurora-state-dot {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="control"], [data-aurora-avatar-state="waiting"], [data-aurora-state="takeover"], [data-aurora-state="needs"]) .aurora-state-dot {
   background: var(--warn);
   box-shadow: 0 0 12px var(--warn);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="needs"] .aurora-state-pill {
-  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
-  color: var(--fg);
-}
-
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="executing"] .aurora-state-pill {
-  border-color: var(--aurora-beam-a);
-  box-shadow: 0 0 18px var(--aurora-spot);
-  color: var(--fg);
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-avatar-state="failed"] .aurora-state-dot {
+  background: var(--bad);
+  box-shadow: 0 0 12px var(--bad);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=drawer] .workspace-bar {
@@ -399,13 +366,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .companion-m {
   opacity: 0;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-orb-side {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .panel-tabs {
   padding: 4px;
   border-radius: var(--r-pill);
@@ -464,6 +424,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) :is(.computer-vie
   mask-composite: exclude;
   pointer-events: none;
   z-index: 1;
+  transition: opacity .35s var(--ease);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] :is(.computer-view:has(.state-pill[data-pill="working"]), .computer-view:has(.state-pill[data-pill="waking"]), .aurora-executing)::before {
@@ -475,7 +436,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full
   position: absolute;
   inset: 0;
   width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(186, 230, 253, 0.08), transparent);
+  background: linear-gradient(90deg, transparent, var(--aurora-sweep), transparent);
   animation: auroraSweep 2.1s var(--ease) infinite;
   pointer-events: none;
 }
@@ -553,8 +514,8 @@ html[data-style="aurora"] .msg.me {
   border: 1px solid var(--aurora-rim);
 }
 
-/* Obsidian 2 inline file-type badges carried into Obsidian 2 Aurora */
-html[data-style="obsidian-aurora"] .fchip-inline {
+/* Inline file-type badges in Aurora & Obsidian 2 Aurora (WCAG-calibrated for light and dark). */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -565,19 +526,25 @@ html[data-style="obsidian-aurora"] .fchip-inline {
   font-size: 12px;
   vertical-align: baseline;
 }
-html[data-style="obsidian-aurora"] .fchip-tag { display: inline; font-weight: 700; font-size: 10px; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="js"] .fchip-tag { color: #D97706; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="ts"] .fchip-tag { color: #2563EB; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="html"] .fchip-tag { color: #EA580C; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="rs"] .fchip-tag { color: #DC2626; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="css"] .fchip-tag { color: #0284C7; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="md"] .fchip-tag { color: #2563EB; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="json"] .fchip-tag { color: #7C3AED; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="py"] .fchip-tag { color: #059669; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="sh"] .fchip-tag { color: #0D9488; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="yml"] .fchip-tag { color: #DB2777; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="toml"] .fchip-tag { color: #EA580C; }
-html[data-style="obsidian-aurora"] .fchip-inline[data-ext="sql"] .fchip-tag { color: #0284C7; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-tag { display: inline; font-weight: 700; font-size: 10px; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline:is([data-ext="js"], [data-ext="pptx"]) .fchip-tag { color: #B45309; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline:is([data-ext="ts"], [data-ext="md"], [data-ext="docx"]) .fchip-tag { color: #1D4ED8; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline:is([data-ext="html"], [data-ext="toml"]) .fchip-tag { color: #C2410C; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline:is([data-ext="rs"], [data-ext="pdf"]) .fchip-tag { color: #B91C1C; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline:is([data-ext="css"], [data-ext="sql"]) .fchip-tag { color: #0369A1; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline[data-ext="json"] .fchip-tag { color: #6D28D9; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline:is([data-ext="py"], [data-ext="xlsx"], [data-ext="csv"]) .fchip-tag { color: #047857; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline[data-ext="sh"] .fchip-tag { color: #0F766E; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .fchip-inline[data-ext="yml"] .fchip-tag { color: #BE185D; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline:is([data-ext="js"], [data-ext="pptx"]) .fchip-tag { color: #FB923C; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline:is([data-ext="ts"], [data-ext="md"], [data-ext="docx"]) .fchip-tag { color: #60A5FA; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline:is([data-ext="html"], [data-ext="toml"]) .fchip-tag { color: #FDBA74; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline:is([data-ext="rs"], [data-ext="pdf"]) .fchip-tag { color: #F87171; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline:is([data-ext="css"], [data-ext="sql"]) .fchip-tag { color: #38BDF8; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline[data-ext="json"] .fchip-tag { color: #A78BFA; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline:is([data-ext="py"], [data-ext="xlsx"], [data-ext="csv"]) .fchip-tag { color: #34D399; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline[data-ext="sh"] .fchip-tag { color: #2DD4BF; }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-mode="dark"] .fchip-inline[data-ext="yml"] .fchip-tag { color: #F472B6; }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .tcard,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .reqgroup,
@@ -694,7 +661,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send.is-em
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .voice-in[aria-pressed="true"] {
   background: var(--ok);
-  color: #05070e;
+  color: var(--ok-fg);
   border-radius: 50%;
   box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 25%, transparent);
 }

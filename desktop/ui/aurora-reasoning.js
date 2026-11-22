@@ -24,12 +24,19 @@ const REASON_KEPT_MAX = 200;
 const AuroraReasoning = (() => {
   const ENDS = ["completed", "failed", "stopped", "cancelled"];
   const SAY_WORDS = {
+    ready: "Ready · standing by",
     idle: "Ready · standing by",
     listening: "Listening · speak naturally…",
     thinking: "Thinking & planning…",
+    planning: "Planning next steps…",
+    working: "Working across your apps…",
     executing: "Working across your apps…",
+    control: "You're in control",
     takeover: "You're in control",
+    waiting: "Needs you · a decision is waiting",
     needs: "Needs you · a decision is waiting",
+    done: "Done · ready for your review",
+    failed: "Stopped with a problem",
   };
   const CHEVRON = '<svg class="aurora-reason-chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
 
@@ -199,7 +206,8 @@ const AuroraReasoning = (() => {
 
   /** The line above each composer saying the state Magnus is in. */
   function say() {
-    const words = SAY_WORDS[document.documentElement.dataset.auroraState || "idle"] || SAY_WORDS.idle;
+    const key = document.documentElement.dataset.auroraAvatarState || document.documentElement.dataset.auroraState || "ready";
+    const words = SAY_WORDS[/** @type {keyof typeof SAY_WORDS} */ (key)] || SAY_WORDS.ready;
     document.querySelectorAll(".composer-slot > .say, .composer-slot > form.say").forEach(form => {
       const slot = form.parentElement;
       if (!slot) return;
@@ -261,8 +269,14 @@ const AuroraReasoning = (() => {
   let queued = 0;
   const soon = () => { if (!queued) queued = requestAnimationFrame(() => { queued = 0; if (on()) mount(); else off(); }); };
   function init() {
-    new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
-    new MutationObserver(soon).observe(document.documentElement, { attributes: true, attributeFilter: ["data-style", "data-aurora-state"] });
+    if (typeof AuroraCore !== "undefined") {
+      AuroraCore.onDom(soon);
+      AuroraCore.onState(() => { if (on()) say(); });
+      window.addEventListener("magnus-theme", soon);
+    } else {
+      new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
+      new MutationObserver(soon).observe(document.documentElement, { attributes: true, attributeFilter: ["data-style", "data-aurora-state", "data-aurora-avatar-state"] });
+    }
     soon();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

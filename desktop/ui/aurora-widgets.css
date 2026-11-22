@@ -172,7 +172,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .chip {
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-reason {
   margin: 2px 0 10px;
-  border-radius: 16px;
+  border-radius: var(--r-md);
   border: 1px solid var(--aurora-rim);
   background: color-mix(in srgb, var(--fg) 3.5%, transparent);
   overflow: hidden;
@@ -342,20 +342,24 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-say-state
   transition: color .3s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="thinking"] .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="thinking"], [data-aurora-avatar-state="planning"], [data-aurora-state="thinking"]) .aurora-say-state {
   color: color-mix(in srgb, var(--aurora-beam-b) 55%, var(--fg));
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="executing"] .aurora-say-state {
-  color: var(--aurora-beam-a);
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="working"], [data-aurora-state="executing"]) .aurora-say-state {
+  color: var(--aurora-exec-text);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-state="listening"] .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="listening"], [data-aurora-avatar-state="done"], [data-aurora-state="listening"]) .aurora-say-state {
   color: var(--ok);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-state="needs"], [data-aurora-state="takeover"]) .aurora-say-state {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]):is([data-aurora-avatar-state="waiting"], [data-aurora-avatar-state="control"], [data-aurora-state="needs"], [data-aurora-state="takeover"]) .aurora-say-state {
   color: var(--warn);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-aurora-avatar-state="failed"] .aurora-say-state {
+  color: var(--bad);
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .composer-slot::before {
@@ -523,6 +527,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-confirmed
   padding: 7px 14px;
   border-radius: var(--r-pill);
   background: var(--ok);
-  color: #05070d;
+  color: var(--ok-fg);
   font-weight: 600;
 }

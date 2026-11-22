@@ -52,10 +52,7 @@ const AuroraAvatar = (() => {
    */
   const makers = new Map();
 
-  /**
-   * Each place Magnus is shown, and the avatar drawn there now.
-   * @type {Array<{ slot: HTMLElement, button: HTMLButtonElement, size: number, name: string, avatar: Avatar }>}
-   */
+  /** @type {Array<{ slot: HTMLElement, button: HTMLButtonElement, size: number, name: string, avatar: Avatar, fixedState?: string }>} */
   const mounted = [];
 
   let state = "ready";
@@ -74,8 +71,9 @@ const AuroraAvatar = (() => {
     for (const m of mounted) if (m.name === name) remount(m);
   }
 
-  /** The state Magnus is in, from what the page says. */
+  /** The state Magnus is in, from AuroraCore when present else the page. */
   function read() {
+    if (typeof AuroraCore !== "undefined") return AuroraCore.state;
     const html = document.documentElement.dataset.auroraState || "idle";
     if (html === "listening") return "listening";
     if (html === "takeover") return "control";
@@ -100,19 +98,20 @@ const AuroraAvatar = (() => {
     return "ready";
   }
 
-  /** @param {{ button: HTMLButtonElement }} m */
+  /** @param {{ button: HTMLButtonElement, fixedState?: string }} m */
   function name(m) {
-    const words = WORDS[/** @type {keyof typeof WORDS} */ (state)] || WORDS.ready;
+    const s = m.fixedState || state;
+    const words = WORDS[/** @type {keyof typeof WORDS} */ (s)] || WORDS.ready;
     m.button.setAttribute("aria-label", `Magnus is ${words}. Show what Magnus is doing`);
     m.button.title = `Magnus is ${words}`;
-    m.button.dataset.state = state;
+    m.button.dataset.state = s;
   }
 
   function tell() {
     const next = read();
     if (next !== state) {
       state = next;
-      for (const m of mounted) { name(m); m.avatar.set(state); }
+      for (const m of mounted) { name(m); m.avatar.set(m.fixedState || state); }
     }
   }
 
@@ -122,24 +121,35 @@ const AuroraAvatar = (() => {
     m.button.replaceChildren();
     const make = makers.get(m.name);
     m.avatar = make ? make(m.button, { size: m.size }) : { set() {}, destroy() {} };
-    m.avatar.set(state);
+    m.avatar.set(m.fixedState || state);
   }
+
+  /** Explicit class names for each mounted placement (keeps static CSS checks accurate). */
+  const PLACE_CLASS = {
+    nav: "aurora-avatar-nav",
+    bar: "aurora-avatar-bar",
+    side: "aurora-avatar-side",
+    team: "aurora-avatar-team",
+    call: "aurora-avatar-call",
+    hero: "aurora-avatar-hero",
+  };
 
   /**
    * Shows Magnus in `slot`, as the style's avatar, `size` pixels across.
-   * @param {HTMLElement} slot @param {number} size @param {string} place
+   * @param {HTMLElement} slot @param {number} size @param {string} place @param {string} [fixedState]
    */
-  function mount(slot, size, place) {
+  function mount(slot, size, place, fixedState) {
     const avatarName = Theme.avatar(document.documentElement.dataset.style || "") || "";
     const button = document.createElement("button");
     button.type = "button";
-    button.className = place === "hero" ? "aurora-avatar aurora-avatar-hero" : "aurora-avatar aurora-avatar-nav";
+    const placeClass = PLACE_CLASS[/** @type {keyof typeof PLACE_CLASS} */ (place)] || `aurora-avatar-${place}`;
+    button.className = `aurora-avatar ${placeClass}`;
     button.style.setProperty("--avatar-size", `${size}px`);
     slot.append(button);
     const make = makers.get(avatarName);
-    const m = { slot, button, size, name: avatarName, avatar: make ? make(button, { size }) : { set() {}, destroy() {} } };
+    const m = { slot, button, size, name: avatarName, avatar: make ? make(button, { size }) : { set() {}, destroy() {} }, fixedState };
     name(m);
-    m.avatar.set(state);
+    m.avatar.set(fixedState || state);
     mounted.push(m);
     return m;
   }
@@ -165,10 +175,30 @@ const AuroraAvatar = (() => {
       slot.querySelector(":scope > svg")?.setAttribute("aria-hidden", "true");
       mount(/** @type {HTMLElement} */ (slot), 28, "nav");
     });
+    document.querySelectorAll(".workspace-bar").forEach(bar => {
+      const heading = bar.querySelector(".workspace-heading");
+      if (!heading || bar.querySelector(":scope > .aurora-avatar-bar")) return;
+      const m = mount(/** @type {HTMLElement} */ (bar), 22, "bar");
+      bar.insertBefore(m.button, heading);
+    });
+    document.querySelectorAll(".companion-avatar").forEach(slot => {
+      if (slot.querySelector(":scope > .aurora-avatar")) return;
+      mount(/** @type {HTMLElement} */ (slot), 30, "side");
+    });
+    document.querySelectorAll(".team-rail-head .room-orb").forEach(slot => {
+      if (slot.querySelector(":scope > .aurora-avatar")) return;
+      slot.removeAttribute("aria-hidden");
+      mount(/** @type {HTMLElement} */ (slot), 24, "team");
+    });
+    document.querySelectorAll(".room-video-listening .room-orb").forEach(slot => {
+      if (slot.querySelector(":scope > .aurora-avatar")) return;
+      slot.removeAttribute("aria-hidden");
+      mount(/** @type {HTMLElement} */ (slot), 18, "call", "listening");
+    });
     const heads = document.querySelectorAll(".hello-head");
     heads.forEach(slot => {
       if (!slot.querySelector(":scope > .aurora-avatar")) {
-        const m = mount(/** @type {HTMLElement} */ (slot), 72, "hero");
+        const m = mount(/** @type {HTMLElement} */ (slot), 84, "hero");
         slot.prepend(m.button);
       }
       // A new conversation opens at its top, where Magnus and the question
@@ -182,14 +212,30 @@ const AuroraAvatar = (() => {
     if (!heads.length) opened = "";
   }
 
+  let placeQueued = 0;
+  function queuePlace() {
+    if (placeQueued) return;
+    placeQueued = requestAnimationFrame(() => { placeQueued = 0; if (on()) { place(); tell(); } });
+  }
+
   function run() {
+    if (typeof AuroraCore !== "undefined") {
+      place();
+      tell();
+      return;
+    }
     if (timer || document.hidden) return;
     timer = window.setInterval(() => { if (on()) { place(); tell(); } }, AVATAR_POLL_MS);
   }
   function stop() { if (timer) { clearInterval(timer); timer = 0; } }
 
+  if (typeof AuroraCore !== "undefined") {
+    AuroraCore.onState(() => tell());
+    AuroraCore.onDom(records => { if (records.some(r => r.addedNodes.length || r.removedNodes.length)) queuePlace(); });
+  }
+
   document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); else { run(); tell(); } });
-  window.addEventListener("magnus-theme", () => { place(); tell(); for (const m of mounted) m.avatar.set(state); });
+  window.addEventListener("magnus-theme", () => { place(); tell(); for (const m of mounted) m.avatar.set(m.fixedState || state); });
 
   // Clicking the avatar shows what Magnus is doing: what waits on the
   // person, if anything does, else Activity.

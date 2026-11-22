@@ -36,7 +36,7 @@ const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
 // chrome, the sidebar's labels and counts, a selected row's title, the
 // search field's placeholder, the segmented control's labels; on reading
 // surfaces, the conversation, cards and tiles.
-const TEXT = ["fg", "fg2", "muted", "accent-text"];
+const TEXT = ["fg", "fg2", "muted", "faint", "accent-text"];
 const CHROME_PAIRS = s => [
   ...["fg", "fg2", "muted"].map(fg => [fg, [s]]),
   ["fg", [s, "row-sel"]], ["fg", [s, "search"]], ["muted", [s, "search"]],
@@ -44,7 +44,7 @@ const CHROME_PAIRS = s => [
 ];
 const READING = [["main"], ["surface"], ["raised"], ["group-head"]];
 const READING_PAIRS = [...READING.flatMap(l => TEXT.map(fg => [fg, l])), ["fg", ["bubble"]], ["fg", ["approval-bg"]], ["fg2", ["approval-bg"]], ["fg", ["seg-on"]], ["fg2", ["seg"]]];
-const PAIRS = [["accent-fg", "accent"], ["ok", "ok-soft"], ["warn", "warn-soft"], ["sch", "sch-soft"], ["bad", "bad-soft"], ["warn", "approval-bg"], ["accent-text", "accent-soft"]];
+const PAIRS = [["accent-fg", "accent"], ["ok-fg", "ok"], ["warn-fg", "warn"], ["ok", "ok-soft"], ["warn", "warn-soft"], ["sch", "sch-soft"], ["bad", "bad-soft"], ["warn", "approval-bg"], ["accent-text", "accent-soft"]];
 
 const failures = [];
 const report = [];
@@ -62,6 +62,10 @@ for (const style of Theme.STYLES.map(s => s[0])) for (const mode of ["light", "d
   for (const s of ["side", "panel"]) for (const [fg, layers] of CHROME_PAIRS(s)) check(fg, layers, "chrome");
   for (const [fg, layers] of READING_PAIRS) check(fg, layers, "reading");
   for (const [fg, bg] of PAIRS) check(fg, [bg], "label");
+  if (t["aurora-exec-text"]) {
+    check("aurora-exec-text", ["main"], "aurora status");
+    check("aurora-exec-text", ["aurora-glass-strong"], "aurora status on glass");
+  }
   for (const [k] of [...READING, ["bubble"], ["approval-bg"], ["seg-on"]]) if (rgba(t[k])[3] !== 1) failures.push(`${name}: the surface ${k} is not solid (${t[k]})`);
   report.push(`${name.padEnd(28)} lowest ${low.toFixed(2)}:1`);
 }
