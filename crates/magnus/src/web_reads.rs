@@ -118,6 +118,27 @@ pub(crate) fn is_allowed_github_repo_url(raw_url: &str, repos: &[(String, String
     repos.iter().any(|(o, r)| *o == owner_l && *r == repo_l)
 }
 
+/// Returns `true` if `raw_url` is a clean public HTTPS URL (domain host, no
+/// userinfo, no query string, no traversal/encoded slashes, and passes
+/// deterministic secret/PII scrubbing) that an `OpenWeb` worker—which holds
+/// zero private data and whose query already passed `query_gate`—may open
+/// directly without needing the user or search to provide the exact URL first.
+pub(crate) fn is_clean_open_web_url(raw_url: &str) -> bool {
+    let trimmed = raw_url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("%2f") || lower.contains("%5c") || lower.contains("..") {
+        return false;
+    }
+    let Ok(parsed) = url::Url::parse(trimmed) else { return false };
+    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some() {
+        return false;
+    }
+    if !matches!(parsed.host(), Some(url::Host::Domain(d)) if d.contains('.')) {
+        return false;
+    }
+    crate::compartment::query_gate::scrub_check(trimmed).is_none()
+}
+
 impl Kernel {
     /// Whether this web read's address came from the person or the web.
     pub(crate) async fn plain_web_read(&self, a: &Action, f: &Facts, run: &Run) -> Result<bool> {
@@ -125,12 +146,11 @@ impl Kernel {
         Ok(sends_nothing_new(a, f, |u| appears_in(u, &sources)))
     }
 
-    /// Link-following-only provenance for an `OpenWeb` worker spawned from a
-    /// tainted `Private` run: URLs may come ONLY from this worker's own search
-    /// results, pages it loaded, the user's original prompt, or public GitHub
-    /// read prefixes for an `owner/repo` literally named in the user's original
-    /// prompt — never from the `research_web` query string written by the
-    /// tainted parent model.
+    /// Provenance & clean-URL check for an `OpenWeb` worker spawned from a
+    /// tainted `Private` run: allows URLs from this worker's own search
+    /// results, pages it loaded, the user's original prompt, user-named
+    /// public GitHub repos, or clean public HTTPS URLs (no query string, no
+    /// userinfo, passes secret/PII scrub).
     pub(crate) async fn open_web_link_allowed(&self, a: &Action, f: &Facts, run: &Run) -> Result<bool> {
         let requester = self.requester_run(run);
         let prompt = if requester.task.is_empty() { String::new() } else { self.asked(&requester).await? };
@@ -145,7 +165,7 @@ impl Kernel {
                 .filter_map(|i| i.result.as_ref().filter(|res| !res.is_error).map(|res| res.text.clone()))
                 .collect::<Vec<_>>()
         }));
-        Ok(sends_nothing_new(a, f, |u| appears_in(u, &texts) || is_allowed_github_repo_url(u, &prompt_repos)))
+        Ok(sends_nothing_new(a, f, |u| appears_in(u, &texts) || is_allowed_github_repo_url(u, &prompt_repos) || is_clean_open_web_url(u)))
     }
 
     /// Where an action goes (`asks::destinations`), and for a browser
@@ -243,5 +263,21 @@ mod tests {
         assert!(!is_allowed_github_repo_url("https://api.github.com/repos/AtonoRobotics/magnus-teams%2F..%2Fother", &repos));
         assert!(!is_allowed_github_repo_url("http://api.github.com/repos/AtonoRobotics/magnus-teams", &repos));
         assert!(!is_allowed_github_repo_url("https://evil.test/AtonoRobotics/magnus-teams", &repos));
+    }
+
+    #[test]
+    fn clean_open_web_urls_allow_public_https_and_reject_queries_and_secrets() {
+        assert!(is_clean_open_web_url("https://docs.rs"));
+        assert!(is_clean_open_web_url("https://stripe.com/pricing"));
+        assert!(is_clean_open_web_url("https://github.com/rust-lang/rust"));
+
+        // Query parameters, HTTP, IP literals, userinfo, traversal, and secrets are rejected.
+        assert!(!is_clean_open_web_url("https://evil.test/collect?d=revenue-41.7M"));
+        assert!(!is_clean_open_web_url("http://docs.rs/tokio"));
+        assert!(!is_clean_open_web_url("https://127.0.0.1/admin"));
+        assert!(!is_clean_open_web_url("https://user:pass@stripe.com/pricing"));
+        assert!(!is_clean_open_web_url("https://stripe.com/a/../b"));
+        assert!(!is_clean_open_web_url("https://evil.test/exfil/sk-1234567890abcdef"));
+        assert!(!is_clean_open_web_url("https://evil.test/exfil/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7"));
     }
 }

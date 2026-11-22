@@ -275,11 +275,108 @@ impl Kernel {
             }
         }
     }
+
+    /// Evaluates a model-constructed URL in a tainted (`private && untrusted`)
+    /// run using the same deterministic scrub, turn-scoped byte budget, denial
+    /// retry cap, and outgoing classifier as `check_web_query`.
+    ///
+    /// - When the outgoing classifier clears the URL, navigation proceeds
+    ///   autonomously without interrupting the user.
+    /// - When scrubbing, budgets, or the classifier flag sensitive data, the
+    ///   call is silently denied.
+    /// - When no classifier is configured/reachable, `browser_*` and
+    ///   queryless `web_fetch` fall back to the site-scoped envelope/approval
+    ///   gate (`UrlVerdict::Ask`) instead of dead-ending, while query-bearing
+    ///   `web_fetch` URLs remain silently denied.
+    pub(crate) async fn check_web_url(&self, a: &Action, run: &Run, f: &crate::boundary::Facts, raw_url: &str) -> Result<UrlVerdict> {
+        let trimmed = raw_url.trim();
+        let Ok(parsed) = url::Url::parse(trimmed) else {
+            return Ok(UrlVerdict::Deny("web URL denied: invalid URL".into()));
+        };
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Ok(UrlVerdict::Deny("web URL denied: only http and https URLs are allowed".into()));
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Ok(UrlVerdict::Deny("web URL denied: credentials in URL userinfo are not allowed".into()));
+        }
+
+        let requester = self.requester_run(run);
+        let scope_key = if !requester.task.is_empty() {
+            requester.task.as_str()
+        } else if !requester.id.is_empty() {
+            requester.id.as_str()
+        } else {
+            run.id.as_str()
+        };
+
+        if let Some(reason) = scrub_check(trimmed) {
+            record_query_denial(scope_key);
+            let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
+            return Ok(UrlVerdict::Deny(format!("web URL denied: {reason}. Remove credentials or sensitive identifiers")));
+        }
+
+        let url_bytes = trimmed.len();
+        let persisted = self.read(|s| s.security.query_budget(scope_key));
+        if persisted.denials >= MAX_QUERY_DENIALS_PER_RUN {
+            return Ok(UrlVerdict::Deny(format!("web query limit reached after {MAX_QUERY_DENIALS_PER_RUN} denied requests in this turn; carry on without further web requests")));
+        }
+        if persisted.bytes_used.saturating_add(url_bytes) > MAX_TAINTED_QUERY_BYTES_PER_RUN {
+            return Ok(UrlVerdict::Deny(format!("web query byte budget ({MAX_TAINTED_QUERY_BYTES_PER_RUN} bytes per turn) exceeded; finish with what you have")));
+        }
+        if let Err(reason) = check_budget_before_classify(scope_key, url_bytes) {
+            return Ok(UrlVerdict::Deny(reason));
+        }
+
+        match self.outgoing_finding(a, run).await {
+            Some(None) => {
+                charge_query_bytes(scope_key, url_bytes);
+                let _ = self
+                    .emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: url_bytes, denied: false }))
+                    .await;
+                Ok(UrlVerdict::Allow)
+            }
+            Some(Some(finding)) => {
+                record_query_denial(scope_key);
+                let _ = self.emit("kernel", crate::events::Ev::QueryGateRecorded(crate::events::QueryGatePayload { scope: scope_key.into(), bytes_added: 0, denied: true })).await;
+                Ok(UrlVerdict::Deny(format!(
+                    "web URL denied: the outgoing classifier flagged sensitive data ({finding}). Use web_search or research_web with public terms instead"
+                )))
+            }
+            None => Ok(fallback_url_verdict(&f.app, parsed.query().is_some())),
+        }
+    }
+}
+
+fn fallback_url_verdict(app: &str, has_query: bool) -> UrlVerdict {
+    if app == "web" && has_query {
+        return UrlVerdict::Deny(
+            "cannot open a constructed URL with query parameters while this conversation holds private data and untrusted content; use web_search or research_web to find a public link first"
+                .into(),
+        );
+    }
+    UrlVerdict::Ask
+}
+
+/// Decision returned by [`Kernel::check_web_url`] for a constructed URL in a
+/// tainted (`private && untrusted`) run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum UrlVerdict {
+    Allow,
+    Ask,
+    Deny(String),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_denies_query_bearing_web_fetch_and_asks_for_browser_navigation() {
+        assert!(matches!(fallback_url_verdict("web", true), UrlVerdict::Deny(_)));
+        assert_eq!(fallback_url_verdict("web", false), UrlVerdict::Ask);
+        assert_eq!(fallback_url_verdict("browser", false), UrlVerdict::Ask);
+        assert_eq!(fallback_url_verdict("browser", true), UrlVerdict::Ask);
+    }
 
     #[test]
     fn scrub_catches_secrets_and_pii_and_allows_normal_queries() {

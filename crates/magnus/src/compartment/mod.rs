@@ -165,8 +165,9 @@ impl Kernel {
         let tools = open_web_tools(tainted, self.web.can_search(), self.browser.available());
         let (task, child) = (new_id("task"), new_id("run"));
 
-        let prompt =
-            format!("Research the following public web question using search and link-following only. Return a concise summary with exact source URLs.\n\nQuery: {combined}");
+        let prompt = format!(
+            "Research the following public web question using web search, public HTTPS sites, and link-following. Return a concise summary with exact source URLs.\n\nQuery: {combined}"
+        );
         let budget = crate::sub_agents::child_budget_for(&parent.config.budget, parent.spent_usd(), Some(RESEARCH_BUDGET_SHARE));
         let o = NewRun {
             // Clean OpenWeb compartment: never inherits parent.private or parent history.

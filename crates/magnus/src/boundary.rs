@@ -669,9 +669,20 @@ impl Kernel {
         }
         let is_query_tool = matches!(wr, crate::tool_registry::WebRead::Query | crate::tool_registry::WebRead::Research);
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || (f.app == "browser" && !a.tool.starts_with("browser_as_")));
-        if web_or_browser_read && !is_query_tool && untrusted && private && !self.plain_web_read(a, f, run).await? {
-            let why = "cannot open a constructed URL while this conversation holds private data and untrusted content; use web_search or research_web to find a public link first";
-            return Ok(Err(self.deny(a, "policy", why, false, None).await?));
+        let mut url_cleared = false;
+        if web_or_browser_read && !is_query_tool && untrusted && private {
+            if self.plain_web_read(a, f, run).await? {
+                url_cleared = true;
+            } else {
+                let raw_url = a.input["url"].as_str().unwrap_or_default();
+                match self.check_web_url(a, run, f, raw_url).await? {
+                    crate::compartment::query_gate::UrlVerdict::Allow => url_cleared = true,
+                    crate::compartment::query_gate::UrlVerdict::Ask => {}
+                    crate::compartment::query_gate::UrlVerdict::Deny(why) => {
+                        return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
+                    }
+                }
+            }
         }
 
         let own_account_read = f.risk == Risk::Read && f.connector.as_ref().is_some_and(|c| c.auth.as_deref() == Some(crate::connectors::OAUTH));
@@ -683,9 +694,9 @@ impl Kernel {
                 || f.app == "web"
                 || (f.app == "browser" && !(f.risk == Risk::Read && a.tool.starts_with("browser_as_")))
                 || (f.connector.is_some() && f.audience > Audience::Private && !own_account_read));
-        // A web read whose address the model did not make up carries nothing
-        // out (decisions/2026-11-12-web-reads-by-provenance.md).
-        let transmits = transmits && !(untrusted && private && crate::web_reads::sends_nothing_new(a, f, |_| true) && self.plain_web_read(a, f, run).await?);
+        // A web read whose address the model did not make up (or that passed
+        // the outgoing URL gate) carries nothing private out.
+        let transmits = transmits && !(untrusted && private && url_cleared);
         // Outbound writes when holding untrusted content + private data:
         // check against the lazy user-only Envelope (never whole-directory or
         // blanket past-contact auto-allow). Out-of-envelope stageable writes
