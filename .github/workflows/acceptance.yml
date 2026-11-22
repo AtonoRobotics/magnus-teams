@@ -96,7 +96,7 @@ jobs:
             # The scratch tests this kind of change touches most: asks, the
             # send reviewer and a definition changed under its pin.
             cargo build --workspace --bins
-            cargo test -p magnus-scratch --no-fail-fast --test asks --test reviewer --test destination_preview
+            cargo test -p magnus-scratch --no-fail-fast --test asks --test reviewer --test destination_preview --test cross_thread_reply
           else
             ci/acceptance.sh "$suite"
           fi
