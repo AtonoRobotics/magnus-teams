@@ -197,12 +197,17 @@ fn swap(dir: &Path, with: &Path, keep_as: &Path) -> Result<()> {
 }
 
 /// Before the kernel starts: a release that was switched to and did not
-/// come up is switched away from, once.
+/// come up is switched away from, once. One that came up (`healthy`, marked
+/// by `after_start` once it served) stays, whether or not its finish was
+/// recorded: `after_start` records it this time.
 pub fn on_start(cfg: &Config) -> Result<()> {
     install_dir()?;
     let Some(mut p) = pending(cfg) else {
         return Ok(());
     };
+    if p["healthy"].as_bool() == Some(true) {
+        return Ok(());
+    }
     if p["started"].as_bool() == Some(true) {
         return roll_back_now(cfg, &p, "the new release did not start");
     }
@@ -237,9 +242,16 @@ pub fn roll_back_now(cfg: &Config, p: &Value, reason: &str) -> Result<()> {
 }
 
 impl Kernel {
-    /// Once serving: record how the switch went and resume the suspended tasks.
+    /// Once serving: record how the switch went and resume the suspended
+    /// tasks. The start is marked healthy first, so a record that fails
+    /// never has the next start take this release for one that did not come
+    /// up; the pending file goes only once the record is made.
     pub async fn after_start(self: &Arc<Self>) -> Result<()> {
-        if let Some(p) = pending(&self.cfg) {
+        if let Some(mut p) = pending(&self.cfg) {
+            if p["healthy"].as_bool() != Some(true) {
+                p["healthy"] = json!(true);
+                write_pending(&self.cfg, &p)?;
+            }
             let (from, to) = (p["from"].as_str().unwrap_or_default().to_string(), p["to"].as_str().unwrap_or_default().to_string());
             if p["rollback"].as_bool() == Some(true) {
                 let reason = p["reason"].as_str().unwrap_or("rolled back").to_string();
@@ -255,14 +267,18 @@ impl Kernel {
         self.resume_updated().await
     }
 
+    /// Every task suspended for an update goes on, in one write.
     async fn resume_updated(self: &Arc<Self>) -> Result<()> {
         if self.read(|s| s.vault.kill_switch()) {
             return Ok(());
         }
         let runs: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.status == Status::Suspended && r.reason.as_deref() == Some("update")).map(|r| r.id.clone()).collect());
-        for run in runs {
-            self.emit("kernel", Ev::Resumed { run: run.clone() }).await?;
-            self.wake(&run);
+        if runs.is_empty() {
+            return Ok(());
+        }
+        self.emit_all(runs.iter().map(|run| ("kernel", Ev::Resumed { run: run.clone() })).collect()).await?;
+        for run in &runs {
+            self.wake(run);
         }
         Ok(())
     }
@@ -339,34 +355,14 @@ impl Kernel {
     }
 
     /// Suspend the running tasks, let them finish their step, swap the
-    /// programs and start them in this process.
+    /// programs and start them in this process. Once the start is recorded,
+    /// every way out that does not end in the other release running goes
+    /// through `fail_switch`.
     async fn switch(self: &Arc<Self>, actor: &str, from: &str, to: &str, rollback: bool, put: impl FnOnce(&Path) -> Result<()>) -> Result<Value> {
         self.emit(actor, Ev::UpdateStarted { from: from.into(), to: to.into(), rollback }).await?;
-        self.suspend_for_update().await?;
-        let start = std::time::Instant::now();
-        while self.any_driving() && start.elapsed() < DRAIN {
-            tokio::time::sleep(DRAIN_POLL).await;
-        }
-        let dir = install_dir()?;
-        let r = started_as().and_then(|how| {
-            if rollback {
-                // As roll_back_now: the earlier release reads the vault as it wrote it.
-                self.vault.unbind_all()?;
-            }
-            write_pending(&self.cfg, &json!({ "from": from, "to": to, "rollback": rollback, "owner": rollback, "reason": if rollback { "the owner went back one release" } else { "" }, "started_as": how }))?;
-            put(&dir)?;
-            Ok(how)
-        });
-        let how = match r {
+        let how = match self.ready_to_switch(from, to, rollback, put).await {
             Ok(how) => how,
-            Err(e) => {
-                let _ = std::fs::remove_file(pending_path(&self.cfg));
-                self.rebind_after_failed_switch(rollback)?;
-                let reason = format!("{e:#}");
-                self.emit("kernel", Ev::UpdateFailed { to: to.into(), reason: reason.clone() }).await?;
-                self.resume_updated().await?;
-                return Ok(json!({ "status": "failed", "version": from, "latest": to, "reason": reason }));
-            }
+            Err(e) => return Ok(self.fail_switch(from, to, rollback, format!("{e:#}")).await),
         };
         tracing::info!("switching from {from} to {to}");
         let e = match exec_installed(&how) {
@@ -375,12 +371,58 @@ impl Kernel {
         };
         // Still this release, running: put its programs back, and say so.
         let _ = std::fs::remove_file(pending_path(&self.cfg));
-        let undone = swap_with_prev(&dir);
-        self.rebind_after_failed_switch(rollback)?;
+        let undone = install_dir().and_then(|dir| swap_with_prev(&dir));
         let reason = format!("{e:#}{}", undone.err().map(|u| format!("; putting this release back failed too: {u:#}")).unwrap_or_default());
-        self.emit("kernel", Ev::UpdateFailed { to: to.into(), reason: reason.clone() }).await?;
-        self.resume_updated().await?;
-        Ok(json!({ "status": "failed", "version": from, "latest": to, "reason": reason }))
+        Ok(self.fail_switch(from, to, rollback, reason).await)
+    }
+
+    /// The running tasks suspended and done with their step, the switch
+    /// written down and the other release's programs in place: how to start them.
+    async fn ready_to_switch(&self, from: &str, to: &str, rollback: bool, put: impl FnOnce(&Path) -> Result<()>) -> Result<Value> {
+        self.suspend_for_update().await?;
+        let start = std::time::Instant::now();
+        while self.any_driving() && start.elapsed() < DRAIN {
+            tokio::time::sleep(DRAIN_POLL).await;
+        }
+        let dir = install_dir()?;
+        let how = started_as()?;
+        if rollback {
+            // As roll_back_now: the earlier release reads the vault as it wrote it.
+            self.vault.unbind_all()?;
+        }
+        write_pending(
+            &self.cfg,
+            &json!({ "from": from, "to": to, "rollback": rollback, "owner": rollback, "reason": if rollback { "the owner went back one release" } else { "" }, "started_as": how }),
+        )?;
+        put(&dir)?;
+        Ok(how)
+    }
+
+    /// A switch that did not happen is undone, every step tried whatever
+    /// the one before did: the pending switch forgotten, the vault bound
+    /// again, the failure recorded (which ends `updating`), and the tasks
+    /// suspended for it resumed. What could not be undone is said with the
+    /// reason; a failure record that did not land is made at the next start
+    /// (`after_start`).
+    async fn fail_switch(self: &Arc<Self>, from: &str, to: &str, rollback: bool, reason: String) -> Value {
+        let _ = std::fs::remove_file(pending_path(&self.cfg));
+        let mut left = vec![];
+        if let Err(e) = self.rebind_after_failed_switch(rollback) {
+            left.push(format!("binding the vault again: {e:#}"));
+        }
+        if let Err(e) = self.emit("kernel", Ev::UpdateFailed { to: to.into(), reason: reason.clone() }).await {
+            left.push(format!("recording the failure: {e:#}"));
+        }
+        if let Err(e) = self.resume_updated().await {
+            left.push(format!("resuming the tasks: {e:#}"));
+        }
+        let reason = if left.is_empty() {
+            reason
+        } else {
+            tracing::error!("the update to {to} failed and was not fully undone: {}", left.join("; "));
+            format!("{reason}; undoing it failed too: {}", left.join("; "))
+        };
+        json!({ "status": "failed", "version": from, "latest": to, "reason": reason })
     }
 
     /// Going back failed, so this release keeps running: its vault is bound
@@ -638,3 +680,7 @@ async fn desktop_file(AxState(k): K, h: HeaderMap, UrlPath((channel, name)): Url
         Err(e) => internal(e.into()),
     })
 }
+
+#[cfg(test)]
+#[path = "update_tests.rs"]
+mod tests;
