@@ -212,6 +212,10 @@ impl Kernel {
         self.end_team_tasks(&actor, &tasks).await;
         // What was held for a member is theirs, not the workspace's.
         self.keep_all_held(&actor, ws).await;
+        // Its own sign-ins to apps, revoked at each app and deleted before
+        // it goes: no one could end them once the workspace is gone.
+        let ended = self.end_sign_ins_of(&crate::connectors::SignInOwner::Project(ws.to_string()), &actor).await?;
+        tracing::info!("workspace {ws}: {ended} app sign-ins ended");
         let owner = Owner::Workspace(ws.to_string());
         // Gone with the workspace, by the usual deletion: a reset would put
         // a new one in its place, and no new one is made until it is gone.

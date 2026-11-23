@@ -491,7 +491,9 @@ impl Kernel {
     /// relay: its tokens in the vault, its tools asked for again, recorded.
     pub(crate) async fn keep_sign_in(&self, app: &str, person: &str, t: Tokens) -> Result<()> {
         let account = t.account.clone();
-        self.vault.put(&connection_name(app, person), &serde_json::to_string(&t)?)?;
+        // In place of any sign-in before it: a refresh of that one on its
+        // way does not write it back over this (`SignInStore`).
+        self.connecting.store.replace(&self.vault, &connection_name(app, person), &serde_json::to_string(&t)?)?;
         self.live_tools.lock().await.remove(&connection_name(app, person));
         self.emit(&format!("person:{person}"), Ev::AppConnected { app: app.to_string(), person: person.to_string(), account }).await?;
         Ok(())

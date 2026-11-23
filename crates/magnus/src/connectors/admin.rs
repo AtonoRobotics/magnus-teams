@@ -6,7 +6,7 @@ use super::discovery::{asks_sign_in, discover, own_name};
 use super::requests::AddConnector;
 use super::routes::name_from;
 use super::standing::revoke;
-use super::{credential_name, is_sign_in_of, title, OAUTH};
+use super::{credential_name, is_sign_in_of, title, SignInOwner, OAUTH};
 use crate::config::Connector;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -75,7 +75,8 @@ impl Kernel {
                     None => ("none", false, None),
                 };
                 let at = key.as_ref().and_then(|k| changed.get(k)).map(|(_, at)| *at);
-                let signed_in = vault.iter().filter(|n| n.starts_with(&format!("{}__", credential_name(&c.name)))).count();
+                // People only: a shared project's own sign-in is not a person's.
+                let signed_in = vault.iter().filter(|n| matches!(SignInOwner::of_name(n, &c.name), Some(SignInOwner::Person(_)))).count();
                 let last_used = people.iter().filter_map(|p| self.recent_uses(&c.name, p, 1).first().and_then(|u| u["at"].as_str().map(String::from))).max();
                 // Its tools are accepted when someone connects it (spec rev
                 // 140): nothing waits on an admin's review.
@@ -225,7 +226,9 @@ impl Kernel {
         let names: Vec<String> = self.vault.names().map_err(failed)?.into_iter().filter(|n| is_sign_in_of(n, &c.name) || c.credential.as_ref() == Some(n)).collect();
         let mut n = 0;
         for cred in names {
-            match self.vault.remove(&cred).map_err(failed)? {
+            // A sign-in ends through the store, so no refresh on its way writes it back.
+            let removed = if is_sign_in_of(&cred, &c.name) { self.connecting.store.end(&self.vault, &cred) } else { self.vault.remove(&cred) };
+            match removed.map_err(failed)? {
                 Some(s) if c.auth.as_deref() == Some(OAUTH) => {
                     let (done, detail) = revoke(self, s.expose()).await;
                     tracing::info!("{}: revoked {cred} {done}: {detail}", c.name);

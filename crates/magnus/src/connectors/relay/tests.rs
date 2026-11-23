@@ -289,8 +289,9 @@ async fn two_servers_in_one_process_keep_their_own_sign_ins() {
     let e = d.k.connector_sign_in_complete("relayed", "sam", &state, "code", None).await.unwrap_err().to_string();
     assert!(e.contains("expired or is unknown"), "another server took this one's sign-in: {e}");
 
-    let held = a.k.connecting.refresh.lock().await;
-    assert!(b.k.connecting.refresh.try_lock().is_ok(), "one server's refresh held up another's");
+    let held = a.k.connecting.store.refreshing("connector_relayed__sam").await;
+    let other = tokio::time::timeout(std::time::Duration::from_secs(1), b.k.connecting.store.refreshing("connector_relayed__sam")).await;
+    assert!(other.is_ok(), "one server's refresh held up another's");
     drop(held);
     for s in [a, b, c, d] {
         s.done().await;
