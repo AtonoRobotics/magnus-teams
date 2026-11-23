@@ -55,6 +55,12 @@ pub(crate) struct TeamCopies {
 }
 
 impl TeamCopies {
+    /// Only what is noted of these tasks stays: the rest were forgotten.
+    pub(super) fn keep(&mut self, kept: impl Fn(&str) -> bool) {
+        self.whispers.retain(|t, _| kept(t));
+        self.quoted.retain(|_, (_, _, t)| kept(t));
+    }
+
     pub(super) fn note(&mut self, c: &Change, seq: i64) {
         let (workspace, channel, task, history) = match c {
             Change::Whisper { workspace, channel, task, history, .. } => {

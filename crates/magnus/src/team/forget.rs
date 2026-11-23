@@ -49,6 +49,8 @@ impl Forget for Ledger {
         }
         self.whispers.retain(|task, w| !who.is(&w.owner) && !who.tasks.contains(task));
         self.runs.retain(|task, r| !who.is(&r.requester) && !who.tasks.contains(task));
+        let (whispers, runs) = (&self.whispers, &self.runs);
+        self.copies.keep(|t| whispers.contains_key(t) || runs.contains_key(t));
         self.notes.retain(|task, _| !who.tasks.contains(task));
         self.admins.forget(p);
     }
