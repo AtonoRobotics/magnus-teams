@@ -160,12 +160,18 @@ pub fn admit(on: bool, peer: SocketAddr, headers: &axum::http::HeaderMap, method
     }
 }
 
+/// Where the paired devices are kept in a state directory; a backup takes
+/// the file and a restore puts it back (`person_stores`).
+pub fn file(state_dir: &Path) -> PathBuf {
+    state_dir.join("accounts").join("devices.json")
+}
+
 impl Devices {
     pub fn open(state_dir: &Path) -> Result<Devices> {
         let dir = state_dir.join("accounts");
         std::fs::create_dir_all(&dir)?;
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-        let path = dir.join("devices.json");
+        let path = file(state_dir);
         let devices = match std::fs::read(&path) {
             Ok(b) => serde_json::from_slice(&b).with_context(|| format!("{} does not parse", path.display()))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
