@@ -648,10 +648,10 @@ async fn the_writer_shares_a_writer_only_document_in_conversation() {
         let b = bob.submit(BOB_PAY).await;
         bob.wait_status(&b, &["completed"]).await;
         let runs: Vec<_> = m.requests().into_iter().filter(|c| c.body.to_string().contains(BOB_PAY)).collect();
-        let at = |turn: usize| runs.iter().filter(|c| c.turn() == turn).last().map(|c| c.last_results()[0].clone()).unwrap();
+        let at = |turn: usize| runs.iter().rfind(|c| c.turn() == turn).map(|c| c.last_results()[0].clone()).unwrap();
         (at(2), at(3))
     };
-    let (read, search) = bob_looks().await;
+    let (read, _search) = bob_looks().await;
     assert!(read.is_error && read.text.contains("no such document"), "bob read it before the share: {}", read.text);
     let said = ask(&alice, "Share the finance page with staff.").await;
     assert!(said.contains("shared /people/finance.md"), "{said}");

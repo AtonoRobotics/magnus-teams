@@ -300,7 +300,8 @@ impl Kernel {
         let shown = dir.display().to_string();
         let _one = backing_up().lock().await;
         let cfg = self.cfg.clone();
-        let found = tokio::task::spawn_blocking(move || -> std::result::Result<(usize, Vec<(String, i64, String)>), String> {
+        type ScrubFound = (usize, Vec<(String, i64, String)>);
+        let found = tokio::task::spawn_blocking(move || -> std::result::Result<ScrubFound, String> {
             // What has been removed, where a restore of a backup that
             // could not be rewritten finds it (`restore`), and every
             // removal recorded before, in this log's history or another's.
@@ -461,7 +462,7 @@ fn removed_events(cfg: &Config, from: &Path) -> Result<Gone> {
         all.extend(read_removals(&d).with_context(|| format!("read the removals recorded in {}", d.display()))?);
     }
     std::fs::create_dir_all(&cfg.appliance.state_dir)?;
-    Ok(record_removals(&[cfg.appliance.state_dir.clone()], all))
+    Ok(record_removals(std::slice::from_ref(&cfg.appliance.state_dir), all))
 }
 
 fn backing_up() -> &'static tokio::sync::Mutex<()> {
@@ -489,7 +490,7 @@ pub(crate) fn prune(dir: &Path, keep_days: u32) -> Result<Vec<String>> {
 
 /// When the newest backup in `dir` was made, by its name.
 fn newest(dir: &Path) -> Option<chrono::DateTime<chrono::Utc>> {
-    list(&dir.to_path_buf()).iter().filter_map(|(n, _)| made_at(n)).max()
+    list(dir).iter().filter_map(|(n, _)| made_at(n)).max()
 }
 
 fn made_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -665,7 +666,7 @@ pub fn status(k: &Kernel) -> Value {
     json!({ "dir": dir, "every_hours": c.every_hours, "keep_days": k.backup_keep_days(), "copy_to": c.copy_to, "on_appliance_disk": c.dir.is_none(), "latest": last, "copy": copy, "files": files, "scrub_pending": pending })
 }
 
-pub fn list(dir: &PathBuf) -> Vec<(String, u64)> {
+pub fn list(dir: &Path) -> Vec<(String, u64)> {
     try_list(dir).unwrap_or_default()
 }
 

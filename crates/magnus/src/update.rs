@@ -369,7 +369,10 @@ impl Kernel {
             }
         };
         tracing::info!("switching from {from} to {to}");
-        let e = exec_installed(&how).unwrap_err();
+        let e = match exec_installed(&how) {
+            Err(e) => e,
+            Ok(()) => anyhow::anyhow!("exec returned unexpectedly"),
+        };
         // Still this release, running: put its programs back, and say so.
         let _ = std::fs::remove_file(pending_path(&self.cfg));
         let undone = swap_with_prev(&dir);

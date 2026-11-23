@@ -95,7 +95,7 @@ pub fn standing_of(k: &Kernel, person: &str) -> Value {
 async fn standing(State(k): K, h: HeaderMap) -> Response {
     match who(&k, &h).await {
         Ok(p) => Json(standing_of(&k, &p.id)).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 

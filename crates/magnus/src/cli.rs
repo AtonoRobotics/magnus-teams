@@ -248,19 +248,6 @@ async fn run(cfg: Config) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn an_inherited_socket_is_used_only_for_the_address_it_already_is() {
-        assert!(super::use_inherited_listen("127.0.0.1:0", "127.0.0.1:40059"));
-        assert!(super::use_inherited_listen("127.0.0.1:40059", "127.0.0.1:40059"));
-        // A release under test that names another port must bind that port
-        // and fail, not serve on the socket the harness is holding.
-        assert!(!super::use_inherited_listen("127.0.0.1:40060", "127.0.0.1:40059"));
-        assert!(!super::use_inherited_listen("127.0.0.1:10", "127.0.0.1:40059"));
-    }
-}
-
 /// Open the accounts store for a person managed here: in the config, or
 /// kept by the appliance itself (#429).
 async fn managed_accounts(cfg: &crate::config::Config, person: &str) -> Result<crate::accounts::Accounts> {
@@ -432,4 +419,17 @@ async fn conformance(args: &[String]) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&report)?);
     anyhow::ensure!(report.passed, "conformance failed");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn an_inherited_socket_is_used_only_for_the_address_it_already_is() {
+        assert!(super::use_inherited_listen("127.0.0.1:0", "127.0.0.1:40059"));
+        assert!(super::use_inherited_listen("127.0.0.1:40059", "127.0.0.1:40059"));
+        // A release under test that names another port must bind that port
+        // and fail, not serve on the socket the harness is holding.
+        assert!(!super::use_inherited_listen("127.0.0.1:40060", "127.0.0.1:40059"));
+        assert!(!super::use_inherited_listen("127.0.0.1:10", "127.0.0.1:40059"));
+    }
 }

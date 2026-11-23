@@ -142,9 +142,9 @@ pub struct SubAgents {
 pub enum Body {
     /// A message, an opener, an answer or the tasks a message started: the
     /// entry both chats share.
-    Said(ChatEntry),
+    Said(Box<ChatEntry>),
     Turn(Turn),
-    Result(TaskResult),
+    Result(Box<TaskResult>),
     SubAgents(SubAgents),
     /// A card: the model's fields with the server's answer added.
     Card(Map<String, Value>),
@@ -170,7 +170,7 @@ pub struct Entry {
 impl Entry {
     /// A message, opener, answer or tasks entry.
     pub fn said(c: ChatEntry) -> Entry {
-        Entry { id: c.id.clone(), kind: Kind::parse(c.kind), at: c.at, task_id: c.task_id.clone(), may: None, reaction: None, body: Body::Said(c) }
+        Entry { id: c.id.clone(), kind: Kind::parse(c.kind), at: c.at, task_id: c.task_id.clone(), may: None, reaction: None, body: Body::Said(Box::new(c)) }
     }
 
     /// A card from its fields, the server's answer already in them.

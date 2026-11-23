@@ -50,7 +50,7 @@ fn claim(id: &str) -> Option<String> {
 
 async fn make(State(k): State<Arc<Kernel>>, h: HeaderMap, Json(b): Json<Frame>) -> Response {
     if let Err(r) = who(&k, &h).await {
-        return r;
+        return *r;
     }
     if b.html.len() > MAX_FRAME_BYTES {
         return err(StatusCode::PAYLOAD_TOO_LARGE, "that page is too large");

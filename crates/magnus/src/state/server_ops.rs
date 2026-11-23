@@ -80,10 +80,8 @@ impl ServerOps {
             Ev::BackupScrubPending { from, through, files, detail } => {
                 self.scrub_pending = Some(ScrubPending { from: *from, through: *through, files: files.clone(), detail: detail.clone(), at });
             }
-            Ev::BackupsScrubbed { through } => {
-                if self.scrub_pending.as_ref().is_some_and(|p| p.through <= *through) {
-                    self.scrub_pending = None;
-                }
+            Ev::BackupsScrubbed { through } if self.scrub_pending.as_ref().is_some_and(|p| p.through <= *through) => {
+                self.scrub_pending = None;
             }
             _ => {}
         }

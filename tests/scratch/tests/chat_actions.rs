@@ -88,7 +88,7 @@ async fn act(api: &Api, thread: &str, entry: &str, what: &str, body: Value) -> (
 
 /// The conversation the model was given for the turn that answered `text`.
 fn heard(m: &FakeModel, text: &str) -> String {
-    m.requests().into_iter().filter(|c| is_chat(c) && said(c) == text).map(|c| c.messages()[0].to_string()).last().unwrap_or_default()
+    m.requests().into_iter().filter(|c| is_chat(c) && said(c) == text).map(|c| c.messages()[0].to_string()).next_back().unwrap_or_default()
 }
 
 /// Delete hides one entry; edit and retry replace a message and what came

@@ -7,7 +7,7 @@
 
 use magnus_invariants::*;
 use magnus_scratch::reconfigure;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::time::Duration;
 
 const REVIEW: &str = "reviewing one person's state";

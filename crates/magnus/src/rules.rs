@@ -331,7 +331,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 async fn list(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
     match who(&k, &h).await {
         Ok(p) => Json(json!({ "rules": k.read(|s| s.rules.of(&p.id)) })).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 

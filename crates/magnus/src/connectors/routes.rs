@@ -178,8 +178,8 @@ async fn add(AxState(k): K, Owner(p): Owner, Body(b): Body<requests::AddConnecto
     Ok(answer(k.add_connector(&format!("person:{}", p.id), &b).await, StatusCode::CREATED))
 }
 
-fn added(k: &Kernel, name: &str) -> Result<Connector, Response> {
-    k.added_connector(name).map_err(|(st, m)| err(st, m))
+fn added(k: &Kernel, name: &str) -> ApiResult<Connector> {
+    k.added_connector(name).map_err(|(st, m)| crate::api_error::ApiError::new(st, m))
 }
 
 /// Remove an app: its sign-in is revoked at the app and its credential deleted.
@@ -215,7 +215,7 @@ async fn sign_in(AxState(k): K, Caller(p): Caller, Path(name): Path<String>, Bod
     }
     Ok(match k.connector_sign_in(&c, &p.id, &b.redirect_uri).await {
         Ok((url, state)) => Json(json!({ "authorize_url": url, "state": state })).into_response(),
-        Err(e) => err(StatusCode::BAD_GATEWAY, &format!("{e:#}")),
+        Err(e) => err(StatusCode::BAD_GATEWAY, format!("{e:#}")),
     })
 }
 
@@ -229,7 +229,7 @@ async fn sign_in_complete(AxState(k): K, Caller(p): Caller, Path(name): Path<Str
             k.signed_in_after_consent(&name, &p.id).await;
             StatusCode::NO_CONTENT.into_response()
         }
-        Err(e) => err(StatusCode::BAD_REQUEST, &format!("{e:#}")),
+        Err(e) => err(StatusCode::BAD_REQUEST, format!("{e:#}")),
     })
 }
 

@@ -13,13 +13,13 @@ use std::{net::SocketAddr, sync::Arc};
 
 /// Sign-in hands out a session, so over plain HTTP only from this machine:
 /// neither a password nor a session crosses the network unencrypted.
-pub(crate) fn over_tls(k: &Kernel, t: Transport, peer: SocketAddr) -> Result<(), Response> {
+pub(crate) fn over_tls(k: &Kernel, t: Transport, peer: SocketAddr) -> Result<(), Box<Response>> {
     if t == Transport::Plain && !peer.ip().is_loopback() {
         let hint = match &k.cfg.appliance.tls_listen {
             Some(l) => format!("sign in over https (port {})", l.rsplit(':').next().unwrap_or_default()),
             None => "sign in over https; the owner has not turned it on (appliance.tls_listen)".into(),
         };
-        return Err(err(StatusCode::FORBIDDEN, hint));
+        return Err(Box::new(err(StatusCode::FORBIDDEN, hint)));
     }
     Ok(())
 }
@@ -92,15 +92,15 @@ fn device_error(e: crate::devices::IssueError) -> Response {
     }
 }
 
-fn cloudflare_of(k: &Kernel) -> Result<crate::devices::Cloudflare, Response> {
-    let Some(cfg) = k.cfg.client_certs.clone() else { return Err(err(StatusCode::NOT_FOUND, "this server does not issue device certificates")) };
+fn cloudflare_of(k: &Kernel) -> ApiResult<crate::devices::Cloudflare> {
+    let Some(cfg) = k.cfg.client_certs.clone() else { return refuse(StatusCode::NOT_FOUND, "this server does not issue device certificates") };
     if k.vault.is_sealed() {
-        return Err(err(StatusCode::CONFLICT, "The kill switch is on, so a device certificate cannot be issued or revoked at Cloudflare until the owner releases it."));
+        return refuse(StatusCode::CONFLICT, "The kill switch is on, so a device certificate cannot be issued or revoked at Cloudflare until the owner releases it.");
     }
     let token = match k.vault.get(&cfg.credential) {
         Ok(Some(s)) => s.expose().to_string(),
-        Ok(None) => return Err(err(StatusCode::SERVICE_UNAVAILABLE, format!("The vault has no secret {} for device certificates.", cfg.credential))),
-        Err(e) => return Err(internal(e)),
+        Ok(None) => return refuse(StatusCode::SERVICE_UNAVAILABLE, format!("The vault has no secret {} for device certificates.", cfg.credential)),
+        Err(e) => return Err(e.into()),
     };
     Ok(crate::devices::Cloudflare { api: crate::devices::CF_API.into(), zone: cfg.zone_id, token, days: cfg.days })
 }

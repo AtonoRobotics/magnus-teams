@@ -172,7 +172,7 @@ async fn overview(State(k): State<Arc<Kernel>>) -> Response {
     let day = chrono::Utc::now() - chrono::Duration::hours(24);
     let v = k.read(|s| {
         let mut failed: Vec<&crate::state::Run> = s.runs.values().filter(|r| r.status == Status::Failed).collect();
-        failed.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
+        failed.sort_by_key(|a| std::cmp::Reverse(a.ended_at));
         let knowledge = s.library.knowledge().values().filter(|e| e.at > day && !e.author.starts_with("person:")).count();
         let memory = s.library.memory().iter().filter(|m| m.at > day).count();
         // Agents' changes to the org context bundle (admin console spec,

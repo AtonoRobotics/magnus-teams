@@ -71,7 +71,7 @@ async fn page(
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     if let Some(until) = k.accounts.guesses_locked(crate::devices::client_ip(peer, &h)) {
         return too_many(until);
@@ -94,7 +94,7 @@ async fn create(
     Form(f): Form<HashMap<String, String>>,
 ) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     if let Some(until) = k.accounts.guesses_locked(crate::devices::client_ip(peer, &h)) {
         return too_many(until);

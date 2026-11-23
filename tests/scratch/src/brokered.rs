@@ -203,7 +203,8 @@ impl ProviderApi {
         }
         let ca = Arc::new(TestCa::new("A CA standing in for a provider's (test)"));
         let acceptor = ca.acceptor("127.0.0.1");
-        let (seen, raw): (Arc<Mutex<Vec<(String, String)>>>, Arc<Mutex<Vec<u8>>>) = Default::default();
+        let seen: Arc<Mutex<Vec<(String, String)>>> = Default::default();
+        let raw: Arc<Mutex<Vec<u8>>> = Default::default();
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let host = l.local_addr().unwrap().to_string();
         let items = Arc::new(Mutex::new("[]".to_string()));

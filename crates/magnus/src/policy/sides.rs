@@ -77,7 +77,7 @@ pub(super) fn partition_layer(text: &str, side: Side) -> Result<String> {
     let set = PolicySet::from_str(text).map_err(|e| anyhow!("{e}"))?;
     let mut out = String::new();
     for policy in set.policies() {
-        let (tools, controls, loops) = policy_sides(&policy);
+        let (tools, controls, loops) = policy_sides(policy);
         let keep = match side {
             Side::Tool => tools,
             Side::Control => controls,

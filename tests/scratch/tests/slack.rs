@@ -126,7 +126,7 @@ async fn slack_signs_in_at_slacks_page_through_its_registered_address_without_pk
     let q: std::collections::HashMap<String, String> = u.query_pairs().into_owned().collect();
     assert_eq!(q.get("client_id").map(String::as_str), Some(id.as_str()), "{u}");
     assert_eq!(q.get("redirect_uri").map(String::as_str), Some(redirect().as_str()), "{u}");
-    assert!(q.get("code_challenge").is_none() && q.get("code_challenge_method").is_none(), "PKCE was sent, and this Slack app has not opted in: {u}");
+    assert!(!q.contains_key("code_challenge") && !q.contains_key("code_challenge_method"), "PKCE was sent, and this Slack app has not opted in: {u}");
     let state = v["state"].as_str().unwrap();
     let code = "never-log-this-code";
     let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();

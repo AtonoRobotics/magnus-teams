@@ -40,7 +40,7 @@ impl Kernel {
     /// What a connected app answered when Magnus last asked it for its tools
     /// and it refused, if it did.
     fn refused(&self, c: &Connector, person: &Person) -> Option<String> {
-        self.refused_apps.lock().unwrap().get(&crate::connectors::connection_name(&c.name, &person.id)).cloned()
+        self.refused_apps.lock().unwrap_or_else(|e| e.into_inner()).get(&crate::connectors::connection_name(&c.name, &person.id)).cloned()
     }
 
     /// The person's app index, as the run's context holds it.
@@ -81,7 +81,7 @@ impl Kernel {
                 (words.is_empty() || score > 0).then_some((score, l))
             })
             .collect();
-        found.sort_by(|a, b| b.0.cmp(&a.0));
+        found.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
         let apps: Vec<Value> = found.into_iter().map(|(_, l)| l).collect();
         if apps.is_empty() {
             return json!({ "apps": [], "note": "No app in the person's Library does that. Say so plainly; do not suggest one that is not there." });

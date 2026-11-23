@@ -1,7 +1,7 @@
 //! 6. A scheduled run uses sub-agents (owner, 2026-11-10; spec rev 140: "a
-//! schedule fires with nobody present, uses sub-agents and posts its result
-//! in its conversation"). Part of the autonomy suite, kept in its own file
-//! for size: `cargo test -p magnus-scratch --test autonomy`.
+//!    schedule fires with nobody present, uses sub-agents and posts its result
+//!    in its conversation"). Part of the autonomy suite, kept in its own file
+//!    for size: `cargo test -p magnus-scratch --test autonomy`.
 
 use super::*;
 

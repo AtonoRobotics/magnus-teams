@@ -46,12 +46,14 @@ impl Local for Accounts {
     }
 }
 
+pub type ProviderOverlay = (Option<Vec<String>>, Option<Vec<String>>);
+
 /// What the log has said about one person's rights since the config:
 /// roles set here, and the identity provider's groups and roles.
 #[derive(Clone, Debug, Default)]
 pub struct Overlay {
     pub roles: Option<Vec<String>>,
-    pub provider: Option<(Option<Vec<String>>, Option<Vec<String>>)>,
+    pub provider: Option<ProviderOverlay>,
 }
 
 /// The record a sign-in resolves: the config first, else the server's own

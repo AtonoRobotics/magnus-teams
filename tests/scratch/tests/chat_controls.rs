@@ -36,7 +36,9 @@ fn model(calls: Arc<Mutex<Vec<(String, String, Value)>>>) -> Script {
 
 /// Say `text` in a new conversation, answered by `tool(input)`; what the
 /// tool answered, as the model saw it.
-async fn ask(api: &Api, calls: &Arc<Mutex<Vec<(String, String, Value)>>>, text: &str, tool: &str, input: Value) -> String {
+type Calls = Arc<Mutex<Vec<(String, String, Value)>>>;
+
+async fn ask(api: &Api, calls: &Calls, text: &str, tool: &str, input: Value) -> String {
     calls.lock().unwrap().push((text.into(), tool.into(), input));
     let (st, v) = api.post("/v1/chat", json!({ "text": text })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
@@ -465,7 +467,7 @@ async fn a_cancelled_runs_log_says_button_or_conversation() {
     let spec = Spec { people: vec![person("alice", &["owner"]), person("bob", &[]), person("dana", &["developer"])], ..Spec::default() };
     let calls = Arc::new(Mutex::new(vec![]));
     let m = FakeModel::start(model(calls.clone())).await;
-    let mut app = Appliance::start(spec, &m).await;
+    let app = Appliance::start(spec, &m).await;
     let (bob, dana) = (app.api("bob"), app.api("dana"));
     let cancelled = |log: &Value| log["events"].as_array().unwrap().iter().find(|e| e["kind"] == "cancelled").map(|e| e["body"].clone()).unwrap_or(Value::Null);
 

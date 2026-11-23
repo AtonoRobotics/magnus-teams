@@ -122,7 +122,7 @@ async fn gmail_sends_a_draft_only_once_the_person_approves_it_reaching_only_gmai
     let (ask, tool) = asked(&alice, &task).await;
     assert_eq!(tool, "send_draft");
     let read = ("GET".to_string(), "/drafts/d1".to_string());
-    assert_eq!(calls(&gmail), [read.clone()], "Gmail was called for more than reading the draft before Alice approved");
+    assert_eq!(calls(&gmail), std::slice::from_ref(&read), "Gmail was called for more than reading the draft before Alice approved");
     assert_eq!(
         ask["details"]["destinations"],
         json!({ "recipients": { "to": ["bo@example.com"], "cc": [], "bcc": [] }, "content": { "subject": "Re: Plans", "body": "Friday works.", "attachments": [] } })

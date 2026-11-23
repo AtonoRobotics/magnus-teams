@@ -54,7 +54,7 @@ async fn a_watch_with_an_interval_polls_without_reads() {
             }
             // Failing ends the task without a contract; the read it
             // made is what matters. Polls never wake on ending.
-            return tool("task_fail", json!({ "reason": "checked the inbox" }));
+            tool("task_fail", json!({ "reason": "checked the inbox" }))
         }
     }))
     .await;
@@ -166,7 +166,7 @@ async fn a_poll_with_a_transient_read_error_retries_quietly() {
             if c.turn() == 0 {
                 return tool("mail__list_inbox", json!({}));
             }
-            return tool("task_fail", json!({ "reason": "checked the inbox" }));
+            tool("task_fail", json!({ "reason": "checked the inbox" }))
         }
     }))
     .await;
@@ -221,7 +221,7 @@ async fn a_task_read_postpones_the_next_poll() {
         if c.turn() == 0 {
             return tool("mail__list_inbox", json!({}));
         }
-        return tool("task_fail", json!({ "reason": "checked the inbox" }));
+        tool("task_fail", json!({ "reason": "checked the inbox" }))
     }))
     .await;
     let app = Appliance::start(

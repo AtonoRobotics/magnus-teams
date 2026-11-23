@@ -4,7 +4,6 @@
 //! The owner still finds someone's task to stop it, without its words.
 
 use magnus_invariants::*;
-use magnus_scratch::*;
 use serde_json::json;
 
 #[tokio::test(flavor = "multi_thread")]

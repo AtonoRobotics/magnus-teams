@@ -98,7 +98,7 @@ impl Kernel {
                 let c = s.org.conformance().get(&id).map(|(v, m, ok, _)| json!({ "version": v, "model": m, "passed": ok }));
                 let mut failed: Vec<&crate::state::Run> =
                     s.runs.values().filter(|r| r.config.adapter == id && r.status == crate::state::Status::Failed && r.reason.is_some()).collect();
-                failed.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
+                failed.sort_by_key(|a| std::cmp::Reverse(a.ended_at));
                 (c, failed.first().map(|r| json!({ "at": r.ended_at, "error": r.reason })))
             });
             out.push(json!({

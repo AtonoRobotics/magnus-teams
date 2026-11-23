@@ -147,6 +147,7 @@ impl Drop for Instance {
 
 /// (connector, person)
 type Key = (String, String);
+type StopScope = (Option<String>, Option<String>);
 
 /// Whether a call may still go ahead, and why not.
 pub type Fence<'a> = dyn Fn() -> std::result::Result<(), String> + Send + Sync + 'a;
@@ -159,7 +160,7 @@ pub struct Brokered {
     /// How many times each scope of `stop` (connector, person, both or
     /// neither) has run: a call holding a token taken before a stop that
     /// covers it sends nothing with it.
-    stops: std::sync::Mutex<HashMap<(Option<String>, Option<String>), u64>>,
+    stops: std::sync::Mutex<HashMap<StopScope, u64>>,
     /// Each image's tools as its server lists them: an image is known by
     /// its digest, so what it lists is too.
     listed: tokio::sync::Mutex<HashMap<String, Vec<Value>>>,

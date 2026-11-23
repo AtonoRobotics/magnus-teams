@@ -44,7 +44,15 @@ impl World {
     }
 
     /// `requester` asked in `channel` with message `asked`; it ended `secs` in.
-    fn answered(&mut self, channel: &str, task: &str, requester: &str, asked: Option<&str>, text: &str, private: bool, secs: i64) {
+    fn answered(&mut self, channel: &str, task: &str, requester: &str, asked: Option<&str>, text: &str, secs: i64) {
+        self.record_answer((channel, task), (requester, asked), text, false, secs);
+    }
+
+    fn answered_private(&mut self, channel: &str, task: &str, requester: &str, asked: Option<&str>, text: &str, secs: i64) {
+        self.record_answer((channel, task), (requester, asked), text, true, secs);
+    }
+
+    fn record_answer(&mut self, (channel, task): (&str, &str), (requester, asked): (&str, Option<&str>), text: &str, private: bool, secs: i64) {
         let run = Change::Run {
             workspace: "w".into(),
             channel: channel.into(),
@@ -90,7 +98,7 @@ fn a_channel_is_seen_by_its_people_only() {
     x.ledger.apply(&Change::Channel { workspace: "w".into(), channel: "d".into(), name: String::new() });
     x.chat(Chat::Direct { channel: "d".into(), people: vec!["sam".into(), "mo".into()], agent: false });
     x.say("d", "m1", "sam", "between us", None, 1);
-    x.answered("d", "t1", "sam", Some("m1"), "the answer", false, 2);
+    x.answered("d", "t1", "sam", Some("m1"), "the answer", 2);
     let def = super::knowledge::Project { id: "p".into(), name: "P".into(), owner: "sam".into(), ..Default::default() };
     x.ledger.apply(&Change::Project { workspace: "w".into(), id: "p".into(), def });
     x.ledger.apply(&Change::Channel { workspace: "w".into(), channel: "pc".into(), name: "deal".into() });
@@ -115,7 +123,7 @@ fn a_channel_is_seen_by_its_people_only() {
 fn a_conversation_cleared_for_oneself_is_gone_for_them_alone() {
     let mut x = World::new();
     x.say("c", "m1", "sam", "old news", None, 1);
-    x.answered("c", "t1", "mo", None, "an old answer", false, 2);
+    x.answered("c", "t1", "mo", None, "an old answer", 2);
     let mark = x.at(3);
     x.chat(Chat::Cleared { channel: "c".into(), person: "mo".into(), at: mark });
     x.say("c", "m2", "sam", "fresh", None, 4);
@@ -138,7 +146,7 @@ fn what_was_deleted_for_everyone_is_gone_for_everyone() {
     x.say("c", "m1", "mo", "the door code is 4471", None, 1);
     x.say("c", "r1", "sam", "noted", Some("m1"), 2);
     x.say("c", "m2", "mo", "lonely", None, 3);
-    x.answered("c", "t1", "mo", None, "The door code is 4471.", false, 4);
+    x.answered("c", "t1", "mo", None, "The door code is 4471.", 4);
     x.unsend("c", "m1", "mo", 1);
     x.unsend("c", "m2", "mo", 3);
     x.unsend("c", "agent:t1", "agent:mo", 4);
@@ -163,7 +171,7 @@ fn what_was_deleted_for_everyone_is_gone_for_everyone() {
 #[test]
 fn what_was_said_hides_a_deleted_answer_as_the_view_does() {
     let mut x = World::new();
-    x.answered("c", "t1", "mo", None, "The door code is 4471.", false, 4);
+    x.answered("c", "t1", "mo", None, "The door code is 4471.", 4);
     let now = x.at(10);
     assert_eq!(texts(&said(&x.view("sam"), "c", now)), ["The door code is 4471."]);
     x.unsend("c", "agent:t1", "agent:mo", 4);
@@ -176,7 +184,7 @@ fn what_was_said_hides_a_deleted_answer_as_the_view_does() {
 fn a_private_answer_reads_in_full_to_its_requester_alone() {
     let mut x = World::new();
     x.say("c", "m1", "mo", "@Magnus what did my inbox say", None, 1);
-    x.answered("c", "t1", "mo", Some("m1"), "your inbox says the deal closes Friday", true, 2);
+    x.answered_private("c", "t1", "mo", Some("m1"), "your inbox says the deal closes Friday", 2);
     let now = x.at(10);
     let Some(Said::Answer(mine)) = x.view("mo").message("c", "agent:t1", now) else { panic!("mo cannot find their answer") };
     assert!(mine.private && mine.text.contains("Friday"));
@@ -197,11 +205,11 @@ fn notices_follow_what_the_person_sees() {
     let mut x = World::new();
     let after = x.at(0);
     x.say("c", "m1", "sam", "before", None, 1);
-    x.answered("c", "t1", "mo", None, "an answer before", false, 2);
+    x.answered("c", "t1", "mo", None, "an answer before", 2);
     x.chat(Chat::Cleared { channel: "c".into(), person: "mo".into(), at: x.at(3) });
     x.say("c", "m2", "sam", "after", None, 4);
-    x.answered("c", "t2", "mo", None, "an answer after", false, 5);
-    x.answered("c", "t3", "mo", None, "an answer deleted", false, 6);
+    x.answered("c", "t2", "mo", None, "an answer after", 5);
+    x.answered("c", "t3", "mo", None, "an answer deleted", 6);
     x.unsend("c", "agent:t3", "agent:mo", 6);
     let told: Vec<String> = of_workspace(&x.view("mo"), "Mo", after, x.at(10)).into_iter().map(|n| n.preview).collect();
     assert_eq!(told, ["after", "an answer after"]);
@@ -235,8 +243,8 @@ fn search_finds_only_what_the_person_has() {
 fn work_sits_on_the_message_that_asked() {
     let mut x = World::new();
     x.say("c", "m1", "mo", "@Magnus pull together the feedback", None, 1);
-    x.answered("c", "t1", "mo", Some("m1"), "Here it is.", false, 2);
-    x.answered("c", "t2", "mo", None, "Following up.", false, 3);
+    x.answered("c", "t1", "mo", Some("m1"), "Here it is.", 2);
+    x.answered("c", "t2", "mo", None, "Following up.", 3);
     for t in ["t1", "t2"] {
         if let Some(o) = x.runs.get_mut(t) {
             (o.status, o.summary, o.ended) = (Status::Running, None, None);
@@ -258,14 +266,14 @@ fn work_sits_on_the_message_that_asked() {
 fn a_short_requests_card_gives_way_to_its_answer() {
     let mut x = World::new();
     x.say("c", "m1", "mo", "@Magnus plan the launch", None, 1);
-    x.answered("c", "t1", "mo", Some("m1"), "Here is the plan.", false, 2);
+    x.answered("c", "t1", "mo", Some("m1"), "Here is the plan.", 2);
     x.say("c", "m2", "mo", "@Magnus research the market", None, 3);
-    x.answered("c", "t2", "mo", Some("m2"), "Here is the research.", false, 4000);
+    x.answered("c", "t2", "mo", Some("m2"), "Here is the research.", 4000);
     if let Some(o) = x.runs.get_mut("t2") {
         (o.started, o.steps) = (x.t0, 200);
     }
     x.say("c", "m3", "mo", "@Magnus book the hall", None, 5);
-    x.answered("c", "t3", "mo", Some("m3"), "", false, 6);
+    x.answered("c", "t3", "mo", Some("m3"), "", 6);
     if let Some(o) = x.runs.get_mut("t3") {
         (o.status, o.summary) = (Status::Cancelled, None);
     }
@@ -288,8 +296,8 @@ fn what_a_member_may_do_travels_with_each_entry() {
     use crate::chat_entry::May;
     let mut x = World::new();
     x.say("c", "m1", "mo", "the plan", None, 1);
-    x.answered("c", "t1", "mo", None, "Here it is.", false, 2);
-    x.answered("c", "t2", "mo", None, "Your inbox says yes.", true, 3);
+    x.answered("c", "t1", "mo", None, "Here it is.", 2);
+    x.answered_private("c", "t2", "mo", None, "Your inbox says yes.", 3);
     x.ledger.apply(&Change::Channel { workspace: "w".into(), channel: "d".into(), name: String::new() });
     x.chat(Chat::Direct { channel: "d".into(), people: vec!["sam".into(), "mo".into()], agent: false });
     x.say("d", "m2", "mo", "between us", None, 4);
@@ -327,7 +335,7 @@ fn a_private_answer_never_leaves_for_anyone_but_its_requester() {
     use crate::conversation::Conversation;
     let mut x = World::new();
     x.say("c", "m1", "mo", "@Magnus what is my salary", None, 1);
-    x.answered("c", "t1", "mo", Some("m1"), "SECRET 90k", true, 2);
+    x.answered_private("c", "t1", "mo", Some("m1"), "SECRET 90k", 2);
     let names = Names::new();
     let now = x.at(10);
     let sent = |who: &str, thread: Option<&str>| {

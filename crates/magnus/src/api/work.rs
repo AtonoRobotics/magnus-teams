@@ -9,7 +9,7 @@ use crate::{api_bodies as req, events::Ev, people::rights};
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     Json,
 };
 use serde_json::{json, Value};
@@ -149,29 +149,29 @@ pub(super) async fn submit(State(k): K, Caller(p): Caller, Body(b): Body<Value>)
 }
 
 /// Optional per-request reasoning effort (`off`, `low`, `medium`, `high`).
-pub(crate) fn chosen_reasoning(b: &Value) -> Result<Option<String>, Response> {
+pub(crate) fn chosen_reasoning(b: &Value) -> ApiResult<Option<String>> {
     let Some(raw) = b["model"]["reasoning"].as_str().map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok(None);
     };
     if matches!(raw, "off" | "low" | "medium" | "high") {
         Ok(Some(raw.to_string()))
     } else {
-        Err(err(StatusCode::BAD_REQUEST, "reasoning must be one of: off, low, medium, high"))
+        refuse(StatusCode::BAD_REQUEST, "reasoning must be one of: off, low, medium, high")
     }
 }
 
 /// The model a request chose (`"model": {"adapter", "model"}`), if any,
 /// once its adapter confirms it offers it.
-pub(crate) async fn chosen_model(k: &Kernel, b: &Value) -> Result<Option<(String, String)>, Response> {
+pub(crate) async fn chosen_model(k: &Kernel, b: &Value) -> ApiResult<Option<(String, String)>> {
     if b["model"].is_null() {
         return Ok(None);
     }
     let (Some(adapter), Some(model)) = (b["model"]["adapter"].as_str(), b["model"]["model"].as_str()) else {
-        return Err(err(StatusCode::BAD_REQUEST, "model needs adapter and model"));
+        return refuse(StatusCode::BAD_REQUEST, "model needs adapter and model");
     };
     match k.check_model(adapter, model).await {
         Ok(()) => Ok(Some((adapter.into(), model.into()))),
-        Err(m) => Err(err(StatusCode::BAD_REQUEST, m)),
+        Err(m) => refuse(StatusCode::BAD_REQUEST, m),
     }
 }
 
@@ -269,7 +269,7 @@ pub(super) async fn chat_threads(State(k): K, h: HeaderMap) -> ApiResult {
             Ok(t) => Json(json!({ "threads": t })).into_response(),
             Err(e) => internal(e),
         },
-        Err(r) => r,
+        Err(r) => *r,
     })
 }
 
@@ -624,7 +624,7 @@ pub(super) async fn schedules(State(k): K, Caller(p): Caller) -> ApiResult {
                 // Its runs, newest first; the last result is the newest that ended.
                 let mut runs: Vec<(&crate::state::Task, &Run)> =
                     s.tasks.values().filter(|t| t.schedule.as_deref() == Some(x.id.as_str())).filter_map(|t| s.runs.get(&t.run_id).map(|r| (t, r))).collect();
-                runs.sort_by(|a, b| b.0.created_at.cmp(&a.0.created_at));
+                runs.sort_by_key(|a| std::cmp::Reverse(a.0.created_at));
                 let rows: Vec<Value> = runs.iter().map(|(t, r)| task_row(&k, s, &p, t, r, &words)).collect();
                 // Every firing shows: the newest task whatever its state, and firings that could not start one.
                 let last = rows.first().cloned();

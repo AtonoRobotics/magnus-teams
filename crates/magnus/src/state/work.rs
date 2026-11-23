@@ -232,7 +232,7 @@ impl Run {
             .flat_map(|r| r.calls())
             .filter(|(id, name, _)| name == "show" && self.results.get(id).is_some_and(|x| !x.is_error))
             .map(|(_, _, input)| input["components"].clone())
-            .last()
+            .next_back()
     }
 
     pub fn pending_calls(&self) -> Vec<(usize, String, String, Value)> {
@@ -702,7 +702,7 @@ impl State {
                 .filter(|r| r.ended_at.is_some())
                 .map(|r| (r.ended_at.unwrap_or_default(), r.status == Status::Failed)),
         );
-        ends.sort_by(|a, b| b.0.cmp(&a.0));
+        ends.sort_by_key(|a| std::cmp::Reverse(a.0));
         ends.iter().take_while(|(_, failed)| *failed).count() as u32
     }
 

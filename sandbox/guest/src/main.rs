@@ -59,10 +59,15 @@ const VOLUME_RESERVE_FILE: &str = "/sys/fs/ext4/vdb/reserved_clusters";
 /// `_IOW('R', 0x03, int[2])` and `_IO('R', 0x07)` from linux/random.h.
 const RNDADDENTROPY: u64 = 0x4008_5203;
 const RNDRESEEDCRNG: u64 = 0x5207;
+const EXEC_POLL_MS: Duration = Duration::from_millis(20);
+const FORK_RETRY_S: Duration = Duration::from_secs(1);
 
 fn mount(src: &str, target: &str, fstype: &str, flags: libc::c_ulong, data: &str) {
     let _ = std::fs::create_dir_all(target);
-    let (s, t, f, d) = (CString::new(src).unwrap(), CString::new(target).unwrap(), CString::new(fstype).unwrap(), CString::new(data).unwrap());
+    let (Ok(s), Ok(t), Ok(f), Ok(d)) = (CString::new(src), CString::new(target), CString::new(fstype), CString::new(data)) else {
+        eprintln!("magnus-guest: mount {target}: nul byte in argument");
+        return;
+    };
     let rc = unsafe { libc::mount(s.as_ptr(), t.as_ptr(), f.as_ptr(), flags, d.as_ptr() as *const libc::c_void) };
     if rc != 0 {
         eprintln!("magnus-guest: mount {target}: {}", std::io::Error::last_os_error());
@@ -391,7 +396,7 @@ fn exec(command: &str, timeout_s: u64) -> Value {
                 if n == 0 {
                     break;
                 }
-                let mut g = b.lock().unwrap();
+                let mut g = b.lock().unwrap_or_else(|e| e.into_inner());
                 if g.len() < MAX_OUT + 1 {
                     g.extend_from_slice(&chunk[..n]);
                 }
@@ -399,8 +404,11 @@ fn exec(command: &str, timeout_s: u64) -> Value {
         });
         (buf, reader)
     };
-    let (so, so_reader) = collect(Box::new(child.stdout.take().unwrap()));
-    let (se, se_reader) = collect(Box::new(child.stderr.take().unwrap()));
+    let (Some(stdout_pipe), Some(stderr_pipe)) = (child.stdout.take(), child.stderr.take()) else {
+        return json!({ "error": "could not capture shell output" });
+    };
+    let (so, so_reader) = collect(Box::new(stdout_pipe));
+    let (se, se_reader) = collect(Box::new(stderr_pipe));
     let start = Instant::now();
     let mut timed_out = false;
     let status = loop {
@@ -411,13 +419,13 @@ fn exec(command: &str, timeout_s: u64) -> Value {
                 unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
                 break child.wait().ok();
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Ok(None) => std::thread::sleep(EXEC_POLL_MS),
             Err(_) => break None,
         }
     };
     wait_for_readers(&[so_reader, se_reader], OUTPUT_GRACE);
-    let (stdout, c1) = truncate(so.lock().unwrap().clone());
-    let (stderr, c2) = truncate(se.lock().unwrap().clone());
+    let (stdout, c1) = truncate(so.lock().unwrap_or_else(|e| e.into_inner()).clone());
+    let (stderr, c2) = truncate(se.lock().unwrap_or_else(|e| e.into_inner()).clone());
     json!({
         "exit_code": status.and_then(|s| s.code()),
         "stdout": stdout, "stderr": stderr,
@@ -607,7 +615,7 @@ fn main() {
                     }
                 }
             }
-            _ => std::thread::sleep(Duration::from_secs(1)),
+            _ => std::thread::sleep(FORK_RETRY_S),
         }
     }
 }

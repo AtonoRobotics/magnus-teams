@@ -55,17 +55,19 @@ pub struct Vm {
 
 impl Drop for Vm {
     fn drop(&mut self) {
-        let mut c = self.child.lock().unwrap();
+        let mut c = self.child.lock().unwrap_or_else(|e| e.into_inner());
         let _ = c.kill();
         let _ = c.wait();
     }
 }
 
+type RunInputs = HashMap<String, Vec<(String, Vec<u8>)>>;
+
 pub struct Sandboxes {
     cfg: Option<Cfg>,
     root: PathBuf,
     vms: tokio::sync::Mutex<HashMap<String, Arc<Vm>>>,
-    inputs: Mutex<HashMap<String, Vec<(String, Vec<u8>)>>>,
+    inputs: Mutex<RunInputs>,
 }
 
 /// The Firecracker configuration for a run's VM, or for a check's (`check`
@@ -153,7 +155,7 @@ impl Sandboxes {
                     return Ok(vm);
                 }
             }
-            if let Ok(Some(st)) = vm.child.lock().unwrap().try_wait() {
+            if let Ok(Some(st)) = vm.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
                 let log = std::fs::read_to_string(dir.join("console.log")).unwrap_or_default();
                 return Err(anyhow!("the sandbox VM exited during boot ({st}): {}", log.chars().rev().take(800).collect::<String>().chars().rev().collect::<String>()));
             }
@@ -166,20 +168,20 @@ impl Sandboxes {
 
     /// Files to place in /workspace/inputs when a run's workspace is created.
     pub fn set_inputs(&self, run: &str, files: Vec<(String, Vec<u8>)>) {
-        self.inputs.lock().unwrap().insert(run.to_string(), files);
+        self.inputs.lock().unwrap_or_else(|e| e.into_inner()).insert(run.to_string(), files);
     }
 
     async fn vm(&self, run: &str) -> Result<Arc<Vm>> {
         let mut vms = self.vms.lock().await;
         if let Some(vm) = vms.get(run) {
-            if vm.child.lock().unwrap().try_wait().ok().flatten().is_none() {
+            if vm.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait().ok().flatten().is_none() {
                 return Ok(vm.clone());
             }
         }
         let fresh = !self.dir(run).join("workspace.ext4").exists();
         let vm = self.launch(run).await?;
         if fresh {
-            let files = self.inputs.lock().unwrap().get(run).cloned().unwrap_or_default();
+            let files = self.inputs.lock().unwrap_or_else(|e| e.into_inner()).get(run).cloned().unwrap_or_default();
             for (name, data) in files {
                 let safe: String = name.chars().map(|c| if c == '/' || c == '\\' { '_' } else { c }).collect();
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&data);

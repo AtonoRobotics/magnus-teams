@@ -99,7 +99,7 @@ async fn two_owners_demoting_each_other_at_once_leave_one() {
     async fn owner(a: &Api, who: &str) -> bool {
         a.get("/v1/me").await;
         let (_, v) = a.get("/v1/people").await;
-        v["people"].as_array().map_or(false, |l| l.iter().any(|p| p["id"] == who && p["roles"].as_array().unwrap().iter().any(|r| r == "owner")))
+        v["people"].as_array().is_some_and(|l| l.iter().any(|p| p["id"] == who && p["roles"].as_array().unwrap().iter().any(|r| r == "owner")))
     }
     for round in 0..30 {
         // Whoever is owner makes the other owner too.

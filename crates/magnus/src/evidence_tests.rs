@@ -23,8 +23,8 @@ fn started() -> State {
     s
 }
 
-fn call(s: &mut State, seq: i64, id: &str, tool: &str, input: Value, issuer: &str, status: &str, is_error: bool) {
-    s.apply(&ev(seq, "kernel", json!({ "kind": "intent", "run": "r1", "call_id": id, "step_id": "s", "key": id, "tool": tool, "input": input, "issuer": issuer })));
+fn call(s: &mut State, seq: i64, id: &str, tool: &str, input: Value, status: &str, is_error: bool) {
+    s.apply(&ev(seq, "kernel", json!({ "kind": "intent", "run": "r1", "call_id": id, "step_id": "s", "key": id, "tool": tool, "input": input, "issuer": "model" })));
     let label = json!({ "private": false, "untrusted": false });
     s.apply(&ev(seq + 1, "kernel", json!({ "kind": "tool_result", "run": "r1", "call_id": id, "key": id, "status": status, "text": "ok", "is_error": is_error, "label": label, "data": { "message_id": "m1" } })));
 }
@@ -35,8 +35,8 @@ fn call(s: &mut State, seq: i64, id: &str, tool: &str, input: Value, issuer: &st
 #[test]
 fn a_receipt_is_what_the_log_shows_went_through() {
     let mut s = started();
-    call(&mut s, 2, "c1", "mail__get_sent", json!({}), "model", "done", false);
-    call(&mut s, 4, "c2", "mail__send", json!({ "to": "bob@corp.example", "subject": "Q3" }), "model", "done", false);
+    call(&mut s, 2, "c1", "mail__get_sent", json!({}), "done", false);
+    call(&mut s, 4, "c2", "mail__send", json!({ "to": "bob@corp.example", "subject": "Q3" }), "done", false);
     let rb = json!({ "kind": "evidence", "change": "read_back", "run": "r1", "call_id": "c2", "tool": "mail__send", "read": "get_sent", "found": { "to": "bob@corp.example" }, "matches": true, "note": "Read back with get_sent: it matches what was done." });
     s.apply(&ev(6, "kernel", rb));
     let run = s.runs["r1"].clone();
@@ -53,8 +53,8 @@ fn a_receipt_is_what_the_log_shows_went_through() {
 #[test]
 fn what_failed_or_did_not_read_back_is_not_done() {
     let mut s = started();
-    call(&mut s, 2, "c1", "crm__update", json!({ "id": "1" }), "model", "failed", true);
-    call(&mut s, 4, "c2", "mail__send", json!({ "to": "bob@corp.example" }), "model", "done", false);
+    call(&mut s, 2, "c1", "crm__update", json!({ "id": "1" }), "failed", true);
+    call(&mut s, 4, "c2", "mail__send", json!({ "to": "bob@corp.example" }), "done", false);
     let rb = json!({ "kind": "evidence", "change": "read_back", "run": "r1", "call_id": "c2", "tool": "mail__send", "read": "get_sent", "found": {}, "matches": false, "note": "it does not match (to differs)" });
     s.apply(&ev(6, "kernel", rb));
     let run = s.runs["r1"].clone();
@@ -68,8 +68,8 @@ fn what_failed_or_did_not_read_back_is_not_done() {
 #[test]
 fn a_source_names_a_call_that_returned() {
     let mut s = started();
-    call(&mut s, 2, "c1", "mail__get_sent", json!({}), "model", "done", false);
-    call(&mut s, 4, "c2", "mail__get_sent", json!({}), "model", "failed", true);
+    call(&mut s, 2, "c1", "mail__get_sent", json!({}), "done", false);
+    call(&mut s, 4, "c2", "mail__get_sent", json!({}), "failed", true);
     let run = s.runs["r1"].clone();
     assert_eq!(cited(&run, &json!([{ "claim": "Revenue was $4.2M", "call": "c1" }])).map(|v| v.len()), Ok(1));
     assert!(cited(&run, &json!([{ "claim": "x", "call": "c2" }])).is_err(), "a failed call was cited");
@@ -83,7 +83,7 @@ fn a_source_names_a_call_that_returned() {
 #[test]
 fn the_status_line_follows_the_plan_or_the_last_action() {
     let mut s = started();
-    call(&mut s, 2, "c1", "mail__get_sent", json!({}), "model", "done", false);
+    call(&mut s, 2, "c1", "mail__get_sent", json!({}), "done", false);
     assert_eq!(status_line(&s.runs["r1"]).as_deref(), Some("Get sent in mail"));
     let plan = json!({ "units": [
         { "id": "a", "goal": "Reading the support inbox", "status": "done" },

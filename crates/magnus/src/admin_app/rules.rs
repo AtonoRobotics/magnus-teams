@@ -46,23 +46,23 @@ async fn list(State(k): State<Arc<Kernel>>) -> Response {
 }
 
 /// A rule from a request, checked as the boundary will compile it.
-fn rule_of(a: &Admin, b: &Value) -> Result<WorkspaceRule, Response> {
+fn rule_of(a: &Admin, b: &Value) -> Result<WorkspaceRule, Box<Response>> {
     let effect = match b["effect"].as_str() {
         Some("allow") => Effect::Allow,
         Some("ask") => Effect::Ask,
         Some("block") => Effect::Block,
-        _ => return Err(refuse(StatusCode::BAD_REQUEST, "invalid", "A rule allows, asks first or blocks.")),
+        _ => return Err(Box::new(refuse(StatusCode::BAD_REQUEST, "invalid", "A rule allows, asks first or blocks."))),
     };
     let text = |f: &str| b[f].as_str().map(str::trim).unwrap_or_default().to_string();
     let destinations: Vec<String> =
         b["destinations"].as_array().into_iter().flatten().filter_map(|d| d.as_str().map(str::trim)).filter(|d| !d.is_empty()).map(String::from).collect();
     let words = b["words"].as_str().map(str::trim).filter(|w| !w.is_empty()).map(String::from);
     if words.as_ref().is_some_and(|w| w.chars().count() > RULE_WORDS_MAX_CHARS) {
-        return Err(refuse(StatusCode::BAD_REQUEST, "invalid", "Say the rule in fewer words."));
+        return Err(Box::new(refuse(StatusCode::BAD_REQUEST, "invalid", "Say the rule in fewer words.")));
     }
     let rule = WorkspaceRule { effect, connector: text("connector"), tool: text("tool"), destinations, words, by: a.person.id.clone() };
     // Compiled for someone, as it will be for each person.
-    crate::rules::compile(&a.person.id, &rule.connector, &rule.tool, &rule.destinations, false, effect).map_err(|e| refuse(StatusCode::BAD_REQUEST, "invalid", &e))?;
+    crate::rules::compile(&a.person.id, &rule.connector, &rule.tool, &rule.destinations, false, effect).map_err(|e| Box::new(refuse(StatusCode::BAD_REQUEST, "invalid", &e)))?;
     Ok(rule)
 }
 
@@ -81,7 +81,7 @@ async fn set(k: &Arc<Kernel>, a: &Admin, id: String, rule: WorkspaceRule, create
 async fn add(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Json(b): Json<Value>) -> Response {
     let rule = match rule_of(&a, &b) {
         Ok(r) => r,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if k.read(|s| s.org.admin().rules.len()) >= WORKSPACE_RULES_MAX {
         return refuse(StatusCode::CONFLICT, "too_many", "The workspace has as many rules as it may keep: remove one first.");
@@ -95,7 +95,7 @@ async fn edit(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path
     }
     match rule_of(&a, &b) {
         Ok(rule) => set(&k, &a, id, rule, false).await,
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 

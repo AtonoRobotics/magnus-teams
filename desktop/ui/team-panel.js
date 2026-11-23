@@ -7,19 +7,6 @@
  * @typedef {{ project: ?Object, channels: string[], files: Array<{ name: string, size: number, by: string, by_name: string, project: ?string }>, tasks: TeamTask[], work: Array<{ task: string, channel: string, requester: string, requester_name: string, waiting: boolean, steps: number }>, members: Array<{ id: string, name: string }>, knowledge: number, progress: ?{ done: number, total: number }, computer: ?string }} TeamPanelData
  */
 
-/** The last look at each team computer's screen, so a redraw keeps it. */
-const TeamScreens = {}, TeamScreenCaptions = {};
-
-/**
- * Where the team computer shows before the server has made it: the
- * workspace always has one (spec rev 142), so nobody sets it up; it is made
- * with the workspace and is ready the first time the agent needs it.
- * @param {TeamHome} home
- */
-function noTeamComputer(home) {
-  const agent = esc(home.agent.name);
-  return `<div class="team-screen"><div class="team-screen-none"><p class="small">${agent}'s computer is being set up. It is ready the first time ${agent} needs it.</p></div></div>`;
-}
 const TEAM_STATUSES = [["todo", "To do"], ["doing", "Doing"], ["done", "Done"]];
 const TEAM_PROJECT_TABS = [["overview", "Overview"], ["board", "Board"], ["files", "Files"], ["knowledge", "Knowledge"], ["members", "Members"]];
 
@@ -304,7 +291,7 @@ const TeamPanel = {
     this.look(el, d.computer);
   },
 
-  /** One look at the team computer's screen, each time the panel refreshes. */
+  /** Check computer status when the panel refreshes. */
   async look(el, id) {
     if (!id) return;
     const c = await Server.computers.get(id).catch(() => null);
@@ -315,18 +302,6 @@ const TeamPanel = {
       if (st) st.textContent = TeamComputerStates[id];
       if (dot) dot.className = `comp-dot ${awake ? "ok" : "idle"}`;
     }
-    if (c && typeof screenCaption === "function") {
-      TeamScreenCaptions[id] = screenCaption(c, null);
-      const cap = $(`[data-team-screen-caption="${id}"]`, el);
-      if (cap) cap.textContent = TeamScreenCaptions[id];
-      if (c.status !== "running") return;
-    }
-    try {
-      const { image_b64 } = await Server.computers.screen(id);
-      TeamScreens[id] = `data:image/png;base64,${image_b64}`;
-      const img = $(`[data-team-screen="${id}"]`, el);
-      if (img) img.src = TeamScreens[id];
-    } catch { /* asleep or busy: the next refresh looks again */ }
   },
 
   /** A project's own page, with its tabs. */

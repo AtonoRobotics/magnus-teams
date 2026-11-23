@@ -25,7 +25,7 @@ pub async fn transcribe(speech: Option<&Speech>, state_dir: &Path, data_b64: &st
         .await
         .context("run ffmpeg")?;
     anyhow::ensure!(ff.status.success(), "could not read the audio: {}", String::from_utf8_lossy(&ff.stderr));
-    let out = tokio::process::Command::new(&bin).arg("-m").arg(model).args(["-nt", "-np", "-f"]).arg(&wav).output().await.with_context(|| format!("run {}", bin.display()))?;
+    let out = tokio::process::Command::new(bin).arg("-m").arg(model).args(["-nt", "-np", "-f"]).arg(&wav).output().await.with_context(|| format!("run {}", bin.display()))?;
     let _ = std::fs::remove_dir_all(&dir);
     anyhow::ensure!(out.status.success(), "speech to text failed: {}", String::from_utf8_lossy(&out.stderr));
     Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().collect::<Vec<_>>().join(" "))

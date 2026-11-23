@@ -68,7 +68,7 @@ async fn the_memory_pass_never_files_an_untrusted_fact_as_a_clean_one() {
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let clean: Vec<Value> = memories(&alice).await.into_iter().filter(|f| f["fact"] == EVIL && f["label"]["untrusted"] != true).collect();
     assert!(clean.is_empty(), "an untrusted fact was filed again as trusted: {clean:?}");
-    let shown = m.requests().into_iter().filter(|c| c.body["system"].to_string().contains(PASS)).map(|c| c.text()).last().unwrap();
+    let shown = m.requests().into_iter().filter(|c| c.body["system"].to_string().contains(PASS)).map(|c| c.text()).next_back().unwrap();
     assert!(!shown.split_once("Already remembered").unwrap().1.contains("evil.example"), "the clean pass was shown the untrusted fact");
 }
 

@@ -80,7 +80,7 @@ async fn create_mission(State(k): K, Member { person: p, .. }: Member<at::Member
     }
     match k.start_mission_with_lanes(&ws, &room, &p.id, goal, None, b.lanes).await {
         Ok(id) => Ok((StatusCode::CREATED, Json(json!({ "id": id }))).into_response()),
-        Err(e) => refuse(StatusCode::BAD_REQUEST, &format!("{e:#}")),
+        Err(e) => refuse(StatusCode::BAD_REQUEST, format!("{e:#}")),
     }
 }
 
@@ -111,7 +111,7 @@ async fn release_lane(
         return refuse(StatusCode::BAD_REQUEST, "released contribution cannot be empty or exceed size limit");
     }
     if let Some(reason) = scrub_check(&text) {
-        return refuse(StatusCode::BAD_REQUEST, &format!("blocked release: {reason}. Remove credentials before sharing"));
+        return refuse(StatusCode::BAD_REQUEST, format!("blocked release: {reason}. Remove credentials before sharing"));
     }
 
     let actor = format!("person:{}", p.id);
@@ -202,7 +202,7 @@ async fn workspace_capabilities(State(k): K, Member { .. }: Member<at::Guest>, P
 }
 
 async fn set_avatar(State(k): K, h: HeaderMap, Json(avatar): Json<ProfileAvatar>) -> ApiResult {
-    let p = who(&k, &h).await.map_err(Box::new)?;
+    let p = who(&k, &h).await?;
     let actor = format!("person:{}", p.id);
     k.emit(&actor, Ev::TeamMission(TeamMissionEvent::AvatarSet { person: p.id.clone(), avatar: avatar.clone() }))
         .await

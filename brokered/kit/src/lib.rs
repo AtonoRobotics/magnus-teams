@@ -209,8 +209,8 @@ pub const ROOTS_ENV: &str = "magnus_roots";
 
 /// The TLS client: the public roots (webpki-roots), and those the appliance
 /// names.
-fn tls() -> Arc<rustls::ClientConfig> {
-    static C: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+fn tls() -> Result<Arc<rustls::ClientConfig>, String> {
+    static C: OnceLock<Result<Arc<rustls::ClientConfig>, String>> = OnceLock::new();
     C.get_or_init(|| {
         use base64::Engine;
         let more = std::env::var(ROOTS_ENV).unwrap_or_default();
@@ -220,13 +220,14 @@ fn tls() -> Arc<rustls::ClientConfig> {
     .clone()
 }
 
-fn client(more: Vec<Vec<u8>>) -> Arc<rustls::ClientConfig> {
+fn client(more: Vec<Vec<u8>>) -> Result<Arc<rustls::ClientConfig>, String> {
     let mut roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
     for der in more {
         let _ = roots.add(rustls::pki_types::CertificateDer::from(der));
     }
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    Arc::new(rustls::ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().expect("TLS versions").with_root_certificates(roots).with_no_client_auth())
+    let builder = rustls::ClientConfig::builder_with_provider(provider).with_safe_default_protocol_versions().map_err(|e| format!("TLS versions: {e}"))?;
+    Ok(Arc::new(builder.with_root_certificates(roots).with_no_client_auth()))
 }
 
 /// A connection to the provider at `target` (`host:port`): through the
@@ -235,7 +236,7 @@ fn client(more: Vec<Vec<u8>>) -> Arc<rustls::ClientConfig> {
 /// nothing reached the provider.
 pub fn https(target: &str) -> Result<Https, String> {
     let host = target.rsplit_once(':').map_or(target, |(h, _)| h);
-    secure(tunnel(target)?, host, tls())
+    secure(tunnel(target)?, host, tls()?)
 }
 
 fn secure<S: Read + Write>(sock: S, host: &str, config: Arc<rustls::ClientConfig>) -> Result<rustls::StreamOwned<rustls::ClientConnection, S>, String> {

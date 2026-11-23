@@ -263,7 +263,15 @@ impl Kernel {
             verdict: t.verdict.as_ref().map(|v| json!(v)),
             evidence: self.evidence_of(r),
         };
-        Entry { id: format!("r:{}", t.task_id), kind: Kind::Result, at: Some(end), task_id: Some(t.task_id.clone()), may: None, reaction: None, body: Body::Result(result) }
+        Entry {
+            id: format!("r:{}", t.task_id),
+            kind: Kind::Result,
+            at: Some(end),
+            task_id: Some(t.task_id.clone()),
+            may: None,
+            reaction: None,
+            body: Body::Result(Box::new(result)),
+        }
     }
 
     /// The chat turn (its task id) that started what an entry shows: a

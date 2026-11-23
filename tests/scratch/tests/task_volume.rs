@@ -43,7 +43,9 @@ fn task_reply(kind: &str, turn: usize, page: &str) -> Reply {
 
 /// The batch: (what the person writes, where, the tasks a chat message
 /// starts as (title, kind)).
-fn batch() -> Vec<(&'static str, &'static str, Vec<(&'static str, &'static str)>)> {
+type BatchItem = (&'static str, &'static str, Vec<(&'static str, &'static str)>);
+
+fn batch() -> Vec<BatchItem> {
     vec![
         ("What's the difference between an LLC and an S-corp?", "chat", vec![]),
         ("How many ounces are in a liter?", "chat", vec![]),

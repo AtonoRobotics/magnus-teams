@@ -30,7 +30,7 @@ pub fn router() -> Router<Arc<Kernel>> {
 async fn served(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Response {
     match who(&k, &h).await {
         Ok(_) => Json(catalog::as_json()).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 

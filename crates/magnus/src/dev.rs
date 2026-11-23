@@ -194,7 +194,7 @@ async fn runs(AxState(k): K, Developer(p): Developer, Query(q): Query<RunQuery>)
     let w = k.all_words().await?;
     let mut list: Vec<Value> = k.read(|s| {
         let mut rs: Vec<&Run> = s.runs.values().collect();
-        rs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        rs.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         rs.into_iter()
             .filter(|r| q.status.as_deref().is_none_or(|st| status_str(r.status) == st))
             .filter(|r| q.experiment.as_deref().is_none_or(|e| r.experiment.as_ref().is_some_and(|x| x.id == e)))
@@ -286,11 +286,9 @@ fn redact_event_body(body: &mut Value, call_tool: &HashMap<String, String>) {
         "disagreement_outcome" => {
             body["outcome"] = json!(crate::tools::REDACTED_CALL);
         }
-        "item" => {
-            if body["details"]["disagreement"].is_string() {
-                body["summary"] = json!(crate::tools::REDACTED_CALL);
-                body["details"]["outcome"] = json!(crate::tools::REDACTED_CALL);
-            }
+        "item" if body["details"]["disagreement"].is_string() => {
+            body["summary"] = json!(crate::tools::REDACTED_CALL);
+            body["details"]["outcome"] = json!(crate::tools::REDACTED_CALL);
         }
         _ => {}
     }

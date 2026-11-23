@@ -27,12 +27,12 @@ fn at(hhmm: &str) -> Option<u32> {
     (h < 24 && m < 60).then(|| h * 60 + m)
 }
 
-fn window(v: &serde_json::Value, start: &str, end: &str) -> (u32, u32) {
+fn window(v: &serde_json::Value, fallback: (u32, u32)) -> (u32, u32) {
     let s = v.get("start").and_then(serde_json::Value::as_str).and_then(at);
     let e = v.get("end").and_then(serde_json::Value::as_str).and_then(at);
     match (s, e) {
         (Some(s), Some(e)) => (s, e),
-        _ => (at(start).unwrap(), at(end).unwrap()),
+        _ => fallback,
     }
 }
 
@@ -57,8 +57,8 @@ pub fn settings(cfg: &crate::config::Proactive, prefs: &serde_json::Value) -> Se
     let num = |k: &str, dflt: u32| prefs.get(k).and_then(serde_json::Value::as_u64).map(|n| n as u32).filter(|n| *n > 0).unwrap_or(dflt);
     Settings {
         tz: tz_of(prefs),
-        working: prefs.get("working_hours").map(|w| window(w, "09:00", "17:00")).unwrap_or((540, 1020)),
-        quiet: prefs.get("quiet_hours").map(|w| window(w, "22:00", "07:00")).unwrap_or((1320, 420)),
+        working: prefs.get("working_hours").map(|w| window(w, (540, 1020))).unwrap_or((540, 1020)),
+        quiet: prefs.get("quiet_hours").map(|w| window(w, (1320, 420))).unwrap_or((1320, 420)),
         every_minutes: num("review_every_minutes", cfg.review_every_minutes).max(5),
         per_day: num("interruptions_per_day", cfg.interruptions_per_day),
     }
@@ -618,7 +618,7 @@ mod tests {
         assert!(in_window(1400, (1320, 420)) && in_window(100, (1320, 420)) && !in_window(500, (1320, 420)));
         let cfg = crate::config::Proactive::default();
         let s = settings(&cfg, &serde_json::json!({ "working_hours": { "start": "xx", "end": "17:00" }, "timezone": "Mars/Olympus", "review_every_minutes": 0 }));
-        assert_eq!(((s.working, s.tz, s.every_minutes)), ((540, 1020), chrono_tz::Tz::UTC, 60));
+        assert_eq!((s.working, s.tz, s.every_minutes), ((540, 1020), chrono_tz::Tz::UTC, 60));
         assert_eq!(day_key(DateTime::parse_from_rfc3339("2026-11-07T06:30:00Z").unwrap().into(), chrono_tz::America::Los_Angeles), "2026-11-06");
         let ends = quiet_ends_at(DateTime::parse_from_rfc3339("2026-11-07T06:30:00Z").unwrap().into(), chrono_tz::Tz::UTC, (1320, 420)).unwrap();
         assert_eq!(ends.to_rfc3339(), "2026-11-07T07:00:00+00:00");

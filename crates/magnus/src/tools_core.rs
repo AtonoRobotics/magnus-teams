@@ -293,7 +293,7 @@ impl Kernel {
     pub(crate) fn project_file(&self, run: &str, name: &str) -> Option<crate::state::LibFile> {
         self.read(|s| {
             let t = s.with_authority(run)?;
-            t.project.as_ref()?.files.iter().filter_map(|id| s.library.files().get(id)).filter(|f| f.name == name).last().cloned()
+            t.project.as_ref()?.files.iter().filter_map(|id| s.library.files().get(id)).rfind(|f| f.name == name).cloned()
         })
     }
 }

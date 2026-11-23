@@ -24,8 +24,20 @@ pub fn main() {
             std::process::exit(2);
         }
     };
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let http = reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT_S).build().expect("http client");
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("tokio runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+    let http = match reqwest::Client::builder().connect_timeout(CONNECT_TIMEOUT_S).build() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("http client: {e}");
+            std::process::exit(1);
+        }
+    };
     if let Err(e) = rt.block_on(proto::serve(&socket, move |req, sink| handle(http.clone(), req, sink))) {
         eprintln!("adapter stopped: {e:#}");
         std::process::exit(1);
@@ -262,7 +274,7 @@ async fn complete(http: &reqwest::Client, p: proto::CompleteParams, sink: &mut S
             Ok(v) => v,
             Err(_) => return sink.error(ErrorClass::Malformed, "response is not JSON").await,
         };
-        turn.from_message(&v, sink).await?;
+        turn.apply_message(&v, sink).await?;
     }
     turn.finish(&p.model, &p.settings, sink).await
 }
@@ -343,7 +355,7 @@ impl Turn {
         Ok(Ok(()))
     }
 
-    async fn from_message(&mut self, m: &Value, sink: &mut Sink) -> anyhow::Result<()> {
+    async fn apply_message(&mut self, m: &Value, sink: &mut Sink) -> anyhow::Result<()> {
         self.served = m["model"].as_str().map(String::from);
         self.add_usage(&m["usage"]);
         self.stop = m["stop_reason"].as_str().map(String::from);

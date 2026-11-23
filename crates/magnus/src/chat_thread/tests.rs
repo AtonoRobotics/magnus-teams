@@ -61,7 +61,7 @@ fn an_entry_says_what_it_shows_without_a_kernel() {
         verdict: None,
         evidence: Value::Null,
     };
-    let r = Entry { id: "r:t2".into(), kind: Kind::Result, at: None, task_id: Some("t2".into()), may: None, reaction: None, body: Body::Result(result) };
+    let r = Entry { id: "r:t2".into(), kind: Kind::Result, at: None, task_id: Some("t2".into()), may: None, reaction: None, body: Body::Result(Box::new(result)) };
     assert_eq!((r.text(), r.speaker()), ("Flights (completed)\n\nThree found.".to_string(), "Task result"));
     assert_eq!(r.transcript_line(), Some(("task result", "Flights (completed): Three found.".to_string())));
     let mut d = Map::new();

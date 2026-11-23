@@ -185,7 +185,7 @@ async fn person_data(State(k): K, Owner(me): Owner, Path((id, what)): Path<(Stri
 async fn get_preferences(State(k): K, h: HeaderMap) -> ApiResult {
     Ok(match who(&k, &h).await {
         Ok(p) => Json(preferences(&k, &p.id)).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     })
 }
 
@@ -235,7 +235,7 @@ async fn deletion_requests(State(k): K, Caller(p): Caller) -> ApiResult {
     let list: Vec<Value> = k.read(|s| {
         let mut v: Vec<&crate::state::Item> =
             s.inbox.items().values().filter(|i| i.kind == "deletion_request" && (i.person == p.id || crate::people::rights(&p).decides_deletion_requests())).collect();
-        v.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        v.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         v.into_iter()
             .map(|i| {
                 json!({ "id": i.id, "person": i.person, "what": i.details["what"], "due": i.details["due"], "created_at": i.created_at,

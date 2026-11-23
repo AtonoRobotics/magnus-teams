@@ -479,7 +479,7 @@ async fn migrate_imports_the_json_files_once() {
     accounts.remove_person("ada").await.unwrap();
     assert_eq!(import_json(&mut client, dir.path()).await.unwrap(), 0, "a migrate after a removal changed rows");
     assert!(!accounts.is_local("ada"), "the migrate resurrected the removed person");
-    assert!(matches!(accounts.sign_in("ada", "a-long-password").await.unwrap(), Err(_)), "the resurrected password signs in");
+    assert!(accounts.sign_in("ada", "a-long-password").await.unwrap().is_err(), "the resurrected password signs in");
 }
 
 /// The rules seed from the config at first open and round-trip whole:

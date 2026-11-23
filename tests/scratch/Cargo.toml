@@ -36,5 +36,7 @@ tar = "0.4"
 png = "0.17"
 tokio-postgres = "0.7"
 
-[lints]
-workspace = true
+[lints.clippy]
+# Test-only crate: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+unwrap_used = "allow"
+expect_used = "allow"

@@ -64,16 +64,16 @@ async fn totp_begin(State(k): K, Caller(p): Caller) -> Response {
 
 /// The person's current password from `b`, checked: replacing or removing
 /// an authenticator takes it, so a session alone cannot lock its owner out.
-async fn current_password(k: &Kernel, person: &str, peer: SocketAddr, h: &HeaderMap, b: &Value) -> Result<(), Response> {
+async fn current_password(k: &Kernel, person: &str, peer: SocketAddr, h: &HeaderMap, b: &Value) -> Result<(), Box<Response>> {
     let password = b["current_password"].as_str().unwrap_or_default();
     if password.is_empty() {
-        return Err(err(StatusCode::FORBIDDEN, "Enter your current password to change two-factor authentication."));
+        return Err(Box::new(err(StatusCode::FORBIDDEN, "Enter your current password to change two-factor authentication.")));
     }
     match k.accounts.confirm_password(person, password, crate::password_check::via(peer, h)).await {
         Ok(Ok(())) => Ok(()),
-        Ok(Err(crate::accounts::SignInError::Locked(until))) => Err(crate::password_check::locked(until, None)),
-        Ok(Err(_)) => Err(err(StatusCode::FORBIDDEN, "The current password is wrong.")),
-        Err(e) => Err(internal(e)),
+        Ok(Err(crate::accounts::SignInError::Locked(until))) => Err(Box::new(crate::password_check::locked(until, None))),
+        Ok(Err(_)) => Err(Box::new(err(StatusCode::FORBIDDEN, "The current password is wrong."))),
+        Err(e) => Err(Box::new(internal(e))),
     }
 }
 
@@ -86,7 +86,7 @@ async fn totp_confirm(State(k): K, Caller(p): Caller, ConnectInfo(peer): Connect
     }
     if k.accounts.has_totp(&p.id).await {
         if let Err(r) = current_password(&k, &p.id, peer, &h, &b).await {
-            return r;
+            return *r;
         }
     }
     match k.accounts.confirm_totp(&p.id, code).await {
@@ -103,7 +103,7 @@ async fn totp_remove(State(k): K, Caller(p): Caller, ConnectInfo(peer): ConnectI
     }
     let b: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     if let Err(r) = current_password(&k, &p.id, peer, &h, &b).await {
-        return r;
+        return *r;
     }
     match k.accounts.remove_totp(&p.id).await {
         Ok(_) => Json(json!({ "ok": true, "enrolled": false })).into_response(),
@@ -116,11 +116,11 @@ async fn totp_remove(State(k): K, Caller(p): Caller, ConnectInfo(peer): ConnectI
 /// place does; the new one ends every other session of theirs.
 async fn change(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap, Json(b): Json<Value>) -> Response {
     if let Err(r) = over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     let p = match who(&k, &h).await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if !kept_here(&k, &p.id).await {
         let at = k.identity().map(|i| i.label()).unwrap_or_else(|| "your sign-in provider".into());
@@ -181,7 +181,7 @@ fn recovery_mail(base: &str, person: &str, token: &str) -> (&'static str, String
 /// so active addresses answer no slower than unknown ones (#541).
 async fn password_reset_request(State(k): K, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Json(b): Json<Value>) -> Response {
     if let Err(r) = over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     let email = b["email"].as_str().unwrap_or_default().trim().to_string();
     let req = match k.accounts.request_reset(&email).await {

@@ -138,7 +138,7 @@ struct After {
 }
 
 async fn notices(State(k): K, h: HeaderMap, Query(q): Query<After>) -> Reply {
-    let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
+    let p = ok_or_return!(who(&k, &h).await);
     let now = chrono::Utc::now();
     let Some(after) = q.after else { return Json(json!({ "now": now, "notices": [], "names": {} })).into_response() };
     let me = name_of(&k, &p.id);

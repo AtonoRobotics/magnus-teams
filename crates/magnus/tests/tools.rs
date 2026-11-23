@@ -1,6 +1,9 @@
 //! Integration tests for the browser sidecar and the sandbox desktop, using
 //! real Chromium and a real Firecracker VM.
 
+// Test code: a failed unwrap is a failed test (AGENTS.md: none outside tests).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use magnus::{boundary::computer_command, browser::Browser, config, sandbox::Sandboxes, spawn::HostEnv};
 use serde_json::json;
 use std::path::PathBuf;

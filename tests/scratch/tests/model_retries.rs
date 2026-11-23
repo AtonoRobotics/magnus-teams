@@ -104,7 +104,6 @@ async fn what_is_left_bounds_the_call_output() {
 /// completions, reports small usage, lists one model, records requests.
 struct FakeChat {
     url: String,
-    calls: Arc<AtomicUsize>,
     bodies: Arc<Mutex<Vec<Value>>>,
 }
 
@@ -151,7 +150,7 @@ impl FakeChat {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", l.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
-        FakeChat { url, calls: s.calls.clone(), bodies: s.bodies.clone() }
+        FakeChat { url, bodies: s.bodies.clone() }
     }
 
     fn requests(&self) -> Vec<Value> {

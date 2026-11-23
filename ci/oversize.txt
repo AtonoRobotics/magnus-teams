@@ -1,3 +1,1 @@
-crates/magnus/src/events.rs 1236
-tests/scratch/tests/app.rs 814
-tests/scratch/tests/desktop_app.rs 1034
+crates/magnus/src/events.rs 1235

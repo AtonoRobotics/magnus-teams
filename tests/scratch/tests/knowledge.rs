@@ -116,7 +116,7 @@ struct Kb {
     m: FakeModel,
     crm: FakeMcp,
     web: FakeWeb,
-    other: FakeWeb,
+    _other: FakeWeb,
 }
 
 async fn start() -> Kb {
@@ -129,7 +129,7 @@ async fn start() -> Kb {
     let m = FakeModel::start(model(web.url("/evil"), web.url("/a"), other.url("/b").replace("127.0.0.1", "localhost"))).await;
     let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "reversible_write")]).access("crm", &["finance"]);
     let app = Appliance::start(magnus_scratch::with_developer(spec), &m).await;
-    Kb { app, m, crm, web, other }
+    Kb { app, m, crm, web, _other: other }
 }
 
 async fn run(api: &Api, text: &str) -> Value {

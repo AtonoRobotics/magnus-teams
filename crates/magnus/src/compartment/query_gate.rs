@@ -128,7 +128,7 @@ fn luhn_valid(digits: &[u8]) -> bool {
         }
         sum += v;
     }
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// Detects long (`>= 32`) mixed alphanumeric/base64 tokens, including those

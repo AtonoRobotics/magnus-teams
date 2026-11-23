@@ -44,7 +44,7 @@ fn watching_script(seen_prompts: Arc<Mutex<Vec<String>>>) -> Script {
             }
             // Failing ends the task without a contract; the read it
             // made is what matters.
-            return tool("task_fail", json!({ "reason": "checked the inbox" }));
+            tool("task_fail", json!({ "reason": "checked the inbox" }))
         }
     })
 }
@@ -84,7 +84,7 @@ async fn a_new_item_in_a_connected_app_wakes_a_review() {
             // Failing ends the task without a contract; the read it
             // made is what matters. The failure's own wake loses to
             // the item wake, which fires during the read above.
-            return tool("task_fail", json!({ "reason": "checked the inbox" }));
+            tool("task_fail", json!({ "reason": "checked the inbox" }))
         }
     }))
     .await;

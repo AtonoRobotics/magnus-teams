@@ -434,21 +434,7 @@ impl Kernel {
 
     /// Create a task for `person` with the current model and budgets.
     pub async fn create_task(self: &Arc<Self>, actor: &str, person: &str, text: String, attachments: Vec<serde_json::Value>) -> Result<(String, String)> {
-        self.create_tagged(actor, person, text, attachments, None, None, Default::default()).await
-    }
-
-    /// Create a task, optionally as a trial of an experiment case (V2).
-    pub async fn create_tagged(
-        self: &Arc<Self>,
-        actor: &str,
-        person: &str,
-        text: String,
-        attachments: Vec<serde_json::Value>,
-        experiment: Option<crate::events::ExperimentTag>,
-        model: Option<(String, String)>,
-        modules: std::collections::BTreeMap<String, bool>,
-    ) -> Result<(String, String)> {
-        self.create_run(actor, person, text, attachments, NewRun { experiment, model, modules, ..Default::default() }).await
+        self.create_run(actor, person, text, attachments, NewRun::default()).await
     }
 
     /// The adapter and model new runs use unless the person chooses one.

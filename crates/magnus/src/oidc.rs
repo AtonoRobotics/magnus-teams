@@ -559,7 +559,7 @@ impl Provider {
             }
             // RFC 8628 3.5: slow down by 5 seconds from now on.
             "slow_down" => {
-                f.interval = f.interval + Duration::seconds(5);
+                f.interval += Duration::seconds(5);
                 f.next_poll = now + f.interval;
                 Ok(Polled::Pending)
             }

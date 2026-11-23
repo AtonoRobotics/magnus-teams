@@ -19,9 +19,12 @@ use std::sync::{Arc, Mutex};
 
 const CHAT: &str = "talking with the person you work for in a chat";
 
+type Plan = Arc<Mutex<Vec<(String, Vec<(String, Value)>)>>>;
+type Seen = Arc<Mutex<Vec<(Value, Vec<String>)>>>;
+
 /// Each chat turn calls the tools listed for what the person said, one per
 /// model call, then answers with the last result.
-fn model(plan: Arc<Mutex<Vec<(String, Vec<(String, Value)>)>>>, seen: Arc<Mutex<Vec<(Value, Vec<String>)>>>) -> Script {
+fn model(plan: Plan, seen: Seen) -> Script {
     script(move |c| {
         let (plan, seen) = (plan.clone(), seen.clone());
         async move {
@@ -42,7 +45,7 @@ fn model(plan: Arc<Mutex<Vec<(String, Vec<(String, Value)>)>>>, seen: Arc<Mutex<
 
 /// Say `text` in a new conversation and wait for the answer: the thread's
 /// id and its entries.
-async fn say(api: &Api, plan: &Arc<Mutex<Vec<(String, Vec<(String, Value)>)>>>, text: &str, steps: Vec<(&str, Value)>) -> (String, Vec<Value>) {
+async fn say(api: &Api, plan: &Plan, text: &str, steps: Vec<(&str, Value)>) -> (String, Vec<Value>) {
     plan.lock().unwrap().push((text.into(), steps.into_iter().map(|(t, i)| (t.to_string(), i)).collect()));
     let (st, v) = api.post("/v1/chat", json!({ "text": text })).await;
     assert_eq!(st.as_u16(), 201, "{v}");
@@ -57,19 +60,19 @@ async fn say(api: &Api, plan: &Arc<Mutex<Vec<(String, Vec<(String, Value)>)>>>, 
 }
 
 /// What the tools said back in this conversation's turns so far.
-fn said_back(seen: &Arc<Mutex<Vec<(Value, Vec<String>)>>>) -> String {
+fn said_back(seen: &Seen) -> String {
     seen.lock().unwrap().iter().flat_map(|(_, r)| r.clone()).collect::<Vec<_>>().join("\n")
 }
 
 /// The opening message of the first request.
-fn opening(seen: &Arc<Mutex<Vec<(Value, Vec<String>)>>>) -> String {
+fn opening(seen: &Seen) -> String {
     seen.lock().unwrap().first().map(|(b, _)| b["messages"][0]["content"].to_string()).unwrap_or_default()
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn magnus_finds_an_unconnected_app_by_what_is_wanted_and_offers_its_card_with_why() {
     let plan = Arc::new(Mutex::new(vec![]));
-    let seen: Arc<Mutex<Vec<(Value, Vec<String>)>>> = Arc::new(Mutex::new(vec![]));
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
     let m = FakeModel::start(model(plan.clone(), seen.clone())).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let carol = app.api("carol");
@@ -131,7 +134,7 @@ async fn magnus_finds_an_unconnected_app_by_what_is_wanted_and_offers_its_card_w
 #[tokio::test(flavor = "multi_thread")]
 async fn magnus_cannot_offer_an_app_outside_the_persons_library() {
     let plan = Arc::new(Mutex::new(vec![]));
-    let seen: Arc<Mutex<Vec<(Value, Vec<String>)>>> = Arc::new(Mutex::new(vec![]));
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
     let m = FakeModel::start(model(plan.clone(), seen.clone())).await;
     let app = Appliance::start(Spec::default(), &m).await;
     // Gmail is blocked for finance; Bob is in finance.
@@ -211,7 +214,7 @@ async fn a_task_that_needs_an_app_shows_its_card_with_why() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_the_app_refused_is_offered_again_as_a_card_and_its_tools_wait() {
     let plan = Arc::new(Mutex::new(vec![]));
-    let seen: Arc<Mutex<Vec<(Value, Vec<String>)>>> = Arc::new(Mutex::new(vec![]));
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
     let m = FakeModel::start(model(plan.clone(), seen.clone())).await;
     let app = Appliance::start(Spec::default(), &m).await;
     // 30-second tokens: every use refreshes, so a refused refresh shows at once.
@@ -260,7 +263,7 @@ async fn sign_in(api: &Api, name: &str) -> String {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_that_needs_more_access_asks_for_it_with_a_card_and_goes_through_once_approved() {
     let plan = Arc::new(Mutex::new(vec![]));
-    let seen: Arc<Mutex<Vec<(Value, Vec<String>)>>> = Arc::new(Mutex::new(vec![]));
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
     let m = FakeModel::start(model(plan.clone(), seen.clone())).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let cal = magnus_scratch::FakeOAuthApp::start(3600).await;
@@ -297,7 +300,7 @@ async fn a_call_that_needs_more_access_asks_for_it_with_a_card_and_goes_through_
 #[tokio::test(flavor = "multi_thread")]
 async fn an_app_that_refuses_magnus_its_tools_is_said_to_refuse_from_the_first_step() {
     let plan = Arc::new(Mutex::new(vec![]));
-    let seen: Arc<Mutex<Vec<(Value, Vec<String>)>>> = Arc::new(Mutex::new(vec![]));
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
     let m = FakeModel::start(model(plan.clone(), seen.clone())).await;
     let app = Appliance::start(Spec::default(), &m).await;
     let cal = magnus_scratch::FakeOAuthApp::start(3600).await;
@@ -309,7 +312,7 @@ async fn an_app_that_refuses_magnus_its_tools_is_said_to_refuse_from_the_first_s
     assert_eq!(alice.put(&format!("/v1/connectors/{name}/tools/list_events"), json!({ "risk": "read" })).await.0, 204);
     let carol = app.api("carol");
     sign_in(&carol, &name).await;
-    let offered = |seen: &Arc<Mutex<Vec<(Value, Vec<String>)>>>| -> Vec<String> {
+    let offered = |seen: &Seen| -> Vec<String> {
         let first = seen.lock().unwrap().first().cloned().unwrap().0;
         first["tools"].as_array().into_iter().flatten().filter_map(|t| t["name"].as_str().map(String::from)).collect()
     };

@@ -138,7 +138,7 @@ pub fn client_ip(peer: SocketAddr, headers: &axum::http::HeaderMap) -> std::net:
     is_tunnel(peer, headers).then(forwarded).flatten().unwrap_or_else(|| peer.ip().to_canonical())
 }
 
-pub fn presented<'a>(headers: &'a axum::http::HeaderMap) -> Option<&'a str> {
+pub fn presented(headers: &axum::http::HeaderMap) -> Option<&str> {
     headers.get(CERT_HEADER).and_then(|v| v.to_str().ok()).map(str::trim).filter(|s| !s.is_empty())
 }
 
@@ -185,7 +185,7 @@ impl Devices {
     pub fn list(&self, person: Option<&str>) -> Vec<Device> {
         let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let mut out: Vec<Device> = g.devices.values().filter(|d| person.map(|p| d.person == p).unwrap_or(true)).cloned().collect();
-        out.sort_by(|a, b| b.created.cmp(&a.created));
+        out.sort_by_key(|a| std::cmp::Reverse(a.created));
         out
     }
 

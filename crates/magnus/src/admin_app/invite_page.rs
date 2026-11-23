@@ -52,7 +52,7 @@ async fn page(
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     if let Some(code) = q.get("link") {
         return crate::account_links::page(&k, crate::devices::client_ip(peer, &h), code);
@@ -72,7 +72,7 @@ async fn accept(
     Form(f): Form<HashMap<String, String>>,
 ) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     if f.contains_key("link") {
         return crate::account_links::create(&k, t, crate::devices::client_ip(peer, &h), &f).await;

@@ -30,7 +30,7 @@ pub(super) async fn add_trial(AxState(k): K, Developer(p): Developer, Path(id): 
     let mut modules = BTreeMap::new();
     for (name, on) in b["modules"].as_object().into_iter().flatten() {
         let Some(on) = on.as_bool().filter(|_| MODULES.iter().any(|m| m.name == name)) else {
-            return refuse(StatusCode::BAD_REQUEST, &format!("no removable module {name}, or not true/false"));
+            return refuse(StatusCode::BAD_REQUEST, format!("no removable module {name}, or not true/false"));
         };
         modules.insert(name.clone(), on);
     }
@@ -60,7 +60,8 @@ pub(super) async fn add_trial(AxState(k): K, Developer(p): Developer, Path(id): 
         });
     }
     let attachments = b["attachments"].as_array().cloned().unwrap_or_default();
-    Ok(match k.create_tagged(&format!("person:{}", p.id), &p.id, text, attachments, Some(tag), model, modules).await {
+    let opts = crate::kernel::NewRun { experiment: Some(tag), model, modules, ..Default::default() };
+    Ok(match k.create_run(&format!("person:{}", p.id), &p.id, text, attachments, opts).await {
         Ok((task, run)) => (StatusCode::CREATED, Json(json!({ "task_id": task, "run_id": run }))).into_response(),
         Err(e) => internal(e),
     })

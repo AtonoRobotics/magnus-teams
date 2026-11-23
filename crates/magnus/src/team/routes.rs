@@ -68,7 +68,7 @@ pub(super) async fn send(k: &Kernel, p: &Person, c: Change) -> Result<(), Box<Re
 
 /// The caller and their role here, or a 404 that does not say the workspace exists.
 pub(super) async fn member(k: &Kernel, h: &HeaderMap, ws: &str, at_least: Role) -> Result<(Person, Role), Box<Reply>> {
-    let p = who(k, h).await.map_err(Box::new)?;
+    let p = who(k, h).await?;
     let Some(role) = k.read(|s| s.team.role(ws, &p.id)) else { return Err(Box::new(err(StatusCode::NOT_FOUND, "no such workspace"))) };
     if role < at_least {
         return Err(Box::new(err(StatusCode::FORBIDDEN, format!("that takes the {at_least:?} role here"))));
@@ -86,13 +86,13 @@ fn short(name: &str) -> bool {
 }
 
 async fn list(State(k): K, h: HeaderMap) -> ApiResult {
-    let p = who(&k, &h).await.map_err(Box::new)?;
+    let p = who(&k, &h).await?;
     let v: Vec<Value> = k.read(|s| s.team.of(&p.id).into_iter().map(|w| json!({ "id": w.id, "name": w.name, "role": w.members.get(&p.id) })).collect());
     Ok(Json(v).into_response())
 }
 
 async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> ApiResult {
-    let p = who(&k, &h).await.map_err(Box::new)?;
+    let p = who(&k, &h).await?;
     // Any regular user may start a shared project and collaborate as peers;
     // restricted guest accounts still cannot create new shared projects.
     if crate::people::rights(&p).held_to_guest_limits() {

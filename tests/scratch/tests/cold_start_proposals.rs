@@ -150,7 +150,7 @@ async fn a_first_sign_in_opens_no_conversation_and_its_ideas_wait_in_explore() {
 
     // No conversation, and Magnus's own run, under the review's instructions.
     assert!(conversations(&carol).await.is_empty(), "the opener opened a conversation: {:?}", conversations(&carol).await);
-    let run = m.requests().into_iter().find(|c| opening(c)).expect("the opener reached the model");
+    let run = m.requests().into_iter().find(opening).expect("the opener reached the model");
     assert!(system(&run).contains(REVIEW), "the opener ran as a chat turn");
     assert!(!carol.tasks().await["tasks"].as_array().unwrap().iter().any(|t| t["review"] != true), "the opener is listed as her task");
     // Its ideas cite what it read, and are hers alone.
@@ -175,12 +175,12 @@ async fn a_first_sign_in_opens_no_conversation_and_its_ideas_wait_in_explore() {
     assert!(ideas(&carol).await.is_empty());
 
     // Signing in again, and after a restart, runs nothing more and tells her nothing more.
-    let turns = m.requests().into_iter().filter(|c| opening(c)).count();
+    let turns = m.requests().into_iter().filter(opening).count();
     sign_in(&app, "carol").await;
     app.restart().await;
     sign_in(&app, "carol").await;
     a_moment().await;
-    assert_eq!(m.requests().into_iter().filter(|c| opening(c)).count(), turns, "the opener ran again");
+    assert_eq!(m.requests().into_iter().filter(opening).count(), turns, "the opener ran again");
     assert_eq!(told(&carol).await.len(), 1, "she was told again");
     assert!(conversations(&carol).await.is_empty());
 }
@@ -210,12 +210,12 @@ async fn connecting_an_app_the_first_time_reads_it_and_leaves_ideas_and_reconnec
     assert!(sug["details"]["evidence"][0]["tool"].as_str().unwrap_or_default().contains("list_events"), "{sug}");
 
     // Disconnected and connected again: nothing new runs.
-    let turns = m.requests().into_iter().filter(|c| opening(c)).count();
+    let turns = m.requests().into_iter().filter(opening).count();
     let (st, v) = carol.send(reqwest::Method::DELETE, "/v1/connectors/calendar/connection", None).await;
     assert!(st.is_success(), "{v}");
     connect(&carol, port).await;
     a_moment().await;
-    assert_eq!(m.requests().into_iter().filter(|c| opening(c)).count(), turns, "an opener ran again on reconnecting");
+    assert_eq!(m.requests().into_iter().filter(opening).count(), turns, "an opener ran again on reconnecting");
     assert_eq!(cal.calls("list_events"), before + 1);
     assert_eq!(told(&carol).await.len(), 1);
 }
@@ -238,7 +238,7 @@ async fn nothing_opens_while_the_kill_switch_is_on() {
     assert!(alice.post("/v1/kill-switch", json!({ "engaged": true })).await.0.is_success());
     sign_in(&app, "carol").await;
     a_moment().await;
-    assert_eq!(m.requests().into_iter().filter(|c| opening(c)).count(), 0, "an opener reached the model under the kill switch");
+    assert_eq!(m.requests().into_iter().filter(opening).count(), 0, "an opener reached the model under the kill switch");
 
     // Released, her next sign-in is still her cold start: she has nothing here yet.
     assert!(alice.post("/v1/kill-switch", json!({ "engaged": false })).await.0.is_success());

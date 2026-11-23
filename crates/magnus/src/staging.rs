@@ -177,14 +177,20 @@ pub fn offered_scopes(dests: &[Destination]) -> Vec<GrantScope> {
     scopes
 }
 
+pub(crate) struct StageMeta<'a> {
+    pub kind: StageKind,
+    pub dests: &'a [String],
+    pub reason: &'a str,
+}
+
 impl Kernel {
     /// Stage an out-of-envelope write as a draft/staged card so the run can
     /// continue without blocking on a modal approval.
-    pub(crate) async fn stage_action(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, kind: StageKind, dests: &[String], provenance_reason: &str) -> Result<String> {
+    pub(crate) async fn stage_action(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>, meta: StageMeta<'_>) -> Result<String> {
         let id = new_id("staged");
         let title = f.connector.as_ref().and_then(|c| c.title.clone());
-        let sentence = crate::asks::sentence(&a.tool, &f.app, title.as_deref(), f.risk.as_str(), dests);
-        let provenance = dests.iter().map(|d| DestinationProvenance { destination: d.clone(), source: provenance_reason.to_string() }).collect();
+        let sentence = crate::asks::sentence(&a.tool, &f.app, title.as_deref(), f.risk.as_str(), meta.dests);
+        let provenance = meta.dests.iter().map(|d| DestinationProvenance { destination: d.clone(), source: meta.reason.to_string() }).collect();
         let item = StagedItem {
             id: id.clone(),
             run: a.run.clone(),
@@ -193,7 +199,7 @@ impl Kernel {
             tool: a.tool.clone(),
             app: f.app.clone(),
             app_title: title,
-            kind: kind.clone(),
+            kind: meta.kind.clone(),
             sentence,
             input: a.input.clone(),
             shown: shown.map(Shown::details),
@@ -203,12 +209,12 @@ impl Kernel {
             grant_id: None,
         };
         self.emit("kernel", Ev::Staged(Change::Created(Box::new(item)))).await?;
-        let mode = match kind {
+        let mode = match meta.kind {
             StageKind::NativeDraft { .. } => "saved as a draft for the person to review and send",
             StageKind::CalendarSilentEvent => "staged without sending external calendar invites (sendUpdates=none)",
             StageKind::MagnusHeld => "staged for the person to review and send asynchronously",
         };
-        Ok(format!("Action {id} was {mode} because its destination is outside the current request's envelope ({provenance_reason}). Carry on with the rest of your work."))
+        Ok(format!("Action {id} was {mode} because its destination is outside the current request's envelope ({}). Carry on with the rest of your work.", meta.reason))
     }
 
     /// Resolve a staged item (sent, discarded, edited, or reconciled after

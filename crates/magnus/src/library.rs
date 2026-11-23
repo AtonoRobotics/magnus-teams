@@ -132,7 +132,7 @@ pub(crate) fn files_matching(s: &St, p: &Person, terms: &[String], texts: &HashM
             terms.iter().all(|t| hay.contains(t.as_str()))
         })
         .collect();
-    v.sort_by(|a, b| b.0.at.cmp(&a.0.at));
+    v.sort_by_key(|a| std::cmp::Reverse(a.0.at));
     v.into_iter().map(|(_, j)| j).collect()
 }
 
@@ -187,12 +187,14 @@ pub(crate) async fn add_file(k: &Kernel, p: &Person, b: &Value, thread: Option<S
 
 /// The person's uploaded files named in a request (`files`), to give to a
 /// task or a message.
-pub(crate) fn given_files(k: &Kernel, p: &Person, b: &Value) -> Result<Vec<String>, Response> {
+pub(crate) fn given_files(k: &Kernel, p: &Person, b: &Value) -> crate::api_error::ApiResult<Vec<String>> {
     let ids: Vec<String> = b["files"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(String::from)).collect();
     for id in &ids {
         match k.read(|s| s.library.files().get(id).filter(|f| f.person == p.id).map(|f| f.uploaded)) {
-            None => return Err(err(StatusCode::NOT_FOUND, format!("no such file {id}"))),
-            Some(false) => return Err(err(StatusCode::BAD_REQUEST, "only uploaded files can be given to a task or message; to use a delivered file, put it in a project")),
+            None => return crate::api_error::refuse(StatusCode::NOT_FOUND, format!("no such file {id}")),
+            Some(false) => {
+                return crate::api_error::refuse(StatusCode::BAD_REQUEST, "only uploaded files can be given to a task or message; to use a delivered file, put it in a project")
+            }
             Some(true) => {}
         }
     }
@@ -200,12 +202,12 @@ pub(crate) fn given_files(k: &Kernel, p: &Person, b: &Value) -> Result<Vec<Strin
 }
 
 /// A project of the person's named in a request (`project`), if any.
-pub(crate) fn chosen_project(k: &Kernel, p: &Person, b: &Value) -> Result<Option<String>, Response> {
+pub(crate) fn chosen_project(k: &Kernel, p: &Person, b: &Value) -> crate::api_error::ApiResult<Option<String>> {
     let Some(id) = b["project"].as_str() else { return Ok(None) };
     if k.read(|s| s.library.projects().get(id).is_some_and(|x| x.person == p.id)) {
         Ok(Some(id.into()))
     } else {
-        Err(err(StatusCode::NOT_FOUND, "no such project"))
+        crate::api_error::refuse(StatusCode::NOT_FOUND, "no such project")
     }
 }
 
@@ -320,7 +322,7 @@ async fn project(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Resp
             .map(|x| json!({ "id": x.id, "title": words.title(x.seq).unwrap_or_else(|| words.text(x.seq).to_string()), "text": words.text(x.seq), "next": x.next_due() }))
             .collect();
         let mut files: Vec<&LibFile> = s.library.files().values().filter(|f| f.person == p.id && inside(&f.id)).collect();
-        files.sort_by(|a, b| b.at.cmp(&a.at));
+        files.sort_by_key(|a| std::cmp::Reverse(a.at));
         (tasks, schedules, files.into_iter().map(|f| file_json(s, f, &words)).collect::<Vec<_>>())
     });
     v["threads"] = json!(threads);

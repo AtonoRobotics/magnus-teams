@@ -47,7 +47,7 @@ pub fn refused(e: &anyhow::Error) -> Option<Response> {
 async fn mine(State(k): K, h: HeaderMap) -> Response {
     match who(&k, &h).await {
         Ok(p) => Json(k.my_spend(&p.id)).into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 
@@ -61,7 +61,7 @@ struct Ask {
 async fn ask(State(k): K, h: HeaderMap, Json(b): Json<Ask>) -> Response {
     match who(&k, &h).await {
         Ok(p) => reply(k.ask_for_more(&p.id, b.usd, &b.reason).await),
-        Err(r) => r,
+        Err(r) => *r,
     }
 }
 

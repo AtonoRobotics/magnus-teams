@@ -162,7 +162,7 @@ impl Kernel {
             _ => return Err(none()),
         };
         if !own {
-            self.record_data_read(reader, by, &[target.id.clone()], what, item).await.map_err(failed)?;
+            self.record_data_read(reader, by, std::slice::from_ref(&target.id), what, item).await.map_err(failed)?;
         }
         Ok(json!({ "person": target.id, what: v }))
     }

@@ -396,7 +396,7 @@ impl Kernel {
             })
             .filter(|(n, _)| *n > 0)
             .collect();
-        hits.sort_by(|a, b| b.0.cmp(&a.0));
+        hits.sort_by_key(|a| std::cmp::Reverse(a.0));
         hits.truncate(8);
         if hits.is_empty() {
             return json!({ "tools": [], "found": [], "note": "No tool of the person's connected apps matches. Try other words, or find_apps for an app they have not connected." });

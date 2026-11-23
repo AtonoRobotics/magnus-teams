@@ -94,7 +94,7 @@ impl Vault {
     /// a new release's check before an update leaves the running one's
     /// vault as it is.
     pub fn bind_unbound(&self) -> Result<()> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut all = self.read_all()?;
         let unbound: Vec<String> = all.iter().filter(|(_, v)| !v.starts_with(BOUND)).map(|(n, _)| n.clone()).collect();
         if unbound.is_empty() {
@@ -114,7 +114,7 @@ impl Vault {
     /// them again when it starts, if it knows how. The vault stays sealed
     /// until then, so nothing is stored bound in between.
     pub fn unbind_all(&self) -> Result<()> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         self.sealed.store(true, std::sync::atomic::Ordering::SeqCst);
         let mut all = self.read_all()?;
         for (n, v) in all.iter_mut() {
@@ -159,7 +159,7 @@ impl Vault {
     }
 
     pub fn put(&self, name: &str, value: &str) -> Result<()> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         anyhow::ensure!(!self.is_sealed(), "the kill switch is engaged; nothing is stored in the vault");
         let mut all = self.read_all()?;
         all.insert(name.into(), self.seal_as(name, value.as_bytes())?);
@@ -167,7 +167,7 @@ impl Vault {
     }
 
     pub fn get(&self, name: &str) -> Result<Option<Secret>> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         if self.is_sealed() {
             return Ok(None);
         }
@@ -193,7 +193,7 @@ impl Vault {
     }
 
     pub fn names(&self) -> Result<Vec<String>> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         Ok(self.read_all()?.into_keys().collect())
     }
 
@@ -202,7 +202,7 @@ impl Vault {
     }
 
     pub fn unseal(&self) {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let _ = std::fs::remove_file(self.dir.join(SEALED));
         self.sealed.store(false, std::sync::atomic::Ordering::SeqCst);
     }
@@ -216,7 +216,7 @@ impl Vault {
     /// at any point leaves each one in one place or the other, never lost
     /// unrevoked. With those an earlier switch took and did not see revoked.
     pub fn seal_and_take(&self, take: &[String]) -> Result<Vec<(String, Secret)>> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         self.seal_locked();
         let mut all = self.read_all()?;
         let mut pending = self.read_pending()?;
@@ -233,7 +233,7 @@ impl Vault {
 
     /// The sign-ins taken out to be revoked and not yet seen revoked.
     pub fn revoking(&self) -> Result<Vec<(String, Secret)>> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let pending = self.read_pending()?;
         self.pending_locked(&pending)
     }
@@ -241,7 +241,7 @@ impl Vault {
     /// The provider answered for this sign-in (revoked or not): it no longer
     /// waits.
     pub fn revoked(&self, name: &str) -> Result<()> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut pending = self.read_pending()?;
         if pending.remove(name).is_some() {
             write_private(&self.dir.join(REVOKING), &serde_json::to_vec(&pending)?)?;
@@ -273,7 +273,7 @@ impl Vault {
 
     /// The vault's key and its encrypted contents as stored, for a backup.
     pub fn raw(&self) -> Result<(Vec<u8>, String)> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let key = std::fs::read(self.dir.join("key"))?;
         let secrets = std::fs::read_to_string(self.path()).unwrap_or_else(|_| "{}".into());
         Ok((key, secrets))
@@ -281,7 +281,7 @@ impl Vault {
 
     /// Remove a secret (a connector the owner removed).
     pub fn remove(&self, name: &str) -> Result<Option<Secret>> {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut all = self.read_all()?;
         let old = self.get_locked(name)?;
         all.remove(name);
@@ -292,7 +292,7 @@ impl Vault {
     /// Seal without emptying: the kill switch, before it takes anything, or
     /// a restart while it is engaged.
     pub fn seal(&self) {
-        let _g = self.lock.lock().unwrap();
+        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         self.seal_locked();
     }
 }

@@ -186,7 +186,7 @@ async fn by_link(k: &Kernel, p: &Person, ws: String, role: Role) -> Reply {
 /// address is used once, and only by the holder of that address; a link
 /// works until it expires.
 async fn join(State(k): K, h: HeaderMap, Path(code): Path<String>) -> Reply {
-    let p = ok_or_return!(who(&k, &h).await.map_err(Box::new));
+    let p = ok_or_return!(who(&k, &h).await);
     let Some((ws, _, inv)) = live(&k, &code) else { return err(StatusCode::NOT_FOUND, "that invite has ended") };
     let mine = k.accounts.local_person(&p.id).and_then(|l| l.email);
     if inv.email.as_deref().is_some_and(|e| mine.as_deref().is_none_or(|m| !m.eq_ignore_ascii_case(e))) {

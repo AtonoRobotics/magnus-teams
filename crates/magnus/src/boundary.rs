@@ -249,26 +249,23 @@ pub(crate) enum Gate {
     Stop(Verdict),
 }
 
+struct Record<'a> {
+    status: &'a str,
+    text: String,
+    is_error: bool,
+    label: Label,
+    data: Option<Value>,
+}
+
 impl Kernel {
-    async fn record(&self, a: &Action, key: Option<String>, status: &str, text: String, is_error: bool, label: Label, data: Option<Value>) -> Result<Verdict> {
+    async fn record(&self, a: &Action, key: Option<String>, r: Record<'_>) -> Result<Verdict> {
         let sources = facts(self, &a.tool).map(|f| vec![f.app]).unwrap_or_default();
-        self.record_from(a, key, status, text, is_error, label, sources, data).await
+        self.record_from(a, key, sources, r).await
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn record_from(
-        &self,
-        a: &Action,
-        key: Option<String>,
-        status: &str,
-        text: String,
-        is_error: bool,
-        label: Label,
-        sources: Vec<String>,
-        data: Option<Value>,
-    ) -> Result<Verdict> {
-        let (text, data) = self.screen_inbound(&a.run, &a.tool, text, data, label.untrusted).await;
-        let text = if label.untrusted && !is_error && self.run_is_quarantined(&a.run) {
+    async fn record_from(&self, a: &Action, key: Option<String>, sources: Vec<String>, r: Record<'_>) -> Result<Verdict> {
+        let (text, data) = self.screen_inbound(&a.run, &a.tool, r.text, r.data, r.label.untrusted).await;
+        let text = if r.label.untrusted && !r.is_error && self.run_is_quarantined(&a.run) {
             if let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) {
                 self.quarantine_tool_output(&run, &a.tool, &text).await
             } else {
@@ -285,17 +282,17 @@ impl Kernel {
                 run: a.run.clone(),
                 call_id: a.call_id.clone(),
                 key,
-                status: status.into(),
+                status: r.status.into(),
                 text: text.clone(),
-                is_error,
-                label,
+                is_error: r.is_error,
+                label: r.label,
                 data: data.clone(),
                 sources,
                 check: a.issuer == Issuer::ReadBack,
             },
         )
         .await?;
-        Ok(Verdict::Done { text, is_error, data })
+        Ok(Verdict::Done { text, is_error: r.is_error, data })
     }
 
     pub(crate) async fn decision(&self, a: &Action, outcome: &str, stage: &str, reason: &str, rule: Option<String>) -> Result<()> {
@@ -310,7 +307,7 @@ impl Kernel {
     pub(crate) async fn deny(&self, a: &Action, stage: &str, reason: &str, retry: bool, rule: Option<String>) -> Result<Verdict> {
         self.decision(a, "deny", stage, reason, rule).await?;
         let text = err_text(&format!("Denied ({stage}): {reason}."), retry);
-        self.record(a, None, "denied", text, true, Label::PRINCIPAL, None).await
+        self.record(a, None, Record { status: "denied", text, is_error: true, label: Label::PRINCIPAL, data: None }).await
     }
 
     /// Run an action through the boundary. Errors inside any stage deny it.
@@ -407,7 +404,7 @@ impl Kernel {
                     return self.deny(a, "idempotency", "this step was already used for a different request", false, None).await;
                 }
                 self.decision(a, "dedupe", "idempotency", "already done", None).await?;
-                return self.record(a, Some(key), &prev.status, prev.text, prev.is_error, f.label, prev.data).await;
+                return self.record(a, Some(key), Record { status: &prev.status, text: prev.text, is_error: prev.is_error, label: f.label, data: prev.data }).await;
             }
             Some(Intent { input, result: None, .. }) => {
                 if input != a.input {
@@ -500,16 +497,31 @@ impl Kernel {
                     true => format!("{text}\n\n{}", self.read_back(a, &f, shown.as_ref(), data.as_ref()).await?),
                     false => text,
                 };
-                self.record_from(a, Some(key), if is_error { "failed" } else { "done" }, text, is_error, label, sources, data).await
+                let status = if is_error { "failed" } else { "done" };
+                self.record_from(a, Some(key), sources, Record { status, text, is_error, label, data }).await
             }
-            Err(CallFailure::NotDone(m)) => self.record(a, Some(key), "failed", err_text(&format!("{} failed: {}.", a.tool, clean(&m)), true), true, f.label, None).await,
+            Err(CallFailure::NotDone(m)) => {
+                self.record(
+                    a,
+                    Some(key),
+                    Record { status: "failed", text: err_text(&format!("{} failed: {}.", a.tool, clean(&m)), true), is_error: true, label: f.label, data: None },
+                )
+                .await
+            }
             // A resend held back: the attempt before it may have reached
             // the app, so its outcome stays unknown, never "not sent".
             Err(CallFailure::Stopped(m)) if resend => {
                 let text = err_text(&format!("{}: an earlier attempt may have reached {}, so its outcome is unknown; it was not sent again: {}.", a.tool, f.app, clean(&m)), false);
-                self.record(a, Some(key), "unknown", text, true, f.label, None).await
+                self.record(a, Some(key), Record { status: "unknown", text, is_error: true, label: f.label, data: None }).await
             }
-            Err(CallFailure::Stopped(m)) => self.record(a, Some(key), "failed", err_text(&format!("{} was not sent: {}.", a.tool, clean(&m)), false), true, f.label, None).await,
+            Err(CallFailure::Stopped(m)) => {
+                self.record(
+                    a,
+                    Some(key),
+                    Record { status: "failed", text: err_text(&format!("{} was not sent: {}.", a.tool, clean(&m)), false), is_error: true, label: f.label, data: None },
+                )
+                .await
+            }
             Err(CallFailure::Unknown(m)) => {
                 // The request may have reached the app. Resolve as after a crash.
                 tracing::warn!("{}: outcome unknown: {m}", a.tool);
@@ -519,13 +531,15 @@ impl Kernel {
                         match again {
                             Ok((text, is_error, data)) => {
                                 let data = data.map(|d| serde_json::from_str(&clean(&d.to_string())).unwrap_or(Value::Null));
-                                self.record(a, Some(key), if is_error { "failed" } else { "done" }, clean(&text), is_error, f.label, data).await
+                                let status = if is_error { "failed" } else { "done" };
+                                self.record(a, Some(key), Record { status, text: clean(&text), is_error, label: f.label, data }).await
                             }
                             Err(e) => {
                                 let m = match e {
                                     CallFailure::NotDone(m) | CallFailure::Unknown(m) | CallFailure::Stopped(m) => m,
                                 };
-                                self.record(a, Some(key), "unknown", err_text(&format!("{}: the outcome is unknown ({}).", a.tool, clean(&m)), false), true, f.label, None).await
+                                let text = err_text(&format!("{}: the outcome is unknown ({}).", a.tool, clean(&m)), false);
+                                self.record(a, Some(key), Record { status: "unknown", text, is_error: true, label: f.label, data: None }).await
                             }
                         }
                     }
@@ -707,9 +721,9 @@ impl Kernel {
                     "destination is outside the user's request envelope"
                 };
                 if let Some(kind) = crate::staging::classify_stageable(&f.app, &a.tool, f.risk, &a.input) {
-                    let msg = self.stage_action(a, run, f, shown, kind, &dests, why).await?;
+                    let msg = self.stage_action(a, run, f, shown, crate::staging::StageMeta { kind, dests: &dests, reason: why }).await?;
                     self.decision(a, "stage", "envelope", why, None).await?;
-                    return Ok(Err(self.record(a, None, "staged", msg, false, Label::PRINCIPAL, None).await?));
+                    return Ok(Err(self.record(a, None, Record { status: "staged", text: msg, is_error: false, label: Label::PRINCIPAL, data: None }).await?));
                 }
                 ask = Some((
                     format!("the work has read untrusted content and private data, and this unstageable action targets a new destination ({why})"),
@@ -726,7 +740,7 @@ impl Kernel {
     async fn reconcile(&self, a: &Action, f: &Facts, key: &str) -> Result<Gate> {
         if f.app == "sandbox" {
             let text = err_text(&format!("{} was interrupted by a restart; its outcome is unknown. Check the workspace before doing it again.", a.tool), false);
-            return Ok(Gate::Stop(self.record(a, Some(key.into()), "unknown", text, true, f.label, None).await?));
+            return Ok(Gate::Stop(self.record(a, Some(key.into()), Record { status: "unknown", text, is_error: true, label: f.label, data: None }).await?));
         }
         // A chat call's ids come from its key, so resending finds what the
         // first call made.
@@ -740,7 +754,7 @@ impl Kernel {
         // Not safe to resend, and a retry never asks (spec rev 140).
         self.decision(a, "deny", "idempotency", "outcome unknown and the app cannot deduplicate", None).await?;
         let text = err_text(&crate::asks::outcome_unknown(self, a, f).await?, false);
-        Ok(Gate::Stop(self.record(a, Some(key.into()), "unknown", text, true, f.label, None).await?))
+        Ok(Gate::Stop(self.record(a, Some(key.into()), Record { status: "unknown", text, is_error: true, label: f.label, data: None }).await?))
     }
 }
 

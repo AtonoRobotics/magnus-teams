@@ -108,6 +108,6 @@ pub(super) async fn stops(State(k): State<Arc<Kernel>>, h: HeaderMap) -> Respons
             let admin = k.authority(&p).await.administers();
             Json(json!({ "stops": stops_for(&k, &p.id, admin) })).into_response()
         }
-        Err(r) => r,
+        Err(r) => *r,
     }
 }

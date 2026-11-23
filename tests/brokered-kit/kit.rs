@@ -244,7 +244,7 @@ fn provider(tls: Option<(&(rcgen::Certificate, rcgen::KeyPair), &str)>) -> (std:
 #[test]
 fn nothing_is_sent_until_the_provider_proves_its_name() {
     let (ours, theirs) = (ca(), ca());
-    let trusted = client(vec![ours.0.der().to_vec()]);
+    let trusted = client(vec![ours.0.der().to_vec()]).unwrap();
     let way_out = |sock, name: &str| secure(sock, name, trusted.clone()).and_then(|s| exchange_over(s, "GET", name, "/v1/x", "tok-secret", None));
     let (s, seen) = provider(None);
     let e = way_out(s, "api.example").unwrap_err();

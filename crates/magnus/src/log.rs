@@ -671,7 +671,7 @@ impl Log {
         if !self.store {
             return Ok(0);
         }
-        Ok(self.client().await?.execute("DELETE FROM public.content WHERE seq = ANY($1)", &[&seqs]).await.context("delete content")?)
+        self.client().await?.execute("DELETE FROM public.content WHERE seq = ANY($1)", &[&seqs]).await.context("delete content")
     }
 
     /// Every removal so far: the seq of its `removed` event and the events
@@ -697,7 +697,7 @@ impl Log {
             return Ok(0);
         }
         let sql = "DELETE FROM public.content WHERE seq IN (SELECT jsonb_array_elements_text(body->'seqs')::bigint FROM public.events WHERE kind = 'removed')";
-        Ok(self.client().await?.execute(sql, &[]).await.context("finish removals")?)
+        self.client().await?.execute(sql, &[]).await.context("finish removals")
     }
 
     /// One run's events in order: the developer view's full trace (V4).

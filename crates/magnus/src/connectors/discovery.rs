@@ -114,8 +114,8 @@ pub(crate) fn check_resource_metadata(prm: &Value, app_url: &str) -> Result<(Str
 /// name that server as its issuer.
 pub(crate) async fn server_metadata(issuer: &str) -> Result<Value> {
     let c = http();
-    let mut urls = well_known(&issuer, "oauth-authorization-server")?;
-    urls.extend(well_known(&issuer, "openid-configuration")?);
+    let mut urls = well_known(issuer, "oauth-authorization-server")?;
+    urls.extend(well_known(issuer, "openid-configuration")?);
     urls.push(format!("{}/.well-known/openid-configuration", issuer.trim_end_matches('/')));
     let asm = first_json(&c, &urls).await.ok_or_else(|| anyhow!("{issuer} publishes no authorization server metadata"))?;
     check_server_metadata(&asm, issuer)?;

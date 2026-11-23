@@ -122,7 +122,7 @@ impl Index {
 
     async fn client(&self) -> Result<tokio::sync::MutexGuard<'_, Option<Client>>> {
         let mut g = self.client.lock().await;
-        if g.as_ref().map_or(true, |c| c.is_closed()) {
+        if g.as_ref().is_none_or(|c| c.is_closed()) {
             *g = Some(crate::log::connect(&self.url).await?);
         }
         Ok(g)
@@ -411,7 +411,7 @@ impl Kernel {
             Err(why) => return Ok((format!("Not filed: {why}."), true, None)),
         };
         let spec = input.get("value").filter(|v| !v.is_null()).cloned();
-        if let Some(why) = spec.as_ref().and_then(|s| value_spec_error(s)) {
+        if let Some(why) = spec.as_ref().and_then(value_spec_error) {
             return Ok((format!("Not filed: {why}."), true, None));
         }
         let id = new_id("kb");

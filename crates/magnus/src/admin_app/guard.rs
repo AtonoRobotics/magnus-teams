@@ -80,7 +80,7 @@ pub(crate) async fn guard(State(k): State<Arc<Kernel>>, mut req: Request, next: 
     let h = req.headers();
     let p = match who(&k, h).await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if !k.authority(&p).await.administers() {
         return err(StatusCode::FORBIDDEN, "this needs an owner or admin");
@@ -106,7 +106,7 @@ pub(crate) async fn step_up(
     Json(b): Json<Value>,
 ) -> Response {
     if let Err(r) = over_tls(&k, t, peer) {
-        return r;
+        return *r;
     }
     let Some(cred) = credential(&h) else { return err(StatusCode::UNAUTHORIZED, "sign in") };
     let password = b["password"].as_str().unwrap_or_default();

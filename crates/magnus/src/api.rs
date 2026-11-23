@@ -59,12 +59,17 @@ pub(crate) fn credential(h: &HeaderMap) -> Option<&str> {
     bearer(h).or_else(|| cookie(h, SESSION_COOKIE))
 }
 
-pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Response> {
-    let token = credential(h).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in"))?;
+pub(crate) async fn who(k: &Kernel, h: &HeaderMap) -> Result<Person, Box<Response>> {
+    let token = credential(h).ok_or_else(|| Box::new(err(StatusCode::UNAUTHORIZED, "sign in")))?;
     if let Some(p) = k.cfg.person_by_token(token) {
-        return k.person(&p.id).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"));
+        return k.person(&p.id).ok_or_else(|| Box::new(err(StatusCode::UNAUTHORIZED, "sign in again")));
     }
-    k.accounts.session(token).await.map_err(session_unread)?.and_then(|s| k.person(&s.person)).ok_or_else(|| err(StatusCode::UNAUTHORIZED, "sign in again"))
+    k.accounts
+        .session(token)
+        .await
+        .map_err(|e| Box::new(session_unread(e)))?
+        .and_then(|s| k.person(&s.person))
+        .ok_or_else(|| Box::new(err(StatusCode::UNAUTHORIZED, "sign in again")))
 }
 
 /// A browser sends the session cookie on its own, so a change made with the
@@ -231,7 +236,7 @@ async fn me(State(k): K, h: HeaderMap) -> ApiResult {
     Ok(match who(&k, &h).await {
         Ok(p) => Json(json!({ "id": p.id, "name": p.name, "groups": p.groups, "roles": p.roles, "voice": k.cfg.speech.is_some(), "read_aloud": k.cfg.read_aloud.is_some() }))
             .into_response(),
-        Err(r) => r,
+        Err(r) => *r,
     })
 }
 

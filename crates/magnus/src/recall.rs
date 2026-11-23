@@ -40,7 +40,7 @@ impl Recall {
             return Ok(HashMap::new());
         }
         let mut g = self.client.lock().await;
-        if g.as_ref().map_or(true, |c| c.is_closed()) {
+        if g.as_ref().is_none_or(|c| c.is_closed()) {
             *g = Some(crate::log::connect(&self.url).await?);
         }
         let c = g.as_mut().context("recall connection")?;

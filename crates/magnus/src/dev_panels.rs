@@ -33,7 +33,7 @@ fn rows(m: BTreeMap<String, BTreeSet<String>>) -> Vec<Value> {
 pub(crate) async fn metrics(AxState(k): K, Developer(p): Developer) -> ApiResult {
     let lens = k.lens(&p);
     let stall = k.cfg.observability.stall_minutes;
-    let capture = k.capture.lock().unwrap().clone();
+    let capture = k.capture.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let (mut v, hidden) = k.read(|s| {
         // Only the runs of people the viewer may see count, even as numbers.
         let (seen, hidden) = runs_seen(&lens, s);

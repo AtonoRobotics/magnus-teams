@@ -167,7 +167,7 @@ pub fn check(text: &str) -> Vec<Value> {
     let mut unqualified = vec![];
     for p in set.policies() {
         let id = p.id().to_string();
-        let (t, c, l) = crate::policy::policy_sides(&p);
+        let (t, c, l) = crate::policy::policy_sides(p);
         // A rule bearing on several sides validates against the whole
         // schema: no half declares every action it names (#403).
         if [t, c, l].iter().filter(|&&x| x).count() > 1 {

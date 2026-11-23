@@ -118,7 +118,7 @@ pub(crate) fn reactions_before(s: &Projection, person: &str, before: DateTime<Ut
             Some((*at, format!("{said}, on your message {words}")))
         })
         .collect();
-    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.sort_by_key(|a| std::cmp::Reverse(a.0));
     out
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn open_before(s: &Projection, person: &str, before: DateTime<Utc>) -
         .filter(|d| d.person == person && d.at < before && d.outcome_at.is_none_or(|o| o >= before))
         .map(|d| (d.at, format!("{}: you advised: {} They decided: {}", d.id, d.position, d.decision)))
         .collect();
-    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.sort_by_key(|a| std::cmp::Reverse(a.0));
     out
 }
 
