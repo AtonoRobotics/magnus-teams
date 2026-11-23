@@ -3,9 +3,8 @@
 //! then sent, on a new upstream connection pinned to the address checked.
 
 use super::audit::Row;
-use super::{ca, policy, surrogate, Proxy};
+use super::{ca, download, policy, surrogate, Proxy};
 use anyhow::{bail, Context, Result};
-use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -251,7 +250,15 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     stream.get_mut().write_all(format!("{}Connection: close\r\n\r\n", &without_connection[..header_end]).as_bytes()).await?;
 
     let mut seen = Vec::new();
-    let mut download = (head.method == "GET" && status.split_whitespace().nth(1) == Some("200")).then(Sha256::new);
+    let code = status.split_whitespace().nth(1).unwrap_or_default();
+    let header = |name: &str| text.lines().find_map(|l| l.split_once(':').filter(|(n, _)| n.trim().eq_ignore_ascii_case(name)).map(|(_, v)| v.trim().to_string()));
+    if matches!(code, "301" | "302" | "303" | "307" | "308") {
+        if let Some(location) = header("location") {
+            download::redirected(computer, &full_url, &location);
+        }
+    }
+    let chunked = header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+    let mut download = (head.method == "GET" && code == "200").then(|| download::BodyHash::new(chunked));
     let mut buffer = vec![0u8; COPY_BUFFER_BYTES];
     loop {
         let n = tokio::time::timeout(UPSTREAM_WAIT, from_upstream.read(&mut buffer)).await.context("the destination stopped answering")??;
@@ -259,7 +266,7 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
             break;
         }
         if let Some(hash) = &mut download {
-            hash.update(&buffer[..n]);
+            hash.push(&buffer[..n]);
         }
         if ((is_html && page.is_some()) || (is_script_or_css && asset_page.is_some())) && seen.len() < MAX_PAGE_BYTES {
             seen.extend_from_slice(&buffer[..n]);
@@ -270,8 +277,12 @@ async fn forward<S: AsyncRead + AsyncWrite + Unpin>(
     let rest = scrubber.finish();
     stream.get_mut().write_all(&rest).await?;
     stream.get_mut().flush().await?;
-    if let Some(hash) = download {
-        super::saw_download(computer, host, hex::encode(hash.finalize()));
+    if let Some(sha256) = download.and_then(download::BodyHash::finish) {
+        let mut hosts = vec![host.to_string()];
+        hosts.extend(download::origins(computer, &full_url));
+        if let Err(e) = super::Carried::at(&proxy.kernel.cfg.appliance.state_dir).saw(computer, &hosts, &sha256) {
+            tracing::warn!("computer {computer}: a download was not recorded, so it cannot be installed: {e:#}");
+        }
     }
     if let Some(page) = page {
         if is_html && !seen.is_empty() {

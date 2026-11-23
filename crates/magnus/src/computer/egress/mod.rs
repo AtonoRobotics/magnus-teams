@@ -4,6 +4,7 @@
 
 mod audit;
 mod ca;
+mod download;
 mod http;
 mod policy;
 pub(super) mod surrogate;
@@ -12,48 +13,23 @@ pub(super) mod watch;
 pub use audit::migrate_sql;
 pub(super) use ca::certificate_pem;
 pub(super) use ca::{secret_name as ca_secret_name, SECRET_PREFIX as CA_SECRET_PREFIX};
+pub(super) use download::Carried;
 
 use super::client;
 use super::client::Request;
 use crate::kernel::Kernel;
 use anyhow::{Context, Result};
 use rustls::pki_types::pem::PemObject;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::{UnixListener, UnixStream};
 
 const BIND_RETRY: Duration = Duration::from_secs(5);
 const SOCKET_MODE: u32 = 0o660;
 const MAX_CONNECTIONS: usize = 1024;
-
-/// Downloads kept per computer, to check a manifest entry against.
-const MAX_DOWNLOADS_REMEMBERED: usize = 512;
-
-type Downloads = HashMap<String, VecDeque<(String, String)>>;
-
-fn downloads() -> &'static Mutex<Downloads> {
-    static SEEN: OnceLock<Mutex<Downloads>> = OnceLock::new();
-    SEEN.get_or_init(Default::default)
-}
-
-fn saw_download(computer: &str, host: &str, sha256: String) {
-    let mut seen = downloads().lock().unwrap_or_else(|e| e.into_inner());
-    let mine = seen.entry(computer.to_string()).or_default();
-    if mine.len() == MAX_DOWNLOADS_REMEMBERED {
-        mine.pop_front();
-    }
-    mine.push_back((host.to_ascii_lowercase(), sha256));
-}
-
-/// Whether this proxy carried this file from this host to this computer.
-pub(in crate::computer) fn carried(computer: &str, host: &str, sha256: &str) -> bool {
-    let seen = downloads().lock().unwrap_or_else(|e| e.into_inner());
-    let host = host.to_ascii_lowercase();
-    seen.get(computer).is_some_and(|mine| mine.iter().any(|(h, s)| *h == host && s == sha256))
-}
 
 struct Proxy {
     kernel: Arc<Kernel>,

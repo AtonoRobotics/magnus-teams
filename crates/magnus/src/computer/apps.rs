@@ -158,7 +158,7 @@ impl Kernel {
         }
         let sha256 = self.cache_installer(&socket, id, &installer).await.map_err(|e| Refused::Failed(format!("{e:#}")))?;
         let host = url::Url::parse(&source).ok().and_then(|u| u.host_str().map(String::from));
-        if !host.is_some_and(|h| super::egress::carried(id, &h, &sha256)) {
+        if !host.is_some_and(|h| super::egress::Carried::at(&self.cfg.appliance.state_dir).carried(id, &h, &sha256)) {
             return Err(Refused::Invalid("the proxy did not carry this file from that source: an app is recorded with the address it was downloaded from".into()));
         }
         let app = App { name: name.clone(), version, source, sha256: sha256.clone(), steps, hosts };

@@ -118,6 +118,7 @@ pub(super) fn deletion(c: &Computer) -> Vec<Change> {
 pub(super) async fn delete_after(k: &Kernel, socket: &Path, id: &str) -> Result<(), Refused> {
     super::lifecycle::forget_secrets(&k.vault, id).map_err(failed)?;
     super::wake::forget_screen(id);
+    super::egress::Carried::at(&k.cfg.appliance.state_dir).forget(id);
     client::ask(socket, Request::Destroy { id: id.to_string(), delete_volume: true }).await.map_err(failed)?;
     Ok(())
 }
