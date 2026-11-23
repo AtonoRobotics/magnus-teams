@@ -147,7 +147,10 @@
               "web_fetch"
             ],
             "at": "<at>",
-            "ended_at": "<at>"
+            "ended_at": "<at>",
+            "outcome_view": null,
+            "outputs": [],
+            "status_line": null
           }
         ],
         "at": "<at>"
@@ -375,7 +378,10 @@
               "web_fetch"
             ],
             "at": "<at>",
-            "ended_at": "<at>"
+            "ended_at": "<at>",
+            "outcome_view": null,
+            "outputs": [],
+            "status_line": null
           }
         ],
         "at": "<at>",
