@@ -160,6 +160,9 @@ impl Kernel {
     /// drop backups older than `keep_days`.
     pub async fn back_up(&self, actor: &str) -> Result<Value> {
         let _one = backing_up().lock().await;
+        // Its time is when it starts, before anything is read: an erasure
+        // after this reaches it (`person_stores`), however long the dumps take.
+        let made = chrono::Utc::now();
         let mut rows = self.log.dump().await?;
         let through = rows.last().map(|r| r["seq"].as_i64().unwrap_or(0)).unwrap_or(0);
         // Every removal in the dump applies to it: content whose deletion
@@ -180,7 +183,6 @@ impl Kernel {
         let devices = crate::person_stores::take_devices(&self.cfg)?;
         let cfg = self.cfg.clone();
         let team_files = tokio::task::spawn_blocking(move || crate::team::pack_files(&cfg)).await??;
-        let made = chrono::Utc::now();
         let doc = json!({
             "format": FORMAT, "made_at": made, "through_seq": through, "scrubbed_through": scrubbed, "events": rows,
             "vault": { "key": B64.encode(vault_key), "secrets": secrets },
