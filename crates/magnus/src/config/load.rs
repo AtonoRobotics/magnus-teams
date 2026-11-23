@@ -179,6 +179,19 @@ fn range_ok(s: &str) -> bool {
     }
 }
 
+/// The server's own time zone by its IANA name, as `chrono::Local` reads
+/// the clock: `TZ` when it names a zone, else the zone `/etc/localtime`
+/// links to, else `/etc/timezone`, else UTC. Read once, with the config.
+pub(crate) fn server_zone_name() -> String {
+    let named = |z: &str| z.trim().trim_start_matches(':').parse::<chrono_tz::Tz>().ok().map(|t| t.name().to_string());
+    std::env::var("TZ")
+        .ok()
+        .and_then(|z| named(&z))
+        .or_else(|| std::fs::read_link("/etc/localtime").ok().and_then(|p| p.to_string_lossy().split_once("zoneinfo/").and_then(|(_, z)| named(z))))
+        .or_else(|| std::fs::read_to_string("/etc/timezone").ok().and_then(|z| named(&z)))
+        .unwrap_or_else(|| "UTC".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

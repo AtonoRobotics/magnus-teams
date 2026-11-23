@@ -4,8 +4,9 @@
 //! Anything unparsable falls back to the default; settings never break a
 //! review.
 
+use crate::cadence::{zone_of, Zone};
 use crate::tools::Label;
-use chrono::{DateTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -36,14 +37,10 @@ fn window(v: &serde_json::Value, fallback: (u32, u32)) -> (u32, u32) {
     }
 }
 
-/// The person's timezone from preferences, UTC without one.
-pub fn tz_of(prefs: &serde_json::Value) -> chrono_tz::Tz {
-    prefs.get("timezone").and_then(serde_json::Value::as_str).and_then(|z| z.parse().ok()).unwrap_or(chrono_tz::Tz::UTC)
-}
-
 /// The person's resolved loop settings.
 pub struct Settings {
-    pub tz: chrono_tz::Tz,
+    /// Their zone, as their schedules read it (`cadence::zone_of`).
+    pub tz: Zone,
     pub working: (u32, u32),
     pub quiet: (u32, u32),
     pub every_minutes: u32,
@@ -56,7 +53,7 @@ pub struct Settings {
 pub fn settings(cfg: &crate::config::Proactive, prefs: &serde_json::Value) -> Settings {
     let num = |k: &str, dflt: u32| prefs.get(k).and_then(serde_json::Value::as_u64).map(|n| n as u32).filter(|n| *n > 0).unwrap_or(dflt);
     Settings {
-        tz: tz_of(prefs),
+        tz: zone_of(Some(prefs)),
         working: prefs.get("working_hours").map(|w| window(w, (540, 1020))).unwrap_or((540, 1020)),
         quiet: prefs.get("quiet_hours").map(|w| window(w, (1320, 420))).unwrap_or((1320, 420)),
         every_minutes: num("review_every_minutes", cfg.review_every_minutes).max(5),
@@ -65,8 +62,8 @@ pub fn settings(cfg: &crate::config::Proactive, prefs: &serde_json::Value) -> Se
 }
 
 /// Minutes since midnight where the person is.
-pub fn minutes_at(now: DateTime<Utc>, tz: chrono_tz::Tz) -> u32 {
-    let local = now.with_timezone(&tz);
+pub fn minutes_at(now: DateTime<Utc>, tz: Zone) -> u32 {
+    let local = tz.local(now);
     local.hour() * 60 + local.minute()
 }
 
@@ -81,38 +78,38 @@ pub fn in_window(m: u32, (start, end): (u32, u32)) -> bool {
 }
 
 /// The person's calendar day, for the daily interruption budget.
-pub fn day_key(now: DateTime<Utc>, tz: chrono_tz::Tz) -> String {
-    now.with_timezone(&tz).date_naive().to_string()
+pub fn day_key(now: DateTime<Utc>, tz: Zone) -> String {
+    tz.local(now).date().to_string()
 }
 
 /// When the current quiet hours end, for delaying an interruption's
 /// notification until then. None when it is not quiet now.
-pub fn quiet_ends_at(now: DateTime<Utc>, tz: chrono_tz::Tz, quiet: (u32, u32)) -> Option<DateTime<Utc>> {
+pub fn quiet_ends_at(now: DateTime<Utc>, tz: Zone, quiet: (u32, u32)) -> Option<DateTime<Utc>> {
     if !in_window(minutes_at(now, tz), quiet) {
         return None;
     }
-    let local = now.with_timezone(&tz);
-    let mut day = local.date_naive();
+    let local = tz.local(now);
+    let mut day = local.date();
     if quiet.1 <= quiet.0 && local.hour() * 60 + local.minute() >= quiet.0 {
         day = day.succ_opt()?;
     }
     let naive = day.and_hms_opt(quiet.1 / 60, quiet.1 % 60, 0)?;
-    Some(tz.from_local_datetime(&naive).earliest()?.with_timezone(&Utc))
+    tz.earliest(&naive)
 }
 
 /// The window's next start, for holding an interruption's notification
 /// until working hours. None when in the window now.
-pub fn window_next_start(now: DateTime<Utc>, tz: chrono_tz::Tz, window: (u32, u32)) -> Option<DateTime<Utc>> {
+pub fn window_next_start(now: DateTime<Utc>, tz: Zone, window: (u32, u32)) -> Option<DateTime<Utc>> {
     if in_window(minutes_at(now, tz), window) {
         return None;
     }
-    let local = now.with_timezone(&tz);
-    let mut day = local.date_naive();
+    let local = tz.local(now);
+    let mut day = local.date();
     if window.1 > window.0 && local.hour() * 60 + local.minute() >= window.0 {
         day = day.succ_opt()?;
     }
     let naive = day.and_hms_opt(window.0 / 60, window.0 % 60, 0)?;
-    Some(tz.from_local_datetime(&naive).earliest()?.with_timezone(&Utc))
+    tz.earliest(&naive)
 }
 
 /// A coming-up schedule's wake reason, carrying its id for the once-a-day
@@ -574,7 +571,7 @@ impl crate::kernel::Kernel {
                     serde_json::json!({ "why": why, "evidence": "queued: outside working hours", "call_id": call_id, "notify_at": at.to_rfc3339() }),
                 )
                 .await?;
-            return Ok((format!("Outside working hours: queued as observation {item}; it pings at {}.", at.with_timezone(&st.tz).format("%H:%M")), false));
+            return Ok((format!("Outside working hours: queued as observation {item}; it pings at {}.", st.tz.local(at).format("%H:%M")), false));
         }
         let today = day_key(now, st.tz);
         let n = self.read(|s| s.inbox.interrupts().get(&run.person).filter(|(d, _)| *d == today).map(|(_, n)| *n).unwrap_or(0));
@@ -598,7 +595,7 @@ impl crate::kernel::Kernel {
         let at = quiet_ends_at(now, st.tz, st.quiet).unwrap_or(now);
         let item = self.item(run, "interrupt", what.to_string(), serde_json::json!({ "why": why, "call_id": call_id, "notify_at": at.to_rfc3339() })).await?;
         if at > now {
-            Ok((format!("Posted as interruption {item}; it pings when quiet ends at {}.", at.with_timezone(&st.tz).format("%H:%M")), false))
+            Ok((format!("Posted as interruption {item}; it pings when quiet ends at {}.", st.tz.local(at).format("%H:%M")), false))
         } else {
             Ok((format!("Delivered as interruption {item}."), false))
         }
@@ -618,19 +615,19 @@ mod tests {
         assert!(in_window(1400, (1320, 420)) && in_window(100, (1320, 420)) && !in_window(500, (1320, 420)));
         let cfg = crate::config::Proactive::default();
         let s = settings(&cfg, &serde_json::json!({ "working_hours": { "start": "xx", "end": "17:00" }, "timezone": "Mars/Olympus", "review_every_minutes": 0 }));
-        assert_eq!((s.working, s.tz, s.every_minutes), ((540, 1020), chrono_tz::Tz::UTC, 60));
-        assert_eq!(day_key(DateTime::parse_from_rfc3339("2026-11-07T06:30:00Z").unwrap().into(), chrono_tz::America::Los_Angeles), "2026-11-06");
-        let ends = quiet_ends_at(DateTime::parse_from_rfc3339("2026-11-07T06:30:00Z").unwrap().into(), chrono_tz::Tz::UTC, (1320, 420)).unwrap();
+        assert_eq!((s.working, s.tz, s.every_minutes), ((540, 1020), Zone::Server, 60));
+        assert_eq!(day_key(DateTime::parse_from_rfc3339("2026-11-07T06:30:00Z").unwrap().into(), Zone::Named(chrono_tz::America::Los_Angeles)), "2026-11-06");
+        let ends = quiet_ends_at(DateTime::parse_from_rfc3339("2026-11-07T06:30:00Z").unwrap().into(), Zone::Named(chrono_tz::Tz::UTC), (1320, 420)).unwrap();
         assert_eq!(ends.to_rfc3339(), "2026-11-07T07:00:00+00:00");
-        assert!(quiet_ends_at(DateTime::parse_from_rfc3339("2026-11-07T12:00:00Z").unwrap().into(), chrono_tz::Tz::UTC, (1320, 420)).is_none());
+        assert!(quiet_ends_at(DateTime::parse_from_rfc3339("2026-11-07T12:00:00Z").unwrap().into(), Zone::Named(chrono_tz::Tz::UTC), (1320, 420)).is_none());
         let work = (540, 1020);
-        assert!(window_next_start(DateTime::parse_from_rfc3339("2026-11-07T12:00:00Z").unwrap().into(), chrono_tz::Tz::UTC, work).is_none());
+        assert!(window_next_start(DateTime::parse_from_rfc3339("2026-11-07T12:00:00Z").unwrap().into(), Zone::Named(chrono_tz::Tz::UTC), work).is_none());
         assert_eq!(
-            window_next_start(DateTime::parse_from_rfc3339("2026-11-07T08:00:00Z").unwrap().into(), chrono_tz::Tz::UTC, work).unwrap().to_rfc3339(),
+            window_next_start(DateTime::parse_from_rfc3339("2026-11-07T08:00:00Z").unwrap().into(), Zone::Named(chrono_tz::Tz::UTC), work).unwrap().to_rfc3339(),
             "2026-11-07T09:00:00+00:00"
         );
         assert_eq!(
-            window_next_start(DateTime::parse_from_rfc3339("2026-11-07T18:00:00Z").unwrap().into(), chrono_tz::Tz::UTC, work).unwrap().to_rfc3339(),
+            window_next_start(DateTime::parse_from_rfc3339("2026-11-07T18:00:00Z").unwrap().into(), Zone::Named(chrono_tz::Tz::UTC), work).unwrap().to_rfc3339(),
             "2026-11-08T09:00:00+00:00"
         );
     }

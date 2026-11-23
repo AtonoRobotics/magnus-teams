@@ -338,7 +338,9 @@ impl Kernel {
         self.emit(&format!("person:{}", who.id), Ev::ScheduleChanged { id: id.into(), every_minutes, daily_at: daily_at.clone(), until, max_runs, source, turn: turn_ev })
             .await
             .map_err(|e| Refused::Failed(format!("{e:#}")))?;
-        Ok(json!({ "id": id, "every_minutes": every_minutes, "daily_at": daily_at, "until": until, "max_runs": max_runs }))
+        // The zone its daily time is read in, named (`cadence::zone_of`).
+        let zone = self.read(|s| s.identity.zone(&sc.person)).name(&self.cfg.server_zone);
+        Ok(json!({ "id": id, "every_minutes": every_minutes, "daily_at": daily_at, "time_zone": zone, "until": until, "max_runs": max_runs }))
     }
 
     /// A list `who` asked for, with other people's rows in it carrying no
