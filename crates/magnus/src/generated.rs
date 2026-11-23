@@ -150,6 +150,7 @@ fn connector_of(person: &str, d: &Definition) -> Result<Connector> {
     Ok(Connector {
         owner: Some(person.to_string()),
         filter_login_codes: false,
+        keep_login_codes: false,
         credential: d.token.then(|| crate::connectors::credential_name(&name)),
         name,
         transport: crate::transport::MCP_HTTP.into(),

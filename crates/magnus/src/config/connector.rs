@@ -5,9 +5,13 @@ use std::collections::BTreeMap;
 
 #[derive(Deserialize, serde::Serialize, Clone, Debug)]
 pub struct Connector {
-    /// Takes login codes and sign-in links out of what this app returns.
+    /// Takes login codes and sign-in links out of what this app returns,
+    /// as they are taken out of every mail app's (`login_codes::applies`).
     #[serde(default)]
     pub filter_login_codes: bool,
+    /// Leaves them in, for a mail app too: the opt-out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_login_codes: bool,
     #[serde(default)]
     pub owner: Option<String>, // The one person a generated connector belongs to.
     pub name: String,

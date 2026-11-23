@@ -174,6 +174,7 @@ impl Kernel {
         let c = Connector {
             owner: None,
             filter_login_codes: false,
+            keep_login_codes: false,
             name: name.clone(),
             transport: crate::transport::MCP_HTTP.into(),
             url,
