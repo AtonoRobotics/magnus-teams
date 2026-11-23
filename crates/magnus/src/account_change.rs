@@ -55,8 +55,8 @@ impl Kernel {
     /// the last enabled owner's or admin's role taken.
     pub async fn set_directory_role(&self, actor: &str, id: &str, role: Role) -> Result<(), Refusal> {
         let Some(p) = self.person(id) else { return Err(not_found()) };
-        self.may_give_role(actor, id, role.as_str()).await?;
         let _one = self.account_changes.lock().await;
+        self.may_give_role(actor, id, role.as_str()).await?;
         self.would_strand(id, After::Role(self.authority_with(&p, role))).await?;
         self.accounts.set_role_as(id, role, Guard::Kernel).await.map_err(store_refusal)
     }
@@ -66,11 +66,11 @@ impl Kernel {
     /// enabled owner's or admin's role taken.
     pub async fn set_roles_of(&self, actor: &str, id: &str, roles: Vec<String>) -> Result<(), Refusal> {
         let Some(mut p) = self.person(id) else { return Err(not_found()) };
+        let _one = self.account_changes.lock().await;
         self.may_change_account(actor, id).await?;
         if self.read(|s| s.identity.provider_set_roles(id)) {
             return Err((StatusCode::CONFLICT, "provider", "The identity provider names this person's roles: change them there.".into()));
         }
-        let _one = self.account_changes.lock().await;
         p.roles = roles.clone();
         let then = self.authority_with(&p, self.accounts.role(id).await);
         self.would_strand(id, After::Role(then)).await?;

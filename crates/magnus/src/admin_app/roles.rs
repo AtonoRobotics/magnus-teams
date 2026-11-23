@@ -43,8 +43,9 @@ impl Kernel {
         if !ROLES.contains(&role) {
             return Err((StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.".into()));
         }
+        let _one = self.account_changes.lock().await;
         self.may_give_role(actor, id, role).await?;
-        self.new_account_role(actor, id, role).await
+        self.put_server_role(actor, id, role).await
     }
 
     /// Give an account made a moment ago, by the same invitation or link
@@ -52,6 +53,12 @@ impl Kernel {
     /// Nothing else calls this: every other role change passes the account
     /// rule (`set_server_role`).
     pub(crate) async fn new_account_role(&self, actor: &str, id: &str, role: &str) -> Result<(), Refusal> {
+        let _one = self.account_changes.lock().await;
+        self.put_server_role(actor, id, role).await
+    }
+
+    /// Give `id` the role `role`, the caller holding `account_changes`.
+    async fn put_server_role(&self, actor: &str, id: &str, role: &str) -> Result<(), Refusal> {
         if !ROLES.contains(&role) {
             return Err((StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.".into()));
         }
@@ -59,7 +66,6 @@ impl Kernel {
         if self.read(|s| s.identity.provider_set_roles(id)) {
             return Err((StatusCode::CONFLICT, "provider", "The identity provider names this person's roles: change them there.".into()));
         }
-        let _one = self.account_changes.lock().await;
         let then = crate::people::Authority::named(role).unwrap_or(crate::people::Authority::Guest);
         self.would_strand(id, crate::people::After::Role(then)).await?;
         let admin = matches!(role, "owner" | "admin");
