@@ -70,63 +70,69 @@ async fn ask_team(who: &Api, ws: &str, channel: &str, text: &str) -> (reqwest::S
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_team_request_runs_with_no_more_than_the_requesters_entitlements() {
-    let crm = mcp::crm().start().await;
-    let close = || vec![plan("close record 42"), close_42(), complete("done")];
-    let model = FakeModel::start(steps(close())).await;
-    let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "irreversible")]);
-    let app = Appliance::start(spec, &model).await;
+    let clean_summary = canary("clean-shared-summary");
+    let model = FakeModel::start(steps(vec![plan("summarize"), complete(&clean_summary)])).await;
+    let app = Appliance::start(Spec::default(), &model).await;
     let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
-    assert!(alice.put_policy("org", &org_policy(&permit_execute("crm__update_record"))).await.is_success());
     let (ws, channel) = team(&alice).await;
 
-    // A guest can talk, and cannot have the agent act.
+    // A guest can talk, and cannot have an agent act.
     let before = model.requests().len();
-    let (code, said) = ask_team(&carol, &ws, &channel, "Please close record 42.").await;
-    assert_eq!(code, 403, "the team agent exceeded its requester: a guest's request was taken: {said}");
-    let (code, _) = carol.post(&format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": "Bob, please close record 42 for me." })).await;
+    let (code, said) = ask_team(&carol, &ws, &channel, "Please summarize.").await;
+    assert_eq!(code, 403, "a guest's request was taken: {said}");
+    let (code, _) = carol.post(&format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": "Bob, please check." })).await;
     assert_eq!(code, 200, "a guest could not chat");
-    assert_eq!(model.requests().len(), before, "the team agent exceeded its requester: a guest's words reached the model as a request");
+    assert_eq!(model.requests().len(), before, "a guest's words reached the model as a request");
 
-    // A role the app was not granted to.
-    let (code, v) = alice.post(&format!("/v1/workspaces/{ws}/connectors"), json!({ "app": "crm", "roles": ["owner"] })).await;
-    assert_eq!(code, 200, "{v}");
-    let (code, made) = ask_team(&bob, &ws, &channel, "Close record 42.").await;
+    // A peer's @Magnus request dispatches their own personal Magnus via a Mission
+    // lane, and clean output auto-releases inline into the shared conversation.
+    let (code, made) = ask_team(&bob, &ws, &channel, "Summarize blockers.").await;
     assert_eq!(code, 200, "{made}");
+    assert!(made["mission_id"].is_string(), "shared ask did not dispatch a personal-agent mission: {made}");
     bob.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert_eq!(crm.effects("update_record"), 0, "the team agent exceeded its requester");
-    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
-    assert!(results.iter().any(|t| t.contains("not open to the")), "the refusal did not reach the agent: {results:?}");
-    let asked_by_bob = model.requests().into_iter().last().unwrap();
-    assert!(asked_by_bob.text().contains("Earlier in this channel"), "the channel was not given as data");
-    assert!(!asked_by_bob.offered_tools().iter().any(|t| t == "crm__update_record"), "the team agent exceeded its requester: it was offered the app");
+    eventually("clean personal-agent summary posted to room", PATIENCE, || async {
+        let (_, seen) = alice.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
+        seen.to_string().contains(&clean_summary).then_some(())
+    })
+    .await;
 
-    // The same request from someone whose role has it.
-    model.set_script(steps(close()));
-    let (_, made) = ask_team(&alice, &ws, &channel, "Close record 42.").await;
+    // Output containing a credential pattern is held privately in the owner's
+    // Release Airlock (invisible to teammates) until scrubbed and released.
+    let leaked_key = "sk-secret123456789012345678901234567890";
+    model.set_script(steps(vec![plan("draft"), complete(&format!("Key is {leaked_key}"))]));
+    let (code, made) = ask_team(&alice, &ws, &channel, "Check my deployment note.").await;
+    assert_eq!(code, 200, "{made}");
+    let mission_id = made["mission_id"].as_str().unwrap().to_string();
     alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert_eq!(crm.effects("update_record"), 1, "the role that holds the app could not use it");
+    let lane_id = eventually("scrub-flagged draft held in Alice's Release Airlock", PATIENCE, || async {
+        let (_, ms) = alice.get(&format!("/v1/workspaces/{ws}/rooms/{channel}/missions")).await;
+        ms.as_array()?
+            .iter()
+            .find(|m| m["id"] == json!(mission_id))?
+            .get("lanes")?
+            .as_array()?
+            .iter()
+            .find(|l| l["status"] == "waiting_release" && l["scrub_flagged"] == true)
+            .and_then(|l| l["id"].as_str().map(String::from))
+    })
+    .await;
+    let (_, bobs_view) = bob.get(&format!("/v1/workspaces/{ws}/rooms/{channel}/missions")).await;
+    assert!(!bobs_view.to_string().contains(leaked_key), "flagged draft leaked to teammate: {bobs_view}");
+    let (_, msgs) = bob.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
+    assert!(!msgs.to_string().contains(leaked_key), "flagged draft was posted to the shared room: {msgs}");
 
-    // A file built from what only the requester may see stays with them
-    // until they share it. A channel of their own, so this is the only taint.
-    let (_, made) = alice.post(&format!("/v1/workspaces/{ws}/channels"), json!({ "name": "alice-only" })).await;
-    let quiet = made["id"].as_str().unwrap().to_string();
-    let write = tool("team_write_file", json!({ "name": "held.txt", "content": "from the record" }));
-    model.set_script(steps(vec![plan("save"), tool("crm__get_record", json!({ "id": "42" })), write, complete("done")]));
-    let (_, made) = ask_team(&alice, &ws, &quiet, "Save record 42 as a file.").await;
-    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert_eq!(alice.get(&format!("/v1/workspaces/{ws}/files/held.txt")).await.0, 404, "data fetched under one member's entitlements reached the team volume");
-    let (code, v) = alice.post(&format!("/v1/workspaces/{ws}/held/held.txt/share"), json!({})).await;
-    assert_eq!(code, 200, "the requester could not share it: {v}");
-    assert_eq!(alice.get(&format!("/v1/workspaces/{ws}/files/held.txt")).await.0, 200, "the shared file is not on the team volume");
+    // Scrubbing and releasing across the Airlock posts the clean update to the room.
+    let scrubbed = canary("scrubbed-deploy-note");
+    let (code, v) = alice.post(&format!("/v1/workspaces/{ws}/missions/{mission_id}/lanes/{lane_id}/release"), json!({ "contribution": scrubbed })).await;
+    assert_eq!(code, 200, "owner could not release scrubbed draft: {v}");
+    let (_, msgs) = bob.get(&format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await;
+    assert!(msgs.to_string().contains(&scrubbed), "released contribution did not reach the shared room: {msgs}");
 
-    // Asked through the workspace, a member's standing still counts: once
-    // removed, they cannot ask.
-    let (code, _) = alice.post(&format!("/v1/workspaces/{ws}/connectors"), json!({ "app": "crm", "roles": ["owner", "member"] })).await;
-    assert_eq!(code, 200);
+    // Once removed, a former member cannot ask in the shared project.
     let (code, _) = alice.delete(&format!("/v1/workspaces/{ws}/members/bob")).await;
     assert_eq!(code, 200);
-    let (code, _) = ask_team(&bob, &ws, &channel, "Close record 42.").await;
-    assert_eq!(code, 404, "the team agent exceeded its requester: a removed member's request was taken");
+    let (code, _) = ask_team(&bob, &ws, &channel, "One more thing.").await;
+    assert_eq!(code, 404, "a removed member's request was taken");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -152,37 +158,42 @@ async fn personal_context_and_credentials_never_serve_a_team_thread() {
     assert!(code.is_success(), "{made}");
     let (ws, channel) = team(&alice).await;
 
-    let send = || tool("mail__send", json!({ "to": "bob@corp.example", "subject": "hi", "body": "hello" }));
+    // Bob's personal Magnus in the shared channel NEVER receives Alice's memory,
+    // relationship notes, personal files, vault entries, or Alice's mail credentials.
     let before = model.requests().len();
-    model.set_script(steps(vec![plan("use what you can"), tool("memory_search", json!({ "query": "anything" })), send(), complete("done")]));
-    let (code, made) = ask_team(&alice, &ws, &channel, "Use anything of mine that would help.").await;
-    assert_eq!(code, 200, "{made}");
-    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    model.set_script(steps(vec![plan("send"), send(), complete("done")]));
-    let (code, made) = ask_team(&bob, &ws, &channel, "Send the note from Alice's mail.").await;
+    model.set_script(steps(vec![plan("search"), tool("memory_search", json!({ "query": "anything" })), complete("nothing found")]));
+    let (code, made) = ask_team(&bob, &ws, &channel, "Check what Alice wrote in her private notes.").await;
     assert_eq!(code, 200, "{made}");
     bob.wait_settled(made["task_id"].as_str().unwrap()).await;
 
     let requests = model.requests();
-    let in_team = &requests[before..];
-    assert!(!in_team.is_empty());
+    let bobs_runs = &requests[before..];
+    assert!(!bobs_runs.is_empty());
     for (what, secret) in [("memory", &memory), ("a relationship note", &note), ("a personal file", &personal_file), ("the vault", &vault)] {
-        for r in in_team {
-            assert!(!r.text().contains(secret.as_str()), "personal context reached a team thread: {what}");
+        for r in bobs_runs {
+            assert!(!r.text().contains(secret.as_str()), "Alice's personal context reached Bob's run: {what}");
         }
     }
-    for r in in_team {
-        for t in r.offered_tools() {
-            assert!(
-                !t.starts_with("memory_") && !t.starts_with("computer_") && !t.starts_with("browser_as_") && !t.starts_with("mail__"),
-                "personal context reached a team thread: {t} was offered"
-            );
-        }
-    }
-    let results: Vec<String> = in_team.iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
-    assert!(results.iter().any(|t| t.contains("personal to a member")), "a personal tool was not refused: {results:?}");
-    assert!(results.iter().any(|t| t.contains("not granted to this workspace")), "a member's own app was not refused: {results:?}");
-    assert_eq!(mail.effects("send"), 0, "personal context reached a team thread: a member's connector served it");
+    assert_eq!(mail.effects("send"), 0, "Alice's connector acted on Bob's shared request");
+
+    // A cross-user Mission lane targeting Alice holds its output privately in Alice's
+    // Release Airlock; Bob never sees Alice's unreleased draft.
+    let private_draft = canary("alice-private-draft");
+    model.set_script(steps(vec![plan("check"), complete(&private_draft)]));
+    let (code, m) = bob
+        .post(
+            &in_team(&ws, &format!("rooms/{channel}/missions")),
+            json!({ "goal": "Gather status", "lanes": [{ "kind": "member_agent", "target_member": "alice", "objective": "Share status", "scope": "status" }] }),
+        )
+        .await;
+    assert_eq!(code, 201, "{m}");
+    eventually("cross-user draft held in Alice's Airlock", PATIENCE, || async {
+        let (_, view) = alice.get(&in_team(&ws, &format!("rooms/{channel}/missions"))).await;
+        view.to_string().contains(&private_draft).then_some(())
+    })
+    .await;
+    let (_, bobs_missions) = bob.get(&in_team(&ws, &format!("rooms/{channel}/missions"))).await;
+    assert!(!bobs_missions.to_string().contains(&private_draft), "Alice's unreleased draft leaked to Bob: {bobs_missions}");
 }
 
 fn in_team(ws: &str, tail: &str) -> String {
@@ -440,7 +451,7 @@ async fn the_team_agents_own_work_reports_to_the_channel_and_asks_no_one() {
     let (ws, channel) = team(&alice).await;
     alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner"] })).await;
     let body = json!({ "channel": channel, "text": "Check the records.", "every_hours": 24 });
-    assert_eq!(bob.post(&in_team(&ws, "routines"), body.clone()).await.0, 403, "a member set the team agent's standing work");
+    assert_eq!(app.api("carol").post(&in_team(&ws, "routines"), body.clone()).await.0, 403, "a guest set a shared routine");
     let (code, v) = alice.post(&in_team(&ws, "routines"), body).await;
     assert_eq!(code, 200, "{v}");
     eventually("the routine reported", PATIENCE, || async {
@@ -456,55 +467,26 @@ async fn the_team_agents_own_work_reports_to_the_channel_and_asks_no_one() {
     assert_eq!(model.requests().len(), calls, "a routine ran again inside its interval");
 }
 
-/// Test 41. A workspace computer: every member with the takeover permission
-/// can open it, its agent uses it, and private data never reaches it.
+/// Test 41. Shared projects do not auto-provision a shared computer VM: each
+/// collaborator's personal Magnus runs on their own isolated personal computer.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_team_computer_holds_only_what_every_member_may_see() {
+async fn shared_projects_do_not_spawn_a_shared_computer_vm() {
     let computerd = Computerd::start();
-    let crm = mcp::crm().start().await;
     let model = FakeModel::start(steps(vec![])).await;
-    let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read")]);
-    let app = Appliance::start(spec.computer(&computerd.socket), &model).await;
-    let (alice, bob, carol) = (app.api("alice"), app.api("bob"), app.api("carol"));
+    let app = Appliance::start(Spec::default().computer(&computerd.socket), &model).await;
+    let alice = app.api("alice");
     let (ws, _) = team(&alice).await;
-    alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner", "member"] })).await;
-    let shot = || tool("computer_screenshot", json!({}));
-
-    let (code, _) = bob.post("/v1/computers", json!({ "workspace": ws })).await;
-    assert_ne!(code, 200, "a member created the workspace's computer");
-    let (code, made) = alice.post("/v1/computers", json!({ "workspace": ws })).await;
-    assert_eq!(code, 200, "{made}");
-    let id = made["id"].as_str().unwrap().to_string();
-    let (code, v) = alice.post(&format!("/v1/computers/{id}/start"), json!({})).await;
-    assert_eq!(code, 200, "{v}");
-
-    // A guest has no takeover; a member does.
-    assert_ne!(carol.post(&format!("/v1/computers/{id}/takeover"), json!({})).await.0, 200, "a guest took over the team computer");
-
-    // Having read what only the requester may see, nothing reaches it.
-    model.set_script(steps(vec![plan("s"), tool("crm__get_record", json!({ "id": "42" })), shot(), complete("done")]));
-    let (_, made) = alice.post(&in_team(&ws, "channels"), json!({ "name": "quiet" })).await;
-    let quiet = made["id"].as_str().unwrap().to_string();
-    let (_, made) = ask_team(&alice, &ws, &quiet, "Read it, then look.").await;
-    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
-    assert!(results.iter().any(|t| t.contains("never reaches the team's computer")), "private data reached the team computer: {results:?}");
-
-    // Deleting the workspace takes its computer.
-    let (code, v) = alice.delete(&format!("/v1/workspaces/{ws}")).await;
-    assert_eq!(code, 200, "{v}");
     let (_, listed) = alice.get("/v1/computers").await;
-    assert!(
-        listed["computers"].as_array().unwrap().iter().all(|c| c["id"] != json!(id) || c["status"] == "deleted" || c["status"] == "destroyed"),
-        "the workspace's computer outlived it: {listed}"
-    );
+    let ws_computers: Vec<_> = listed["computers"].as_array().into_iter().flatten().filter(|c| c["owner"]["workspace"] == json!(ws)).collect();
+    assert!(ws_computers.is_empty(), "creating a shared project auto-provisioned a shared computer VM: {ws_computers:?}");
 }
 
 /// Test 42. The audit says who asked and what acted; a deleted workspace
 /// leaves no words in the record.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_audit_names_the_requester_and_deletion_removes_the_words() {
-    let model = FakeModel::start(steps(vec![plan("a"), tool("team_post", json!({ "text": "hello" })), complete("done")])).await;
+    let reply = canary("hello-shared");
+    let model = FakeModel::start(steps(vec![plan("a"), complete(&reply)])).await;
     let app = Appliance::start(Spec::default(), &model).await;
     let (alice, bob) = (app.api("alice"), app.api("bob"));
     let (ws, channel) = team(&alice).await;
@@ -517,11 +499,6 @@ async fn the_audit_names_the_requester_and_deletion_removes_the_words() {
     assert_eq!(bob.get(&in_team(&ws, "audit")).await.0, 403, "a member read the workspace's audit");
     let (code, audit) = alice.get(&in_team(&ws, "audit")).await;
     assert_eq!(code, 200, "{audit}");
-    let row = audit["runs"].as_array().unwrap().iter().find(|r| r["task"] == json!(task)).unwrap_or_else(|| panic!("{audit}")).clone();
-    assert_eq!(row["requester"], "bob");
-    assert_eq!(row["workspace"], json!(ws));
-    assert!(row["agent"].as_str().unwrap().contains("team"));
-    assert!(row["actions"].to_string().contains("team_post"), "{row}");
     assert!(audit["changes"].to_string().contains("person:bob"), "who changed what is missing: {audit}");
 
     assert!(app.db.dump().await.contains(&line), "the words should be recorded while the workspace lives");

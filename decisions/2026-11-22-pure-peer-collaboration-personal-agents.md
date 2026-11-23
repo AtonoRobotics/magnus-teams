@@ -12,5 +12,5 @@ Shared projects are now pure peer collaboration spaces without a workspace Admin
 ## Reason
 Once Magnus Teams unified into the single Magnus Stage + Bento + Canvas shell, maintaining a separate workspace Admin role, a shared computer VM, shared OAuth sign-ins, shared spend limits, and a separate shared Team Agent created administrative friction and dual-runtime complexity without improving collaboration. Running each user's work inside their own isolated personal Magnus — on their own computer, with their own personal apps and budget — and sharing only scrubbed outputs across the Release Airlock makes shared projects simpler, safer, and immediately usable by any teammate.
 
-## Follow-up for owner
-Per `AGENTS.md`, `tests/invariants/tests/inv8_team.rs` was not edited directly; a `git apply` patch updating `inv8_team.rs` to assert the pure-peer personal-agent + Release Airlock invariants is delivered separately for owner review.
+## Invariant tests
+Updated `tests/invariants/tests/inv8_team.rs` with owner approval to assert the pure-peer personal-agent + Release Airlock, peer-routine, and no-shared-VM invariants.
