@@ -167,8 +167,24 @@ impl Sandboxes {
     }
 
     /// Files to place in /workspace/inputs when a run's workspace is created.
+    /// Held in memory only until then: the new workspace takes them, the run
+    /// ends (`destroy`) or its person is erased (`release_inputs`). A run
+    /// whose workspace is already made has had them, so none are held for it.
     pub fn set_inputs(&self, run: &str, files: Vec<(String, Vec<u8>)>) {
+        if self.kept(run) {
+            return;
+        }
         self.inputs.lock().unwrap_or_else(|e| e.into_inner()).insert(run.to_string(), files);
+    }
+
+    /// Let go of the files held for a run's workspace.
+    pub fn release_inputs(&self, run: &str) {
+        self.inputs.lock().unwrap_or_else(|e| e.into_inner()).remove(run);
+    }
+
+    /// Whether files are held for a run's workspace.
+    pub fn holds_inputs(&self, run: &str) -> bool {
+        self.inputs.lock().unwrap_or_else(|e| e.into_inner()).contains_key(run)
     }
 
     async fn vm(&self, run: &str) -> Result<Arc<Vm>> {
@@ -181,7 +197,8 @@ impl Sandboxes {
         let fresh = !self.dir(run).join("workspace.ext4").exists();
         let vm = self.launch(run).await?;
         if fresh {
-            let files = self.inputs.lock().unwrap_or_else(|e| e.into_inner()).get(run).cloned().unwrap_or_default();
+            // Taken, not copied: the workspace holds them from now on.
+            let files = self.inputs.lock().unwrap_or_else(|e| e.into_inner()).remove(run).unwrap_or_default();
             for (name, data) in files {
                 let safe: String = name.chars().map(|c| if c == '/' || c == '\\' { '_' } else { c }).collect();
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
@@ -297,8 +314,10 @@ impl Sandboxes {
         }
     }
 
-    /// Stop the VM and delete the workspace (the run ended).
+    /// Stop the VM and delete the workspace (the run ended), and let go of
+    /// any files still held for it.
     pub async fn destroy(&self, run: &str) {
+        self.release_inputs(run);
         self.stop(run).await;
         let _ = std::fs::remove_dir_all(self.dir(run));
     }
@@ -329,6 +348,10 @@ async fn request(vsock: &Path, req: &GuestRequest, timeout: Duration) -> Result<
     .await
     .map_err(|_| anyhow!("the sandbox did not answer in time"))?
 }
+
+#[cfg(test)]
+#[path = "sandbox_inputs_tests.rs"]
+mod inputs_tests;
 
 #[cfg(test)]
 mod exec_timeout_tests {

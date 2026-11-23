@@ -383,7 +383,8 @@ impl Kernel {
     /// The files a run's sandbox starts with: its task's attachments and
     /// the library files it was given, recalled for its person.
     async fn set_inputs(&self, run: &str) -> Result<()> {
-        let task = self.read(|s| s.runs.get(run).map(|r| r.task.clone()).unwrap_or_default());
+        // An ended run is given none: nothing would let go of them.
+        let Some(task) = self.read(|s| s.runs.get(run).filter(|r| !r.status.terminal()).map(|r| r.task.clone())) else { return Ok(()) };
         let mut files: Vec<_> = self.read(|s| s.attachments.get(&task).cloned().unwrap_or_default()).into_iter().filter(|a| !crate::attachment::is_outside(a)).collect();
         files.extend(self.given_files(&task).await?);
         if !files.is_empty() {

@@ -256,6 +256,10 @@ impl Kernel {
         }
         let runs: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.person == person).map(|r| r.id.clone()).collect());
         crate::ui::images::forget_runs(&self.cfg.appliance.state_dir, &runs);
+        // Files still held for any run of theirs go with them.
+        for run in &runs {
+            self.sandboxes.release_inputs(run);
+        }
         self.emit(actor, Ev::PersonErased { person: person.to_string() }).await.map_err(failed)?;
         // Not complete while a backup still holds anything of theirs, their
         // content or their login: the backups left are recorded and tried
