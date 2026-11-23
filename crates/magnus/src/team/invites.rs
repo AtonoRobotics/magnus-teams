@@ -94,7 +94,7 @@ pub(super) async fn new_account(k: &Arc<Kernel>, actor: &str, email: &str, name:
     let Some(id) = free_id(k, email) else { return Err((StatusCode::BAD_REQUEST, "No account name derives from that address.".into())) };
     let token = k.invite_account(&id, name, email, crate::accounts::Role::Member).await.map_err(|(c, _, m)| (c, m))?;
     if guest {
-        if let Err((c, _, m)) = k.set_server_role(actor, &id, "guest").await {
+        if let Err((c, _, m)) = k.new_account_role(actor, &id, "guest").await {
             if let Err(e) = k.accounts.remove_person(&id).await {
                 tracing::error!("taking back {id}'s account after its guest role failed: {e:#}");
             }

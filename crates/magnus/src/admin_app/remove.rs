@@ -127,15 +127,17 @@ pub fn changes(team: &crate::team::Ledger, id: &str, h: &Held, to: Option<&str>)
 pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>, body: Option<Json<Value>>) -> Response {
     let id = id.trim().to_lowercase();
     let b = body.map(|Json(b)| b).unwrap_or_default();
-    let Some(target) = k.person(&id) else { return refuse(StatusCode::NOT_FOUND, "not_found", "No such person.") };
+    if k.person(&id).is_none() {
+        return refuse(StatusCode::NOT_FOUND, "not_found", "No such person.");
+    }
     if id == a.person.id {
         return refuse(StatusCode::CONFLICT, "self", "You cannot remove yourself: another admin can.");
     }
     if k.last_owner(&id).await {
         return last_owner();
     }
-    if crate::people::rights(&target).is_server_owner() && !crate::people::rights(&a.person).may_change_owners() {
-        return refuse(StatusCode::FORBIDDEN, "owner_only", "Only an owner removes an owner.");
+    if let Err((code, error, message)) = k.may_change_account(&a.actor(), &id).await {
+        return refuse(code, error, &message);
     }
     let to = b["to"].as_str().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty());
     let transfer = match b["projects"].as_str() {

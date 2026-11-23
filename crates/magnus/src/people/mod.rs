@@ -13,6 +13,7 @@ mod authority;
 mod guard_tests;
 #[cfg(test)]
 mod kernel_tests;
+mod may_change;
 mod rights;
 #[cfg(test)]
 mod rights_tests;
@@ -20,6 +21,7 @@ mod rights_tests;
 mod tests;
 
 pub use authority::Authority;
+pub use may_change::{asker, Refusal};
 pub use rights::{may_use_password, rights, Rights};
 
 use crate::accounts::{Accounts, LocalPerson};

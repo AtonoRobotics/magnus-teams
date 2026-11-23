@@ -165,7 +165,7 @@ pub async fn create(k: &Arc<Kernel>, t: Transport, from: std::net::IpAddr, f: &H
             return wrong();
         }
     };
-    if let Err((_, _, m)) = k.set_server_role(&format!("person:{}", link.by), &id, &link.role).await {
+    if let Err((_, _, m)) = k.new_account_role(&format!("person:{}", link.by), &id, &link.role).await {
         tracing::error!("an account from an invite link, its role: {m}");
         if let Err(e) = k.accounts.remove_person(&id).await {
             tracing::error!("taking back {id}'s account: {e:#}");

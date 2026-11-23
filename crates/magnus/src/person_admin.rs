@@ -195,8 +195,12 @@ impl Kernel {
     /// Delete a person's data, as `actor`. Their runs stop, their schedules
     /// end, their computer is deleted, their sessions and their own sign-ins to apps are revoked, their
     /// content leaves the store and the backups, and their records leave
-    /// the appliance's state. What it did, counted.
+    /// the appliance's state. What it did, counted. Only as the account rule
+    /// lets `actor` (`Kernel::may_change_account`).
     pub async fn erase_person(&self, actor: &str, person: &str) -> Result<Value, Refusal> {
+        // The account rule: an admin erases no owner, and no one but an
+        // admin erases anyone but themselves.
+        self.may_change_account(actor, person).await.map_err(|(code, _, m)| (code, m))?;
         // Runs still going stop first, so nothing writes for them after.
         let going: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.person == person && !r.status.terminal()).map(|r| r.id.clone()).collect());
         for run in &going {

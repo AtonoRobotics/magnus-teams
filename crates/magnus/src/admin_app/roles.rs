@@ -15,7 +15,7 @@ pub const ROLES: [&str; 4] = ["owner", "admin", "member", "guest"];
 /// What a guest's refused boundary action names as its rule.
 pub const GUEST_RULE: &str = "kernel:guest_reads_and_chats_only";
 
-pub type Refusal = (StatusCode, &'static str, String);
+pub type Refusal = crate::people::Refusal;
 
 /// `roles` with its one role of the four replaced by `role`, the rest kept.
 pub fn with_role(roles: &[String], role: &str) -> Vec<String> {
@@ -43,9 +43,22 @@ impl Kernel {
         owners.len() == 1 && owners[0] == id
     }
 
-    /// Give `id` one of the four roles, as `actor`. Held under the decision
-    /// lock, so two owners demoting each other at once leave one.
+    /// Give `id` one of the four roles, as `actor`, if the account rule
+    /// lets them (`may_give_role`). Held under the decision lock, so two
+    /// owners demoting each other at once leave one.
     pub async fn set_server_role(&self, actor: &str, id: &str, role: &str) -> Result<(), Refusal> {
+        if !ROLES.contains(&role) {
+            return Err((StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.".into()));
+        }
+        self.may_give_role(actor, id, role).await?;
+        self.new_account_role(actor, id, role).await
+    }
+
+    /// Give an account made a moment ago, by the same invitation or link
+    /// that was allowed when it was made, the role it was made with.
+    /// Nothing else calls this: every other role change passes the account
+    /// rule (`set_server_role`).
+    pub(crate) async fn new_account_role(&self, actor: &str, id: &str, role: &str) -> Result<(), Refusal> {
         if !ROLES.contains(&role) {
             return Err((StatusCode::BAD_REQUEST, "invalid", "The role is owner, admin, member or guest.".into()));
         }

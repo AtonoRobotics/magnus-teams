@@ -7,6 +7,7 @@
 //! console these routes were built for is retired.
 
 mod ops;
+mod people;
 
 use crate::events::Ev;
 use crate::extract::Body;
@@ -53,12 +54,12 @@ pub(crate) fn routes() -> Router<Arc<Kernel>> {
         .route("/v1/people/{person}/sessions", axum::routing::get(sessions).delete(end_sessions))
         .route("/v1/people/{person}/sessions/{id}", axum::routing::delete(end_session))
         .route("/v1/admin/people", axum::routing::get(admin_people).post(admin_invite))
-        .route("/v1/admin/people/{id}", axum::routing::get(admin_person).patch(admin_patch_person).delete(admin_delete))
-        .route("/v1/admin/people/{id}/disable", post(admin_disable))
-        .route("/v1/admin/people/{id}/enable", post(admin_enable))
-        .route("/v1/admin/people/{id}/cancel-invite", post(admin_cancel_invite))
-        .route("/v1/admin/people/{id}/invite", post(admin_resend_invite))
-        .route("/v1/admin/people/{id}/invite/password", post(admin_invite_password))
+        .route("/v1/admin/people/{id}", axum::routing::get(admin_person).patch(people::patch).delete(people::delete))
+        .route("/v1/admin/people/{id}/disable", post(people::disable))
+        .route("/v1/admin/people/{id}/enable", post(people::enable))
+        .route("/v1/admin/people/{id}/cancel-invite", post(people::cancel_invite))
+        .route("/v1/admin/people/{id}/invite", post(people::resend_invite))
+        .route("/v1/admin/people/{id}/invite/password", post(people::invite_password))
         .route("/v1/admin/sign-in-policy", axum::routing::get(sign_in_policy).put(set_sign_in_policy))
         .route("/v1/people/{person}/schedules", axum::routing::get(person_schedules))
         .route("/v1/people/{person}/schedules/{id}/{change}", post(person_schedule))
@@ -250,180 +251,6 @@ async fn admin_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axu
     Json(admin_person_row(&k, &id).await).into_response()
 }
 
-fn last_admin_refused(e: &anyhow::Error) -> bool {
-    format!("{e:#}").contains("last admin")
-}
-
-fn last_admin() -> Response {
-    (StatusCode::CONFLICT, Json(json!({ "error": "last_admin", "message": "This is the organisation's last admin: make someone else an admin first." }))).into_response()
-}
-
-/// Change a role, a status, or both. Ending sessions are recorded, so the
-/// person's devices sign out on the record.
-async fn admin_patch_person(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    if let Some(role) = b["role"].as_str() {
-        let role = match role {
-            "admin" => crate::accounts::Role::Admin,
-            "member" => crate::accounts::Role::Member,
-            _ => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "The role is admin or member." }))).into_response(),
-        };
-        if let Err(e) = k.accounts.set_role(&id, role).await {
-            if last_admin_refused(&e) {
-                return last_admin();
-            }
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-        }
-    }
-    // A recovery address: a string sets it, null or "" clears it.
-    if let Some(email) = b.as_object().and_then(|o| o.get("email")) {
-        let email = email.as_str().map(str::trim).filter(|e| !e.is_empty());
-        if email.is_some_and(|e| !crate::invitations::valid_email(&e.to_lowercase())) {
-            return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "That is not an email address." }))).into_response();
-        }
-        if let Err(e) = k.accounts.set_email(&id, &k.person(&id).map(|p| p.name).unwrap_or_default(), email).await {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-        }
-    }
-    if let Some(status) = b["status"].as_str() {
-        let status = match status {
-            "active" => crate::accounts::Status::Active,
-            "disabled" => crate::accounts::Status::Disabled,
-            _ => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": "The status is active or disabled." }))).into_response(),
-        };
-        let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who changes them" }))).into_response() };
-        match k.accounts.set_status(&id, status).await {
-            Ok(ended) => {
-                let evs: Vec<(&str, Ev)> = ended.into_iter().map(|session| (actor.as_str(), Ev::SignedOut { person: id.clone(), session })).collect();
-                if !evs.is_empty() {
-                    if let Err(e) = k.emit_all(evs).await {
-                        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-                    }
-                }
-            }
-            Err(e) => {
-                if last_admin_refused(&e) {
-                    return last_admin();
-                }
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-            }
-        }
-    }
-    StatusCode::NO_CONTENT.into_response()
-}
-
-/// Turn someone off: no sign-in, their sessions ended on the record, their
-/// schedules paused. Never the last admin.
-async fn admin_disable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who turns them off" }))).into_response() };
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    let due = k.read(|s| s.arrangements.schedules().values().filter(|x| x.person == id && x.next_due().is_some()).count());
-    let ended = match k.accounts.set_status(&id, crate::accounts::Status::Disabled).await {
-        Ok(ended) => ended,
-        Err(e) => {
-            if last_admin_refused(&e) {
-                return last_admin();
-            }
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-        }
-    };
-    let evs: Vec<(&str, Ev)> = ended.into_iter().map(|session| (actor.as_str(), Ev::SignedOut { person: id.clone(), session })).collect();
-    let sessions = evs.len();
-    if !evs.is_empty() {
-        if let Err(e) = k.emit_all(evs).await {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-        }
-    }
-    k.turn_off(&id, &format!("{actor} turned {id} off in the admin console"), "An administrator has turned your account off").await;
-    Json(json!({ "sessions_ended": sessions, "schedules_paused": due })).into_response()
-}
-
-/// Turn them back on. Their paused schedules stay paused until they resume
-/// them; the turned-off mark clears when they sign in again.
-async fn admin_enable(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>) -> Response {
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    match k.accounts.set_status(&id, crate::accounts::Status::Active).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),
-    }
-}
-
-/// Delete them: their content erased, then their local account where the
-/// appliance keeps one. A config person cannot be unmade here, so they are
-/// turned off instead and stay listed, disabled.
-async fn admin_delete(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
-    let Some(actor) = actor(&b) else { return (StatusCode::BAD_REQUEST, Json(json!({ "error": "name who deletes them" }))).into_response() };
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    // Disable first: it holds the last-admin guard, so a refused
-    // deletion erases nothing — and a failed erasure leaves a listed,
-    // disabled account whose deletion retries cleanly, instead of a
-    // vanished person with orphaned content (#529).
-    let local = k.accounts.is_local(&id);
-    let ended = match k.accounts.set_status(&id, crate::accounts::Status::Disabled).await {
-        Ok(ended) => ended,
-        Err(e) if last_admin_refused(&e) => return last_admin(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),
-    };
-    // Sessions the disabling ended are signed out on the record, as a
-    // disable signs its own.
-    if !ended.is_empty() {
-        let evs: Vec<(&str, Ev)> = ended.iter().map(|session| (actor.as_str(), Ev::SignedOut { person: id.clone(), session: session.clone() })).collect();
-        if let Err(e) = k.emit_all(evs).await {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-        }
-    }
-    let mut erased = match k.erase_person(&actor, &id).await {
-        Ok(v) => v,
-        Err(r) => return person_refused(r),
-    };
-    // The disabling already ended their sessions; the erasure counts
-    // its own. The answer counts every session the deletion ended.
-    erased["sessions_ended"] = json!(ended.len() as u64 + erased["sessions_ended"].as_u64().unwrap_or(0));
-    // Then the local directory entry goes, its content already erased. A
-    // disabled account is never the last enabled admin, so this only
-    // fails the store itself — leaving a listed, disabled shell whose
-    // deletion retries (the erasure finds nothing new) and removes.
-    if local {
-        if let Err(e) = k.remove_local_person(&id).await {
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response();
-        }
-    }
-    Json(json!({ "erased": erased, "account_removed": local })).into_response()
-}
-
-/// Withdraw an invitation sent from here: the local account goes, never
-/// having held anything. Only a local invited person can be withdrawn.
-async fn admin_cancel_invite(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>) -> Response {
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    if k.accounts.status(&id).await != crate::accounts::Status::Invited || !k.accounts.is_local(&id) {
-        return (StatusCode::CONFLICT, Json(json!({ "error": "not_invited", "message": "Only an invitation sent from here can be withdrawn." }))).into_response();
-    }
-    match k.remove_local_person(&id).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => {
-            if last_admin_refused(&e) {
-                return last_admin();
-            }
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response()
-        }
-    }
-}
-
 /// Invite someone: the appliance makes their local account and a
 /// single-use token, shown once here for the admin to pass on — the
 /// appliance cannot send mail, so there is no email step (#508). The id
@@ -456,51 +283,6 @@ async fn admin_invite(State(k): State<Arc<Kernel>>, Body(b): Body<Value>) -> Res
             .into_response(),
         Err((code, "taken", message)) => (code, Json(json!({ "error": "taken", "message": message }))).into_response(),
         Err((code, _, message)) => (code, Json(json!({ "error": message }))).into_response(),
-    }
-}
-
-/// Send the invitation again: a fresh token, shown once here; the old
-/// one dies with it. Only an invitation still waiting.
-async fn admin_resend_invite(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>) -> Response {
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    if k.accounts.status(&id).await != crate::accounts::Status::Invited {
-        return (StatusCode::CONFLICT, Json(json!({ "error": "not_invited", "message": "They have already chosen their password: this is an account, not an invitation." })))
-            .into_response();
-    }
-    match k.accounts.invite(&id, None).await {
-        Ok(token) => Json(json!({ "id": id, "invite_token": token, "invite_expires": chrono::Utc::now() + chrono::Duration::days(crate::accounts::INVITE_DAYS) })).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("{e:#}") }))).into_response(),
-    }
-}
-
-/// Give an invited person a password to choose with once, shown to the
-/// admin here only. It never signs in; choosing with it sets their own.
-async fn admin_invite_password(State(k): State<Arc<Kernel>>, axum::extract::Path(id): axum::extract::Path<String>, Body(b): Body<Value>) -> Response {
-    let id = id.trim().to_lowercase();
-    if k.person(&id).is_none() {
-        return (StatusCode::NOT_FOUND, Json(json!({ "error": "not_found" }))).into_response();
-    }
-    if k.accounts.status(&id).await != crate::accounts::Status::Invited {
-        return (StatusCode::CONFLICT, Json(json!({ "error": "not_invited", "message": "They have already chosen their password: this is an account, not an invitation." })))
-            .into_response();
-    }
-    let password = b["password"].as_str().unwrap_or_default();
-    match k.accounts.set_temporary_password(&id, password).await {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => {
-            let message = format!("{e:#}");
-            if message.contains("not an invitation") {
-                return (
-                    StatusCode::CONFLICT,
-                    Json(json!({ "error": "not_invited", "message": "They have already chosen their password: this is an account, not an invitation." })),
-                )
-                    .into_response();
-            }
-            (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid", "message": message }))).into_response()
-        }
     }
 }
 
