@@ -43,6 +43,7 @@ impl Change {
             | Change::BrowserStopped { id }
             | Change::SecureFormFilled { id, .. }
             | Change::SurrogateIssued { id, .. }
+            | Change::SurrogateRevoked { id, .. }
             | Change::Killed { id, .. }
             | Change::Revoked { id, .. }
             | Change::Hibernated { id }

@@ -25,7 +25,9 @@ pub(crate) use made::{make_for_person, tell_server};
 mod routes;
 mod service;
 mod service_version;
+mod settings;
 pub(crate) use service_version::report as service_report;
+pub use settings::Settings;
 mod sources;
 mod takeover;
 mod wake;
@@ -42,58 +44,11 @@ pub use service::schedule;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 /// Enough to tell a run what went; the log has every one.
 const MAX_DELETED_FILES: usize = 200;
 /// As long as a deleted file can still be in a backup.
 const TELL_DAYS: i64 = 30;
-
-/// `[computer]`: where computerd listens.
-#[derive(Deserialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct Settings {
-    pub socket: PathBuf,
-    /// The connected app that holds logins. It answers `get_login` with
-    /// `{ username, password }`, and the kernel fills them in itself.
-    #[serde(default)]
-    pub password_manager: Option<String>,
-    /// Package registries, for downloads only. `*.name` is any subdomain.
-    #[serde(default = "default_registries")]
-    pub registries: Vec<String>,
-    /// For a test's fake sites: names answered here, in order, with the last
-    /// answer repeating. These are taken as public.
-    #[serde(default)]
-    pub public_hosts: BTreeMap<String, Vec<String>>,
-    /// The same, but the private-address check still applies.
-    #[serde(default)]
-    pub hosts: BTreeMap<String, Vec<String>>,
-    /// A PEM file of certificate authorities the egress proxy trusts beside
-    /// the public ones, for a company's own sites.
-    #[serde(default)]
-    pub upstream_ca: Option<std::path::PathBuf>,
-    /// A computer unused this long hibernates; 0 keeps it running.
-    #[serde(default = "default_idle_hibernate_minutes")]
-    pub idle_hibernate_minutes: u64,
-    /// A computer running this long without a stop hibernates, busy or not,
-    /// unless a person holds it; 0 sets no limit.
-    #[serde(default = "default_max_run_minutes")]
-    pub max_run_minutes: u64,
-}
-
-fn default_max_run_minutes() -> u64 {
-    24 * 60
-}
-
-fn default_idle_hibernate_minutes() -> u64 {
-    30
-}
-
-fn default_registries() -> Vec<String> {
-    ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "deb.debian.org", "security.debian.org", "crates.io", "static.crates.io", "index.crates.io"]
-        .map(String::from)
-        .to_vec()
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -162,6 +117,12 @@ pub enum Change {
         hash: String,
         name: String,
         host: String,
+    },
+    /// The surrogate stops standing in for anything: replaced by a newer
+    /// credential of the same name.
+    SurrogateRevoked {
+        id: String,
+        hash: String,
     },
     /// One step with the `Revoked` of each of its grants, in the same write.
     Killed {
@@ -559,6 +520,11 @@ impl Ledger {
             Change::SurrogateIssued { id, hash, name, host } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.surrogates.push(Surrogate { hash: hash.clone(), name: name.clone(), host: host.clone() });
+                }
+            }
+            Change::SurrogateRevoked { id, hash } => {
+                if let Some(c) = self.computers.get_mut(id) {
+                    c.surrogates.retain(|s| s.hash != *hash);
                 }
             }
             Change::Granted { id, grant, label } => {

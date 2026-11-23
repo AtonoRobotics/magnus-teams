@@ -410,7 +410,7 @@ async fn an_admin_pauses_a_persons_computer_and_does_nothing_else_to_it() {
         assert!(matches!(s.k.kill_computer(&p, &id, KillMode::Destroy, false).await, Err(Refused::NotFound(_))), "{who} destroyed mo's computer");
         assert!(s.k.kill_computer(&p, &id, KillMode::Pause, false).await.is_ok(), "{who} could not pause mo's computer");
     }
-    assert!(s.k.vault.get(&crate::computer::egress::surrogate::vault_name(&id, "gh")).unwrap().is_none(), "a credential reached mo's computer");
+    assert!(!s.k.vault.names().unwrap().iter().any(|n| n.starts_with(&format!("surrogate/{id}/"))), "a credential reached mo's computer");
     assert!(s.k.computer_json(&mo, &id).is_ok(), "mo cannot see their own computer");
     assert!(s.k.add_computer_destination(&mo, &id, "example.org").await.is_ok(), "mo cannot change their own computer");
     s.done().await;
@@ -514,5 +514,44 @@ async fn only_the_holder_hands_back() {
     assert_eq!(s.computers_of(&Owner::Workspace("w1".into()))[0].controller.as_deref(), Some("mo"));
     s.k.hand_back(&mo, &id).await.unwrap();
     assert!(s.computers_of(&Owner::Workspace("w1".into()))[0].controller.is_none(), "the holder could not hand back");
+    s.done().await;
+}
+
+/// A credential is kept under its own surrogate: one issued later under the
+/// same name is its rotation, and the old token stops standing for anything,
+/// so B's credential for one host never goes out on A's token to another.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rotated_credential_revokes_the_old_token_and_never_changes_what_it_sends() {
+    let s = server().await;
+    let id = s.made_by_hand(&person("mo")).await;
+    let mo = s.k.person("mo").unwrap();
+    let token = |v: Value| v["surrogate"].as_str().unwrap().to_string();
+    let a = token(s.k.issue_surrogate(&mo, &id, "gh", "secret-a", "x.example").await.unwrap());
+    let other = token(s.k.issue_surrogate(&mo, &id, "npm", "secret-n", "registry.example").await.unwrap());
+    let b = token(s.k.issue_surrogate(&mo, &id, "gh", "secret-b", "y.example").await.unwrap());
+    let stands_for = |t: &str| crate::computer::egress::surrogate::stands_for(&s.k, &id, t);
+    assert_eq!(stands_for(&a), None, "the rotated token still stands for a credential");
+    assert_eq!(stands_for(&b), Some(("y.example".to_string(), "secret-b".to_string())));
+    assert_eq!(stands_for(&other), Some(("registry.example".to_string(), "secret-n".to_string())), "another name's credential changed");
+    let c = s.k.read(|st| st.computers.get(&id).cloned()).unwrap();
+    assert_eq!(c.surrogates.iter().filter(|x| x.name == "gh").count(), 1);
+    s.done().await;
+}
+
+/// A credential issued before they were kept under their surrogate is kept
+/// under its name: only the newest surrogate of that name may use it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_credential_kept_by_name_is_only_the_newest_surrogates_of_that_name() {
+    let s = server().await;
+    let id = s.made_by_hand(&person("mo")).await;
+    let (old, new) = ("msur_".to_string() + &"a".repeat(64), "msur_".to_string() + &"b".repeat(64));
+    for (t, host) in [(&old, "x.example"), (&new, "y.example")] {
+        let issued = Change::SurrogateIssued { id: id.clone(), hash: crate::computer::egress::surrogate::hash(t), name: "gh".into(), host: host.into() };
+        s.k.emit("person:mo", Ev::Computer(issued)).await.unwrap();
+    }
+    s.k.vault.put(&crate::computer::egress::surrogate::vault_name_by_name(&id, "gh"), "secret-b").unwrap();
+    let stands_for = |t: &str| crate::computer::egress::surrogate::stands_for(&s.k, &id, t);
+    assert_eq!(stands_for(&old), None, "an older surrogate took the newer credential of its name");
+    assert_eq!(stands_for(&new), Some(("y.example".to_string(), "secret-b".to_string())));
     s.done().await;
 }

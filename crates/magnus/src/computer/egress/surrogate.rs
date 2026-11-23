@@ -13,8 +13,38 @@ pub(in crate::computer) fn hash(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
-pub(in crate::computer) fn vault_name(computer: &str, name: &str) -> String {
+/// Where the vault keeps the credential behind one surrogate: under the
+/// surrogate itself, so another credential of the same name never changes
+/// what this one puts in (`decisions/2026-11-23-credentials-under-their-surrogate.md`).
+pub(in crate::computer) fn vault_name(computer: &str, hash: &str) -> String {
+    format!("surrogate/{computer}/token/{hash}")
+}
+
+/// Where a credential issued before then was kept: under its name, which
+/// only the newest surrogate of that name may use.
+pub(in crate::computer) fn vault_name_by_name(computer: &str, name: &str) -> String {
     format!("surrogate/{computer}/{name}")
+}
+
+/// What `token` stands for on `computer`: the host it is for and the real
+/// credential. None for a token that stands for nothing there.
+#[cfg(test)]
+pub(in crate::computer) fn stands_for(k: &Kernel, computer: &str, token: &str) -> Option<(String, String)> {
+    let c = k.read(|s| s.computers.get(computer).cloned())?;
+    let found = c.surrogates.iter().find(|s| s.hash == hash(token))?;
+    credential(k, &c, found).map(|secret| (found.host.clone(), secret))
+}
+
+/// The credential behind `found`, a surrogate of `c`.
+fn credential(k: &Kernel, c: &crate::computer::Computer, found: &crate::computer::Surrogate) -> Option<String> {
+    if let Ok(Some(secret)) = k.vault.get(&vault_name(&c.id, &found.hash)) {
+        return Some(secret.expose().to_string());
+    }
+    let newest = c.surrogates.iter().rev().find(|s| s.name == found.name).is_some_and(|s| s.hash == found.hash);
+    if !newest {
+        return None;
+    }
+    k.vault.get(&vault_name_by_name(&c.id, &found.name)).ok().flatten().map(|s| s.expose().to_string())
 }
 
 /// Every surrogate-shaped token in a header's value.
@@ -41,9 +71,9 @@ pub(super) async fn swapped(k: &Kernel, computer: &str, mut head: Head, host: &s
                 let reason = format!("the credential {} is not for {host}", found.name);
                 return Err((head, reason));
             }
-            match k.vault.get(&vault_name(computer, &found.name)) {
-                Ok(Some(secret)) => swaps.push((index, token.to_string(), secret.expose().to_string())),
-                _ => {
+            match credential(k, &c, found) {
+                Some(secret) => swaps.push((index, token.to_string(), secret)),
+                None => {
                     let reason = format!("the credential {} is not in the vault", found.name);
                     return Err((head, reason));
                 }

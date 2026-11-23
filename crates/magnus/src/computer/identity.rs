@@ -427,7 +427,7 @@ impl Kernel {
     /// A credential for one host. The real value goes to the vault; the
     /// computer gets a token that means nothing anywhere else.
     pub async fn issue_surrogate(&self, who: &Person, id: &str, name: &str, value: &str, host: &str) -> Result<Value, Refused> {
-        self.controlled_computer(who, id)?;
+        let c = self.controlled_computer(who, id)?;
         let host = super::service::checked_host(host)?;
         if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
             return Err(Refused::Invalid("a credential's name is letters, digits, - and _".into()));
@@ -436,8 +436,21 @@ impl Kernel {
         let mut raw = [0u8; SURROGATE_RANDOM_BYTES];
         rand::rngs::OsRng.fill_bytes(&mut raw);
         let token = format!("{}{}", surrogate::PREFIX, hex::encode(raw));
-        self.vault.put(&surrogate::vault_name(id, name), value).map_err(failed)?;
-        self.record_computer(who, Change::SurrogateIssued { id: id.into(), hash: surrogate::hash(&token), name: name.to_string(), host }).await?;
+        let hash = surrogate::hash(&token);
+        // A credential of the same name is this one's rotation: the old
+        // surrogates stop working in the same write.
+        let replaced: Vec<String> = c.surrogates.iter().filter(|s| s.name == name).map(|s| s.hash.clone()).collect();
+        self.vault.put(&surrogate::vault_name(id, &hash), value).map_err(failed)?;
+        let mut changes = vec![Change::SurrogateIssued { id: id.into(), hash, name: name.to_string(), host }];
+        changes.extend(replaced.iter().map(|h| Change::SurrogateRevoked { id: id.into(), hash: h.clone() }));
+        let actor = format!("person:{}", who.id);
+        self.emit_all(changes.into_iter().map(|ch| (actor.as_str(), Ev::Computer(ch))).collect()).await.map_err(failed)?;
+        for h in &replaced {
+            let _ = self.vault.remove(&surrogate::vault_name(id, h));
+        }
+        if !replaced.is_empty() {
+            let _ = self.vault.remove(&surrogate::vault_name_by_name(id, name));
+        }
         Ok(json!({ "surrogate": token }))
     }
 }
