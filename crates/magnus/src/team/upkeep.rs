@@ -208,7 +208,8 @@ impl Kernel {
     /// what the log and the backups hold of it.
     pub(crate) async fn delete_workspace(&self, actor: &str, ws: &str) -> Result<()> {
         let actor = actor.to_string();
-        let tasks: Vec<String> = self.read(|s| s.team.runs_of(ws).into_iter().map(|r| r.task.clone()).collect());
+        // A mission lane's worker is the workspace's work too.
+        let tasks: Vec<String> = self.read(|s| s.team.runs_of(ws).into_iter().map(|r| r.task.clone()).chain(s.missions.working_tasks(ws)).collect());
         self.end_team_tasks(&actor, &tasks).await;
         // What was held for a member is theirs, not the workspace's.
         self.keep_all_held(&actor, ws).await;
@@ -224,7 +225,7 @@ impl Kernel {
         }
         let runs: Vec<String> = self.read(|s| tasks.iter().filter_map(|t| s.tasks.get(t).map(|t| t.run_id.clone())).collect());
         let dir = volume_dir(self, ws);
-        let holding = Holding { runs, kinds: vec!["team"], field: "workspace", id: ws.to_string(), ..Default::default() };
+        let holding = Holding { runs, kinds: vec!["team", "team_mission"], field: "workspace", id: ws.to_string(), ..Default::default() };
         self.emit(&actor, Ev::Team(Change::Deleted { workspace: ws.to_string() })).await?;
         drop(one);
         if let Some(root) = dir.parent() {

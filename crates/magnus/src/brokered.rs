@@ -42,6 +42,22 @@ const CALL_WAIT: Duration = Duration::from_secs(120);
 const CONNECT_WAIT: Duration = Duration::from_secs(10);
 /// The most a CONNECT request's head may be.
 const HEAD_MAX: usize = 8192;
+/// The most one line of a connector's answers may hold.
+const MAX_ANSWER_LINE_BYTES: usize = 32 << 20;
+
+/// One line of a connector's answers. A line that never ends would hold
+/// the server's memory without bound: one past `max` is no answer.
+async fn answer_line<R: tokio::io::AsyncBufRead + Unpin>(r: &mut R, max: usize) -> Result<String, CallError> {
+    let mut line = String::new();
+    let n = r.take(max as u64 + 1).read_line(&mut line).await.map_err(|e| CallError::Unknown(format!("the connector's answer was lost: {e}")))?;
+    if n == 0 {
+        return Err(CallError::Unknown("the connector closed the session before answering".into()));
+    }
+    if n > max {
+        return Err(CallError::Unknown(format!("the connector's answer is over {max} bytes")));
+    }
+    Ok(line)
+}
 
 /// The image digest a brokered connector's endpoint names: its hex.
 pub fn digest(endpoint: &str) -> Result<&str> {
@@ -418,11 +434,7 @@ impl Session {
             .await
             .map_err(|e| CallError::NotSent(format!("could not send to the connector: {e}")))?;
         loop {
-            let mut line = String::new();
-            let n = self.r.read_line(&mut line).await.map_err(|e| CallError::Unknown(format!("the connector's answer was lost: {e}")))?;
-            if n == 0 {
-                return Err(CallError::Unknown("the connector closed the session before answering".into()));
-            }
+            let line = answer_line(&mut self.r, MAX_ANSWER_LINE_BYTES).await?;
             let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
             if msg["id"] != json!(id) {
                 continue;
@@ -494,6 +506,14 @@ async fn dial(to: &str, resolve: &std::collections::BTreeMap<String, String>) ->
 
 #[cfg(test)]
 mod tests {
+    /// A connector's answer line past the limit is refused, not read on.
+    #[tokio::test]
+    async fn an_endless_answer_is_no_answer() {
+        let mut ok: &[u8] = b"{\"id\":1}\nrest";
+        assert_eq!(super::answer_line(&mut ok, 16).await.ok().as_deref(), Some("{\"id\":1}\n"));
+        let mut long: &[u8] = b"0123456789abcdefghij\n";
+        assert!(super::answer_line(&mut long, 16).await.is_err(), "a line over the limit was read");
+    }
     use super::*;
 
     /// A call that has its token and waits for the instances while a stop

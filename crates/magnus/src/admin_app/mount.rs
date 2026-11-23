@@ -124,13 +124,32 @@ pub fn pass(action: Option<&'static str>) -> impl Fn(State<Arc<Kernel>>, Extensi
             let path = uri.path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| uri.path().to_string());
             match action.filter(|_| method != Method::GET) {
                 Some(action) => {
-                    let audit = Audit { action: action.into(), target: Some(uri.path().trim_start_matches("/v1/admin/").to_string()), before: None, after: body.clone() };
+                    let after = body.clone().map(redacted);
+                    let audit = Audit { action: action.into(), target: Some(uri.path().trim_start_matches("/v1/admin/").to_string()), before: None, after };
                     audited(&k, &a, audit, control(&k, &a, method, &path, body)).await
                 }
                 None => control(&k, &a, method, &path, body).await,
             }
         })
     }
+}
+
+/// Fields whose values are secrets: the audit records that one was set,
+/// never what it is, since the log keeps it for good.
+const SECRET_FIELDS: &[&str] = &["password", "token", "secret", "client_secret", "api_key", "credential", "private_key"];
+
+/// A body as the audit keeps it: every secret field, at any depth, replaced.
+fn redacted(mut v: Value) -> Value {
+    match &mut v {
+        Value::Object(o) => {
+            for (k, x) in o.iter_mut() {
+                *x = if SECRET_FIELDS.contains(&k.to_ascii_lowercase().as_str()) && !x.is_null() { json!("(set)") } else { redacted(x.take()) };
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| *x = redacted(x.take())),
+        _ => {}
+    }
+    v
 }
 
 /// A response's body as JSON, or null.
@@ -156,5 +175,13 @@ mod seg_tests {
         assert_eq!(seg("owner/erase?"), "owner%2Ferase%3F");
         assert_eq!(seg("a#b"), "a%23b");
         assert_eq!(seg("sam.lee@example.com"), "sam.lee@example.com");
+    }
+
+    /// An invitee's temporary password or an app's token never reaches the
+    /// audit, which the log keeps for good.
+    #[test]
+    fn an_audit_keeps_no_secret() {
+        let v = super::redacted(serde_json::json!({ "password": "hunter22", "name": "x", "auth": { "token": "t0k" }, "role": null }));
+        assert_eq!(v, serde_json::json!({ "password": "(set)", "name": "x", "auth": { "token": "(set)" }, "role": null }));
     }
 }

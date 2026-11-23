@@ -268,6 +268,10 @@ pub struct Task {
     pub verdict: Option<Verdict>,
     /// The grant it runs under (#235).
     pub grant: Option<String>,
+    /// Someone else made it for this person (a teammate's mission lane, the
+    /// team agent's delegation): its words are theirs, never what this
+    /// person asked or the addresses this person named.
+    pub by_other: bool,
 }
 
 /// A person's verdict on an outcome.
@@ -478,6 +482,11 @@ pub(super) fn created(tasks: &mut BTreeMap<String, Task>, runs: &mut HashMap<Str
             project: project.clone(),
             verdict: None,
             grant: grant.clone(),
+            by_other: match e.actor.split_once(':') {
+                Some(("person", by)) => by != person,
+                Some(("run", by)) => runs.get(by).is_some_and(|r| r.person != *person),
+                _ => false,
+            },
         },
     );
     runs.insert(
@@ -614,6 +623,7 @@ impl State {
             Ev::BundleWritten { owner_user, .. } => return owner_user.clone(),
             Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.inbox.items().get(id).map(|i| i.person.clone()),
             Ev::Team(c) => return self.team.content_owner(c),
+            Ev::TeamMission(m) => return self.missions.content_owner(m),
             Ev::ScheduleEnded { id, .. } => return self.arrangements.schedules().get(id).map(|s| s.person.clone()),
             _ => {}
         }

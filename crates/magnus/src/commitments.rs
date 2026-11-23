@@ -184,7 +184,7 @@ impl Kernel {
                 said.push(self.asked(&top).await?);
             }
         } else if task.schedule.is_none() {
-            said.push(self.asked(&top).await?);
+            said.push(self.own_asked(&top).await?);
         }
         if magnus {
             // What Magnus has said in this run so far.

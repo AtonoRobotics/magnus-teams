@@ -107,7 +107,9 @@ pub(crate) fn is_boundary(a: &Action, f: &Facts) -> bool {
     if a.issuer != Issuer::Model {
         return false;
     }
-    if f.risk == Risk::Financial || a.tool == crate::rule_effects::SOURCE_TOOL {
+    // An install gives the computer the app's hosts to reach: a boundary
+    // action, though it runs inside the computer.
+    if f.risk == Risk::Financial || a.tool == crate::rule_effects::SOURCE_TOOL || a.tool == crate::computer::INSTALL_TOOL {
         return true;
     }
     if !f.risk.changes_state() || is_chat_tool(f) || f.reaches_self {

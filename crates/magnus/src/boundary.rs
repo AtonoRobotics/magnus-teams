@@ -666,7 +666,10 @@ impl Kernel {
         let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
-        if web_or_browser_read && !is_query_tool && untrusted && private {
+        // A worker started from a tainted run follows links only: never private
+        // itself, it carries the parent's goal, which may hold private words.
+        let link_only = self.read(|s| s.compartments.of(&run.id).is_link_following_only());
+        if web_or_browser_read && !is_query_tool && ((untrusted && private) || link_only) {
             if self.plain_web_read(a, f, run).await? {
                 url_cleared = true;
             } else {

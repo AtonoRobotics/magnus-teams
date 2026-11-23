@@ -142,7 +142,7 @@ impl Kernel {
             return Ok(existing);
         }
 
-        let prompt = if requester.task.is_empty() { String::new() } else { self.asked(&requester).await.unwrap_or_default() };
+        let prompt = if requester.task.is_empty() { String::new() } else { self.own_asked(&requester).await.unwrap_or_default() };
         let (mut user_named, mut allowed_destinations) = extract_literal_destinations(&prompt);
         if let Ok(person_addrs) = self.named_by_person(run).await {
             for addr in person_addrs {

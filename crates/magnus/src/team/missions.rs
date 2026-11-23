@@ -185,7 +185,8 @@ impl MissionLedger {
             TeamMissionEvent::LaneReleased { workspace, mission, lane, contribution, released_by } => {
                 let mut meta: Option<(String, String)> = None;
                 if let Some(m) = self.missions.get_mut(mission) {
-                    if let Some(l) = m.lanes.get_mut(lane) {
+                    // A lane is released once: a second release (two at once) changes nothing.
+                    if let Some(l) = m.lanes.get_mut(lane).filter(|l| l.status != LaneStatus::Released) {
                         l.contribution = Some(contribution.clone());
                         l.released_by = Some(released_by.clone());
                         l.private_draft = None;
@@ -248,6 +249,38 @@ impl MissionLedger {
 
     pub fn mission(&self, id: &str) -> Option<&Mission> {
         self.missions.get(id)
+    }
+
+    /// Whose a mission event's words are: the goal, the objectives and the
+    /// deliverable the requester's; a draft its lane's owner's; a
+    /// contribution its releaser's. Erasing that person deletes them.
+    pub fn content_owner(&self, ev: &TeamMissionEvent) -> Option<String> {
+        let requester = |m: &str| self.missions.get(m).map(|m| m.requester.clone());
+        match ev {
+            TeamMissionEvent::Started { requester, .. } => Some(requester.clone()),
+            TeamMissionEvent::LaneDispatched { mission, .. } | TeamMissionEvent::DeliverableUpdated { mission, .. } => requester(mission),
+            TeamMissionEvent::LaneDraftReady { owner, .. } => Some(owner.clone()),
+            TeamMissionEvent::LaneReleased { released_by, .. } => Some(released_by.clone()),
+            _ => None,
+        }
+    }
+
+    /// A deleted workspace's missions, standing releases and memory go with it.
+    pub fn drop_workspace(&mut self, workspace: &str) {
+        self.missions.retain(|_, m| m.workspace != workspace);
+        self.standing_releases.retain(|(w, ..)| w != workspace);
+        self.workspace_memory.remove(workspace);
+    }
+
+    /// The tasks of a workspace's lanes still working.
+    pub fn working_tasks(&self, workspace: &str) -> Vec<String> {
+        self.missions
+            .values()
+            .filter(|m| m.workspace == workspace)
+            .flat_map(|m| m.lanes.values())
+            .filter(|l| l.status == LaneStatus::Working)
+            .filter_map(|l| l.child_task.clone())
+            .collect()
     }
 
     /// Whether `person` let this exact request (its scope and its objective)
@@ -349,6 +382,40 @@ impl MissionLedger {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each mission event's words are someone's, so erasing them reaches
+    /// them; a deleted workspace takes its missions and its lanes' work.
+    #[test]
+    fn mission_words_have_owners_and_go_with_their_workspace() {
+        let mut ledger = MissionLedger::default();
+        let started = TeamMissionEvent::Started { workspace: "ws1".into(), room: "q3".into(), mission: "m1".into(), goal: "g".into(), requester: "alice".into(), leader_run: None };
+        assert_eq!(ledger.content_owner(&started).as_deref(), Some("alice"));
+        ledger.apply(&started);
+        let lane = TeamMissionEvent::LaneDispatched {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l".into(),
+            kind: LaneKind::MemberAgent,
+            target_member: Some("bob".into()),
+            objective: "o".into(),
+            scope: String::new(),
+            auto_release: false,
+            child_task: Some("t_bob".into()),
+            child_run: None,
+        };
+        assert_eq!(ledger.content_owner(&lane).as_deref(), Some("alice"), "the objective is the requester's words");
+        ledger.apply(&lane);
+        let draft =
+            TeamMissionEvent::LaneDraftReady { workspace: "ws1".into(), mission: "m1".into(), lane: "l".into(), owner: "bob".into(), draft: "d".into(), scrub_flagged: false };
+        assert_eq!(ledger.content_owner(&draft).as_deref(), Some("bob"));
+        assert_eq!(ledger.working_tasks("ws1"), vec!["t_bob".to_string()]);
+        for c in ["first", "second"] {
+            ledger.apply(&TeamMissionEvent::LaneReleased { workspace: "ws1".into(), mission: "m1".into(), lane: "l".into(), contribution: c.into(), released_by: "bob".into() });
+        }
+        assert_eq!(ledger.mission("m1").and_then(|m| m.lanes["l"].contribution.as_deref()), Some("first"), "a lane released twice");
+        ledger.drop_workspace("ws1");
+        assert!(ledger.mission("m1").is_none() && ledger.working_tasks("ws1").is_empty());
+    }
 
     #[test]
     fn private_draft_is_visible_only_to_lane_owner_until_released() {

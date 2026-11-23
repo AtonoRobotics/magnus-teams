@@ -5,7 +5,7 @@
 fn the_content_list_names_real_kinds_and_fields() {
     let src = include_str!("events.rs");
     let src = &src[src.find("pub enum Ev {").unwrap()..src.find("pub const CONTENT").unwrap()];
-    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "rule", "spend", "evidence"].contains(k)) {
+    for (kind, fields) in super::CONTENT.iter().filter(|(k, _)| !["team", "team_mission", "rule", "spend", "evidence"].contains(k)) {
         let variant: String = kind.split('_').map(|w| w[..1].to_uppercase() + &w[1..]).collect();
         let start = src.find(&format!("\n    {variant} {{")).unwrap_or_else(|| panic!("no event kind {kind}"));
         let body = &src[start..start + src[start..].find("\n    },").unwrap()];
@@ -30,6 +30,19 @@ fn the_teams_content_fields_all_read_once_deleted() {
         let field = format!("\n        {f}: ");
         assert!(src.contains(&field), "no team event has {f}");
         assert_eq!(src.matches(&field).count(), src.matches(&format!("#[serde(default)]{field}")).count(), "a team event's {f} has no default");
+    }
+}
+
+/// A mission's words (goal, objectives, drafts, releases, deliverable) are
+/// content: each is a field of a mission event, and each reads once deleted.
+#[test]
+fn a_missions_words_are_content_and_read_once_deleted() {
+    let src = include_str!("events/mission.rs");
+    let (_, fields) = super::CONTENT.iter().find(|(k, _)| *k == "team_mission").unwrap();
+    for f in *fields {
+        let field = format!("\n        {f}: ");
+        assert!(src.contains(&field), "no mission event has {f}");
+        assert_eq!(src.matches(&field).count(), src.matches(&format!("#[serde(default)]{field}")).count(), "a mission event's {f} has no default");
     }
 }
 

@@ -140,7 +140,12 @@ impl State {
             Ev::LocalComputer(c) => self.local.apply(c),
             Ev::LocalFile(c) => self.local.files.apply(c),
             Ev::Desktop(c) => self.local.desktop.apply(c),
-            Ev::Team(c) => self.team.apply_at(c, e.seq),
+            Ev::Team(c) => {
+                if let crate::team::Change::Deleted { workspace } = c {
+                    self.missions.drop_workspace(workspace);
+                }
+                self.team.apply_at(c, e.seq)
+            }
             Ev::AccountLink(c) => self.account_links.apply(c),
             Ev::Legal(c) => self.legal.apply(c),
             Ev::Push(c) => self.push.apply(c),

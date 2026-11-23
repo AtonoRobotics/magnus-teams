@@ -251,7 +251,10 @@ pub(super) async fn post_and_ask(
     if let Some(reason) = crate::compartment::query_gate::scrub_check(&objective) {
         return Json(json!({ "id": id, "limited": reason })).into_response();
     }
-    match k.start_personal_room_mission(ws, channel, &p.id, &objective, thread, model).await {
+    // Called on (asked, @mentioned, a direct chat) the answer goes to the
+    // room; only named or cued, it waits in the sender's Airlock.
+    let hold = matches!(why, Why::Named | Why::Helpful);
+    match k.start_personal_room_mission(ws, channel, &p.id, &objective, thread, model, hold).await {
         Ok((mission, task, run)) => {
             ok_or_return!(
                 send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await

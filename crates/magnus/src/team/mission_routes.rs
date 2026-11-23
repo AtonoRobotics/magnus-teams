@@ -26,6 +26,10 @@ const MAX_STEER_CHARS: usize = 2_000;
 const STEER_POLL_MS: Duration = Duration::from_millis(250);
 const MAX_STEER_POLL_TICKS: u32 = 3600;
 const DEFAULT_MEMORY_LIMIT: usize = 20;
+const MAX_APP_NAME_CHARS: usize = 128;
+/// Held from a release's check to its event, so two releases of one lane
+/// cannot both pass and post it twice.
+static RELEASING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -102,6 +106,7 @@ async fn release_lane(
     Path((ws, mission, lane)): Path<(String, String, String)>,
     Json(b): Json<ReleaseBody>,
 ) -> ApiResult {
+    let releasing = RELEASING.lock().await;
     let Some((room, scope, objective, draft)) = k.read(|s| {
         let m = s.missions.mission(&mission).filter(|m| m.workspace == ws)?;
         let l = m.lanes.get(&lane)?;
@@ -134,6 +139,7 @@ async fn release_lane(
     )
     .await
     .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
+    drop(releasing);
 
     if b.save_standing_rule && !scope.trim().is_empty() {
         let scope = super::missions::standing_key(&scope, &objective);
@@ -152,20 +158,22 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     if instruction.is_empty() || instruction.chars().count() > MAX_STEER_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "steer instruction must be short and non-empty");
     }
-    let Some((objective, prev_draft)) = k.read(|s| {
+    let Some((objective, prev_draft, requester)) = k.read(|s| {
         let m = s.missions.mission(&mission).filter(|m| m.workspace == ws)?;
         let l = m.lanes.get(&lane)?;
         if l.owner.as_deref() != Some(p.id.as_str()) || l.status == LaneStatus::Released {
             return None;
         }
-        Some((l.objective.clone(), l.private_draft.clone().unwrap_or_default()))
+        Some((l.objective.clone(), l.private_draft.clone().unwrap_or_default(), m.requester.clone()))
     }) else {
         return refuse(StatusCode::NOT_FOUND, "no unreleased lane owned by you");
     };
 
     let actor = format!("person:{}", p.id);
     let prompt = format!("Revise your private draft for \"{objective}\" using the owner's instruction.\n\nCurrent draft:\n{prev_draft}\n\nOwner's edit:\n{instruction}");
-    let label = Label { untrusted: false, private: true };
+    // The objective is the requester's words and the draft came of them: as
+    // untrusted as the lane's own run when someone else asked.
+    let label = Label { untrusted: requester != p.id, private: true };
     let (_, child_run) = k
         .create_run(&actor, &p.id, prompt, vec![], NewRun { label: Some(label), ..Default::default() })
         .await
@@ -224,8 +232,8 @@ async fn set_avatar(State(k): K, h: HeaderMap, Json(avatar): Json<ProfileAvatar>
 async fn set_app_visibility(State(k): K, h: HeaderMap, Json(b): Json<AppVisibilityBody>) -> ApiResult {
     let p = who(&k, &h).await.map_err(Box::new)?;
     let app = b.app.trim();
-    if app.is_empty() {
-        return refuse(StatusCode::BAD_REQUEST, "app name is required");
+    if app.is_empty() || app.chars().count() > MAX_APP_NAME_CHARS {
+        return refuse(StatusCode::BAD_REQUEST, "app name is required and short");
     }
     let actor = format!("person:{}", p.id);
     k.emit(&actor, Ev::TeamMission(TeamMissionEvent::AppVisibilitySet { person: p.id.clone(), app: app.to_string(), hidden: b.hidden }))

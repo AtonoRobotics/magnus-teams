@@ -133,6 +133,7 @@ assert.equal(SharedCanvas.cleanRoomPayload({ mode: "summary", summary: "  Clean 
 const selOnly = SharedCanvas.cleanRoomPayload({ mode: "selected", summary: "ignored", messages: msgs, selectedIds: ["e2"] });
 assert.match(selOnly, /Public summary ready for teammates/);
 assert.doesNotMatch(selOnly, /PRIVATE_DRAFT_SECRET/, "unchecked private message leaked into clean-room payload");
+assert.doesNotMatch(selOnly, /\bmagnus\b/i, "a shared answer names the agent, so posting it would start the sharer's agent");
 assert.equal(SharedCanvas.cleanRoomPayload({ mode: "selected", messages: msgs, selectedIds: [] }), "", "empty selection shares nothing");
 
 // 4. Unified Canvas renders all shared views via PANELS.shared.

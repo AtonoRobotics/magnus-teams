@@ -204,7 +204,7 @@ impl Kernel {
         if let Some(hit) = cached(&key) {
             return Ok(hit);
         }
-        let asked = self.asked(&self.requester_run(run)).await.unwrap_or_default();
+        let asked = self.own_asked(&self.requester_run(run)).await.unwrap_or_default();
         let Some(finding) = self.outgoing_finding(a, run).await else {
             return Ok(Verdict::Ask("the outgoing classifier could not be reached".to_string()));
         };

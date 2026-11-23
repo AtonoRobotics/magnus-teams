@@ -154,3 +154,13 @@ fn a_team_thread_is_offered_a_view_of_the_same_tools() {
     }
     assert!(all().filter(|t| t.person_only).all(|t| !t.in_team));
 }
+
+/// The person's computer reaches registries, app hosts and pages it opened,
+/// so what its shell and screen return taints the run like any page.
+#[test]
+fn what_the_computer_returns_is_untrusted() {
+    for name in [crate::computer::EXEC_TOOL, "computer_screenshot", "computer_click", "computer_type", "computer_key", "computer_scroll"] {
+        let class = decl(name).and_then(|d| d.class.as_ref()).unwrap_or_else(|| panic!("{name} has no class"));
+        assert!(class.label.untrusted, "{name} returns principal text");
+    }
+}

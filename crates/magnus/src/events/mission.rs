@@ -37,6 +37,7 @@ pub enum TeamMissionEvent {
         workspace: String,
         room: String,
         mission: String,
+        #[serde(default)]
         goal: String,
         requester: String,
         #[serde(default)]
@@ -49,6 +50,7 @@ pub enum TeamMissionEvent {
         kind: LaneKind,
         #[serde(default)]
         target_member: Option<String>,
+        #[serde(default)]
         objective: String,
         #[serde(default)]
         scope: String,
@@ -64,6 +66,7 @@ pub enum TeamMissionEvent {
         mission: String,
         lane: String,
         owner: String,
+        #[serde(default)]
         draft: String,
         #[serde(default)]
         scrub_flagged: bool,
@@ -72,6 +75,7 @@ pub enum TeamMissionEvent {
         workspace: String,
         mission: String,
         lane: String,
+        #[serde(default)]
         contribution: String,
         released_by: String,
     },
@@ -84,6 +88,7 @@ pub enum TeamMissionEvent {
     DeliverableUpdated {
         workspace: String,
         mission: String,
+        #[serde(default)]
         markdown: String,
         #[serde(default)]
         complete: bool,

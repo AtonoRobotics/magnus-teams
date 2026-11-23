@@ -146,7 +146,10 @@ async fn invite(State(k): K, Member { person: p, role: mine, .. }: Member<at::Me
 /// workspace and role, and the email with its link.
 async fn newcomer(k: &Arc<Kernel>, p: &Person, ws: String, role: Role, email: String, name: Option<String>) -> Reply {
     let name = name.unwrap_or_else(|| email.split('@').next().unwrap_or_default().to_string());
-    let (id, token) = match new_account(k, &format!("person:{}", p.id), &email, &name, role == Role::Guest).await {
+    // A server guest brings in only guests: their invitation never makes an
+    // account with more of the server than their own.
+    let guest = role == Role::Guest || crate::people::rights(p).held_to_guest_limits();
+    let (id, token) = match new_account(k, &format!("person:{}", p.id), &email, &name, guest).await {
         Ok(made) => made,
         Err((code, message)) => return err(code, message),
     };

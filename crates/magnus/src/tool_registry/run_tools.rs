@@ -16,6 +16,9 @@ const fn mine(app: &'static str, risk: Risk) -> Class {
     Class::new(app, risk, Label::PRINCIPAL, Audience::Private)
 }
 const IN_SANDBOX: Class = mine("sandbox", Risk::Sandbox);
+/// On the person's computer, which reaches registries, app hosts and pages
+/// opened: what comes back may be anyone's words.
+const ON_COMPUTER: Class = Class::new("sandbox", Risk::Sandbox, Label::UNTRUSTED, Audience::Private);
 const WEB: Class = Class::new("web", Risk::Read, Label::UNTRUSTED, Audience::Public);
 const BROWSE: Class = Class::new("browser", Risk::Read, Label::UNTRUSTED, Audience::Public);
 const BROWSE_ACT: Class = Class::new("browser", Risk::ReversibleWrite, Label::UNTRUSTED, Audience::Public);
@@ -257,20 +260,20 @@ pub(super) static DECLS: &[Decl] = &[
     })
     .doing("Signing in"),
     Decl::tool(crate::computer::REQUEST_TOOL, mine("computer", Risk::Read), Exec::Core(Op::Computer), COMPUTER, crate::computer::request_schema).doing(COMPUTER_WORDS).in_team(),
-    Decl::tool(crate::computer::EXEC_TOOL, mine("computer", Risk::Sandbox), Exec::Core(Op::Computer), COMPUTER, crate::computer::exec_schema).doing(COMPUTER_WORDS).in_team(),
+    Decl::tool(crate::computer::EXEC_TOOL, Class::new("computer", Risk::Sandbox, Label::UNTRUSTED, Audience::Private), Exec::Core(Op::Computer), COMPUTER, crate::computer::exec_schema).doing(COMPUTER_WORDS).in_team(),
     Decl::tool(crate::computer::INSTALL_TOOL, mine("computer", Risk::ReversibleWrite), Exec::Core(Op::Computer), COMPUTER, crate::computer::install_schema).doing(COMPUTER_WORDS).in_team(),
     Decl::tool("add_computer_destination", Class::new("computer", Risk::ReversibleWrite, Label::PRINCIPAL, Audience::Public), Exec::Core(Op::Side), COMPUTER, |_| {
         obj(json!({ "host": { "type": "string" } }), &["host"])
     }),
-    Decl::tool("computer_screenshot", IN_SANDBOX, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({}), &[])).doing(COMPUTER_WORDS).in_team(),
-    Decl::tool("computer_click", IN_SANDBOX, Exec::Core(Op::Computer), SANDBOX, |_| {
+    Decl::tool("computer_screenshot", ON_COMPUTER, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({}), &[])).doing(COMPUTER_WORDS).in_team(),
+    Decl::tool("computer_click", ON_COMPUTER, Exec::Core(Op::Computer), SANDBOX, |_| {
         obj(json!({ "x": xy(), "y": xy(), "button": { "type": "string", "enum": ["left", "right", "middle"] }, "double": { "type": "boolean" } }), &["x", "y"])
     })
     .doing(COMPUTER_WORDS)
     .in_team(),
-    Decl::tool("computer_type", IN_SANDBOX, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({ "text": { "type": "string" } }), &["text"])).doing(COMPUTER_WORDS).in_team(),
-    Decl::tool("computer_key", IN_SANDBOX, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({ "keys": { "type": "string" } }), &["keys"])).doing(COMPUTER_WORDS).in_team(),
-    Decl::tool("computer_scroll", IN_SANDBOX, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({ "x": xy(), "y": xy(), "down": { "type": "integer" } }), &["x", "y", "down"])).doing(COMPUTER_WORDS).in_team(),
+    Decl::tool("computer_type", ON_COMPUTER, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({ "text": { "type": "string" } }), &["text"])).doing(COMPUTER_WORDS).in_team(),
+    Decl::tool("computer_key", ON_COMPUTER, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({ "keys": { "type": "string" } }), &["keys"])).doing(COMPUTER_WORDS).in_team(),
+    Decl::tool("computer_scroll", ON_COMPUTER, Exec::Core(Op::Computer), SANDBOX, |_| obj(json!({ "x": xy(), "y": xy(), "down": { "type": "integer" } }), &["x", "y", "down"])).doing(COMPUTER_WORDS).in_team(),
     Decl::tool("deliver_file", IN_SANDBOX, Exec::Core(Op::DeliverFile), SANDBOX, |_| {
         obj(json!({ "path": { "type": "string" }, "name": { "type": "string" }, "from": { "type": "string", "enum": ["computer", "sandbox"] } }), &["path"])
     })

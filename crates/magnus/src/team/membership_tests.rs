@@ -29,6 +29,10 @@ fn a_workspace_keeps_an_owner_and_nobody_reaches_above_their_role() {
     assert!(refuse(w, "mo", Role::Admin, "ana", Some(Role::Owner)).is_some(), "an admin made an owner");
     assert_eq!(refuse(w, "mo", Role::Admin, "ana", None), None);
     assert_eq!(refuse(w, "ana", Role::Member, "ana", None), None, "a member could not leave");
+    let l2 = ledger(&[("ana", Role::Member), ("lee", Role::Member)]);
+    let w2 = l2.workspace("w").unwrap();
+    assert!(refuse(w2, "ana", Role::Member, "lee", Some(Role::Guest)).is_some(), "a member made a peer a guest");
+    assert_eq!(refuse(w2, "ana", Role::Member, "lee", Some(Role::Member)), None, "a member could not keep a peer's role");
     // Ownership handed on first, the old owner may go.
     let l = ledger(&[("mo", Role::Owner)]);
     assert_eq!(refuse(l.workspace("w").unwrap(), "sam", Role::Owner, "sam", None), None);

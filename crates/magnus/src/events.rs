@@ -1216,6 +1216,7 @@ pub const CONTENT: &[(&str, &[&str])] = &[
     ("watched_seen", &["ids"]),
     ("rule", &["words"]),
     ("spend", &["reason", "note"]),
+    ("team_mission", &["goal", "objective", "draft", "contribution", "markdown"]),
     ("team", &["name", "message", "history", "file", "text", "note", "def", "entry", "routine", "chat"]),
     ("prefetch_recorded", &["pointers"]),
 ];

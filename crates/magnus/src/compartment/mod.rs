@@ -12,6 +12,8 @@
 //!   into site forms.
 //! - `Quarantined`: zero tools; pure schema-constrained extraction of
 //!   untrusted text.
+#[cfg(test)]
+mod link_tests;
 pub mod query_gate;
 
 use crate::boundary::Action;

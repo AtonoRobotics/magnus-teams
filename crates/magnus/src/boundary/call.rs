@@ -83,7 +83,7 @@ impl Kernel {
         let Some(task) = self.read(|s| s.tasks.get(&run.task).cloned()) else { return Ok(Default::default()) };
         let said: Vec<String> = match &task.chat {
             Some(c) if !c.turn => c.conversation.iter().filter(|m| m["role"] == "person").filter_map(|m| m["text"].as_str().map(String::from)).collect(),
-            _ if task.schedule.is_none() => vec![self.asked(run).await?],
+            _ if task.schedule.is_none() => vec![self.own_asked(run).await?],
             _ => vec![],
         };
         Ok(said.iter().flat_map(|t| tools::addresses_in(t)).collect())

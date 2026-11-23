@@ -184,6 +184,7 @@ fn only_boundary_actions_are_reviewed() {
     assert!(!is_boundary(&a("mail__list"), &facts("mail__list", "mail", Risk::Read, true)), "a read was a boundary action");
     assert!(is_boundary(&a("purchase_fill"), &facts("purchase_fill", "payments", Risk::Financial, false)));
     assert!(is_boundary(&a(crate::rule_effects::SOURCE_TOOL), &facts(crate::rule_effects::SOURCE_TOOL, "computer", Risk::ReversibleWrite, false)));
+    assert!(is_boundary(&a(crate::computer::INSTALL_TOOL), &facts(crate::computer::INSTALL_TOOL, "computer", Risk::ReversibleWrite, false)), "an install was not reviewed");
     assert!(is_boundary(&a("local_delete"), &facts("local_delete", "local", Risk::Irreversible, false)));
     assert!(!is_boundary(&a("computer_click"), &facts("computer_click", "sandbox", Risk::Sandbox, false)), "the computer's inside was reviewed");
     assert!(!is_boundary(&a("browser_click"), &facts("browser_click", "browser", Risk::ReversibleWrite, false)), "the computer's browser was reviewed");

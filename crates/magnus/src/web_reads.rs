@@ -94,7 +94,7 @@ impl Kernel {
     /// added: the person's own words and what the web returned to the work.
     pub(crate) async fn web_sources(&self, run: &Run) -> Result<Vec<String>> {
         let requester = self.requester_run(run);
-        let mut texts = if requester.task.is_empty() { vec![] } else { vec![self.asked(&requester).await?] };
+        let mut texts = if requester.task.is_empty() { vec![] } else { vec![self.own_asked(&requester).await?] };
         texts.extend(self.read(|s| returned(s, &run.id)));
         Ok(texts)
     }

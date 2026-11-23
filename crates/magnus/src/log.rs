@@ -249,6 +249,9 @@ pub const CONTENT_OWNERS: &str = "UPDATE public.content c SET person = o.person 
                 AND m.body->>'workspace' = e.body->>'workspace' AND m.body->>'channel' = w.body->'chat'->>'channel'
                 AND mc.body->'message'->>'id' = w.body->'chat'->>'id' ORDER BY m.seq LIMIT 1) ELSE w.body->'chat'->>'person' END
             ELSE e.body->>'person' END, '')
+        -- `MissionLedger::content_owner`: a draft its owner's, a release its releaser's, the rest the requester's.
+        WHEN e.kind = 'team_mission' THEN COALESCE(e.body->>'requester', e.body->>'owner', e.body->>'released_by', (SELECT s.body->>'requester'
+            FROM public.events s WHERE s.kind = 'team_mission' AND s.body->>'change' = 'started' AND s.body->>'mission' = e.body->>'mission' ORDER BY s.seq LIMIT 1))
         ELSE COALESCE(e.body->>'person', (SELECT t.body->>'person' FROM public.events t
             WHERE t.kind = 'task_created' AND t.run_id = e.run_id ORDER BY t.seq LIMIT 1))
     END AS person

@@ -224,6 +224,16 @@ impl crate::kernel::Kernel {
         Ok(self.words_of(&person, seq).await?.text(seq).to_string())
     }
 
+    /// What the person themselves asked: nothing, for a task someone else
+    /// made for them (a teammate's lane, the team agent's delegation), whose
+    /// words name no destination of theirs and stand for no request of theirs.
+    pub async fn own_asked(&self, run: &crate::state::Run) -> Result<String> {
+        if self.read(|s| s.tasks.get(&run.task).is_some_and(|t| t.by_other)) {
+            return Ok(String::new());
+        }
+        self.asked(run).await
+    }
+
     /// One task's or schedule's words, recalled for its person.
     pub async fn words_of(&self, person: &str, seq: i64) -> Result<Words> {
         self.words([(person.to_string(), seq)]).await

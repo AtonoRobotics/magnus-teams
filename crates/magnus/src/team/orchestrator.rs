@@ -30,6 +30,10 @@ const LANE_WATCH_POLL_MS: Duration = Duration::from_millis(250);
 const LANE_WATCH_MAX_SECS: Duration = Duration::from_secs(15 * 60);
 /// Maximum length of a single lane objective dispatched by the Leader Agent.
 pub(crate) const MAX_OBJECTIVE_CHARS: usize = 2_000;
+/// Most lanes one mission fans out to, and the longest goal and scope label.
+const MAX_MISSION_LANES: usize = 8;
+const MAX_GOAL_CHARS: usize = 2_000;
+const MAX_SCOPE_CHARS: usize = 200;
 
 /// Spec for one parallel lane dispatched by the Team Leader Agent or a member request.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -44,6 +48,10 @@ pub struct LaneSpec {
     pub model: Option<(String, String)>,
     #[serde(default)]
     pub thread: Option<String>,
+    /// Hold the answer in the owner's Airlock even when the owner asked:
+    /// set when the agent was only named, not called on.
+    #[serde(default)]
+    pub hold: bool,
 }
 
 impl Kernel {
@@ -57,6 +65,9 @@ impl Kernel {
         leader_run: Option<String>,
         lanes: Vec<LaneSpec>,
     ) -> Result<String> {
+        if goal.chars().count() > MAX_GOAL_CHARS || lanes.len() > MAX_MISSION_LANES {
+            return Err(anyhow::anyhow!("a mission's goal is at most {MAX_GOAL_CHARS} characters and it has at most {MAX_MISSION_LANES} lanes"));
+        }
         let mission_id = new_id("mission");
         let actor = leader_run.as_deref().map(|r| format!("run:{r}")).unwrap_or_else(|| format!("person:{requester}"));
         self.emit(
@@ -90,6 +101,7 @@ impl Kernel {
         objective: &str,
         thread: Option<String>,
         model: Option<(String, String)>,
+        hold: bool,
     ) -> Result<(String, String, String)> {
         let mission_id = new_id("mission");
         let actor = format!("person:{requester}");
@@ -105,7 +117,8 @@ impl Kernel {
             }),
         )
         .await?;
-        let spec = LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread };
+        let spec =
+            LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread, hold };
         let (_, task, run) = self.dispatch_lane_inner(workspace, room, &mission_id, requester, &actor, spec).await?;
         Ok((mission_id, task.unwrap_or_default(), run.unwrap_or_default()))
     }
@@ -133,22 +146,32 @@ impl Kernel {
         if let Some(reason) = scrub_check(objective) {
             return Err(anyhow::anyhow!("refused lane objective: {reason}"));
         }
+        if spec.scope.chars().count() > MAX_SCOPE_CHARS {
+            return Err(anyhow::anyhow!("a lane's scope is at most {MAX_SCOPE_CHARS} characters"));
+        }
 
         match spec.kind {
             LaneKind::MemberAgent => {
                 let target = spec.target_member.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(requester);
-                let is_member = self.read(|s| s.team.role(workspace, target).is_some());
-                if !is_member || self.person(target).is_none() {
-                    return Err(anyhow::anyhow!("{target} is not a member of workspace {workspace}"));
+                // Someone else's agent works only for a member who is in the
+                // room, never a guest, on the model their own settings pick.
+                let fits = self.read(|s| {
+                    let w = s.team.workspace(workspace);
+                    let role = s.team.role(workspace, target);
+                    role.is_some() && w.is_some_and(|w| w.sees(room, target)) && (target == requester || role != Some(crate::team::Role::Guest))
+                });
+                if !fits || self.person(target).is_none() {
+                    return Err(anyhow::anyhow!("{target} is not a member in this room of workspace {workspace}"));
                 }
-                let auto_release = target == requester || self.read(|s| s.missions.has_standing_release(workspace, room, target, &spec.scope, objective));
+                let model = if target == requester { spec.model } else { None };
+                let auto_release = !spec.hold && (target == requester || self.read(|s| s.missions.has_standing_release(workspace, room, target, &spec.scope, objective)));
                 let ws_name = self.read(|s| s.team.workspace(workspace).map(|w| w.name.clone())).unwrap_or_else(|| workspace.to_string());
                 let prompt = format!(
                     "Room \"{room}\" in workspace \"{ws_name}\" requested this scoped update from your personal apps (requested by {requester}):\n\n{objective}\n\nReturn a concise, scrubbed summary containing only the requested facts—never raw credentials, private emails, or unrelated personal records."
                 );
                 // Clean label: untrusted only when requested by someone else; private always.
                 let label = Label { untrusted: target != requester, private: true };
-                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model: spec.model, ..Default::default() }).await?;
+                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, ..Default::default() }).await?;
                 self.emit(
                     actor,
                     Ev::TeamMission(TeamMissionEvent::LaneDispatched {
@@ -254,8 +277,11 @@ impl Kernel {
                     return;
                 };
                 if r.status.terminal() {
-                    if r.status == Status::Failed {
-                        let _ = k.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneFailed { workspace, mission, lane, reason: "worker run failed".into() })).await;
+                    // Only a finished run is anything to share: a stopped
+                    // one (its person's Stop, their removal) shares nothing.
+                    if r.status != Status::Completed {
+                        let reason = if r.status == Status::Cancelled { "worker run was stopped" } else { "worker run failed" };
+                        let _ = k.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneFailed { workspace, mission, lane, reason: reason.into() })).await;
                         return;
                     }
                     let summary = r

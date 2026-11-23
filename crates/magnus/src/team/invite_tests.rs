@@ -149,6 +149,11 @@ async fn an_unknown_address_is_emailed_and_joins_on_choosing_a_password() {
     // A guest's invitation makes a guest of the server, never a member.
     let (_, v) = s.post(&mo, &invites, json!({ "email": "gil@example.com", "role": "guest" })).await;
     assert!(is_guest_now(&s.k.person("gil").unwrap()), "a workspace guest's account is not a guest: {v}");
+    // A server guest who is a member here brings in only guests.
+    s.k.set_server_role("person:sam", "newt", "guest").await.unwrap();
+    let newt = s.token("newt").await;
+    let (_, v) = s.post(&newt, &invites, json!({ "email": "zed@example.com" })).await;
+    assert!(is_guest_now(&s.k.person("zed").unwrap()), "a server guest's invitation made a full account: {v}");
     s.done().await;
 }
 

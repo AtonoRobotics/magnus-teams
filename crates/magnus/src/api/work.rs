@@ -575,23 +575,27 @@ pub(super) async fn live(State(k): K, Caller(p): Caller, h: HeaderMap, Path(id):
         if !so_far.is_empty() && tx.send(format!("data: {}\n\n", json!({ "text": so_far }))).await.is_err() {
             return;
         }
-        let mut checked = std::time::Instant::now();
+        // Ends when the client goes, the session ends or the run ends: a
+        // stream left open on a finished run would wake for every run's text.
+        let mut tick = tokio::time::interval(LIVE_RECHECK);
         loop {
-            match rx.recv().await {
-                Ok((r, text)) if r == run.id => {
-                    if checked.elapsed() >= LIVE_RECHECK {
-                        if !who(&k, &h).await.is_ok_and(|q| q.id == p.id) {
-                            return;
-                        }
-                        checked = std::time::Instant::now();
-                    }
-                    if tx.send(format!("data: {}\n\n", json!({ "text": text }))).await.is_err() {
+            tokio::select! {
+                () = tx.closed() => return,
+                _ = tick.tick() => {
+                    let ended = k.read(|s| s.runs.get(&run.id).is_none_or(|r| r.status.terminal()));
+                    if ended || !who(&k, &h).await.is_ok_and(|q| q.id == p.id) {
                         return;
                     }
                 }
-                Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                Err(_) => return,
+                got = rx.recv() => match got {
+                    Ok((r, text)) if r == run.id => {
+                        if tx.send(format!("data: {}\n\n", json!({ "text": text }))).await.is_err() {
+                            return;
+                        }
+                    }
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(_) => return,
+                },
             }
         }
     });

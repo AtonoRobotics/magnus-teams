@@ -11,6 +11,7 @@ mod display;
 mod files;
 mod frames;
 mod local;
+mod loopback;
 mod look;
 mod methods;
 mod pin;
@@ -22,6 +23,7 @@ mod update;
 use base64::Engine;
 use address::normalize;
 use files::file_path;
+use loopback::redirected;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -516,47 +518,6 @@ async fn loopback_wait(app: State<'_, App>) -> Res<Value> {
     let l = app.loopback.lock().unwrap().take().ok_or("no sign-in is waiting")?;
     let q = redirected(l, SIGN_IN_WAIT).await?;
     Ok(json!({ "code": q["code"], "state": q["state"], "iss": q.get("iss") }))
-}
-
-/// The query of the first redirect to `/callback` on this listener: it has
-/// a code and state, or the sign-in page's error. The browser is told to
-/// return to Magnus either way.
-async fn redirected(l: tokio::net::TcpListener, wait: std::time::Duration) -> Res<HashMap<String, String>> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let wait_for = async {
-        loop {
-            let (mut s, _) = l.accept().await.map_err(|e| e.to_string())?;
-            let mut buf = vec![0u8; 8192];
-            let mut n = 0;
-            while n < buf.len() {
-                let k = s.read(&mut buf[n..]).await.map_err(|e| e.to_string())?;
-                if k == 0 {
-                    break;
-                }
-                n += k;
-                if buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            let head = String::from_utf8_lossy(&buf[..n]);
-            let target = head.lines().next().and_then(|l| l.strip_prefix("GET ")).and_then(|l| l.split(' ').next()).unwrap_or_default().to_string();
-            let Ok(u) = url::Url::parse(&format!("http://127.0.0.1{target}")) else { continue };
-            if u.path() != "/callback" {
-                let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
-                continue;
-            }
-            let q: HashMap<String, String> = u.query_pairs().into_owned().collect();
-            let (title, result) = match (q.get("code"), q.get("state"), q.get("error")) {
-                (Some(_), Some(_), _) => ("Signed in. You can close this page and return to Magnus.", Ok(q.clone())),
-                (_, _, Some(e)) => ("The sign-in did not finish. Return to Magnus.", Err(format!("the sign-in page said: {}", q.get("error_description").unwrap_or(e)))),
-                _ => ("The sign-in did not finish. Return to Magnus.", Err("the sign-in page sent no code".to_string())),
-            };
-            let body = format!("<!doctype html><meta charset=utf-8><title>Magnus</title><p style=\"font:16px system-ui;margin:40px\">{title}</p>");
-            let _ = s.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
-            return result;
-        }
-    };
-    tokio::time::timeout(wait, wait_for).await.map_err(|_| "the sign-in took too long; start again".to_string())?
 }
 
 /// Sign in through the appliance's identity provider in the person's own

@@ -33,6 +33,10 @@ pub(crate) fn refuse(w: &Workspace, by: &str, mine: Role, person: &str, to: Opti
     if person != by && now.is_some_and(|r| r > mine) {
         return Some("you cannot change someone whose role is above yours");
     }
+    // Peers add each other; lowering or removing someone else is an admin's.
+    if person != by && mine < Role::Admin && now.is_some_and(|r| to.is_none_or(|t| t < r)) {
+        return Some("only an admin lowers someone else's role");
+    }
     let owners = w.members.values().filter(|r| **r == Role::Owner).count();
     if now == Some(Role::Owner) && to != Some(Role::Owner) && owners <= 1 {
         return Some("a workspace keeps an owner: make someone else its owner first, or delete the workspace");

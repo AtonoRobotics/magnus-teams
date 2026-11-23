@@ -319,7 +319,8 @@ const SharedCanvas = (() => {
       const picked = new Set(opts.selectedIds || []);
       const lines = (opts.messages || [])
         .filter(m => picked.has(m.id) && String(m.text || "").trim())
-        .map(m => `${m.kind === "answer" ? "Magnus" : "Note"}: ${String(m.text).trim()}`);
+        // "Answer", not the agent's name: a shared message naming it would start the sharer's agent.
+        .map(m => `${m.kind === "answer" ? "Answer" : "Note"}: ${String(m.text).trim()}`);
       return lines.join("\n\n");
     }
     return String(opts.summary || "").trim();

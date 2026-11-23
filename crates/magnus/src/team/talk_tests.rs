@@ -70,8 +70,31 @@ async fn a_team_request_runs_on_the_model_its_member_picked() {
     assert_eq!(personal_run.person, "sam", "the dispatched lane did not run as the requester's personal agent");
     assert_eq!((personal_run.config.adapter, personal_run.config.model), (adapter, model));
     let picked = ("other".to_string(), "picked-model".to_string());
-    let (_, _, picked_run_id) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, Some(picked.clone())).await.unwrap();
+    let (_, _, picked_run_id) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, Some(picked.clone()), false).await.unwrap();
     let picked_run = s.k.read(|st| st.runs.get(&picked_run_id).cloned().unwrap());
     assert_eq!((picked_run.config.adapter, picked_run.config.model), picked, "the picked model was not the personal lane's");
     s.done().await;
+}
+
+/// A lane whose run was stopped (its person's Stop, their removal) shares
+/// nothing: it fails, and nothing is released into the room.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_lane_releases_nothing() {
+    let s = server_with("", |_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let (_, v) = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await;
+    let ws = v["id"].as_str().unwrap().to_string();
+    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    let (mission, _, run) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, None, false).await.unwrap();
+    s.k.emit("person:sam", crate::events::Ev::Cancelled { run: run.clone(), source: Some("button".into()), turn: None }).await.unwrap();
+    for _ in 0..200 {
+        let lane = s.k.read(|st| st.missions.mission(&mission).and_then(|m| m.lanes.values().next().cloned())).unwrap();
+        assert_ne!(lane.status, crate::team::missions::LaneStatus::Released, "a stopped lane was released into the room");
+        if lane.status == crate::team::missions::LaneStatus::Failed {
+            assert_eq!(lane.failure_reason.as_deref(), Some("worker run was stopped"));
+            return s.done().await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("the stopped lane never ended");
 }
