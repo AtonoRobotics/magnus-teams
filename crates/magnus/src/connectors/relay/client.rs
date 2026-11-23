@@ -1,7 +1,7 @@
 //! Asking the relay to refresh or revoke a relayed sign-in's tokens: the
 //! request signed with this server's key, the answer with the relay's.
 
-use super::super::http;
+use super::super::{CALL_WAIT, CONNECT_WAIT};
 use super::{now, open, timely, Message, Refreshed, Settings, Signed};
 use crate::kernel::Kernel;
 use crate::oauth::random;
@@ -31,7 +31,13 @@ impl<'a> HttpRelay<'a> {
 
     async fn ask(&self, path: &str, m: &Message) -> Result<Message> {
         let env = self.k.relay_keys.seal(&self.k.vault, m)?;
-        let r = http().post(format!("{}/{path}", self.s.url.trim_end_matches('/'))).json(&env).send().await.context("could not reach the relay")?;
+        // The relay is at the address the operator configured (`[relay] url`).
+        let r = crate::egress_client::configured(CONNECT_WAIT, CALL_WAIT)?
+            .post(format!("{}/{path}", self.s.url.trim_end_matches('/')))
+            .json(&env)
+            .send()
+            .await
+            .context("could not reach the relay")?;
         anyhow::ensure!(r.status().is_success(), "the relay answered HTTP {}", r.status());
         let back: Signed = r.json().await.context("the relay's answer is not a signed message")?;
         open(&back, &self.s.key()?).context("the relay's answer")

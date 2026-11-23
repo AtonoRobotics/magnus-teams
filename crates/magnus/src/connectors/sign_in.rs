@@ -3,8 +3,9 @@
 //! kept in the vault.
 
 use super::sign_in_target::{sign_in_target, SignInTarget};
-use super::{connection_name, http, BACKOFF_FIRST_SECS, KNOWN_POLL, KNOWN_WAIT, PENDING_FOR, PROBE_WAIT, RETRY_AFTER_MOST, SLACK_OAUTH_CALLBACK};
+use super::{connection_name, BACKOFF_FIRST_SECS, KNOWN_POLL, KNOWN_WAIT, PENDING_FOR, PROBE_WAIT, RETRY_AFTER_MOST, SLACK_OAUTH_CALLBACK};
 use crate::config::Connector;
+use crate::egress_client::Egress;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::oauth::{challenge, loopback, random};
@@ -281,23 +282,25 @@ pub(crate) fn registration_backoff(headers: &reqwest::header::HeaderMap, attempt
 /// on that error. After registering, the address is handed out once the provider's sign-in answers it with anything else, asked
 /// every quarter second for ten seconds at most in all, however slowly it answers (how long the person may wait for the sign-in
 /// page); then it is handed out as it is. Redirects are not followed: the answer is the provider's own.
-pub(crate) async fn until_client_known(authorize: &str) {
+pub(crate) async fn until_client_known(e: &Egress, authorize: &str) {
     let known = async {
-        while unknown(authorize).await {
+        while unknown(e, authorize).await {
             tokio::time::sleep(KNOWN_POLL).await;
         }
     };
     let _ = tokio::time::timeout(KNOWN_WAIT, known).await;
 }
 
-pub(crate) fn no_redirects() -> reqwest::Result<reqwest::Client> {
-    reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(PROBE_WAIT).build()
+/// A probe of the provider's sign-in page: checked and pinned like every
+/// address the app names, no redirect followed, and quick.
+async fn probe(e: &Egress, authorize: &str) -> Result<reqwest::Response> {
+    e.waiting(PROBE_WAIT).send(reqwest::Method::GET, authorize, |r| r).await
 }
 
 /// The provider's sign-in says it does not know the client (401
 /// invalid_client, as GitLab.com answers).
-pub(crate) async fn unknown(authorize: &str) -> bool {
-    match async { no_redirects()?.get(authorize).send().await }.await {
+pub(crate) async fn unknown(e: &Egress, authorize: &str) -> bool {
+    match probe(e, authorize).await {
         Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => r.text().await.unwrap_or_default().contains("invalid_client"),
         _ => false,
     }
@@ -309,8 +312,8 @@ pub(crate) async fn unknown(authorize: &str) -> bool {
 /// invalid_request "Invalid client_id". A 429, a 403 or a server error says
 /// nothing about the client, and the kept one stays (review of #215).
 /// Redirects are not followed.
-pub(crate) async fn refused(authorize: &str) -> bool {
-    match async { no_redirects()?.get(authorize).send().await }.await {
+pub(crate) async fn refused(e: &Egress, authorize: &str) -> bool {
+    match probe(e, authorize).await {
         Ok(r) if matches!(r.status().as_u16(), 400 | 401) => r.text().await.unwrap_or_default().to_lowercase().contains("client"),
         _ => false,
     }
@@ -332,6 +335,12 @@ pub(crate) fn registered_client_name(registration: &str, redirect_uri: &str) -> 
     format!("registered_client {registration} {redirect}")
 }
 
+/// A registration request (RFC 7591) to the address the app's
+/// authorization server names: checked and pinned, no redirect followed.
+pub(crate) async fn registration_request(e: &Egress, registration: &str, body: &Value) -> Result<reqwest::Response> {
+    e.send(reqwest::Method::POST, registration, |r| r.json(body)).await
+}
+
 impl Kernel {
     /// Register Magnus at an authorization server for a redirect address
     /// (RFC 7591), and keep the client under `name` for later sign-ins. A
@@ -344,7 +353,7 @@ impl Kernel {
         });
         let mut last = String::new();
         for attempt in 0..3 {
-            let r = http().post(registration).json(&body).send().await?;
+            let r = registration_request(&self.app_egress(), registration, &body).await?;
             if r.status().is_success() {
                 let v: Value = r.json().await?;
                 let id = v["client_id"].as_str().ok_or_else(|| anyhow!("registration returned no client id"))?.to_string();
@@ -383,7 +392,8 @@ impl Kernel {
         if loopback(redirect_uri).is_err() && redirect_uri != SLACK_OAUTH_CALLBACK && !self.is_web_return(c, redirect_uri) {
             loopback(redirect_uri)?;
         }
-        let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(c).await?;
+        let egress = self.app_egress();
+        let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(&egress, c).await?;
         let s = |k: &str| asm[k].as_str().map(String::from);
         let (Some(authorize), Some(token)) = (s("authorization_endpoint"), s("token_endpoint")) else {
             bail!("the app's authorization server names no authorization or token endpoint")
@@ -433,14 +443,14 @@ impl Kernel {
         let address = |client_id: &str| authorize_url(&ask, client_id);
         let mut u = address(&client_id)?;
         if fresh {
-            until_client_known(u.as_str()).await;
+            until_client_known(&egress, u.as_str()).await;
         } else if let Some((name, reg)) = &kept {
             // The provider may have dropped a client kept from before: its
             // sign-in refuses the address. Magnus registers again, once.
-            if refused(u.as_str()).await {
+            if refused(&egress, u.as_str()).await {
                 (client_id, client_secret) = self.register_client(name, reg, redirect_uri).await?;
                 u = address(&client_id)?;
-                until_client_known(u.as_str()).await;
+                until_client_known(&egress, u.as_str()).await;
             }
         }
         let client = Client { token_endpoint: token, revocation_endpoint: s("revocation_endpoint"), client_id, client_secret, resource, relay: None };
@@ -472,7 +482,7 @@ impl Kernel {
         check_answer_issuer(iss, &p.issuer, p.iss_required)?;
         let c = &p.client;
         let form = token_form(code, &p);
-        let r = crate::token_endpoint::post(&http(), &c.token_endpoint, &form).send().await?;
+        let r = crate::token_endpoint::post(&self.app_egress(), &c.token_endpoint, &form).await?;
         if !r.status().is_success() {
             let status = r.status();
             // A kept client the provider dropped: the next sign-in registers.

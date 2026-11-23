@@ -54,6 +54,7 @@ pub mod desktop_routes;
 pub mod dev;
 pub mod dev_panels;
 pub mod devices;
+pub(crate) mod egress_client;
 pub mod envelope;
 pub mod events;
 pub mod evidence;

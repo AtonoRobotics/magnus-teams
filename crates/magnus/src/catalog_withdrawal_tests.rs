@@ -149,7 +149,7 @@ fn notices(k: &Kernel, person: &str, app: &str) -> usize {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_withdrawn_connector_is_turned_off_its_connections_revoked_and_its_people_told_once() {
     let key = Key::new();
-    let more = format!("[updates]\npublic_key = {:?}\ncheck_minutes = 0\n", key.public());
+    let more = format!("[updates]\npublic_key = {:?}\ncheck_minutes = 0\n[web]\nallow_private_networks = true\n", key.public());
     let s = crate::admin_app::tests::server_with(&more, |_| axum::Router::new()).await;
     let k = s.k.clone();
     let (revoke_at, revoked) = revoker().await;
@@ -200,7 +200,7 @@ async fn a_withdrawn_connector_is_turned_off_its_connections_revoked_and_its_peo
 #[tokio::test(flavor = "multi_thread")]
 async fn a_projects_connection_is_ended_and_its_admins_told() {
     let key = Key::new();
-    let more = format!("[updates]\npublic_key = {:?}\ncheck_minutes = 0\n", key.public());
+    let more = format!("[updates]\npublic_key = {:?}\ncheck_minutes = 0\n[web]\nallow_private_networks = true\n", key.public());
     let s = crate::admin_app::tests::server_with(&more, |_| axum::Router::new()).await;
     let k = s.k.clone();
     let sam = s.token("sam").await;

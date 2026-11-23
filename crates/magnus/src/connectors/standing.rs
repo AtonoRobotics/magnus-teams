@@ -3,7 +3,7 @@
 
 use super::relay;
 use super::sign_in::{dead_token, granted, Tokens};
-use super::{connection_name, http, SignInOwner, Standing, Superseded, OAUTH};
+use super::{connection_name, SignInOwner, Standing, Superseded, OAUTH};
 use crate::config::Connector;
 use crate::events::Ev;
 use crate::kernel::Kernel;
@@ -230,7 +230,7 @@ async fn refresh_at_app(k: &Kernel, c: &Connector, t: &Tokens, refresh: String) 
     if let Some(s) = &t.client.client_secret {
         form.push(("client_secret", s.clone()));
     }
-    match crate::token_endpoint::post(&http(), &t.client.token_endpoint, &form).send().await {
+    match crate::token_endpoint::post(&k.app_egress(), &t.client.token_endpoint, &form).await {
         Ok(r) if r.status().is_success() => Answer::Tokens(r.json().await.unwrap_or_default()),
         Ok(r) => {
             tracing::warn!("refresh for {}: HTTP {}", c.name, r.status());
@@ -271,7 +271,7 @@ pub async fn revoke(k: &Kernel, stored: &str) -> (bool, String) {
         if let Some(s) = &t.client.client_secret {
             form.push(("client_secret", s.clone()));
         }
-        match http().post(&endpoint).form(&form).send().await {
+        match k.app_egress().send(reqwest::Method::POST, &endpoint, |r| r.form(&form)).await {
             Ok(r) if r.status().is_success() => done.push(hint),
             Ok(r) => return (false, format!("the app refused to revoke its {hint}: HTTP {}", r.status())),
             Err(e) => return (false, format!("could not reach the app's revocation endpoint: {e}")),

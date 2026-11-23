@@ -1,6 +1,7 @@
 //! Web access for the agent: fetch and search, run by the kernel behind the
 //! boundary. Everything returned is labeled untrusted.
 
+use crate::egress_client::Egress;
 use anyhow::{anyhow, Result};
 use std::net::IpAddr;
 use std::time::Duration;
@@ -12,44 +13,24 @@ const CONNECT_WAIT: Duration = Duration::from_secs(10);
 const FETCH_WAIT: Duration = Duration::from_secs(45);
 
 pub struct Web {
-    http: reqwest::Client,
-    allow_private: bool,
+    /// For the pages the agent asks for: every hop checked (`egress_client`).
+    egress: Egress,
+    /// For the owner's own search service, at the address the config names.
+    search: reqwest::Client,
     search_url: Option<String>,
 }
+
+const USER_AGENT: &str = "Mozilla/5.0 (compatible; Magnus/0.1)";
 
 pub(crate) fn private_ip(ip: IpAddr) -> bool {
     crate::net_guard::is_non_public_ip(ip)
 }
 
-/// The addresses `host` reaches on `port`, refused when any is private, so a
-/// caller connects to an address that was checked and DNS cannot answer
-/// differently between the check and the connection (no rebinding). An
-/// address literal is that address (an IPv6 one may keep its brackets, which
-/// no resolver takes); a name is resolved once. Every answer is checked, or
-/// a mix of one public and one private would pass.
-pub(crate) async fn public_addrs(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>> {
-    let bare = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
-    let addrs: Vec<std::net::SocketAddr> = match bare.parse::<IpAddr>() {
-        Ok(ip) => vec![(ip, port).into()],
-        Err(_) => tokio::net::lookup_host((bare, port)).await?.collect(),
-    };
-    anyhow::ensure!(!addrs.is_empty(), "{host} does not resolve");
-    for a in &addrs {
-        anyhow::ensure!(!private_ip(a.ip()), "{host} resolves to a private address; reaching it is not allowed");
-    }
-    Ok(addrs)
-}
-
 impl Web {
     pub fn new(cfg: &crate::config::Web) -> Result<Web> {
         Ok(Web {
-            http: reqwest::Client::builder()
-                .connect_timeout(CONNECT_WAIT)
-                .timeout(FETCH_WAIT)
-                .redirect(reqwest::redirect::Policy::none())
-                .user_agent("Mozilla/5.0 (compatible; Magnus/0.1)")
-                .build()?,
-            allow_private: cfg.allow_private_networks,
+            egress: Egress::new(cfg.allow_private_networks, CONNECT_WAIT, FETCH_WAIT),
+            search: crate::egress_client::configured(CONNECT_WAIT, FETCH_WAIT)?,
             search_url: cfg.search_url.clone(),
         })
     }
@@ -58,44 +39,10 @@ impl Web {
         self.search_url.is_some()
     }
 
-    /// Check a URL's host and return the checked addresses to connect to, so
-    /// the connection goes only to checked addresses (no DNS rebinding) while
-    /// supporting dual-stack fallback.
-    async fn check_host(&self, url: &url::Url) -> Result<Option<(String, Vec<std::net::SocketAddr>)>> {
-        anyhow::ensure!(matches!(url.scheme(), "http" | "https"), "only http and https URLs can be fetched");
-        if self.allow_private {
-            return Ok(None);
-        }
-        let host = url.host_str().ok_or_else(|| anyhow!("URL has no host"))?.to_string();
-        let port = url.port_or_known_default().unwrap_or(443);
-        let addrs = public_addrs(&host, port).await?;
-        Ok(Some((host, addrs)))
-    }
-
     /// GET with every redirect hop checked like the first request.
     async fn get(&self, start: url::Url) -> Result<reqwest::Response> {
-        let mut url = start;
-        for _ in 0..6 {
-            let pinned = self.check_host(&url).await?;
-            let client = match &pinned {
-                Some((host, addrs)) => reqwest::Client::builder()
-                    .connect_timeout(CONNECT_WAIT)
-                    .timeout(FETCH_WAIT)
-                    .redirect(reqwest::redirect::Policy::none())
-                    .user_agent("Mozilla/5.0 (compatible; Magnus/0.1)")
-                    .resolve_to_addrs(host, addrs)
-                    .build()?,
-                None => self.http.clone(),
-            };
-            let resp = client.get(url.clone()).send().await.map_err(|e| anyhow!("fetch failed: {e}"))?;
-            if resp.status().is_redirection() {
-                let loc = resp.headers().get("location").and_then(|v| v.to_str().ok()).ok_or_else(|| anyhow!("redirect without a location"))?;
-                url = url.join(loc).map_err(|e| anyhow!("bad redirect: {e}"))?;
-                continue;
-            }
-            return Ok(resp);
-        }
-        Err(anyhow!("too many redirects"))
+        anyhow::ensure!(matches!(start.scheme(), "http" | "https"), "only http and https URLs can be fetched");
+        self.egress.get(start.as_str(), |r| r.header(reqwest::header::USER_AGENT, USER_AGENT)).await.map_err(|e| anyhow!("fetch failed: {e:#}"))
     }
 
     /// Returns (text, content type).
@@ -136,7 +83,7 @@ impl Web {
         let base = self.search_url.as_ref().ok_or_else(|| anyhow!("no search service is configured"))?;
         let mut url = url::Url::parse(base)?;
         url.query_pairs_mut().append_pair("q", query).append_pair("format", "json");
-        let v: serde_json::Value = self.http.get(url).send().await?.json().await?; // the owner's own search service
+        let v: serde_json::Value = self.search.get(url).header(reqwest::header::USER_AGENT, USER_AGENT).send().await?.json().await?; // the owner's own search service
         let mut out = String::new();
         for r in v["results"].as_array().into_iter().flatten().take(10) {
             out.push_str(&format!("- {}\n  {}\n  {}\n", r["title"].as_str().unwrap_or_default(), r["url"].as_str().unwrap_or_default(), r["content"].as_str().unwrap_or_default()));

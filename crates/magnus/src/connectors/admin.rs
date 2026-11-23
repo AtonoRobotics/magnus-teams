@@ -124,7 +124,7 @@ impl Kernel {
         // the name comes from the app. (The app's form sends what it returns
         // and what reaches it at their most guarded; they stay named here.)
         if name.is_empty() {
-            let own = own_name(&url).await;
+            let own = own_name(&self.app_egress(), &url).await;
             name = name_from(&url, own.as_deref(), taken);
         }
         if name.is_empty() || name.contains("__") || !name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') {
@@ -150,10 +150,10 @@ impl Kernel {
         if b.token.as_deref().is_some_and(|t| !t.trim().is_empty()) || b.client_id.as_ref().is_some_and(|c| !c.is_null()) {
             return Err(refusal(StatusCode::BAD_REQUEST, "Magnus never takes a key, token or client details for an app: each person signs in to it with their own account"));
         }
-        let oauth = match asks_sign_in(&url).await {
+        let oauth = match asks_sign_in(&self.app_egress(), &url).await {
             Ok(None) => false,
             Ok(Some(meta)) => {
-                let (asm, _, _) = discover(&url, meta).await.map_err(|e| {
+                let (asm, _, _) = discover(&self.app_egress(), &url, meta).await.map_err(|e| {
                     refusal(
                         StatusCode::UNPROCESSABLE_ENTITY,
                         format!(

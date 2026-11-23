@@ -143,11 +143,14 @@ pub(crate) struct Connecting {
     pub(crate) store: SignInStore,
 }
 
-pub(crate) fn http() -> reqwest::Client {
-    reqwest::Client::builder().connect_timeout(CONNECT_WAIT).timeout(CALL_WAIT).build().unwrap_or_default()
-}
-
 impl Kernel {
+    /// How an app's address and every address its sign-in names are
+    /// reached: each checked public and pinned, unless the server allows
+    /// private networks (`egress_client`). The app chooses them all.
+    pub(crate) fn app_egress(&self) -> crate::egress_client::Egress {
+        crate::egress_client::Egress::new(self.cfg.web.allow_private_networks, CONNECT_WAIT, CALL_WAIT)
+    }
+
     /// The organisation's apps that are on: the config file's, those the
     /// owner added, and the whole catalog, already set up (connectors spec
     /// rev 46), each with who may use it as an admin set it. An app an
@@ -229,5 +232,7 @@ pub(crate) fn listing(c: &Connector) -> Value {
     }
 }
 
+#[cfg(test)]
+mod egress_tests;
 #[cfg(test)]
 mod naming;

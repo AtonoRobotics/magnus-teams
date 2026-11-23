@@ -3,6 +3,7 @@
 //! Only the boundary calls `call`, after every check, with the credential it
 //! resolved from the vault. The kernel lists tools to pin their definitions.
 
+use crate::egress_client::Egress;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -107,8 +108,13 @@ async fn bounded_text(mut resp: reqwest::Response) -> Result<String, CallError> 
 
 #[derive(Clone)]
 pub struct Mcp {
-    http: reqwest::Client,
-    /// Whether a generated connector may reach a private address.
+    /// How an app's address is reached: checked public and pinned, unless
+    /// the server allows private networks, and no redirect followed
+    /// (`egress_client`). An app's answer must come from the address it was
+    /// given, never a hop to the server's own network (169.254.169.254, a
+    /// local port).
+    egress: Egress,
+    /// Whether an app, or a generated connector, may reach a private address.
     allow_private: bool,
     /// Which tools ship a view, as listed: app url and tool, to the view.
     views: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
@@ -116,22 +122,29 @@ pub struct Mcp {
 
 struct Session {
     url: String,
+    /// The client for the app's address, checked and pinned when the
+    /// session opened; none for a generated connector, which reaches its own.
+    client: Option<reqwest::Client>,
     bearer: Option<String>,
     id: Option<String>,
 }
 
 impl Mcp {
     pub fn new() -> Result<Mcp> {
-        // No redirects: an app's answer must come from the address it was
-        // given, never a hop to the server's own network (169.254.169.254, a
-        // local port) the request would otherwise follow.
-        let http = reqwest::Client::builder().connect_timeout(CONNECT_WAIT).timeout(CALL_WAIT).redirect(reqwest::redirect::Policy::none()).build()?;
-        Ok(Mcp { allow_private: false, http, views: Default::default() })
+        Ok(Mcp { allow_private: false, egress: Egress::new(false, CONNECT_WAIT, CALL_WAIT), views: Default::default() })
     }
 
-    /// With the appliance's rule on private addresses.
+    /// Reaching apps as `egress` says (a test's stand-in for a public server).
+    #[cfg(test)]
+    pub(crate) fn reaching(mut self, egress: Egress) -> Mcp {
+        self.egress = egress;
+        self
+    }
+
+    /// With the server's rule on private addresses.
     pub fn allowing_private(mut self, allow: bool) -> Mcp {
         self.allow_private = allow;
+        self.egress = Egress::new(allow, CONNECT_WAIT, CALL_WAIT);
         self
     }
 
@@ -143,7 +156,8 @@ impl Mcp {
         if let Some(id) = id {
             body["id"] = json!(id);
         }
-        let mut req = self.http.post(&s.url).header("accept", "application/json, text/event-stream").header("mcp-protocol-version", PROTOCOL).json(&body);
+        let Some(client) = &s.client else { return Err(CallError::NotSent("no connection to the app".into())) };
+        let mut req = client.post(&s.url).header("accept", "application/json, text/event-stream").header("mcp-protocol-version", PROTOCOL).json(&body);
         if let Some(b) = &s.bearer {
             req = req.bearer_auth(b);
         }
@@ -195,11 +209,13 @@ impl Mcp {
     }
 
     async fn open(&self, url: &str, bearer: Option<&str>) -> Result<Session, CallError> {
-        let mut s = Session { url: url.into(), bearer: bearer.map(String::from), id: None };
         if crate::generated::is_generated(url) {
-            return Ok(s);
+            return Ok(Session { url: url.into(), client: None, bearer: bearer.map(String::from), id: None });
         }
-        let mut req = self.http.post(url).header("accept", "application/json, text/event-stream").json(&json!({
+        let parsed = url::Url::parse(url).map_err(|e| CallError::NotSent(format!("the app's address is not a URL: {e}")))?;
+        let client = self.egress.client_for(&parsed).await.map_err(|e| CallError::NotSent(format!("could not connect: {e:#}")))?;
+        let mut s = Session { url: url.into(), client: Some(client.clone()), bearer: bearer.map(String::from), id: None };
+        let mut req = client.post(url).header("accept", "application/json, text/event-stream").json(&json!({
             "jsonrpc": "2.0", "id": 0, "method": "initialize",
             "params": { "protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": { "name": "magnus", "version": env!("CARGO_PKG_VERSION") } }
         }));

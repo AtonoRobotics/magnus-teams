@@ -99,7 +99,7 @@ fn tokens(access: &str, refresh: Option<&str>, expires_in: Option<i64>) -> Relay
 
 fn connector(f: &Fake) -> String {
     format!(
-        "[[connectors]]\nname = \"relayed\"\nurl = \"{}/mcp\"\ncredential = \"connector_relayed\"\nauth = \"oauth\"\naudience = \"private\"\nlabel = \"private+untrusted\"\nregistration = \"slack\"\n",
+        "[[connectors]]\nname = \"relayed\"\nurl = \"{}/mcp\"\ncredential = \"connector_relayed\"\nauth = \"oauth\"\naudience = \"private\"\nlabel = \"private+untrusted\"\nregistration = \"slack\"\n[web]\nallow_private_networks = true\n",
         f.base
     )
 }
