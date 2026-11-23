@@ -1,0 +1,7 @@
+# Erasure knows whose knowledge entries and lessons are
+
+Every knowledge entry and every playbook lesson counted as the organisation's, so it belonged to no one and an erasure left it: in the content store, the state, the knowledge index and the backups. But an entry filed from a person's own account, or added by them without groups, is readable by them alone, and 2026-11-11 says such an entry is theirs. Lessons are kept per person.
+
+One rule now, in `knowledge_owner`: an entry is a person's when some clause of its readers names that person alone and no clause names another person alone, by the readers it has now. An entry shared since with a group or with everyone is the organisation's and stays. A lesson is its person's. The log writes each new row's owner by it (`State::content_owner`); `migrate` and a restore set every entry's row by its current readers (`owners_sql`), which also makes the rows written before this release theirs; an erasure takes their entries' and lessons' content by the same rule from the state, whatever a row's column says; the state forgets their entries and lessons; and the knowledge index drops their rows as it follows the erasure. Backups lose them through the erasure's `Removed`, as with the rest of their content.
+
+The rule is a little wider than "one clause naming one person": an entry whose readers are `[[group:G], [person:X]]` can be read by X alone too, so it is X's. That is the safer reading of the same promise.

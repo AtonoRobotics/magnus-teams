@@ -247,8 +247,10 @@ impl State {
                 }
             }
             Ev::Removed { item, seqs } => {
-                // What the removed events had copied leaves with them.
+                // What the removed events had copied leaves with them, and
+                // the results they were hold nothing (`read_copies`).
                 self.drop_copies(seqs);
+                self.drop_read_results(seqs);
                 // A person's erasure: their subject is still bound here.
                 if let Some(p) = item.strip_prefix("person:") {
                     self.erasures.record(p, e.seq, self.identity.subject(p).map(str::to_string));

@@ -9,7 +9,7 @@
 mod call;
 mod record;
 
-pub(crate) use call::memory_text;
+pub(crate) use call::memory_result;
 pub use call::{computer_command, media_type_for};
 use call::{memory_taint, CallFailure};
 use record::{err_text, Record};
@@ -408,7 +408,7 @@ impl Kernel {
         let taint = crate::tool_registry::taint(&a.tool);
         let (out, memory) = if taint == Taint::Memory {
             let hits = self.memory_hits(&a.run, a.input["query"].as_str().unwrap_or_default()).await?;
-            (Ok((memory_text(&hits), false, None)), Some(memory_taint(&hits)))
+            (Ok(memory_result(&hits)), Some(memory_taint(&hits)))
         } else {
             (self.call(a, &f, secret.as_ref().map(|s| s.expose()), &key, stops).await, None)
         };

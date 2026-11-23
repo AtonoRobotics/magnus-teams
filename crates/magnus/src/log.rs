@@ -207,7 +207,7 @@ async fn migrate_root(admin: &Client, root_url: &str, db: &str) -> Result<()> {
 /// events, by the same rule as `State::content_owner`.
 pub fn content_walls_sql(role: &str) -> String {
     let reader = format!("{role}_person");
-    let (owners, open_web) = (CONTENT_OWNERS, crate::team::lanes::OPEN_WEB_OWNERS);
+    let (owners, open_web, knowledge) = (CONTENT_OWNERS, crate::team::lanes::OPEN_WEB_OWNERS, crate::knowledge_owner::owners_sql());
     format!(
         "ALTER TABLE public.content ADD COLUMN IF NOT EXISTS person text;
          CREATE INDEX IF NOT EXISTS content_person ON public.content (person);
@@ -223,7 +223,7 @@ pub fn content_walls_sql(role: &str) -> String {
          DROP POLICY IF EXISTS content_person ON public.content;
          CREATE POLICY content_person ON public.content FOR SELECT TO {reader}
              USING (person IS NOT NULL AND person = NULLIF(current_setting('magnus.person', true), ''));
-         {owners} {open_web}"
+         {owners} {open_web} {knowledge}"
     )
 }
 
@@ -231,7 +231,8 @@ pub fn content_walls_sql(role: &str) -> String {
 /// before the column existed, or restored from a backup.
 pub const CONTENT_OWNERS: &str = "UPDATE public.content c SET person = o.person FROM (
     SELECT e.seq, CASE
-        WHEN e.kind IN ('knowledge_added', 'playbook') THEN NULL
+        -- A knowledge entry is whose its readers now say: `knowledge_owner::owners_sql`, after this.
+        WHEN e.kind = 'knowledge_added' THEN NULL
         WHEN e.kind = 'bundle_written' THEN e.body->>'owner_user'
         WHEN e.kind = 'item_resolved' THEN (SELECT i.body->>'person' FROM public.events i
             WHERE i.kind = 'item' AND i.body->>'id' = e.body->>'id' ORDER BY i.seq LIMIT 1)
@@ -322,7 +323,8 @@ pub fn join(mut body: Value, content: Option<Value>) -> Value {
 /// `matches` (what belongs to the item but carries no run: its verdict, the
 /// answers to its cards); and each `(kind, run, text)` of `containing`, the
 /// events of that kind in that run whose content holds the text (where a
-/// memory was written).
+/// memory was written); and the events in `seqs` (the results that read
+/// it into a run, `read_copies`).
 #[derive(Debug, Default)]
 pub struct Holding {
     pub runs: Vec<String>,
@@ -332,6 +334,7 @@ pub struct Holding {
     pub id: String,
     pub matches: Vec<(&'static str, &'static str, String)>,
     pub containing: Vec<(&'static str, String, String)>,
+    pub seqs: Vec<i64>,
 }
 
 /// The event log. A lost connection (Postgres restarting) is opened again
@@ -620,8 +623,9 @@ impl Log {
                  WHERE (e.run_id = ANY($1) AND e.kind <> ALL($2)) OR (e.kind = ANY($3) AND e.body->>$4 = $5)
                     OR EXISTS (SELECT 1 FROM unnest($6::text[], $7::text[], $8::text[]) AS m(k, f, v) WHERE e.kind = m.k AND e.body->>m.f = m.v)
                     OR EXISTS (SELECT 1 FROM unnest($9::text[], $10::text[], $11::text[]) AS x(k, r, t) WHERE e.kind = x.k AND e.run_id = x.r AND strpos(c.body::text, x.t) > 0)
+                    OR e.seq = ANY($12)
                  ORDER BY e.seq",
-                &[&h.runs, &except, &kinds, &h.field, &h.id, &mk, &mf, &mv, &ck, &cr, &ct],
+                &[&h.runs, &except, &kinds, &h.field, &h.id, &mk, &mf, &mv, &ck, &cr, &ct, &h.seqs],
             )
             .await?;
         Ok(rows.iter().map(|r| r.get(0)).collect())

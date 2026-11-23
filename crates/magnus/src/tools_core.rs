@@ -200,12 +200,8 @@ impl Kernel {
                 Ok((format!("Delivered {name} ({size} bytes) from {} to the person.", from.said()), false, Some(json!({ "output_id": id }))))
             }
             Op::MemoryWrite => {
-                let (run, written_in_run) = self.read(|st| {
-                    let count = st.library.memory().iter().filter(|m| m.run == a.run).count();
-                    (st.runs.get(&a.run).cloned(), count)
-                });
-                let run = run.ok_or_else(|| anyhow!("run"))?;
-                if written_in_run >= crate::memory_index::MAX_MEMORY_WRITES_PER_RUN {
+                let run = self.read(|st| st.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("run"))?;
+                if memories_written(&run) >= crate::memory_index::MAX_MEMORY_WRITES_PER_RUN {
                     return Ok((format!("memory write limit ({}) reached for this run; skip further writes.", crate::memory_index::MAX_MEMORY_WRITES_PER_RUN), true, None));
                 }
                 let label = Label { untrusted: run.untrusted, private: run.private };
@@ -228,7 +224,7 @@ impl Kernel {
                 Ok((format!("remembered ({id})"), false, None))
             }
             // execute() answers memory_search itself, with its taint from the same lookup.
-            Op::MemorySearch => Ok((crate::boundary::memory_text(&self.memory_hits(&a.run, &s("query")).await?), false, None)),
+            Op::MemorySearch => Ok(crate::boundary::memory_result(&self.memory_hits(&a.run, &s("query")).await?)),
             Op::KnowledgeSearch => Ok(self.knowledge_search(&a.run, &s("query")).await?),
             Op::Bundle => Ok(self.bundle_tool(&a.run, &a.tool, &a.input).await?),
             Op::Relationship => Ok(self.relationship_tool(&a.run, &a.input).await?),
@@ -252,7 +248,7 @@ impl Kernel {
                     }
                     _ => format!("{} ({}, {} bytes) is not text.{at} Open it with the sandbox's tools.", f.name, f.media_type, bytes.len()),
                 };
-                Ok((text, false, Some(json!({ "file": f.id, "name": f.name }))))
+                Ok((text, false, Some(crate::read_copies::read_data([f.id.clone()], json!({ "file": f.id, "name": f.name })))))
             }
             Op::Playbook => {
                 let run = self.read(|st| st.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("run"))?;
@@ -297,3 +293,14 @@ impl Kernel {
         })
     }
 }
+
+/// How many memories a run has written: its memory writes that were done,
+/// the model's and the memory pass's. A memory forgotten or deleted since
+/// still counts, so forgetting does not make room under the cap.
+fn memories_written(run: &crate::state::Run) -> usize {
+    run.intents.values().filter(|i| i.tool == "memory_write" && i.result.as_ref().is_some_and(|r| !r.is_error && r.status == "done")).count()
+}
+
+#[cfg(test)]
+#[path = "tools_core_tests.rs"]
+pub(crate) mod tests;

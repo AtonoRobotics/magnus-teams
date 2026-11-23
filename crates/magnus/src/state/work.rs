@@ -612,13 +612,13 @@ impl Tokens {
 impl State {
     /// The person an event's content belongs to: the person it names, else
     /// the person of its run, item or schedule (a team change: `team::owner`). `runs` holds the runs of
-    /// events written in the same batch, before them. The organisation's
-    /// own content (knowledge entries, the playbook) belongs to no one
-    /// person: None.
+    /// events written in the same batch, before them. A knowledge entry is
+    /// the person's only it may be read by alone, else the organisation's,
+    /// no one person's (`knowledge_owner`); a lesson is its person's.
     pub fn content_owner(&self, ev: &crate::events::Ev, runs: &HashMap<String, String>) -> Option<String> {
         use crate::events::Ev;
         match ev {
-            Ev::KnowledgeAdded { .. } | Ev::Playbook { .. } => return None,
+            Ev::KnowledgeAdded { readers, .. } => return crate::knowledge_owner::entry_owner(readers).map(String::from),
             // An org document is nobody's; a person's own is theirs.
             Ev::BundleWritten { owner_user, .. } => return owner_user.clone(),
             Ev::ItemResolved { id, .. } | Ev::ItemOpened { id } => return self.inbox.items().get(id).map(|i| i.person.clone()),

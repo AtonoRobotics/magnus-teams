@@ -133,8 +133,6 @@ impl Kernel {
         let mut evs: Vec<(&str, Ev)> = Vec::new();
         // The run ends with this decision: its resources go once it is written.
         let mut ended = false;
-        // An entry made a company fact is searched as one once it is written.
-        let mut endorsed = None;
         // A task an approval started is driven from now.
         let mut started: Option<String> = None;
         // An app its card disconnects is removed once the decision is written.
@@ -395,7 +393,6 @@ impl Kernel {
                 }
                 evs.push((&actor, resolve(None)));
                 evs.push((&actor, Ev::KnowledgeEndorsed { id: entry.clone(), by: p.id.clone(), item: Some(item.id.clone()), note: text.clone() }));
-                endorsed = Some(entry);
             }
             ("endorsement", "decline") => {
                 evs.push((&actor, resolve(None)));
@@ -471,9 +468,6 @@ impl Kernel {
         }
         if ended {
             self.on_stop(&run, true).await;
-        }
-        if let Some(entry) = endorsed {
-            self.index_id(&entry).await?;
         }
         if let Some(app) = removed {
             if let Err((_, why)) = self.remove_connector(&actor, &app).await {

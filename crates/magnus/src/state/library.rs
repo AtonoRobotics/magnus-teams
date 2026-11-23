@@ -160,13 +160,16 @@ pub struct Library {
 
 /// Their files, projects, memories and own documents (their relationship
 /// memory among them, with its versions: org-context.md, the owner's
-/// ruling on erasure), and what they moved. The knowledge base, the
-/// playbook and the org's documents are the organisation's; a path counts
-/// its versions on through any removal.
+/// ruling on erasure), what they moved, the knowledge entries only they
+/// may read and their playbook lessons (`knowledge_owner`). The rest of
+/// the knowledge base and the org's documents are the organisation's; a
+/// path counts its versions on through any removal.
 impl crate::forget::Forget for Library {
     fn forget(&mut self, who: &Erased) {
         let p = who.person.as_str();
         self.memory.retain(|m| m.person != p);
+        self.knowledge.retain(|_, k| crate::knowledge_owner::entry_owner(&k.readers) != Some(p));
+        self.playbook.retain(|_, i| i.person != p);
         self.bundle.retain(|_, d| d.owner_user.as_deref() != Some(p));
         // Their own documents' version counts too: their id is never given
         // again, so no one writes under their folder after them.

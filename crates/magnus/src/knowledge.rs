@@ -30,12 +30,9 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use tokio_postgres::Client;
 
 /// The role that makes an entry a company fact (E7); the owner may too.
 pub const ENDORSE: &str = "knowledge:endorse";
-/// Entries a search returns.
-const HITS: i64 = 8;
 
 /// The principals a person reads with: themselves and their groups.
 pub fn principals(p: &Person) -> Vec<String> {
@@ -106,125 +103,13 @@ pub fn migrate_sql(role: &str) -> String {
     )
 }
 
-/// The index's own connection to Postgres, opened when first used and
-/// again after it was lost.
-pub struct Index {
-    url: String,
-    reader: String,
-    client: tokio::sync::Mutex<Option<Client>>,
-}
-
-impl Index {
-    pub fn new(url: &str) -> Index {
-        let role = url::Url::parse(url).map(|u| u.username().to_string()).unwrap_or_default();
-        Index { url: url.into(), reader: format!("{role}_reader"), client: tokio::sync::Mutex::new(None) }
-    }
-
-    async fn client(&self) -> Result<tokio::sync::MutexGuard<'_, Option<Client>>> {
-        let mut g = self.client.lock().await;
-        if g.as_ref().is_none_or(|c| c.is_closed()) {
-            *g = Some(crate::log::connect(&self.url).await?);
-        }
-        Ok(g)
-    }
-
-    /// What an entry says (its title, text, source, evidence and value),
-    /// read from the content store; None once it was deleted. The entry is
-    /// the organisation's, written to no one person, so the kernel reads it
-    /// to index it; people read it from the index, as its readers.
-    async fn content(&self, e: &KnowledgeEntry) -> Result<Option<Value>> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
-        let row = c.query_opt("SELECT body FROM public.content WHERE seq = $1", &[&e.seq]).await.context("read the entry's content")?;
-        Ok(row.map(|r| r.get::<_, Value>(0)))
-    }
-
-    /// Index an entry as it now stands, with what it says. `embedding` is
-    /// its model and vector.
-    async fn put(&self, e: &KnowledgeEntry, says: &Value, embedding: Option<(String, String)>) -> Result<()> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
-        let (model, vector) = embedding.unzip();
-        c.execute(
-            "INSERT INTO public.knowledge (id, readers, integrity, entry, version, model, embedding, words)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::text::vector, to_tsvector('simple', $8))
-             ON CONFLICT (id) DO UPDATE SET readers = EXCLUDED.readers, integrity = EXCLUDED.integrity, entry = EXCLUDED.entry,
-                 version = EXCLUDED.version, model = EXCLUDED.model, embedding = EXCLUDED.embedding, words = EXCLUDED.words
-             WHERE knowledge.version <= EXCLUDED.version",
-            &[&e.id, &json!(e.readers), &e.integrity, &shown(e, says), &e.version, &model, &vector, &format!("{} {}", e.title, text_of(says))],
-        )
-        .await
-        .context("index the entry (has `magnus migrate` run since this release was installed?)")?;
-        Ok(())
-    }
-
-    /// Take an entry out of the index: trashed or removed, no one finds it.
-    async fn drop_entry(&self, id: &str) -> Result<()> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
-        c.execute("DELETE FROM public.knowledge WHERE id = $1", &[&id]).await.context("take the entry out of the index")?;
-        Ok(())
-    }
-
-    /// What each indexed entry's version and embedding model are.
-    async fn versions(&self) -> Result<std::collections::HashMap<String, (i64, Option<String>)>> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
-        let rows = c.query("SELECT id, version, model FROM public.knowledge", &[]).await?;
-        Ok(rows.iter().map(|r| (r.get::<_, String>(0), (r.get::<_, i64>(1), r.get::<_, Option<String>>(2)))).collect())
-    }
-
-    /// The entries these principals may read that best match the query (by
-    /// meaning with an embedding, and by words those not yet embedded; by
-    /// words without), or the latest with no query. Postgres filters them as the reader role.
-    async fn search(&self, principals: &[String], query: &str, embedding: Option<(String, String)>) -> Result<Vec<Value>> {
-        let mut g = self.client().await?;
-        let c = g.as_mut().context("index connection")?;
-        let tx = c.transaction().await?;
-        tx.batch_execute(&format!("SET LOCAL ROLE {}", self.reader)).await?;
-        tx.execute("SELECT set_config('magnus.principals', $1, true)", &[&serde_json::to_string(principals)?]).await?;
-        let words: Vec<String> = query.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() >= 2).map(String::from).collect();
-        let rows = match embedding {
-            Some((model, v)) => {
-                // An entry not embedded with this model (saved while the
-                // server was down, until the next sync embeds it) is found
-                // by its words, first, as it matched them.
-                let mut rows = match words.is_empty() {
-                    true => vec![],
-                    false => tx
-                        .query(
-                            "SELECT entry FROM public.knowledge WHERE model IS DISTINCT FROM $1 AND words @@ to_tsquery('simple', $2) ORDER BY ts_rank(words, to_tsquery('simple', $2)) DESC, version DESC LIMIT $3",
-                            &[&model, &words.join(" | "), &HITS],
-                        )
-                        .await?,
-                };
-                let room = HITS - rows.len() as i64;
-                rows.extend(tx.query("SELECT entry FROM public.knowledge WHERE model = $1 ORDER BY embedding <=> $2::text::vector LIMIT $3", &[&model, &v, &room]).await?);
-                rows
-            }
-            None if query.trim().is_empty() => tx.query("SELECT entry FROM public.knowledge ORDER BY version DESC LIMIT 50", &[]).await?,
-            None if words.is_empty() => vec![],
-            None => {
-                let q = words.join(" | ");
-                tx.query(
-                    "SELECT entry FROM public.knowledge WHERE words @@ to_tsquery('simple', $1) ORDER BY ts_rank(words, to_tsquery('simple', $1)) DESC, version DESC LIMIT $2",
-                    &[&q, &HITS],
-                )
-                .await?
-            }
-        };
-        tx.commit().await?;
-        Ok(rows.iter().map(|r| r.get::<_, Value>(0)).collect())
-    }
-}
-
 /// An entry as people and the model see it: its record and what it says.
-fn shown(e: &KnowledgeEntry, says: &Value) -> Value {
+pub(crate) fn shown(e: &KnowledgeEntry, says: &Value) -> Value {
     json!({ "id": e.id, "title": e.title, "text": says["text"], "readers": e.readers, "integrity": e.integrity, "source": says["source"],
         "author": e.author, "run": e.run, "at": e.at, "verification": says["verification"], "value": says["value"], "endorsed": e.endorsed, "shared": e.shared })
 }
 
-fn text_of(says: &Value) -> &str {
+pub(crate) fn text_of(says: &Value) -> &str {
     says["text"].as_str().unwrap_or_default()
 }
 
@@ -251,7 +136,7 @@ fn source_of(tool: &str, input: &Value) -> String {
 impl Kernel {
     /// A text's embedding from the configured server, as its model and a
     /// vector literal; None without a server.
-    async fn embed(&self, text: &str) -> Result<Option<(String, String)>> {
+    pub(crate) async fn embed(&self, text: &str) -> Result<Option<(String, String)>> {
         let Some(e) = &self.cfg.knowledge.embeddings else { return Ok(None) };
         let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(e.timeout_s)).build()?;
         let mut req = client.post(format!("{}/embeddings", e.url.trim_end_matches('/'))).json(&json!({ "model": e.model, "input": [text] }));
@@ -267,58 +152,11 @@ impl Kernel {
         Ok(Some((e.model.clone(), format!("[{}]", nums.join(",")))))
     }
 
-    /// Bring the index up to date with the log: entries it lacks, or holds
-    /// at an older version or another embedding model. On boot, in the
-    /// background, and after each change.
-    pub async fn sync_knowledge(&self) -> Result<()> {
-        let have = self.knowledge.versions().await?;
-        let want = self.cfg.knowledge.embeddings.as_ref().map(|e| e.model.clone());
-        let entries: Vec<KnowledgeEntry> = self.read(|s| s.library.knowledge().values().cloned().collect());
-        // Entries in the trash or removed are no longer in the state.
-        for id in have.keys().filter(|id| !entries.iter().any(|e| &e.id == *id)) {
-            self.knowledge.drop_entry(id).await?;
-        }
-        for e in entries {
-            if have.get(&e.id).is_some_and(|(v, m)| *v == e.version && *m == want) {
-                continue;
-            }
-            self.index_entry(&e).await?;
-        }
-        Ok(())
-    }
-
-    /// Index one entry with what the content store says it says; without
-    /// its embedding (server down) it is still found by its words, and
-    /// embedded at the next sync. An entry whose content was deleted is
-    /// taken out.
-    async fn index_entry(&self, e: &KnowledgeEntry) -> Result<()> {
-        let Some(says) = self.knowledge.content(e).await? else { return self.knowledge.drop_entry(&e.id).await };
-        let embedding = match self.embed(&format!("{}\n{}", e.title, text_of(&says))).await {
-            Ok(v) => v,
-            Err(err) => {
-                tracing::warn!("embed {}: {err:#}", e.id);
-                None
-            }
-        };
-        self.knowledge.put(e, &says, embedding).await
-    }
-
     /// An entry as it is shown, with what it says read from the content
     /// store; None without the entry or its content.
     async fn knowledge_shown(&self, id: &str) -> Result<Option<Value>> {
         let Some(e) = self.read(|s| s.library.knowledge().get(id).cloned()) else { return Ok(None) };
         Ok(self.knowledge.content(&e).await?.map(|says| shown(&e, &says)))
-    }
-
-    /// Index an entry as the state now has it, or take it out if it has none.
-    pub(crate) async fn index_id(&self, id: &str) -> Result<()> {
-        if !self.read(|s| s.library.knowledge().contains_key(id)) {
-            return self.knowledge.drop_entry(id).await;
-        }
-        match self.read(|s| s.library.knowledge().get(id).cloned()) {
-            Some(e) => self.index_entry(&e).await,
-            None => Ok(()),
-        }
     }
 
     /// The entries a person may read that answer the query.
@@ -331,7 +169,10 @@ impl Kernel {
                 None
             })
         };
-        self.knowledge.search(&principals(p), query, embedding).await
+        let hits = self.knowledge.search(&principals(p), query, embedding).await?;
+        // An entry no longer in the state (trashed, removed, erased) is not
+        // found, even while the index still holds it (`knowledge_index`).
+        Ok(self.read(|s| hits.into_iter().filter(|h| h["id"].as_str().is_some_and(|id| s.library.knowledge().contains_key(id))).collect()))
     }
 
     /// Who may read what a run files: each app whose private content it
@@ -437,8 +278,8 @@ impl Kernel {
         // said with it, never reported as "not filed" (a retry would file
         // it again).
         let mut said = format!("Filed {id} as {integrity}, readable by {}.", readers_text(&readers));
-        if let Err(e) = self.index_id(&id).await {
-            said.push_str(&format!(" It cannot be searched yet ({e:#}); it is indexed when the server next starts. Do not file it again."));
+        if let Some(why) = self.knowledge.behind_on(&id) {
+            said.push_str(&format!(" It cannot be searched yet ({why}); it is indexed as soon as the index takes it. Do not file it again."));
         }
         if let Some(spec) = spec {
             said.push_str(&match self.extract_value(&run, &id, &spec).await {
@@ -538,7 +379,6 @@ impl Kernel {
             },
         )
         .await?;
-        self.index_id(&id).await?;
         Ok(Some((id, value)))
     }
 
@@ -600,8 +440,8 @@ impl Kernel {
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        let ids: Vec<&Value> = hits.iter().map(|h| &h["id"]).collect();
-        Ok((text, false, Some(json!({ "entries": ids, "untrusted": untrusted, "private": private }))))
+        let ids: Vec<String> = hits.iter().filter_map(|h| h["id"].as_str().map(String::from)).collect();
+        Ok((text, false, Some(crate::read_copies::read_data(ids.clone(), json!({ "entries": ids, "untrusted": untrusted, "private": private })))))
     }
 }
 
@@ -686,13 +526,12 @@ async fn add(State(k): State<Arc<Kernel>>, Caller(p): Caller, Json(b): Json<Valu
     }
     // Filed: an index that cannot be written is said with it, not as a
     // failure the person would answer by adding the entry again.
-    let indexed = k.index_id(&id).await;
     let (mut e, read) = match k.knowledge_shown(&id).await {
-        Ok(e) => (e.unwrap_or_default(), Ok(())),
-        Err(err) => (json!({ "id": id, "title": title }), Err(err)),
+        Ok(e) => (e.unwrap_or_default(), None),
+        Err(err) => (json!({ "id": id, "title": title }), Some(format!("{err:#}"))),
     };
-    if let Err(err) = indexed.and(read) {
-        e["warning"] = json!(format!("filed, but it cannot be searched yet ({err:#}); it is indexed when the server next starts"));
+    if let Some(why) = k.knowledge.behind_on(&id).or(read) {
+        e["warning"] = json!(format!("filed, but it cannot be searched yet ({why}); it is indexed as soon as the index takes it"));
     }
     (StatusCode::CREATED, Json(e)).into_response()
 }
@@ -737,9 +576,6 @@ async fn share(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path(id): Path<S
     let ev = Ev::KnowledgeShared { id: id.clone(), readers, by: p.id.clone() };
     if let Err(e) = k.emit(&format!("person:{}", p.id), ev).await {
         return internal(e);
-    }
-    if let Err(err) = k.index_id(&id).await {
-        tracing::warn!("index a shared entry: {err:#}");
     }
     match k.knowledge_shown(&id).await {
         Ok(Some(shown)) => Json(shown).into_response(),
