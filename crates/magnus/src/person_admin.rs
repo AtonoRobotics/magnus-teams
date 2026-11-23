@@ -65,25 +65,31 @@ impl Kernel {
         }))
     }
 
-    /// Suspend or resume one of a person's schedules, as an admin. A
-    /// schedule whose run waits on its person resumes when they answer it.
+    /// Suspend or resume one of a person's schedules, as an admin. Resuming
+    /// lifts the admins' suspension alone: a hold on a waiting run lifts
+    /// when its person answers it, and a pause for its person when they
+    /// resume it.
     pub async fn admin_schedule(&self, actor: &str, by: &str, person: &str, id: &str, on: bool) -> Result<Value, Refusal> {
         let Some(sc) = self.read(|s| s.arrangements.schedules().get(id).filter(|x| x.person == person).cloned()) else {
             return Err((StatusCode::NOT_FOUND, "no such schedule".into()));
         };
         if on {
-            if sc.paused.is_none() {
-                return Err((StatusCode::CONFLICT, "the schedule is not suspended".into()));
-            }
-            if sc.paused_on.is_some() {
-                return Err((StatusCode::CONFLICT, "its run is waiting on its person: when they answer it, the schedule goes on".into()));
+            if !sc.paused_by_admin {
+                let why = if sc.paused_for_person() {
+                    "the schedule is paused for its person, not suspended by an admin: they resume it"
+                } else if sc.held() {
+                    "its run is waiting on its person: when they answer it, the schedule goes on"
+                } else {
+                    "the schedule is not suspended"
+                };
+                return Err((StatusCode::CONFLICT, why.into()));
             }
             self.emit(actor, Ev::ScheduleResumed { id: id.into(), source: Some("console".into()), turn: None }).await.map_err(failed)?;
         } else {
             if sc.ended.is_some() {
                 return Err((StatusCode::CONFLICT, "the schedule has ended".into()));
             }
-            if sc.paused.is_some() {
+            if sc.paused_by_admin {
                 return Err((StatusCode::CONFLICT, "the schedule is already suspended".into()));
             }
             self.emit(

@@ -34,11 +34,16 @@ pub struct Schedule {
     /// The latest firing that started nothing, because the last run was
     /// still open: when, which task, why.
     pub skipped: Option<(DateTime<Utc>, String, String)>,
-    /// Why it stopped starting runs, until its person resumes it.
+    /// Every reason it is paused now, each with what was said of it: a
+    /// pause adds its cause, a release lifts only its own, and it starts
+    /// no runs while any is left.
+    pub pauses: BTreeMap<PauseCause, String>,
+    /// Why it stopped starting runs: the strongest cause's words (an
+    /// admin's, then its person's, then a waiting run's). Kept from `pauses`.
     pub paused: Option<String>,
-    /// The task whose run it is paused on, waiting on a person.
+    /// The task whose run it is held on, waiting on a person. Kept from `pauses`.
     pub paused_on: Option<String>,
-    /// An admin suspended it: only an admin lifts it.
+    /// An admin suspended it: only an admin lifts it. Kept from `pauses`.
     pub paused_by_admin: bool,
     /// From when failures count toward pausing it again.
     pub resumed: Option<DateTime<Utc>>,
@@ -49,6 +54,44 @@ pub struct Schedule {
     /// The zone its daily time is read in: its person's, kept current as
     /// they change it, else the server's (`cadence::zone_of`).
     pub zone: crate::cadence::Zone,
+}
+
+/// Why a schedule is paused (decisions/2026-11-23-a-schedule-knows-why-it-is-paused.md),
+/// read from the existing events' fields: a `SchedulePaused` with a task is
+/// a hold on that run, one marked `admin` an admin's, any other its
+/// person's. Ordered weakest first.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PauseCause {
+    /// Its run (this task) waits on its person: lifted by the kernel once
+    /// that run no longer waits.
+    Held(String),
+    /// For its person: they (or someone over them) paused it, its runs
+    /// failed in a row, or they were turned off. Lifted when they resume it.
+    Person,
+    /// An admin suspended it: lifted by an admin.
+    Admin,
+}
+
+impl Schedule {
+    /// The derived fields, from `pauses`.
+    fn settle_pauses(&mut self) {
+        self.paused = self.pauses.values().next_back().cloned();
+        self.paused_on = self.pauses.keys().find_map(|c| match c {
+            PauseCause::Held(t) => Some(t.clone()),
+            _ => None,
+        });
+        self.paused_by_admin = self.pauses.contains_key(&PauseCause::Admin);
+    }
+
+    /// Whether it is held on a waiting run.
+    pub fn held(&self) -> bool {
+        self.pauses.keys().any(|c| matches!(c, PauseCause::Held(_)))
+    }
+
+    /// Whether its person (or someone over them) paused it for them.
+    pub fn paused_for_person(&self) -> bool {
+        self.pauses.contains_key(&PauseCause::Person)
+    }
 }
 
 /// A person's standing authority over a category of their own work
@@ -225,6 +268,7 @@ impl Arrangements {
                         max_runs: *max_runs,
                         started: 0,
                         skipped: None,
+                        pauses: BTreeMap::new(),
                         paused: None,
                         paused_on: None,
                         paused_by_admin: false,
@@ -334,9 +378,8 @@ impl Arrangements {
                 // end is terminal: no pause outlives it.
                 if let Some(s) = self.schedules.get_mut(id) {
                     s.ended = Some(reason.clone());
-                    s.paused = None;
-                    s.paused_on = None;
-                    s.paused_by_admin = false;
+                    s.pauses.clear();
+                    s.settle_pauses();
                 }
             }
             Ev::ScheduleSkipped { id, task, reason } => {
@@ -347,9 +390,13 @@ impl Arrangements {
             }
             Ev::SchedulePaused { id, reason, task, admin, .. } => {
                 if let Some(s) = self.schedules.get_mut(id) {
-                    s.paused = Some(reason.clone());
-                    s.paused_on = task.clone();
-                    s.paused_by_admin = *admin;
+                    let cause = match (task, admin) {
+                        (Some(t), _) => PauseCause::Held(t.clone()),
+                        (None, true) => PauseCause::Admin,
+                        (None, false) => PauseCause::Person,
+                    };
+                    s.pauses.insert(cause, reason.clone());
+                    s.settle_pauses();
                 }
             }
             Ev::ScheduleChanged { id, every_minutes, daily_at, until, max_runs, .. } => {
@@ -363,13 +410,26 @@ impl Arrangements {
                     s.ended = None;
                 }
             }
-            Ev::ScheduleResumed { id, .. } => {
+            Ev::ScheduleResumed { id, source, .. } => {
                 if let Some(s) = self.schedules.get_mut(id) {
-                    s.paused = None;
-                    s.paused_by_admin = false;
+                    // Each release lifts only its own cause: the kernel's
+                    // (no source) a hold on a waiting run, the console an
+                    // admin's suspension, the schedule's person their own
+                    // pause (and a suspension, which the app lets them lift
+                    // only when they administer), anyone else a suspension.
+                    let hold_ended = e.actor == "kernel" && source.is_none();
+                    if hold_ended {
+                        s.pauses.retain(|c, _| !matches!(c, PauseCause::Held(_)));
+                    } else if source.as_deref() == Some("console") || e.actor != format!("person:{}", s.person) {
+                        s.pauses.remove(&PauseCause::Admin);
+                    } else {
+                        s.pauses.remove(&PauseCause::Person);
+                        s.pauses.remove(&PauseCause::Admin);
+                    }
+                    s.settle_pauses();
                     // Failures count afresh only after a person resumes a
                     // schedule paused for them.
-                    if s.paused_on.take().is_none() {
+                    if !hold_ended {
                         s.resumed = Some(e.at);
                     }
                     // The next run is due from now, not from long ago.

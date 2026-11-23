@@ -233,7 +233,7 @@ impl Kernel {
 
     /// Pause a schedule: no more runs start until it is resumed; a run
     /// already going goes on. Pausing one held on its waiting run keeps
-    /// the person's pause: the hold's end does not resume it. An admin's
+    /// the person's pause: the hold's end lifts only the hold. An admin's
     /// suspension is not paused over.
     pub async fn pause_schedule(&self, who: &Person, id: &str, turn: Option<&str>) -> Result<(), Refused> {
         let sc = self.schedule_owned(who, id, "pause_schedule").await?;
@@ -243,7 +243,7 @@ impl Kernel {
         if sc.paused_by_admin {
             return Err(Refused::Conflict("it is suspended by an admin: only an admin lifts it".into()));
         }
-        if sc.paused.is_some() && sc.paused_on.is_none() {
+        if sc.paused_for_person() {
             return Err(Refused::Conflict("the schedule is already paused".into()));
         }
         let reason = if who.id == sc.person { "Paused by you".to_string() } else { format!("Paused by {}", who.name) };
@@ -276,7 +276,8 @@ impl Kernel {
         if who.id != sc.person && !sc.paused_by_admin {
             return Err(Refused::Denied("only its person resumes what they paused".into()));
         }
-        if sc.paused_on.is_some() {
+        // Held on its waiting run alone: answering it is what lifts that.
+        if who.id == sc.person && !sc.paused_for_person() && !sc.paused_by_admin {
             return Err(Refused::Conflict("its run is waiting on you: answer it, or resume or cancel that task, and the schedule goes on".into()));
         }
         let (source, turn_ev) = sources(turn);

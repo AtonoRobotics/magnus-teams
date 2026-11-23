@@ -23,7 +23,7 @@ pub mod vault;
 pub mod watch;
 pub mod work;
 pub use apps::ConnectorSetting;
-pub use arrangements::{Answer, CardState, Commitment, CommitmentStep, Grant, GrantAction, Schedule};
+pub use arrangements::{Answer, CardState, Commitment, CommitmentStep, Grant, GrantAction, PauseCause, Schedule};
 pub use erasure::Erasure;
 pub use inbox::{Approval, Item};
 pub use library::{BundleDoc, KnowledgeEntry, LibFile, MemoryEntry, PlaybookItem, Project};
