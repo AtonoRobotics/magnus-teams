@@ -63,9 +63,9 @@ async function mayStartWorkspace() {
  * one for those allowed to.
  * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
 function teamsPageHtml(list, mayStart) {
-  const none = mayStart ? "You are in no workspace yet. Type a name to start one; the team agent is in it from the start." : "You are in no workspace yet. A Team Admin starts one and invites you.";
-  return `<div class="teams-page"><h1>Teams</h1><p class="small faint">Workspaces you share with other people and their agents. Your own conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
-    ${mayStart ? `<form id="new-team"><input id="team-name" placeholder="Type a name to start a workspace" aria-label="Workspace name" autocomplete="off"><button class="primary">Create</button></form>` : ""}</div>`;
+  const none = mayStart ? "You are in no shared project yet. Type a name to start one; Magnus is in it from the start." : "You are in no shared project yet. A Team Admin starts one and invites you.";
+  return `<div class="teams-page"><h1>Shared projects</h1><p class="small faint">Projects and conversations you share with other people and Magnus. Your private conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
+    ${mayStart ? `<form id="new-team"><input id="team-name" placeholder="Type a name to start a shared project" aria-label="Shared project name" autocomplete="off"><button class="primary">Create</button></form>` : ""}</div>`;
 }
 
 async function showTeams(main) {

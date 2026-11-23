@@ -77,6 +77,8 @@ const App = {
   connectors: null,
   health: null,
   thread: null,
+  /** Active shared conversation context (`{ ws, channel, home, missions, panel }`) when viewing a shared conversation. */
+  shared: null,
   /** The person closed this session's "Updates since your last session" notice. */
   feedDismissed: false,
   versions: null,
@@ -433,20 +435,54 @@ function navigationTree() {
     : (today.length && earlier.length)
       ? `<div class="group"><span>Today</span></div>${today.map(conv).join("")}<div class="group"><span>Previous</span></div>${earlier.map(conv).join("")}`
       : `${today.length ? '<div class="group"><span>Today</span></div>' : '<div class="group"><span>Conversations</span></div>'}${loose.map(conv).join("")}`;
-  const teamBadge=w=>{const chs=(typeof Team!=="undefined" && Team.homes?.[w.id]?.channels) || [];const m=w.mentions ?? chs.reduce((n,c)=>n+(c.mentions||0),0);const u=w.unread ?? chs.reduce((n,c)=>n+(c.notify==="off"?0:(c.unread||0)),0);return m?`<span class="pill" title="${m} mention${m===1?"":"s"}">${m}</span>`:u?`<span class="small muted">${u}</span>`:"";};
-  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><a href="#/projects" data-open="projects" class="more">All</a></div>
-    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}</div>
+  const homes=(typeof Team!=="undefined" && Team.homes) || {};
+  const countBadge=c=>c.mentions ? `<span class="pill" title="${c.mentions} mention${c.mentions===1?"":"s"}">${c.mentions}</span>` : (c.unread && c.notify!=="off") ? `<span class="small muted">${c.unread}</span>` : "";
+  const teamBadge=w=>{const chs=homes[w.id]?.channels || [];const m=w.mentions ?? chs.reduce((n,c)=>n+(c.mentions||0),0);const u=w.unread ?? chs.reduce((n,c)=>n+(c.notify==="off"?0:(c.unread||0)),0);return m?`<span class="pill" title="${m} mention${m===1?"":"s"}">${m}</span>`:u?`<span class="small muted">${u}</span>`:"";};
+  const sharedProjects=(App.workspaces || []).map(w=>{
+    const home=homes[w.id];
+    const openChs=(home?.channels || []).filter(c=>!c.direct && !c.archived && !c.deleted);
+    const activeWs=route.startsWith(`#/team/${enc(w.id)}`);
+    const chRows=openChs.map(c=>{
+      const href=`#/team/${enc(w.id)}/c/${enc(c.id)}`;
+      const on=route===href || route.startsWith(`${href}/`);
+      return `<a class="conv${on ? " on" : ""}" href="${href}" ${on ? 'aria-current="page"' : ""} title="${esc(c.name)}"><span class="ttl">${esc(c.name)}</span>${countBadge(c)}</a>`;
+    }).join("");
+    return `<details class="nav-project nav-shared-project" data-key="ws:${esc(w.id)}" open><summary><a href="#/team/${enc(w.id)}"${activeWs && !chRows ? ' class="on" aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span><span class="nav-shared-badge" aria-label="Shared project">Shared</span>${teamBadge(w)}</a></summary>${chRows}</details>`;
+  }).join("");
+  const peopleRows=[];
+  const seenPeople=new Set();
+  for (const w of (App.workspaces || [])) {
+    const home=homes[w.id];
+    if (!home) continue;
+    for (const c of (home.channels || []).filter(x=>x.direct && !x.direct.agent && !x.deleted)) {
+      const others=(c.direct.people || []).filter(p=>p!==home.me);
+      const primary=others[0];
+      const name=others.map(p=>home.members.find(m=>m.id===p)?.name || p).join(", ") || `${home.me_name} (you)`;
+      const on=primary && home.members.find(m=>m.id===primary)?.online;
+      const href=`#/team/${enc(w.id)}/c/${enc(c.id)}`;
+      const active=route===href || route.startsWith(`${href}/`);
+      if (others.length===1) seenPeople.add(`${w.id}:${primary}`);
+      peopleRows.push(`<a class="conv${active ? " on" : ""}" href="${href}" ${active ? 'aria-current="page"' : ""} title="${esc(name)}"><span class="nav-dot${on ? " ok" : ""}" aria-hidden="true"></span><span class="ttl">${esc(name)}</span>${countBadge(c)}</a>`);
+    }
+    for (const m of (home.members || []).filter(x=>x.id!==home.me)) {
+      if (seenPeople.has(`${w.id}:${m.id}`)) continue;
+      seenPeople.add(`${w.id}:${m.id}`);
+      peopleRows.push(`<a class="conv" href="#/team/${enc(w.id)}" data-start-dm="${esc(w.id)}:${esc(m.id)}" title="Message ${esc(m.name)}"><span class="nav-dot${m.online ? " ok" : ""}" aria-hidden="true"></span><span class="ttl">${esc(m.name)}</span></a>`);
+    }
+  }
+  const peopleHtml=peopleRows.length ? peopleRows.join("") : '<a class="conv small muted" href="#/teams"><span class="ttl">Start or join a shared project…</span></a>';
+  return `<div class="sect" role="group" aria-label="Projects"><div class="group"><span>Projects</span><span class="nav-group-acts"><a href="#/teams" class="more">Shared</a><a href="#/projects" data-open="projects" class="more">All</a></span></div>
+    ${App.projects.map(p=>`<details class="nav-project" data-key="proj:${esc(p.id)}" open><summary><a href="#/project/${enc(p.id)}" data-open="project:${esc(p.id)}" title="${esc(p.name)}">${icon("folder")}<span class="ttl">${esc(p.name)}</span></a></summary>${App.threads.filter(t=>t.project?.id===p.id).map(conv).join("")}</details>`).join("")}${sharedProjects}</div>
     <div class="sect" role="group" aria-label="Conversations">${looseHtml}</div>
-    <div class="sect" role="group" aria-label="Teams"><div class="group"><span>Teams</span><a href="#/teams" class="more">Manage</a></div>${(App.workspaces || []).map(w=>`<a class="conv${route.startsWith(`#/team/${enc(w.id)}`) ? " on" : ""}" href="#/team/${enc(w.id)}" ${route.startsWith(`#/team/${enc(w.id)}`) ? 'aria-current="page"' : ""} title="${esc(w.name)}">${icon("team")}<span class="ttl">${esc(w.name)}</span>${teamBadge(w)}</a>`).join("") || '<p class="small muted pad">No teams yet.</p>'}</div>
+    <div class="sect" role="group" aria-label="People"><div class="group"><span>People</span><a href="#/teams" class="more">Manage</a></div>${peopleHtml}</div>
     ${isDev() ? `<div class="sect"><details class="developer-nav"><summary>Developer</summary>${[["runs","Runs"],["experiments","Experiments"],["system","System"],["policy","Policy"],["playbook","Playbook"],["computers","Computers"]].map(([k,l])=>`<a href="#/dev/${k}" ${current(`#/dev/${k}`)}>${l}</a>`).join("")}</details></div>` : ""}`;
 }
 function nav() {
   const route=location.hash || "#/home";
   const adminNav=adminNavItem(route);
-  const onTeams=route === "#/teams" || route.startsWith("#/team/");
   const onApps=route.startsWith("#/library");
   return `${App.update?.ready ? `<div class="update-ready"><span class="small">Magnus ${esc(App.update.ready.version)} is ready.</span><button data-act="restart-update">Restart to update</button></div>` : ""}
-    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/teams" class="nav-teams primary-nav${onTeams ? " on" : ""}" ${onTeams ? 'aria-current="page"' : ""} aria-label="Teams" title="Teams">${icon("team")}<span class="nav-label">Teams</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">Apps</span></a>${guideNavItem(route)}
+    <a href="#/chat/new" class="new-chat primary-nav" aria-label="New conversation" title="New conversation">${icon("plus")}<span class="nav-label">New conversation</span></a><a href="#/explore" class="nav-explore primary-nav${route === "#/explore" ? " on" : ""}" ${route === "#/explore" ? 'aria-current="page"' : ""} aria-label="Explore" title="Explore playbooks and capabilities">${icon("sparkles")}<span class="nav-label">Explore</span></a><a href="#/library" class="nav-apps primary-nav${onApps ? " on" : ""}" ${onApps ? 'aria-current="page"' : ""} aria-label="Apps" title="Apps and connectors">${icon("grid")}<span class="nav-label">Apps</span></a>${guideNavItem(route)}
     <button type="button" class="rail-tree icon-btn" data-nav-tree aria-label="Projects and conversations" title="Projects and conversations" aria-expanded="false" aria-controls="navigation-flyout">${icon("folder")}</button>
     <div class="nav-tree">${navigationTree()}</div>
     ${adminNav ? `<details class="nav-workspace" data-key="nav-workspace" open><summary class="nav-group-head"><span>Workspace</span></summary><div class="nav-workspace-items">${adminNav}</div></details>` : ""}
@@ -518,20 +554,38 @@ const Workspace = (() => {
   function resize(value) {const m=update();Theme.set({panelWidthPx:Math.max(m.min,Math.min(m.max,value))});update();}
   function paletteItems(raw) {
     const q = (raw || "").trim().toLowerCase();
+    const homes = (typeof Team !== "undefined" && Team.homes) || {};
+    const sharedChats = [], people = [];
+    for (const w of (App.workspaces || [])) {
+      const h = homes[w.id];
+      if (!h) continue;
+      for (const c of (h.channels || []).filter(x => !x.direct && !x.archived && !x.deleted)) {
+        sharedChats.push({ label: `${w.name} / ${c.name}`, kind: "Shared chat", run: () => { location.hash = `#/team/${enc(w.id)}/c/${enc(c.id)}`; } });
+      }
+      for (const m of (h.members || []).filter(x => x.id !== h.me)) {
+        const dm = (h.channels || []).find(c => c.direct && !c.direct.agent && !c.deleted && c.direct.people.length === 2 && c.direct.people.includes(m.id));
+        people.push({ label: m.name, kind: "Person", run: async () => {
+          if (dm) { location.hash = `#/team/${enc(w.id)}/c/${enc(dm.id)}`; return; }
+          try { const r = await Server.workspaces.direct(w.id, { people: [m.id] }); if (typeof loadHome === "function") await loadHome(w.id); location.hash = `#/team/${enc(w.id)}/c/${enc(r.id)}`; } catch (err) { toast(err.message); }
+        } });
+      }
+    }
     const list = [
       { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
       { label: "Explore playbooks", kind: "Page", run: () => { location.hash = "#/explore"; } },
       { label: "Apps & connectors", kind: "Page", run: () => { location.hash = "#/library"; } },
-      { label: "Teams", kind: "Page", run: () => { location.hash = "#/teams"; } },
+      { label: "Shared projects", kind: "Page", run: () => { location.hash = "#/teams"; } },
       { label: "Trash", kind: "Page", run: () => { location.hash = "#/trash"; } },
       { label: "Settings", kind: "Page", run: () => { location.hash = "#/settings"; } },
       ...(administers() ? [{ label: "Admin & Operations", kind: "Page", run: () => { location.hash = "#/admin/operations"; } }] : []),
       { label: "Check for updates", kind: "Action", run: () => { refreshUpdate(true); toast("Checking for updates…"); } },
       ...(App.threads || []).slice(0, 20).map(t => ({ label: displayTitle(t.title), kind: "Chat", run: () => { location.hash = `#/chat/${enc(t.thread)}`; } })),
       ...(App.projects || []).map(p => ({ label: p.name, kind: "Project", run: () => { location.hash = `#/project/${enc(p.id)}`; } })),
-      ...(App.workspaces || []).map(w => ({ label: w.name, kind: "Team", run: () => { location.hash = `#/team/${enc(w.id)}`; } })),
+      ...(App.workspaces || []).map(w => ({ label: w.name, kind: "Shared project", run: () => { location.hash = `#/team/${enc(w.id)}`; } })),
+      ...sharedChats,
+      ...people,
     ];
-    return (q ? list.filter(x => `${x.label} ${x.kind}`.toLowerCase().includes(q)) : list).slice(0, 8);
+    return (q ? list.filter(x => `${x.label} ${x.kind}`.toLowerCase().includes(q)) : list).slice(0, 10);
   }
   function openPalette() {
     const dialog = $("#workspace-search"); if (!dialog || dialog.open) return;
@@ -569,7 +623,7 @@ const Workspace = (() => {
       }
     };
     wsList.onclick=e=>{const b=e.target.closest("[data-pal]");if(!b)return;const item=paletteList[Number(b.dataset.pal)];wsDialog.close();item?.run();};
-    $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=wsInput.value.trim();wsDialog.close();if(q){if(App.workspace)openPanel(`search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
+    $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=wsInput.value.trim();wsDialog.close();if(q){if(App.workspace)openPanel(App.shared ? `shared:search:${q}` : `search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
     $("[data-close-search]").onclick=()=>wsDialog.close();
     const separator=$("#workspace-splitter"), B=Theme.LAYOUT_BOUNDS;
     separator.onkeydown=e=>{const m=update();let width=m.panel;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowLeft" ? 1 : -1)*(e.shiftKey ? B.splitterLargeStepPx : B.splitterStepPx);else return;e.preventDefault();resize(width);};
@@ -581,12 +635,12 @@ const Workspace = (() => {
         const tree=e.target.closest("[data-nav-tree]");if(tree){const fly=$("#navigation-flyout");if(fly.hidden){fly.hidden=false;sidebar();tree.setAttribute("aria-expanded","true");$("a,button",fly)?.focus({preventScroll:true});}else closeTree();return;}
         if(e.target.closest("[data-close-tree]"))closeTree();else if(!e.target.closest("#navigation-flyout"))closeTree(false);
         const destination=e.target.closest("nav.side a, #navigation-flyout a");
-        if(destination){if(e.button===0 && !e.ctrlKey && !e.metaKey && !destination.dataset.open && destination.hash!==location.hash)App.routeFocus={opener:destination,composer:destination.hash.startsWith("#/chat/new")};closeTree(false);closeDrawer(false);}
+        if(destination){if(e.button===0 && !e.ctrlKey && !e.metaKey && !destination.dataset.open && !destination.dataset.startDm && destination.hash!==location.hash)App.routeFocus={opener:destination,composer:destination.hash.startsWith("#/chat/new")};closeTree(false);closeDrawer(false);}
         if(e.target.closest("#navigation-flyout [data-act=sign-out]"))$("nav.side [data-act=sign-out]")?.click();
       });
       document.addEventListener("keydown",e=>{
         if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}
-        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){if(location.hash.startsWith("#/team/"))return;e.preventDefault();if(document.body.dataset.navigation==="expanded" && !(typeof Theme !== "undefined" && Theme.stage?.(document.documentElement.dataset.style)))$("#q")?.focus();else openPalette();}
+        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){e.preventDefault();if(document.body.dataset.navigation==="expanded" && !(typeof Theme !== "undefined" && Theme.stage?.(document.documentElement.dataset.style)))$("#q")?.focus();else openPalette();}
       });
     }
     update();
@@ -912,6 +966,18 @@ function wireDocument() {
     Panel.opener=o; Panel.focusNext=true;
     if (!App.workspace) { App.openAfter = o.dataset.open; location.hash = "#/home"; return; }
     openPanel(o.dataset.open,{history:true,focus:true,opener:o});
+  });
+  document.addEventListener("click", async e => {
+    const dm = e.target.closest("[data-start-dm]");
+    if (!dm || e.button !== 0 || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    const [ws, person] = String(dm.dataset.startDm || "").split(":");
+    if (!ws || !person) return;
+    try {
+      const r = await Server.workspaces.direct(ws, { people: [person] });
+      if (typeof loadHome === "function") await loadHome(ws);
+      location.hash = `#/team/${enc(ws)}/c/${enc(r.id)}`;
+    } catch (err) { toast(err.message); }
   });
   // A decision is made from its card wherever the card is shown: in its
   // conversation, beside it, or under Needs you.
@@ -1296,7 +1362,13 @@ async function refresh() {
   const get = (path, k) => Resources.read(({tasks:"Tasks",schedules:"Schedules",threads:"Conversations",projects:"Projects",connectors:"Apps"})[k],path,k);
   // The person's computers, for the conversation's head: whether one is in use, and by which agent.
   const computers = Server.computers.list().then(r => { App.computers = r.computers; followDesktopLook(); }, () => { /* Without a computer service there is nothing to show. */ });
-  const workspaces = Server.workspaces.list().then(r => { if (Array.isArray(r)) App.workspaces = r; }, () => {});
+  const workspaces = Server.workspaces.list().then(r => {
+    if (!Array.isArray(r)) return;
+    App.workspaces = r;
+    if (typeof loadHome === "function" && r.length) {
+      Promise.all(r.map(w => loadHome(w.id).catch(() => null))).then(() => { if (App.me) sidebar(); });
+    }
+  }, () => {});
   const version = Server.version({ background: true }).then(v => {
     if (!v?.version) return;
     if (App.serverVersion && App.serverVersion !== v.version) refreshUpdate(true);

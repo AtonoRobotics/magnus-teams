@@ -234,7 +234,7 @@ nav.side .brand .logo { display: grid; place-items: center; width: 20px; height:
 body[data-navigation="compact"] nav.side .brand .logo { display: none; }
 nav.side .new-chat { border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); font-weight: 500; min-height: 32px; }
 nav.side .new-chat:hover { background: var(--raised); }
-body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-explore, body[data-navigation="compact"] nav.side .nav-teams, body[data-navigation="compact"] nav.side .nav-apps { width: 44px; padding: 0; justify-content: center; }
+body[data-navigation="compact"] nav.side .new-chat, body[data-navigation="compact"] nav.side .nav-explore, body[data-navigation="compact"] nav.side .nav-apps { width: 44px; padding: 0; justify-content: center; }
 /* Search… ⌘K trigger */
 #find input:hover { background: var(--row-sel); }
 #find .kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: var(--r-xs); border: 1px solid var(--line); color: var(--muted); pointer-events: none; }
@@ -274,6 +274,9 @@ nav.side .nav-project > summary::before {
 nav.side .nav-project[open] > summary::before { content: "▾"; }
 nav.side .nav-project > summary::-webkit-details-marker { display: none; }
 nav.side .nav-project > summary > a { flex: 1; min-width: 0; }
+.nav-group-acts { display: inline-flex; align-items: center; gap: 8px; }
+.nav-shared-badge { font-size: 10px; font-weight: 500; padding: 1px 6px; border-radius: var(--r-pill); background: var(--accent-soft); color: var(--accent-text); flex: none; }
+.nav-shared-project > a.conv { padding-left: 24px; }
 /* Conversation-left / Artifact-right split mode & seamless 1px splitter */
 html[data-motion="full"] .shell { transition: grid-template-columns .18s var(--ease); }
 body[data-workspace=split] .shell > main { grid-column: 2; }
@@ -302,6 +305,7 @@ body[data-workspace=split] .shell > aside.detail { grid-column: 4; border-left: 
 .nav-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--muted); }
 .nav-dot.run { background: var(--accent); }
 .nav-dot.warn { background: var(--warn-icon); }
+.nav-dot.ok { background: var(--ok); }
 @keyframes lpulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 html[data-motion="full"] .nav-dot.run { animation: lpulse 1.8s ease-in-out infinite; }
 html[data-style="prism"] nav.side .new-chat.primary-nav { border-radius: var(--r-pill); }

@@ -277,14 +277,8 @@ assert.match(kbHtml, /Flagged by Leo: we moved it/);
 assert.doesNotMatch(kbHtml, /data-entry-correct|data-entry-retire/, "someone who is not a curator is offered to correct or retire");
 assert.match(sandbox.kbEntryHtml(entry, [entry], name, true), /data-entry-correct[^]*data-entry-retire/, "a curator cannot correct or retire");
 
-// Ctrl+K right after Escape opens the menu: the shut dialog still awaiting
-// its close event once made the keys "close" it instead.
-const { TeamCommand } = sandbox.__x;
-let opened = 0;
-TeamCommand.open = () => { opened++; };
-TeamCommand.dialog = { open: false, close() {} };
-for (const f of listeners.keydown) f({ ctrlKey: true, metaKey: false, altKey: false, key: "k", preventDefault() {} });
-assert.equal(opened, 1, "Ctrl+K after Escape did not open the menu again");
+// TeamCommand no longer hijacks global Ctrl+K; unified app.js palette owns it.
+assert.equal((listeners.keydown || []).length, 0, "TeamCommand does not hijack global Ctrl+K");
 
 // Personal agent delegations and member connector visibility in the right side panel.
 const panelWithDelegations = {

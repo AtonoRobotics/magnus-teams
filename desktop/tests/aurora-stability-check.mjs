@@ -149,7 +149,9 @@ assert.match(stage, /a\.id === "stage-slide"\) a\.cancel\(\)/, "aurora-stage.js 
 assert.match(stage, /lastBentoWidth/, "aurora-stage.js ResizeObserver only slides on width changes");
 assert.match(exploreAnim, /EXPLORE_LEAVE_FALLBACK_MS/, "aurora-explore.js has a fallback cleanup timeout");
 assert.match(rail, /addEventListener\("hashchange"/, "aurora-rail.js closes navigation drawer on hashchange");
-assert.match(app, /class="nav-teams primary-nav/, "left rail includes Teams link");
+assert.doesNotMatch(app, /class="nav-teams primary-nav/, "left rail has no separate Teams icon");
+assert.match(app, /nav-shared-project/, "sidebar merges shared projects into Projects");
+assert.match(app, /aria-label="People"/, "sidebar includes People section");
 assert.match(app, /class="nav-apps primary-nav/, "left rail includes Apps link");
 assert.match(app, /if \(App\.serverVersion && App\.serverVersion !== v\.version\) refreshUpdate\(true\)/, "server version change triggers desktop update check");
 assert.match(app, /let restartingUpdate = false;/, "restartToUpdate guards against concurrent clicks");

@@ -198,11 +198,3 @@ const TeamCommand = {
   },
 };
 
-document.addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k" && location.hash.startsWith("#/team/")) {
-    e.preventDefault();
-    // A dialog just closed with Escape still awaits its close event: it is
-    // shut, so the keys open the menu again rather than "closing" it.
-    if (TeamCommand.dialog?.open) TeamCommand.close(); else TeamCommand.open();
-  }
-});
