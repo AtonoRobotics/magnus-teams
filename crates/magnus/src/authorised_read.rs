@@ -70,7 +70,6 @@ pub(crate) enum Refused {
 
 impl Refused {
     /// Why, in a word, with nothing the app said: for a log line.
-    #[allow(dead_code)]
     pub(crate) fn kind(&self) -> &'static str {
         match self {
             Refused::Unknown => "unknown",
@@ -145,10 +144,6 @@ impl Kernel {
     /// is authorised and audited as every other read the server makes for a
     /// person: the switches, their groups, the screened definition, policy.
     /// Nothing it answers is logged.
-    // Its caller, `computer::identity`'s `password_manager_login`, is
-    // switched to it with the r5-computers change (decisions/2026-11-23-
-    // app-gone-path.md); this allow goes with that switch.
-    #[allow(dead_code)]
     pub(crate) async fn password_manager_read(&self, run: &str, person: &str, app: &str, tool: &str, args: Value) -> Result<Value, Refused> {
         let is_manager = self.cfg.computer.as_ref().is_some_and(|c| c.password_manager.as_deref() == Some(app));
         let (Some(p), Some(r)) = (self.person(person), self.read(|s| s.runs.get(run).cloned())) else { return Err(Refused::Unknown) };

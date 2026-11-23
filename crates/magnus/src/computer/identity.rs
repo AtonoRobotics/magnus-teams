@@ -267,26 +267,18 @@ impl Kernel {
         Ok(Some((text, false, data)))
     }
 
-    /// The login a connected password manager holds for this site. Nothing
-    /// from it is logged or returned: the kernel fills it into the page.
-    async fn password_manager_login(&self, person: &str, site: &str) -> Option<(Option<String>, String)> {
+    /// The login a connected password manager holds for this site, read
+    /// through the one authorised read (`authorised_read.rs`). Nothing from
+    /// it is logged or returned: the kernel fills it into the page.
+    async fn password_manager_login(&self, run: &str, person: &str, site: &str) -> Option<(Option<String>, String)> {
         let app = self.cfg.computer.as_ref()?.password_manager.clone()?;
-        let c = self.connectors().into_iter().find(|c| c.name == app)?;
-        let secret = match self.connector_secret(&c, person).await {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("the password manager's sign-in: {e:#}");
+        let v = match self.password_manager_read(run, person, &app, PASSWORD_MANAGER_TOOL, json!({ "site": site })).await {
+            Ok(v) => v,
+            Err(why) => {
+                tracing::warn!("the password manager was not read for {site}: {}", why.kind());
                 return None;
             }
         };
-        if c.credential.is_some() && secret.is_none() {
-            return None;
-        }
-        let out = self.connector_call(&c, person, &app, secret.as_ref().map(|s| s.expose()), PASSWORD_MANAGER_TOOL, &json!({ "site": site })).await.ok()?;
-        if out.is_error {
-            return None;
-        }
-        let v = out.structured.or_else(|| serde_json::from_str(&out.text).ok())?;
         let password = v["password"].as_str().filter(|p| !p.is_empty())?.to_string();
         Some((v["username"].as_str().map(String::from), password))
     }
@@ -312,7 +304,7 @@ impl Kernel {
             self.fill_login(id, input["username_field"].as_str(), user.as_ref().map(|u| u.expose()), password_field, password.expose()).await?;
             return Ok(("Signed in with the saved login.".to_string(), false, None));
         }
-        if let Some((user, password)) = self.password_manager_login(person, site_of(&c)).await {
+        if let Some((user, password)) = self.password_manager_login(run, person, site_of(&c)).await {
             self.fill_login(id, input["username_field"].as_str(), user.as_deref(), password_field, &password).await?;
             return Ok(("Signed in from the password manager.".to_string(), false, None));
         }
