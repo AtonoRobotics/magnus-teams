@@ -27,10 +27,15 @@ pub(super) fn routes() -> Router<Arc<Kernel>> {
 /// Each person who connected `app`, from their own sign-in in the vault
 /// (`connector_<app>__<person>`) and from the connect screens they accepted.
 pub fn connected(vault: &[String], consents: &BTreeMap<String, BTreeSet<String>>, app: &str) -> Vec<String> {
-    let prefix = format!("{}__", crate::connectors::credential_name(app));
+    use crate::connectors::SignInOwner;
     // A workspace's own sign-in is shown with its workspace, not as a person.
-    let mut people: BTreeSet<String> =
-        vault.iter().filter_map(|n| n.strip_prefix(&prefix)).filter(|p| !p.is_empty() && !crate::team::sign_in::is_workspace_owner(p)).map(String::from).collect();
+    let mut people: BTreeSet<String> = vault
+        .iter()
+        .filter_map(|n| match SignInOwner::of_name(n, app) {
+            Some(SignInOwner::Person(p)) => Some(p),
+            _ => None,
+        })
+        .collect();
     people.extend(consents.get(app).into_iter().flatten().cloned());
     people.into_iter().collect()
 }

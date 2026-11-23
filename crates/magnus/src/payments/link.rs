@@ -2,6 +2,7 @@
 //! spend requests. Its API is separate from Stripe's and takes the customer's
 //! token, never a Stripe key.
 use super::{Card, LinkSettings};
+use crate::connectors::Superseded;
 use crate::kernel::Kernel;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -88,38 +89,73 @@ async fn token_call(k: &Kernel, s: &LinkSettings, form: &[(&str, &str)]) -> Resu
 pub(super) async fn exchange(k: &Kernel, s: &LinkSettings, person: &str, code: &str, verifier: &str) -> Result<()> {
     let form = [("grant_type", "authorization_code"), ("redirect_uri", s.redirect_uri.as_str()), ("code", code), ("code_verifier", verifier)];
     let tokens = token_call(k, s, &form).await?;
-    k.vault.put(&token_name(person), &serde_json::to_string(&tokens)?)
+    // In place of any sign-in before it, which a refresh on its way does
+    // not write back over this one (`connectors::SignInStore`).
+    k.connecting.store.replace(&k.vault, &token_name(person), &serde_json::to_string(&tokens)?)
 }
 
+/// End the person's Link sign-in: revoked at Link, then deleted here. From
+/// the moment it starts ending, no spend is made through it and no refresh
+/// begun earlier writes it back. Link refusing leaves it as it was.
 pub(super) async fn revoke(k: &Kernel, s: &LinkSettings, person: &str) -> Result<()> {
     let name = token_name(person);
-    let Some(raw) = k.vault.get(&name)? else { return Ok(()) };
-    let tokens: Tokens = serde_json::from_str(raw.expose()).context("the stored Link sign-in")?;
+    let store = &k.connecting.store;
+    let Some((generation, raw)) = store.ending(&k.vault, &name)? else { return Ok(()) };
+    let at_link = match serde_json::from_str::<Tokens>(raw.expose()).context("the stored Link sign-in") {
+        Ok(tokens) => revoke_at_link(k, s, &tokens).await,
+        Err(e) => Err(e),
+    };
+    match at_link {
+        Ok(()) => store.ended(&k.vault, &name, generation),
+        Err(e) => {
+            store.kept(&name, generation);
+            Err(e)
+        }
+    }
+}
+
+async fn revoke_at_link(k: &Kernel, s: &LinkSettings, tokens: &Tokens) -> Result<()> {
     let secret = k.vault.get(&s.client_secret)?.context("the Link client secret is not in the vault")?;
     let form = [("client_id", s.client_id.as_str()), ("client_secret", secret.expose()), ("token", tokens.refresh.as_str()), ("token_type_hint", "refresh_token")];
     let r = http()?.post(format!("{}/auth/revoke", s.login_url)).bearer_auth(&s.publishable_key).form(&form).send().await.context("reach Link")?;
     anyhow::ensure!(r.status().is_success(), "Link would not end the connection: {}", r.status());
-    k.vault.remove(&name)?;
     Ok(())
 }
 
 /// The person's access token, refreshed first if it is about to lapse. A
 /// refresh token works once, so the new one is stored before anything else.
+/// One refresh of a person's sign-in at a time, and no one else's waits.
 async fn access(k: &Kernel, s: &LinkSettings, person: &str) -> Result<Option<String>> {
     let name = token_name(person);
-    let _one_at_a_time = k.connecting.link_refresh.lock().await;
-    let Some(raw) = k.vault.get(&name)? else { return Ok(None) };
+    let store = &k.connecting.store;
+    let _turn = store.refreshing(&name).await;
+    let (generation, raw) = store.read(&k.vault, &name)?;
+    let Some(raw) = raw else { return Ok(None) };
     let tokens: Tokens = serde_json::from_str(raw.expose()).context("the stored Link sign-in")?;
     if tokens.expires_at - REFRESH_MARGIN_SECONDS > chrono::Utc::now().timestamp() {
         return Ok(Some(tokens.access));
     }
     let fresh = token_call(k, s, &[("grant_type", "refresh_token"), ("refresh_token", tokens.refresh.as_str())]).await?;
-    k.vault.put(&name, &serde_json::to_string(&fresh)?)?;
-    Ok(Some(fresh.access))
+    let made = serde_json::to_string(&fresh)?;
+    match store.write_back(&k.vault, &name, generation, |_| Ok(made))? {
+        Ok(()) => Ok(Some(fresh.access)),
+        // The person connected Link again meanwhile: that sign-in is used.
+        Err(Superseded::Replaced) => {
+            let now = store.get(&k.vault, &name)?.map(|raw| serde_json::from_str::<Tokens>(raw.expose())).transpose().context("the stored Link sign-in")?;
+            Ok(now.map(|t| t.access))
+        }
+        // Ended meanwhile: it stays ended, and what this refresh was given is revoked too.
+        Err(Superseded::Ended) => {
+            if let Err(e) = revoke_at_link(k, s, &fresh).await {
+                tracing::warn!("revoking a Link refresh that finished after the sign-in ended: {e:#}");
+            }
+            Ok(None)
+        }
+    }
 }
 
 pub(super) fn connected(k: &Kernel, person: &str) -> bool {
-    k.vault.get(&token_name(person)).is_ok_and(|t| t.is_some())
+    k.connecting.store.get(&k.vault, &token_name(person)).is_ok_and(|t| t.is_some())
 }
 
 fn failure(context: &str, status: reqwest::StatusCode, body: &str) -> Failure {
@@ -219,3 +255,7 @@ mod tests {
         assert!(card_of(&Spend::default()).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "link_tests.rs"]
+mod race_tests;

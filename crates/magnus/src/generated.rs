@@ -350,32 +350,14 @@ impl Kernel {
         self.read(|s| s.apps.connectors().get(name).filter(|c| c.owner.as_deref() == Some(person)).cloned())
     }
 
-    /// Its token and grants revoked, its rules removed, its file gone.
-    /// Grants and rules go even when the token cannot be revoked, since
-    /// taking a permission away is always safe; the connector itself stays
-    /// then, with the reason, so the token is not lost from view and the
-    /// person can try again.
+    /// Its token and grants revoked, its rules removed, its file gone, by
+    /// the one path any app goes by (`connectors::gone`). Grants and rules
+    /// go even when the token cannot be revoked, since taking a permission
+    /// away is always safe; the connector itself stays then, with the
+    /// reason, so the token is not lost from view and the person can try
+    /// again.
     async fn delete_generated(&self, person: &str, c: &Connector) -> Result<usize> {
-        let revoked = token_revoked(self.revoke_all(c).await);
-        let actor = format!("person:{person}");
-        let (grants, rules) = self.read(|s| {
-            let grants: Vec<String> =
-                s.arrangements.grants().values().filter(|g| g.person == person && g.revoked.is_none() && g.apps.contains(&c.name)).map(|g| g.id.clone()).collect();
-            let rules: Vec<String> = s.rules.of(person).into_iter().filter(|r| r.compiled.as_ref().is_some_and(|x| x.connector == c.name)).map(|r| r.id).collect();
-            (grants, rules)
-        });
-        for id in grants {
-            if let Err(e) = self.emit(&actor, Ev::GrantRevoked { id: id.clone(), person: person.to_string() }).await {
-                tracing::error!("deleting {}: grant {id} was not revoked: {e:#}", c.name);
-            }
-        }
-        for id in rules {
-            if let Err(e) = self.emit(&actor, Ev::Rule(crate::rules::Change::Removed { id: id.clone() })).await {
-                tracing::error!("deleting {}: rule {id} was not removed: {e:#}", c.name);
-            }
-        }
-        let revoked = revoked?;
-        self.emit(&actor, Ev::ConnectorRemoved { name: c.name.clone() }).await?;
+        let revoked = token_revoked(self.app_gone(&format!("person:{person}"), c).await)?;
         self.sync_definitions(person).await;
         Ok(revoked)
     }

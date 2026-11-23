@@ -12,7 +12,7 @@ use crate::api::{err, internal};
 use crate::api_error::{refuse, ApiResult};
 use crate::config::Connector;
 use crate::connectors::requests::{SignIn, SignInComplete};
-use crate::connectors::OAUTH;
+use crate::connectors::{SignInOwner, OAUTH};
 use crate::extract::Body;
 use crate::kernel::Kernel;
 use crate::state::Run;
@@ -24,20 +24,15 @@ use axum::{Json, Router};
 use serde_json::json;
 use std::sync::Arc;
 
-/// What a workspace's key starts with. A person id is only letters, digits,
-/// `.`, `_` and `-` (`accounts::valid_person_id`), so no person's sign-in
-/// can ever be read as a workspace's, or the other way round.
-const OWNER_PREFIX: &str = "workspace:";
-
 /// The key a workspace's sign-ins are kept under, where a person's id is
-/// for a person's (`connectors::connection_name`).
+/// for a person's (`connectors::connection_name`, `SignInOwner`).
 pub(crate) fn owner_key(workspace: &str) -> String {
-    format!("{OWNER_PREFIX}{workspace}")
+    SignInOwner::Project(workspace.to_string()).key()
 }
 
 /// Whether a sign-in's owner is a workspace, not a person.
 pub(crate) fn is_workspace_owner(owner: &str) -> bool {
-    owner.starts_with(OWNER_PREFIX)
+    matches!(SignInOwner::of_key(owner), SignInOwner::Project(_))
 }
 
 impl Kernel {
@@ -162,9 +157,10 @@ async fn sign_in_complete(State(k): State<Arc<Kernel>>, _admin: Member<at::Admin
 }
 
 /// A Team Admin ends the workspace's sign-in. Its team threads lose the app
-/// at once; members' own sign-ins are untouched.
+/// at once; members' own sign-ins are untouched. Turned off, an app keeps
+/// its sign-ins, so the workspace's can still be ended, as a person's can.
 async fn disconnect(State(k): State<Arc<Kernel>>, admin: Member<at::Admin>, Path((ws, name)): Path<(String, String)>) -> ApiResult {
-    if k.connector(&name).is_none() {
+    if !k.all_connectors().iter().any(|(c, _)| c.name == name) {
         return refuse(StatusCode::NOT_FOUND, "no such app");
     }
     Ok(match k.disconnect(&name, &owner_key(&ws), &format!("person:{}", admin.person.id)).await {
@@ -177,3 +173,7 @@ async fn disconnect(State(k): State<Arc<Kernel>>, admin: Member<at::Admin>, Path
 #[cfg(test)]
 #[path = "sign_in_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sign_in_end_tests.rs"]
+mod end_tests;

@@ -194,3 +194,31 @@ async fn a_withdrawn_connector_is_turned_off_its_connections_revoked_and_its_peo
     assert!(k.connector("github").is_some());
     assert_eq!(k.read(|s| s.catalog.serial), 3);
 }
+
+/// A shared project's sign-in to a withdrawn connector is ended, and the
+/// project's admins are told, not a person named after the project.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_projects_connection_is_ended_and_its_admins_told() {
+    let key = Key::new();
+    let more = format!("[updates]\npublic_key = {:?}\ncheck_minutes = 0\n", key.public());
+    let s = crate::admin_app::tests::server_with(&more, |_| axum::Router::new()).await;
+    let k = s.k.clone();
+    let sam = s.token("sam").await;
+    let (st, v) = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await;
+    assert_eq!(st, 200, "{v}");
+    let ws = v["id"].as_str().unwrap().to_string();
+    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/members"), json!({ "person": "mo", "role": "member" })).await.0, 200);
+    let project = crate::team::sign_in::owner_key(&ws);
+    let (revoke_at, revoked) = revoker().await;
+    sign_in(&k, "github", &project, &revoke_at);
+
+    key.publish(&list_dir(&k.cfg), &list(2, &["github"]));
+    let v = k.check_withdrawals().await.unwrap();
+    assert_eq!(v["connections_ended"].as_u64(), Some(1), "{v}");
+    assert!(k.vault.get(&crate::connectors::connection_name("github", &project)).unwrap().is_none());
+    assert_eq!(revoked.load(Ordering::SeqCst), 2);
+    assert_eq!(notices(&k, "sam", "github"), 1, "the project's admin was not told");
+    assert_eq!(notices(&k, "mo", "github"), 0, "a project member who is not an admin was told");
+    assert_eq!(notices(&k, &project, "github"), 0, "the project was told as if it were a person");
+    s.done().await;
+}

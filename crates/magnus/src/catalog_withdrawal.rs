@@ -21,6 +21,7 @@
 //! the connector out; a newer manifest outside the range ships it again.
 
 use crate::catalog::Manifest;
+use crate::connectors::SignInOwner;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use anyhow::{Context, Result};
@@ -203,38 +204,50 @@ impl Kernel {
         Ok(json!({ "serial": self.read(|s| s.catalog.serial), "refused": refused, "connections_ended": ended }))
     }
 
-    /// Every connection to a withdrawn catalog connector: its person told
-    /// once, then the connection revoked at the provider and deleted. Run
-    /// again after a crash, it finishes what was left.
+    /// Every connection to a withdrawn catalog connector: its person, or
+    /// for a shared project's, the project's admins, told once, then the
+    /// connection revoked at the provider and deleted. Run again after a
+    /// crash, it finishes what was left.
     async fn end_withdrawn_connections(&self) -> Result<usize> {
         let ledger = self.read(|s| s.catalog.clone());
         let mut ended = 0;
         for m in crate::catalog::manifests().iter().filter(|m| ledger.covers(m)) {
             let Some(w) = ledger.withdrawn.get(&m.id) else { continue };
-            let shared = crate::connectors::credential_name(&m.id);
-            let prefix = format!("{shared}__");
             for name in self.vault.names()?.into_iter().filter(|n| crate::connectors::is_sign_in_of(n, &m.id)) {
-                let Some(person) = name.strip_prefix(&prefix).map(str::to_string) else {
+                let Some(owner) = SignInOwner::of_name(&name, &m.id) else {
                     // The old shared sign-in, no one's to be told of.
-                    if let Some(s) = self.vault.remove(&name)? {
+                    if let Some(s) = self.connecting.store.end(&self.vault, &name)? {
                         let (done, detail) = crate::connectors::revoke(self, s.expose()).await;
                         tracing::info!("{}: withdrawn; the shared sign-in revoked {done}: {detail}", m.id);
                     }
                     continue;
                 };
-                if !self.read(|s| s.catalog.told(&m.id, &person)) {
-                    self.tell_withdrawn(m, w, &person).await?;
+                let (told, whose) = match &owner {
+                    SignInOwner::Person(p) => (vec![p.clone()], "Your connection".to_string()),
+                    SignInOwner::Project(ws) => self.read(|s| {
+                        let w = s.team.workspace(ws);
+                        let admins: Vec<String> =
+                            w.map(|w| w.members.iter().filter(|(_, r)| **r >= crate::team::Role::Admin).map(|(p, _)| p.clone()).collect()).unwrap_or_default();
+                        (admins, format!("The shared project {}'s connection", w.map(|w| w.name.as_str()).unwrap_or(ws)))
+                    }),
+                };
+                for person in told {
+                    if !self.read(|s| s.catalog.told(&m.id, &person)) {
+                        self.tell_withdrawn(m, w, &person, &whose).await?;
+                    }
                 }
-                self.disconnect(&m.id, &person, ACTOR).await?;
+                self.disconnect(&m.id, &owner.key(), ACTOR).await?;
                 ended += 1;
             }
+            // What names it goes with it, as for any app gone (`connectors::gone`).
+            self.take_away_permissions(ACTOR, &m.id).await;
         }
         Ok(ended)
     }
 
-    async fn tell_withdrawn(&self, m: &Manifest, w: &Withdrawal, person: &str) -> Result<()> {
+    async fn tell_withdrawn(&self, m: &Manifest, w: &Withdrawal, person: &str, whose: &str) -> Result<()> {
         let why = if w.reason.trim().is_empty() { String::new() } else { format!(" {}", w.reason.trim()) };
-        let summary = format!("{} was taken out of Magnus.{why} Your connection to it has been ended, and Magnus will not use it.", m.name);
+        let summary = format!("{} was taken out of Magnus.{why} {whose} to it has been ended, and Magnus will not use it.", m.name);
         let details = json!({ "connector": m.id, "name": m.name, "withdrawn": true, "reason": w.reason, "remove_access": m.remove_access });
         let (item, ev) = crate::kernel::notice_event(None, None, person.to_string(), summary, details);
         self.emit_all(vec![(ACTOR, ev), (ACTOR, Ev::Catalog(Change::Told { id: m.id.clone(), person: person.to_string(), item }))]).await?;

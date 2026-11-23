@@ -17,10 +17,12 @@ use std::time::Duration;
 
 mod admin;
 mod discovery;
+mod gone;
 pub(crate) mod relay;
 pub(crate) mod requests;
 mod routes;
 mod sign_in;
+mod sign_in_store;
 mod sign_in_target;
 mod slack;
 mod standing;
@@ -29,6 +31,7 @@ pub(crate) mod web;
 pub use admin::{org_credential, OrgCredential, Refusal};
 pub use routes::router;
 use sign_in::SignIns;
+pub(crate) use sign_in_store::{SignInOwner, SignInStore, Superseded};
 pub use standing::revoke;
 
 pub const OAUTH: &str = "oauth";
@@ -128,16 +131,16 @@ pub(crate) const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// A refused registration's first wait in seconds, doubled for each try after up to the third.
 pub(crate) const BACKOFF_FIRST_SECS: u64 = 1;
 
-/// The apps' sign-ins in flight on one server, kept on its kernel: its own
-/// waiting for their code, the relay's waiting for their tokens, Link's
-/// waiting for its callback, and one token refresh at a time.
+/// The apps' sign-ins on one server, kept on its kernel: those in flight
+/// (its own waiting for their code, the relay's waiting for their tokens,
+/// Link's waiting for its callback), and the one store every kept sign-in
+/// is read and written through.
 #[derive(Default)]
 pub(crate) struct Connecting {
     pub(crate) sign_ins: SignIns,
     pub(crate) relayed: relay::Waits,
-    pub(crate) refresh: tokio::sync::Mutex<()>,
     pub(crate) link_sign_ins: crate::payments::SignIns,
-    pub(crate) link_refresh: tokio::sync::Mutex<()>,
+    pub(crate) store: SignInStore,
 }
 
 pub(crate) fn http() -> reqwest::Client {
