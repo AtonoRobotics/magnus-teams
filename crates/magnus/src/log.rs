@@ -207,7 +207,7 @@ async fn migrate_root(admin: &Client, root_url: &str, db: &str) -> Result<()> {
 /// events, by the same rule as `State::content_owner`.
 pub fn content_walls_sql(role: &str) -> String {
     let reader = format!("{role}_person");
-    let (owners, open_web) = (CONTENT_OWNERS, crate::team::lanes::OPEN_WEB_OWNERS);
+    let (owners, open_web, knowledge) = (CONTENT_OWNERS, crate::team::lanes::OPEN_WEB_OWNERS, crate::knowledge_owner::owners_sql());
     format!(
         "ALTER TABLE public.content ADD COLUMN IF NOT EXISTS person text;
          CREATE INDEX IF NOT EXISTS content_person ON public.content (person);
@@ -223,7 +223,7 @@ pub fn content_walls_sql(role: &str) -> String {
          DROP POLICY IF EXISTS content_person ON public.content;
          CREATE POLICY content_person ON public.content FOR SELECT TO {reader}
              USING (person IS NOT NULL AND person = NULLIF(current_setting('magnus.person', true), ''));
-         {owners} {open_web}"
+         {owners} {open_web} {knowledge}"
     )
 }
 
@@ -231,7 +231,8 @@ pub fn content_walls_sql(role: &str) -> String {
 /// before the column existed, or restored from a backup.
 pub const CONTENT_OWNERS: &str = "UPDATE public.content c SET person = o.person FROM (
     SELECT e.seq, CASE
-        WHEN e.kind IN ('knowledge_added', 'playbook') THEN NULL
+        -- A knowledge entry is whose its readers now say: `knowledge_owner::owners_sql`, after this.
+        WHEN e.kind = 'knowledge_added' THEN NULL
         WHEN e.kind = 'bundle_written' THEN e.body->>'owner_user'
         WHEN e.kind = 'item_resolved' THEN (SELECT i.body->>'person' FROM public.events i
             WHERE i.kind = 'item' AND i.body->>'id' = e.body->>'id' ORDER BY i.seq LIMIT 1)

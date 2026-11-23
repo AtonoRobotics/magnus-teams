@@ -253,6 +253,7 @@ impl Kernel {
         // own delete is, so the channels keep their places (owner, 2026-11-13).
         let said = self.unsend_all_of(actor, person).await.map_err(failed)?;
         let mut seqs = self.log.person_content_seqs(person).await.map_err(failed)?;
+        self.erased_knowledge(person, &mut seqs).await.map_err(failed)?;
         seqs.extend(said);
         seqs.sort_unstable();
         seqs.dedup();

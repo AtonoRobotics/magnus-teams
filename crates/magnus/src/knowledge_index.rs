@@ -339,4 +339,4 @@ pub fn schedule(k: &Arc<Kernel>) {
 
 #[cfg(test)]
 #[path = "knowledge_index_tests.rs"]
-mod tests;
+pub(crate) mod tests;

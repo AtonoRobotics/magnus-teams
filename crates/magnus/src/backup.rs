@@ -501,6 +501,7 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
     // The backup does not say whose each row is; the events do.
     tx.batch_execute(crate::log::CONTENT_OWNERS).await?;
     tx.batch_execute(crate::team::lanes::OPEN_WEB_OWNERS).await?;
+    tx.batch_execute(&crate::knowledge_owner::owners_sql()).await?;
     // The vault first, then the log's commit: a vault that cannot be
     // written leaves the log empty, so the restore can be run again; a
     // commit that fails takes the written vault back out.

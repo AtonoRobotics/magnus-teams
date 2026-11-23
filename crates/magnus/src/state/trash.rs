@@ -71,6 +71,14 @@ impl Trashed {
         }
     }
 
+    /// A trashed knowledge entry's record.
+    pub fn knowledge(&self) -> Option<&KnowledgeEntry> {
+        match &self.held {
+            Held::Knowledge(k) => Some(k),
+            _ => None,
+        }
+    }
+
     pub fn kind(&self) -> &'static str {
         match self.held {
             Held::Task(..) => "task",
