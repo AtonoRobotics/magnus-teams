@@ -47,7 +47,7 @@ pub struct Schedule {
     /// The conversation it was set up in, if any: where its runs post (`schedule_thread::of`).
     pub thread: Option<String>,
     /// The zone its daily time is read in: its person's, kept current as
-    /// they change it, else the server's (`cadence::Zone::of_preferences`).
+    /// they change it, else the server's (`cadence::zone_of`).
     pub zone: crate::cadence::Zone,
 }
 
@@ -210,7 +210,7 @@ impl Arrangements {
                     id.clone(),
                     Schedule {
                         id: id.clone(),
-                        zone: crate::cadence::Zone::of_preferences(prefs.get(person)),
+                        zone: crate::cadence::zone_of(prefs.get(person)),
                         person: person.clone(),
                         every_minutes: *every_minutes,
                         daily_at: daily_at.clone(),

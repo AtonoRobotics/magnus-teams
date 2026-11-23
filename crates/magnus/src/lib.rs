@@ -99,6 +99,7 @@ pub mod passwords;
 pub mod payments;
 pub mod people;
 pub mod person_admin;
+pub mod person_stores;
 pub mod policy;
 pub mod prefetch;
 pub mod proactive;

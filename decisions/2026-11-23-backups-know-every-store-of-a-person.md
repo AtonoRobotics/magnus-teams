@@ -1,0 +1,14 @@
+# Backups know every store that holds a person
+
+**Choice.**
+- One list of the stores that hold something of a person, `person_stores::STORES`: the log's content, the accounts tables, the vault and the paired devices. A backup takes each, a scrub after an erasure takes the erased person out of each (`drop_erased`), and a restore runs the same `drop_erased` on the backup before it puts anything back.
+- The accounts tables are backed up as rows (`to_jsonb`, one repeatable-read snapshot), not a `pg_dump`, so a scrub can take one person's rows out. A backup made before this release still holds a dump: it is read as rows through `pg_restore --data-only`, at a scrub that has someone to take out and at a restore.
+- Sessions (`account_sessions`) are never backed up, and a restore never puts one back, whatever the backup holds. A sign-out everywhere, a password reset or a person turned off after the backup stays in force.
+- The paired devices (`accounts/devices.json`) are in the backup and come back with a restore, so a paired computer is not refused until it is paired again. A device revoked after the backup comes back listed as live here; Cloudflare already deleted its certificate, so the public name still refuses it.
+- What was erased is recorded beside the state and the backups (`removals.json`, added to, never replaced): events by number and time as before, people and vault entries by a SHA-256 of the id or name with the time of the erasure, so the record names no one. A person counts as erased in a backup made at or before their erasure only: an id erased and later made again keeps what newer backups hold of the new person. The people erased also come from the log's `person_erased` events, so a record that failed to write is made up at the next scrub.
+- A backup's time (`made_at`, and its file name) is when it starts, before anything is read, so an erasure during a long backup still reaches it.
+- A person's vault entries are matched by name (their sign-ins `connector_<app>__<id>`, `payments/card/<id>`, `payments/link/<id>`) and, for the tokens of apps they built, by the names the erasure removed (`Kernel::note_erased`).
+- Every erasure scrubs the backups, not only one that removed content: a person with no content still has a login in them.
+- An erasure of a person who stays (data only, config person) takes their login rows out of backups made before it too. A restore of such a backup leaves them to sign in through their provider or have their password reset.
+
+**Reason.** A scrub took only event content out of the backups, so restoring one made before an erasure brought back the erased person's password, authenticator, email, role, card and app tokens, and every session ended since. Paired devices were in no backup at all. With one list, a new store that holds a person is one more entry that backup, scrub and restore all go through.

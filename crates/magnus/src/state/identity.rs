@@ -158,7 +158,7 @@ impl Identity {
 
     /// The person's zone, from their preferences.
     pub fn zone(&self, person: &str) -> Zone {
-        Zone::of_preferences(self.preferences.get(person))
+        crate::cadence::zone_of(self.preferences.get(person))
     }
 
     #[cfg(test)]

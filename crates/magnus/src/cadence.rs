@@ -25,11 +25,40 @@ pub enum Zone {
     Server,
 }
 
+/// A person's zone from their preferences (`timezone`, an IANA name); the
+/// server's when they set none, or one that is not a zone. The one reading
+/// of a person's zone: their schedules, working and quiet hours, the day
+/// their interruptions and reviews count in, Settings and what the model is
+/// told all go through it (owner, 2026-11-14: the server's, not UTC).
+pub fn zone_of(prefs: Option<&serde_json::Value>) -> Zone {
+    prefs.and_then(|p| p.get("timezone")).and_then(serde_json::Value::as_str).and_then(|z| z.parse().ok()).map_or(Zone::Server, Zone::Named)
+}
+
 impl Zone {
-    /// A person's zone from their preferences (`timezone`, an IANA name);
-    /// the server's when they set none, or one that is not a zone.
-    pub fn of_preferences(prefs: Option<&serde_json::Value>) -> Zone {
-        prefs.and_then(|p| p.get("timezone")).and_then(serde_json::Value::as_str).and_then(|z| z.parse().ok()).map_or(Zone::Server, Zone::Named)
+    /// The wall-clock time here at `t`.
+    pub fn local(&self, t: DateTime<Utc>) -> chrono::NaiveDateTime {
+        match self {
+            Zone::Named(tz) => t.with_timezone(tz).naive_local(),
+            Zone::Server => t.with_timezone(&chrono::Local).naive_local(),
+        }
+    }
+
+    /// The earliest moment the clocks here show `wall`; none when they skip it.
+    pub fn earliest(&self, wall: &chrono::NaiveDateTime) -> Option<DateTime<Utc>> {
+        use chrono::TimeZone;
+        match self {
+            Zone::Named(tz) => tz.from_local_datetime(wall).earliest().map(|t| t.with_timezone(&Utc)),
+            Zone::Server => chrono::Local.from_local_datetime(wall).earliest().map(|t| t.with_timezone(&Utc)),
+        }
+    }
+
+    /// Its IANA name: the person's, or the server's (`server`, read with the
+    /// config at start).
+    pub fn name(&self, server: &str) -> String {
+        match self {
+            Zone::Named(tz) => tz.name().to_string(),
+            Zone::Server => server.to_string(),
+        }
     }
 }
 

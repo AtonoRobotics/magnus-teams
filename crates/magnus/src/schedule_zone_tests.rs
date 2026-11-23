@@ -69,3 +69,23 @@ fn a_person_with_no_zone_keeps_the_servers_clock() {
     assert_eq!(s.arrangements.schedules()["sc_bad"].zone, Zone::Server, "a zone that is not one was used");
     assert_eq!(s.arrangements.schedules()["sc_bad"].next_due(), servers);
 }
+
+/// A person who names no zone has one zone for everything: their quiet
+/// hours end at the moment their daily schedule at the same time fires,
+/// and both are the server's clock, not UTC.
+#[test]
+fn a_person_with_no_zone_has_the_same_zone_for_schedules_and_quiet_hours() {
+    use chrono::TimeZone;
+    let mut s = State::default();
+    // 03:00 tomorrow on the server's clock, inside the default quiet hours
+    // (22:00 to 07:00).
+    let day = (chrono::Local::now() + chrono::Duration::days(1)).date_naive();
+    let now = chrono::Local.from_local_datetime(&day.and_hms_opt(3, 0, 0).unwrap()).earliest().unwrap().with_timezone(&Utc);
+    daily(&mut s, now, "sc", "07:00");
+    let prefs = s.identity.preferences_of("alice").cloned().unwrap_or(Value::Null);
+    let st = crate::proactive::settings(&crate::config::Proactive::default(), &prefs);
+    let sc = &s.arrangements.schedules()["sc"];
+    assert_eq!(st.tz, sc.zone, "quiet hours and schedules read different zones");
+    assert_eq!(crate::proactive::quiet_ends_at(now, st.tz, st.quiet), sc.next_due(), "quiet hours did not end when the 07:00 schedule fires");
+    assert_eq!(crate::proactive::day_key(now, st.tz), day.to_string(), "the person's day is not the server's");
+}

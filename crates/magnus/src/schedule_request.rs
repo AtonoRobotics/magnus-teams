@@ -82,7 +82,12 @@ impl Kernel {
             "every_minutes": every, "daily_at": daily, "until": until, "max_runs": max_runs,
         });
         let shown = if task.is_chat_turn() { " and shown in this thread" } else { "" };
-        Ok((format!("Schedule {id} ({title}) is set up: {goal}. It is in the person's Schedules{shown}."), false, Some(data)))
+        // The zone its daily time is read in, named (`cadence::zone_of`).
+        let when = match &daily {
+            Some(at) => format!(" It runs every day at {at}, {} time (the person's time zone).", self.read(|s| s.identity.zone(&task.person)).name(&self.cfg.server_zone)),
+            None => String::new(),
+        };
+        Ok((format!("Schedule {id} ({title}) is set up: {goal}.{when} It is in the person's Schedules{shown}."), false, Some(data)))
     }
 }
 

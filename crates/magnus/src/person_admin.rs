@@ -235,6 +235,8 @@ impl Kernel {
         }
         // Their card, their Link wallet and the tokens of apps they built.
         let built: Vec<String> = self.read(|s| s.apps.connectors().values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
+        // Every backup made before now loses them too (`person_stores`).
+        self.note_erased(person, &built);
         for name in [format!("payments/card/{person}"), format!("payments/link/{person}")].into_iter().chain(built) {
             self.vault.remove(&name).map_err(failed)?;
         }
@@ -254,17 +256,20 @@ impl Kernel {
         }
         let runs: Vec<String> = self.read(|s| s.runs.values().filter(|r| r.person == person).map(|r| r.id.clone()).collect());
         crate::ui::images::forget_runs(&self.cfg.appliance.state_dir, &runs);
+        // Files still held for any run of theirs go with them.
+        for run in &runs {
+            self.sandboxes.release_inputs(run);
+        }
         self.emit(actor, Ev::PersonErased { person: person.to_string() }).await.map_err(failed)?;
-        // Not complete while a backup still holds their content: the backups
-        // left are recorded and tried again until they are rewritten (#195).
+        // Not complete while a backup still holds anything of theirs, their
+        // content or their login: the backups left are recorded and tried
+        // again until they are rewritten (#195).
         let mut out = json!({ "runs_stopped": going.len(), "schedules_ended": schedules.len(), "sessions_ended": sessions, "sign_ins_revoked": sign_ins, "computers_deleted": computers, "content_removed": n, "erasure": "complete" });
-        if n > 0 {
-            if let Err(e) = self.scrub_backups().await {
-                tracing::error!("erasing {person}: their content is still in backups: {e:#}");
-                out["erasure"] = json!("incomplete");
-                out["backups_pending"] = json!(self.read(|s| s.server_ops.scrub_pending().map(|p| p.files.clone())).unwrap_or_default());
-                out["detail"] = json!(format!("their content is still in backups, which are rewritten without it at the next try (hourly, and at start): {e:#}"));
-            }
+        if let Err(e) = self.scrub_backups().await {
+            tracing::error!("erasing {person}: their content is still in backups: {e:#}");
+            out["erasure"] = json!("incomplete");
+            out["backups_pending"] = json!(self.read(|s| s.server_ops.scrub_pending().map(|p| p.files.clone())).unwrap_or_default());
+            out["detail"] = json!(format!("their content is still in backups, which are rewritten without it at the next try (hourly, and at start): {e:#}"));
         }
         Ok(out)
     }

@@ -18,7 +18,7 @@ use base64::Engine;
 use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 const MAGIC: &[u8] = b"MAGNUS-BACKUP-1\n";
@@ -85,11 +85,9 @@ pub fn check(v: &Value) -> Result<(usize, i64)> {
         let dump = B64.decode(d["dump"].as_str().unwrap_or_default()).with_context(|| format!("the dump of {name}"))?;
         pg_tool("pg_restore", &["--list"], &[], &dump).with_context(|| format!("the dump of {name} does not read back"))?;
     }
-    // The accounts tables, when the backup holds them (#466).
-    if let Some(a) = v.get("accounts") {
-        let dump = B64.decode(a["dump"].as_str().unwrap_or_default()).context("the accounts dump")?;
-        pg_tool("pg_restore", &["--list"], &[], &dump).context("the accounts dump does not read back")?;
-    }
+    // The accounts tables and the paired devices, when the backup holds
+    // them (#466).
+    crate::person_stores::check(v)?;
     Ok((events.len(), last))
 }
 
@@ -106,7 +104,7 @@ fn database(label: &str, url: &str) -> Result<(String, String, String)> {
 }
 
 /// Run `pg_dump` or `pg_restore`, with `input` on its stdin; its stdout.
-fn pg_tool(tool: &str, args: &[&str], env: &[(&str, &str)], input: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn pg_tool(tool: &str, args: &[&str], env: &[(&str, &str)], input: &[u8]) -> Result<Vec<u8>> {
     use std::io::Write;
     let mut child = std::process::Command::new(tool)
         .args(args)
@@ -140,35 +138,6 @@ fn dump_databases(cfg: &Config) -> Result<Vec<Value>> {
         .collect()
 }
 
-/// The accounts tables, dumped from the appliance's own database,
-/// table-scoped: the log rides the events, not a dump, and the accounts
-/// tables ride neither — they are no event's content — so they get their
-/// own (#466).
-fn dump_accounts(cfg: &Config) -> Result<Value> {
-    let (_, dsn, password) = database("[database] url", &cfg.database.url)?;
-    let mut owned: Vec<String> = vec!["--format=custom".into(), "--no-owner".into(), "--no-privileges".into()];
-    for t in crate::accounts::TABLES {
-        owned.push(format!("--table=public.{t}"));
-    }
-    owned.push("--dbname".into());
-    owned.push(dsn);
-    let args: Vec<&str> = owned.iter().map(String::as_str).collect();
-    let dump = pg_tool("pg_dump", &args, &[("PGPASSWORD", &password)], &[]).context("back up the accounts tables")?;
-    Ok(json!({ "dump": B64.encode(dump) }))
-}
-
-/// The accounts tables back into the appliance's own database: data only,
-/// into the migrated tables, so grants stay as `migrate` left them. The
-/// caller empties the tables first, so a rerun loads clean (#466).
-fn restore_accounts(cfg: &Config, v: &Value) -> Result<bool> {
-    let Some(a) = v.get("accounts") else { return Ok(false) };
-    let (_, dsn, password) = database("[database] url", &cfg.database.url)?;
-    let dump = B64.decode(a["dump"].as_str().unwrap_or_default()).context("the accounts dump")?;
-    pg_tool("pg_restore", &["--data-only", "--single-transaction", "--no-owner", "--no-privileges", "--dbname", &dsn], &[("PGPASSWORD", &password)], &dump)
-        .context("restore the accounts tables")?;
-    Ok(true)
-}
-
 /// Put each database the backup holds back, into the one `[backup]
 /// databases` names with that name; all are found before any is written.
 fn restore_databases(cfg: &Config, v: &Value) -> Result<usize> {
@@ -191,6 +160,9 @@ impl Kernel {
     /// drop backups older than `keep_days`.
     pub async fn back_up(&self, actor: &str) -> Result<Value> {
         let _one = backing_up().lock().await;
+        // Its time is when it starts, before anything is read: an erasure
+        // after this reaches it (`person_stores`), however long the dumps take.
+        let made = chrono::Utc::now();
         let mut rows = self.log.dump().await?;
         let through = rows.last().map(|r| r["seq"].as_i64().unwrap_or(0)).unwrap_or(0);
         // Every removal in the dump applies to it: content whose deletion
@@ -206,15 +178,15 @@ impl Kernel {
         let (vault_key, secrets) = self.vault.raw()?;
         let cfg = self.cfg.clone();
         let databases = tokio::task::spawn_blocking(move || dump_databases(&cfg)).await??;
-        let cfg = self.cfg.clone();
-        let accounts = tokio::task::spawn_blocking(move || dump_accounts(&cfg)).await??;
+        // Every other store that holds a person (`person_stores`).
+        let accounts = crate::person_stores::take_accounts(&self.cfg).await?;
+        let devices = crate::person_stores::take_devices(&self.cfg)?;
         let cfg = self.cfg.clone();
         let team_files = tokio::task::spawn_blocking(move || crate::team::pack_files(&cfg)).await??;
-        let made = chrono::Utc::now();
         let doc = json!({
             "format": FORMAT, "made_at": made, "through_seq": through, "scrubbed_through": scrubbed, "events": rows,
             "vault": { "key": B64.encode(vault_key), "secrets": secrets },
-            "databases": databases, "accounts": accounts, "team_files": team_files,
+            "databases": databases, "accounts": accounts, "devices": devices, "team_files": team_files,
         });
         let plain = serde_json::to_vec(&doc)?;
         let cipher = key(&self.cfg, true)?;
@@ -288,11 +260,17 @@ impl Kernel {
     /// content, until a later scrub rewrites it (`BackupsScrubbed`) (#195).
     pub async fn scrub_backups(&self) -> Result<usize> {
         let removals = self.log.removals().await?;
-        let Some(&(latest, _)) = removals.last() else { return Ok(0) };
+        // Every store that holds a person, not only the log's content: an
+        // erasure that removed no content still takes their login, vault
+        // entries and devices out of the backups (`person_stores`).
+        let erased = self.erased().await?;
+        if erased.is_empty() {
+            return Ok(0);
+        }
+        let latest = removals.last().map_or(0, |r| r.0);
         // With no scrub left pending, every backup has had the removals up
         // to the one before the latest.
         let before = removals.iter().rev().nth(1).map_or(0, |r| r.0);
-        let removed = self.log.removed_events().await?;
         let dir = self.cfg.backup_dir();
         // A directory backups were made in that is gone now (a disk not
         // mounted) is not one without backups: they are only out of reach.
@@ -305,7 +283,7 @@ impl Kernel {
             // What has been removed, where a restore of a backup that
             // could not be rewritten finds it (`restore`), and every
             // removal recorded before, in this log's history or another's.
-            let gone = note_removals(&cfg, &removed);
+            let gone = crate::person_stores::note(&cfg, erased);
             let files = match try_list(&dir) {
                 Ok(files) => files,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound && !made => vec![],
@@ -356,30 +334,15 @@ impl Kernel {
     }
 }
 
-/// Every event whose content was removed, by its number and time (#195).
-type Gone = std::collections::BTreeSet<(i64, chrono::DateTime<chrono::Utc>)>;
-
-/// Take every removed event's content out of one backup, and mark it as
-/// having had the removals through `latest`; whether it was rewritten.
-/// `done` is the last removal it had, once it is read. An event is matched
-/// by its number and its time, so a removal recorded before a restore
-/// still takes it, and an event the restored log later gave the same
-/// number is not taken with it.
-fn scrub_one(cipher: &XChaCha20Poly1305, path: &Path, gone: &Gone, latest: i64, done: &mut i64) -> Result<bool> {
+/// Take everything erased out of one backup, every store that holds a
+/// person (`person_stores`), and mark it as having had the removals
+/// through `latest`; whether it was rewritten. `done` is the last removal
+/// it had, once it is read.
+fn scrub_one(cipher: &XChaCha20Poly1305, path: &Path, erased: &crate::person_stores::Erased, latest: i64, done: &mut i64) -> Result<bool> {
     let mut v = open(cipher, &std::fs::read(path)?)?;
     *done = v["scrubbed_through"].as_i64().unwrap_or(0);
-    let mut changed = *done < latest;
-    for e in v["events"].as_array_mut().into_iter().flatten() {
-        if e["content"].is_null() && e["salt"].is_null() {
-            continue;
-        }
-        if e["seq"].as_i64().is_some_and(|q| named(gone, q, &e["at"])) {
-            e["content"] = Value::Null;
-            e["salt"] = Value::Null;
-            changed = true;
-        }
-    }
-    if !changed {
+    let dropped = crate::person_stores::drop_erased(&mut v, erased)?;
+    if !dropped && *done >= latest {
         return Ok(false);
     }
     v["scrubbed_through"] = json!(latest.max(*done));
@@ -387,82 +350,10 @@ fn scrub_one(cipher: &XChaCha20Poly1305, path: &Path, gone: &Gone, latest: i64, 
     Ok(true)
 }
 
-/// Whether a removal named this event; one without a readable time is
-/// taken by its number alone.
-fn named(gone: &Gone, seq: i64, at: &Value) -> bool {
-    match at.as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()) {
-        Some(at) => gone.contains(&(seq, at.with_timezone(&chrono::Utc))),
-        None => gone.iter().any(|(q, _)| *q == seq),
-    }
-}
-
-/// The record of removals a restore reads: the events whose content was
-/// removed, by number and time only (no content, no names). Kept in the
-/// state directory, which the kernel can always write, and beside the
-/// backups, which go with them to another machine.
-const REMOVALS: &str = "removals.json";
-
-/// The removals recorded in `dir`: none if it has no record, an error if
-/// it has one that cannot be read.
-fn read_removals(dir: &Path) -> Result<Gone> {
-    let bytes = match std::fs::read(dir.join(REMOVALS)) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Gone::new()),
-        Err(e) => return Err(e.into()),
-    };
-    let v: Value = serde_json::from_slice(&bytes)?;
-    v["removed"]
-        .as_array()
-        .context("no removals")?
-        .iter()
-        .map(|r| {
-            let at = chrono::DateTime::parse_from_rfc3339(r[1].as_str().unwrap_or_default())?.with_timezone(&chrono::Utc);
-            Ok((r[0].as_i64().context("a removal without its event")?, at))
-        })
-        .collect()
-}
-
-/// Add `known` to the record in each of `dirs` and return all of them. A
-/// record is only added to, never replaced: a removal recorded once stays
-/// recorded through any restore of a backup older than it, whose log does
-/// not have it (#195). A record that cannot be read is left as it is.
-fn record_removals(dirs: &[PathBuf], mut known: Gone) -> Gone {
-    let mut writable = vec![];
-    for dir in dirs.iter().filter(|d| d.is_dir()) {
-        match read_removals(dir) {
-            Ok(had) => {
-                known.extend(had);
-                writable.push(dir);
-            }
-            Err(e) => tracing::warn!("reading the removals recorded in {}: {e:#}", dir.display()),
-        }
-    }
-    let doc = json!({ "removed": known.iter().map(|(q, at)| json!([q, at.to_rfc3339()])).collect::<Vec<_>>() }).to_string();
-    for dir in writable {
-        if let Err(e) = crate::vault::write_private(&dir.join(REMOVALS), doc.as_bytes()) {
-            tracing::warn!("recording the removals in {}: {e:#}", dir.display());
-        }
-    }
-    known
-}
-
-fn note_removals(cfg: &Config, removed: &[(i64, chrono::DateTime<chrono::Utc>)]) -> Gone {
-    record_removals(&[cfg.appliance.state_dir.clone(), cfg.backup_dir()], removed.iter().copied().collect())
-}
-
-/// Every event whose content was removed, as recorded in the state
-/// directory, beside the backups and beside the backup being restored;
-/// all of them recorded in the state directory too, for later restores. A
-/// record that cannot be read stops the restore, which could otherwise
-/// bring back what it names.
-fn removed_events(cfg: &Config, from: &Path) -> Result<Gone> {
-    let dirs = [Some(cfg.appliance.state_dir.clone()), Some(cfg.backup_dir()), from.parent().map(Path::to_path_buf)];
-    let mut all = Gone::new();
-    for d in dirs.into_iter().flatten() {
-        all.extend(read_removals(&d).with_context(|| format!("read the removals recorded in {}", d.display()))?);
-    }
-    std::fs::create_dir_all(&cfg.appliance.state_dir)?;
-    Ok(record_removals(std::slice::from_ref(&cfg.appliance.state_dir), all))
+/// A backup file as it reads under the backup key.
+#[cfg(test)]
+pub(crate) fn read(cfg: &Config, path: &Path) -> Result<Value> {
+    open(&key(cfg, false)?, &std::fs::read(path)?)
 }
 
 fn backing_up() -> &'static tokio::sync::Mutex<()> {
@@ -564,8 +455,19 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
     let v = open(&cipher, &std::fs::read(from).with_context(|| format!("read {}", from.display()))?)?;
     let (n, last) = check(&v)?;
     // A backup that could not be rewritten after a removal (an erasure)
-    // still holds what was removed: it is left out here too (#195).
-    let removed = removed_events(cfg, from)?;
+    // still holds what was removed: it is left out here too, from every
+    // store that holds a person (#195, `person_stores`).
+    let erased = crate::person_stores::for_restore(cfg, from)?;
+    let v = tokio::task::spawn_blocking(move || -> Result<Value> {
+        let mut v = v;
+        crate::person_stores::drop_erased(&mut v, &erased)?;
+        Ok(v)
+    })
+    .await??;
+    let devices = crate::person_stores::devices_file(&v)?;
+    let devices_path = crate::devices::file(&cfg.appliance.state_dir);
+    let devices_dir = devices_path.parent().map(Path::to_path_buf).unwrap_or_else(|| cfg.appliance.state_dir.clone());
+    let old_devices = std::fs::read(&devices_path).ok();
     let vault_dir = cfg.appliance.state_dir.join("vault");
     if vault_dir.join("secrets.json").exists() {
         bail!("{} already holds secrets; restore into an empty state directory", vault_dir.display());
@@ -588,7 +490,7 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
             &[&e["seq"].as_i64(), &at, &e["kind"].as_str(), &e["actor"].as_str(), &e["run_id"].as_str(), &e["body"]],
         )
         .await?;
-        if !e["content"].is_null() && !e["seq"].as_i64().is_some_and(|q| removed.contains(&(q, at))) {
+        if !e["content"].is_null() {
             let salt = hex::decode(e["salt"].as_str().unwrap_or_default()).with_context(|| format!("event {} has no salt", e["seq"]))?;
             tx.execute("INSERT INTO public.content (seq, salt, body) VALUES ($1, $2, $3)", &[&e["seq"].as_i64(), &salt, &e["content"]]).await?;
         }
@@ -608,6 +510,13 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
         std::fs::set_permissions(&vault_dir, std::fs::Permissions::from_mode(0o700))?;
         crate::vault::write_private(&vault_dir.join("key"), &B64.decode(v["vault"]["key"].as_str().unwrap_or_default())?)?;
         crate::vault::write_private(&vault_dir.join("secrets.json"), v["vault"]["secrets"].as_str().unwrap_or("{}").as_bytes())?;
+        // The paired devices, so a paired computer is not refused after a
+        // restore until it is paired again.
+        if let Some(d) = &devices {
+            std::fs::create_dir_all(&devices_dir)?;
+            std::fs::set_permissions(&devices_dir, std::fs::Permissions::from_mode(0o700))?;
+            crate::vault::write_private(&devices_path, d)?;
+        }
         Ok(())
     };
     // The databases the appliance depends on, while the log's transaction is
@@ -617,21 +526,22 @@ pub async fn restore(cfg: &Config, admin_url: &str, from: &Path) -> Result<(usiz
     tokio::task::spawn_blocking(move || restore_databases(&c, &w)).await??;
     let (c, w) = (cfg.clone(), v.clone());
     tokio::task::spawn_blocking(move || crate::team::unpack_files(&c, &w)).await??;
-    // The accounts tables likewise (#466): emptied first on their own
-    // committed connection (a data load cannot run inside the log's
-    // transaction, and must not meet rows a run before it left), then
-    // loaded while the log's transaction is still open.
-    if v.get("accounts").is_some() {
-        let wipe = crate::log::connect(&cfg.database.url).await?;
-        for t in crate::accounts::TABLES {
-            wipe.execute(&format!("DELETE FROM public.{t}"), &[]).await?;
-        }
-        let (c, w) = (cfg.clone(), v.clone());
-        tokio::task::spawn_blocking(move || restore_accounts(&c, &w)).await??;
-    }
+    // The accounts tables likewise (#466), without a session: emptied and
+    // loaded on their own connection (a data load cannot run inside the
+    // log's transaction, and must not meet rows a run before it left),
+    // while the log's transaction is still open.
+    crate::person_stores::put_back_accounts(cfg, &v).await?;
     let old_key = std::fs::read(vault_dir.join("key")).ok();
     let undo = || {
         let _ = std::fs::remove_file(vault_dir.join("secrets.json"));
+        match &old_devices {
+            Some(d) => {
+                let _ = crate::vault::write_private(&devices_path, d);
+            }
+            None => {
+                let _ = std::fs::remove_file(&devices_path);
+            }
+        }
         match &old_key {
             Some(k) => {
                 let _ = crate::vault::write_private(&vault_dir.join("key"), k);

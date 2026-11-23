@@ -55,6 +55,10 @@ pub struct Config {
     /// What child processes inherit from Magnus's own environment, read once here.
     #[serde(skip, default = "crate::spawn::HostEnv::from_process")]
     pub host: crate::spawn::HostEnv,
+    /// The server's own time zone by its IANA name, read once here: the zone
+    /// of a person who names none (`cadence::zone_of`).
+    #[serde(skip, default = "crate::config::load::server_zone_name")]
+    pub server_zone: String,
     /// Removable modules, on or off for every model, and per model.
     #[serde(default)]
     pub modules: Modules,

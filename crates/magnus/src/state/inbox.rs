@@ -115,7 +115,7 @@ impl Inbox {
                 // A delivered interruption counts against the person's day
                 // (#237); observations and notices never do.
                 if item_kind == "interrupt" {
-                    let tz = prefs.get(person).map(crate::proactive::tz_of).unwrap_or(chrono_tz::Tz::UTC);
+                    let tz = crate::cadence::zone_of(prefs.get(person));
                     let today = crate::proactive::day_key(e.at, tz);
                     self.interrupts
                         .entry(person.clone())
@@ -134,12 +134,12 @@ impl Inbox {
                 self.reviews_last.insert(person.clone(), e.at);
                 self.review_runs.insert(run.clone(), person.clone());
                 if reason == "overnight" {
-                    let tz = prefs.get(person).map(crate::proactive::tz_of).unwrap_or(chrono_tz::Tz::UTC);
+                    let tz = crate::cadence::zone_of(prefs.get(person));
                     self.reviews_overnight.insert(person.clone(), crate::proactive::day_key(e.at, tz));
                 }
                 for (prefix, suffix) in [("schedule ", " coming up"), ("commitment ", " due"), ("approval ", " waiting"), ("task ", " done"), ("task ", " failed")] {
                     if let Some(id) = reason.strip_prefix(prefix).and_then(|r| r.strip_suffix(suffix)) {
-                        let tz = prefs.get(person).map(crate::proactive::tz_of).unwrap_or(chrono_tz::Tz::UTC);
+                        let tz = crate::cadence::zone_of(prefs.get(person));
                         self.wake_marks.insert(format!("{person}:{prefix}{id}"), crate::proactive::day_key(e.at, tz));
                     }
                 }

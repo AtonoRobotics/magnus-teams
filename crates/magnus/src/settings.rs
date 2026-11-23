@@ -20,8 +20,9 @@ type K = State<Arc<Kernel>>;
 /// A person's own choices and the defaults they start from: notified when
 /// something needs them now and when the agent changes, not for what can
 /// wait; problem reports leave the appliance only with consent.
+/// Without a zone of their own, theirs is the server's (`cadence::zone_of`).
 pub fn preferences(k: &Kernel, person: &str) -> Value {
-    let mut p = json!({ "notify_blocking": true, "notify_batched": false, "notify_agent_changes": true, "feedback_consent": false, "timezone": "UTC", "working_hours": { "start": "09:00", "end": "17:00" }, "quiet_hours": { "start": "22:00", "end": "07:00" }, "review_every_minutes": k.cfg.proactive.review_every_minutes, "interruptions_per_day": k.cfg.proactive.interruptions_per_day });
+    let mut p = json!({ "notify_blocking": true, "notify_batched": false, "notify_agent_changes": true, "feedback_consent": false, "timezone": k.cfg.server_zone, "working_hours": { "start": "09:00", "end": "17:00" }, "quiet_hours": { "start": "22:00", "end": "07:00" }, "review_every_minutes": k.cfg.proactive.review_every_minutes, "interruptions_per_day": k.cfg.proactive.interruptions_per_day });
     if let Some(set) = k.read(|s| s.identity.preferences_of(person).cloned()) {
         for (key, v) in set.as_object().into_iter().flatten() {
             p[key] = v.clone();
@@ -321,6 +322,20 @@ mod tests {
         assert_eq!(st, 204, "{v}");
         let told = s.k.read(|st| st.inbox.items().values().any(|i| i.person == "mo" && i.kind == "notice" && i.details["reason"] == "account_unbound"));
         assert!(told, "mo was not told their account was unbound");
+        s.done().await;
+    }
+
+    /// Settings shows a person who named no zone the one their schedules
+    /// and quiet hours follow: the server's, by name, not UTC.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_person_without_a_zone_is_shown_the_servers() {
+        let s = crate::admin_app::tests::server_with("", |_| axum::Router::new()).await;
+        assert!(s.k.cfg.server_zone.parse::<chrono_tz::Tz>().is_ok(), "{} is not a zone", s.k.cfg.server_zone);
+        assert_eq!(super::preferences(&s.k, "mo")["timezone"], s.k.cfg.server_zone.as_str());
+        assert_eq!(s.k.read(|st| st.identity.zone("mo")).name(&s.k.cfg.server_zone), s.k.cfg.server_zone);
+        s.k.emit("person:mo", Ev::PreferencesSet { person: "mo".into(), prefs: json!({ "timezone": "Asia/Tokyo" }) }).await.unwrap();
+        assert_eq!(super::preferences(&s.k, "mo")["timezone"], "Asia/Tokyo");
+        assert_eq!(s.k.read(|st| st.identity.zone("mo")).name(&s.k.cfg.server_zone), "Asia/Tokyo");
         s.done().await;
     }
 }
