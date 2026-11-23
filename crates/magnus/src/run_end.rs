@@ -58,8 +58,7 @@ impl Kernel {
             if r != run {
                 self.leases.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, holder| holder != r);
             }
-            self.close_run_browsers(r).await;
-            self.sandboxes.destroy(r).await;
+            self.release_run(r).await;
             crate::attachment_hold::release(r);
         }
     }

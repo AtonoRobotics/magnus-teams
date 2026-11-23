@@ -162,11 +162,19 @@ impl Kernel {
             Status::Paused if c.held_by.as_deref().is_some_and(|r| self.switch_still_on(r)) => {
                 return Err(Refused::Conflict("a kill switch holds the computer; it resumes when the switch is released".into()));
             }
-            Status::Paused => {
-                client::ask(&socket, Request::Resume { id: id.to_string() }).await.map_err(failed)?;
-                self.record_computer(who, Change::Started { id: id.into() }).await?;
-                return Ok(json!({ "status": "running" }));
-            }
+            Status::Paused => match client::ask(&socket, Request::Resume { id: id.to_string() }).await {
+                Ok(_) => {
+                    self.record_computer(who, Change::Started { id: id.into() }).await?;
+                    return Ok(json!({ "status": "running" }));
+                }
+                // Paused while it waited or slept, it has no VM to resume:
+                // it is woken instead, so its person is never stuck.
+                Err(e) => {
+                    let state = client::ask(&socket, Request::Status { id: id.to_string() }).await.map_err(failed)?;
+                    let Some(hibernated) = super::idle::found_stopped(state["state"].as_str().unwrap_or_default()) else { return Err(failed(e)) };
+                    self.record_computer(who, Change::FoundStopped { id: id.into(), hibernated }).await?;
+                }
+            },
             Status::Stopped | Status::Hibernated | Status::Killed => {}
         }
         if !super::wake::claim(id) {
@@ -468,36 +476,7 @@ pub fn schedule(k: Arc<Kernel>) {
         let mut tick = tokio::time::interval(QUEUE_POLL);
         loop {
             tick.tick().await;
-            let next = k.read(|s| s.computers.queue().first().map(|c| c.id.clone()));
-            let Some(id) = next else { continue };
-            if !super::wake::claim(&id) {
-                continue;
-            }
-            match client::ask(&socket, Request::Wake { id: id.to_string() }).await {
-                Ok(woke) => {
-                    if let Err(e) = k.emit("kernel", Ev::Computer(Change::Started { id: id.clone() })).await {
-                        tracing::warn!("computer {id} started but could not be recorded: {e:#}");
-                    }
-                    super::wake::set_phase(&id, super::wake::Phase::Booting);
-                    let (k, socket) = (k.clone(), socket.clone());
-                    tokio::spawn(async move {
-                        match wait_for_guest(&socket, &id).await {
-                            Ok(()) => {
-                                super::wake::set_phase(&id, super::wake::Phase::Restoring);
-                                k.after_boot(&socket, &id, &woke).await;
-                            }
-                            Err(e) => tracing::warn!("computer {id} did not come up from the queue: {e:#}"),
-                        }
-                        super::wake::release(&id);
-                    });
-                }
-                Err(e) => {
-                    super::wake::release(&id);
-                    if !client::at_capacity(&e) {
-                        tracing::warn!("computer {id} could not start from the queue: {e:#}");
-                    }
-                }
-            }
+            k.start_next_in_queue(&socket).await;
         }
     });
 }

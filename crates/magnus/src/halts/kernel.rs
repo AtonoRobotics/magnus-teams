@@ -83,7 +83,6 @@ impl Kernel {
         let reason = scope.reason();
         for run in &running {
             self.suspend(run, &reason, None).await.map_err(failed)?;
-            self.browser.close(run).await;
         }
         match &scope {
             Scope::Person(p) => {
@@ -98,10 +97,11 @@ impl Kernel {
                 self.brokered.stop(Some(c), None).await;
             }
         }
-        // And the computers its work is on, paused where they are.
-        if let Some(owners) = self.computers_reached(&scope, &running) {
-            self.hold_computers(actor, &reason, Some(&owners)).await;
-        }
+        // And what its work was using: pages, browsers, sandboxes and the
+        // computers, stopped where they are.
+        let owners = self.computers_reached(&scope, &running);
+        let reach = owners.as_deref().map_or(crate::computer::Reach::Nobody, crate::computer::Reach::Owners);
+        self.stop_work(actor, &reason, &running, reach).await;
         Ok(json!({ "engaged": true, "level": scope.level(), "id": scope.id(), "stopped": running }))
     }
 

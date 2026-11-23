@@ -16,6 +16,7 @@ mod export;
 #[cfg(test)]
 mod fake_computerd;
 mod files;
+mod fleet;
 mod halt;
 mod identity;
 mod idle;
@@ -32,6 +33,8 @@ pub(crate) use service_version::report as service_report;
 pub use settings::Settings;
 mod sources;
 mod takeover;
+#[cfg(test)]
+mod testing;
 mod wake;
 
 pub(crate) use agent_tools::{exec_schema, install_schema, EXEC_TOOL, INSTALL_TOOL};
@@ -39,13 +42,14 @@ pub(crate) use deliver::MAX_DELIVER_BYTES;
 pub(crate) use driving::{request_schema, REQUEST_TOOL};
 pub use egress::migrate_sql;
 use egress::surrogate as egress_surrogate;
+pub(crate) use halt::Reach;
 pub(crate) use one::ONE_AT_A_TIME;
 pub use routes::router;
 pub use service::schedule;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Enough to tell a run what went; the log has every one.
 const MAX_DELETED_FILES: usize = 200;
@@ -93,6 +97,12 @@ pub enum Change {
     },
     Queued {
         id: String,
+    },
+    /// A wake from the queue failed for a reason other than room: it leaves
+    /// the queue, and its next use tries again and says why.
+    WakeFailed {
+        id: String,
+        error: String,
     },
     Started {
         id: String,
@@ -380,6 +390,9 @@ pub struct Computer {
     pub held_by: Option<String>,
     /// Its desktop's look.
     pub theme: Theme,
+    /// When the log last recorded it starting, while it runs.
+    #[serde(skip)]
+    pub running_since: Option<DateTime<Utc>>,
 }
 
 /// Stands in for a credential the vault holds, at one host only.
@@ -413,6 +426,8 @@ pub struct Ledger {
     next_in_queue: u64,
     /// Each time a person took control: its cause and the runs it stopped.
     takeovers: Vec<(Option<String>, Vec<String>)>,
+    /// Every computer the log deleted: computerd must keep none of them.
+    deleted: BTreeSet<String>,
 }
 
 /// A person's computer is not forgotten with them here: the erasure
@@ -485,6 +500,7 @@ impl Ledger {
                 last_used: None,
                 held_by: None,
                 theme: Theme::default(),
+                running_since: None,
             },
         );
     }
@@ -494,6 +510,7 @@ impl Ledger {
         self.apply(change);
         if let Some(c) = self.computers.get_mut(change.computer()) {
             c.last_used = Some(at);
+            idle::keep_time(c, change, at);
         }
     }
 
@@ -541,6 +558,12 @@ impl Ledger {
                     self.next_in_queue += 1;
                 }
             }
+            Change::WakeFailed { id, .. } => {
+                if let Some(c) = self.computers.get_mut(id).filter(|c| c.status == Status::Queued) {
+                    c.status = Status::Stopped;
+                    c.queued = None;
+                }
+            }
             Change::Started { id } => {
                 if let Some(c) = self.computers.get_mut(id) {
                     c.status = Status::Running;
@@ -552,6 +575,7 @@ impl Ledger {
             Change::Killed { id, mode, delete_volume } => {
                 if *delete_volume {
                     self.computers.remove(id);
+                    self.deleted.insert(id.clone());
                 } else if let Some(c) = self.computers.get_mut(id) {
                     c.status = if *mode == KillMode::Pause { Status::Paused } else { Status::Killed };
                     c.queued = None;

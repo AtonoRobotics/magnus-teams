@@ -190,8 +190,7 @@ impl Kernel {
         // waiting (a suspended run keeps its context otherwise), whether or not
         // the records were written. After the suspensions, so no run opens a
         // page after it; a run continued later starts on a blank one.
-        k.browser.close_all().await;
-        k.hold_computers(&actor, crate::halts::SERVER_REASON, None).await;
+        k.stop_work(&actor, crate::halts::SERVER_REASON, &[], crate::computer::Reach::Everyone).await;
         if let Err(e) = recorded {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,

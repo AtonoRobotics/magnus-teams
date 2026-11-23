@@ -1,43 +1,54 @@
 //! A computer no one is using hibernates to a snapshot.
 use super::client::Request;
-use super::{Change, Role, Status};
+use super::{Change, Computer, Ledger, Role, Status};
 use crate::events::Ev;
 use crate::kernel::Kernel;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const IDLE_POLL: Duration = Duration::from_secs(60);
 const SECONDS_PER_MINUTE: u64 = 60;
 
-static LAST_USED: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
-/// When each computer last began running, as this process has seen it.
-static RUNNING_SINCE: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+/// When each computer was last used, as this process has seen it. The log's
+/// own record of it counts too, so a restart resets no clock.
+static LAST_USED: Mutex<Option<HashMap<String, DateTime<Utc>>>> = Mutex::new(None);
 
-/// The computers now over the run-time limit, given those running now and
-/// not held by a person. Whatever stopped starts its count again.
-fn over_run_limit(running: &[String], held: &[String], limit: Duration, now: Instant) -> Vec<String> {
-    let mut slot = RUNNING_SINCE.lock().unwrap_or_else(|e| e.into_inner());
-    let since = slot.get_or_insert_with(HashMap::new);
-    since.retain(|id, _| running.contains(id));
-    let mut over = vec![];
-    for id in running {
-        let began = *since.entry(id.clone()).or_insert(now);
-        if now.saturating_duration_since(began) >= limit && !held.contains(id) {
-            since.remove(id);
-            over.push(id.clone());
-        }
+/// The log's time on a computer: a start begins its run, and anything that
+/// leaves it not running ends it.
+pub(super) fn keep_time(c: &mut Computer, change: &Change, at: DateTime<Utc>) {
+    if matches!(change, Change::Started { .. }) {
+        c.running_since = Some(at);
+    } else if c.status != Status::Running {
+        c.running_since = None;
     }
-    over
+}
+
+fn elapsed(since: DateTime<Utc>, now: DateTime<Utc>) -> Duration {
+    (now - since).to_std().unwrap_or_default()
+}
+
+/// The computers over the run-time limit: running since the log last
+/// recorded them starting, and not held by a person.
+pub(super) fn over_run_limit(ledger: &Ledger, limit: Duration, now: DateTime<Utc>) -> Vec<String> {
+    ledger
+        .all()
+        .filter(|c| c.role == Role::Computer && c.status == Status::Running && c.controller.is_none())
+        .filter(|c| c.running_since.is_some_and(|t| elapsed(t, now) >= limit))
+        .map(|c| c.id.clone())
+        .collect()
 }
 
 pub(super) fn touch(id: &str) {
-    LAST_USED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(id.to_string(), Instant::now());
+    LAST_USED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(id.to_string(), Utc::now());
 }
 
-fn idle_for(id: &str) -> Duration {
-    let mut slot = LAST_USED.lock().unwrap_or_else(|e| e.into_inner());
-    slot.get_or_insert_with(HashMap::new).entry(id.to_string()).or_insert_with(Instant::now).elapsed()
+/// How long `c` has gone unused: since its last use here or the log's last
+/// record of it, whichever is later.
+pub(super) fn idle_for(c: &Computer, now: DateTime<Utc>) -> Duration {
+    let touched = LAST_USED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).get(&c.id).copied();
+    touched.max(c.last_used).map_or(Duration::ZERO, |t| elapsed(t, now))
 }
 
 /// A limit configured in minutes. A number too large to count in seconds
@@ -48,8 +59,8 @@ fn minutes_limit(minutes: u64) -> Duration {
 }
 
 /// Whether a browser VM has gone unused long enough to stop.
-pub(super) fn idle_browser(id: &str, role: &Role, limit: Duration) -> bool {
-    !matches!(role, Role::Computer) && idle_for(id) >= limit
+pub(super) fn idle_browser(c: &Computer, limit: Duration) -> bool {
+    !matches!(c.role, Role::Computer) && idle_for(c, Utc::now()) >= limit
 }
 
 pub(super) fn schedule(k: Arc<Kernel>) {
@@ -65,20 +76,17 @@ pub(super) fn schedule(k: Arc<Kernel>) {
             k.tend_browsers(&socket).await;
             k.find_stopped_computers(&socket).await;
             let busy = |s: &crate::state::State, person: &str| s.runs.values().any(|r| r.person == person && r.status == crate::state::Status::Running);
-            let candidates: Vec<String> = k.read(|s| {
-                s.computers
-                    .all()
-                    .filter(|c| {
-                        c.role == super::Role::Computer && c.status == Status::Running && c.controller.is_none() && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p))
-                    })
-                    .map(|c| c.id.clone())
-                    .collect()
-            });
-            let running: Vec<(String, bool)> =
-                k.read(|s| s.computers.all().filter(|c| c.role == super::Role::Computer && c.status == Status::Running).map(|c| (c.id.clone(), c.controller.is_some())).collect());
-            let (ids, held): (Vec<String>, Vec<String>) = (running.iter().map(|(i, _)| i.clone()).collect(), running.iter().filter(|(_, h)| *h).map(|(i, _)| i.clone()).collect());
-            let over = if run_limit > Duration::ZERO { over_run_limit(&ids, &held, run_limit, Instant::now()) } else { vec![] };
-            let due = candidates.into_iter().filter(|id| idle_for(id) >= limit && !over.contains(id)).chain(over.iter().cloned()).collect::<Vec<_>>();
+            let now = Utc::now();
+            let idle = |s: &crate::state::State, c: &Computer| {
+                c.role == Role::Computer
+                    && c.status == Status::Running
+                    && c.controller.is_none()
+                    && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p))
+                    && idle_for(c, now) >= limit
+            };
+            let candidates: Vec<String> = k.read(|s| s.computers.all().filter(|c| idle(s, c)).map(|c| c.id.clone()).collect());
+            let over = if run_limit > Duration::ZERO { k.read(|s| over_run_limit(&s.computers, run_limit, now)) } else { vec![] };
+            let due = candidates.into_iter().filter(|id| !over.contains(id)).chain(over.iter().cloned()).collect::<Vec<_>>();
             for id in due {
                 // No wake may start while it goes to sleep, and none may be
                 // under way: hibernating then would snapshot the VM a wake
@@ -89,7 +97,7 @@ pub(super) fn schedule(k: Arc<Kernel>) {
                 let still_due = |s: &crate::state::State, c: &super::Computer| {
                     c.status == Status::Running
                         && c.controller.is_none()
-                        && (over.contains(&c.id) || (idle_for(&c.id) >= limit && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p))))
+                        && (over.contains(&c.id) || (idle_for(c, Utc::now()) >= limit && !matches!(&c.owner, super::Owner::Person(p) if busy(s, p))))
                 };
                 let Some(c) = k.read(|s| s.computers.get(&id).filter(|c| still_due(s, c)).cloned()) else { continue };
                 match k.zero_and_hibernate(&socket, &c).await {
@@ -172,17 +180,41 @@ mod tests {
         assert_eq!(s.get("a").map(|c| c.status), Some(Status::Hibernated));
     }
 
+    fn person(p: &str) -> super::super::Owner {
+        super::super::Owner::Person(p.into())
+    }
+
+    /// The limit counts from the start the log recorded, so a restart of
+    /// Magnus in between resets nothing; a person holding it keeps it up.
     #[test]
-    fn a_computer_over_its_run_time_stops_unless_a_person_holds_it() {
-        let limit = Duration::from_secs(600);
-        let start = Instant::now();
-        let (a, b) = ("limit-a".to_string(), "limit-b".to_string());
-        let both = [a.clone(), b.clone()];
-        assert!(over_run_limit(&both, &[], limit, start).is_empty());
-        let held = std::slice::from_ref(&b);
-        assert_eq!(over_run_limit(&both, held, limit, start + limit), std::slice::from_ref(&a));
-        // It stopped, so its count starts again.
-        assert!(over_run_limit(&both, held, limit, start + limit).is_empty());
-        assert_eq!(over_run_limit(&both, &[], limit, start + limit), std::slice::from_ref(&b));
+    fn the_run_limit_counts_from_the_logged_start_and_survives_a_restart() {
+        let limit = Duration::from_secs(24 * 60 * 60);
+        let now = Utc::now();
+        let began = now - chrono::Duration::hours(25);
+        // A ledger rebuilt by replay, as after a restart.
+        let mut s = Ledger::default();
+        for id in ["a", "b", "c"] {
+            s.apply_at(&Change::Created { id: id.into(), owner: person(id) }, began);
+            s.apply_at(&Change::Started { id: id.into() }, began);
+        }
+        s.apply_at(&Change::Started { id: "c".into() }, now - chrono::Duration::hours(1));
+        s.apply_at(&Change::TakeoverStarted { id: "b".into(), by: "b".into(), at: now, cause: None, runs: vec![] }, now);
+        assert_eq!(over_run_limit(&s, limit, now), ["a"]);
+        s.apply_at(&Change::Hibernated { id: "a".into() }, now);
+        s.apply_at(&Change::Started { id: "a".into() }, now);
+        assert!(over_run_limit(&s, limit, now).is_empty(), "a computer started again kept its old count");
+    }
+
+    /// Idle counts from the later of a use seen here and the log's last
+    /// record, so a restart does not give every computer a fresh idle spell.
+    #[test]
+    fn the_idle_clock_counts_from_the_log_after_a_restart() {
+        let now = Utc::now();
+        let mut s = Ledger::default();
+        s.apply_at(&Change::Created { id: "idle-a".into(), owner: person("p") }, now - chrono::Duration::hours(2));
+        let c = s.get("idle-a").cloned().unwrap();
+        assert!(idle_for(&c, now) >= Duration::from_secs(2 * 60 * 60 - 1), "the idle clock started again at the restart");
+        touch("idle-a");
+        assert!(idle_for(&c, Utc::now()) < Duration::from_secs(60));
     }
 }

@@ -310,6 +310,46 @@ impl Kernel {
     }
 }
 
+impl Kernel {
+    /// Starts the first computer waiting for room, if there is room now.
+    /// One that fails for any other reason leaves the queue, so it holds
+    /// up no one behind it, and its next use tries again and says why.
+    pub(super) async fn start_next_in_queue(self: &Arc<Self>, socket: &Path) {
+        let next = self.read(|s| s.computers.queue().first().map(|c| c.id.clone()));
+        let Some(id) = next else { return };
+        if !claim(&id) {
+            return;
+        }
+        match client::ask(socket, Request::Wake { id: id.to_string() }).await {
+            Ok(woke) => {
+                if let Err(e) = self.emit("kernel", Ev::Computer(Change::Started { id: id.clone() })).await {
+                    tracing::warn!("computer {id} started but could not be recorded: {e:#}");
+                }
+                set_phase(&id, Phase::Booting);
+                let (k, socket) = (self.clone(), socket.to_path_buf());
+                tokio::spawn(async move {
+                    match super::service::wait_for_guest(&socket, &id).await {
+                        Ok(()) => {
+                            set_phase(&id, Phase::Restoring);
+                            k.after_boot(&socket, &id, &woke).await;
+                        }
+                        Err(e) => tracing::warn!("computer {id} did not come up from the queue: {e:#}"),
+                    }
+                    release(&id);
+                });
+            }
+            Err(e) if client::at_capacity(&e) => release(&id),
+            Err(e) => {
+                release(&id);
+                tracing::warn!("computer {id} could not start from the queue, so it leaves it: {e:#}");
+                if let Err(e) = self.emit("kernel", Ev::Computer(Change::WakeFailed { id: id.clone(), error: format!("{e:#}") })).await {
+                    tracing::warn!("computer {id} could not leave the queue: {e:#}");
+                }
+            }
+        }
+    }
+}
+
 /// The guest's desktop, captured and kept as the computer's last screenshot.
 pub(super) async fn screenshot(socket: &Path, id: &str) -> Result<String> {
     act_and_capture(socket, id, "computer_screenshot", &json!({})).await

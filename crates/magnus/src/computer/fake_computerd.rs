@@ -4,13 +4,14 @@
 //! remembers in memory what it was asked and which computers lost their
 //! overlay. After a `connect` it is the computer's guest agent too, and reads
 //! each line as a `GuestRequest`, answering at once as the real agent would.
-//! Its `Script` makes it full, old, a guest that cannot confirm a handback
-//! clean, or a relay that fails a connection.
+//! Its `Script` makes it full, old, down, unable to wake one computer, a
+//! guest that cannot confirm a handback clean, or a relay that fails a
+//! connection. It keeps which computers it has, runs and has paused.
 
 use magnus_computerd_proto::guest::GuestRequest;
 use magnus_computerd_proto::{Request, OPS};
 use serde_json::{json, Value};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -41,6 +42,10 @@ pub(super) struct Script {
     pub ops: Option<Vec<String>>,
     /// How the next guest connections go. Once empty, each is answered.
     pub turns: VecDeque<Turn>,
+    /// Restarting: every request is refused, as a socket nobody listens on.
+    pub down: bool,
+    /// Computers whose wake fails for a reason other than room.
+    pub broken: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -52,6 +57,11 @@ struct Memory {
     /// Computers whose overlay was thrown away (a destroy, an erase): as the
     /// real one, they wake on a fresh one.
     fresh: HashSet<String>,
+    /// The computers it has: made, and not deleted with their volume.
+    held: BTreeSet<String>,
+    /// Those whose VM runs, and those whose VM is paused.
+    live: HashSet<String>,
+    paused: HashSet<String>,
 }
 
 type Shared = Arc<Mutex<Memory>>;
@@ -98,6 +108,11 @@ impl Fake {
         self.asked().into_iter().filter(|r| r["op"] == op).collect()
     }
 
+    /// The computers it has now.
+    pub fn held(&self) -> std::collections::BTreeSet<String> {
+        self.memory.lock().unwrap().held.clone()
+    }
+
     pub fn connections(&self) -> usize {
         self.memory.lock().unwrap().connections
     }
@@ -136,6 +151,9 @@ fn ok(mut v: Value) -> Value {
 /// What computerd answers. A request this fake does not model is refused.
 fn answer(req: Request, m: &mut Memory) -> Value {
     let op = req.op();
+    if m.script.down {
+        return refused("Connection refused (os error 111)".into());
+    }
     match req {
         Request::Version | Request::EraseVolume { .. } if m.script.old => refused(format!("bad request: unknown variant `{op}`")),
         Request::Version => {
@@ -143,17 +161,64 @@ fn answer(req: Request, m: &mut Memory) -> Value {
             ok(json!({ "version": "0.0.0", "base_id": null, "ops": ops }))
         }
         Request::Wake { .. } if m.script.full => refused("computerd already runs as many computers as it may".into()),
+        Request::Wake { id } if m.script.broken.contains(&id) => refused(format!("no computer {id}")),
         Request::Wake { id } => {
+            m.paused.remove(&id);
+            m.live.insert(id.clone());
             let new = m.fresh.remove(&id);
             ok(json!({ "resumed": !new, "overlay_fresh": new }))
         }
-        Request::Destroy { id, .. } | Request::EraseVolume { id } => {
+        Request::Destroy { id, delete_volume } => {
+            m.live.remove(&id);
+            m.paused.remove(&id);
+            if delete_volume {
+                m.held.remove(&id);
+            }
             m.fresh.insert(id);
             ok(json!({}))
         }
+        Request::EraseVolume { id } => {
+            m.fresh.insert(id);
+            ok(json!({}))
+        }
+        Request::Create { id } => {
+            m.held.insert(id);
+            ok(json!({}))
+        }
+        Request::List => ok(json!({ "computers": m.held.iter().collect::<Vec<_>>() })),
+        Request::Pause { id } => {
+            m.live.remove(&id);
+            m.paused.insert(id);
+            ok(json!({}))
+        }
+        Request::Resume { id } if !m.paused.contains(&id) => refused(format!("computer {id} is not paused")),
+        Request::Resume { id } => {
+            m.paused.remove(&id);
+            m.live.insert(id);
+            ok(json!({}))
+        }
+        Request::Stop { id } | Request::Hibernate { id } => {
+            m.live.remove(&id);
+            m.paused.remove(&id);
+            ok(json!({}))
+        }
+        Request::StartBrowser { id } => {
+            m.live.insert(id);
+            ok(json!({}))
+        }
+        Request::Status { id } => {
+            let state = if m.paused.contains(&id) {
+                "paused"
+            } else if m.live.contains(&id) {
+                "running"
+            } else {
+                "stopped"
+            };
+            ok(json!({ "state": state }))
+        }
+        Request::SealVolume { .. } | Request::UnsealVolume { .. } => ok(json!({})),
         Request::Capacity => ok(json!({ "live": 0 })),
-        Request::Create { .. } | Request::Hibernate { .. } | Request::Pause { .. } | Request::Resume { .. } => ok(json!({})),
-        Request::StartHelper { .. } | Request::Stop { .. } => ok(json!({})),
+        Request::StartHelper { .. } => ok(json!({})),
         _ => refused(format!("the fake computerd does not do {op}")),
     }
 }

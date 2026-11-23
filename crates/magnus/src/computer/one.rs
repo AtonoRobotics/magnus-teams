@@ -9,15 +9,13 @@
 //! its volume; the others go by the usual deletion, which computerd finishes
 //! within the purge window, and the owner is told.
 
-use super::client::Request;
-use super::{client, service::failed, Change, Computer, KillMode, Ledger, Owner, Role, Status};
+use super::{service::failed, Change, Computer, KillMode, Ledger, Owner, Role, Status};
 use crate::controls::Refused;
 use crate::events::Ev;
 use crate::kernel::Kernel;
 use crate::team::Role as WorkspaceRole;
 use serde_json::{json, Value};
 use std::cmp::Ordering;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,6 +36,7 @@ impl Change {
             Change::Created { id, .. }
             | Change::Granted { id, .. }
             | Change::Queued { id }
+            | Change::WakeFailed { id, .. }
             | Change::Started { id }
             | Change::BrowserCreated { id, .. }
             | Change::BrowserStopped { id }
@@ -113,16 +112,6 @@ pub(super) fn deletion(c: &Computer) -> Vec<Change> {
     changes
 }
 
-/// After the log has forgotten a computer: its secrets go at once, whatever
-/// the VM does, then computerd deletes it (and purges it within its window).
-pub(super) async fn delete_after(k: &Kernel, socket: &Path, id: &str) -> Result<(), Refused> {
-    super::lifecycle::forget_secrets(&k.vault, id).map_err(failed)?;
-    super::wake::forget_screen(id);
-    super::egress::Carried::at(&k.cfg.appliance.state_dir).forget(id);
-    client::ask(socket, Request::Destroy { id: id.to_string(), delete_volume: true }).await.map_err(failed)?;
-    Ok(())
-}
-
 /// The owner's notice, in words: what was kept and what went.
 fn told(owner_words: &str, kept: &Computer, removed: usize) -> String {
     let when = kept.last_used.map(|t| format!(", last used {}", t.format("%-d %B %Y"))).unwrap_or_default();
@@ -136,7 +125,9 @@ impl Kernel {
     /// The computer `owner`'s agent uses, made now if it has none yet.
     /// `None` only on a server without computers.
     pub(crate) async fn computer_for(&self, owner: &Owner) -> Result<Option<String>, Refused> {
-        let Ok(socket) = self.computer_socket() else { return Ok(None) };
+        if self.computer_socket().is_err() {
+            return Ok(None);
+        }
         let one = |k: &Kernel| k.read(|s| s.computers.one_of(owner).map(|c| c.id.clone()));
         if let Some(id) = one(self) {
             return Ok(Some(id));
@@ -153,8 +144,7 @@ impl Kernel {
             return Err(Refused::NotFound("person or workspace"));
         }
         let id = super::service::new_id();
-        client::ask(&socket, Request::Create { id: id.to_string() }).await.map_err(failed)?;
-        self.emit("kernel", Ev::Computer(Change::Created { id: id.clone(), owner: owner.clone() })).await.map_err(failed)?;
+        self.make_computer("kernel", &id, vec![Change::Created { id: id.clone(), owner: owner.clone() }]).await.map_err(failed)?;
         tracing::info!("made computer {id} for {owner:?}");
         Ok(Some(id))
     }
@@ -191,20 +181,21 @@ impl Kernel {
 
     /// Deletes `c` by the usual deletion, for a workspace that is gone.
     pub(crate) async fn delete_computer(&self, actor: &str, c: &Computer) -> Result<(), Refused> {
-        let socket = self.computer_socket()?;
         let evs: Vec<(&str, Ev)> = deletion(c).into_iter().map(|ch| (actor, Ev::Computer(ch))).collect();
-        self.emit_all(evs).await.map_err(failed)?;
-        delete_after(self, &socket, &c.id).await
+        self.delete_computers(evs).await
     }
 
     /// At start and every minute after: an owner with several computers
     /// keeps one, a workspace that is gone loses its computer, and every
     /// person and workspace without one gets it. Safe to repeat.
     pub(crate) async fn reconcile_computers(&self) {
-        let Ok(socket) = self.computer_socket() else { return };
+        if self.computer_socket().is_err() {
+            return;
+        }
+        self.agree_with_computerd().await;
         let crowded = self.read(|s| s.computers.crowded());
         for (kept, rest) in crowded {
-            if let Err(e) = self.keep_one(&socket, &kept, &rest).await {
+            if let Err(e) = self.keep_one(&kept, &rest).await {
                 tracing::warn!("could not keep one computer for {:?}: {e:?}", kept.owner);
             }
         }
@@ -267,7 +258,7 @@ impl Kernel {
     }
 
     /// One write: the others deleted, the one kept, and its people told.
-    async fn keep_one(&self, socket: &Path, kept: &Computer, rest: &[Computer]) -> Result<(), Refused> {
+    async fn keep_one(&self, kept: &Computer, rest: &[Computer]) -> Result<(), Refused> {
         let mut evs: Vec<(&str, Ev)> = rest.iter().flat_map(deletion).map(|ch| ("kernel", Ev::Computer(ch))).collect();
         let removed: Vec<String> = rest.iter().map(|c| c.id.clone()).collect();
         evs.push(("kernel", Ev::Computer(Change::Kept { id: kept.id.clone(), owner: kept.owner.clone(), removed: removed.clone() })));
@@ -284,13 +275,8 @@ impl Kernel {
             let details = json!({ "reason": "one_computer", "kept": kept.id, "kept_last_used": kept.last_used, "removed": removed, "purge_days": PURGE_WINDOW_DAYS });
             evs.push(("kernel", self.notice_to(None, None, person, summary.clone(), details)));
         }
-        self.emit_all(evs).await.map_err(failed)?;
+        self.delete_computers(evs).await?;
         tracing::info!("{:?} keeps computer {} and no longer has {removed:?}", kept.owner, kept.id);
-        for id in &removed {
-            if let Err(e) = delete_after(self, socket, id).await {
-                tracing::warn!("computer {id} is forgotten but computerd did not delete it yet: {e:?}");
-            }
-        }
         Ok(())
     }
 }
