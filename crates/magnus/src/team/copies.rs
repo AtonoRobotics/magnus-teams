@@ -2,23 +2,24 @@
 //! deleting one message for everyone reach every copy
 //! (decisions/2026-11-23-one-owner-for-words-and-their-copies.md).
 //!
-//! A channel message's words are read again, never copied, by:
-//! - a whisper, which reads its thread as it stands now (`whisper_thread`):
-//!   a message deleted since is not in it.
+//! A channel message's words are read again, not copied, by a whisper,
+//! which reads its thread as it stands now (`whisper_thread`): a message
+//! deleted since is not in it. They are copied into the mission an
+//! `@Magnus` message started, as its goal and its lanes' objectives, which
+//! deleting the message takes.
 //!
-//! They were copied, and still are by events older releases wrote, into:
-//! - a whisper's or a team run's `history`, its thread when it was asked.
-//!   The row goes with any message it quoted; a team run's copy leaves the
-//!   state with it.
-//! - the mission a message asked for: its goal and its lanes' objectives,
-//!   the asker's words. Deleting the message takes them.
-//! - a mission's deliverable (`DeliverableUpdated`'s markdown), which quoted
-//!   every released lane. It is read from the lanes now
-//!   (`Mission::deliverable`); the old rows go with any lane's words.
+//! Events older releases wrote hold more copies:
+//! - a whisper's or a team run's `history`, its thread when it was asked:
+//!   the row goes with any message it quoted, and a team run's copy leaves
+//!   the state with it;
+//! - a mission's `DeliverableUpdated` markdown, which quoted every released
+//!   lane: the deliverable is read from the lanes now
+//!   (`Mission::deliverable`), and the row goes with any lane's words.
 //!
-//! Erasing a person deletes each of their messages as their own delete does,
-//! so the first two follow; and a mission's goal, objectives and
-//! deliverable are its requester's (`MissionLedger::content_owner`).
+//! Erasing a person deletes each of their messages as their own delete
+//! does, so the copies of those follow; a mission's goal and objectives are
+//! its requester's (`MissionLedger::content_owner`), and the deliverable
+//! rows go with any contributor.
 //!
 //! The events found here are named in the erasure's or the delete's
 //! `Removed`, so their content leaves the log and the backups, and
