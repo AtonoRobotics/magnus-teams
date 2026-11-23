@@ -216,7 +216,7 @@ html[data-motion="full"] :is(.entry.enter, .tcard.finished .st, .tcard.finished 
 .composer-slot .attachment-picker button { min-width: 44px; min-height: 44px; }
 .attachment-chip { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: var(--r-md); max-width: 100%; overflow-wrap: anywhere; }
 .attachment-chip button { min-width: 36px; min-height: 36px; }
-.jump-latest { align-self: center; margin: 4px; min-height: 36px; padding: 8px 16px; border-radius: var(--r-pill); background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong); }
+.jump-latest { align-self: center; margin: 4px auto 2px; min-height: 32px; padding: 6px 14px; font-size: 12.5px; font-weight: 500; border-radius: var(--r-pill); background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
 .jump-latest[hidden] { display: none; }
 @media (any-pointer: coarse) {
   .attachment-chip button, .jump-latest { min-height: 44px; min-width: 44px; }
@@ -269,20 +269,20 @@ section.conv.side .thread { padding-left: 16px; padding-right: 16px; }
 section.conv.side .composer-slot { padding-left: 12px; padding-right: 12px; }
 .conv-head h1 { letter-spacing: -0.01em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; min-width: 0; }
 .conv-head .icon-btn, .conv-head select, .conv-head .computer-chip {
-  border-color: transparent; background: transparent; color: var(--muted); border-radius: var(--r-sm); height: 28px; min-height: 28px; font-size: 12.5px;
+  border-color: transparent; background: transparent; color: var(--muted); border-radius: var(--r-sm); height: 32px; min-height: 32px; font-size: 12.5px;
 }
 .conv-head .icon-btn:hover, .conv-head select:hover, .conv-head .computer-chip:hover {
   background: var(--row-sel); color: var(--fg); border-color: var(--line);
 }
-.conv-head .icon-btn { border-width: 1px; border-style: solid; width: 28px; }
+.conv-head .icon-btn { border-width: 1px; border-style: solid; width: 32px; }
 /* Theme-aware low-profile composer */
 .say {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   border-radius: var(--r-composer);
-  padding: 10px 14px 8px;
-  gap: 6px;
+  padding: 12px 16px 10px;
+  gap: 8px;
   border: 1px solid var(--line-strong);
   background: var(--surface);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
@@ -297,14 +297,14 @@ section.conv.side .composer-slot { padding-left: 12px; padding-right: 12px; }
 @media (pointer: fine) {
   .say textarea { min-height: 32px; padding: 4px 0; font-size: 14px; line-height: 21px; }
   .say-bar .icon-btn, .say-bar label.button, .composer-slot .attachment-picker button {
-      width: 30px; height: 30px; min-width: 30px; min-height: 30px; border-radius: var(--r-sm);
+      width: 32px; height: 32px; min-width: 32px; min-height: 32px; border-radius: var(--r-sm);
     }
-  button.send { width: 30px; height: 30px; border-radius: var(--r-send); }
-  button.send svg.ic { width: 15px; height: 15px; }
+  button.send { width: 36px; height: 36px; border-radius: var(--r-send); }
+  button.send svg.ic { width: 17px; height: 17px; }
 }
 /* Model selector */
 label.model:hover { background: var(--row-sel); }
-label.model select { border: 0; background-color: transparent; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; text-overflow: ellipsis; height: 30px; font-size: 12.5px; font-weight: 500; color: var(--fg2); cursor: pointer; width: auto; max-width: 210px; padding: 0 20px 0 6px; background-position: right 6px center, right 2px center; }
+label.model select { border: 0; background-color: transparent; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; text-overflow: ellipsis; height: 32px; font-size: 12.5px; font-weight: 500; color: var(--fg2); cursor: pointer; width: auto; max-width: 210px; padding: 0 20px 0 6px; background-position: right 6px center, right 2px center; }
 /* Context-aware send button */
 
 button.send.is-empty {
@@ -322,6 +322,22 @@ button.send.is-stop {
   border-color: var(--fg);
   color: var(--main);
 }
+button.send.is-stop:hover {
+  background: var(--fg);
+  filter: opacity(0.88);
+  color: var(--main);
+}
+.say-stop {
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  color: var(--fg);
+}
+.say-stop:hover {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--main);
+}
+.say-stop[hidden] { display: none; }
 /* Serious, calm empty state */
 .thread:has(.hello-hero) { justify-content: flex-start; }
 .hello-hero {
@@ -408,19 +424,21 @@ button.hello-card:hover .card-media img, .explore-card:hover .card-media img { t
 .hello-cap svg.ic { width: 13px; height: 13px; color: var(--accent-text); }
 .hero-tabs { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
 button.hero-tab {
-  min-height: 28px;
-  padding: 3px 11px;
+  min-height: 34px;
+  padding: 5px 13px;
   border-radius: var(--r-pill);
   border: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
 button.hero-tab:hover { background: var(--row-sel); color: var(--fg); }
 button.hero-tab.on { background: var(--raised); border-color: var(--line-strong); color: var(--fg); font-weight: 600; }
+.answer-body { line-height: 1.6; }
+.answer-body p + p { margin-top: 10px; }
 .hello-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

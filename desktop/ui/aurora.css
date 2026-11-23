@@ -109,7 +109,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > mai
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .conv-head {
   background: transparent;
   border-bottom-color: transparent;
-  padding: 12px 20px 6px;
+  padding: 10px 20px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-state-dot {
@@ -465,8 +465,8 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .hello-hero {
   text-align: center;
   justify-content: center;
   max-width: 600px;
-  margin: auto;
-  padding: 20px 12px;
+  margin: auto auto 24px;
+  padding: 24px 12px 12px;
   gap: 16px;
 }
 
@@ -713,6 +713,13 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send.is-em
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send.is-empty:hover {
   border-color: var(--aurora-beam-a);
   color: var(--fg);
+}
+
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.send.is-stop {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--main);
+  box-shadow: none;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .voice-in[aria-pressed="true"] {

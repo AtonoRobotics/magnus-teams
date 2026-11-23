@@ -496,9 +496,11 @@ const AuroraStage = (() => {
       if (!t && !rich) return;
       if (t && !ended(t) && !rich) return;
       const meta = t ? `${named(t)}${t.summary ? ` · ${firstLine(t.summary)}` : ""}` : "Work result";
+      const verified = !!(t && (t.verified || (Array.isArray(t.receipts) && t.receipts.length > 0)));
+      const badge = verified ? `<span class="aurora-verified-pill">✓ Verified</span>` : "";
       const row = document.createElement("div");
       row.className = "aurora-canvas-row";
-      row.innerHTML = `<span class="aurora-canvas-meta">${html(meta)}</span><button type="button" class="aurora-canvas-open" data-open="task:${html(id)}">Inspect Canvas →</button>`;
+      row.innerHTML = `${badge}<span class="aurora-canvas-meta">${html(meta)}</span><button type="button" class="aurora-canvas-open" data-open="task:${html(id)}">Inspect Canvas →</button>`;
       msg.append(row);
     });
   }

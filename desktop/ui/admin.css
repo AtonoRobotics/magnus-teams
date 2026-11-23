@@ -22,7 +22,7 @@ dialog.step-up form { gap: 12px; }
 dialog.step-up h2 { margin: 0; }
 /* The sections (admin-overview.js, admin-people.js, admin-connectors.js,
    admin-rules.js, admin-security.js, admin-ops.js). */
-.admin-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.admin-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; max-width: 1120px; }
 .admin-cards .card { margin: 0; }
 .admin-section .stat { margin: 4px 0; }
 .admin-section .stat strong { font-size: 1.6em; }

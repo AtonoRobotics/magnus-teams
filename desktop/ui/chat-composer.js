@@ -30,7 +30,7 @@ function composer(placeholder, bar, o = {}) {
     : `<label for="msg" class="sr">Message</label><textarea id="msg" rows="1" placeholder="${esc(placeholder)}" required></textarea>`;
   return `<form${id("say")} class="say">${label}${o.mentions ? `<div class="say-mentions" role="listbox" aria-label="Mention" hidden></div>` : ""}
     <div class="row small pending"${id("pending")}></div>
-    <div class="say-bar">${bar}<span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
+    <div class="say-bar">${bar}<span class="grow"></span>${attachButton("Attach files", true)}<button type="button" class="icon-btn voice-in" data-voice-in aria-label="Voice input" title="Speak message" aria-pressed="false">${icon("mic")}</button><button type="button" class="icon-btn say-stop" data-say-stop aria-label="Stop" title="Stop" hidden>${icon("stop")}</button><button class="send"${id("send")} aria-label="Send message" title="Send message">${icon("send")}<span class="sr">Send message</span></button></div></form>`;
 }
 
 /** The @word being typed at the caret, if any. @param {string} text @param {number} caret */
@@ -44,7 +44,7 @@ function mentionAt(text, caret) {
  * @param {ComposerConversation} conv
  */
 function wireComposer(form, record, conv) {
-  const box = $("textarea", form), pending = $(".pending", form), input = $("[data-attach]", form), send = $(".send", form), epoch = MessageDrafts.epoch();
+  const box = $("textarea", form), pending = $(".pending", form), input = $("[data-attach]", form), send = $(".send", form), sideStop = $("[data-say-stop]", form), epoch = MessageDrafts.epoch();
   let replacing = null, active = true, stopMode = false;
   box.value = record.text;
   const model = $("[data-model]", form);
@@ -56,26 +56,64 @@ function wireComposer(form, record, conv) {
   // The record is shared by every composer mounted on this conversation:
   // a send that finishes after the person left and came back updates the
   // one now showing, and a send in flight stays in flight there too.
-  const canStop = () => !!(conv.stopRun && record.runningIds?.length && !box.value.trim() && !record.files.length && !record.sending);
+  const hasActiveRun = () => !!(conv.stopRun && (record.sending || record.pendingRun || record.runningIds?.length));
+  const canStop = () => !!(hasActiveRun() && (record.sending || (!box.value.trim() && !record.files.length)));
+  const canSteer = () => !!(conv.steerRun && record.runningIds?.length && !record.sending && box.value.trim() && !record.files.length);
+  const triggerStop = async () => {
+    if (!conv.stopRun || record.stopping) return;
+    const ids = [...(record.runningIds || [])];
+    if (!ids.length) {
+      record.cancelRequested = true;
+      MessageDrafts.changed();
+      return;
+    }
+    record.stopping = true;
+    MessageDrafts.changed();
+    try {
+      await conv.stopRun(ids);
+      record.runningIds = [];
+      record.pendingRun = false;
+      record.cancelRequested = false;
+    } finally {
+      record.stopping = false;
+      MessageDrafts.changed();
+    }
+  };
   const syncSend = () => {
     const nextStop = canStop();
+    const steer = !nextStop && canSteer();
+    const stopping = !!(record.stopping || record.cancelRequested);
     if (nextStop !== stopMode) {
       stopMode = nextStop;
       send.type = stopMode ? "button" : "submit";
       send.classList.toggle("is-stop", stopMode);
-      send.setAttribute("aria-label", stopMode ? "Stop" : "Send message");
-      send.title = stopMode ? "Stop" : "Send message";
       send.innerHTML = stopMode ? `${icon("stop")}<span class="sr">Stop</span>` : `${icon("send")}<span class="sr">Send message</span>`;
     }
-    send.disabled = stopMode ? false : (!!record.sending || record.files.some(f => f.state !== "ready"));
+    if (stopMode) {
+      send.setAttribute("aria-label", stopping ? "Stopping…" : "Stop");
+      send.title = stopping ? "Stopping…" : "Stop (Esc)";
+    } else if (steer) {
+      send.setAttribute("aria-label", "Steer Magnus");
+      send.title = "Steer active work";
+    } else {
+      send.setAttribute("aria-label", "Send message");
+      send.title = "Send message";
+    }
+    send.classList.toggle("is-steer", steer);
+    send.disabled = stopMode ? stopping : (!!record.sending || record.files.some(f => f.state !== "ready"));
     send.classList.toggle("is-empty", !stopMode && !box.value.trim() && !record.files.length);
+    if (sideStop) {
+      sideStop.hidden = !hasActiveRun() || stopMode;
+      sideStop.disabled = stopping;
+      sideStop.title = stopping ? "Stopping…" : "Stop active work";
+    }
   };
   send.onclick = async e => {
-    if (!stopMode || !conv.stopRun || !record.runningIds?.length) return;
+    if (!stopMode) return;
     e.preventDefault();
-    send.disabled = true;
-    try { await conv.stopRun([...record.runningIds]); } finally { syncSend(); }
+    await triggerStop();
   };
+  if (sideStop) sideStop.onclick = async e => { e.preventDefault(); await triggerStop(); };
   const show = () => {
     if (!active || !form.isConnected) return;
     if (box.value !== record.text) { box.value = record.text; fit(); }
@@ -130,7 +168,8 @@ function wireComposer(form, record, conv) {
   model?.addEventListener("change", read);
   box.onkeydown = e => {
     if (menu && !menu.hidden && (e.key === "Enter" || e.key === "Tab")) { const first = $("[data-mention]", menu); if (first) { e.preventDefault(); choose(first.dataset.mention); return; } }
-    if (menu && e.key === "Escape") menu.hidden = true;
+    if (menu && !menu.hidden && e.key === "Escape") { menu.hidden = true; return; }
+    if (e.key === "Escape" && stopMode && !box.value.trim()) { e.preventDefault(); triggerStop(); return; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); form.requestSubmit(); }
   };
   // Files dropped on the conversation are attached to the next message.
@@ -142,8 +181,21 @@ function wireComposer(form, record, conv) {
     e.preventDefault(); read();
     const text = record.text.trim(); if (!text || record.sending) return;
     if (record.files.some(f => f.state !== "ready")) { toast("Wait for uploads, or retry/remove unavailable files before sending."); return; }
+    if (canSteer()) {
+      record.sending = true; MessageDrafts.changed();
+      try {
+        await conv.steerRun([...record.runningIds], text);
+        if (epoch !== MessageDrafts.epoch()) return;
+        if (record.text.trim() === text) { record.text = ""; record.selection = [0, 0]; }
+        conv.keep?.(record.text);
+      } catch (err) {
+        if (epoch !== MessageDrafts.epoch()) return;
+        toast(err.message || "Could not steer active work.");
+      } finally { record.sending = false; MessageDrafts.changed(); }
+      return;
+    }
     const files = [...record.files];
-    record.sending = true; MessageDrafts.changed();
+    record.sending = true; record.pendingRun = !!conv.stopRun; record.cancelRequested = false; MessageDrafts.changed();
     try {
       const then = await conv.send({ text, files, form, record });
       if (epoch !== MessageDrafts.epoch()) return;
@@ -154,6 +206,8 @@ function wireComposer(form, record, conv) {
       if (then) await then();
     } catch (err) {
       if (epoch !== MessageDrafts.epoch()) return;
+      record.pendingRun = false;
+      record.cancelRequested = false;
       // The message stays in the box. A lost response may still have been
       // accepted, so say so and never send it again by itself (UX-08).
       const rejected = err.status >= 400 && err.status < 500 && typeof err.body?.error === "string";

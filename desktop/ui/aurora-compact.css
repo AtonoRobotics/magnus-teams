@@ -142,7 +142,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-page-clos
   height: 36px;
   min-width: 36px;
   min-height: 36px;
-  margin: -12px -12px 0 0;
+  margin: -8px -8px 0 0;
   border: 1px solid var(--aurora-rim);
   border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--surface) 92%, transparent);

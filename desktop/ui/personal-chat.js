@@ -19,16 +19,33 @@ function personalComposer() {
       toast("Stopped.");
       await refresh();
     },
+    steerRun: async (ids, text) => {
+      await Server.tasks.steer(ids[0], text);
+      toast("Steered Magnus.");
+      await refresh();
+    },
     send: async ({ text, files, form, record }) => {
       const body = { text, model: chosenModel(form), files: files.map(f => f.id) };
       if (record.thread) body.thread = record.thread; else if (record.project) body.project = record.project;
       const response = await Server.chat.send(body);
+      const startedId = response?.task_id || response?.task || null;
+      if (startedId) {
+        record.runningIds = [...new Set([...(record.runningIds || []), startedId])];
+        if (record.cancelRequested) {
+          record.cancelRequested = false;
+          record.pendingRun = false;
+          Server.tasks.cancel(startedId).then(() => { toast("Stopped."); refresh(); }).catch(() => {});
+        }
+      }
       return async () => {
         // A secret typed into chat was hidden by the server: say so, and where a sign-in belongs.
         if (response?.hidden?.length) toast(`Magnus hid the ${[...new Set(response.hidden)].join(" and ")} in your message: it is not kept, and Magnus never sees it. When Magnus needs a sign-in, it asks for it through a secure form.`, 8000);
         if (!record.thread && response?.thread) {
+          const carry = { pendingRun: !!record.pendingRun && !record.cancelRequested, runningIds: [...(record.runningIds || [])], cancelRequested: !!record.cancelRequested };
           MessageDrafts.discard(record.id);
-          const next = MessageDrafts.forThread(response.thread); next.text = record.text; next.files = record.files; next.model = record.model; next.modelUnder = record.modelUnder;
+          const next = MessageDrafts.forThread(response.thread);
+          next.text = record.text; next.files = record.files; next.model = record.model; next.modelUnder = record.modelUnder;
+          next.pendingRun = carry.pendingRun; next.runningIds = carry.runningIds; next.cancelRequested = carry.cancelRequested;
           if (App.workspace && App.draftRecord === record) { history.replaceState(history.state, "", `#/chat/${enc(response.thread)}`); record.sending = false; await go(); return; }
         }
         await refresh();
@@ -45,9 +62,10 @@ function personalComposer() {
 function personalChat(thread) {
   // An answer being written shows as it streams; `ui.live` holds its text so far.
   const listening = {};
+  const isActive = (/** @type {?string} */ status) => !!status && !ENDED.includes(status);
   /** @param {ChatEntry[]} entries @param {ChatViewState} [view] */
   const listen = (entries, view) => {
-    const running = new Set(entries.filter(e => e.kind === "turn" && e.status === "running").map(e => e.task_id));
+    const running = new Set(entries.filter(e => e.kind === "turn" && isActive(e.status)).map(e => e.task_id));
     for (const id of running) if (!listening[id]) listening[id] = Magnus.live(id, t => {
       view.ui.live[id] = (view.ui.live[id] || "") + t;
       const el = $(`[data-live="${CSS.escape(id)}"]`, view.section);
@@ -103,10 +121,21 @@ function personalChat(thread) {
       });
       listen(entries, view);
       const runningIds = [...new Set([
-        ...entries.filter(e => e.kind === "turn" && e.status === "running").map(e => e.task_id),
-        ...entries.flatMap(e => e.kind === "tasks" ? e.tasks : []).filter(t => t.status === "running").map(t => t.task_id),
+        ...entries.filter(e => e.kind === "turn" && isActive(e.status)).map(e => e.task_id),
+        ...entries.flatMap(e => e.kind === "tasks" ? e.tasks : []).filter(t => isActive(t.status)).map(t => t.task_id),
+        ...entries.flatMap(e => e.kind === "sub_agents" ? e.agents : []).filter(a => isActive(a.status)).map(a => a.task_id),
       ].filter(Boolean))];
-      if (view.record) { view.record.runningIds = runningIds; MessageDrafts.changed(); }
+      if (view.record) {
+        view.record.runningIds = runningIds;
+        if (runningIds.length || entries.some((e, i) => i > lastMessage && (e.kind === "answer" || (e.kind === "turn" && !isActive(e.status))))) {
+          view.record.pendingRun = false;
+        }
+        if (view.record.cancelRequested && runningIds.length) {
+          view.record.cancelRequested = false;
+          Promise.all(runningIds.map(id => Server.tasks.cancel(id))).then(() => { toast("Stopped."); refresh(); }).catch(() => {});
+        }
+        MessageDrafts.changed();
+      }
     },
     drawn: (el, entries, view) => {
       bindConnectorActs(el);

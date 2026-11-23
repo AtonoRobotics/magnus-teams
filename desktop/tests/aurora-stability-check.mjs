@@ -157,4 +157,36 @@ assert.match(admin, /submit\.disabled = true/, "stepUp disables Confirm button w
 assert.match(stageCss, /@container aurora-conv \(max-width: 680px\)/, "conversation header adapts to container width");
 assert.match(updateRs, /\*ups\.ready\.lock\(\)\.unwrap\(\) = Some\(\(update, bytes\)\);/, "update_install restores ready update on install failure");
 
+// 4. Send-to-Stop square, Steer, close deduplication, sizing harmony, and autonomy UX.
+const composerJs = read("ui/chat-composer.js");
+const personalJs = read("ui/personal-chat.js");
+const teamConvJs = read("ui/team-conversation.js");
+const pagesJs = read("ui/aurora-pages.js");
+const asksJs = read("ui/asks.js");
+const chatCss = read("ui/chat.css");
+const auroraCss = read("ui/aurora.css");
+const pagesCss = read("ui/pages.css");
+
+assert.match(app, /stop:\s*'<rect /, "app.js defines UI.stop so Stop square SVG always renders");
+assert.match(app, /mic:\s*'<path /, "app.js defines UI.mic so mic SVG always renders");
+assert.match(composerJs, /record\.sending \|\| record\.pendingRun \|\| record\.runningIds\?\.length/, "composer enters stop mode immediately on send");
+assert.match(composerJs, /data-say-stop/, "composer provides companion Stop button while drafting");
+assert.match(composerJs, /conv\.steerRun/, "composer supports steering active work mid-run");
+assert.match(personalJs, /steerRun:/, "personal chat wires Server.tasks.steer");
+assert.match(personalJs, /next\.pendingRun = carry\.pendingRun/, "new-chat handoff preserves optimistic Stop state");
+assert.match(teamConvJs, /stopRun:/, "team chat wires Stop support");
+assert.match(pagesJs, /teamRoom/, "aurora-pages.js exempts Team rooms from floating close X");
+assert.match(pagesJs, /modalRoute/, "aurora-pages.js exempts Settings/Admin modal routes from background close X");
+assert.match(app, /\[data-close-work\]"\)\.hidden=!work \|\| m\.split \|\| region==="work"/, "workspace-bar hides duplicate Close work when panel shows its own close");
+assert.match(app, /class="icon-btn settings-close" data-settings-done/, "Settings modal uses standard X close button");
+assert.match(app, /data-settings-filter/, "Settings modal includes live tab filter");
+assert.match(app, /class="palette-list"/, "Cmd+K search dialog includes instant jump palette");
+assert.match(app, /label: "Undo"[\s\S]{0,120}Server\.trash\.restore/, "Trash toast offers one-click Undo restore");
+assert.match(asksJs, /class="ask-tier"/, "approval cards display risk-tier impact badge");
+assert.match(rail, /function syncBadge\(\)/, "Aurora left rail syncs active-work/approval badge");
+assert.match(stage, /aurora-verified-pill/, "completed answers show Verified pill when receipts exist");
+assert.match(chatCss, /button\.send \{ width: 36px; height: 36px;/, "composer Send/Stop button harmonized to 36px");
+assert.match(auroraCss, /button\.send\.is-stop \{/, "Aurora styles Stop square with high contrast");
+assert.match(pagesCss, /\.lclose \{ width: 36px; height: 36px;/, "Apps close button harmonized to 36px on desktop");
+
 console.log("aurora stability check passed");

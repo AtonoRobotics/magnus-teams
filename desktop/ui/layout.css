@@ -55,8 +55,8 @@ aside.detail { height: 100vh; overflow-y: auto; padding: 0; min-width: 0; displa
 aside.detail[hidden] { display: none; }
 .detail-head { top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex: none; position: static; background: var(--panel); min-height: 44px; padding: 10px 12px 0; border-bottom: 0; }
 
-.detail-head .close { width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0; border-radius: var(--r-sm); background: var(--seg); border: 0; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
-.detail-head .close svg.ic { width: 13px; height: 13px; }
+.detail-head .close { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; border-radius: var(--r-sm); background: var(--seg); border: 0; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.detail-head .close svg.ic { width: 15px; height: 15px; }
 .dh-main { flex: 1; min-width: 0; }
 .dh-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .companion-id { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -10px -12px 10px; padding: 10px 14px; border-bottom: 1px solid var(--hair); min-width: 0; }
@@ -86,7 +86,14 @@ aside.detail[hidden] { display: none; }
 /* Toasts say what happened; they never cover what can be clicked: they sit
    at the top, in the middle, and let clicks through. */
 #toasts { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 30; pointer-events: none; }
-.toast { background: var(--fg); color: var(--main); padding: 10px 16px; border-radius: var(--r-md); font-weight: 550; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.toast { background: var(--fg); color: var(--main); padding: 10px 16px; border-radius: var(--r-md); font-weight: 550; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: inline-flex; align-items: center; gap: 12px; }
+.toast-act { pointer-events: auto; border: 1px solid color-mix(in srgb, var(--main) 35%, transparent); background: transparent; color: var(--main); padding: 3px 10px; border-radius: var(--r-sm); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.toast-act:hover { background: color-mix(in srgb, var(--main) 14%, transparent); border-color: var(--main); }
+.palette-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; margin: -6px 0 0; }
+.palette-list:empty { display: none; }
+.palette-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 36px; padding: 6px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg); text-align: left; font-size: 13.5px; font-weight: 500; cursor: pointer; }
+.palette-item:hover, .palette-item.on { background: var(--row-sel); }
+.palette-kind { font-size: 11px; color: var(--muted); flex: none; }
 .panel .v { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .panel .u { color: var(--muted); font-size: 12px; }
 .panel button.link { font-size: 26px; font-weight: 650; }

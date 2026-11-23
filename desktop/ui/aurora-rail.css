@@ -39,7 +39,30 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigat
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigation=compact] .shell > nav.side .aurora-rail-open {
+  position: relative;
   display: inline-grid;
+}
+
+.aurora-rail-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  background: var(--accent);
+  color: var(--accent-fg);
+  pointer-events: none;
+}
+
+.aurora-rail-badge[data-tone="warn"] {
+  background: var(--warn);
+  color: var(--warn-fg);
 }
 
 /* The tree and Trash are in the full sidebar. */

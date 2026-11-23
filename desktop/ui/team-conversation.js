@@ -28,13 +28,19 @@ function teamComposer(s, thread) {
       if (file.type?.startsWith("image/") && file.size <= TEAM_PREVIEW_MAX_BYTES) s.files[file.name] = await teamPreviewUrl(file);
       return { id: file.name, name: file.name, media_type: file.type, size: file.size };
     },
-    send: async ({ text, files, form }) => {
+    stopRun: async ids => {
+      await Promise.all(ids.map(id => Server.tasks.cancel(id)));
+      toast("Stopped.");
+      await TeamChat.refresh();
+    },
+    send: async ({ text, files, form, record }) => {
       if ($("[data-whisper]", form)?.checked) {
         await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined, whisper: true, model: chosenModel(form) });
         return async () => { toast("Your Magnus is on it. Only you will see its answer."); await TeamChat.refresh(); };
       }
       const full = [text, ...files.map(f => `📎 ${f.name}`)].join("\n");
       const r = await Server.channels.post(s.ws, s.channel, { text: full, thread: thread || undefined, model: Team.home.role === "guest" ? undefined : chosenModel(form) });
+      if (!r?.agent && record) record.pendingRun = false;
       return async () => {
         if (r.agent) toast(`${Team.home.agent.name} is on it.`);
         if (r.limited) toast(r.limited, 8000);
@@ -100,6 +106,12 @@ function teamConversation(s, thread) {
       return list.map(m => teamEntry(m, r));
     },
     prepare: async (entries, view) => {
+      const runningIds = [...new Set(entries.filter(e => e.work?.id && e.work.status === "running").map(e => e.work.id))];
+      if (view.record) {
+        view.record.runningIds = runningIds;
+        if (runningIds.length || entries.length) view.record.pendingRun = false;
+        MessageDrafts.changed();
+      }
       const c = channel();
       if (!c) return;
       const project = Team.home.projects.find(p => p.id === c.project);

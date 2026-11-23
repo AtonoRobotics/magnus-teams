@@ -101,7 +101,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .stage-bento {
   box-sizing: border-box;
   width: 100%;
   max-width: 728px;
-  margin: 8px auto 0;
+  margin: 8px auto 4px;
   padding: 0 16px;
 }
 
@@ -447,6 +447,17 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-canvas-me
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-verified-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--ok-soft);
+  color: var(--ok);
+}
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-canvas-open {
   flex: none;
   min-height: 28px;
@@ -626,6 +637,10 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="redu
    The first playbook a wide 21:9 image card, the rest 4:3 image cards in
    pairs; the image fills the card under a dark fade and zooms on hover.
    aurora-explore.js slides them when the filter changes. */
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-hero {
+  padding-right: 56px;
+}
+
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid {
   position: relative;
   gap: 16px;
@@ -649,6 +664,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child {
   grid-column: 1 / -1;
   aspect-ratio: 21 / 9;
+  max-height: 300px;
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .explore-grid > .explore-card:first-child > :not(.card-media, .explore-card-foot) {

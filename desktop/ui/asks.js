@@ -52,6 +52,13 @@ function askSpendGuardrail(i, d) {
   return `<p class="consequence small" data-spend-guardrail><strong>Spend guardrail:</strong> ${cap} · Vault-only credentials</p>`;
 }
 
+const ASK_TIERS = { read: "Read-only", sandbox: "Sandbox", reversible_write: "Reversible write", irreversible: "Irreversible", financial: "Financial" };
+
+function askTierBadge(i) {
+  const label = i?.tier ? ASK_TIERS[i.tier] : "";
+  return label ? `<span class="ask-tier" data-tier="${esc(i.tier)}">${esc(label)}</span>` : "";
+}
+
 // The card. `canRespond` is whether this person may answer it.
 function askCard(i, canRespond) {
   const a = i.ask || {};
@@ -61,6 +68,7 @@ function askCard(i, canRespond) {
     ? `<div class="row ask-answers">${(a.offers || []).map((o, n) => `<button class="${n === 0 ? "primary" : ""}" data-item="${esc(i.id)}" data-decision="${scope[o]}" data-offer="${esc(o)}">${esc(askLabel(a, o))}</button>`).join("")}</div>`
     : `<p class="small faint">Waiting for the person who can answer it.</p>`;
   return `<div class="ask" data-ask="${esc(i.id)}"${a.conversation ? ` data-conversation="${esc(a.conversation)}"` : ""}>
+    ${askTierBadge(i)}
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
     ${askSpendGuardrail(i, d)}
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}

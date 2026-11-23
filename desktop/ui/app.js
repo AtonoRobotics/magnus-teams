@@ -261,11 +261,22 @@ function askText(msg, placeholder = "", yes = "Submit", danger = false) {
   });
 }
 
-function toast(msg, ms = 3200) {
-  // Aurora says it on its stage, in the line above the composer.
-  if (typeof AuroraReasoning !== "undefined" && AuroraReasoning.tell(String(msg), ms)) return;
+function toast(msg, ms = 3200, action = null) {
+  // Aurora says it on its stage, in the line above the composer (unless an action button is needed).
+  if (!action && typeof AuroraReasoning !== "undefined" && AuroraReasoning.tell(String(msg), ms)) return;
   const t = document.createElement("div");
-  t.className = "toast"; t.textContent = msg; t.setAttribute("role", "status");
+  t.className = "toast"; t.setAttribute("role", "status");
+  const text = document.createElement("span");
+  text.textContent = msg;
+  t.append(text);
+  if (action && action.label && typeof action.onClick === "function") {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast-act";
+    btn.textContent = action.label;
+    btn.onclick = () => { t.remove(); action.onClick(); };
+    t.append(btn);
+  }
   // Toasts stack, newest at the bottom, rather than covering each other.
   let box = $("#toasts");
   if (!box) { box = document.createElement("div"); box.id = "toasts"; document.body.append(box); }
@@ -396,6 +407,8 @@ const UI = {
   pencil: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
   team: '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18 14.5a6 6 0 0 1 3 5.5"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
 };
 const icon = (k, cls = "") => `<svg class="ic${cls ? ` ${cls}` : ""}" viewBox="0 0 24 24" aria-hidden="true">${UI[k]}</svg>`;
 
@@ -443,6 +456,7 @@ function nav() {
 function sidebar() {
   paint($("#side"),nav());
   if (!$("#navigation-flyout")?.hidden) paint($("#navigation-flyout"),`<h2>Projects and conversations</h2>${navigationTree()}<button data-act="sign-out">Sign out</button><button data-close-tree>Close navigation list</button>`);
+  if (typeof AuroraRail !== "undefined" && AuroraRail.syncBadge) AuroraRail.syncBadge();
 }
 
 // Fit is based on usable content width, independently of stored preferences.
@@ -482,7 +496,7 @@ const Workspace = (() => {
     const selectors=$(".workspace-selectors");selectors.hidden=!work || m.split;
     for(const b of $$("[data-region]",selectors)){const on=b.dataset.region===region;b.setAttribute("aria-pressed",String(on));}
     const grow=$("[data-expand-work]");grow.hidden=!work || (!m.eligible && !expanded);grow.setAttribute("aria-label",expanded ? "Restore split view" : "Expand work");grow.title=grow.getAttribute("aria-label");grow.setAttribute("aria-pressed",String(expanded));
-    $("[data-close-work]").hidden=!work;
+    $("[data-close-work]").hidden=!work || m.split || region==="work";
     $(".workspace-heading").textContent=App.workspace ? "Conversation" : location.hash.startsWith("#/library") ? "Apps" : location.hash.startsWith("#/settings") ? "Settings" : location.hash.startsWith("#/admin") ? "Admin" : location.hash.startsWith("#/dev") ? "Developer" : "Magnus";
     $(".workspace-heading").hidden=work;
     const separator=$("#workspace-splitter");separator.hidden=!m.split;separator.setAttribute("aria-valuenow",String(Math.round(m.panel)));separator.setAttribute("aria-valuemin",String(m.min));separator.setAttribute("aria-valuemax",String(m.max));separator.setAttribute("aria-valuetext",`${Math.round(m.panel)} pixels`);
@@ -502,15 +516,61 @@ const Workspace = (() => {
   function closeDrawer(restore=true) {const d=$("#navigation-drawer");if(!d?.open)return;restoreDrawer=restore;d.close();}
   function closeTree(restore=true) {const fly=$("#navigation-flyout");if(!fly)return;fly.hidden=true;const b=$("[data-nav-tree]");b?.setAttribute("aria-expanded","false");if(restore)b?.focus({preventScroll:true});}
   function resize(value) {const m=update();Theme.set({panelWidthPx:Math.max(m.min,Math.min(m.max,value))});update();}
+  function paletteItems(raw) {
+    const q = (raw || "").trim().toLowerCase();
+    const list = [
+      { label: "New conversation", kind: "Action", run: () => { location.hash = "#/chat/new"; } },
+      { label: "Explore playbooks", kind: "Page", run: () => { location.hash = "#/explore"; } },
+      { label: "Apps & connectors", kind: "Page", run: () => { location.hash = "#/library"; } },
+      { label: "Teams", kind: "Page", run: () => { location.hash = "#/teams"; } },
+      { label: "Trash", kind: "Page", run: () => { location.hash = "#/trash"; } },
+      { label: "Settings", kind: "Page", run: () => { location.hash = "#/settings"; } },
+      ...(administers() ? [{ label: "Admin & Operations", kind: "Page", run: () => { location.hash = "#/admin/operations"; } }] : []),
+      { label: "Check for updates", kind: "Action", run: () => { refreshUpdate(true); toast("Checking for updates…"); } },
+      ...(App.threads || []).slice(0, 20).map(t => ({ label: displayTitle(t.title), kind: "Chat", run: () => { location.hash = `#/chat/${enc(t.thread)}`; } })),
+      ...(App.projects || []).map(p => ({ label: p.name, kind: "Project", run: () => { location.hash = `#/project/${enc(p.id)}`; } })),
+      ...(App.workspaces || []).map(w => ({ label: w.name, kind: "Team", run: () => { location.hash = `#/team/${enc(w.id)}`; } })),
+    ];
+    return (q ? list.filter(x => `${x.label} ${x.kind}`.toLowerCase().includes(q)) : list).slice(0, 8);
+  }
+  function openPalette() {
+    const dialog = $("#workspace-search"); if (!dialog || dialog.open) return;
+    const inp = $("#workspace-query", dialog);
+    inp.value = "";
+    dialog.showModal();
+    drawPalette();
+    inp.focus();
+  }
+  let paletteList = [], paletteIdx = -1;
+  function drawPalette() {
+    const box = $("#workspace-search .palette-list"), inp = $("#workspace-query");
+    if (!box || !inp) return;
+    paletteList = paletteItems(inp.value);
+    paletteIdx = paletteList.length ? 0 : -1;
+    box.innerHTML = paletteList.map((it, i) => `<button type="button" role="option" class="palette-item${i === paletteIdx ? " on" : ""}" data-pal="${i}"><span>${esc(it.label)}</span><span class="palette-kind">${esc(it.kind)}</span></button>`).join("");
+  }
   function install() {
     expanded=false;region="conversation";forceExpanded=false;
     const d=$("#navigation-drawer");d.addEventListener("click",e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left || e.clientX>r.right || e.clientY<r.top || e.clientY>r.bottom)closeDrawer();}});d.addEventListener("close",()=>{const nav=$("nav.side",d);if(nav)$(".shell").prepend(nav);if(restoreDrawer)$("[data-open-drawer]")?.focus({preventScroll:true});});
     $("#workspace-bar").onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.matches("[data-open-drawer]"))openDrawer();if(b.dataset.region)choose(b.dataset.region);if(b.matches("[data-expand-work]")){expanded=!expanded;if(expanded)region="work";remember();update();}if(b.matches("[data-close-work]"))closePanel(true);};
     $("[data-nav-toggle]").onclick=()=>{const m=update(),navigation=m.nav==="compact" ? "expanded" : "compact";forceExpanded=navigation==="expanded";Theme.set({navigation});update();};
     $("[data-close-drawer]").onclick=()=>closeDrawer();
-    $("[data-rail-search]").onclick=()=>{const dialog=$("#workspace-search");dialog.showModal();$("input",dialog).focus();};
-    $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=$("#workspace-search input").value.trim();$("#workspace-search").close();if(q){if(App.workspace)openPanel(`search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
-    $("[data-close-search]").onclick=()=>$("#workspace-search").close();
+    $("[data-rail-search]").onclick=()=>openPalette();
+    const wsDialog=$("#workspace-search"), wsInput=$("#workspace-query",wsDialog), wsList=$(".palette-list",wsDialog);
+    wsInput.oninput=drawPalette;
+    wsInput.onkeydown=e=>{
+      if(!paletteList.length)return;
+      if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+        e.preventDefault();
+        paletteIdx=(paletteIdx+(e.key==="ArrowDown"?1:-1)+paletteList.length)%paletteList.length;
+        wsList.querySelectorAll(".palette-item").forEach((el,i)=>el.classList.toggle("on",i===paletteIdx));
+      } else if(e.key==="Enter" && paletteIdx>=0 && !e.shiftKey){
+        e.preventDefault();const item=paletteList[paletteIdx];wsDialog.close();item?.run();
+      }
+    };
+    wsList.onclick=e=>{const b=e.target.closest("[data-pal]");if(!b)return;const item=paletteList[Number(b.dataset.pal)];wsDialog.close();item?.run();};
+    $("#workspace-search form").onsubmit=e=>{e.preventDefault();const q=wsInput.value.trim();wsDialog.close();if(q){if(App.workspace)openPanel(`search:${q}`);else{App.openAfter=`search:${q}`;location.hash="#/home";}}};
+    $("[data-close-search]").onclick=()=>wsDialog.close();
     const separator=$("#workspace-splitter"), B=Theme.LAYOUT_BOUNDS;
     separator.onkeydown=e=>{const m=update();let width=m.panel;if(e.key==="Home")width=m.min;else if(e.key==="End")width=m.max;else if(["ArrowLeft","ArrowRight"].includes(e.key))width+=(e.key==="ArrowLeft" ? 1 : -1)*(e.shiftKey ? B.splitterLargeStepPx : B.splitterStepPx);else return;e.preventDefault();resize(width);};
     separator.onpointerdown=e=>{if(e.button!==0)return;const m=update(),x=e.clientX,width=m.panel;separator.setPointerCapture(e.pointerId);separator.onpointermove=move=>resize(width+x-move.clientX);separator.onpointerup=()=>{separator.onpointermove=null;separator.onpointerup=null;separator.releasePointerCapture(e.pointerId);};};
@@ -526,7 +586,7 @@ const Workspace = (() => {
       });
       document.addEventListener("keydown",e=>{
         if(e.key==="Escape" && !$("#navigation-flyout")?.hidden){e.preventDefault();closeTree();}
-        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){if(location.hash.startsWith("#/team/"))return;e.preventDefault();if(document.body.dataset.navigation==="expanded")$("#q")?.focus();else{const d=$("#workspace-search");if(d&&!d.open){d.showModal();$("input",d)?.focus();}}}
+        if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="k"){if(location.hash.startsWith("#/team/"))return;e.preventDefault();if(document.body.dataset.navigation==="expanded" && !(typeof Theme !== "undefined" && Theme.stage?.(document.documentElement.dataset.style)))$("#q")?.focus();else openPalette();}
       });
     }
     update();
@@ -541,7 +601,7 @@ function shell() {
     <header id="workspace-bar" class="workspace-bar"><button class="icon-btn" data-open-drawer aria-label="Open navigation">${icon("tasks")}</button><span class="workspace-heading">Conversation</span><div class="workspace-selectors" aria-label="Workspace region"><button data-region="work" aria-pressed="false">Work</button><button data-region="conversation" aria-pressed="true">Conversation</button></div><span class="grow"></span><button class="icon-btn" data-expand-work aria-label="Expand work">${icon("grid")}</button><button class="icon-btn" data-close-work data-act="close-panel" aria-label="Close work">${icon("close")}</button></header>
     <main id="main" tabindex="-1"></main><div id="workspace-splitter" role="separator" tabindex="0" aria-label="Conversation width" aria-orientation="vertical" hidden></div><aside id="detail" class="detail" aria-label="Work" hidden><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div></aside></div>
     <dialog id="navigation-drawer" class="navigation-drawer" aria-label="Navigation"></dialog><div id="navigation-flyout" class="navigation-flyout" role="dialog" aria-label="Projects and conversations" hidden></div>
-    <dialog id="workspace-search" class="workspace-search" aria-label="Search conversations, tasks and files"><form><label for="workspace-query">Search conversations, tasks and files</label><input id="workspace-query" type="search" required><div class="row"><button type="submit">Search</button><button type="button" data-close-search>Close search</button></div></form></dialog>`;
+    <dialog id="workspace-search" class="workspace-search" aria-label="Search conversations, tasks and files"><form><label for="workspace-query">Jump or search conversations, tasks and files</label><input id="workspace-query" type="search" placeholder="Jump to a page, chat, or search everything…" autocomplete="off"><div class="palette-list" role="listbox" aria-label="Quick jump"></div><div class="row"><button type="submit">Search all</button><button type="button" data-close-search>Close search</button></div></form></dialog>`;
   Workspace.install();
   $("nav.side").addEventListener("click", async e => {
     if (e.target.closest("[data-act=restart-update]")) return restartToUpdate();
@@ -889,12 +949,19 @@ function wireDocument() {
     if (!b) return;
     if (!await ask(`${b.textContent}? It moves to the trash, where you can restore it until it is gone for good.`, b.textContent)) return;
     b.disabled = true;
+    const itemId = b.dataset.trash;
     try {
-      await Server.trash.add(b.dataset.trash);
-      toast("Moved to the trash.");
+      await Server.trash.add(itemId);
+      toast("Moved to the trash.", 6000, {
+        label: "Undo",
+        onClick: async () => {
+          try { await Server.trash.restore(itemId); toast("Restored."); await refresh(); }
+          catch (err) { toast(err.message); }
+        },
+      });
       if (b.closest("#detail")) {
-        if (Panel.what === `file:${b.dataset.trash}`) await openPanel("files");
-        else if (Panel.what === `task:${b.dataset.trash}` || Panel.what === `project:${b.dataset.trash}`) closePanel();
+        if (Panel.what === `file:${itemId}`) await openPanel("files");
+        else if (Panel.what === `task:${itemId}` || Panel.what === `project:${itemId}`) closePanel();
       }
       if (b.dataset.then) location.hash = b.dataset.then; else await refresh();
     } catch (err) { toast(err.message); b.disabled = false; }
@@ -3263,16 +3330,33 @@ async function openSettingsModal(which) {
     const target = mapKey(key);
     const sec = allTabs.find(x => x[0] === target) || PERSONAL_TABS[0];
     const btn = ([k, label]) => `<button type="button" data-settings-tab="${esc(k)}" class="${k === sec[0] ? "on" : ""}"${k === sec[0] ? ' aria-current="page"' : ""}>${esc(label)}</button>`;
-    d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="primary" data-settings-done>Done</button></div>
+    d.innerHTML = `<div class="settings-head"><h2>Settings</h2><button type="button" class="icon-btn settings-close" data-settings-done aria-label="Close Settings" title="Close Settings">${icon("close")}</button></div>
       <div class="settings-shell">
         <nav class="settings-nav" aria-label="Settings">
-          <div class="settings-nav-group">Personal</div>
+          <input type="search" class="settings-filter" data-settings-filter placeholder="Filter settings…" aria-label="Filter settings">
+          <div class="settings-nav-group" data-settings-group="personal">Personal</div>
           ${PERSONAL_TABS.map(btn).join("")}
-          ${aTabs.length ? `<div class="settings-nav-group">Server &amp; Admin</div>${aTabs.map(btn).join("")}` : ""}
+          ${aTabs.length ? `<div class="settings-nav-group" data-settings-group="admin">Server &amp; Admin</div>${aTabs.map(btn).join("")}` : ""}
         </nav>
         <div class="settings-body"><section id="setting" data-section="${esc(sec[0])}"></section></div>
       </div>`;
     $("[data-settings-done]", d).onclick = () => d.close();
+    const filterInput = /** @type {?HTMLInputElement} */ ($("[data-settings-filter]", d));
+    if (filterInput) {
+      filterInput.oninput = () => {
+        const q = filterInput.value.trim().toLowerCase();
+        d.querySelectorAll("[data-settings-tab]").forEach(el => {
+          const b = /** @type {HTMLElement} */ (el);
+          b.hidden = !!q && !(b.textContent || "").toLowerCase().includes(q);
+        });
+        const personalVis = [...d.querySelectorAll("[data-settings-tab]")].some(el => !/** @type {HTMLElement} */ (el).hidden && !/** @type {HTMLElement} */ (el).dataset.settingsTab?.startsWith("admin:"));
+        const adminVis = [...d.querySelectorAll("[data-settings-tab]")].some(el => !/** @type {HTMLElement} */ (el).hidden && /** @type {HTMLElement} */ (el).dataset.settingsTab?.startsWith("admin:"));
+        const pg = /** @type {?HTMLElement} */ ($('[data-settings-group="personal"]', d));
+        const ag = /** @type {?HTMLElement} */ ($('[data-settings-group="admin"]', d));
+        if (pg) pg.hidden = !personalVis;
+        if (ag) ag.hidden = !adminVis;
+      };
+    }
     d.querySelectorAll("[data-settings-tab]").forEach(b => {
       b.onclick = () => renderTab(b.dataset.settingsTab);
     });

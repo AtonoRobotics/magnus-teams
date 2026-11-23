@@ -112,10 +112,31 @@ const AuroraRail = (() => {
     if (open) hide(); else show();
   });
 
-  window.addEventListener("magnus-theme", label);
+  /** Show a quiet badge on the rail sidebar button when approvals wait or tasks run. */
+  function syncBadge() {
+    const btn = $(".aurora-rail-open");
+    if (!btn) return;
+    const waiting = typeof needsMe === "function" ? needsMe().length : 0;
+    const active = typeof App !== "undefined" && Array.isArray(App.tasks) && typeof ENDED !== "undefined"
+      ? App.tasks.filter(t => !ENDED.includes(t.status)).length : 0;
+    const count = waiting || active;
+    let badge = btn.querySelector(".aurora-rail-badge");
+    if (!count) { badge?.remove(); return; }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "aurora-rail-badge";
+      badge.setAttribute("aria-hidden", "true");
+      btn.append(badge);
+    }
+    badge.dataset.tone = waiting ? "warn" : "run";
+    badge.textContent = count > 9 ? "9+" : String(count);
+  }
+
+  window.addEventListener("magnus-theme", () => { label(); syncBadge(); });
   window.addEventListener("hashchange", () => {
     const d = /** @type {?HTMLDialogElement} */ ($("#navigation-drawer"));
     if (d?.open) { picked = true; d.close(); }
+    syncBadge();
   });
 
   // The drawer and the sidebar are drawn when the app starts, and drawn
@@ -125,6 +146,7 @@ const AuroraRail = (() => {
     if (!d || !$("nav.side .brand")) return false;
     if (!d.dataset.auroraRail) { d.dataset.auroraRail = "1"; d.addEventListener("close", closed); }
     controls();
+    syncBadge();
     return true;
   }
   const first = new MutationObserver(() => {
@@ -134,5 +156,5 @@ const AuroraRail = (() => {
   });
   if (document.documentElement) first.observe(document.documentElement, { childList: true, subtree: true });
 
-  return { show, hide, get open() { return open; } };
+  return { show, hide, syncBadge, get open() { return open; } };
 })();
