@@ -12,20 +12,32 @@
 
 const NOT_DONE_SAID = { denied: "Not allowed", failed: "Failed", unknown: "Outcome unknown", read_back_differs: "Did not read back as done" };
 
-// What the server read back, in one line, with what it found a tap away.
+/** Format concise scalar fields from a read-back payload for inline display. @param {any} found */
+function readBackSummary(found) {
+  if (!found || typeof found !== "object" || Array.isArray(found)) return "";
+  const pairs = Object.entries(found)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object")
+    .slice(0, 3)
+    .map(([k, v]) => `${k.replace(/_/g, " ")}: ${String(v).slice(0, 80)}`);
+  return pairs.length ? `<div class="small muted" data-read-back-summary>${esc(pairs.join(" · "))}</div>` : "";
+}
+
+// What the server read back, in one line, with key verified fields shown and full record a tap away.
 /** @param {ReadBack|null|undefined} rb */
 function readBackLine(rb) {
   if (!rb) return "";
   const cls = rb.matches === true ? "ok" : rb.matches === false ? "warn" : "";
   const said = rb.matches === true ? "Read back: it matches" : rb.matches === false ? "Read back: it does not match" : "Not read back";
+  const summary = readBackSummary(rb.found);
   const found = rb.found && Object.keys(rb.found).length ? `<details class="small"><summary>What was found</summary><pre>${esc(JSON.stringify(rb.found, null, 2))}</pre></details>` : "";
-  return `<div class="small" data-read-back="${esc(rb.matches === true ? "matches" : rb.matches === false ? "differs" : "none")}"><span class="chip ${cls}">${esc(said)}</span> <span class="muted">${esc(rb.note)}</span>${found}</div>`;
+  return `<div class="small" data-read-back="${esc(rb.matches === true ? "matches" : rb.matches === false ? "differs" : "none")}"><span class="chip ${cls}">${esc(said)}</span> <span class="muted">${esc(rb.note)}</span>${summary}${found}</div>`;
 }
 
 /** @param {Receipt} r */
 function receiptRow(r) {
   const undo = r.reversible ? ` · <button type="button" class="link small" data-receipt-undo="${esc(r.call_id)}" data-receipt-what="${esc(r.what)}" data-receipt-tool="${esc(r.tool)}">Undo</button>` : "";
-  return `<li data-receipt="${esc(r.call_id)}"><div>${esc(r.what)}</div><div class="small faint">${esc(r.tool)} · ${esc(when(r.at))}${undo}</div>${readBackLine(r.read_back)}</li>`;
+  const to = Array.isArray(r.to) && r.to.length ? `<div class="small muted receipt-to" data-receipt-to>To: ${r.to.map(esc).join(", ")}</div>` : "";
+  return `<li data-receipt="${esc(r.call_id)}"><div>${esc(r.what)}</div>${to}<div class="small faint">${esc(r.tool)} · ${esc(when(r.at))}${undo}</div>${readBackLine(r.read_back)}</li>`;
 }
 
 if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
@@ -75,10 +87,13 @@ function evidenceSection(t) {
   const parts = [];
   if (e.receipts?.length) parts.push(`<h3>What was done</h3><ul class="receipts" data-receipts>${e.receipts.map(receiptRow).join("")}</ul>`);
   if (e.sources?.length) {
-    parts.push(`<h3>Sources</h3><ul class="sources" data-sources>${e.sources.map(s => `<li><span>${esc(s.claim)}</span> <span class="small faint">${esc(s.at || s.tool || "")}</span></li>`).join("")}</ul>`);
+    parts.push(`<h3>Sources</h3><ul class="sources" data-sources>${e.sources.map(s => {
+      const where = [s.at, s.tool].filter(Boolean).join(" · ");
+      return `<li><span>${esc(s.claim)}</span>${where ? ` <span class="small faint">${esc(where)}</span>` : ""}</li>`;
+    }).join("")}</ul>`);
   }
   if (e.not_done?.length) {
-    parts.push(`<h3>Not done</h3><ul class="not-done" data-not-done>${e.not_done.map(n => `<li><span class="chip warn">${esc(NOT_DONE_SAID[n.status] || n.status)}</span> ${esc(n.what)}</li>`).join("")}</ul>`);
+    parts.push(`<h3>Not done</h3><ul class="not-done" data-not-done>${e.not_done.map(n => `<li><span class="chip warn">${esc(NOT_DONE_SAID[n.status] || n.status)}</span> ${esc(n.what)}${n.tool ? ` <span class="small faint">(${esc(n.tool)})</span>` : ""}</li>`).join("")}</ul>`);
   }
   return parts.join("");
 }

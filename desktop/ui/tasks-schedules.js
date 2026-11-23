@@ -39,7 +39,11 @@ function progress(g) {
 
 function taskRow(t) {
   const why = t.status === "suspended" ? WAITING[t.waiting_on] || (t.needs_you ? "waiting for you" : "") : "";
-  return `<li class="trow" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="ttl" title="${esc(t.text)}">${esc(t.title)}</span>${chip(t.status)}<span class="small muted why">${esc(why)}</span><span class="small faint when">${esc(when(t.ended_at || t.created_at))}</span></a></li>`;
+  const canDelete = typeof ENDED !== "undefined" && ENDED.includes(t.status);
+  const delBtn = canDelete
+    ? `<button type="button" class="trow-del" data-trash="${esc(t.task_id)}" data-trash-label="Delete task" title="Delete task" aria-label="Delete ${esc(t.title || "task")}">${typeof icon === "function" ? icon("trash") : "×"}</button>`
+    : "";
+  return `<li class="trow" data-state="${STATE(t)}" data-task="${esc(t.task_id)}"><div class="trow-wrap"><a href="#/task/${enc(t.task_id)}" data-open="task:${esc(t.task_id)}"><span class="ttl" title="${esc(t.text)}">${esc(t.title)}</span>${chip(t.status)}<span class="small muted why">${esc(why)}</span><span class="small faint when">${esc(when(t.ended_at || t.created_at))}</span></a>${delBtn}</div></li>`;
 }
 
 // A group: its request and progress, the tasks that need the person in
@@ -97,14 +101,11 @@ function scheduleFacts(sc) {
     ${sc.paused ? `<div class="small" data-paused><span class="chip bad">Paused</span> ${esc(sc.paused)}. ${sc.paused_on ? `It goes on once you answer that run (<a href="#/task/${enc(sc.paused_on)}" data-open="task:${esc(sc.paused_on)}">open it</a>).` : "Nothing runs until you resume it."}</div>` : ""}
     ${sc.skipped ? `<div class="small muted" data-skipped>Skipped a run ${esc(when(sc.skipped.at))}: ${esc(sc.skipped.why)} (<a href="#/task/${enc(sc.skipped.task)}" data-open="task:${esc(sc.skipped.task)}">open it</a>)</div>` : ""}`;
 }
-// Resume, for a schedule paused until the person says so (one paused on a
-// run waiting for them goes on once they answer it), and Stop schedule.
-// An ended schedule stays until its person deletes it (#264): Delete
-// schedule is its one control (#452).
+// Every schedule (active, paused, or ended) offers Delete so users can always remove it.
 function scheduleButtons(sc, stop = "Stop schedule") {
-  if (sc.ended) return `<button data-act="delete-schedule" data-id="${esc(sc.id)}">Delete schedule</button>`;
-  const toggle = sc.paused ? (!sc.paused_on ? `<button data-act="resume-schedule" data-id="${esc(sc.id)}">Resume</button>` : "") : `<button data-act="pause-schedule" data-id="${esc(sc.id)}">Pause</button>`;
-  return `${toggle}<button data-act="stop-schedule" data-id="${esc(sc.id)}">${stop}</button>`;
+  if (sc.ended) return `<button type="button" class="danger" data-act="delete-schedule" data-id="${esc(sc.id)}">Delete schedule</button>`;
+  const toggle = sc.paused ? (!sc.paused_on ? `<button type="button" data-act="resume-schedule" data-id="${esc(sc.id)}">Resume</button>` : "") : `<button type="button" data-act="pause-schedule" data-id="${esc(sc.id)}">Pause</button>`;
+  return `${toggle}<button type="button" data-act="stop-schedule" data-id="${esc(sc.id)}">${stop}</button><button type="button" class="danger" data-act="delete-schedule" data-id="${esc(sc.id)}">Delete</button>`;
 }
 
 // Schedules, soonest first, ended last: each opens beside the conversation.
@@ -112,7 +113,7 @@ function schedulesView() {
   const key = sc => `${sc.ended ? "1" : "0"}${sc.next || ""}`;
   const list = [...App.schedules].sort((a, b) => key(a).localeCompare(key(b)));
   const hb = list.find(sc => !sc.ended && /heartbeat/i.test(sc.title || sc.text || ""));
-  const hbCard = `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong><div class="small muted">${hb ? `Every 30 min · ${hb.paused ? "Paused" : `Next run ${esc(until(hb.next))}`}` : "Proactive 30-min check-in for urgent emails, conflicts, or stalled threads."}</div></div>${hb ? `<span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
+  const hbCard = `<div class="card flat" style="margin-bottom:10px;"><div class="spread"><div><strong>Heartbeat</strong><div class="small muted">${hb ? `Every 30 min · ${hb.paused ? "Paused" : `Next run ${esc(until(hb.next))}`}` : "Proactive 30-min check-in for urgent emails, conflicts, or stalled threads."}</div></div>${hb ? `<div class="row"><span class="chip ${hb.paused ? "warn" : "ok"}">${hb.paused ? "Paused" : "Active"}</span><button type="button" class="danger small" data-act="delete-schedule" data-id="${esc(hb.id)}">Delete</button></div>` : `<button type="button" class="primary" data-enable-heartbeat>Enable (30m)</button>`}</div></div>`;
   const header = `<div class="spread" style="margin-bottom:10px;"><span class="small muted">${list.length ? `${list.length} active or past schedule${list.length === 1 ? "" : "s"}` : "Let Magnus find repetitive work you can hand off."}</span><button type="button" data-open-discovery>Discover automations</button></div>`;
   return header + hbCard + (list.length ? list.map(sc => `<div class="card flat sched" data-schedule="${esc(sc.id)}">
       <div class="spread"><a class="ttl" href="#/schedules" data-open="schedule:${esc(sc.id)}" title="${esc(sc.text)}">${esc(sc.title)}</a><span class="small muted">${esc(rule(sc))} ${scheduleButtons(sc)}</span></div>
@@ -152,7 +153,7 @@ function trace(tl) {
   const steps = tl.steps.map(s => `<div class="step"><div class="small faint">Step ${esc(s.step)}</div>
     ${s.text ? `<p>${esc(s.text)}</p>` : ""}
     ${s.calls.map(c => `<div class="call"><div><span class="mono">${esc(c.tool)}</span> <span class="small faint">issued by ${esc(c.issuer)}</span>
-      ${(c.decisions || []).map(d => `<span class="chip ${d.outcome === "allow" || d.outcome === "dedupe" ? "ok" : d.outcome === "ask" ? "warn" : "bad"}">${esc(d.stage)}: ${esc(d.outcome)}</span>`).join(" ")}</div>
+      ${(c.decisions || []).map(d => `<span class="chip ${d.outcome === "allow" || d.outcome === "dedupe" ? "ok" : d.outcome === "ask" ? "warn" : "bad"}"${d.reason || d.rule ? ` title="${esc([d.reason, d.rule].filter(Boolean).join(" · "))}"` : ""}>${esc(d.stage)}: ${esc(d.outcome)}</span>${d.reason ? ` <span class="small muted">${esc(d.reason)}</span>` : ""}${d.rule ? ` <span class="small faint mono">(${esc(d.rule)})</span>` : ""}`).join(" ")}</div>
       <details><summary class="small">Input${c.result !== null && c.result !== undefined ? " and result" : ""}</summary>${fieldValue(c.input)}${c.result !== null && c.result !== undefined ? `<div class="small muted" style="margin-top:6px">Result${c.is_error ? " (error)" : ""}</div><pre>${esc(c.result)}</pre>` : ""}</details></div>`).join("")}
   </div>`).join("");
   const notices = (tl.notices || []).map(n => `<div class="evidence none small"><span class="muted">Kernel, step ${esc(n.step)}:</span> ${esc(n.text)}</div>`).join("");

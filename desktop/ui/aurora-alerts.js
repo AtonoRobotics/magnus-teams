@@ -190,7 +190,7 @@ const AuroraAlerts = (() => {
     const el = document.createElement("div");
     el.className = "aurora-decision-line";
     el.dataset.item = id;
-    el.innerHTML = '<span class="aurora-decision-dot" aria-hidden="true"></span><span class="aurora-decision-said"></span><span class="aurora-decision-what"></span><a class="aurora-decision-open" href="#/inbox">Review</a>';
+    el.innerHTML = '<span class="aurora-decision-dot" aria-hidden="true"></span><span class="aurora-decision-said"></span><span class="aurora-decision-what"></span><span class="aurora-decision-meta"></span><a class="aurora-decision-open" href="#/inbox">Review</a>';
     l = { el, entry: "" };
     lines.set(id, l);
     return l;
@@ -204,7 +204,7 @@ const AuroraAlerts = (() => {
 
   /**
    * A conversation's decision cards are shown by the stage; in their place
-   * the thread keeps a line: waiting, then the answer given.
+   * the thread keeps a line: waiting (with tier/destination context), then the answer given.
    */
   function threadLines() {
     for (const card of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(IN_THREAD))) {
@@ -214,6 +214,12 @@ const AuroraAlerts = (() => {
       l.el.dataset.state = "waiting";
       words(l.el, ".aurora-decision-said", "Needs your decision");
       words(l.el, ".aurora-decision-what", card.querySelector(".ask-sentence, h4, strong")?.textContent?.trim() || "");
+      const metaBits = [
+        card.querySelector(".ask-tier")?.textContent?.trim(),
+        ...[...card.querySelectorAll(".ask-preview-row")].slice(0, 2).map(r => r.textContent?.replace(/\s+/g, " ").trim()),
+        card.querySelector(".consequence")?.textContent?.trim(),
+      ].filter(Boolean);
+      words(l.el, ".aurora-decision-meta", metaBits.join(" · "));
       const open = l.el.querySelector(".aurora-decision-open");
       open?.setAttribute("data-open", `item:${id}`);
       if (card.previousElementSibling !== l.el) card.before(l.el);
@@ -225,6 +231,7 @@ const AuroraAlerts = (() => {
       if (!answer) { l.el.remove(); lines.delete(id); continue; }
       l.el.dataset.state = "answered";
       words(l.el, ".aurora-decision-said", `✓ ${answer}`);
+      words(l.el, ".aurora-decision-meta", "");
       l.el.querySelector(".aurora-decision-open")?.remove();
       const entry = l.entry ? document.querySelector(`[data-entry="${CSS.escape(l.entry)}"]`) : null;
       if (entry && l.el.parentElement !== entry) entry.append(l.el);

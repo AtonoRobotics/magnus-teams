@@ -931,7 +931,8 @@ function wireDocument() {
   document.addEventListener("click", async e => {
     const b = e.target.closest("[data-trash]");
     if (!b) return;
-    if (!await ask(`${b.textContent}? It moves to the trash, where you can restore it until it is gone for good.`, b.textContent)) return;
+    const label = b.dataset.trashLabel || b.textContent.trim() || b.getAttribute("aria-label") || "Delete";
+    if (!await ask(`${label}? It moves to the trash, where you can restore it until it is gone for good.`, label)) return;
     b.disabled = true;
     const itemId = b.dataset.trash;
     try {
@@ -945,7 +946,8 @@ function wireDocument() {
       });
       if (b.closest("#detail")) {
         if (Panel.what === `file:${itemId}`) await openPanel("files");
-        else if (Panel.what === `task:${itemId}` || Panel.what === `project:${itemId}`) closePanel();
+        else if (Panel.what === `task:${itemId}`) await openPanel("tasks");
+        else if (Panel.what === `project:${itemId}`) await openPanel("projects");
       }
       if (b.dataset.then) location.hash = b.dataset.then; else await refresh();
     } catch (err) { toast(err.message); b.disabled = false; }
@@ -1255,7 +1257,7 @@ function chosenModel(root) {
 async function chatLayout(main, thread, project) {
   const seq = App.seq;
   App.thread = thread;
-  if (!Panel.what && !Panel.userClosed && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000) {
+  if (!Panel.what && !Panel.userClosed && (!history.state || history.state.work !== null) && typeof innerWidth === "number" && innerWidth >= 1000 && !(typeof AuroraStage !== "undefined" && AuroraStage.on())) {
     openPanel(needsMe().length ? "needs" : "activity", { auto: true });
   }
   sidebar();
@@ -1324,8 +1326,10 @@ async function home(main, panel = App.openAfter) {
   if (seq !== App.seq) return;
   let targetPanel = panel, panelOpts;
   if (!targetPanel && !Panel.what && !Panel.userClosed && typeof innerWidth === "number" && innerWidth >= Theme.LAYOUT_BOUNDS.autoOpenMinWidthPx) {
-    targetPanel = needsMe().length ? "needs" : "activity";
-    panelOpts = { auto: true };
+    if (!(typeof AuroraStage !== "undefined" && AuroraStage.on())) {
+      targetPanel = needsMe().length ? "needs" : "activity";
+      panelOpts = { auto: true };
+    }
   }
   if (threads.length) {
     const id = threads[0].thread;
@@ -1582,7 +1586,7 @@ function entry(e, ui = {}) {
         ${e.tasks.map(t => t.waiting_item && waitingCard(t.waiting_item, ui) ? `<div class="decide" data-for-task="${esc(t.task_id)}">${waitingCard(t.waiting_item, ui)}</div>` : "").join("")}`;
     }
     case "sub_agents": return subAgentsCard(e, ui);
-    case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details data-key="result:${esc(e.task_id)}"><summary><span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span><a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">Outcome</a></summary>
+    case "result": return `<div class="result" data-result="${esc(e.task_id)}">${ui.movedOn?.has(e.task_id) ? `<blockquote class="asked small"><span class="faint">You asked:</span> ${esc(firstLine(e.text))}</blockquote>` : ""}<details open data-key="result:${esc(e.task_id)}"><summary><span class="ttl">${esc(e.title)}</span> <span class="muted">${esc(firstLine(e.summary))}</span><a class="small see" href="#/task/${enc(e.task_id)}" data-open="task:${esc(e.task_id)}">Outcome</a></summary>
       <div class="pre">${esc(e.summary || "")}</div>${e.view ? shownFrame(e.id, "The deliverable") : ""}${e.files?.length ? `<div class="previews">${e.files.map(filePreview).join("")}</div>` : ""}${evidenceSection(e)}</details></div>`;
     case "connector_card": return appOfferCard(e);
     case "suggestion_card": {
@@ -1873,13 +1877,19 @@ function timelineGroups(active, done) {
     <div class="gbox"><ul class="tlist tl-stack">${list.map(timelineRowHtml).join("")}</ul></div>
   </details>`).join("");
 }
-// A decision waiting on the person, with its app's icon and its answers.
+// A decision waiting on the person, with its app's icon, tier, preview and answers.
 function needsInlineCard(i) {
   const ic = SidePanel.brand(`${i.kind || ""} ${i.summary || ""} ${i.ask?.sentence || ""}`) || `<span class="gbox-ic warn" aria-hidden="true">${icon("need")}</span>`;
   const approveDec = i.kind === "approval" ? "approve" : i.kind === "review" ? "accept" : "endorse";
   const denyDec = i.kind === "approval" ? "reject" : i.kind === "review" ? "dismiss" : "decline";
+  const fields = typeof askSummaryFields === "function" ? askSummaryFields(i) : { rows: [], body: "" };
+  const preview = [
+    ...fields.rows.slice(0, 2).map(([k, v]) => `${k}: ${v}`),
+    i.consequence || fields.body || "",
+  ].filter(Boolean).join(" · ");
+  const tier = typeof askTierBadge === "function" ? askTierBadge(i) : "";
   return `<div class="gbox needs-inline-card">
-    <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span></span></a>
+    <a class="gbox-row" href="#/inbox" data-open="item:${esc(i.id)}">${ic}<span class="gbox-main"><span class="gbox-lbl">${esc(i.summary || i.ask?.sentence || (KIND && KIND[i.kind]) || "Approval needed")}</span><span class="small muted">${tier}${tier ? " " : ""}${esc((KIND && KIND[i.kind]) || i.kind || "Pending decision")}</span>${preview ? `<span class="needs-inline-preview">${esc(preview)}</span>` : ""}</span></a>
     <div class="needs-inline-acts">
       <button type="button" data-item="${esc(i.id)}" data-decision="${denyDec}">Deny</button>
       <button type="button" class="primary ok-btn" data-item="${esc(i.id)}" data-decision="${approveDec}">Approve</button>
@@ -1892,7 +1902,7 @@ function schedRows(scheds, hb) {
   return scheds.length ? scheds.slice(0, 3).map(sc => {
     const isHb = /heartbeat/i.test(sc.title || sc.text || "");
     const icHtml = SidePanel.brand(`${sc.title || ""} ${sc.text || ""}`, "gbox-ic sch has-logo") || `<span class="gbox-ic ${isHb ? "ok" : "sch"}">${icon(isHb ? "bell" : "calendar")}</span>`;
-    return `<a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a>`;
+    return `<div class="trow-wrap"><a class="gbox-row sched-card" href="#/schedules" data-open="schedule:${esc(sc.id)}">${icHtml}<span class="gbox-main"><span class="gbox-lbl">${esc(sc.title)}</span><span class="small muted">${esc(rule(sc))}</span></span><span class="mono small muted">${esc(sc.paused ? "Paused" : sc.next ? until(sc.next) : "")}</span></a><button type="button" class="trow-del" data-act="delete-schedule" data-id="${esc(sc.id)}" title="Delete schedule" aria-label="Delete ${esc(sc.title)}">${icon("trash")}</button></div>`;
   }).join("") : `<div class="gbox-empty"><span class="small muted">No scheduled tasks yet</span>${hb ? "" : `<button type="button" class="primary" data-enable-heartbeat>Enable Heartbeat (30m)</button>`}</div>`;
 }
 const guardrailsRow = () => `<div class="gbox companion-guard"><a class="gbox-row" href="#/rules" data-open="rules"><span class="gbox-ic">${icon("shield")}</span><span class="gbox-main"><span class="gbox-lbl">Safety Guardrails</span><span class="small muted">Ask before external actions &amp; payments</span></span>${icon("chev", "chev")}</a></div>`;
@@ -2007,8 +2017,8 @@ function needsView(composed) {
 const Panel = { anchors:{}, layers:{}, unwatch:null, opener:null, focusNext:false, drawn:null, what: null, layer: "outcome", seq: 0, live: null, liveFor: null, liveText: "", autoOpened: false, userClosed: false, lib: { q: "", project: "", kind: "all" } };
 
 function openPanel(what, options={}) {
-  // Aurora's overview is the cards under the conversation, not a panel.
-  if (what === "activity" && typeof AuroraStage !== "undefined" && AuroraStage.on()) { if (Panel.what) closePanel(!options.auto); return; }
+  // Aurora's automatic overview is the bento under the conversation; explicit Activity tab clicks still open it.
+  if (what === "activity" && options.auto && typeof AuroraStage !== "undefined" && AuroraStage.on()) { if (Panel.what) closePanel(false); return; }
   if (options.history && Panel.what!==what) {
     history.replaceState({...history.state,work:Panel.what},"",location.href);
     history.pushState({...history.state,work:what},"",location.href);
@@ -2070,12 +2080,15 @@ function stopPanelLive() {
   Panel.liveText = "";
 }
 
-const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks", schedules: "Schedules", files: "Files", apps: "Apps", projects: "Projects", task: "Task", file: "File", schedule: "Schedule", project: "Project", item: "Item", search: "Search", connector: "Connector", rules: "Rules" };
-const PANEL_TAB_PARENT = { activity: "activity", tasks: "activity", schedules: "activity", task: "activity", schedule: "activity", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
+const PANEL_TITLES = { activity: "Activity", needs: "Approvals", tasks: "Tasks", schedules: "Routines", files: "Files", apps: "Apps", projects: "Projects", task: "Task", file: "File", schedule: "Schedule", project: "Project", item: "Item", search: "Search", connector: "Connector", rules: "Rules" };
+const PANEL_TAB_PARENT = { activity: "activity", tasks: "tasks", task: "tasks", schedules: "schedules", schedule: "schedules", needs: "needs", rules: "needs", item: "needs", apps: "apps", connector: "apps", files: "files", file: "files" };
 function panelTabs(kind) {
   const cur = PANEL_TAB_PARENT[kind] || "activity", n = needsMe().length;
+  const activeTasks = (App.tasks || []).filter(t => !ENDED.includes(t.status)).length;
   return SidePanel.tabs([
     ["activity", "Activity", { href: "#/activity", open: "activity" }],
+    ["tasks", "Tasks", { href: "#/tasks", open: "tasks", badge: activeTasks }],
+    ["schedules", "Routines", { href: "#/schedules", open: "schedules" }],
     ["needs", "Approvals", { href: "#/inbox", open: "needs", badge: n }],
     ["files", "Files", { href: "#/files", open: "files" }],
     ["apps", "Apps", { href: "#/apps", open: "apps" }],
@@ -2101,21 +2114,22 @@ async function drawPanel() {
   if (n !== Panel.seq || !Panel.what) return;
   if(!failed){Panel.rendered=Panel.what;Resources.good("Work");}
   const title = kind === "search" ? `Search: ${id}` : PANEL_TITLES[kind] || kind;
-  const backTo = kind === "shared" ? null : (id || ["tasks", "schedules", "rules"].includes(kind) ? PANEL_TAB_PARENT[kind] || "activity" : null);
+  const backTo = kind === "shared" ? null : (id || kind === "rules" ? PANEL_TAB_PARENT[kind] || "activity" : null);
   const backBtn = backTo ? `<button type="button" class="link small" data-panel-back="${esc(backTo)}">← Back</button>` : "";
-  const isRootCompanion = !backTo && ["activity", "needs", "files", "apps"].includes(kind);
+  const isRootCompanion = !backTo && ["activity", "tasks", "schedules", "needs", "files", "apps"].includes(kind);
+  const tabsHtml = kind === "shared" ? "" : panelTabs(kind);
   const headHtml = isRootCompanion
-    ? `${companionHeader()}${panelTabs(kind)}`
-    : `<div class="dh-top">${backBtn}<div class="companion-top-acts"><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div><button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button></div></div>${head || `<h2>${esc(title)}</h2>`}${panelTabs(kind)}`;
+    ? `${companionHeader()}${tabsHtml}`
+    : `<div class="dh-top">${backBtn}<div class="companion-top-acts"><div class="admin-kill" data-admin-kill role="group" aria-label="Kill switch" hidden></div><button type="button" class="icon-btn close" data-act="close-panel" aria-label="Close panel" title="Close panel">${icon("close")}</button></div></div>${head || `<h2>${esc(title)}</h2>`}${tabsHtml}`;
   // A view names itself in the head (a task: its title and where it
   // stands); the others are named by what they are.
   const entry=Panel.anchors[Panel.what] ||= {anchor:{follow:false,top:0}};
   if (Panel.drawn===Panel.what) { const current=ReadingAnchors.capture($(".detail-body",el)); if(current){entry.anchor=current;entry.anchor.follow=false;} }
   const prior=entry.anchor;
   // An Aurora stage (aurora-stage.js) shows what is open as a canvas beside
-  // the conversation and its cards.
+  // the conversation and its cards, with the same top-bar tabs.
   const stage = typeof AuroraStage !== "undefined" && AuroraStage.on();
-  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, body }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
+  const markup = stage ? AuroraStage.shell({ kind, title, head, backBtn, tabsHtml, body }) : SidePanel.shell({ headHtml, panelKey: kind, bodyHtml: body, footHtml: isRootCompanion ? companionFooter() : "" });
   if (n !== Panel.seq || !Panel.what) return;
   const changed = paint(el, markup); liveStatusLines(el);
   if (stage) AuroraStage.settle(el, changed);
@@ -2629,10 +2643,23 @@ function wirePanel() {
         case "resume": await Server.tasks.resume(id); break;
         case "stop-schedule":
           if (!await ask("Stop this schedule? No more of its runs start. Active runs stop too. Work already done stays done, and the runs stay in Tasks.", "Stop schedule")) return;
-          await Server.schedules.remove(id); toast("The schedule is stopped."); break;
-        case "delete-schedule":
-          if (!await ask("Delete this schedule? It has ended, so nothing stops; its runs stay in Tasks.", "Delete schedule")) return;
-          await Server.schedules.remove(id); toast("The schedule is deleted."); break;
+          await Server.schedules.remove(id);
+          App.schedules = (App.schedules || []).filter(x => x.id !== id);
+          toast("The schedule is stopped.");
+          if (Panel.what === `schedule:${id}`) await openPanel("schedules");
+          break;
+        case "delete-schedule": {
+          const sc = (App.schedules || []).find(x => x.id === id);
+          const msg = sc?.ended
+            ? "Delete this schedule? Its past runs stay in Tasks."
+            : "Delete this schedule? No more runs will start and any active run will stop. Past runs stay in Tasks.";
+          if (!await ask(msg, "Delete schedule")) return;
+          await Server.schedules.remove(id);
+          App.schedules = (App.schedules || []).filter(x => x.id !== id);
+          toast("The schedule is deleted.");
+          if (Panel.what === `schedule:${id}`) await openPanel("schedules");
+          break;
+        }
         case "pause-schedule": await Server.schedules.pause(id); toast("Schedule paused."); break;
         case "resume-schedule": await Server.schedules.resume(id); toast("Schedule resumed."); break;
         case "connect": connectApp(a.dataset.app).catch(err => toast(err.message)); return;

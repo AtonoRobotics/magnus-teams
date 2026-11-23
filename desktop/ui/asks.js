@@ -53,6 +53,70 @@ function askTierBadge(i) {
   return label ? `<span class="ask-tier" data-tier="${esc(i.tier)}">${esc(label)}</span>` : "";
 }
 
+const ASK_PREVIEW_HEADER_RE = /^(to|recipient|recipients|cc|bcc|channel|room|destination|url|host|site|file|path|calendar|event|subject|title|summary|amount|total|price|max_usd|supplier|vendor)$/i;
+const ASK_PREVIEW_BODY_RE = /^(body|message|text|content|note|description|html|draft|query|command)$/i;
+const ASK_PREVIEW_MAX_FIELDS = 5;
+const ASK_PREVIEW_BODY_MAX = 320;
+
+/**
+ * Extracts concise, human-facing fields (recipients, destination, subject,
+ * amount, and a body excerpt) from an approval item's server-read details.
+ * Never reads policy, rule, taint, or reviewer reasoning.
+ * @param {any} i
+ * @returns {{ rows: Array<[string, string]>, body: string }}
+ */
+function askSummaryFields(i) {
+  const d = (i && i.details) || {};
+  const ds = d.destinations || {};
+  const rows = [];
+  const seen = new Set();
+  let body = "";
+  const pushRow = (key, rawVal) => {
+    if (rows.length >= ASK_PREVIEW_MAX_FIELDS) return;
+    const val = Array.isArray(rawVal)
+      ? rawVal.filter(x => x !== null && x !== undefined && x !== "").map(String).join(", ")
+      : (rawVal !== null && rawVal !== undefined && typeof rawVal !== "object" ? String(rawVal).trim() : "");
+    if (!val || val === "none") return;
+    const lower = key.toLowerCase();
+    if (seen.has(lower)) return;
+    seen.add(lower);
+    const nice = key.replace(/_/g, " ");
+    rows.push([nice[0].toUpperCase() + nice.slice(1), val]);
+  };
+  for (const [k, a] of Object.entries(ds.recipients || {})) if (Array.isArray(a) && a.length) pushRow(k, a);
+  for (const [k, v] of Object.entries(ds.content || {})) {
+    if (v === null || v === undefined || v === "") continue;
+    const str = typeof v === "string" ? v.trim() : typeof v === "object" ? "" : String(v);
+    if (!str) continue;
+    if (ASK_PREVIEW_BODY_RE.test(k)) { if (!body) body = str; }
+    else pushRow(k, str);
+  }
+  const inp = d.input && typeof d.input === "object" && !Array.isArray(d.input) ? d.input : {};
+  for (const [k, v] of Object.entries(inp)) {
+    if (v === null || v === undefined || v === "") continue;
+    if (ASK_PREVIEW_BODY_RE.test(k)) {
+      if (!body && typeof v === "string" && v.trim()) body = v.trim();
+    } else if (ASK_PREVIEW_HEADER_RE.test(k)) {
+      pushRow(k, v);
+    }
+  }
+  if (!rows.length && Array.isArray(i?.ask?.destinations) && i.ask.destinations.length) {
+    pushRow("Destination", i.ask.destinations);
+  }
+  if (body.length > ASK_PREVIEW_BODY_MAX) body = `${body.slice(0, ASK_PREVIEW_BODY_MAX).trimEnd()}…`;
+  return { rows, body };
+}
+
+function askPreview(i) {
+  const { rows, body } = askSummaryFields(i);
+  if (!rows.length && !body) return "";
+  const rowsHtml = rows.length
+    ? `<div class="ask-preview-rows">${rows.map(([k, v]) => `<div class="ask-preview-row"><span class="ask-preview-key">${esc(k)}</span><span class="ask-preview-val">${esc(v)}</span></div>`).join("")}</div>`
+    : "";
+  const bodyHtml = body ? `<p class="ask-preview-body">${esc(body)}</p>` : "";
+  return `<div class="ask-preview" data-ask-preview>${rowsHtml}${bodyHtml}</div>`;
+}
+
 // The card. `canRespond` is whether this person may answer it.
 function askCard(i, canRespond) {
   const a = i.ask || {};
@@ -66,6 +130,7 @@ function askCard(i, canRespond) {
     <p class="ask-sentence" data-ask-sentence>${esc(a.sentence || i.summary || "")}</p>
     ${askSpendGuardrail(i, d)}
     ${i.consequence ? `<p class="consequence small" role="note">${esc(i.consequence)}</p>` : ""}
+    ${askPreview(i)}
     <details class="ask-content" data-ask-content><summary>See exactly what it would do</summary>${askContent(d)}</details>
     ${buttons}</div>`;
 }
@@ -100,3 +165,5 @@ globalThis.askCard = askCard;
 globalThis.askResolved = askResolved;
 globalThis.askReasoning = askReasoning;
 globalThis.decisionRows = decisionRows;
+globalThis.askSummaryFields = askSummaryFields;
+globalThis.askTierBadge = askTierBadge;

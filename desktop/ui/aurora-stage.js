@@ -50,8 +50,10 @@ const AuroraStage = (() => {
   const WORD_UNWRAP_BUFFER_MS = 80;
   const WORDS_STREAMED = 120;
   const SHOWN_BOXES = 4;
-  const PREVIEW_ROWS_MAX = 4;
-  const PREVIEW_BODY_MAX_CHARS = 260;
+  const MAX_APPROVAL_BOXES = 2;
+  const MAX_CONCURRENT_TASK_BOXES = 2;
+  const PREVIEW_ROWS_MAX = 6;
+  const PREVIEW_BODY_MAX_CHARS = 600;
   const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files", "shared"]);
   const PREVIEW_HEADER_RE = /^(to|recipient|recipients|cc|bcc|channel|room|destination|url|host|site|file|path|calendar|event|subject|title|summary|amount|total|price|max_usd)$/i;
   const PREVIEW_BODY_RE = /^(body|message|text|content|note|description|html|draft)$/i;
@@ -97,18 +99,36 @@ const AuroraStage = (() => {
   const waits = t => !ended(t) && needsYou(t);
   const stateOfTask = t => (ended(t) ? t.status : waits(t) ? "needs" : "running");
   const stepOf = t => ((t.plan && t.plan.units) || []).find(u => u.status === "active");
+  const pctOf = t => {
+    const units = t?.plan?.units || [];
+    if (!units.length) return null;
+    return Math.round((100 * units.filter(u => u.status === "done").length) / units.length);
+  };
   const named = t => t.title || firstLine(t.text) || "Task";
+  const tsOf = iso => { const at = Date.parse(iso || ""); return Number.isNaN(at) ? 0 : at; };
   const age = iso => { const at = Date.parse(iso || ""); return Number.isNaN(at) ? Infinity : Date.now() - at; };
   const latest = list => list.sort((a, b) => (b.ended_at || b.created_at || "").localeCompare(a.ended_at || a.created_at || ""))[0];
   const ATTENTION = ["needs_attention", "needs_more_access", "connecting"];
 
+  /** Concise destination/consequence preview for an approval bento tile. @param {any} i @param {number} pendingCount */
+  function approvalDesc(i, pendingCount) {
+    const fields = typeof askSummaryFields === "function" ? askSummaryFields(i) : { rows: [], body: "" };
+    const bits = [
+      ...fields.rows.slice(0, 2).map(([k, v]) => `${k}: ${v}`),
+      i.consequence || fields.body || "",
+    ].filter(Boolean);
+    if (bits.length) return bits.join(" · ");
+    return pendingCount > 1 ? `${pendingCount - 1} more waiting on you` : "Nothing goes out until you answer.";
+  }
+
   /**
-   * What is relevant now, most urgent first: each a box of the bento.
-   * @returns {Promise<Array<{ key: string, label: string, icon: string, svg?: string, open: string, href: string, tone: string, title: string, desc: string, count?: number }>>}
+   * What is relevant now, dynamically ordered by urgency and recency: each a box of the bento.
+   * @returns {Promise<Array<{ key: string, label: string, icon: string, svg?: string, open: string, href: string, tone: string, title: string, desc: string, count?: number, pct?: number|null, updatedAt?: number }>>}
    */
   async function boxes() {
     const tasks = App.tasks || [];
     const here = tasks.filter(t => App.thread && t.thread === App.thread);
+    const activeAll = tasks.filter(t => !ended(t)).sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));
     const last = latest(here.filter(t => ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
     const list = [];
@@ -118,50 +138,106 @@ const AuroraStage = (() => {
     const tally = here.length > 1 ? ` · ${here.filter(t => t.status === "completed").length} of ${here.length} done` : "";
     if (run) {
       const step = stepOf(run);
-      list.push({ ...live, tone: waits(run) ? "needs" : "run", open: `task:${run.task_id}`, href: `#/task/${enc(run.task_id)}`, title: named(run), desc: `${waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…"}${tally}` });
+      const subNote = run.sub_agents_active ? ` · ${plural(run.sub_agents_active, "sub-agent")}` : "";
+      list.push({
+        ...live,
+        tone: waits(run) ? "needs" : "run",
+        open: `task:${run.task_id}`,
+        href: `#/task/${enc(run.task_id)}`,
+        title: named(run),
+        desc: `${waits(run) ? "Waiting on you to decide" : run.status_line || (step && step.goal) || "Working…"}${subNote}${tally}`,
+        pct: pctOf(run),
+        count: activeAll.length > 1 ? activeAll.length : 0,
+        updatedAt: tsOf(run.updated_at || run.created_at),
+      });
     } else if (last) {
-      list.push({ ...live, tone: last.status === "completed" ? "done" : "idle", open: `task:${last.task_id}`, href: `#/task/${enc(last.task_id)}`, title: named(last), desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped") });
+      list.push({
+        ...live,
+        tone: last.status === "completed" ? "done" : "idle",
+        open: `task:${last.task_id}`,
+        href: `#/task/${enc(last.task_id)}`,
+        title: named(last),
+        desc: firstLine(last.summary) || (last.status === "completed" ? "Done" : "Stopped"),
+        updatedAt: tsOf(last.ended_at || last.created_at),
+      });
+    }
+    // Surface concurrent autonomous tasks running in parallel (this thread or others).
+    const othersRunning = activeAll.filter(t => !run || t.task_id !== run.task_id).slice(0, MAX_CONCURRENT_TASK_BOXES);
+    for (const other of othersRunning) {
+      const step = stepOf(other);
+      const subNote = other.sub_agents_active ? ` · ${plural(other.sub_agents_active, "sub-agent")}` : "";
+      list.push({
+        key: `task:${other.task_id}`,
+        label: other.thread === App.thread ? "Parallel Task" : "Autonomous Task",
+        icon: "sparkles",
+        tone: waits(other) ? "needs" : "run",
+        open: `task:${other.task_id}`,
+        href: `#/task/${enc(other.task_id)}`,
+        title: named(other),
+        desc: `${waits(other) ? "Waiting on you to decide" : other.status_line || (step && step.goal) || "Running in background…"}${subNote}`,
+        pct: pctOf(other),
+        updatedAt: tsOf(other.updated_at || other.created_at),
+      });
     }
     // Approvals already open beside the conversation (either the list or this decision) are not also a box.
     const pending = Panel.what === "needs" ? [] : needsMe().filter(i => `item:${i.id}` !== Panel.what && i.id !== held?.box.item);
     if (held && held.until > Date.now()) list.push(held.box);
     else held = null;
-    // A decision whose box was closed leaves the box to the next one waiting.
-    const ask = i => ({ key: `approval:${i.id}`, item: i.id, label: "Approvals", icon: "need", href: "#/inbox", tone: "needs", count: pending.length > 1 ? pending.length : 0, open: `item:${i.id}`,
-      title: i.ask?.sentence || i.summary || "A decision", desc: pending.length > 1 ? `${pending.length - 1} more waiting on you` : "Nothing goes out until you answer." });
-    const open = pending.find(i => !AuroraBoxes.isClosed(ask(i)));
-    if (open) list.push({ ...ask(open), answers: answersOf(open) });
+    // Show up to MAX_APPROVAL_BOXES unclosed pending decisions with rich previews & 1-tap actions.
+    const ask = (i, idx) => ({
+      key: `approval:${i.id}`,
+      item: i.id,
+      label: "Approvals",
+      icon: "need",
+      href: "#/inbox",
+      tone: "needs",
+      count: idx === 0 && pending.length > 1 ? pending.length : 0,
+      open: `item:${i.id}`,
+      title: i.ask?.sentence || i.summary || "A decision",
+      desc: approvalDesc(i, pending.length),
+      updatedAt: tsOf(i.created_at),
+    });
+    let shownApprovals = 0;
+    for (const i of pending) {
+      if (shownApprovals >= MAX_APPROVAL_BOXES) break;
+      const box = ask(i, shownApprovals);
+      if (AuroraBoxes.isClosed(box)) continue;
+      list.push({ ...box, answers: answersOf(i) });
+      shownApprovals++;
+    }
     for (const [k, n] of notes) if (Date.now() - n.at > NOTE_FRESH_MS) notes.delete(k);
     const said = [...notes.values()];
     if (said.length) {
       const n = said[said.length - 1];
-      list.push({ key: "messages", label: "Messages", icon: "chat", tone: "talk", open: "", note: n.key, href: n.href || "#", title: n.title, desc: `${n.body || ""}${said.length > 1 ? ` · ${said.length - 1} more` : ""}`, count: said.length > 1 ? said.length : 0 });
+      list.push({ key: "messages", label: "Messages", icon: "chat", tone: "talk", open: "", note: n.key, href: n.href || "#", title: n.title, desc: `${n.body || ""}${said.length > 1 ? ` · ${said.length - 1} more` : ""}`, count: said.length > 1 ? said.length : 0, updatedAt: n.at });
     }
     const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id);
     const w = comp && typeof controlWords === "function" ? controlWords(comp, false) : null;
     if (comp && w && ["working", "asks", "waking"].includes(w.key)) {
       const svg = typeof UI !== "undefined" && UI.computer ? `<svg class="ic" viewBox="0 0 24 24">${UI.computer}</svg>` : "";
-      list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: "Cloud Computer", desc: w.pill });
+      list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: "Cloud Computer", desc: w.pill, updatedAt: tsOf(comp.updated_at) });
     }
     const due = (App.schedules || []).filter(sc => !sc.ended && !sc.paused && sc.next && -age(sc.next) < DUE_SOON_MS).sort((a, b) => String(a.next).localeCompare(String(b.next)));
-    if (due.length) list.push({ key: "next", label: "Up Next", icon: "calendar", tone: "idle", open: `schedule:${due[0].id}`, href: "#/schedules", title: due[0].title, desc: `${until(due[0].next)}${due.length > 1 ? ` · ${due.length - 1} more today` : ""}` });
+    if (due.length) list.push({ key: "next", label: "Up Next", icon: "calendar", tone: "idle", open: `schedule:${due[0].id}`, href: "#/schedules", title: due[0].title, desc: `${until(due[0].next)}${due.length > 1 ? ` · ${due.length - 1} more today` : ""}`, updatedAt: tsOf(due[0].next) });
     const fresh = (await recentFiles()).filter(f => age(f.at) < RECENT_MS);
-    if (fresh.length) list.push({ key: "files", label: "Files", icon: "file", tone: "done", open: `file:${fresh[0].id}`, href: "#/files", title: fresh[0].name, desc: fresh.length > 1 ? `${plural(fresh.length, "new file")} · ${when(fresh[0].at)}` : `New · ${when(fresh[0].at)}` });
+    if (fresh.length) list.push({ key: "files", label: "Files", icon: "file", tone: "done", open: `file:${fresh[0].id}`, href: "#/files", title: fresh[0].name, desc: fresh.length > 1 ? `${plural(fresh.length, "new file")} · ${when(fresh[0].at)}` : `New · ${when(fresh[0].at)}`, updatedAt: tsOf(fresh[0].at) });
     const connectors = (typeof Lib !== "undefined" && Array.isArray(Lib.all) ? Lib.all : App.connectors) || [];
     const asking = connectors.filter(c => ATTENTION.includes(stateOf(c)));
-    if (asking.length) list.push({ key: "apps", label: "Apps", icon: "grid", tone: "needs", open: `connector:${asking[0].name}`, href: "#/apps", title: asking[0].title, desc: asking.length > 1 ? `${asking.length} apps need attention` : "Needs attention to keep working" });
+    if (asking.length) list.push({ key: "apps", label: "Apps", icon: "grid", tone: "needs", open: `connector:${asking[0].name}`, href: "#/apps", title: asking[0].title, desc: asking.length > 1 ? `${asking.length} apps need attention` : "Needs attention to keep working", updatedAt: 0 });
     // What happened while the person was away, in place of the banner over
     // the thread; opened, it goes until the next session.
     const feed = App.feed;
     if (feed && !App.feedDismissed) {
       const said = [[feed.ended?.length, "finished"], [feed.arrived?.length, "new for you"], [feed.decided?.length, "decided"]].filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
-      if (said.length) list.push({ key: "away", label: "Since you were away", icon: "clock", tone: "idle", open: "activity", href: "#/activity", title: said.join(" · "), desc: "See what happened" });
+      if (said.length) list.push({ key: "away", label: "Since you were away", icon: "clock", tone: "idle", open: "activity", href: "#/activity", title: said.join(" · "), desc: "See what happened", updatedAt: 0 });
     }
     const elsewhere = latest(tasks.filter(t => t.thread !== App.thread && ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
-    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}` });
-    // A box answered keeps its place while it shows the answer.
-    const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" || c.tone === "talk" ? 1 : 2);
-    return list.map((c, i) => [c, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([c]) => c);
+    if (elsewhere) list.push({ key: "recent", label: "Recent Work", icon: "clock", tone: elsewhere.status === "completed" ? "done" : "idle", open: `task:${elsewhere.task_id}`, href: "#/tasks", title: named(elsewhere), desc: firstLine(elsewhere.summary) || `${elsewhere.status === "completed" ? "Done" : "Stopped"} · ${when(elsewhere.ended_at || elsewhere.created_at)}`, updatedAt: tsOf(elsewhere.ended_at || elsewhere.created_at) });
+    // Record live content updates first so dynamic recency sorting immediately promotes changed boxes.
+    if (typeof AuroraBoxes.noteChanges === "function") AuroraBoxes.noteChanges(list, Date.now());
+    const rank = c => (c.tone === "needs" || c.said ? 0 : c.tone === "run" ? 1 : c.tone === "talk" ? 2 : c.tone === "done" ? 3 : 4);
+    const recency = c => Math.max(c.updatedAt || 0, typeof AuroraBoxes.touchedAt === "function" ? AuroraBoxes.touchedAt(c.key) : 0);
+    return list.map((c, i) => [c, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || recency(b[0]) - recency(a[0]) || a[1] - b[1]).map(([c]) => c);
   }
 
   /**
@@ -192,7 +268,13 @@ const AuroraStage = (() => {
     const title = c.answers ? `<a class="stage-tile-title" href="${html(c.href)}" data-open="${html(c.open)}">${html(c.title)}</a>` : `<strong class="stage-tile-title">${html(c.title)}</strong>`;
     // A box just answered goes on its own in a moment: it needs no Close.
     const close = c.said ? "" : `<button type="button" class="stage-tile-close" aria-label="Close ${html(c.label)}" title="Close">${icon("close")}</button>`;
-    const foot = c.said ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>` : c.answers || `<span class="stage-tile-desc">${html(c.desc)}</span>`;
+    const bar = typeof c.pct === "number" ? `<div class="stage-tile-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${c.pct}"><span style="width:${c.pct}%"></span></div>` : "";
+    const descHtml = c.desc ? `<span class="stage-tile-desc">${html(c.desc)}</span>` : "";
+    const foot = c.said
+      ? `<div class="aurora-confirmed-row"><span class="aurora-confirmed-pill">✓ ${html(c.said)}</span></div>`
+      : c.answers
+        ? `${descHtml}${c.answers}`
+        : `${bar}${descHtml}`;
     return `<span class="stage-tile-label"><span class="stage-tile-ic" aria-hidden="true">${c.svg || icon(c.icon)}</span><span class="stage-tile-name">${html(c.label)}</span>${c.count ? `<span class="stage-tile-badge">${c.count}</span>` : ""}<span class="mini-dot" aria-hidden="true"></span>${close}</span>
       ${title}
       ${foot}`;
@@ -226,7 +308,8 @@ const AuroraStage = (() => {
 
   /**
    * The bento shows exactly these boxes: new ones come in, gone ones leave
-   * from where they were, and the rest slide to their new places.
+   * from where they were, and the rest slide to their new places without
+   * unnecessary DOM node churn when order is unchanged.
    * @param {Element} bento @param {Awaited<ReturnType<typeof boxes>>} list
    */
   function place(bento, list) {
@@ -242,6 +325,7 @@ const AuroraStage = (() => {
       b.classList.add("stage-tile-leaving");
       setTimeout(() => b.remove(), LEAVE_MS);
     }
+    const desiredNodes = [];
     for (const c of list) {
       let b = bento.querySelector(`:scope > .stage-tile[data-tile="${CSS.escape(c.key)}"]:not(.stage-tile-leaving)`);
       // A box with answers in it is not a link: its title is.
@@ -266,12 +350,18 @@ const AuroraStage = (() => {
       b.dataset.sign = AuroraBoxes.sign(c);
       const inner = boxInner(c);
       if (b._html !== inner) { b.innerHTML = inner; b._html = inner; }
-      bento.append(b);
+      desiredNodes.push(b);
     }
-    bento.querySelectorAll(":scope > .stage-tile-leaving").forEach(b => bento.append(b));
+    const currentNodes = boxesIn(bento);
+    const sameOrder = currentNodes.length === desiredNodes.length && desiredNodes.every((n, idx) => currentNodes[idx] === n);
+    if (!sameOrder) {
+      for (const b of desiredNodes) bento.append(b);
+      bento.querySelectorAll(":scope > .stage-tile-leaving").forEach(b => bento.append(b));
+    }
     bento.dataset.count = String(list.length);
-    grow(bento, was);
+    // Measure FLIP slide destinations BEFORE starting container height animation.
     slide(bento, 1);
+    grow(bento, was);
   }
 
   /** The bento's height and the room above it, as drawn now. @param {HTMLElement} bento */
@@ -486,6 +576,7 @@ const AuroraStage = (() => {
   }
 
   let drawing = null;
+  let rerun = false;
   /** The next box to leave on its own. @type {ReturnType<typeof setTimeout>|undefined} */
   let leaving;
   /** The bento, kept when the conversation is drawn again. @type {?HTMLElement} */
@@ -509,7 +600,7 @@ const AuroraStage = (() => {
       if (!t && !rich) return;
       if (t && !ended(t) && !rich) return;
       const meta = t ? `${named(t)}${t.summary ? ` · ${firstLine(t.summary)}` : ""}` : "Work result";
-      const verified = !!(t && (t.verified || (Array.isArray(t.receipts) && t.receipts.length > 0)));
+      const verified = !!(t && (t.verified || t.receipts_count > 0 || t.has_deliverable || (Array.isArray(t.receipts) && t.receipts.length > 0)));
       const badge = verified ? `<span class="aurora-verified-pill">✓ Verified</span>` : "";
       const row = document.createElement("div");
       row.className = "aurora-canvas-row";
@@ -562,7 +653,7 @@ const AuroraStage = (() => {
       document.querySelectorAll(".aurora-canvas-row").forEach(r => r.remove());
       return Promise.resolve();
     }
-    if (drawing) return drawing;
+    if (drawing) { rerun = true; return drawing; }
     drawing = (async () => {
       const all = await boxes();
       const now = main.querySelector(":scope > section.conv");
@@ -589,25 +680,31 @@ const AuroraStage = (() => {
       }
       annotateAnswers(now);
       follow();
-    })().catch(() => { /* The bento waits for the next change. */ }).finally(() => { drawing = null; });
+    })().catch(() => { /* The bento waits for the next change. */ }).finally(() => {
+      drawing = null;
+      if (rerun) { rerun = false; refresh(); }
+    });
     return drawing;
   }
 
   /**
    * The column beside the conversation: the canvas for what is open.
-   * @param {{ kind: string, title: string, head?: string|null, backBtn: string, body: string }} v
+   * @param {{ kind: string, title: string, head?: string|null, backBtn: string, tabsHtml?: string, body: string }} v
    */
   function shell(v) {
     const size = WIDE_CANVAS.has(v.kind) ? "wide" : "compact";
+    const tabs = v.tabsHtml || "";
     const d = v.kind === "item" ? decision(v.body) : null;
     if (d) {
       return `<section class="stage-artifact stage-decision" data-canvas-size="compact" aria-label="${html(d.title)}">
       <div class="artifact-top"><div class="artifact-title"><p class="decision-kind">${html(d.kind)}</p><h2>${html(d.title)}</h2></div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
+      ${tabs}
       <div class="artifact-content detail-body" data-panel="item">${d.body}</div>
     </section>`;
     }
     return `<section class="stage-artifact" data-canvas-size="${size}" aria-label="${html(v.title)}">
       <div class="artifact-top">${v.backBtn}<div class="artifact-title">${v.head || `<h2>${html(v.title)}</h2>`}</div><button type="button" class="artifact-close" data-toggle-inspector>Close</button></div>
+      ${tabs}
       <div class="artifact-content detail-body" data-panel="${html(v.kind)}">${v.body}</div>
     </section>`;
   }
@@ -678,6 +775,8 @@ const AuroraStage = (() => {
     const meta = head?.querySelector(".small.faint");
     if (meta) { const p = document.createElement("p"); p.className = "small faint decision-meta"; p.innerHTML = meta.innerHTML; about.append(p); }
     head?.remove();
+    // Avoid duplicating askCard's inline .ask-preview when the canvas builds its own .decision-preview.
+    ask.querySelector(":scope > .ask-preview")?.remove();
     let more = ask.querySelector(":scope > details.ask-content");
     if (!more && about.childNodes.length) {
       more = document.createElement("details");

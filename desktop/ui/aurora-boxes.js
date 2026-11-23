@@ -15,7 +15,7 @@
 "use strict";
 
 const AuroraBoxes = (() => {
-  const SHOWN_FOR_MS = 15_000;
+  const SHOWN_FOR_MS = 90_000;
   /** How many closed boxes this browser remembers, newest kept. */
   const CLOSED_KEPT = 200;
   const STORE = "magnus-boxes-closed";
@@ -23,6 +23,10 @@ const AuroraBoxes = (() => {
   const since = new Map();
   /** Where the signed-in person's closed boxes are kept; null: for this page only. @type {?string} */
   let key = null;
+  /** Last seen content signature per box key, so live updates record recency. @type {Map<string, string>} */
+  const lastContent = new Map();
+  /** When each box key last appeared or changed content. @type {Map<string, number>} */
+  const touched = new Map();
   /** @type {string[]} */
   let closed = [];
 
@@ -49,20 +53,47 @@ const AuroraBoxes = (() => {
     key = person ? `${STORE}.${appliance}.${person}` : null;
     closed = load();
     since.clear();
+    lastContent.clear();
+    touched.clear();
   }
 
-  /** What a box is, so a change to it shows it again: not what it says. @param {{ key: string, tone: string, title: string }} c */
-  const sign = c => `${c.key}|${c.tone}|${c.title}`;
-  /** Whether a box wants the person, and so stays. @param {{ tone: string, said?: string }} c */
-  const stays = c => c.tone === "needs" || c.tone === "talk" || !!c.said;
+  /** Identity + state signature used for close persistence. @param {{ key: string, tone: string, title: string, count?: number }} c */
+  const sign = c => `${c.key}|${c.tone}|${c.title}${c.count ? `|${c.count}` : ""}`;
+  /** Full content signature including live description, used for recency tracking and resurfacing. @param {{ key: string, tone: string, title: string, desc?: string, count?: number }} c */
+  const contentSign = c => `${sign(c)}|${c.desc || ""}`;
+  /** Whether a box wants attention or is actively running, and so stays visible. @param {{ tone: string, said?: string }} c */
+  const stays = c => c.tone === "needs" || c.tone === "talk" || c.tone === "run" || !!c.said;
+
+  /**
+   * Records content changes for recency ordering and returns the last touched timestamp for a key.
+   * @param {Array<{ key: string, tone: string, title: string, desc?: string, count?: number }>} list
+   * @param {number} [now]
+   */
+  function noteChanges(list, now = Date.now()) {
+    const keys = new Set(list.map(c => c.key));
+    for (const k of [...lastContent.keys()]) if (!keys.has(k)) { lastContent.delete(k); touched.delete(k); }
+    for (const c of list) {
+      const cs = contentSign(c);
+      if (lastContent.get(c.key) !== cs) {
+        lastContent.set(c.key, cs);
+        touched.set(c.key, now);
+        // A passive box whose content actually changed gets a fresh display window.
+        if (!stays(c)) since.set(sign(c), now);
+      }
+    }
+  }
+
+  /** Timestamp when a box key last appeared or updated, or 0. @param {string} key */
+  const touchedAt = key => touched.get(key) || 0;
 
   /**
    * The boxes to show now, of those relevant, in their order.
-   * @template {{ key: string, tone: string, title: string, said?: string }} T
+   * @template {{ key: string, tone: string, title: string, desc?: string, count?: number, said?: string }} T
    * @param {T[]} list @param {number} now @param {Set<string>} held boxes the pointer or focus is on
    * @returns {T[]}
    */
   function shown(list, now = Date.now(), held = new Set()) {
+    noteChanges(list, now);
     const here = new Set(list.map(sign));
     // A box that went and comes back is new again.
     for (const s of [...since.keys()]) if (!here.has(s)) since.delete(s);
@@ -76,7 +107,7 @@ const AuroraBoxes = (() => {
     return out;
   }
 
-  /** How long until one of these boxes leaves on its own, or null. @param {Array<{ key: string, tone: string, title: string, said?: string }>} list @param {number} now */
+  /** How long until one of these boxes leaves on its own, or null. @param {Array<{ key: string, tone: string, title: string, count?: number, said?: string }>} list @param {number} now */
   function next(list, now = Date.now()) {
     const left = list.filter(c => !stays(c)).map(c => SHOWN_FOR_MS - (now - (since.get(sign(c)) ?? now)));
     return left.length ? Math.max(0, Math.min(...left)) : null;
@@ -95,8 +126,8 @@ const AuroraBoxes = (() => {
     save();
   }
 
-  /** Whether a box, as it is, was closed. @param {{ key: string, tone: string, title: string }} c */
+  /** Whether a box, as it is, was closed. @param {{ key: string, tone: string, title: string, count?: number }} c */
   const isClosed = c => closed.includes(sign(c));
 
-  return { SHOWN_FOR_MS, sign, stays, shown, next, left, close, isClosed, scope };
+  return { SHOWN_FOR_MS, sign, contentSign, stays, noteChanges, touchedAt, shown, next, left, close, isClosed, scope };
 })();

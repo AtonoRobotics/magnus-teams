@@ -558,10 +558,28 @@ html[data-style="prism"] .explore-card, html[data-style="studio"] .explore-card 
 .explore-ideas h2 { margin: 0; font-size: 18px; letter-spacing: -0.01em; }
 .explore-ideas > p { margin: 0; }
 .explore-ideas-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.ask-preview {
+  display: flex; flex-direction: column; gap: 6px; margin: 6px 0 8px; padding: 10px 12px;
+  border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--raised);
+}
+.ask-preview-rows { display: flex; flex-direction: column; gap: 4px; }
+.ask-preview-row { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; font-size: 12.5px; line-height: 1.4; }
+.ask-preview-key { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-preview-val { color: var(--fg); word-break: break-word; }
+.ask-preview-body { margin: 2px 0 0; padding-top: 6px; border-top: 1px solid var(--hair); font-size: 12.5px; line-height: 1.45; color: var(--fg2); white-space: pre-wrap; word-break: break-word; }
+.ask-preview-body:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.needs-inline-preview { display: block; margin-top: 2px; font-size: 11.5px; color: var(--fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.receipt-to { margin: 2px 0; }
+.trow-wrap { display: flex; align-items: center; gap: 4px; }
+.trow-wrap > a { flex: 1; min-width: 0; }
+.trow-del { flex: none; width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); display: inline-grid; place-items: center; cursor: pointer; opacity: 0.65; }
+.trow-del:hover, .trow-del:focus-visible { opacity: 1; color: var(--bad); background: var(--bad-soft); }
+.trow-del svg.ic { width: 14px; height: 14px; }
 @media (max-width: 760px) {
   .explore-grid { grid-template-columns: 1fr; }
   .explore-ideas-list { grid-template-columns: 1fr; }
 }
 @media (any-pointer: coarse) {
   .explore-app, #explore-search { min-height: 44px; }
+  .trow-del { min-width: 44px; min-height: 44px; }
 }

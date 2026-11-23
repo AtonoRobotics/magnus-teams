@@ -174,23 +174,21 @@ try {
   const file = await f.evaluate(() => [...document.querySelectorAll(".stage-tile")].map(t => `${t.dataset.tile}:${t.dataset.open}:${t.querySelector(".stage-tile-title").textContent}`));
   check("a new file brings Files in, opening the file", () => assert.deepEqual(file, ["files:file:f1:Itinerary.pdf"]));
 
-  // Boxes come and go (decisions/2026-11-21-aurora-boxes-come-and-go.md).
+  // Boxes come and go (decisions/2026-11-23-rich-agent-ux-bento-and-concurrency.md).
   const keys = () => f.evaluate(() => [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => `${t.dataset.tile}:${t.dataset.tone}`));
   // Time passes: the page's clock moves on by `ms`, and the stage looks again.
   const later = ms => f.evaluate(async ms => { const real = Date.now; Date.now = () => real() + ms; await AuroraStage.refresh(); }, ms);
-  // Work that keeps running does not keep its box: it leaves on its own.
+  // Active running work stays pinned; passive file tiles expire after SHOWN_FOR_MS.
   await f.evaluate(() => { App.tasks = [{ task_id: "t9", thread: "c1", title: "Watch the inbox", status: "running", status_line: "Reading new mail" }]; return AuroraStage.refresh(); });
   const running = await keys();
-  await f.waitForTimeout(15_400);
+  await later(95_000);
   const after = await keys();
-  check("work that keeps running shows its box, which then leaves on its own", () => assert.deepEqual([running, after], [["live:run", "files:done"], []]));
-  // A new status line is not a change; needing the person is, and stays.
-  await f.evaluate(() => { App.tasks[0].status_line = "Reading more mail"; return AuroraStage.refresh(); });
-  const sameWork = await keys();
+  check("active running work stays pinned while passive tiles leave on time", () => assert.deepEqual([running, after], [["live:run", "files:done"], ["live:run"]]));
+  // Needing the person and decisions stay pinned too.
   await f.evaluate(() => { App.tasks[0].status = "suspended"; FX.pending = [{ id: "i9", summary: "Reply to Dana?" }]; return AuroraStage.refresh(); });
   await later(60_000);
   const wanting = await keys();
-  check("a new status line brings nothing back; work that needs the person, and a decision, stay", () => assert.deepEqual([sameWork, wanting], [[], ["live:needs", "approval:i9:needs"]]));
+  check("work that needs the person and pending decisions stay", () => assert.deepEqual(wanting, ["live:needs", "approval:i9:needs"]));
   // Every box has a Close: shown on hover, it puts the box away and opens nothing.
   await f.hover('.stage-tile[data-tile="approval:i9"]');
   await f.waitForTimeout(300);
@@ -206,18 +204,18 @@ try {
   await f.evaluate(() => { FX.pending = [{ id: "i9", summary: "Reply to Dana?" }, { id: "i10", summary: "Pay the invoice?" }]; return AuroraStage.refresh(); });
   const another = await f.evaluate(() => [...document.querySelectorAll("section.conv > .stage-bento > .stage-tile:not(.stage-tile-leaving)")].map(t => `${t.dataset.tile}:${t.querySelector(".stage-tile-title").textContent}`));
   check("a closed decision stays away; the next one waiting takes the box", () => assert.deepEqual([stillClosed, another], [["live:needs"], ["live:Watch the inbox", "approval:i10:Pay the invoice?"]]));
-  // A box the pointer is on stays, and leaves its time after the pointer goes.
+  // A passive box the pointer is on stays, and leaves its time after the pointer goes.
   await f.mouse.move(5, 5);
-  await f.evaluate(() => { FX.pending = []; App.tasks = [{ task_id: "t10", thread: "c1", title: "Sort the files", status: "running", status_line: "Sorting" }]; return AuroraStage.refresh(); });
+  await f.evaluate(() => { FX.pending = []; App.tasks = [{ task_id: "t10", thread: "c1", title: "Sort the files", status: "completed", summary: "Sorted 12 files", ended_at: new Date().toISOString() }]; return AuroraStage.refresh(); });
   await f.hover('.stage-tile[data-tile="live"]');
-  await later(60_000);
+  await later(120_000);
   const hovered = await keys();
   await f.mouse.move(5, 5);
   await f.waitForTimeout(100);
   const justLeft = await keys();
-  await later(16_000);
+  await later(95_000);
   const leftAlone = await keys();
-  check("a box the pointer is on stays, and leaves its time after the pointer goes", () => assert.deepEqual([hovered, justLeft, leftAlone], [["live:run"], ["live:run"], []]));
+  check("a passive box the pointer is on stays, and leaves its time after the pointer goes", () => assert.deepEqual([hovered, justLeft, leftAlone], [["live:done"], ["live:done"], []]));
 } finally {
   await browser.close();
 }
