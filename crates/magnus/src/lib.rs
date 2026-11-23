@@ -76,6 +76,7 @@ pub mod issuers;
 pub mod kernel;
 pub mod kill_cli;
 pub mod knowledge;
+mod knowledge_index;
 pub mod legacy_items;
 pub mod legal;
 pub mod library;

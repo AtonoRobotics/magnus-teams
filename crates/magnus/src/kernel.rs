@@ -60,7 +60,7 @@ pub struct Kernel {
     /// What model calls in flight hold of every spend limit (`spend::holds`).
     pub(crate) spend_holds: crate::spend::holds::Holds,
     /// The knowledge base's search index.
-    pub knowledge: crate::knowledge::Index,
+    pub knowledge: crate::knowledge_index::Index,
     /// People's content, read for one person at a time (recall only).
     pub recall: crate::recall::Recall,
     /// How long each log append took since boot, in microseconds (V6).
@@ -168,7 +168,7 @@ impl Kernel {
             refused_apps: Mutex::new(HashMap::new()),
             live_text,
             spend_holds: Default::default(),
-            knowledge: crate::knowledge::Index::new(&cfg.database.url),
+            knowledge: crate::knowledge_index::Index::new(&cfg.database.url),
             recall: crate::recall::Recall::new(&cfg.database.url),
             capture: Mutex::new(Capture::default()),
             cfg,
@@ -190,13 +190,9 @@ impl Kernel {
         // A lane's watcher lived in the process before; follow its lanes again.
         k.resume_lanes().await;
         // The search index catches up with the log (a restore, a missed
-        // write, a new embedding model) without holding up the boot.
-        let sync = k.clone();
-        tokio::spawn(async move {
-            if let Err(e) = sync.sync_knowledge().await {
-                tracing::warn!("knowledge index: {e:#}");
-            }
-        });
+        // write, a new embedding model) without holding up the boot, and
+        // retries what it could not take.
+        crate::knowledge_index::schedule(&k);
         // Guest processes did not survive the restart; tell runs that used a sandbox (K20).
         let restarted: Vec<(String, u32)> = k.read(|s| {
             s.runs.values().filter(|r| !r.status.terminal() && r.intents.values().any(|i| i.tool.starts_with("sandbox_"))).map(|r| (r.id.clone(), r.replies.len() as u32)).collect()
@@ -261,6 +257,8 @@ impl Kernel {
             })
             .await?;
         self.capture.lock().unwrap_or_else(|e| e.into_inner()).appends += es.len() as u64;
+        // The knowledge index follows what this write changed.
+        self.follow_index(&es).await;
         Ok(es)
     }
 

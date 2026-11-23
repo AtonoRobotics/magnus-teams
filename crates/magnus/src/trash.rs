@@ -40,10 +40,8 @@ impl Kernel {
         if let Err(why) = self.read(|s| s.may_trash(person, moderator, item)) {
             return Ok(Err(why));
         }
+        // The knowledge index follows (`knowledge_index`).
         self.emit(&format!("person:{person}"), Ev::Trashed { item: item.into(), person: person.into() }).await?;
-        if item.starts_with("kb_") {
-            self.index_id(item).await?;
-        }
         Ok(Ok(()))
     }
 
@@ -54,9 +52,6 @@ impl Kernel {
             return Ok(false);
         }
         self.emit(&format!("person:{person}"), Ev::Restored { item: item.into() }).await?;
-        if item.starts_with("kb_") {
-            self.index_id(item).await?;
-        }
         Ok(true)
     }
 
@@ -83,6 +78,8 @@ impl Kernel {
         };
         let Some(holding) = self.read(|s| s.holding(item, fact.as_deref())) else { return Ok(()) };
         let seqs = self.log.content_seqs(&holding).await?;
+        // Its knowledge index row, if it had one, goes as this is written,
+        // before its content is deleted (`knowledge_index`).
         self.emit(actor, Ev::Removed { item: item.into(), seqs: seqs.clone() }).await?;
         self.log.delete_content(&seqs).await?;
         crate::ui::images::forget_runs(&self.cfg.appliance.state_dir, &holding.runs);
