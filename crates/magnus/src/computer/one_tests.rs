@@ -555,3 +555,23 @@ async fn a_credential_kept_by_name_is_only_the_newest_surrogates_of_that_name() 
     assert_eq!(stands_for(&new), Some(("y.example".to_string(), "secret-b".to_string())));
     s.done().await;
 }
+
+/// A workspace member reaches its computer's files one at a time as they
+/// reach them all, by export or by taking control; someone outside it
+/// reaches none of them (decisions/2026-11-23-one-check-for-using-a-computer.md).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_member_reads_saves_and_deletes_one_file_as_they_export_them_all() {
+    let s = server().await;
+    let id = shared_computer(&s).await;
+    let (mo, ana) = (s.k.person("mo").unwrap(), s.k.person("ana").unwrap());
+    let file = "/workspace/notes.txt";
+    assert!(s.k.export_computer_files(&mo, &id, "").await.is_ok());
+    assert!(s.k.list_computer_files(&mo, &id, "/workspace/").await.is_ok(), "a member could not list the files they export");
+    assert!(s.k.read_computer_file(&mo, &id, file).await.is_ok(), "a member could not read a file they export");
+    assert!(s.k.computer_file_raw(&mo, &id, file).await.is_ok(), "a member could not download a file they export");
+    assert!(s.k.write_computer_file(&mo, &id, file, "aGk=").await.is_ok(), "a member could not save a file");
+    assert!(s.k.delete_computer_file(&mo, &id, file).await.is_ok(), "a member could not delete a file");
+    assert!(matches!(s.k.read_computer_file(&ana, &id, file).await, Err(Refused::NotFound(_))), "an admin outside the workspace read its file");
+    assert!(matches!(s.k.export_computer_files(&ana, &id, "").await, Err(Refused::NotFound(_))));
+    s.done().await;
+}

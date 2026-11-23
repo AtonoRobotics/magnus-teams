@@ -4,7 +4,6 @@
 //! takes no step on that computer and its captures are refused. The display
 //! itself is reached with a short-lived, single-use ticket carried in a
 //! WebSocket subprotocol, never in a URL. Only the ticket's hash is kept.
-use super::client::GuestRequest;
 use super::leftovers;
 use super::service::failed;
 use super::wake::{act_and_capture, screenshot, Woken};
@@ -134,7 +133,7 @@ impl State {
 /// Whose it is to use: the person it belongs to. An operator, admin or owner
 /// reaches its screen and files only through a session its user granted. A
 /// workspace's is its members', and a server admin outside it is not one.
-fn may_open(s: &crate::state::State, who: &Person, owner: &Owner) -> bool {
+pub(super) fn may_open(s: &crate::state::State, who: &Person, owner: &Owner) -> bool {
     match owner {
         Owner::Person(p) => who.id == *p,
         Owner::Workspace(w) => s.team.role(w, &who.id).is_some_and(|r| r >= crate::team::Role::Member),
@@ -148,7 +147,7 @@ pub(super) fn is_capture(tool: &str) -> bool {
 
 impl Kernel {
     pub(super) fn opened_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).filter(|c| c.role == super::Role::Computer && may_open(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
+        self.computer_as(who, id, super::access::Access::Open)
     }
 
     /// The workspace's one computer: awake, or asleep and woken by its use.
@@ -384,7 +383,8 @@ impl Kernel {
     pub async fn operator_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
         let path = super::service::user_path(path)?;
         let c = self.operator_session(who, id, &format!("the file {path}")).await?;
-        self.computer_file_for(&c, GuestRequest::read(path)).await
+        let bytes = self.with_files(&c, true, |f| async move { f.read_whole(path, super::files::MAX_FILE_BYTES).await }).await?;
+        Ok(super::files::as_reply(path, &bytes))
     }
 
     /// A look at the screen, for the person. It is no use of the computer,

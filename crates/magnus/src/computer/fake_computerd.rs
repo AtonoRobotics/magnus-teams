@@ -153,6 +153,7 @@ fn answer(req: Request, m: &mut Memory) -> Value {
         }
         Request::Capacity => ok(json!({ "live": 0 })),
         Request::Create { .. } | Request::Hibernate { .. } | Request::Pause { .. } | Request::Resume { .. } => ok(json!({})),
+        Request::StartHelper { .. } | Request::Stop { .. } => ok(json!({})),
         _ => refused(format!("the fake computerd does not do {op}")),
     }
 }

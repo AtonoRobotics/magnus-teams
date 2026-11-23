@@ -2,6 +2,7 @@
 //! Magnus decides who may do what and records it; `magnus-computerd` is the
 //! only thing that touches a VM (`decisions/2026-11-08-computerd.md`).
 
+mod access;
 mod agent_tools;
 mod apps;
 mod client;
@@ -14,6 +15,7 @@ mod egress;
 mod export;
 #[cfg(test)]
 mod fake_computerd;
+mod files;
 mod halt;
 mod identity;
 mod idle;

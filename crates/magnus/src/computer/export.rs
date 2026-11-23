@@ -1,5 +1,6 @@
 //! A computer's files, leaving in bulk: what the person picked, or the whole
 //! user volume with its app manifest, as one ordinary tar file.
+use super::access::Access;
 use super::client::GuestRequest;
 use super::service::{user_path, USER_FILES};
 use crate::api_error::ApiResult;
@@ -11,14 +12,14 @@ use crate::kernel::Kernel;
 use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::response::IntoResponse;
-use base64::Engine;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::future::Future;
 use std::sync::Arc;
 
-/// Held in memory while it is packed, so it has a ceiling.
-const MAX_EXPORT_BYTES: usize = 128 * 1024 * 1024;
+/// Held in memory while it is packed, so it has a ceiling: the one every
+/// file read has.
+const MAX_EXPORT_BYTES: usize = super::files::MAX_FILE_BYTES;
 const MAX_EXPORT_FILES: usize = 10_000;
 const MAX_EXPORT_DEPTH: usize = 32;
 const MAX_PICKED: usize = 1_000;
@@ -54,12 +55,15 @@ where
             }
             continue;
         }
-        let read = ask(GuestRequest::read(path.as_str())).await?;
-        let bytes = base64::engine::general_purpose::STANDARD.decode(read["data_b64"].as_str().unwrap_or_default()).map_err(|e| Refused::Failed(format!("{path}: {e}")))?;
-        total += bytes.len();
-        if total > MAX_EXPORT_BYTES || out.len() >= MAX_EXPORT_FILES {
-            return Err(Refused::Invalid(format!("that is more than {} MB or {MAX_EXPORT_FILES} files at once: pick fewer", MAX_EXPORT_BYTES / 1024 / 1024)));
+        let too_much = || Refused::Invalid(format!("that is more than {} MB or {MAX_EXPORT_FILES} files at once: pick fewer", MAX_EXPORT_BYTES / 1024 / 1024));
+        if out.len() >= MAX_EXPORT_FILES {
+            return Err(too_much());
         }
+        let bytes = match super::files::read_in_pieces(&path, MAX_EXPORT_BYTES - total, &mut ask).await {
+            Err(Refused::Invalid(_)) => return Err(too_much()),
+            read => read?,
+        };
+        total += bytes.len();
         out.push((path, bytes));
     }
     Ok(out)
@@ -92,10 +96,10 @@ fn picked(paths: &str) -> Result<Vec<String>, Refused> {
 
 impl Kernel {
     pub async fn export_computer_files(&self, who: &Person, id: &str, paths: &str) -> Result<Vec<u8>, Refused> {
-        let c = self.opened_computer(who, id)?;
+        let c = self.computer_as(who, id, Access::Open)?;
         let roots = picked(paths)?;
         let whole = roots == [USER_FILES];
-        let files = gather(&roots, |req| self.computer_file_for(&c, req)).await?;
+        let files = self.with_files(&c, true, |f| async move { gather(&roots, |req| f.ask(req)).await }).await?;
         let mut named: Vec<(String, Vec<u8>)> = files.into_iter().map(|(p, b)| (format!("{FILES_FOLDER}{}", p.trim_start_matches(USER_FILES)), b)).collect();
         if whole {
             let manifest = serde_json::to_vec_pretty(&c.apps).map_err(|e| Refused::Failed(e.to_string()))?;
@@ -123,6 +127,7 @@ pub(super) async fn export(State(k): State<Arc<Kernel>>, Caller(p): Caller, Path
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use std::collections::BTreeMap;
 
     /// A guest with a small tree of files.

@@ -1,5 +1,6 @@
 //! The operations on a computer: who may, what the log says, what computerd does.
 
+use super::access::Access;
 use super::client::{self, GuestRequest, Request};
 use super::{apps, Change, Computer, KillMode, Owner, Role, Status};
 use crate::config::Person;
@@ -26,16 +27,14 @@ const MAX_HOST_CHARS: usize = 253;
 const GUEST_CA_FILE: &str = "/usr/local/share/ca-certificates/magnus-computer.crt";
 /// How long the guest gives `update-ca-certificates`.
 const CA_UPDATE_SECONDS: u64 = 60;
-/// A stopped computer's files are reached one helper VM at a time.
 /// As long as filling a whole volume can take.
 const ZERO_FREE_WAIT: Duration = Duration::from_secs(30 * 60);
-static HELPER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A person's computer is theirs alone to change, read or run things on:
 /// "Nothing on one user's computer is reachable from another's" (spec rev
 /// 145, Multi-agent and multi-user boundaries), the server's owner and
 /// admins included. A workspace's is its owners' and admins'.
-fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
+pub(super) fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
     match owner {
         Owner::Person(p) => who.id == *p,
         Owner::Workspace(w) => s.team.role(w, &who.id).is_some_and(|r| r >= WorkspaceRole::Admin),
@@ -45,7 +44,7 @@ fn may_control(s: &State, who: &Person, owner: &Owner) -> bool {
 /// Stopping is always safe, so a server owner or admin may pause anyone's
 /// computer (spec rev 145, Agents: "An admin can pause or stop any one of
 /// them"); nothing more.
-fn may_stop(s: &State, who: &Person, authority: Authority, owner: &Owner) -> bool {
+pub(super) fn may_stop(s: &State, who: &Person, authority: Authority, owner: &Owner) -> bool {
     may_control(s, who, owner) || authority.administers()
 }
 
@@ -89,13 +88,13 @@ impl Kernel {
 
     /// The person sees "no such computer" for one that is not theirs.
     pub(super) fn controlled_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
-        self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_control(s, who, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
+        self.computer_as(who, id, Access::Control)
     }
 
     /// A computer `who` may pause, and nothing else.
     async fn stoppable_computer(&self, who: &Person, id: &str) -> Result<Computer, Refused> {
         let authority = self.authority(who).await;
-        self.read(|s| s.computers.get(id).filter(|c| c.role == Role::Computer && may_stop(s, who, authority, &c.owner)).cloned()).ok_or(Refused::NotFound("computer"))
+        self.computer_as(who, id, Access::Stop(authority))
     }
 
     pub(super) async fn record_computer(&self, who: &Person, change: Change) -> Result<(), Refused> {
@@ -285,9 +284,9 @@ impl Kernel {
     }
 
     pub async fn delete_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
-        self.opened_computer(who, id)?;
+        let c = self.computer_as(who, id, Access::Open)?;
         let path = user_path(path)?;
-        self.on_computer(who, id, GuestRequest::Erase { path: path.to_string() }).await?;
+        self.computer_file_for(&c, GuestRequest::Erase { path: path.to_string() }).await?;
         self.record_computer(who, Change::FileDeleted { id: id.into(), path: path.into(), at: chrono::Utc::now() }).await?;
         Ok(json!({ "deleted": path }))
     }
@@ -360,30 +359,30 @@ impl Kernel {
     }
 
     pub async fn write_computer_file(&self, who: &Person, id: &str, path: &str, data_b64: &str) -> Result<Value, Refused> {
-        self.opened_computer(who, id)?;
+        let c = self.computer_as(who, id, Access::Open)?;
         let path = user_path(path)?;
-        let v = self.on_computer(who, id, GuestRequest::write(path, data_b64)).await?;
+        let v = self.computer_file_for(&c, GuestRequest::write(path, data_b64)).await?;
         Ok(json!({ "written": path, "reply": v }))
     }
 
     /// One directory of the person's files. The top is their files' root.
     pub async fn list_computer_files(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
-        self.opened_computer(who, id)?;
+        let c = self.computer_as(who, id, Access::Open)?;
         let path = if path == USER_FILES { path } else { user_path(path)? };
-        self.on_computer(who, id, GuestRequest::List { path: path.to_string() }).await
+        self.computer_file_for(&c, GuestRequest::List { path: path.to_string() }).await
     }
 
+    /// One file, whole, read in pieces.
     pub async fn read_computer_file(&self, who: &Person, id: &str, path: &str) -> Result<Value, Refused> {
-        self.opened_computer(who, id)?;
-        let path = user_path(path)?;
-        self.on_computer(who, id, GuestRequest::read(path)).await
+        let bytes = self.computer_file_raw(who, id, path).await?;
+        Ok(super::files::as_reply(path, &bytes))
     }
 
-    /// A live computer's guest agent, or for a stopped one a helper VM with
-    /// its volume and no network: the host never mounts a volume.
-    async fn on_computer(&self, who: &Person, id: &str, req: GuestRequest) -> Result<Value, Refused> {
-        let c = self.controlled_computer(who, id)?;
-        self.computer_file_for(&c, req).await
+    /// One file's bytes, for a download.
+    pub async fn computer_file_raw(&self, who: &Person, id: &str, path: &str) -> Result<Vec<u8>, Refused> {
+        let c = self.computer_as(who, id, Access::Open)?;
+        let path = user_path(path)?;
+        self.with_files(&c, true, |f| async move { f.read_whole(path, super::files::MAX_FILE_BYTES).await }).await
     }
 
     /// A deleted file's earlier versions linger in free blocks, so free space
@@ -437,28 +436,6 @@ impl Kernel {
             }
         }
     }
-
-    /// A file request on a computer the caller may already reach.
-    pub(crate) async fn computer_file_for(&self, c: &Computer, req: GuestRequest) -> Result<Value, Refused> {
-        let socket = self.computer_socket()?;
-        let id = c.id.as_str();
-        let reply = match c.status {
-            Status::Running => {
-                let reply = client::guest(&socket, id, req).await.map_err(failed)?;
-                client::guest(&socket, id, GuestRequest::Sync).await.map_err(failed)?;
-                reply
-            }
-            Status::Stopped | Status::Hibernated => {
-                let _one_at_a_time = HELPER.lock().await;
-                in_helper(&socket, id, req).await.map_err(failed)?
-            }
-            Status::Queued | Status::Paused | Status::Killed => return Err(Refused::Denied(format!("the computer is {}", json!(c.status).as_str().unwrap_or("not running")))),
-        };
-        if let Some(e) = reply["error"].as_str() {
-            return Err(Refused::Failed(e.to_string()));
-        }
-        Ok(reply)
-    }
 }
 
 pub(super) async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
@@ -470,21 +447,6 @@ pub(super) async fn wait_for_guest(socket: &Path, id: &str) -> Result<()> {
             Err(_) => tokio::time::sleep(BOOT_POLL).await,
         }
     }
-}
-
-async fn in_helper(socket: &Path, id: &str, req: GuestRequest) -> Result<Value> {
-    // Reading leaves a hibernated computer's memory snapshot usable.
-    let read_only = matches!(req, GuestRequest::Read { .. });
-    client::ask(socket, Request::StartHelper { id: id.to_string(), read_only }).await?;
-    let done = async {
-        wait_for_guest(socket, id).await?;
-        let reply = client::guest(socket, id, req).await?;
-        client::guest(socket, id, GuestRequest::Sync).await?;
-        Ok::<Value, anyhow::Error>(reply)
-    }
-    .await;
-    client::ask(socket, Request::Stop { id: id.to_string() }).await?;
-    done
 }
 
 /// A kill recorded just before a crash still happens, and waiting wakes start

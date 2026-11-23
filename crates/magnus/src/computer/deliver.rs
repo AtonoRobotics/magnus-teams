@@ -4,16 +4,13 @@
 //! only the sandbox, so work made on the computer could not reach the person
 //! (owner, 2026-11-13: a CAD package stayed at a path on the computer). Now
 //! a delivery reads from the computer when the file is there.
-use super::client::GuestRequest;
 use super::service::user_path;
+use crate::controls::Refused;
 use crate::kernel::Kernel;
-use base64::Engine;
 use serde_json::Value;
 
 /// The most one delivery carries, in bytes.
 pub(crate) const MAX_DELIVER_BYTES: usize = 25 * 1024 * 1024;
-/// Read in pieces this size, in bytes, so no one reply carries the whole file.
-const READ_PIECE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Where a delivery reads from: as the agent said, else where the run has
 /// been working (its computer when it used the computer and not the
@@ -78,25 +75,13 @@ impl Kernel {
         let id = self.computer_of_run(&r).ok_or("there is no computer")?;
         let c = self.read(|s| s.computers.get(&id).cloned()).ok_or("there is no computer")?;
         let path = user_path(path).map_err(|_| format!("{path} is not under /workspace/ on your computer; copy it there first"))?;
-        let mut out = vec![];
-        loop {
-            let v = self
-                .computer_file_for(&c, GuestRequest::Read { path: path.to_string(), offset: Some(out.len() as u64), length: Some(READ_PIECE_BYTES) })
-                .await
-                .map_err(|e| format!("{e:?}"))?;
-            if let Some(e) = v["error"].as_str() {
-                return Err(e.to_string());
-            }
-            let piece = base64::engine::general_purpose::STANDARD.decode(v["data_b64"].as_str().unwrap_or_default()).map_err(|e| e.to_string())?;
-            let short = (piece.len() as u64) < READ_PIECE_BYTES;
-            out.extend(piece);
-            if out.len() > MAX_DELIVER_BYTES {
-                return Err(format!("{path} is larger than {} MB: deliver it in parts, or fewer files at once", MAX_DELIVER_BYTES / 1024 / 1024));
-            }
-            if short {
-                return Ok(out);
-            }
-        }
+        let max_mb = MAX_DELIVER_BYTES / 1024 / 1024;
+        let read = self.with_files(&c, true, |f| async move { f.read_whole(path, MAX_DELIVER_BYTES).await }).await;
+        read.map_err(|e| match e {
+            Refused::Invalid(_) => format!("{path} is larger than {max_mb} MB: deliver it in parts, or fewer files at once"),
+            Refused::Failed(e) => e,
+            e => format!("{e:?}"),
+        })
     }
 }
 

@@ -164,10 +164,7 @@ async fn listing(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q
 
 /// The file itself, for the person to keep.
 async fn raw_file(State(k): K, Caller(p): Caller, Path(id): Path<String>, Query(q): Query<FilePath>) -> ApiResult {
-    use base64::Engine;
-    let read = k.read_computer_file(&p, &id, &q.path).await;
-    let bytes = read.map(|v: serde_json::Value| base64::engine::general_purpose::STANDARD.decode(v["data_b64"].as_str().unwrap_or_default()).unwrap_or_default());
-    Ok(match bytes {
+    Ok(match k.computer_file_raw(&p, &id, &q.path).await {
         Ok(b) => ([(axum::http::header::CONTENT_TYPE, "application/octet-stream")], b).into_response(),
         Err(e) => answered(Err(e)),
     })
