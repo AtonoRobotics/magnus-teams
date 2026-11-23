@@ -1,7 +1,8 @@
 //! The trash. Deleting an item moves it here, out of every view; it can be
 //! restored until it is removed, `[trash] keep_days` later or when the
 //! person empties the trash. Removing deletes the item's own content from
-//! the content store; the log keeps the record (C3). Only the item goes:
+//! the content store; the log keeps the record (C3), and the text later
+//! runs read out of it goes too (`read_copies`). Only the item goes:
 //! what it made (files a task delivered, memories it wrote, tasks a
 //! conversation started) stays, as the owner decided.
 

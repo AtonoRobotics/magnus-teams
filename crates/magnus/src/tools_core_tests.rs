@@ -16,7 +16,7 @@ const POLLS: u32 = 500;
 
 /// mo's run, stopped by its driver (this server has no model) and set
 /// running again with no driver, so the test's own actions are its next.
-async fn idle_run(s: &Server) -> String {
+pub(crate) async fn idle_run(s: &Server) -> String {
     let (_, run) = s.k.create_run("person:mo", "mo", "take notes".into(), vec![], NewRun::default()).await.unwrap();
     for _ in 0..POLLS {
         if s.k.read(|st| st.runs[&run].status != Status::Running) {
@@ -28,19 +28,18 @@ async fn idle_run(s: &Server) -> String {
     run
 }
 
-async fn write(s: &Server, run: &str, n: usize) -> (String, bool) {
-    let a = Action {
-        run: run.into(),
-        call_id: format!("c{n}"),
-        step_id: format!("s1.{n}"),
-        tool: "memory_write".into(),
-        input: json!({ "fact": format!("fact {n}") }),
-        issuer: Issuer::Model,
-    };
+/// The model's next action on `run`, carried out through the boundary:
+/// what it returned, and whether that was an error.
+pub(crate) async fn act(s: &Server, run: &str, n: usize, tool: &str, input: serde_json::Value) -> (String, bool) {
+    let a = Action { run: run.into(), call_id: format!("c{n}"), step_id: format!("s1.{n}"), tool: tool.into(), input, issuer: Issuer::Model };
     match s.k.execute(a).await.unwrap() {
         Verdict::Done { text, is_error, .. } => (text, is_error),
-        Verdict::Suspended => panic!("memory write {n} was suspended"),
+        Verdict::Suspended => panic!("{tool} was suspended"),
     }
+}
+
+async fn write(s: &Server, run: &str, n: usize) -> (String, bool) {
+    act(s, run, n, "memory_write", json!({ "fact": format!("fact {n}") })).await
 }
 
 /// The cap counts what the run wrote: forgetting one of its memories does

@@ -205,9 +205,16 @@ pub(super) fn memory_taint(hits: &[crate::recall::Remembered]) -> (Label, Vec<St
     (label, sources)
 }
 
+/// A memory search's result: the entries as the model reads them, and
+/// which they were (`read_copies`), so removing one reaches this result.
+pub(crate) fn memory_result(hits: &[crate::recall::Remembered]) -> (String, bool, Option<Value>) {
+    let ids = hits.iter().map(|m| m.entry.id.clone());
+    (memory_text(hits), false, Some(crate::read_copies::read_data(ids, Value::Null)))
+}
+
 /// Matching entries as the model reads them: each with when it was
 /// remembered, and those from untrusted content marked as data.
-pub(crate) fn memory_text(hits: &[crate::recall::Remembered]) -> String {
+fn memory_text(hits: &[crate::recall::Remembered]) -> String {
     if hits.is_empty() {
         return "no remembered facts match".into();
     }

@@ -280,20 +280,24 @@ impl State {
                     ..Default::default()
                 },
             },
-            Held::File(_) => named(vec!["file_uploaded", "output"], "id", item),
+            // An item and each result that read its text into a run (`read_copies`).
+            Held::File(_) => Holding { seqs: self.reads_of(item), ..named(vec!["file_uploaded", "output"], "id", item) },
             Held::Project(_) => named(vec!["project_set"], "id", item),
             // A memory and where it was written: the call that wrote it, and
             // the reply that made the call (the run's model, or the memory
-            // pass), found by the fact's text in that run.
+            // pass), found by the fact's text in that run; and where it was
+            // read, by the results that say so, and by the fact's text in
+            // searches from before they did.
             Held::Memory(m) => {
                 let fact = fact.unwrap_or_default();
                 let text = serde_json::to_string(fact).unwrap_or_default();
                 let text = text.trim_matches('"').to_string();
-                let containing =
-                    ["intent", "tool_result", "model_reply", "memory_pass"].into_iter().map(|k| (k, m.run.clone(), text.clone())).filter(|_| !fact.trim().is_empty()).collect();
-                Holding { containing, ..named(vec!["memory"], "id", item) }
+                let mut containing: Vec<_> = ["intent", "tool_result", "model_reply", "memory_pass"].into_iter().map(|k| (k, m.run.clone(), text.clone())).collect();
+                containing.extend(self.unlabelled_memory_reads(&m.person, &text));
+                containing.retain(|_| !fact.trim().is_empty());
+                Holding { containing, seqs: self.reads_of(item), ..named(vec!["memory"], "id", item) }
             }
-            Held::Knowledge(_) => named(vec!["knowledge_added"], "id", item),
+            Held::Knowledge(_) => Holding { seqs: self.reads_of(item), ..named(vec!["knowledge_added"], "id", item) },
         })
     }
 

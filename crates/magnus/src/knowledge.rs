@@ -440,8 +440,8 @@ impl Kernel {
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        let ids: Vec<&Value> = hits.iter().map(|h| &h["id"]).collect();
-        Ok((text, false, Some(json!({ "entries": ids, "untrusted": untrusted, "private": private }))))
+        let ids: Vec<String> = hits.iter().filter_map(|h| h["id"].as_str().map(String::from)).collect();
+        Ok((text, false, Some(crate::read_copies::read_data(ids.clone(), json!({ "entries": ids, "untrusted": untrusted, "private": private })))))
     }
 }
 

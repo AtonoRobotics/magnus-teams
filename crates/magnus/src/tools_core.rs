@@ -224,7 +224,7 @@ impl Kernel {
                 Ok((format!("remembered ({id})"), false, None))
             }
             // execute() answers memory_search itself, with its taint from the same lookup.
-            Op::MemorySearch => Ok((crate::boundary::memory_text(&self.memory_hits(&a.run, &s("query")).await?), false, None)),
+            Op::MemorySearch => Ok(crate::boundary::memory_result(&self.memory_hits(&a.run, &s("query")).await?)),
             Op::KnowledgeSearch => Ok(self.knowledge_search(&a.run, &s("query")).await?),
             Op::Bundle => Ok(self.bundle_tool(&a.run, &a.tool, &a.input).await?),
             Op::Relationship => Ok(self.relationship_tool(&a.run, &a.input).await?),
@@ -248,7 +248,7 @@ impl Kernel {
                     }
                     _ => format!("{} ({}, {} bytes) is not text.{at} Open it with the sandbox's tools.", f.name, f.media_type, bytes.len()),
                 };
-                Ok((text, false, Some(json!({ "file": f.id, "name": f.name }))))
+                Ok((text, false, Some(crate::read_copies::read_data([f.id.clone()], json!({ "file": f.id, "name": f.name })))))
             }
             Op::Playbook => {
                 let run = self.read(|st| st.runs.get(&a.run).cloned()).ok_or_else(|| anyhow!("run"))?;
@@ -303,4 +303,4 @@ fn memories_written(run: &crate::state::Run) -> usize {
 
 #[cfg(test)]
 #[path = "tools_core_tests.rs"]
-mod tests;
+pub(crate) mod tests;
