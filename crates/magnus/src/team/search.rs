@@ -49,7 +49,7 @@ pub fn find<R: Runs>(v: &MemberView<R>, query: &str) -> Value {
         .chat
         .tasks
         .values()
-        .filter(|t| w.in_project(t.project.as_deref(), person) && hit(&t.title))
+        .filter(|t| w.may_read(t.project.as_deref(), person) && hit(&t.title))
         .take(MAX_RESULTS_PER_KIND)
         .map(|t| json!({ "id": t.id, "title": t.title, "status": t.status, "project": t.project }))
         .collect();

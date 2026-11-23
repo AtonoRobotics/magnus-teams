@@ -95,9 +95,11 @@ impl Project {
 }
 
 impl Workspace {
-    /// Whether a person, or an agent acting for them, may read this base:
-    /// only while they are in the workspace, whatever a project's own lists
-    /// still say of someone removed.
+    /// The one rule for who may read a project's things, its base, channels,
+    /// files and tasks, or the workspace's own (`None`): only someone in the
+    /// workspace, whatever a project's own lists still say of someone
+    /// removed, and of a project only its people. A project that has been
+    /// removed is closed to everyone: what still names it opens to no one.
     pub fn may_read(&self, project: Option<&str>, person: &str) -> bool {
         self.members.contains_key(person)
             && match project {

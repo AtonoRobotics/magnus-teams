@@ -4,7 +4,7 @@
 use super::caller::{at, Member};
 use super::missions::LaneStep;
 use super::orchestrator::LaneSpec;
-use super::routes::K;
+use super::routes::{has_channel, K};
 use crate::api::who;
 use crate::api_error::{refuse, ApiResult};
 use crate::compartment::query_gate::scrub_check;
@@ -25,6 +25,8 @@ const MAX_RELEASE_CHARS: usize = 16_000;
 const MAX_STEER_CHARS: usize = 2_000;
 const STEER_POLL_MS: Duration = Duration::from_millis(250);
 const MAX_STEER_POLL_TICKS: u32 = 3600;
+/// Why a lane's owner who can no longer see its room may not act on it.
+const NOT_IN_ROOM: &str = "you are no longer in this lane's conversation";
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -57,13 +59,8 @@ struct SteerBody {
     instruction: String,
 }
 
-/// Whether `person` may see the room (a channel) a mission lives in.
-fn sees_room(k: &Kernel, ws: &str, room: &str, person: &str) -> bool {
-    k.read(|s| s.team.workspace(ws).is_some_and(|w| w.sees(room, person)))
-}
-
 async fn list_missions(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, room)): Path<(String, String)>) -> ApiResult {
-    if !sees_room(&k, &ws, &room, &p.id) {
+    if !has_channel(&k, &ws, &room, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let view = k.read(|s| s.missions.view_for_room(&ws, &room, &p.id));
@@ -71,7 +68,7 @@ async fn list_missions(State(k): K, Member { person: p, .. }: Member<at::Guest>,
 }
 
 async fn create_mission(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, room)): Path<(String, String)>, Json(b): Json<CreateMissionBody>) -> ApiResult {
-    if !sees_room(&k, &ws, &room, &p.id) {
+    if !has_channel(&k, &ws, &room, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let goal = b.goal.trim();
@@ -105,6 +102,9 @@ async fn release_lane(
     }) else {
         return refuse(StatusCode::NOT_FOUND, "no releasable lane owned by you");
     };
+    if !has_channel(&k, &ws, &room, &p.id) {
+        return refuse(StatusCode::FORBIDDEN, NOT_IN_ROOM);
+    }
 
     let text = b.contribution.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from).or(draft).unwrap_or_default();
     if text.is_empty() || text.chars().count() > MAX_RELEASE_CHARS {
@@ -138,24 +138,30 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     if instruction.is_empty() || instruction.chars().count() > MAX_STEER_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "steer instruction must be short and non-empty");
     }
-    let Some((objective, prev_draft, requester)) = k.read(|s| {
+    let Some((room, objective, prev_draft, requester)) = k.read(|s| {
         let m = s.missions.mission(&mission).filter(|m| m.workspace == ws)?;
         let l = m.lanes.get(&lane)?;
         if l.owner.as_deref() != Some(p.id.as_str()) || !s.missions.lane_can(&mission, &lane, LaneStep::Draft) {
             return None;
         }
-        Some((l.objective.clone(), l.private_draft.clone().unwrap_or_default(), m.requester.clone()))
+        Some((m.room.clone(), l.objective.clone(), l.private_draft.clone().unwrap_or_default(), m.requester.clone()))
     }) else {
         return refuse(StatusCode::NOT_FOUND, "no unreleased lane owned by you");
     };
+    if !has_channel(&k, &ws, &room, &p.id) {
+        return refuse(StatusCode::FORBIDDEN, NOT_IN_ROOM);
+    }
 
-    let actor = format!("person:{}", p.id);
     let prompt = format!("Revise your private draft for \"{objective}\" using the owner's instruction.\n\nCurrent draft:\n{prev_draft}\n\nOwner's edit:\n{instruction}");
     // The objective is the requester's words and the draft came of them: as
-    // untrusted as the lane's own run when someone else asked.
-    let label = Label { untrusted: requester != p.id, private: true };
+    // untrusted as the lane's own run when someone else asked, and started
+    // as that lane was, by the requester, so its words read as another's
+    // (`Task::by_other`), never as the owner's own.
+    let untrusted = super::owner::from_others(&p.id, [requester.as_str()]);
+    let label = Label { untrusted, private: true };
+    let by = if untrusted { &requester } else { &p.id };
     let (_, child_run) = k
-        .create_run(&actor, &p.id, prompt, vec![], NewRun { label: Some(label), ..Default::default() })
+        .create_run(&format!("person:{by}"), &p.id, prompt, vec![], NewRun { label: Some(label), ..Default::default() })
         .await
         .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
     k.wake(&child_run);

@@ -59,8 +59,8 @@ fn too_many(until: chrono::DateTime<chrono::Utc>) -> Response {
 
 /// The live link invite for a code: one bound to an address goes by email,
 /// never through this page.
-fn link_invite(k: &Kernel, code: &str) -> Option<(String, String, super::chat::Invite)> {
-    live(k, code).filter(|(_, _, i)| i.email.is_none())
+fn link_invite(k: &Kernel, code: &str) -> Option<(String, String, super::chat::Invite, Role)> {
+    live(k, code).filter(|(_, _, i, _)| i.email.is_none())
 }
 
 async fn page(
@@ -78,7 +78,7 @@ async fn page(
     }
     let code = q.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
     match link_invite(&k, &code) {
-        Some((_, name, _)) => form(&code, &name, None),
+        Some((_, name, _, _)) => form(&code, &name, None),
         None => {
             k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h));
             ended()
@@ -100,7 +100,7 @@ async fn create(
         return too_many(until);
     }
     let code = f.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
-    let Some((ws, workspace, inv)) = link_invite(&k, &code) else {
+    let Some((ws, workspace, inv, role)) = link_invite(&k, &code) else {
         k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h));
         return ended();
     };
@@ -110,7 +110,6 @@ async fn create(
         Err(why) => return again(&why),
     };
     let (email, name, password) = (who.email, who.name, who.password);
-    let role = inv.role.unwrap_or(Role::Member);
     let (id, token) = match new_account(&k, &format!("person:{}", inv.by), &email, &name, role == Role::Guest).await {
         Ok(made) => made,
         Err((_, message)) => {

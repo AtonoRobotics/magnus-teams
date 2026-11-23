@@ -168,7 +168,7 @@ async fn add(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws)
     if let Some(why) = unfit(&b.text) {
         return refuse(StatusCode::BAD_REQUEST, why);
     }
-    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees(&b.channel, &p.id))) {
+    if !super::routes::has_channel(&k, &ws, &b.channel, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let id = new_id();
@@ -196,7 +196,7 @@ async fn update(State(k): K, Member { person: p, role, .. }: Member<at::Member>,
     if let Some(why) = unfit(&text) {
         return refuse(StatusCode::BAD_REQUEST, why);
     }
-    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees(&channel, &p.id))) {
+    if !super::routes::has_channel(&k, &ws, &channel, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let routine = Routine { channel, text, every_hours, by: p.id.clone(), last_at: existing.last_at, ..Default::default() };

@@ -175,7 +175,9 @@ async fn add_channel(State(k): K, Member { person: p, .. }: Member<at::Member>, 
     Ok(Json(json!({ "id": id })).into_response())
 }
 
-/// Whether the channel is there and this person sees it.
+/// The one room-access check: the channel is there, the person is in the
+/// workspace and may read it (`Workspace::sees`). Every route that reads or
+/// writes a room, and everything that posts there for someone, asks this.
 pub(super) fn has_channel(k: &Kernel, ws: &str, channel: &str, person: &str) -> bool {
     k.read(|s| MemberView::of(s, ws, person).is_some_and(|v| v.sees(channel)))
 }

@@ -104,7 +104,7 @@ async fn share(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((w
     if b.person == p.id || !w.members.contains_key(&b.person) {
         return refuse(StatusCode::NOT_FOUND, "no such member");
     }
-    if !w.in_project(m.project.as_deref(), &b.person) {
+    if !w.may_read(m.project.as_deref(), &b.person) {
         return refuse(StatusCode::FORBIDDEN, format!("{} is not in this channel's project", name_of(&k, &b.person)));
     }
     let mut people = vec![p.id.clone(), b.person.clone()];

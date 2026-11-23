@@ -321,19 +321,46 @@ pub(super) fn apply(w: &mut Workspace, c: &Chat) {
     }
 }
 
+/// Channels deleted with their project: they and everything kept of them
+/// per channel and per message go.
+pub(super) fn drop_channels(w: &mut Workspace, gone: &[String]) {
+    for channel in gone {
+        let Some(ch) = w.channels.remove(channel) else { continue };
+        let s = &mut w.chat;
+        for m in &ch.messages {
+            s.edited.remove(&m.id);
+            s.reactions.remove(&m.id);
+            s.pins.remove(&m.id);
+            s.unsent.remove(&m.id);
+        }
+        s.modes.remove(channel);
+        s.direct.remove(channel);
+        s.channel_limits_usd.remove(channel);
+        for per in [&mut s.read, &mut s.archived, &mut s.cleared] {
+            per.values_mut().for_each(|c| {
+                c.remove(channel);
+            });
+        }
+        s.notify.values_mut().for_each(|c| {
+            c.remove(channel);
+        });
+    }
+}
+
 impl Workspace {
     /// Whether this person sees the channel: a direct conversation only its
-    /// people do, a project's channel only the project's people, any other
-    /// every member. Every route to a channel and its messages asks this.
+    /// people do, a project's channel only the project's people (`may_read`),
+    /// any other every member. Every route to a channel and its messages
+    /// asks this, through `routes::has_channel`.
     pub fn sees(&self, channel: &str, person: &str) -> bool {
         let Some(c) = self.channels.get(channel) else { return false };
-        self.chat.direct.get(channel).is_none_or(|d| d.people.iter().any(|p| p == person)) && self.in_project(c.project.as_deref(), person)
+        self.chat.direct.get(channel).is_none_or(|d| d.people.iter().any(|p| p == person)) && self.may_read(c.project.as_deref(), person)
     }
 
     /// Whether this person may read a team-volume file: it is there, and
-    /// in no project or in one of theirs.
+    /// they may read the project it is filed under (`may_read`).
     pub fn sees_file(&self, name: &str, person: &str) -> bool {
-        self.files.contains_key(name) && self.in_project(self.chat.file_projects.get(name).map(String::as_str), person)
+        self.files.contains_key(name) && self.may_read(self.chat.file_projects.get(name).map(String::as_str), person)
     }
 
     pub fn agent_mode(&self, channel: &str) -> AgentMode {
@@ -368,12 +395,6 @@ impl Workspace {
     pub fn progress(&self, project: &str) -> (usize, usize) {
         let tasks = self.chat.tasks.values().filter(|t| t.project.as_deref() == Some(project));
         tasks.fold((0, 0), |(done, all), t| (done + usize::from(t.status == Status::Done), all + 1))
-    }
-
-    /// Who may see a project's things: its people. Things in no project,
-    /// or in one since removed, are the whole workspace's.
-    pub fn in_project(&self, project: Option<&str>, person: &str) -> bool {
-        project.is_none_or(|p| self.projects.get(p).is_none_or(|d| d.may_read(person)))
     }
 
     /// An invite that still works, and the workspace it is for.

@@ -105,7 +105,7 @@ fn task_fits(w: &Workspace, person: &str, t: &Task) -> Result<(), &'static str> 
     if t.title.trim().is_empty() || t.title.chars().count() > MAX_TASK_CHARS {
         return Err("a task needs a short title");
     }
-    if !w.in_project(t.project.as_deref(), person) || t.project.as_ref().is_some_and(|p| !w.projects.contains_key(p)) {
+    if !w.may_read(t.project.as_deref(), person) {
         return Err("no such project");
     }
     if t.assignee.as_ref().is_some_and(|a| !w.members.contains_key(a) && a != super::conversation::AGENT_ID) {
@@ -143,7 +143,7 @@ struct TaskChange {
 
 async fn change_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>, Json(b): Json<TaskChange>) -> ApiResult {
     let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
-    let Some(mut task) = w.chat.tasks.get(&id).filter(|t| w.in_project(t.project.as_deref(), &p.id)).cloned() else { return refuse(StatusCode::NOT_FOUND, "no such task") };
+    let Some(mut task) = w.chat.tasks.get(&id).filter(|t| w.may_read(t.project.as_deref(), &p.id)).cloned() else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     task.title = b.title.unwrap_or(task.title);
     task.status = b.status.unwrap_or(task.status);
     if let Some(a) = b.assignee {
@@ -160,7 +160,7 @@ async fn change_task(State(k): K, Member { person: p, .. }: Member<at::Member>, 
 }
 
 async fn remove_task(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
-    let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.tasks.get(&id).is_some_and(|t| w.in_project(t.project.as_deref(), &p.id))));
+    let known = k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.chat.tasks.get(&id).is_some_and(|t| w.may_read(t.project.as_deref(), &p.id))));
     if !known {
         return refuse(StatusCode::NOT_FOUND, "no such task");
     }
@@ -205,7 +205,7 @@ async fn panel(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws
         .filter(|f| w.sees_file(&f.name, &p.id) && here(w.chat.file_projects.get(&f.name)))
         .map(|f| json!({ "name": f.name, "size": f.size, "by": f.by, "by_name": name_of(&k, &f.by), "project": w.chat.file_projects.get(&f.name) }))
         .collect();
-    let tasks: Vec<&Task> = w.chat.tasks.values().filter(|t| w.in_project(t.project.as_deref(), &p.id) && here(t.project.as_ref())).collect();
+    let tasks: Vec<&Task> = w.chat.tasks.values().filter(|t| w.may_read(t.project.as_deref(), &p.id) && here(t.project.as_ref())).collect();
     // Names are looked up after the state is let go: looking one up takes
     // the state's lock again, and inside `read` that hung the whole server.
     let running: Vec<(crate::team::TeamRun, bool, usize)> = k.read(|s| {

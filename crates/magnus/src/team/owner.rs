@@ -21,6 +21,15 @@ pub fn person_of(sender: &str) -> &str {
     sender.strip_prefix("agent:").unwrap_or(sender)
 }
 
+/// Whether words a run is given came from anyone but the person it acts
+/// for, which makes the run untrusted: another member's words, or their
+/// agent's, are data to it, never that person's instruction. Every path
+/// that hands a run someone else's words asks this: a whisper's thread, a
+/// lane or steer asked for by someone else, a knowledge base's entries.
+pub fn from_others<'a>(person: &str, writers: impl IntoIterator<Item = &'a str>) -> bool {
+    writers.into_iter().any(|w| w != person)
+}
+
 impl Ledger {
     /// Whose this change's content is, by the rule above.
     pub fn content_owner(&self, c: &Change) -> Option<String> {

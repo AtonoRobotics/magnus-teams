@@ -60,7 +60,7 @@ impl Kernel {
     async fn join_bound(&self, person: &str) -> anyhow::Result<Vec<String>> {
         let Some(email) = self.accounts.local_person(person).and_then(|l| l.email) else { return Ok(vec![]) };
         let now = chrono::Utc::now();
-        let bound: Vec<(String, Invite, bool)> = self.read(|s| {
+        let found: Vec<(String, Invite, bool)> = self.read(|s| {
             s.team
                 .all()
                 .flat_map(|w| {
@@ -73,11 +73,12 @@ impl Kernel {
                 })
                 .collect()
         });
+        let bound = found.into_iter().filter_map(|(ws, inv, already)| admits(self, &ws, &inv).map(|role| (ws, inv, already, role)));
         let actor = format!("person:{person}");
         let mut joined = vec![];
-        for (ws, inv, already) in bound {
+        for (ws, inv, already, role) in bound.collect::<Vec<_>>() {
             if !already {
-                self.emit(&actor, Ev::Team(Change::Member { workspace: ws.clone(), person: person.into(), role: inv.role.unwrap_or(Role::Member) })).await?;
+                self.emit(&actor, Ev::Team(Change::Member { workspace: ws.clone(), person: person.into(), role })).await?;
             }
             self.emit(&actor, Ev::Team(Change::Chat { workspace: ws.clone(), chat: Chat::InviteEnded { code: inv.code } })).await?;
             joined.push(ws);
@@ -103,10 +104,27 @@ pub(super) async fn new_account(k: &Arc<Kernel>, actor: &str, email: &str, name:
     Ok((id, token))
 }
 
-/// A live invite and its workspace.
-pub(super) fn live(k: &Kernel, code: &str) -> Option<(String, String, Invite)> {
+/// A live invite that still admits someone, its workspace and its name, and
+/// the role it admits them with (`admits`).
+pub(super) fn live(k: &Kernel, code: &str) -> Option<(String, String, Invite, Role)> {
     let now = chrono::Utc::now();
-    k.read(|s| s.team.all().find_map(|w| w.invite(code, now).map(|i| (w.id.clone(), w.name.clone(), i.clone()))))
+    let (ws, name, inv) = k.read(|s| s.team.all().find_map(|w| w.invite(code, now).map(|i| (w.id.clone(), w.name.clone(), i.clone()))))?;
+    let role = admits(k, &ws, &inv)?;
+    Some((ws, name, inv, role))
+}
+
+/// The role an invite lets someone into `ws` with, if it still lets anyone
+/// in: only while whoever made it is still on the server and in the
+/// workspace, never above the role they hold there now, and only as a guest
+/// when the server holds them to a guest's limits. Every way in asks this:
+/// the signed-in join, the link's page and an account invitation accepted.
+pub(super) fn admits(k: &Kernel, ws: &str, inv: &Invite) -> Option<Role> {
+    let issuer = k.person(&inv.by)?;
+    let theirs = k.read(|s| s.team.role(ws, &inv.by))?;
+    if crate::people::rights(&issuer).held_to_guest_limits() {
+        return Some(Role::Guest);
+    }
+    Some(inv.role.unwrap_or(Role::Member).min(theirs))
 }
 
 #[derive(Deserialize)]
@@ -154,7 +172,7 @@ async fn newcomer(k: &Arc<Kernel>, p: &Person, ws: String, role: Role, email: St
         Err((code, message)) => return err(code, message),
     };
     let expires = chrono::Utc::now() + chrono::Duration::days(crate::accounts::INVITE_DAYS);
-    let invite = Invite { code: new_id(), role: Some(role), email: Some(email.clone()), by: p.id.clone(), expires: Some(expires) };
+    let invite = Invite { code: new_id(), role: Some(if guest { Role::Guest } else { role }), email: Some(email.clone()), by: p.id.clone(), expires: Some(expires) };
     let workspace = k.read(|s| s.team.workspace(&ws).map(|w| w.name.clone())).unwrap_or_default();
     ok_or_return!(send(k, p, Change::Chat { workspace: ws, chat: Chat::Invite { invite } }).await);
     let link = invite_link(&k.cfg, &token);
@@ -173,6 +191,8 @@ async fn newcomer(k: &Arc<Kernel>, p: &Person, ws: String, role: Role, email: St
 
 /// A link anyone holding it joins with, until it expires, with this role.
 async fn by_link(k: &Kernel, p: &Person, ws: String, role: Role) -> Reply {
+    // A server guest's link brings in only guests, as their email does.
+    let role = if crate::people::rights(p).held_to_guest_limits() { Role::Guest } else { role };
     let expires = chrono::Utc::now() + chrono::Duration::days(LINK_LIFETIME_DAYS);
     let invite = Invite { code: new_id(), role: Some(role), email: None, by: p.id.clone(), expires: Some(expires) };
     let code = invite.code.clone();
@@ -187,13 +207,13 @@ async fn by_link(k: &Kernel, p: &Person, ws: String, role: Role) -> Reply {
 /// works until it expires.
 async fn join(State(k): K, h: HeaderMap, Path(code): Path<String>) -> Reply {
     let p = ok_or_return!(who(&k, &h).await);
-    let Some((ws, _, inv)) = live(&k, &code) else { return err(StatusCode::NOT_FOUND, "that invite has ended") };
+    let Some((ws, _, inv, role)) = live(&k, &code) else { return err(StatusCode::NOT_FOUND, "that invite has ended") };
     let mine = k.accounts.local_person(&p.id).and_then(|l| l.email);
     if inv.email.as_deref().is_some_and(|e| mine.as_deref().is_none_or(|m| !m.eq_ignore_ascii_case(e))) {
         return err(StatusCode::NOT_FOUND, "that invite has ended");
     }
     if k.read(|s| s.team.role(&ws, &p.id)).is_none() {
-        ok_or_return!(send(&k, &p, Change::Member { workspace: ws.clone(), person: p.id.clone(), role: inv.role.unwrap_or(Role::Member) }).await);
+        ok_or_return!(send(&k, &p, Change::Member { workspace: ws.clone(), person: p.id.clone(), role }).await);
         // A newcomer's own computer is there from the start too.
         k.computer_soon(crate::computer::Owner::Person(p.id.clone()));
     }

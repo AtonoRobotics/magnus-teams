@@ -11,6 +11,8 @@ macro_rules! ok_or_return {
 }
 
 #[cfg(test)]
+mod access_tests;
+#[cfg(test)]
 mod admission_tests;
 mod agent;
 mod caller;
@@ -72,6 +74,8 @@ mod spend_tests;
 #[cfg(test)]
 mod talk_tests;
 pub mod team_admin;
+#[cfg(test)]
+mod trust_tests;
 pub(crate) mod upkeep;
 mod whisper;
 
@@ -563,10 +567,14 @@ impl Ledger {
                     w.projects.insert(id.clone(), def.clone());
                 }
             }
+            // Deleted with the person who owned it: its channels go with it,
+            // never left open to the workspace, and what else names it is
+            // closed to everyone (`Workspace::may_read`).
             Change::ProjectRemoved { workspace, id } => {
                 if let Some(w) = self.workspaces.get_mut(workspace) {
                     w.projects.remove(id);
-                    w.channels.values_mut().filter(|c| c.project.as_deref() == Some(id.as_str())).for_each(|c| c.project = None);
+                    let gone: Vec<String> = w.channels.iter().filter(|(_, c)| c.project.as_deref() == Some(id.as_str())).map(|(c, _)| c.clone()).collect();
+                    chat::drop_channels(w, &gone);
                 }
             }
             Change::ChannelProject { workspace, channel, project } => {

@@ -262,6 +262,62 @@ async fn an_admin_invites_by_link() {
     s.done().await;
 }
 
+/// A link a server guest made admitted a full member and made a full
+/// account on its page, whatever the guest's own limits. Every way in now
+/// asks the one check, `admits`: a guest's link admits only guests, though
+/// it was made before they were held to a guest's limits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_guests_link_admits_only_guests() {
+    let s = server_with(&mail(1), |_| Router::new()).await;
+    let (ws, mo) = workspace(&s).await;
+    let invites = format!("/v1/workspaces/{ws}/invites");
+    let (st, v) = s.post(&mo, &invites, json!({ "role": "member" })).await;
+    assert_eq!(st, 200, "{v}");
+    let code = v["code"].as_str().unwrap().to_string();
+    s.k.set_server_role("person:sam", "mo", "guest").await.unwrap();
+    let f = [("code", code.as_str()), ("name", "Ada Lane"), ("email", "ada@example.com"), ("password", PW), ("confirm", PW)];
+    let (st, _, _, body) = form(&s, "/join", &f).await;
+    assert_eq!(st, 303, "{body}");
+    assert_eq!(ws_role(&s, &ws, "ada"), Some(Role::Guest), "a guest's link admitted a member");
+    assert!(is_guest_now(&s.k.person("ada").unwrap()), "a guest's link made a full account");
+    let ana = s.token("ana").await;
+    assert_eq!(s.post(&ana, &format!("/v1/invites/{code}/join"), json!({})).await.0, 200);
+    assert_eq!(ws_role(&s, &ws, "ana"), Some(Role::Guest), "a guest's link admitted someone signed in as a member");
+    let (_, v) = s.post(&mo, &invites, json!({})).await;
+    let fresh = v["code"].as_str().unwrap().to_string();
+    let role = s.k.read(|st| st.team.workspace(&ws).unwrap().chat.invites[&fresh].role);
+    assert_eq!(role, Some(Role::Guest), "a guest made a member's link");
+    s.done().await;
+}
+
+/// A link outlived whoever made it: someone taken out of the workspace
+/// still brought people in. Now it admits no one, by any way in.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_removed_issuers_invites_admit_no_one() {
+    let s = server_with(&mail(1), |_| Router::new()).await;
+    let (ws, mo) = workspace(&s).await;
+    let invites = format!("/v1/workspaces/{ws}/invites");
+    let code = s.post(&mo, &invites, json!({})).await.1["code"].as_str().unwrap().to_string();
+    let (st, v) = s.post(&mo, &invites, json!({ "email": "newt@example.com" })).await;
+    assert_eq!(st, 200, "{v}");
+    let token = token_of(&v["link"]);
+    let sam = s.token("sam").await;
+    assert_eq!(s.call(&sam, reqwest::Method::DELETE, &format!("/v1/workspaces/{ws}/members/mo"), None).await.0, 200);
+
+    let (_, body) = page(&s, &format!("/join?code={code}")).await;
+    assert!(body.contains("has ended"), "a removed member's link page still offers to join: {body}");
+    let f = [("code", code.as_str()), ("name", "Ada Lane"), ("email", "ada@example.com"), ("password", PW), ("confirm", PW)];
+    let (_, _, _, body) = form(&s, "/join", &f).await;
+    assert!(body.contains("has ended") && s.k.person("ada").is_none(), "a removed member's link made an account: {body}");
+    let ana = s.token("ana").await;
+    assert_eq!(s.post(&ana, &format!("/v1/invites/{code}/join"), json!({})).await.0, 404, "a removed member's link admitted someone signed in");
+    assert_eq!(ws_role(&s, &ws, "ana"), None);
+    let (st, _, _, _) = form(&s, "/invite", &[("token", &token), ("password", PW), ("confirm", PW)]).await;
+    assert_eq!(st, 303, "the account invitation itself stopped working");
+    assert_eq!(ws_role(&s, &ws, "newt"), None, "a removed member's email invite admitted its invitee");
+    s.done().await;
+}
+
 fn is_guest_now(p: &crate::config::Person) -> bool {
     crate::people::rights(p).held_to_guest_limits()
 }

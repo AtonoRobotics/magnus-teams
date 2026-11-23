@@ -55,7 +55,7 @@ impl Kernel {
         let here: Vec<&Message> = all.iter().filter(|m| thread.is_none() || m.thread == thread || Some(&m.id) == thread.as_ref()).collect();
         let shown = &here[here.len().saturating_sub(HISTORY_MESSAGES)..];
         let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");
-        let others = shown.iter().any(|m| m.sender != person);
+        let others = super::owner::from_others(person, shown.iter().map(|m| m.sender.as_str()));
         let actor = format!("person:{person}");
         let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: Some(whisper_label(others)), model, ..Default::default() }).await?;
         let change = Change::Whisper { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), owner: person.into(), history };
@@ -99,6 +99,9 @@ async fn share(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((
     let Some(w) = found else { return refuse(StatusCode::NOT_FOUND, "you have no such whisper") };
     if w.shared {
         return refuse(StatusCode::CONFLICT, "already posted");
+    }
+    if !super::routes::has_channel(&k, &ws, &w.channel, &p.id) {
+        return refuse(StatusCode::FORBIDDEN, "you are no longer in this conversation");
     }
     let text = k.read(|s| s.tasks.get(&task).and_then(|t| s.runs.get(&t.run_id)).filter(|r| r.status.terminal()).and_then(|r| r.summary.clone()));
     let Some(text) = text else { return refuse(StatusCode::CONFLICT, "it has not finished") };

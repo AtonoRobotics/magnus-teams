@@ -201,9 +201,11 @@ impl Kernel {
             return Ok(("that knowledge base is empty".to_string(), false, Some(serde_json::json!({ "untrusted": false, "private": true }))));
         }
         let shown: Vec<_> = entries.into_iter().take(MAX_ENTRIES_SHOWN).collect();
-        let has_outside = shown.iter().any(|e| e.weight == Weight::Outside);
+        // From outside, or written by anyone but the reader: words that are not theirs.
+        let outside = shown.iter().any(|e| e.weight == Weight::Outside);
+        let untrusted = outside || super::owner::from_others(&run.person, shown.iter().flat_map(|e| [e.author.as_str(), e.owner.as_str()]));
         let lines: String = shown.into_iter().map(Entry::line).collect();
-        Ok((format!("{lines}\n{CITE}"), false, Some(serde_json::json!({ "untrusted": has_outside, "private": true }))))
+        Ok((format!("{lines}\n{CITE}"), false, Some(serde_json::json!({ "untrusted": untrusted, "private": true }))))
     }
 }
 

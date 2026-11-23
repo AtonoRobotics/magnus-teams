@@ -50,6 +50,11 @@ pub struct LaneSpec {
     pub hold: bool,
 }
 
+/// Whose agent a member lane runs: the member named, else the requester's own.
+fn lane_target<'a>(spec: &'a LaneSpec, requester: &'a str) -> &'a str {
+    spec.target_member.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(requester)
+}
+
 impl Kernel {
     /// Starts a new Team Mission and fans out `lanes` in parallel without blocking.
     pub async fn start_mission_with_lanes(
@@ -64,9 +69,10 @@ impl Kernel {
         if goal.chars().count() > MAX_GOAL_CHARS || lanes.len() > MAX_MISSION_LANES {
             return Err(anyhow::anyhow!("a mission's goal is at most {MAX_GOAL_CHARS} characters and it has at most {MAX_MISSION_LANES} lanes"));
         }
-        // Refused before anything is recorded, so no mission is left half made.
-        if lanes.iter().any(|l| l.kind == LaneKind::PeerAgent) {
-            return Err(anyhow::anyhow!("{PEER_AGENT_RETIRED}"));
+        // Every lane checked and admitted before anything is recorded, so no
+        // mission is left half made and no lane runs for one refused.
+        for spec in &lanes {
+            self.check_lane(workspace, room, requester, spec).await?;
         }
         let mission_id = new_id("mission");
         let actor = leader_run.as_deref().map(|r| format!("run:{r}")).unwrap_or_else(|| format!("person:{requester}"));
@@ -123,6 +129,9 @@ impl Kernel {
         model: Option<(String, String)>,
         hold: bool,
     ) -> Result<(String, String, String)> {
+        let spec =
+            LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread, hold };
+        self.check_lane(workspace, room, requester, &spec).await?;
         let mission_id = new_id("mission");
         let actor = actor.to_string();
         self.emit(
@@ -137,10 +146,43 @@ impl Kernel {
             }),
         )
         .await?;
-        let spec =
-            LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread, hold };
         let (_, task, run) = self.dispatch_lane_inner(workspace, room, &mission_id, requester, &actor, spec).await?;
         Ok((mission_id, task.unwrap_or_default(), run.unwrap_or_default()))
+    }
+
+    /// Every check a lane must pass before its mission is recorded: its
+    /// objective and scope, who it works for, and that their run would be
+    /// admitted now, by the same checks `create_run` makes as it starts it.
+    async fn check_lane(&self, workspace: &str, room: &str, requester: &str, spec: &LaneSpec) -> Result<()> {
+        let objective = spec.objective.trim();
+        if objective.is_empty() || objective.chars().count() > MAX_OBJECTIVE_CHARS {
+            return Err(anyhow::anyhow!("lane objective must be between 1 and {MAX_OBJECTIVE_CHARS} characters"));
+        }
+        if let Some(reason) = scrub_check(objective) {
+            return Err(anyhow::anyhow!("refused lane objective: {reason}"));
+        }
+        if spec.scope.chars().count() > MAX_SCOPE_CHARS {
+            return Err(anyhow::anyhow!("a lane's scope is at most {MAX_SCOPE_CHARS} characters"));
+        }
+        let (person, model) = match spec.kind {
+            LaneKind::MemberAgent => {
+                let target = lane_target(spec, requester);
+                // Someone else's agent works only for a member who is in the
+                // room, never a guest, on the model their own settings pick.
+                let role = self.read(|s| s.team.role(workspace, target));
+                let fits = super::routes::has_channel(self, workspace, room, target) && (target == requester || role != Some(crate::team::Role::Guest));
+                if !fits || self.person(target).is_none() {
+                    return Err(anyhow::anyhow!("{target} is not a member in this room of workspace {workspace}"));
+                }
+                (target, if target == requester { spec.model.clone() } else { None })
+            }
+            LaneKind::OpenWeb => (requester, spec.model.clone()),
+            LaneKind::PeerAgent => return Err(anyhow::anyhow!("{PEER_AGENT_RETIRED}")),
+        };
+        if let Some(e) = self.refuse_new(person, false) {
+            return Err(e);
+        }
+        self.admit_run(person, model, self.cfg.budget.clone()).await.map(|_| ())
     }
 
     async fn dispatch_lane_inner(
@@ -152,39 +194,21 @@ impl Kernel {
         actor: &str,
         spec: LaneSpec,
     ) -> Result<(String, Option<String>, Option<String>)> {
+        self.check_lane(workspace, room, requester, &spec).await?;
         let lane_id = new_id("lane");
         let objective = spec.objective.trim();
-        if objective.is_empty() || objective.chars().count() > MAX_OBJECTIVE_CHARS {
-            return Err(anyhow::anyhow!("lane objective must be between 1 and {MAX_OBJECTIVE_CHARS} characters"));
-        }
-        if let Some(reason) = scrub_check(objective) {
-            return Err(anyhow::anyhow!("refused lane objective: {reason}"));
-        }
-        if spec.scope.chars().count() > MAX_SCOPE_CHARS {
-            return Err(anyhow::anyhow!("a lane's scope is at most {MAX_SCOPE_CHARS} characters"));
-        }
-
         match spec.kind {
             LaneKind::MemberAgent => {
-                let target = spec.target_member.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(requester);
-                // Someone else's agent works only for a member who is in the
-                // room, never a guest, on the model their own settings pick.
-                let fits = self.read(|s| {
-                    let w = s.team.workspace(workspace);
-                    let role = s.team.role(workspace, target);
-                    role.is_some() && w.is_some_and(|w| w.sees(room, target)) && (target == requester || role != Some(crate::team::Role::Guest))
-                });
-                if !fits || self.person(target).is_none() {
-                    return Err(anyhow::anyhow!("{target} is not a member in this room of workspace {workspace}"));
-                }
-                let model = if target == requester { spec.model } else { None };
+                let target = lane_target(&spec, requester).to_string();
+                let target = target.as_str();
+                let model = if target == requester { spec.model.clone() } else { None };
                 let auto_release = !spec.hold && (target == requester || self.read(|s| s.missions.has_standing_release(workspace, room, target, &spec.scope, objective)));
                 let ws_name = self.read(|s| s.team.workspace(workspace).map(|w| w.name.clone())).unwrap_or_else(|| workspace.to_string());
                 let prompt = format!(
                     "Room \"{room}\" in workspace \"{ws_name}\" requested this scoped update from your personal apps (requested by {requester}):\n\n{objective}\n\nReturn a concise, scrubbed summary containing only the requested facts—never raw credentials, private emails, or unrelated personal records."
                 );
                 // Clean label: untrusted only when requested by someone else; private always.
-                let label = Label { untrusted: target != requester, private: true };
+                let label = Label { untrusted: super::owner::from_others(target, [requester]), private: true };
                 let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, ..Default::default() }).await?;
                 self.emit(
                     actor,
@@ -255,13 +279,11 @@ impl Kernel {
     /// Missions canvas. Attributed to `agent:<released_by>` so erasure and
     /// message permissions stay tied to the contributor.
     pub(crate) async fn post_released_contribution(self: &Arc<Self>, workspace: &str, mission_id: &str, released_by: &str, contribution: &str, thread: Option<String>) {
-        let Some(room) = self.read(|s| {
-            let m = s.missions.mission(mission_id)?;
-            let w = s.team.workspace(workspace)?;
-            w.channels.contains_key(&m.room).then(|| m.room.clone())
-        }) else {
+        let Some(room) = self.read(|s| s.missions.mission(mission_id).map(|m| m.room.clone())) else { return };
+        // Posted only while they may still see the room, as any post of theirs.
+        if !super::routes::has_channel(self, workspace, &room, released_by) {
             return;
-        };
+        }
         let sender = format!("agent:{released_by}");
         let message = super::Message { id: new_id("msg"), sender, text: contribution.to_string(), thread, at: chrono::Utc::now() };
         let actor = format!("person:{released_by}");
