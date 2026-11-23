@@ -93,6 +93,7 @@ impl Kernel {
     /// in a shared conversation. The requester's own personal Magnus runs in
     /// isolation and posts its scrubbed answer back to the room (or holds it
     /// in their Release Airlock if `scrub_check` flags anything).
+    #[allow(clippy::too_many_arguments)]
     pub async fn start_personal_room_mission(
         self: &Arc<Self>,
         workspace: &str,
