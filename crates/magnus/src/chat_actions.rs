@@ -6,7 +6,7 @@
 //! message or answer goes to the trash (`trash.rs`), other entries are hidden.
 //! Nothing here makes a public link.
 
-use crate::api::{err, internal};
+use crate::api::internal;
 use crate::api_error::{refuse, ApiResult};
 use crate::chat_thread::{Entry, Kind};
 use crate::conversation::personal::Personal;
@@ -99,42 +99,12 @@ async fn resend(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(Str
         let model = t.and_then(|t| s.runs.get(&t.run_id)).map(|r| (r.config.adapter.clone(), r.config.model.clone()));
         (files, model)
     });
-    // The message and what came of it: its turns, and what those turns
-    // started. An earlier turn's task result that happens to end later
-    // stays: it answers a message still shown.
-    let later = &entries[message..];
-    let turns: std::collections::HashSet<String> =
-        later.iter().filter(|e| matches!(e.kind, Kind::Message | Kind::Answer | Kind::Turn | Kind::ScheduleCard)).filter_map(|e| e.task_id.clone()).collect();
-    let gone: Vec<String> = later
-        .iter()
-        .filter(|e| match k.origin_turn(e) {
-            Some(t) => turns.contains(&t),
-            None => true,
-        })
-        .filter(|e| e.has_id())
-        .map(|e| e.id.clone())
-        .collect();
-    hide(&k, &p.id, &thread, gone).await?;
-    // Superseded work stops: a turn still running or waiting, and the tasks
-    // it started, would otherwise act on a message no longer shown, and the
-    // new turn may start them again.
-    let stop: Vec<String> = k.read(|s| {
-        s.tasks
-            .values()
-            .filter(|t| turns.contains(&t.task_id) || t.chat.as_ref().and_then(|c| c.from_run.as_ref()).and_then(|r| s.runs.get(r)).is_some_and(|r| turns.contains(&r.task)))
-            .filter_map(|t| s.runs.get(&t.run_id))
-            .filter(|r| !r.status.terminal())
-            .map(|r| r.id.clone())
-            .collect()
-    });
-    for run in stop {
-        let actor = format!("person:{}", p.id);
-        k.cancel_tree(&run, vec![(actor.as_str(), Ev::Cancelled { run: run.clone(), source: Some("button".into()), turn: None })]).await?;
-    }
+    // Admitted before anything changes; then the new turn, the hiding and
+    // the end of the superseded work are written together (`chat_turn`).
     let project = k.read(|s| s.project_of(&thread));
-    Ok(match k.chat_say(&p.id, text, Some(thread.clone()), model, None, files, project).await {
-        Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task }))).into_response(),
-        Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
+    let again = crate::chat_turn::Again { text, model, files, project };
+    Ok(match k.send_again(&p.id, &thread, &entries, message, again).await {
+        Ok(task) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task }))).into_response(),
         Err(e) => internal(e),
     })
 }

@@ -19,8 +19,8 @@ pub enum Step {
     End { schedule: Schedule, why: String },
     /// Its run waits on its person: it pauses until they answer.
     Hold { schedule: Schedule, task: String, why: String },
-    /// Paused on a run that no longer waits: it goes on, if still so when
-    /// the step is carried out.
+    /// Held on a run that no longer waits: the hold lifts, if still so when
+    /// the step is carried out. It goes on unless paused for another reason.
     Release { id: String },
     /// Due, but its last run is open: this firing starts nothing.
     Skip { schedule: Schedule, task: String, why: String },
@@ -37,14 +37,15 @@ pub fn ends(s: &State, now: DateTime<Utc>) -> Vec<Step> {
 
 /// A schedule whose run waits on a person pauses until that person answers
 /// (owner, 2026-10-30: without it, it acts without the authority or the
-/// information it needs), then goes on by itself.
+/// information it needs). The hold then lifts by itself; any other reason
+/// it is paused for stays (`PauseCause`).
 pub fn holds(s: &State) -> Vec<Step> {
     let mut hold = vec![];
     let mut release = vec![];
     for x in s.arrangements.schedules().values() {
-        match (s.held_by_person(&x.id), &x.paused_on) {
-            (Some((task, why)), None) if x.paused.is_none() && x.ended.is_none() => hold.push(Step::Hold { schedule: x.clone(), task, why }),
-            (None, Some(_)) => release.push(Step::Release { id: x.id.clone() }),
+        match (s.held_by_person(&x.id), x.held()) {
+            (Some((task, why)), false) if x.paused.is_none() && x.ended.is_none() => hold.push(Step::Hold { schedule: x.clone(), task, why }),
+            (None, true) => release.push(Step::Release { id: x.id.clone() }),
             _ => {}
         }
     }
@@ -117,11 +118,11 @@ impl Kernel {
                 #[cfg(debug_assertions)]
                 self.release_gate(&id).await;
                 // The hold's end was read before the notifications above
-                // went out; a pause that landed since must not be resumed
-                // here. Only a schedule still paused on a run that no
-                // longer waits goes on (#318).
+                // went out. Only a hold on a run that no longer waits is
+                // lifted (#318); the release lifts that cause alone, so a
+                // pause that landed since stays.
                 let ended = self.read(|s| s.held_by_person(&id).is_none());
-                let held_pause = self.read(|s| s.arrangements.schedules().get(&id).is_some_and(|x| x.paused_on.is_some()));
+                let held_pause = self.read(|s| s.arrangements.schedules().get(&id).is_some_and(|x| x.held()));
                 if ended && held_pause {
                     let _ = self.emit("kernel", Ev::ScheduleResumed { id, source: None, turn: None }).await;
                 }

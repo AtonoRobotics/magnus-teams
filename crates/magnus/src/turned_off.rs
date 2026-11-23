@@ -96,7 +96,11 @@ impl Kernel {
             Err(e) => tracing::error!("ending {person}'s sessions: {e:#}"),
         }
         self.revoke_devices_of("kernel", person).await;
-        let schedules: Vec<crate::state::Schedule> = self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person && x.next_due().is_some()).cloned().collect());
+        // Every schedule of theirs not over, paused or not: one held on a
+        // waiting run, or suspended by an admin, stays paused for them once
+        // that lifts, until they resume it.
+        let schedules: Vec<crate::state::Schedule> =
+            self.read(|s| s.arrangements.schedules().values().filter(|x| x.person == person && x.ended.is_none() && !x.paused_for_person()).cloned().collect());
         for sc in schedules {
             let title = self.schedule_title_for_notice(&sc).await;
             let notice = self.notice_to(
@@ -141,3 +145,7 @@ impl Kernel {
         Some(crate::devices::Cloudflare { api: crate::devices::CF_API.into(), zone: cfg.zone_id, token, days: cfg.days })
     }
 }
+
+#[cfg(test)]
+#[path = "turned_off_tests.rs"]
+mod tests;

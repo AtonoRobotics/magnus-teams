@@ -164,7 +164,7 @@ impl crate::kernel::Kernel {
                     }
                 }
                 for c in s.arrangements.commitments().values().filter(|c| c.person == person && c.status == "open") {
-                    if c.by.as_deref().and_then(crate::commitments::due).is_some_and(|d| d > now && d <= now + chrono::Duration::hours(24))
+                    if c.by.as_deref().and_then(|b| crate::commitments::due(b, st.tz)).is_some_and(|d| d > now && d <= now + chrono::Duration::hours(24))
                         && !s.inbox.wake_marks().get(&format!("{person}:commitment {}", c.id)).is_some_and(|d| d == &today)
                     {
                         return Some((commitment_reason(&c.id), None));
@@ -397,7 +397,13 @@ impl crate::kernel::Kernel {
     /// Start the review run itself: the review instruction over the
     /// person's state, on the per-task budget, which its Auto Review calls
     /// are charged to as well (#237, spec rev 133).
+    /// Every review starts here, so every one counts against the person's
+    /// wake budget (`wake_budget`), and none starts past it.
     async fn start_review(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
+        if let Some(why) = self.read(|s| crate::wake_budget::refused(s, person, Utc::now())) {
+            tracing::debug!("no review for {person} ({reason}): {why}");
+            return false;
+        }
         let context = self.review_context(person, ended.as_ref()).await;
         let text = format!("Review the person's state ({reason}).\n\n{context}");
         let budget = crate::task_budget::for_wake(&self.cfg.budget);
@@ -471,11 +477,12 @@ impl crate::kernel::Kernel {
                 .values()
                 .filter(|c| c.person == person && c.status == "open")
                 .map(|c| {
+                    let zone = s.identity.zone(person);
                     format!(
                         "{} (by {}){}",
                         c.id,
                         c.by.as_deref().unwrap_or("no date"),
-                        if c.by.as_deref().and_then(crate::commitments::due).is_some_and(|d| d < Utc::now()) { ", OVERDUE" } else { "" }
+                        if c.by.as_deref().and_then(|b| crate::commitments::due(b, zone)).is_some_and(|d| d < Utc::now()) { ", OVERDUE" } else { "" }
                     )
                 })
                 .collect::<Vec<_>>();

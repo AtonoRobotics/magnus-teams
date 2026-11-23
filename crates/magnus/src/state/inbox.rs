@@ -8,7 +8,7 @@ use crate::forget::Erased;
 use crate::log::Event;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 #[derive(Clone, Debug)]
 pub struct Item {
@@ -61,6 +61,9 @@ pub struct Inbox {
     review_runs: HashMap<String, String>,
     /// One-a-day wake marks (a coming-up schedule, a due commitment).
     wake_marks: HashMap<String, String>,
+    /// When each review of the last day woke, by person, oldest first: what
+    /// their wake budget counts (`wake_budget`).
+    wakes: HashMap<String, VecDeque<DateTime<Utc>>>,
 }
 
 /// Their items and those of their runs, with their opened and resolved
@@ -79,6 +82,7 @@ impl crate::forget::Forget for Inbox {
         self.interrupts.remove(p);
         self.review_runs.retain(|_, x| x != p);
         self.wake_marks.retain(|k, _| k.split_once(':').is_some_and(|(x, _)| x != p));
+        self.wakes.remove(p);
     }
 }
 
@@ -133,6 +137,11 @@ impl Inbox {
             Ev::ReviewWoken { run, person, reason, .. } => {
                 self.reviews_last.insert(person.clone(), e.at);
                 self.review_runs.insert(run.clone(), person.clone());
+                let wakes = self.wakes.entry(person.clone()).or_default();
+                wakes.push_back(e.at);
+                while wakes.front().is_some_and(|t| *t < e.at - chrono::Duration::seconds(crate::wake_budget::DAY_SECS)) {
+                    wakes.pop_front();
+                }
                 if reason == "overnight" {
                     let tz = crate::cadence::zone_of(prefs.get(person));
                     self.reviews_overnight.insert(person.clone(), crate::proactive::day_key(e.at, tz));
@@ -240,6 +249,11 @@ impl Inbox {
         &self.wake_marks
     }
 
+    /// When the person's reviews of the last day woke, oldest first.
+    pub fn wakes_of(&self, person: &str) -> impl Iterator<Item = &DateTime<Utc>> {
+        self.wakes.get(person).into_iter().flatten()
+    }
+
     #[cfg(test)]
     pub(crate) fn canonical_fields(&self) -> Vec<(&'static str, String)> {
         vec![
@@ -252,6 +266,7 @@ impl Inbox {
             ("interrupts", format!("{:?}", self.interrupts)),
             ("review_runs", format!("{:?}", self.review_runs)),
             ("wake_marks", format!("{:?}", self.wake_marks)),
+            ("wakes", format!("{:?}", self.wakes)),
         ]
     }
 }

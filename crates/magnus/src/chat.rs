@@ -99,6 +99,13 @@ impl Kernel {
             ..Default::default()
         };
         let (task, _) = self.create_run(&format!("person:{person}"), person, text.clone(), vec![], o).await?;
+        self.tell_working(person, &thread, &task, &text).await;
+        Ok(Some((thread, task)))
+    }
+
+    /// The tasks working in the thread hear of the person's new message,
+    /// the one turn `task` answers.
+    pub(crate) async fn tell_working(&self, person: &str, thread: &str, task: &str, text: &str) {
         let active_runs: Vec<(String, u32)> = self.read(|s| {
             s.tasks
                 .values()
@@ -112,7 +119,6 @@ impl Kernel {
             let note = format!("The person sent a new message in this conversation while you are working: {text}");
             let _ = self.emit(&format!("person:{person}"), Ev::Notice { run: run_id, step, text: note }).await;
         }
-        Ok(Some((thread, task)))
     }
 
     /// The person's threads, most recent first, each titled by its first
@@ -191,8 +197,13 @@ impl Kernel {
         // Which entries, not what they say: no words are recalled.
         let entries = if self.thread_gone(thread) { vec![] } else { self.entries_with(person, thread, &Default::default()).unwrap_or_default() };
         let end = upto.and_then(|u| entries.iter().position(|e| e.id == u)).map_or(entries.len(), |i| i + 1);
+        self.label_of(&entries[..end])
+    }
+
+    /// The taint of `entries`: that of the runs that wrote each.
+    pub(crate) fn label_of(&self, entries: &[Entry]) -> Label {
         // The person's own messages, and Magnus's openings, carry none.
-        let tasks: Vec<String> = entries[..end].iter().filter(|e| !matches!(e.kind, Kind::Message | Kind::Opener)).flat_map(Entry::task_ids).collect();
+        let tasks: Vec<String> = entries.iter().filter(|e| !matches!(e.kind, Kind::Message | Kind::Opener)).flat_map(Entry::task_ids).collect();
         self.read(|s| {
             tasks
                 .iter()

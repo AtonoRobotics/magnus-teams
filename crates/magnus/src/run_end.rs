@@ -30,13 +30,24 @@ impl Kernel {
     /// each sub-agent still going is cancelled with it, so no reader sees
     /// the run ended and a child of it still going. Each run this write
     /// ended then lets go of what it held. Every cancel takes this path.
-    pub(crate) async fn cancel_tree(&self, run: &str, mut evs: Vec<(&str, Ev)>) -> Result<()> {
-        let below = self.read(|s| going_below(s, run));
+    pub(crate) async fn cancel_tree(&self, run: &str, evs: Vec<(&str, Ev)>) -> Result<()> {
+        self.cancel_trees(&[run.to_string()], evs).await
+    }
+
+    /// `cancel_tree` for several runs in one write: `evs` holds each run's
+    /// own end, and whatever else must be written with them.
+    pub(crate) async fn cancel_trees(&self, runs: &[String], mut evs: Vec<(&str, Ev)>) -> Result<()> {
+        let below: Vec<String> = self.read(|s| {
+            let mut below: Vec<String> = runs.iter().flat_map(|r| going_below(s, r)).filter(|c| !runs.contains(c)).collect();
+            below.sort();
+            below.dedup();
+            below
+        });
         for c in &below {
             evs.push(("kernel", cancelled(c)));
         }
         self.emit_all(evs).await?;
-        for r in std::iter::once(run.to_string()).chain(below) {
+        for r in runs.iter().cloned().chain(below) {
             if self.read(|s| s.runs.get(&r).is_some_and(|x| x.status == Status::Cancelled)) {
                 self.on_stop(&r, true).await;
             }

@@ -94,6 +94,15 @@ impl std::fmt::Display for KillSwitchOn {
 
 impl std::error::Error for KillSwitchOn {}
 
+/// A run `admit_new` let start: its ids, and the events that record it
+/// (its `TaskCreated`, and its team thread with it), each as `actor`.
+pub(crate) struct Admitted {
+    pub task: String,
+    pub run: String,
+    pub actor: String,
+    pub evs: Vec<Ev>,
+}
+
 /// How a new run differs from a plain task.
 #[derive(Default)]
 pub struct NewRun {
@@ -416,6 +425,19 @@ impl Kernel {
     /// Create a task or a chat turn and start it. Nothing new starts while
     /// the kill switch is on (owner's ruling 11, 2026-11-01).
     pub async fn create_run(self: &Arc<Self>, actor: &str, person: &str, text: String, attachments: Vec<serde_json::Value>, o: NewRun) -> Result<(String, String)> {
+        let Admitted { task, run, actor, evs } = self.admit_new(actor, person, text, attachments, o).await?;
+        // One write: no reader sees the task without its team thread.
+        self.emit_all(evs.into_iter().map(|e| (actor.as_str(), e)).collect()).await?;
+        self.wake(&run);
+        Ok((task, run))
+    }
+
+    /// A task or a chat turn admitted to start, and the events that record
+    /// it, written by no one yet: whatever would refuse it (a switch, the
+    /// person's model access, the month's spend limits) refuses here, before
+    /// anything changes. The caller writes `evs` (with whatever must be
+    /// written with them) and wakes `run`.
+    pub(crate) async fn admit_new(&self, actor: &str, person: &str, text: String, attachments: Vec<serde_json::Value>, o: NewRun) -> Result<Admitted> {
         if let Some(e) = self.refuse_new(person, o.team.is_some()) {
             return Err(e);
         }
@@ -469,32 +491,26 @@ impl Kernel {
                 })
             })
         });
-        let team = o.team.map(|t| (actor, Ev::Team(crate::team::TeamRun { task: task.clone(), ..t }.into())));
+        let team = o.team.map(|t| Ev::Team(crate::team::TeamRun { task: task.clone(), ..t }.into()));
         let start_label = self.clean_starting_label(person, config.playbook, o.label);
-        let created = (
-            actor,
-            Ev::TaskCreated {
-                task: task.clone(),
-                run: run.clone(),
-                person: person.into(),
-                text,
-                attachments,
-                config,
-                experiment: o.experiment,
-                chat: o.chat,
-                label: Some(start_label),
-                explicit_label: true,
-                title: o.title,
-                files: o.files,
-                project,
-                scope: o.scope,
-                grant: o.grant,
-            },
-        );
-        // One write: no reader sees the task without its team thread.
-        self.emit_all(std::iter::once(created).chain(team).collect()).await?;
-        self.wake(&run);
-        Ok((task, run))
+        let created = Ev::TaskCreated {
+            task: task.clone(),
+            run: run.clone(),
+            person: person.into(),
+            text,
+            attachments,
+            config,
+            experiment: o.experiment,
+            chat: o.chat,
+            label: Some(start_label),
+            explicit_label: true,
+            title: o.title,
+            files: o.files,
+            project,
+            scope: o.scope,
+            grant: o.grant,
+        };
+        Ok(Admitted { task, run, actor: actor.into(), evs: std::iter::once(created).chain(team).collect() })
     }
 
     /// Keep runs moving: restart drivers for running runs, wake due timers,
