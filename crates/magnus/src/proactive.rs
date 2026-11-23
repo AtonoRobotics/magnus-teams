@@ -397,7 +397,13 @@ impl crate::kernel::Kernel {
     /// Start the review run itself: the review instruction over the
     /// person's state, on the per-task budget, which its Auto Review calls
     /// are charged to as well (#237, spec rev 133).
+    /// Every review starts here, so every one counts against the person's
+    /// wake budget (`wake_budget`), and none starts past it.
     async fn start_review(self: &Arc<Self>, person: &str, reason: String, ended: Option<Ended>) -> bool {
+        if let Some(why) = self.read(|s| crate::wake_budget::refused(s, person, Utc::now())) {
+            tracing::debug!("no review for {person} ({reason}): {why}");
+            return false;
+        }
         let context = self.review_context(person, ended.as_ref()).await;
         let text = format!("Review the person's state ({reason}).\n\n{context}");
         let budget = crate::task_budget::for_wake(&self.cfg.budget);
