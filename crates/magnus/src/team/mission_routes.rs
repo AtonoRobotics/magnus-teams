@@ -1,5 +1,5 @@
 //! HTTP routes for Team Missions, owner-only Release Airlock actions, Member
-//! Capability discovery, and user avatar / team-app visibility preferences.
+//! Capability discovery, and the user avatar.
 
 use super::caller::{at, Member};
 use super::missions::LaneStatus;
@@ -11,7 +11,7 @@ use crate::compartment::query_gate::scrub_check;
 use crate::events::{Ev, ProfileAvatar, TeamMissionEvent};
 use crate::kernel::{Kernel, NewRun};
 use crate::tools::Label;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
@@ -25,8 +25,6 @@ const MAX_RELEASE_CHARS: usize = 16_000;
 const MAX_STEER_CHARS: usize = 2_000;
 const STEER_POLL_MS: Duration = Duration::from_millis(250);
 const MAX_STEER_POLL_TICKS: u32 = 3600;
-const DEFAULT_MEMORY_LIMIT: usize = 20;
-const MAX_APP_NAME_CHARS: usize = 128;
 /// Held from a release's check to its event, so two releases of one lane
 /// cannot both pass and post it twice.
 static RELEASING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -37,9 +35,7 @@ pub fn router() -> Router<Arc<Kernel>> {
         .route("/v1/workspaces/{ws}/missions/{mission}/lanes/{lane}/release", post(release_lane))
         .route("/v1/workspaces/{ws}/missions/{mission}/lanes/{lane}/steer", post(steer_lane))
         .route("/v1/workspaces/{ws}/capabilities", get(workspace_capabilities))
-        .route("/v1/workspaces/{ws}/memory", get(workspace_memory))
         .route("/v1/profile/avatar", put(set_avatar))
-        .route("/v1/profile/team-apps", put(set_app_visibility))
 }
 
 #[derive(Deserialize)]
@@ -62,12 +58,6 @@ struct ReleaseBody {
 #[derive(Deserialize)]
 struct SteerBody {
     instruction: String,
-}
-
-#[derive(Deserialize)]
-struct AppVisibilityBody {
-    app: String,
-    hidden: bool,
 }
 
 /// Whether `person` may see the room (a channel) a mission lives in.
@@ -199,8 +189,9 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     Ok(Json(json!({ "updating": true })).into_response())
 }
 
-/// Returns each workspace member's advertised app names (respecting their
-/// `hidden_apps` toggle) and `ProfileAvatar` — never credentials or data.
+/// Returns each workspace member's advertised app names and `ProfileAvatar`,
+/// never credentials or data. An app its person hid in an older release
+/// (`AppVisibilitySet`) stays hidden, though nothing sets one now.
 async fn workspace_capabilities(State(k): K, Member { .. }: Member<at::Guest>, Path(ws): Path<String>) -> ApiResult {
     let members: Vec<String> = k.read(|s| s.team.workspace(&ws).map(|w| w.members.keys().cloned().collect()).unwrap_or_default());
     let connectors = k.connectors();
@@ -227,34 +218,4 @@ async fn set_avatar(State(k): K, h: HeaderMap, Json(avatar): Json<ProfileAvatar>
         .await
         .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
     Ok(Json(json!({ "avatar": avatar })).into_response())
-}
-
-async fn set_app_visibility(State(k): K, h: HeaderMap, Json(b): Json<AppVisibilityBody>) -> ApiResult {
-    let p = who(&k, &h).await.map_err(Box::new)?;
-    let app = b.app.trim();
-    if app.is_empty() || app.chars().count() > MAX_APP_NAME_CHARS {
-        return refuse(StatusCode::BAD_REQUEST, "app name is required and short");
-    }
-    let actor = format!("person:{}", p.id);
-    k.emit(&actor, Ev::TeamMission(TeamMissionEvent::AppVisibilitySet { person: p.id.clone(), app: app.to_string(), hidden: b.hidden }))
-        .await
-        .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
-    Ok(Json(json!({ "app": app, "hidden": b.hidden })).into_response())
-}
-
-#[derive(Deserialize)]
-struct MemoryQuery {
-    #[serde(default)]
-    q: String,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-async fn workspace_memory(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(mq): Query<MemoryQuery>) -> ApiResult {
-    let limit = mq.limit.unwrap_or(DEFAULT_MEMORY_LIMIT).min(100);
-    let items = k.read(|s| {
-        let w = s.team.workspace(&ws);
-        s.missions.search_workspace_memory(&ws, &mq.q, limit, |room| w.is_some_and(|w| w.sees(room, &p.id)))
-    });
-    Ok(Json(items).into_response())
 }

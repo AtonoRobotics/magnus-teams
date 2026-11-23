@@ -17,7 +17,6 @@ mod caller;
 pub mod chat;
 mod chat_routes;
 pub mod conversation;
-pub(crate) mod delegate;
 mod forget;
 #[cfg(test)]
 mod forget_tests;
@@ -55,6 +54,8 @@ mod presence;
 #[cfg(test)]
 mod privacy_tests;
 mod project_routes;
+#[cfg(test)]
+mod recorded_run;
 mod routes;
 mod routine_sweep;
 #[cfg(test)]

@@ -1,8 +1,9 @@
 //! What a workspace keeps from whom (spec rev 142, Team): a project's
 //! channels, messages and files are its people's; working notes are the
-//! thread's and expire with the task; an answer built from the requester's
-//! own data is theirs until they share it; and a team run never uses a
-//! member's own sign-in. sam owns the workspace, mo is a member, ana a guest.
+//! thread's and expire with the task; and an ask is its asker's own agent at
+//! work (2026-11-22-retire-team-agent-runs): private to them, through their
+//! own sign-in, and released only by them. sam owns the workspace, mo is a
+//! member, ana a guest.
 
 use crate::admin_app::tests::{server_with, Server};
 use crate::events::Ev;
@@ -24,6 +25,21 @@ async fn workspace(s: &Server) -> (String, String, String, String) {
         assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/members"), json!({ "person": who, "role": role })).await.0, 200);
     }
     (ws, sam, s.token("mo").await, s.token("ana").await)
+}
+
+fn general(s: &Server, ws: &str) -> String {
+    s.k.read(|st| st.team.workspace(ws).unwrap().channels.keys().next().unwrap().clone())
+}
+
+/// `who` asks in `channel` through the route the app uses: their task and
+/// mission, and the run of the lane it started.
+async fn ask(s: &Server, who: &str, ws: &str, channel: &str, text: &str) -> (String, String, crate::state::Run) {
+    let (st, v) = s.post(who, &format!("/v1/workspaces/{ws}/channels/{channel}/messages"), json!({ "text": text })).await;
+    assert_eq!(st, 200, "{v}");
+    let task = v["task_id"].as_str().unwrap_or_else(|| panic!("the ask started no lane: {v}")).to_string();
+    let mission = v["mission_id"].as_str().unwrap_or_else(|| panic!("the ask started no mission: {v}")).to_string();
+    let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
+    (task, mission, run)
 }
 
 fn ids(v: &Value, key: &str, field: &str) -> Vec<String> {
@@ -98,58 +114,58 @@ async fn working_notes_are_the_threads_and_expire_with_the_task() {
     s.done().await;
 }
 
-/// A run that read the requester's own data answers them alone; the rest
-/// of the thread is told only that it answered. The requester may share it.
+/// An ask is its asker's own agent at work, private to them: the lane runs
+/// as them, labelled private, in no team-agent run. Named and not called
+/// on, its answer waits for them, and no one else may release it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_private_answer_reaches_only_its_requester_until_shared() {
     let s = server_with("", |_| Router::new()).await;
     let (ws, sam, mo, ana) = workspace(&s).await;
-    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "what did my inbox say".into()).await.unwrap();
-    let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
-    let mut private = run.clone();
-    private.private = true;
+    let channel = general(&s, &ws);
+    let (task, mission, run) = ask(&s, &mo, &ws, &channel, "Magnus, what did my inbox say").await;
+    assert_eq!(run.person, "mo", "the ask did not run as its asker's own agent");
+    assert!(run.private, "the asker's lane is not private, so what it reads could reach the room");
+    assert!(s.k.team_of(&task).is_none() && !s.k.run_kind(&run.id).in_team(), "an ask started a team-agent run");
+    let lane = s.k.read(|st| st.missions.mission(&mission).and_then(|m| m.lanes.values().next().cloned())).unwrap();
+    assert_eq!(lane.owner.as_deref(), Some("mo"));
+    assert!(!lane.auto_release, "an answer mo only named Magnus for would post unasked");
+    let release = format!("/v1/workspaces/{ws}/missions/{mission}/lanes/{}/release", lane.id);
+    for (who, t) in [("sam", &sam), ("ana", &ana)] {
+        assert_ne!(s.post(t, &release, json!({ "contribution": "the deal closes Friday" })).await.0, 200, "{who} released mo's answer");
+    }
+    let released = s.k.read(|st| st.missions.mission(&mission).and_then(|m| m.lanes.get(&lane.id).map(|l| l.status)));
+    assert_ne!(released, Some(super::missions::LaneStatus::Released), "someone else released mo's answer");
     let secret = "your inbox says the deal closes Friday".to_string();
-    assert_eq!(super::member_view::answer_as(private.private, secret.clone(), "mo", "mo"), (secret.clone(), true));
+    assert_eq!(super::member_view::answer_as(true, secret.clone(), "mo", "mo"), (secret.clone(), true));
     for viewer in ["sam", "ana"] {
-        let (text, only) = super::member_view::answer_as(private.private, secret.clone(), "mo", viewer);
+        let (text, only) = super::member_view::answer_as(true, secret.clone(), "mo", viewer);
         assert!(only && !text.contains("Friday"), "{viewer} was shown a private answer: {text}");
     }
-    assert_eq!(super::member_view::answer_as(run.private, "hello".into(), "mo", "ana"), ("hello".to_string(), false));
-    // Sharing: only the requester, and only once it has finished.
-    assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await.0, 404, "someone else shared mo's answer");
-    assert_eq!(s.post(&ana, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await.0, 403);
-    let (st, _) = s.post(&mo, &format!("/v1/workspaces/{ws}/answers/{task}/share"), json!({})).await;
-    assert!(st == 409 || st == 200, "{st}");
     s.done().await;
 }
 
-/// A granted app that each person signs in to is neither offered to nor
-/// usable by a team run: it would act through the requester's own sign-in.
-/// An app with no sign-in, granted, is.
+/// An ask acts through its asker's own sign-in, as their own agent does
+/// anywhere, never through the workspace's: no team-agent run holds it.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_team_run_never_uses_a_members_own_sign_in() {
+async fn an_ask_acts_through_its_askers_own_sign_in() {
     let s = server_with(APPS, |_| Router::new()).await;
-    let (ws, sam, _, _) = workspace(&s).await;
+    let (ws, sam, mo, _) = workspace(&s).await;
     for app in ["crm", "open"] {
         assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/connectors"), json!({ "app": app, "roles": ["owner", "admin", "member"] })).await.0, 200);
     }
-    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "update the crm".into()).await.unwrap();
-    let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
-    let spec = |name: &str| magnus_adapter_proto::ToolSpec { name: name.into(), description: String::new(), input_schema: json!({}) };
-    let offered: Vec<String> = s.k.admitted(&run, vec![spec("crm__update"), spec("open__search")]).into_iter().map(|t| t.name).collect();
-    assert!(!offered.contains(&"crm__update".to_string()), "a member's own sign-in was offered to a team run: {offered:?}");
-    assert!(offered.contains(&"open__search".to_string()), "{offered:?}");
-    let why = s.k.admits(&run, "crm__update");
-    assert!(matches!(&why, Err(crate::run::admission::Refusal::Denied { why, .. }) if why.contains("own sign-in")), "{why:?}");
-    assert_eq!(s.k.admits(&run, "open__search"), Ok(()));
+    let channel = general(&s, &ws);
+    let (task, _, run) = ask(&s, &mo, &ws, &channel, "@Magnus update the crm").await;
+    assert!(s.k.team_of(&task).is_none(), "an ask started a team-agent run");
+    for app in ["crm", "open"] {
+        let c = s.k.connector(app).unwrap();
+        assert_eq!(s.k.app_owner(&run, &c), "mo", "{app} would act through someone other than the asker");
+    }
     s.done().await;
 }
 
 /// A team's words reach a member's own runs only as private: a whisper's
-/// run carries its thread, and a team run's summary listed in the member's
-/// own conversation carries its workspace's words. Neither may be filed
+/// run carries its thread, and a lane's summary listed in the member's own
+/// conversation carries its room's words. Neither may be filed
 /// for, or shown to, anyone outside the person.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_teams_words_stay_private_in_a_members_own_runs() {
@@ -163,9 +179,10 @@ async fn a_teams_words_stay_private_in_a_members_own_runs() {
         let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
         assert!(run.private, "{who}'s whisper run is not private, so it could file the team's words for everyone");
     }
-    let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "what is the price".into()).await.unwrap();
+    let mo = s.token("mo").await;
+    let (task, _, _) = ask(&s, &mo, &ws, &channel, "@Magnus what is the price").await;
     let (label, _) = s.k.listed_taint(&json!({ "tasks": [{ "id": task, "summary": "the price is 4m" }] }));
-    assert!(label.private, "a team run's summary entered a member's conversation as public");
+    assert!(label.private, "a lane's summary entered a member's conversation as public");
     s.done().await;
 }
 

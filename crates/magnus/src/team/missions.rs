@@ -312,25 +312,6 @@ impl MissionLedger {
             .collect()
     }
 
-    /// Searches unified `workspace:<id>` memory (newest first, optional substring
-    /// filter on title/body/room). Every returned entry carries `untrusted: true`.
-    /// Released entries matching `query`, from the rooms `visible` admits:
-    /// a room someone cannot see keeps its releases from them too.
-    pub fn search_workspace_memory(&self, workspace: &str, query: &str, limit: usize, visible: impl Fn(&str) -> bool) -> Vec<WorkspaceMemoryItem> {
-        let q = query.trim().to_ascii_lowercase();
-        let Some(items) = self.workspace_memory.get(workspace) else {
-            return Vec::new();
-        };
-        items
-            .iter()
-            .rev()
-            .filter(|i| visible(&i.room))
-            .filter(|i| q.is_empty() || i.title.to_ascii_lowercase().contains(&q) || i.body.to_ascii_lowercase().contains(&q) || i.room.to_ascii_lowercase().contains(&q))
-            .take(limit)
-            .cloned()
-            .collect()
-    }
-
     /// Returns all missions in `(workspace, room)` formatted for `viewer`.
     /// Strictly enforces Airlock privacy: `private_draft` is included ONLY
     /// when `lane.owner == Some(viewer)`.
@@ -522,7 +503,7 @@ mod tests {
             draft: "SECRET_UNRELEASED_DRAFT".into(),
             scrub_flagged: false,
         });
-        assert!(ledger.search_workspace_memory("ws1", "", 10, |_| true).is_empty(), "unreleased draft must never enter workspace memory");
+        assert!(ledger.workspace_memory.get("ws1").is_none_or(Vec::is_empty), "unreleased draft must never enter workspace memory");
 
         ledger.apply(&TeamMissionEvent::LaneReleased {
             workspace: "ws1".into(),
@@ -539,8 +520,7 @@ mod tests {
             contribution: "Stripe webhook retry timeout #418 is in review.".into(),
             released_by: "bob".into(),
         });
-        assert!(ledger.search_workspace_memory("ws1", "stripe", 10, |room| room != "q3").is_empty(), "a room the reader cannot see keeps its releases");
-        let found = ledger.search_workspace_memory("ws1", "stripe", 10, |_| true);
+        let found = &ledger.workspace_memory["ws1"];
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].scope, "workspace:ws1");
         assert!(found[0].untrusted);

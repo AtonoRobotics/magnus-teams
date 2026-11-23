@@ -30,7 +30,7 @@ async fn team_run(s: &Server) -> (String, String, String, crate::state::Run) {
         assert_eq!(s.post(&sam, &format!("/v1/workspaces/{ws}/connectors"), json!({ "app": app, "roles": ["owner", "admin", "member"] })).await.0, 200);
     }
     let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (task, _) = s.k.team_request(&ws, &channel, None, "mo", "update the crm".into()).await.unwrap();
+    let (task, _) = s.k.recorded_team_run(&ws, &channel, "mo", "update the crm").await.unwrap();
     let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
     (ws, sam, s.token("mo").await, run)
 }

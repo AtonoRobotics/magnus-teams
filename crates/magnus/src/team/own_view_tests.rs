@@ -71,7 +71,7 @@ async fn the_agents_answer_is_deleted_by_who_asked_or_an_admin() {
     let s = server_with("", |_| Router::new()).await;
     let (ws, sam, mo, ana) = workspace(&s).await;
     let c = general(&s, &ws);
-    let (task, _) = s.k.team_request(&ws, &c, None, "mo", "what is the door code".into()).await.unwrap();
+    let (task, _) = s.k.recorded_team_run(&ws, &c, "mo", "what is the door code").await.unwrap();
     let run = s.k.read(|st| st.tasks[&task].run_id.clone());
     s.k.emit("kernel", crate::events::Ev::Completed { run, summary: "The door code is 4471.".into(), view: None, spoken: None }).await.unwrap();
     let id = format!("agent:{task}");

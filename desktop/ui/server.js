@@ -103,10 +103,9 @@ const Server = (() => {
     homeOpened: () => post("/v1/home/opened"),
     /** Explore: trigger a read-only background scan for fresh ideas in For you. */
     explore: { scan: () => post("/v1/explore/scan") },
-    /** User profile display avatar and team-app capability visibility. */
+    /** User profile display avatar. */
     profile: {
       setAvatar: (/** @type {any} */ avatar) => put("/v1/profile/avatar", avatar),
-      setTeamAppVisibility: (/** @type {string} */ app, /** @type {boolean} */ hidden) => put("/v1/profile/team-apps", { app, hidden }),
     },
 
     tasks: {
@@ -344,7 +343,6 @@ const Server = (() => {
       join: (/** @type {string} */ code) => post(`/v1/invites/${enc(code)}/join`),
       home: (/** @type {Id} */ w) => get(`${ws(w)}/home`),
       capabilities: (/** @type {Id} */ w) => get(`${ws(w)}/capabilities`),
-      memory: (/** @type {Id} */ w, /** @type {string} */ q = "") => get(`${ws(w)}/memory${query({ q })}`),
       missions: (/** @type {Id} */ w, /** @type {Id} */ room) => get(`${ws(w)}/rooms/${enc(room)}/missions`),
       createMission: (/** @type {Id} */ w, /** @type {Id} */ room, /** @type {any} */ body) => post(`${ws(w)}/rooms/${enc(room)}/missions`, body),
       releaseLane: (/** @type {Id} */ w, /** @type {Id} */ m, /** @type {Id} */ l, /** @type {any} */ body = {}) => post(`${ws(w)}/missions/${enc(m)}/lanes/${enc(l)}/release`, body),
@@ -387,7 +385,6 @@ const Server = (() => {
       /** Share Magnus's private answer, or a whisper, with the channel. */
       shareAnswer: (/** @type {Id} */ w, /** @type {Id} */ id) => post(`${ws(w)}/answers/${enc(id)}/share`),
       shareWhisper: (/** @type {Id} */ w, /** @type {Id} */ id) => post(`${ws(w)}/whispers/${enc(id)}/share`),
-      routines: (/** @type {Id} */ w) => get(`${ws(w)}/routines`),
       /** @param {Id} w @param {{channel: Id, text: string, every_hours: number}} body */
       addRoutine: (w, body) => post(`${ws(w)}/routines`, body),
       /** @param {Id} w @param {Id} id @param {{channel?: Id, text?: string, every_hours?: number}} body */

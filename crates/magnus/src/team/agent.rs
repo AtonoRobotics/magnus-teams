@@ -1,40 +1,31 @@
-//! What the team agent may do for a member, and what it is told. A team run
-//! has the requester as its person, so asks reach them, and everything
-//! personal to that person is withheld here.
-use super::knowledge::{Entry, Retired, Weight};
-use super::{fit_name, Change, File, Message, Note, Role, TeamRun};
+//! What a team-agent run may do for a member, and what it is told. No path
+//! starts one now (2026-11-22-retire-team-agent-runs): a shared ask is the
+//! asker's own personal Magnus in a mission lane. The log still holds team
+//! runs older releases started, so their rules stay for any of them that
+//! resumes. A team run has the requester as its person, so asks reach them,
+//! and everything personal to that person is withheld here.
+use super::knowledge::{Entry, Weight};
+use super::{Role, TeamRun};
 use crate::boundary::Action;
-use crate::kernel::{Kernel, NewRun};
+use crate::kernel::Kernel;
 use crate::state::{Run, State};
-use crate::tools::{self, Label};
+use crate::tools;
 use anyhow::{Context, Result};
 use magnus_adapter_proto::ToolSpec;
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-/// How many earlier messages a request carries, as data.
-const HISTORY_MESSAGES: usize = 40;
-const MAX_TEAM_FILE_BYTES: usize = 16 * 1024 * 1024;
-const MAX_FACT_CHARS: usize = 4000;
-const MAX_NOTE_CHARS: usize = 2000;
 /// How many entries of a base one prompt carries.
 const MAX_ENTRIES_SHOWN: usize = 200;
 const CITE: &str = "When you rely on an entry, cite its id in square brackets.";
 
-/// What carries out a workspace's tool (declared in `tool_registry`).
+/// What carries out a workspace's tool (declared in `tool_registry`). The
+/// team-agent-only tools went with its runs; what is left is the one a
+/// person's own agent has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TeamOp {
-    ReadFile,
-    WriteFile,
-    Post,
-    AddFact,
-    FixEntry,
-    Note,
-    Create,
-    AskPersonalAgent,
-    /// The one team tool a person's own agent has: reading a base its owner may.
+    /// Reading a base its owner may.
     ReadKnowledge,
 }
 
@@ -50,12 +41,6 @@ fn in_team_run(tool: &str) -> bool {
 /// Whether this is the base reader a person's own agent has too.
 fn open_to_personal(tool: &str) -> bool {
     crate::tool_registry::team_op(tool) == Some(TeamOp::ReadKnowledge)
-}
-
-/// A workspace's own tool, which serves only a team thread. An app's tool
-/// (`app__tool`) is the person's, even when the app is named "team".
-fn team_only(tool: &str) -> bool {
-    crate::tool_registry::team_op(tool).is_some_and(|op| op != TeamOp::ReadKnowledge)
 }
 
 /// Whether an app acts through each person's own sign-in. A team run never
@@ -76,13 +61,10 @@ pub(super) fn held_dir(k: &Kernel, workspace: &str, person: &str) -> PathBuf {
 
 /// Why this run may not use `tool`, judged as a team run's tool, if so: the
 /// one rule both for what a run is offered and what its call may do
-/// (`run::admission`). Outside a team run, the workspace's own tools are
-/// refused, and a base is read only by someone in a workspace.
+/// (`run::admission`). Outside a team run, a base is read only by someone
+/// in a workspace.
 pub(crate) fn refusal(s: &State, run: &Run, tool: &str, shared_apps: &BTreeSet<String>, computers: bool) -> Option<String> {
     let Some(t) = s.team.run_of(&run.task) else {
-        if team_only(tool) {
-            return Some(format!("{tool} works only on a request made in a team thread"));
-        }
         return (open_to_personal(tool) && s.team.of(&run.person).is_empty()).then(|| format!("{tool} reads a workspace's knowledge, and {} is in no workspace", run.person));
     };
     let Some(role) = s.team.role(&t.workspace, &t.requester) else {
@@ -134,7 +116,6 @@ impl Kernel {
         let mut text =
             format!("You are the team agent of the workspace \"{}\", working for {} in a team thread. Nothing personal to any member is available here.", w.name, t.requester);
         text.push_str(&self.workspace_apps(&t.workspace, &w));
-        text.push_str(&self.personal_agent_apps(&t.requester, &w));
         let project = w.channels.get(&t.channel).and_then(|c| c.project.clone()).filter(|p| w.may_read(Some(p), &t.requester));
         let mut bases = vec![("The workspace's knowledge base", w.entries(None))];
         if let Some(p) = &project {
@@ -185,129 +166,10 @@ impl Kernel {
         })
     }
 
-    /// Takes a member's request. The run is theirs, so what it may do and
-    /// who is asked follows them. Other people's words come in only as data.
-    #[cfg(test)]
-    pub(super) async fn team_request(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, text: String) -> Result<(String, String)> {
-        self.team_request_on(workspace, channel, thread, person, text, None).await
-    }
-
-    /// A member's request on the model they chose in the composer, as a
-    /// personal message runs on its pick; the server's default otherwise.
-    #[cfg(test)]
-    pub(super) async fn team_request_on(
-        self: &Arc<Self>,
-        workspace: &str,
-        channel: &str,
-        thread: Option<String>,
-        person: &str,
-        text: String,
-        model: Option<(String, String)>,
-    ) -> Result<(String, String)> {
-        self.team_request_as(&format!("person:{person}"), workspace, channel, thread, person, text, model).await
-    }
-
-    /// A request for a member that `actor` started: the member, or the
-    /// agent's own follow-up on their behalf.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn team_request_as(
-        self: &Arc<Self>,
-        actor: &str,
-        workspace: &str,
-        channel: &str,
-        thread: Option<String>,
-        person: &str,
-        text: String,
-        model: Option<(String, String)>,
-    ) -> Result<(String, String)> {
-        let earlier: Vec<Message> = self
-            .read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.iter().filter(|m| !m.text.is_empty()).cloned().collect()))
-            .unwrap_or_default();
-        let start = earlier.len().saturating_sub(HISTORY_MESSAGES + 1);
-        let shown = earlier.get(start..earlier.len().saturating_sub(1)).unwrap_or_default();
-        let history = shown.iter().map(|m| format!("{}: {}", m.sender, m.text)).collect::<Vec<_>>().join("\n");
-        let others = shown.iter().any(|m| m.sender != person);
-        let outside = self.read(|s| shown.iter().any(|m| s.team.role(workspace, &m.sender).is_some_and(|r| r == Role::Guest)));
-        // An owner's spend limit: nothing starts past it, and what starts
-        // gets no more budget than is left after open team runs (`spend`).
-        let team = TeamRun { workspace: workspace.into(), channel: channel.into(), thread, task: String::new(), requester: person.into(), history, sub: false, outside };
-        let new_run = NewRun { label: others.then_some(Label::UNTRUSTED), team: Some(team), model, ..Default::default() };
-        self.start_team_run(actor, person, text, new_run).await
-    }
-
-    pub(crate) async fn team_tool(self: &Arc<Self>, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let op = crate::tool_registry::team_op(&a.tool).with_context(|| format!("no executor for {}", a.tool))?;
-        if op == TeamOp::ReadKnowledge {
-            return self.team_read_knowledge(a);
-        }
-        let task = self.read(|s| s.runs.get(&a.run).map(|r| r.task.clone())).context("no such run")?;
-        let t = self.team_of(&task).context("this is not a team run")?;
-        match op {
-            TeamOp::ReadFile => self.team_read(&t, a).await,
-            TeamOp::WriteFile => self.team_write(&t, a).await,
-            TeamOp::Post => self.team_post(&t, a).await,
-            TeamOp::Note => self.team_note(&t, a).await,
-            TeamOp::FixEntry => self.team_fix_entry(&t, a).await,
-            TeamOp::Create => self.team_create(&t, a).await,
-            TeamOp::AddFact => self.team_add_fact(&t, a).await,
-            TeamOp::AskPersonalAgent => self.team_ask_personal_agent(&t, a).await,
+    pub(crate) async fn team_tool(&self, a: &Action) -> Result<(String, bool, Option<Value>)> {
+        match crate::tool_registry::team_op(&a.tool).with_context(|| format!("no executor for {}", a.tool))? {
             TeamOp::ReadKnowledge => self.team_read_knowledge(a),
         }
-    }
-
-    async fn team_read(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let name = a.input["name"].as_str().context("name is required")?;
-        let known = self.read(|s| s.team.workspace(&t.workspace).is_some_and(|w| w.sees_file(name, &t.requester)));
-        if !known || !fit_name(name) {
-            return Ok((format!("the team volume has no file called {name}"), true, None));
-        }
-        let bytes = tokio::fs::read(volume_dir(self, &t.workspace).join(name)).await?;
-        Ok((String::from_utf8_lossy(&bytes).into_owned(), false, None))
-    }
-
-    /// A file built from what this run read under the requester's own
-    /// entitlements stays with them until they share it.
-    async fn team_write(self: &Arc<Self>, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let name = a.input["name"].as_str().context("name is required")?;
-        let content = a.input["content"].as_str().context("content is required")?;
-        if !fit_name(name) || content.len() > MAX_TEAM_FILE_BYTES {
-            return Ok(("that is not a file the team volume can hold".to_string(), true, None));
-        }
-        let private = self.read(|s| s.runs.get(&a.run).is_some_and(|r| r.private));
-        // Never for a member what they could not do: replace someone else's file.
-        if !private && self.read(|s| s.team.workspace(&t.workspace).is_some_and(|w| super::keep::someone_elses(w, name, &t.requester))) {
-            return Ok((super::keep::SOMEONE_ELSES.to_string(), true, None));
-        }
-        let file = File { name: name.to_string(), size: content.len() as u64, by: t.requester.clone() };
-        let actor = format!("run:{}", a.run);
-        let (dir, change, said) = if private {
-            let d = held_dir(self, &t.workspace, &t.requester);
-            let c = Change::Held { workspace: t.workspace.clone(), person: t.requester.clone(), file };
-            (d, c, format!("{name} holds data only {} may see, so it is kept in their space. It reaches the team volume when they share it.", t.requester))
-        } else {
-            (volume_dir(self, &t.workspace), Change::File { workspace: t.workspace.clone(), file }, format!("{name} is on the team volume."))
-        };
-        tokio::fs::create_dir_all(&dir).await?;
-        tokio::fs::write(dir.join(name), content).await?;
-        self.emit(&actor, crate::events::Ev::Team(change)).await?;
-        Ok((said, false, None))
-    }
-
-    async fn team_post(self: &Arc<Self>, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let text = a.input["text"].as_str().context("text is required")?.to_string();
-        // Long work talks in its own thread, on the message that asked for it.
-        let thread = t.thread.clone().or_else(|| self.read(|s| s.team.workspace(&t.workspace).and_then(|w| w.chat.asked.get(&t.task).cloned())));
-        let message = Message { id: uuid::Uuid::new_v4().simple().to_string(), sender: format!("agent:{}", t.requester), text, thread, at: chrono::Utc::now() };
-        self.emit(&format!("run:{}", a.run), crate::events::Ev::Team(Change::Message { workspace: t.workspace.clone(), channel: t.channel.clone(), message })).await?;
-        Ok(("posted".to_string(), false, None))
-    }
-
-    /// A project or channel the conversation calls for, made for the requester.
-    async fn team_create(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let name = a.input["name"].as_str().context("name is required")?;
-        let kind = if a.input["kind"].as_str() == Some("project") { super::project_routes::Kind::Project } else { super::project_routes::Kind::Channel };
-        let made = self.start_space(&format!("run:{}", a.run), &t.workspace, &t.requester, kind, name).await?;
-        Ok((format!("made {made}"), false, None))
     }
 
     /// The current notes of this request's thread, ended tasks' gone.
@@ -321,13 +183,6 @@ impl Kernel {
                 .flat_map(|r| s.team.notes(&r.task).iter().map(|n| format!("- {}\n", n.text)))
                 .collect()
         })
-    }
-
-    async fn team_note(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let text: String = a.input["text"].as_str().context("text is required")?.chars().take(MAX_NOTE_CHARS).collect();
-        let note = Note { id: uuid::Uuid::new_v4().simple().to_string(), text, by: format!("agent:{}", t.requester), at: chrono::Utc::now() };
-        self.emit(&format!("run:{}", a.run), crate::events::Ev::Team(Change::Note { workspace: t.workspace.clone(), task: t.task.clone(), note })).await?;
-        Ok(("noted, for as long as this task lasts.".to_string(), false, None))
     }
 
     /// A base outside this thread's own, open to whoever the agent acts for.
@@ -349,58 +204,6 @@ impl Kernel {
         let has_outside = shown.iter().any(|e| e.weight == Weight::Outside);
         let lines: String = shown.into_iter().map(Entry::line).collect();
         Ok((format!("{lines}\n{CITE}"), false, Some(serde_json::json!({ "untrusted": has_outside, "private": true }))))
-    }
-
-    async fn team_add_fact(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let statement: String = a.input["text"].as_str().context("text is required")?.chars().take(MAX_FACT_CHARS).collect();
-        let Some(w) = self.read(|s| s.team.workspace(&t.workspace).cloned()) else { return Ok(("the workspace is gone".to_string(), true, None)) };
-        let channel_project = w.channels.get(&t.channel).and_then(|c| c.project.clone());
-        let project = if a.input["workspace_level"].as_bool() == Some(true) { None } else { channel_project };
-        if !w.may_read(project.as_deref(), &t.requester) {
-            return Ok((format!("{} is not in this project, so nothing is added to its base for them", t.requester), true, None));
-        }
-        let kind = a.input["kind"].as_str().unwrap_or("fact").to_string();
-        if !w.allows_kind(project.as_deref(), &kind) {
-            return Ok((format!("this project does not use the type {kind}"), true, None));
-        }
-        let outside = t.outside || self.read(|s| s.runs.get(&a.run).is_some_and(|r| r.outside));
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let source = a.input["source"].as_str().map_or_else(|| "a team request".to_string(), String::from);
-        let entry = Entry {
-            id: id.clone(),
-            project,
-            kind,
-            statement,
-            source,
-            weight: if outside { Weight::Outside } else { Weight::Member },
-            author: format!("agent:{}", t.requester),
-            owner: t.requester.clone(),
-            thread: t.thread.clone(),
-            reviewed_at: chrono::Utc::now(),
-            ..Default::default()
-        };
-        self.emit(&format!("run:{}", a.run), crate::events::Ev::Team(Change::Entry { workspace: t.workspace.clone(), id: id.clone(), entry })).await?;
-        Ok((format!("recorded as {id}. A curator can correct it."), false, None))
-    }
-
-    /// The agent corrects only what the agent wrote.
-    async fn team_fix_entry(&self, t: &TeamRun, a: &Action) -> Result<(String, bool, Option<Value>)> {
-        let id = a.input["id"].as_str().context("id is required")?;
-        let Some(w) = self.read(|s| s.team.workspace(&t.workspace).cloned()) else { return Ok(("the workspace is gone".to_string(), true, None)) };
-        let found = w.knowledge.get(id).filter(|e| w.may_read(e.project.as_deref(), &t.requester));
-        let Some(mut e) = found.cloned() else { return Ok(("there is no such entry open to this request".to_string(), true, None)) };
-        if !e.author.starts_with("agent:") {
-            return Ok(("a person wrote that entry, so flag it for its curators instead".to_string(), true, None));
-        }
-        let now = chrono::Utc::now();
-        if a.input["retire"].as_bool() == Some(true) {
-            e.retired = Some(Retired { by: format!("agent:{}", t.requester), at: now, superseded_by: a.input["superseded_by"].as_str().map(String::from) });
-        } else {
-            e.statement = a.input["statement"].as_str().context("statement is required")?.chars().take(MAX_FACT_CHARS).collect();
-        }
-        e.reviewed_at = now;
-        self.emit(&format!("run:{}", a.run), crate::events::Ev::Team(Change::Entry { workspace: t.workspace.clone(), id: id.to_string(), entry: e })).await?;
-        Ok(("corrected".to_string(), false, None))
     }
 }
 
@@ -433,19 +236,9 @@ mod tests {
         }
     }
 
-    /// A person's own app named "team" is theirs to use anywhere; only the
-    /// workspace's tools wait for a team thread.
-    #[test]
-    fn an_app_named_team_is_not_the_workspace() {
-        assert!(team_only("team_post"));
-        assert!(!team_only("team_read_knowledge"));
-        assert!(!team_only("team__post"), "the person's app named team was refused outside a team thread");
-        assert!(!team_only("team_drive__list"), "the person's app named team_drive was refused outside a team thread");
-    }
-
     #[test]
     fn the_work_itself_is_allowed() {
-        for t in ["task_contract", "task_complete", "web_fetch", "sandbox_exec", "team_post"] {
+        for t in ["task_contract", "task_complete", "web_fetch", "sandbox_exec", "team_read_knowledge"] {
             assert!(in_team_run(t), "{t}");
         }
     }

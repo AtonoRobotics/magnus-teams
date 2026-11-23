@@ -1,12 +1,13 @@
 //! A person's own agent in a thread. It sees the thread as data, and what it
 //! says reaches only its owner until they post it.
 use super::caller::{at, Member};
+use super::chat_routes::name_of;
 use super::routes::{new_id, send, K};
 use super::{Change, Message};
 use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
-use crate::state::Run;
+use crate::state::{Run, Status};
 use crate::tools::Label;
 use anyhow::Result;
 use axum::extract::{Path, State};
@@ -123,4 +124,46 @@ async fn share_answer(State(k): K, Member { person: p, .. }: Member<at::Member>,
     let id = message.id.clone();
     send(&k, &p, Change::Message { workspace: ws, channel: r.channel, message }).await?;
     Ok(Json(json!({ "id": id })).into_response())
+}
+
+impl Kernel {
+    /// Active and recent personal agent delegations in the given channels,
+    /// formatted for the workspace right side panel. Only the owner sees any
+    /// private text; other members see only who is working and the status.
+    pub(super) fn panel_delegations(&self, ws: &str, viewer: &str, channels: &[&String]) -> Vec<Value> {
+        let items: Vec<(String, String, String, bool, Status, Option<String>)> = self.read(|s| {
+            s.team
+                .whispers_of(ws)
+                .into_iter()
+                .filter(|w| channels.contains(&&w.channel))
+                .filter_map(|w| {
+                    let run = s.tasks.get(&w.task).and_then(|t| s.runs.get(&t.run_id))?;
+                    let summary = (w.owner == viewer).then(|| run.summary.clone()).flatten();
+                    Some((w.task.clone(), w.channel.clone(), w.owner.clone(), w.shared, run.status, summary))
+                })
+                .collect()
+        });
+        items
+            .into_iter()
+            .rev()
+            .take(8)
+            .map(|(task, channel, owner, shared, status, summary)| {
+                let state = match status {
+                    Status::Suspended => "waiting",
+                    s if s.terminal() => "done",
+                    _ => "running",
+                };
+                json!({
+                    "task": task,
+                    "channel": channel,
+                    "member": owner,
+                    "member_name": name_of(self, &owner),
+                    "mine": owner == viewer,
+                    "shared": shared,
+                    "status": state,
+                    "summary": summary,
+                })
+            })
+            .collect()
+    }
 }

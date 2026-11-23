@@ -1,18 +1,21 @@
-//! The team agent's own work: on a schedule, under the workspace's standing
-//! authority, reporting to a channel. It runs in the background and asks
-//! no one, so anything it cannot do without asking does not happen.
+//! A member's routine in a shared project: on its interval, their own
+//! personal Magnus does the work in a mission lane and its scrubbed answer
+//! reports to the routine's channel (2026-11-22-retire-team-agent-runs).
+//! It runs in the background and asks no one, so anything it cannot do
+//! without asking does not happen.
 use super::caller::{at, Member};
 use super::routes::{new_id, send, K};
 use super::routine_sweep::Step;
-use super::{Change, TeamRun};
+use super::Change;
 use crate::api_error::{refuse, ApiResult};
+use crate::compartment::query_gate::scrub_check;
 use crate::events::Ev;
-use crate::kernel::{Kernel, NewRun};
+use crate::kernel::Kernel;
 use anyhow::Result;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{get, patch};
+use axum::routing::{patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,7 +25,8 @@ use std::time::Duration;
 const ROUTINE_TICK: Duration = Duration::from_secs(60);
 const MIN_ROUTINE_HOURS: i64 = 1;
 const MAX_ROUTINE_HOURS: i64 = 24 * 30;
-const MAX_ROUTINE_CHARS: usize = 4000;
+/// A routine's instructions are its lane's objective, so they fit one.
+const MAX_ROUTINE_CHARS: usize = super::orchestrator::MAX_OBJECTIVE_CHARS;
 /// How many of a routine's latest firings are kept. The stop rule reads
 /// back from the latest to the first that did not fail, so it counts at
 /// most this many in a row (`routine_sweep` stops at this many when the
@@ -129,29 +133,15 @@ fn fire(r: &mut Routine, f: Firing) {
 }
 
 pub fn router() -> Router<Arc<Kernel>> {
-    Router::new().route("/v1/workspaces/{ws}/routines", get(list).post(add)).route("/v1/workspaces/{ws}/routines/{id}", patch(update).delete(remove))
+    Router::new().route("/v1/workspaces/{ws}/routines", post(add)).route("/v1/workspaces/{ws}/routines/{id}", patch(update).delete(remove))
 }
 
-async fn list(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>) -> ApiResult {
-    let Some(w) = k.read(|s| s.team.workspace(&ws).cloned()) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
-    let items: Vec<serde_json::Value> = w
-        .routines
-        .iter()
-        .filter(|(_, r)| w.sees(&r.channel, &p.id))
-        .map(|(id, r)| {
-            json!({
-                "id": id,
-                "channel": r.channel,
-                "text": r.text,
-                "every_hours": r.every_hours,
-                "by": r.by,
-                "by_name": super::chat_routes::name_of(&k, &r.by),
-                "last_at": r.last_at,
-                "stopped": r.stopped,
-            })
-        })
-        .collect();
-    Ok(Json(items).into_response())
+/// Why a routine's instructions cannot be its lane's objective, if so.
+fn unfit(text: &str) -> Option<String> {
+    if text.trim().is_empty() || text.chars().count() > MAX_ROUTINE_CHARS {
+        return Some("a routine needs instructions, and not too many".to_string());
+    }
+    scrub_check(text).map(|why| format!("a routine's instructions are shared with the project: {why}"))
 }
 
 #[derive(Deserialize)]
@@ -175,8 +165,8 @@ async fn add(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws)
     if !(MIN_ROUTINE_HOURS..=MAX_ROUTINE_HOURS).contains(&b.every_hours) {
         return refuse(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
     }
-    if b.text.trim().is_empty() || b.text.chars().count() > MAX_ROUTINE_CHARS {
-        return refuse(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
+    if let Some(why) = unfit(&b.text) {
+        return refuse(StatusCode::BAD_REQUEST, why);
     }
     if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees(&b.channel, &p.id))) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
@@ -203,8 +193,8 @@ async fn update(State(k): K, Member { person: p, role, .. }: Member<at::Member>,
     if !(MIN_ROUTINE_HOURS..=MAX_ROUTINE_HOURS).contains(&every_hours) {
         return refuse(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
     }
-    if text.trim().is_empty() || text.chars().count() > MAX_ROUTINE_CHARS {
-        return refuse(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
+    if let Some(why) = unfit(&text) {
+        return refuse(StatusCode::BAD_REQUEST, why);
     }
     if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees(&channel, &p.id))) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
@@ -255,22 +245,12 @@ impl Kernel {
                     self.emit_all(vec![("poll", Ev::Team(Change::RoutineStopped { workspace, id, reason: why, at: now })), ("poll", notice)]).await?;
                 }
                 Step::Fire => {
-                    let team = TeamRun {
-                        workspace: workspace.clone(),
-                        channel: r.channel.clone(),
-                        thread: None,
-                        task: String::new(),
-                        requester: r.by.clone(),
-                        history: String::new(),
-                        sub: false,
-                        outside: false,
-                    };
-                    // A routine is team work too: within the limits, or not yet.
-                    match self.start_team_run("poll", &r.by, r.text.clone(), NewRun { team: Some(team), ..Default::default() }).await {
-                        Ok((task, _)) => {
+                    // Its author's own agent does it, in the background,
+                    // and its answer reports to the channel unasked.
+                    match self.start_room_mission_as("poll", &workspace, &r.channel, &r.by, r.text.trim(), None, None, false).await {
+                        Ok((_, task, _)) => {
                             self.emit("poll", Ev::Team(Change::RoutineRan { workspace, id, task, at: now })).await?;
                         }
-                        Err(e) if e.is::<super::spend::TeamLimited>() => tracing::info!("team routine {id} waits: {e}"),
                         Err(e) => {
                             tracing::error!("team routine {id}: {e:#}");
                             let error = format!("{e:#}");

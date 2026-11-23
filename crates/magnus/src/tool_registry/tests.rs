@@ -122,7 +122,7 @@ fn doing_words_come_from_the_declaration() {
     assert_eq!(doing_words("web_search"), "Searching the web");
     assert_eq!(doing_words("browser_navigate"), "Reading a page");
     assert_eq!(doing_words("computer_click"), "Working on its computer");
-    assert_eq!(doing_words("team_read_file"), "Reading a team file");
+    assert_eq!(doing_words("team_read_knowledge"), "Reading the knowledge base");
     assert_eq!(doing_words("memory_write"), "Memory write");
     assert_eq!(doing_words("gmail__send_message"), "Send message in gmail");
 }
@@ -146,7 +146,7 @@ fn web_reads_are_declared() {
 #[test]
 fn a_team_thread_is_offered_a_view_of_the_same_tools() {
     let team: Vec<&str> = all().filter(|t| t.in_team).map(|t| t.name).collect();
-    for t in ["web_fetch", "sandbox_exec", "computer_click", "find_tools", "team_post", "team_read_knowledge"] {
+    for t in ["web_fetch", "sandbox_exec", "computer_click", "find_tools", "team_read_knowledge"] {
         assert!(team.contains(&t), "{t} does not serve a team thread");
     }
     for t in ["memory_search", "browser_as_click", "browser_sign_in", "project_read", "open_attachment", "relationship_note"] {

@@ -203,10 +203,9 @@ fn chosen(mine: &[Computer], input: &Value) -> std::result::Result<Computer, Str
 }
 
 /// Whether an action could carry data away. A local write stays on the
-/// person's machine unless the command has the network, and a team write stays with the requester if it read
-/// their private data.
+/// person's machine unless the command has the network.
 pub(crate) fn may_send(a: &Action, f: &Facts) -> bool {
-    (f.app != "local" || a.input["network"] == json!(true)) && a.tool != "team_write_file" && !crate::boundary::is_chat_tool(f)
+    (f.app != "local" || a.input["network"] == json!(true)) && !crate::boundary::is_chat_tool(f)
 }
 
 /// The folder an action touches, when it names one.

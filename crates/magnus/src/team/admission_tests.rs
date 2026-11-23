@@ -30,7 +30,7 @@ async fn a_run_is_offered_a_tool_exactly_when_its_call_would_be_admitted() {
     assert_eq!(st, 200, "{v}");
     let ws = v["id"].as_str().unwrap().to_string();
     let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (request, _) = s.k.team_request(&ws, &channel, None, "sam", "what is on the launch page".into()).await.unwrap();
+    let (request, _) = s.k.recorded_team_run(&ws, &channel, "sam", "what is on the launch page").await.unwrap();
     let emit = |actor: &'static str, e: Value| {
         let k = s.k.clone();
         async move { k.emit(actor, serde_json::from_value(e).unwrap()).await.unwrap() }
@@ -72,7 +72,7 @@ async fn a_team_requests_record_call_is_refused() {
     let sam = s.token("sam").await;
     let ws = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await.1["id"].as_str().unwrap().to_string();
     let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (task, _) = s.k.team_request(&ws, &channel, None, "sam", "what is on the launch page".into()).await.unwrap();
+    let (task, _) = s.k.recorded_team_run(&ws, &channel, "sam", "what is on the launch page").await.unwrap();
     let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
     let flow = s.k.record_call(&run, "c1", "s1", "task_complete", &json!({ "summary": "done", "deliverable": [] })).await.unwrap();
     assert!(matches!(flow, crate::run::Flow::Continue), "the record call ended the run");

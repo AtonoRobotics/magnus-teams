@@ -1,16 +1,15 @@
 //! Spend limits: a workspace owner caps what the team agent spends in a
-//! calendar month, for the whole workspace and for one channel. Work that
-//! would start past a limit does not start, and work that starts is given
-//! no more budget than is left once what open team runs may still spend is
-//! held for them, so two starts cannot both claim the same remainder. The
-//! agent loop rechecks the limits before each model call, so a limit holds
-//! even mid-task, when it is lowered or overrun.
+//! calendar month, for the whole workspace and for one channel. No team
+//! run starts now (2026-11-22-retire-team-agent-runs): a shared ask runs on
+//! its asker's own budget. What older releases' team runs spent still
+//! counts, and the agent loop rechecks the limits before each model call of
+//! one that resumes, so a limit holds even mid-task.
 use super::caller::{at, Member};
 use super::chat::Chat;
 use super::routes::{has_channel, send, K};
 use super::{Change, Workspace};
 use crate::api_error::{refuse, ApiResult};
-use crate::kernel::{Kernel, NewRun};
+use crate::kernel::Kernel;
 use crate::state::State;
 use axum::extract::{Path, State as Ax};
 use axum::http::StatusCode;
@@ -42,28 +41,9 @@ fn month_start(now: DateTime<Utc>) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0).single().unwrap_or(now)
 }
 
-/// One team start at a time: what is left is read, and the run that claims
-/// it recorded, before the next start reads it.
-static STARTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-/// Team work refused at its start because a limit is spent, or held for
-/// open runs; the words say which limit.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TeamLimited(pub String);
-
-impl std::fmt::Display for TeamLimited {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for TeamLimited {}
-
-/// What the workspace's team runs spent since the month began, and, when
-/// `held`, what those still open may yet spend: each one's unspent budget.
-/// A sub-agent's spend is already in its parent's, and its budget is carved
-/// from the parent's, so it is counted once.
-fn tally(s: &State, ws: &str, now: DateTime<Utc>, held: bool) -> Spent {
+/// What the workspace's team runs spent since the month began. A
+/// sub-agent's spend is already in its parent's, so it is counted once.
+pub fn spent_this_month(s: &State, ws: &str, now: DateTime<Utc>) -> Spent {
     let since = month_start(now);
     let mut out = Spent::default();
     for r in s.team.runs_of(ws).into_iter().filter(|r| !r.sub) {
@@ -71,24 +51,10 @@ fn tally(s: &State, ws: &str, now: DateTime<Utc>, held: bool) -> Spent {
         if run.created_at < since {
             continue;
         }
-        let unspent = if held && !run.status.terminal() { (run.config.budget.max_usd - run.spent_usd()).max(0.0) } else { 0.0 };
-        let usd = run.spent_usd() + unspent;
-        out.total_usd += usd;
-        *out.channels_usd.entry(r.channel.clone()).or_default() += usd;
+        out.total_usd += run.spent_usd();
+        *out.channels_usd.entry(r.channel.clone()).or_default() += run.spent_usd();
     }
     out
-}
-
-/// What the workspace's team runs spent since the month began.
-pub fn spent_this_month(s: &State, ws: &str, now: DateTime<Utc>) -> Spent {
-    tally(s, ws, now, false)
-}
-
-/// What the month's team work has spent or may still spend: the spend, and
-/// the unspent budget of every team run not yet ended (a paused one too, as
-/// it may resume). This is what a new start is checked against.
-pub fn committed_this_month(s: &State, ws: &str, now: DateTime<Utc>) -> Spent {
-    tally(s, ws, now, true)
 }
 
 /// Why a team run, or a sub-agent of one, stops before its next model
@@ -150,37 +116,6 @@ pub fn refusal(w: &Workspace, spent: &Spent, channel: &str) -> Option<String> {
     } else {
         "This workspace has reached its spend limit for the month. A workspace owner can raise it.".to_string()
     })
-}
-
-impl Kernel {
-    /// The budget left for new team work in a channel this month, if
-    /// limited, once open team runs' unspent budgets are held for them; an
-    /// error says why nothing is left.
-    pub(super) fn team_budget_left(&self, ws: &str, channel: &str) -> Result<Option<f64>, String> {
-        self.read(|s| {
-            let Some(w) = s.team.workspace(ws) else { return Ok(None) };
-            let committed = committed_this_month(s, ws, Utc::now());
-            match refusal(w, &committed, channel) {
-                Some(why) => Err(why),
-                None => Ok(left_usd(w, &committed, channel)),
-            }
-        })
-    }
-
-    /// Starts team work within its workspace's and channel's limits: none
-    /// when nothing is left, and no more budget than is left otherwise.
-    /// Starts take turns, so the remainder one reads is never one another
-    /// start has claimed but not yet recorded.
-    pub(super) async fn start_team_run(self: &Arc<Self>, actor: &str, person: &str, text: String, mut o: NewRun) -> anyhow::Result<(String, String)> {
-        let Some((ws, channel)) = o.team.as_ref().map(|t| (t.workspace.clone(), t.channel.clone())) else { anyhow::bail!("team work needs its team thread") };
-        let _one = STARTING.lock().await;
-        let left = self.team_budget_left(&ws, &channel).map_err(|why| anyhow::Error::new(TeamLimited(why)))?;
-        if let Some(usd) = left {
-            let b = o.budget.take().unwrap_or_else(|| self.cfg.budget.clone());
-            o.budget = Some(crate::config::Budget { max_usd: b.max_usd.min(usd), ..b });
-        }
-        self.create_run(actor, person, text, vec![], o).await
-    }
 }
 
 #[derive(Deserialize)]

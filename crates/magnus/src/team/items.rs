@@ -198,7 +198,7 @@ mod tests {
             requester: "mo".into(),
             status: Status::Suspended,
             steps: 3,
-            doing: Some("team_read_file".into()),
+            doing: Some("team_read_knowledge".into()),
             title: "Following up".into(),
             long: false,
             thread: None,
@@ -219,6 +219,6 @@ mod tests {
         );
         assert_eq!(row["status_line"], serde_json::Value::Null, "work waiting on an ask says what it last did");
         let running = Work { status: Status::Running, ..w };
-        assert_eq!(work(&running).value()["tasks"][0]["status_line"], "Reading a team file", "the app is not told what the work is doing");
+        assert_eq!(work(&running).value()["tasks"][0]["status_line"], "Reading the knowledge base", "the app is not told what the work is doing");
     }
 }

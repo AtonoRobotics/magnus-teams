@@ -1,7 +1,8 @@
-//! A member's request in a team thread talks as any Magnus chat does: it
-//! runs under the team chat prompt, is offered no contract, plan or Done,
-//! and ends with its answer posted to the thread. A sub-agent it starts
-//! is a task like any sub-agent.
+//! A member's request in a team thread talks as any Magnus chat does. A
+//! team run an older release recorded runs under the team chat prompt, is
+//! offered no contract, plan or Done, and ends with its answer posted to
+//! the thread; an ask now is the asker's own agent in a mission lane, on
+//! the model they picked.
 
 use crate::admin_app::tests::server_with;
 use axum::Router;
@@ -15,7 +16,7 @@ async fn a_team_request_talks_like_chat_not_like_a_task() {
     assert_eq!(st, 200, "{v}");
     let ws = v["id"].as_str().unwrap().to_string();
     let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (task, _) = s.k.team_request(&ws, &channel, None, "sam", "what is on the launch page".into()).await.unwrap();
+    let (task, _) = s.k.recorded_team_run(&ws, &channel, "sam", "what is on the launch page").await.unwrap();
     let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
 
     let kind = s.k.run_kind(&run.id);
@@ -30,17 +31,13 @@ async fn a_team_request_talks_like_chat_not_like_a_task() {
     s.done().await;
 }
 
-/// Everything in the workspace is seen by the team (owner, 2026-11-13): a
-/// post, a file or a fact there is not a send, so it never asks the member
-/// first. A member's private work goes to their own agent.
+/// Everything in the workspace is seen by the team (owner, 2026-11-13), and
+/// a read of it reaches only the team. A member's private work goes to
+/// their own agent.
 #[tokio::test(flavor = "multi_thread")]
 async fn posting_in_the_team_workspace_asks_no_one() {
     let s = server_with("", |_| Router::new()).await;
-    for tool in ["team_post", "team_write_file", "team_note", "team_add_fact", "team_fix_entry", "team_create"] {
-        let f = crate::boundary::facts(&s.k, tool).unwrap();
-        assert!(f.reaches_self, "{tool} is treated as a send out of the workspace");
-    }
-    for tool in ["team_read_file", "team_read_knowledge", "web_fetch"] {
+    for tool in ["team_read_knowledge", "web_fetch"] {
         assert!(!crate::boundary::facts(&s.k, tool).unwrap().reaches_self, "{tool} reaches only the team");
     }
     assert!(crate::run::TEAM_INSTRUCTIONS.contains("never ask the member to post"), "the team prompt lets it hand a post back to the member");
@@ -97,4 +94,20 @@ async fn a_stopped_lane_releases_nothing() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     panic!("the stopped lane never ended");
+}
+
+/// A `peer_agent` lane is refused before anything is recorded. Its dispatch
+/// once recorded a lane that nothing would ever run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_peer_agent_lane_is_refused() {
+    let s = server_with("", |_| Router::new()).await;
+    let sam = s.token("sam").await;
+    let (_, v) = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await;
+    let ws = v["id"].as_str().unwrap().to_string();
+    let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
+    let lanes = json!([{ "kind": "peer_agent", "target_member": "sam", "objective": "Run the code agent on it" }]);
+    let (st, v) = s.post(&sam, &format!("/v1/workspaces/{ws}/rooms/{channel}/missions"), json!({ "goal": "Fix it", "lanes": lanes })).await;
+    assert_eq!(st, 400, "a peer_agent lane was taken: {v}");
+    assert!(s.k.read(|st| st.missions.view_for_room(&ws, &channel, "sam").is_empty()), "the refused mission was recorded");
+    s.done().await;
 }

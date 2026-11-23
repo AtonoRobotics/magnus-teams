@@ -34,6 +34,9 @@ pub(crate) const MAX_OBJECTIVE_CHARS: usize = 2_000;
 const MAX_MISSION_LANES: usize = 8;
 const MAX_GOAL_CHARS: usize = 2_000;
 const MAX_SCOPE_CHARS: usize = 200;
+/// Why a `peer_agent` lane starts nothing: the kind stays only so lanes a
+/// log already holds still read (2026-11-22-retire-team-agent-runs).
+const PEER_AGENT_RETIRED: &str = "a peer_agent lane is retired; ask for a member_agent lane";
 
 /// Spec for one parallel lane dispatched by the Team Leader Agent or a member request.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -67,6 +70,10 @@ impl Kernel {
     ) -> Result<String> {
         if goal.chars().count() > MAX_GOAL_CHARS || lanes.len() > MAX_MISSION_LANES {
             return Err(anyhow::anyhow!("a mission's goal is at most {MAX_GOAL_CHARS} characters and it has at most {MAX_MISSION_LANES} lanes"));
+        }
+        // Refused before anything is recorded, so no mission is left half made.
+        if lanes.iter().any(|l| l.kind == LaneKind::PeerAgent) {
+            return Err(anyhow::anyhow!("{PEER_AGENT_RETIRED}"));
         }
         let mission_id = new_id("mission");
         let actor = leader_run.as_deref().map(|r| format!("run:{r}")).unwrap_or_else(|| format!("person:{requester}"));
@@ -104,8 +111,27 @@ impl Kernel {
         model: Option<(String, String)>,
         hold: bool,
     ) -> Result<(String, String, String)> {
+        self.start_room_mission_as(&format!("person:{requester}"), workspace, room, requester, objective, thread, model, hold).await
+    }
+
+    /// The same mission for a member, started by `actor`: the member, or
+    /// "poll" for work the server starts on their behalf (a routine of
+    /// theirs, a follow-up on their question), which runs in the background
+    /// and asks no one.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn start_room_mission_as(
+        self: &Arc<Self>,
+        actor: &str,
+        workspace: &str,
+        room: &str,
+        requester: &str,
+        objective: &str,
+        thread: Option<String>,
+        model: Option<(String, String)>,
+        hold: bool,
+    ) -> Result<(String, String, String)> {
         let mission_id = new_id("mission");
-        let actor = format!("person:{requester}");
+        let actor = actor.to_string();
         self.emit(
             &actor,
             Ev::TeamMission(TeamMissionEvent::Started {
@@ -122,12 +148,6 @@ impl Kernel {
             LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread, hold };
         let (_, task, run) = self.dispatch_lane_inner(workspace, room, &mission_id, requester, &actor, spec).await?;
         Ok((mission_id, task.unwrap_or_default(), run.unwrap_or_default()))
-    }
-
-    /// Dispatches one isolated lane and spawns its detached completion watcher.
-    pub async fn dispatch_one_lane(self: &Arc<Self>, workspace: &str, room: &str, mission_id: &str, requester: &str, actor: &str, spec: LaneSpec) -> Result<String> {
-        let (lane_id, _, _) = self.dispatch_lane_inner(workspace, room, mission_id, requester, actor, spec).await?;
-        Ok(lane_id)
     }
 
     async fn dispatch_lane_inner(
@@ -231,27 +251,7 @@ impl Kernel {
                 self.spawn_lane_watcher(workspace.to_string(), mission_id.to_string(), lane_id.clone(), None, child_run.clone(), true, spec.thread);
                 Ok((lane_id, Some(child_task), Some(child_run)))
             }
-            LaneKind::PeerAgent => {
-                // PeerAgent lanes execute inside the target member's isolated boundary
-                // via the peer_agent surrogate hook (W3.4); record dispatched state.
-                self.emit(
-                    actor,
-                    Ev::TeamMission(TeamMissionEvent::LaneDispatched {
-                        workspace: workspace.to_string(),
-                        mission: mission_id.to_string(),
-                        lane: lane_id.clone(),
-                        kind: LaneKind::PeerAgent,
-                        target_member: spec.target_member,
-                        objective: objective.to_string(),
-                        scope: spec.scope,
-                        auto_release: false,
-                        child_task: None,
-                        child_run: None,
-                    }),
-                )
-                .await?;
-                Ok((lane_id, None, None))
-            }
+            LaneKind::PeerAgent => Err(anyhow::anyhow!("{PEER_AGENT_RETIRED}")),
         }
     }
 

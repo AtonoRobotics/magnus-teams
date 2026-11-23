@@ -1,7 +1,8 @@
-//! The team agent in conversation. It is in every channel from the moment
+//! Magnus in a shared conversation. It is in every channel from the moment
 //! the workspace exists, answers when mentioned or named with no button to
 //! press, joins on its own where a channel allows it, and gives long work
-//! its own thread with live status and the requester named.
+//! its own thread with live status and the requester named. Each answer is
+//! the asker's own personal Magnus at work (`orchestrator`).
 use super::chat::{AgentMode, Chat};
 use super::{Change, Role, Workspace};
 use crate::events::Ev;
@@ -110,8 +111,9 @@ impl Workspace {
     }
 
     /// Threads that went quiet on a member's question, in channels that let
-    /// the agent join: the channel, the thread's first message and who asked.
-    pub fn quiet_threads(&self, now: At) -> Vec<(String, String, String)> {
+    /// the agent join: the channel, the thread's first message, who asked and
+    /// what they asked.
+    pub fn quiet_threads(&self, now: At) -> Vec<(String, String, String, String)> {
         let mut out = vec![];
         for (id, ch) in &self.channels {
             if self.agent_mode(id) != AgentMode::WhenHelpful || self.chat.direct.contains_key(id) {
@@ -129,7 +131,7 @@ impl Workspace {
                     && age >= chrono::Duration::hours(QUIET_THREAD_AFTER_HOURS)
                     && age < chrono::Duration::days(QUIET_THREAD_LOOKBACK_DAYS)
                 {
-                    out.push((id.clone(), root.id.clone(), last.sender.clone()));
+                    out.push((id.clone(), root.id.clone(), last.sender.clone(), last.text.clone()));
                 }
             }
         }
@@ -139,18 +141,31 @@ impl Workspace {
 
 impl Kernel {
     /// Follows up once on each thread that went quiet, for the member whose
-    /// question was left, in the thread itself.
+    /// question was left: their own agent works on it in the background, and
+    /// its answer waits in their Release Airlock, as when it is only named,
+    /// to post in the thread once they release it. Its objective carries
+    /// only their own question, never the thread.
     pub(super) async fn follow_up_quiet_threads(self: &Arc<Self>) -> Result<()> {
         let now = chrono::Utc::now();
-        let quiet: Vec<(String, String, String, String)> =
-            self.read(|s| s.team.all().flat_map(|w| w.quiet_threads(now).into_iter().map(|(c, t, p)| (w.id.clone(), c, t, p))).collect());
-        for (workspace, channel, thread, person) in quiet {
-            let ask = "This thread went quiet with a question unanswered. Follow up in it: answer if you can from what the team has, or say who could.".to_string();
+        let quiet: Vec<(String, String, String, String, String)> =
+            self.read(|s| s.team.all().flat_map(|w| w.quiet_threads(now).into_iter().map(|(c, t, p, q)| (w.id.clone(), c, t, p, q))).collect());
+        for (workspace, channel, thread, person, question) in quiet {
             self.emit("poll", Ev::Team(Change::Chat { workspace: workspace.clone(), chat: Chat::FollowedUp { channel: channel.clone(), thread: thread.clone() } })).await?;
-            self.team_request_as("poll", &workspace, &channel, Some(thread), &person, ask, None).await?;
+            let objective = follow_up_objective(&question);
+            if let Err(e) = self.start_room_mission_as("poll", &workspace, &channel, &person, &objective, Some(thread), None, true).await {
+                tracing::warn!("team follow-up for {person} in {workspace}: {e:#}");
+            }
         }
         Ok(())
     }
+}
+
+/// What a follow-up asks the person's own agent: their question, cut to
+/// what one lane's objective holds.
+fn follow_up_objective(question: &str) -> String {
+    const ASK: &str = "A question you asked in a shared conversation went a day without an answer. Answer it if you can, or say who could:\n\n";
+    let room = super::orchestrator::MAX_OBJECTIVE_CHARS.saturating_sub(ASK.chars().count());
+    format!("{ASK}{}", question.trim().chars().take(room).collect::<String>())
 }
 
 #[cfg(test)]
@@ -229,7 +244,7 @@ mod tests {
         msgs.push(said("r", "alice", "Plan is set.", None, old));
         msgs.push(said("g", "gus", "Any news?", None, old));
         msgs.push(said("n", "alice", "Ready?", None, now));
-        assert_eq!(w.quiet_threads(now), vec![("c".to_string(), "q".to_string(), "alice".to_string())]);
+        assert_eq!(w.quiet_threads(now), vec![("c".to_string(), "q".to_string(), "alice".to_string(), "Who has the deck?".to_string())]);
         w.chat.followed_up.insert("q".into());
         assert!(w.quiet_threads(now).is_empty());
         w.chat.followed_up.clear();

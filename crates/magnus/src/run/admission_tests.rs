@@ -59,13 +59,12 @@ fn denied(r: Result<(), Refusal>) -> String {
 
 /// A person's own app named `team_<something>` is theirs anywhere: it was
 /// refused nothing at the boundary, but was not offered (offering cut every
-/// `team_` name). Only the workspace's own tools wait for a team thread.
+/// `team_` name).
 #[test]
 fn a_persons_app_named_team_something_is_offered_as_it_is_admitted() {
     let mut s = State::default();
     task(&mut s, "person:carol", "plain", Value::Null);
     assert_eq!(admits(&s, "r_plain", "team_drive__list"), Ok(()));
-    assert!(denied(admits(&s, "r_plain", "team_post")).contains("team thread"));
 }
 
 /// The one team tool a person's own agent has reads a base its owner may:
@@ -86,7 +85,7 @@ fn a_team_run_for_someone_no_longer_a_member_is_offered_nothing_to_act_with() {
     let mut s = State::default();
     task(&mut s, "person:carol", "routine", Value::Null);
     team(&mut s, "routine", false);
-    for tool in ["web_fetch", "team_post", "computer_click"] {
+    for tool in ["web_fetch", "team_read_knowledge", "computer_click"] {
         assert!(denied(admits(&s, "r_routine", tool)).contains("no longer a member"), "{tool}");
     }
 }
@@ -101,7 +100,7 @@ fn a_team_sub_agent_is_offered_only_what_it_was_given() {
     team(&mut s, "request", false);
     sub(&mut s, "r_request", "child", &["web_fetch"]);
     team(&mut s, "child", true);
-    let r = admits(&s, "r_child", "team_post");
+    let r = admits(&s, "r_child", "team_read_knowledge");
     assert!(matches!(&r, Err(Refusal::Denied { why, rule: Some(HARD_DENIAL) }) if why.contains("not given")), "{r:?}");
 }
 

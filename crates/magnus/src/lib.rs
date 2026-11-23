@@ -95,7 +95,6 @@ pub mod outcomes;
 pub mod password_check;
 pub mod passwords;
 pub mod payments;
-pub mod peer_agent;
 pub mod people;
 pub mod person_admin;
 pub mod policy;

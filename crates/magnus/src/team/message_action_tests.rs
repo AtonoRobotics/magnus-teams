@@ -38,7 +38,7 @@ async fn say(s: &Server, t: &str, ws: &str, channel: &str, text: &str) -> String
 /// when `private`. The answer's id.
 async fn answered(s: &Server, ws: &str, channel: &str, mo: &str, private: bool) -> (String, String) {
     let asked = say(s, mo, ws, channel, ASK).await;
-    let (task, _) = s.k.team_request(ws, channel, None, "mo", ASK.into()).await.unwrap();
+    let (task, _) = s.k.recorded_team_run(ws, channel, "mo", ASK).await.unwrap();
     let chat = Chat::Asked { channel: channel.into(), message: asked, task: task.clone() };
     s.k.emit("person:mo", Ev::Team(Change::Chat { workspace: ws.into(), chat })).await.unwrap();
     let run = s.k.read(|st| st.tasks[&task].run_id.clone());
