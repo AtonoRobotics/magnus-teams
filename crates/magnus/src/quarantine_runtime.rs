@@ -198,8 +198,15 @@ pub fn expand_body_handles(handles: &BTreeMap<String, String>, body: &str) -> St
 
 /// Sanitize a quarantined extraction JSON object: keep only declared typed
 /// fields (`boolean`, `number`/`integer`, `enum`), and replace any declared
-/// `x-opaque-handle: true` string field with a handle kept in `handles`.
-pub fn sanitize_with_handles(handles: &mut Handles, raw: &Value, schema: &Value) -> Value {
+/// `x-opaque-handle: true` string field with an opaque handle. This form
+/// starts its own numbering; the root it once took is no longer needed.
+pub fn sanitize_with_handles(_root: &str, raw: &Value, schema: &Value) -> Value {
+    sanitize_into(&mut Handles::after(0), raw, schema)
+}
+
+/// `sanitize_with_handles` into a run's own numbered `handles`, which is
+/// what the kernel uses: the run's handles continue its tree's numbering.
+pub fn sanitize_into(handles: &mut Handles, raw: &Value, schema: &Value) -> Value {
     let Some(props) = schema["properties"].as_object() else {
         return json!({});
     };
@@ -299,7 +306,7 @@ impl Kernel {
         // Numbered after the tree's handles as they stand now, just before
         // this result is recorded: a run's calls go one at a time.
         let mut handles = Handles::after(self.read(|s| handles_of(s, &root.id).len()));
-        let typed = sanitize_with_handles(&mut handles, &extracted, &schema);
+        let typed = sanitize_into(&mut handles, &extracted, &schema);
         let body_handle = handles.store(raw_text);
         let told = json!({
             "quarantined": true,
