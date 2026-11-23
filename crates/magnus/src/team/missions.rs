@@ -561,7 +561,7 @@ mod tests {
         ledger.apply(&old);
         crate::forget::Forget::forget(&mut ledger, &crate::forget::Erased { person: "alice".into(), ..Default::default() });
         assert_eq!(ledger.mission("m1").unwrap().lanes["l"].contribution, None, "erasing the requester left the open-web release");
-        assert!(ledger.search_workspace_memory("ws1", "", 10, |_| true).is_empty(), "erasing the requester left it in workspace memory");
+        assert!(ledger.workspace_memory.get("ws1").is_none_or(Vec::is_empty), "erasing the requester left it in workspace memory");
     }
 
     #[test]
