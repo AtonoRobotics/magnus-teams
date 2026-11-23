@@ -148,7 +148,8 @@ async fn retry_is_for_who_asked() {
     assert_eq!(st, 200, "{v}");
     let again = v["task_id"].as_str().unwrap_or_else(|| panic!("retry started nothing: {v}"));
     assert_ne!(again, task);
-    let asked = s.k.read(|st| st.team.run_of(again).map(|r| r.requester.clone()));
+    assert!(v["mission_id"].is_string(), "retry did not dispatch a personal-agent mission: {v}");
+    let asked = s.k.read(|st| st.tasks.get(again).and_then(|t| st.runs.get(&t.run_id)).map(|r| r.person.clone()));
     assert_eq!(asked.as_deref(), Some("mo"));
     let ask = s.k.read(|st| {
         let w = st.team.workspace(&ws).unwrap();

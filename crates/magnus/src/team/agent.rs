@@ -194,6 +194,7 @@ impl Kernel {
 
     /// A member's request on the model they chose in the composer, as a
     /// personal message runs on its pick; the server's default otherwise.
+    #[cfg(test)]
     pub(super) async fn team_request_on(
         self: &Arc<Self>,
         workspace: &str,
