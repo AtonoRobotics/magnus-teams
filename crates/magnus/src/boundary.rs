@@ -265,14 +265,9 @@ impl Kernel {
 
     async fn record_from(&self, a: &Action, key: Option<String>, sources: Vec<String>, r: Record<'_>) -> Result<Verdict> {
         let (text, data) = self.screen_inbound(&a.run, &a.tool, r.text, r.data, r.label.untrusted).await;
-        let text = if r.label.untrusted && !r.is_error && self.run_is_quarantined(&a.run) {
-            if let Some(run) = self.read(|s| s.runs.get(&a.run).cloned()) {
-                self.quarantine_tool_output(&run, &a.tool, &text).await
-            } else {
-                text
-            }
-        } else {
-            text
+        let (text, data) = match self.read(|s| s.runs.get(&a.run).cloned()) {
+            Some(run) if r.label.untrusted && !r.is_error && self.run_is_quarantined(&a.run) => self.quarantine_tool_output(&run, &a.tool, &text, data).await,
+            _ => (text, data),
         };
         // What the verifier reads taints the run like the model's own reads:
         // its words go back to the model.
@@ -337,6 +332,13 @@ impl Kernel {
         let Some(f) = facts(self, &a.tool) else {
             return self.deny(a, "identify", &format!("{} is not a tool this server can use (it is unknown or the owner has not classified it)", a.tool), false, None).await;
         };
+        // A quarantined run's opaque handles: refused where they would say
+        // where this goes, and their text put in here, in what leaves.
+        let expanded = match self.expand_handles(a, f.risk.changes_state() && f.audience != Audience::Private) {
+            Ok(x) => x,
+            Err(why) => return self.deny(a, "quarantine", &why, false, None).await,
+        };
+        let a = expanded.as_ref().unwrap_or(a);
         if let Some(c) = &f.connector {
             // Compare the live definition with the pin right before acting, so
             // a definition changed after it was listed cannot run (B10).

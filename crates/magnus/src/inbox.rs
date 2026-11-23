@@ -368,6 +368,7 @@ impl Kernel {
                             instructions: crate::run::instructions_version(),
                             harness: crate::kernel::HARNESS_VERSION.into(),
                             playbook: pb_ver,
+                            quarantine: None,
                         },
                         experiment: None,
                         chat: None,

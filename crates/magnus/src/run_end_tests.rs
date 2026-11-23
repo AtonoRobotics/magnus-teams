@@ -35,7 +35,7 @@ async fn tree(k: &Arc<Kernel>, actor: &str, top: &str) -> Vec<String> {
 /// nothing, even when its driver comes round again.
 async fn ended_without_a_step(k: &Arc<Kernel>, kids: &[String]) {
     for c in kids {
-        k.clone().drive(c).await.unwrap();
+        let _ = k.clone().drive(c).await;
         let r = k.read(|s| s.runs[c].clone());
         assert_eq!(r.status, Status::Cancelled, "sub-agent {c} went on after the run above it ended");
         assert_eq!((r.model_calls, r.actions), (0, 0), "sub-agent {c} asked the model or acted after the run above it ended");

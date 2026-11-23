@@ -75,6 +75,12 @@ pub struct RunConfig {
     /// Per-run reasoning effort (`off`, `low`, `medium`, `high`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<String>,
+    /// Set when the run reads untrusted output under quarantine (an
+    /// unattended schedule whose envelope reaches someone else): the schema
+    /// its untrusted reads are cut down to. Pinned at its start, so it holds
+    /// from its first step and through a restart (`quarantine_runtime`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarantine: Option<serde_json::Value>,
 }
 
 impl RunConfig {
