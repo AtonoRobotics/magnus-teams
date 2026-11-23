@@ -93,20 +93,19 @@ async fn list(State(k): K, h: HeaderMap) -> ApiResult {
 
 async fn create(State(k): K, h: HeaderMap, Json(b): Json<Named>) -> ApiResult {
     let p = who(&k, &h).await.map_err(Box::new)?;
-    // Only a Team Admin starts one, and owns it (the owner, 2026-11-11); the
-    // app offers the form to them alone (`/v1/admin/standing`).
-    if !k.is_team_admin(&p) {
-        return refuse(StatusCode::FORBIDDEN, "a Team Admin starts a workspace: a Magnus admin can make you one");
+    // Any regular user may start a shared project and collaborate as peers;
+    // restricted guest accounts still cannot create new shared projects.
+    if crate::people::rights(&p).held_to_guest_limits() {
+        return refuse(StatusCode::FORBIDDEN, "guests cannot create a shared project");
     }
     if !short(&b.name) {
         return refuse(StatusCode::BAD_REQUEST, "a workspace needs a short name");
     }
     let id = new_id();
     send(&k, &p, Change::Created { workspace: id.clone(), name: b.name, owner: p.id.clone() }).await?;
-    // Ready to talk in at once, with the team agent already there.
+    // Ready to collaborate at once — each collaborator's own personal Magnus
+    // and personal computer do their work and share scrubbed outputs here.
     send(&k, &p, Change::Channel { workspace: id.clone(), channel: new_id(), name: FIRST_CHANNEL.into() }).await?;
-    // And its computer, made now so nobody ever sets one up (spec rev 142).
-    k.computer_soon(crate::computer::Owner::Workspace(id.clone()));
     Ok(Json(json!({ "id": id })).into_response())
 }
 
@@ -120,8 +119,8 @@ async fn one(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pat
     Ok(Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response())
 }
 
-/// Delete the workspace: any of its Team Admins (its owner and its admins)
-/// may (the owner, 2026-11-11).
+/// Delete the shared project: only its creator (or legacy workspace admin) may
+/// delete it for everyone; any collaborator may leave on their own.
 async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>) -> ApiResult {
     if let Err(e) = k.delete_workspace(&format!("person:{}", p.id), &ws).await {
         return refuse(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"));
@@ -129,13 +128,18 @@ async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(w
     Ok(Json(json!({ "ok": true })).into_response())
 }
 
+fn default_member_role() -> Role {
+    Role::Member
+}
+
 #[derive(Deserialize)]
 struct SetMember {
     person: String,
+    #[serde(default = "default_member_role")]
     role: Role,
 }
 
-async fn set_member(State(k): K, Member { person: p, role, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<SetMember>) -> ApiResult {
+async fn set_member(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<SetMember>) -> ApiResult {
     if k.person(&b.person).is_none() {
         return refuse(StatusCode::NOT_FOUND, "no such person");
     }
@@ -192,7 +196,7 @@ struct NewMessage {
     text: String,
     #[serde(default)]
     thread: Option<String>,
-    /// Asks the team agent to act on this message.
+    /// Asks the sender's personal Magnus to help and share its output.
     #[serde(default)]
     agent: bool,
     /// For the sender's own agent only, and it does not reach the channel.
@@ -222,8 +226,9 @@ async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Gu
     Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent, model).await)
 }
 
-/// Post a message as `p`, and have the team agent take it on when asked, or
-/// when it is mentioned, named or, where the channel allows, of help.
+/// Post a message as `p`, and when asked or `@Magnus` is mentioned, dispatch
+/// `p`'s own personal Magnus via the Mission + Release Airlock engine so each
+/// collaborator's agent does their work in isolation and shares scrubbed output.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn post_and_ask(
     k: &Arc<Kernel>,
@@ -242,19 +247,17 @@ pub(super) async fn post_and_ask(
     ok_or_return!(send(k, p, Change::Message { workspace: ws.to_string(), channel: channel.to_string(), message }).await);
     let why = if asked { Some(Why::Asked) } else { k.read(|s| s.team.workspace(ws).and_then(|w| w.agent_answers(channel, role, &text))) };
     let Some(why) = why else { return Json(json!({ "id": id })).into_response() };
-    // The message is posted; the agent stays out once a spend limit is reached.
-    if let Err(limited) = k.team_budget_left(ws, channel) {
-        return Json(json!({ "id": id, "limited": limited })).into_response();
+    let objective: String = text.trim().chars().take(super::orchestrator::MAX_OBJECTIVE_CHARS).collect();
+    if let Some(reason) = crate::compartment::query_gate::scrub_check(&objective) {
+        return Json(json!({ "id": id, "limited": reason })).into_response();
     }
-    match k.team_request_on(ws, channel, thread, &p.id, text, model).await {
-        Ok((task, run)) => {
+    match k.start_personal_room_mission(ws, channel, &p.id, &objective, thread, model).await {
+        Ok((mission, task, run)) => {
             ok_or_return!(
                 send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await
             );
-            Json(json!({ "id": id, "task_id": task, "run_id": run, "agent": why })).into_response()
+            Json(json!({ "id": id, "mission_id": mission, "task_id": task, "run_id": run, "agent": why })).into_response()
         }
-        // Another start claimed what was left since the check above.
-        Err(e) if e.is::<super::spend::TeamLimited>() => Json(json!({ "id": id, "limited": e.to_string() })).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
     }
 }

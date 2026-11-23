@@ -64,9 +64,14 @@ async fn a_team_request_runs_on_the_model_its_member_picked() {
     let (adapter, model) = s.k.default_model();
     let (st, v) = s.post(&sam, &path, json!({ "text": "plan it", "agent": true, "model": { "adapter": adapter, "model": model } })).await;
     assert_eq!(st, 200, "{v}");
+    assert!(v["mission_id"].is_string(), "shared chat ask did not dispatch a personal-agent mission: {v}");
+    let run_id = v["run_id"].as_str().unwrap();
+    let personal_run = s.k.read(|st| st.runs.get(run_id).cloned()).unwrap();
+    assert_eq!(personal_run.person, "sam", "the dispatched lane did not run as the requester's personal agent");
+    assert_eq!((personal_run.config.adapter, personal_run.config.model), (adapter, model));
     let picked = ("other".to_string(), "picked-model".to_string());
-    let (task, _) = s.k.team_request_on(&ws, &channel, None, "sam", "plan it".into(), Some(picked.clone())).await.unwrap();
-    let run = s.k.read(|st| st.runs.get(&st.tasks[&task].run_id).cloned().unwrap());
-    assert_eq!((run.config.adapter, run.config.model), picked, "the picked model was not the run's");
+    let (_, _, picked_run_id) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, Some(picked.clone())).await.unwrap();
+    let picked_run = s.k.read(|st| st.runs.get(&picked_run_id).cloned().unwrap());
+    assert_eq!((picked_run.config.adapter, picked_run.config.model), picked, "the picked model was not the personal lane's");
     s.done().await;
 }

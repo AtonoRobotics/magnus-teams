@@ -122,7 +122,7 @@ struct NewInvite {
 
 /// By email: someone the server already knows joins at once; anyone else
 /// gets an account invitation by email. Without an email, a link.
-async fn invite(State(k): K, Member { person: p, role: mine, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> ApiResult {
+async fn invite(State(k): K, Member { person: p, role: mine, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<NewInvite>) -> ApiResult {
     let role = b.role.unwrap_or(Role::Member);
     if role > mine {
         return refuse(StatusCode::FORBIDDEN, "you cannot give a role above your own");

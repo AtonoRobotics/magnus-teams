@@ -47,7 +47,11 @@ impl Kernel {
     /// own library (their personal space is untouched). What they wrote stays.
     pub(crate) async fn set_workspace_role(&self, actor: &str, ws: &str, person: &str, to: Option<Role>) -> Result<()> {
         let Some(role) = to else {
-            let running: Vec<String> = self.read(|s| s.team.runs_by(ws, person).into_iter().map(|r| r.task.clone()).collect());
+            let running: Vec<String> = self.read(|s| {
+                let mut tasks: Vec<String> = s.team.runs_by(ws, person).into_iter().map(|r| r.task.clone()).collect();
+                tasks.extend(s.missions.active_tasks_by(ws, person));
+                tasks
+            });
             self.keep_held(actor, ws, person).await;
             self.emit(actor, Ev::Team(Change::Removed { workspace: ws.to_string(), person: person.to_string() })).await?;
             self.end_team_tasks(actor, &running).await;
@@ -64,9 +68,9 @@ impl Kernel {
     }
 }
 
-/// The people on this server who are not in the workspace yet, for an
-/// owner or admin to add: names only, never their addresses.
-async fn candidates(State(k): K, _: Member<at::Admin>, Path(ws): Path<String>) -> ApiResult {
+/// The people on this server who are not in the shared project yet, for any
+/// collaborator to add: names only, never their addresses.
+async fn candidates(State(k): K, _: Member<at::Member>, Path(ws): Path<String>) -> ApiResult {
     let inside: BTreeSet<String> = k.read(|s| s.team.workspace(&ws).map(|w| w.members.keys().cloned().collect()).unwrap_or_default());
     let out: Vec<Value> = k
         .named_people()

@@ -110,9 +110,9 @@ pub(super) fn apply(w: &mut super::Workspace, c: &Change) {
                 r.stopped = Some("its creator left the workspace".to_string());
             }
         }
-        Change::Member { person, role, .. } if *role < super::Role::Admin => {
+        Change::Member { person, role, .. } if *role < super::Role::Member => {
             for r in w.routines.values_mut().filter(|r| r.by == *person && r.stopped.is_none()) {
-                r.stopped = Some("its creator is no longer a workspace admin".to_string());
+                r.stopped = Some("its creator is now a guest".to_string());
             }
         }
         _ => {}
@@ -171,7 +171,7 @@ struct UpdateRoutine {
     every_hours: Option<i64>,
 }
 
-async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> ApiResult {
+async fn add(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws): Path<String>, Json(b): Json<NewRoutine>) -> ApiResult {
     if !(MIN_ROUTINE_HOURS..=MAX_ROUTINE_HOURS).contains(&b.every_hours) {
         return refuse(StatusCode::BAD_REQUEST, format!("a routine runs every {MIN_ROUTINE_HOURS} to {MAX_ROUTINE_HOURS} hours"));
     }
@@ -190,10 +190,13 @@ async fn add(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path(ws):
     Ok(Json(json!({ "id": id })).into_response())
 }
 
-async fn update(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>, Json(b): Json<UpdateRoutine>) -> ApiResult {
+async fn update(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>, Json(b): Json<UpdateRoutine>) -> ApiResult {
     let Some(existing) = k.read(|s| s.team.workspace(&ws).and_then(|w| w.routines.get(&id).cloned())) else {
         return refuse(StatusCode::NOT_FOUND, "no such routine");
     };
+    if existing.by != p.id && role < super::Role::Admin {
+        return refuse(StatusCode::FORBIDDEN, "only who created this routine may change it");
+    }
     let channel = b.channel.unwrap_or(existing.channel);
     let text = b.text.unwrap_or(existing.text);
     let every_hours = b.every_hours.unwrap_or(existing.every_hours);
@@ -214,7 +217,13 @@ async fn update(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((
     Ok(Json(json!({ "ok": true })).into_response())
 }
 
-async fn remove(State(k): K, Member { person: p, .. }: Member<at::Admin>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
+async fn remove(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, id)): Path<(String, String)>) -> ApiResult {
+    let existing = k.read(|s| s.team.workspace(&ws).and_then(|w| w.routines.get(&id).cloned()));
+    if let Some(r) = existing {
+        if r.by != p.id && role < super::Role::Admin {
+            return refuse(StatusCode::FORBIDDEN, "only who created this routine may remove it");
+        }
+    }
     send(&k, &p, Change::RoutineRemoved { workspace: ws, id }).await?;
     Ok(Json(json!({ "ok": true })).into_response())
 }
@@ -314,13 +323,16 @@ mod tests {
     }
 
     #[test]
-    fn a_routine_stops_when_its_creator_leaves_or_loses_admin_standing() {
+    fn a_routine_stops_when_its_creator_leaves_or_becomes_guest() {
         let mut w = super::super::Workspace::default();
         let r = Routine { channel: "c".into(), text: "Sum up".into(), every_hours: 1, by: "ann".into(), ..Default::default() };
         apply(&mut w, &Change::Routine { workspace: "w".into(), id: "r1".into(), routine: r.clone() });
         assert!(w.routines["r1"].stopped.is_none());
+        // Peers (Member) keep their routines; only demotion to Guest stops them.
         apply(&mut w, &Change::Member { workspace: "w".into(), person: "ann".into(), role: super::super::Role::Member });
-        assert!(w.routines["r1"].stopped.is_some(), "demoting creator below Admin did not stop their routine");
+        assert!(w.routines["r1"].stopped.is_none(), "a peer member lost their own routine");
+        apply(&mut w, &Change::Member { workspace: "w".into(), person: "ann".into(), role: super::super::Role::Guest });
+        assert!(w.routines["r1"].stopped.is_some(), "demoting creator to Guest did not stop their routine");
 
         apply(&mut w, &Change::Routine { workspace: "w".into(), id: "r2".into(), routine: r });
         assert!(w.routines["r2"].stopped.is_none());

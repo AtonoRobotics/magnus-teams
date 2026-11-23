@@ -49,7 +49,15 @@ async fn owners_and_admins_add_and_remove_and_anyone_leaves() {
 
     assert_eq!(s.post(&sam, &format!("{base}/members"), json!({ "person": "mo", "role": "admin" })).await.0, 200);
     assert_eq!(s.post(&sam, &format!("{base}/members"), json!({ "person": "ana", "role": "member" })).await.0, 200);
-    assert_eq!(s.get(&ana, &format!("{base}/people")).await.0, 403, "a member listed the server's people");
+    // Pure peer collaboration: any collaborator can see server people and add
+    // teammates (role defaults to member), while still unable to promote above
+    // their own standing or remove others.
+    let (st, ana_people) = s.get(&ana, &format!("{base}/people")).await;
+    assert_eq!(st, 200, "a collaborator could not list server people: {ana_people}");
+    assert!(ana_people.to_string().find('@').is_none(), "an address reached the list: {ana_people}");
+    assert_eq!(s.post(&ana, &format!("{base}/members"), json!({ "person": "lee" })).await.0, 200, "a collaborator could not add a peer");
+    assert_eq!(s.k.read(|st| st.team.role(&ws, "lee")), Some(Role::Member));
+    assert_eq!(s.post(&ana, &format!("{base}/members"), json!({ "person": "lee", "role": "owner" })).await.0, 403, "a collaborator promoted someone to owner");
     assert_eq!(s.call(&ana, Method::DELETE, &format!("{base}/members/mo"), None).await.0, 403, "a member removed someone");
     assert_eq!(s.call(&mo, Method::DELETE, &format!("{base}/members/sam"), None).await.0, 403, "an admin removed the owner");
     assert_eq!(s.call(&sam, Method::DELETE, &format!("{base}/members/sam"), None).await.0, 403, "the only owner left");

@@ -1,12 +1,11 @@
-//! Team Admin (the owner, 2026-11-11). sam is the server's owner, ana an
-//! admin, mo a member, lee a member who will be a workspace admin. A Magnus
-//! admin makes someone a Team Admin (the server's owner was made one when
-//! the role came in) and sees workspaces only as names,
-//! Team Admins and counts; they neither join, change nor delete one. Only a
-//! Team Admin starts a workspace, and owns it; its Team Admins (its owner
-//! and its admins) delete it.
+//! Pure peer shared projects + server admin isolation (2026-11-22). Any regular
+//! user can start a shared project without needing a Team Admin grant, no
+//! shared computer VM is auto-provisioned, collaborators can add peers and
+//! leave, and only the creator can delete it. A Magnus server admin sees shared
+//! projects only as names and counts, and can never read, join, or delete one
+//! they are not a member of.
 
-use super::tests::{server_with, PASSWORD};
+use super::tests::server_with;
 use axum::Router;
 use reqwest::Method;
 use serde_json::json;
@@ -14,38 +13,28 @@ use serde_json::json;
 const LEE: &str = "[[people]]\nid = \"lee\"\nname = \"Lee\"\n";
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_magnus_admin_makes_team_admins_and_stays_out_of_their_workspaces() {
+async fn any_user_starts_a_shared_project_without_shared_vm_and_admins_stay_out() {
     let s = server_with(LEE, |_| Router::new()).await;
     let (sam, ana, mo, lee) = (s.token("sam").await, s.token("ana").await, s.token("mo").await, s.token("lee").await);
-    // Nobody starts a workspace without the role, a server admin included.
-    for (who, t) in [("an admin", &ana), ("a member", &mo)] {
-        assert_eq!(s.post(t, "/v1/workspaces", json!({ "name": "Launch" })).await.0, 403, "{who} started a workspace without being a Team Admin");
-    }
-    // The server's owner was made one when Team Admin came in.
-    assert_eq!(s.get(&sam, "/v1/admin/standing").await.1["team_admin"], true, "the server's owner was not seeded as a Team Admin");
-    assert_eq!(s.get(&mo, "/v1/admin/standing").await.1["team_admin"], false);
-    let grant = "/v1/admin/people/mo/team-admin";
-    assert_eq!(s.call(&mo, Method::PUT, grant, Some(json!({ "on": true }))).await.0, 403, "a member made themselves a Team Admin");
-    let (st, v) = s.call(&ana, Method::PUT, grant, Some(json!({ "on": true }))).await;
-    assert_eq!((st, v["error"].as_str()), (403, Some("step_up")), "the grant went through without a step-up: {v}");
-    assert_eq!(s.post(&ana, "/v1/admin/step-up", json!({ "password": PASSWORD })).await.0, 200);
-    assert_eq!(s.call(&ana, Method::PUT, grant, Some(json!({ "on": true }))).await.0, 200);
-    assert_eq!(s.audited("team_admin_set").len(), 1);
-    assert_eq!(s.get(&mo, "/v1/admin/standing").await.1["team_admin"], true);
 
-    // mo starts one and owns it, and makes lee an admin of it.
+    // Any regular member (mo) starts a shared project directly — no Team Admin gate.
     let (st, v) = s.post(&mo, "/v1/workspaces", json!({ "name": "Launch" })).await;
     assert_eq!(st, 200, "{v}");
     let ws = v["id"].as_str().unwrap().to_string();
     assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}")).await.1["role"], "owner");
-    assert_eq!(s.post(&mo, &format!("/v1/workspaces/{ws}/members"), json!({ "person": "lee", "role": "admin" })).await.0, 200);
+    // No shared workspace computer VM is auto-provisioned.
+    assert!(s.k.team_computer(&ws).is_none(), "a shared workspace computer VM was auto-provisioned");
 
-    // The Magnus admin sees it by name, Team Admins and counts, and nothing in it.
+    // Collaborators are added as peers (role defaults to member) and can add others.
+    assert_eq!(s.post(&mo, &format!("/v1/workspaces/{ws}/members"), json!({ "person": "lee" })).await.0, 200);
+    assert_eq!(s.get(&lee, &format!("/v1/workspaces/{ws}/people")).await.0, 200, "a collaborator could not list people");
+    assert_eq!(s.call(&lee, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 403, "a non-creator deleted the shared project");
+
+    // The Magnus server admin sees it only by name and counts, and nothing in it.
     let (st, v) = s.get(&ana, "/v1/admin/workspaces").await;
     assert_eq!(st, 200, "{v}");
     let w = &v["workspaces"][0];
     assert_eq!((w["name"].as_str(), w["members"].as_u64(), w["channels"].as_u64()), (Some("Launch"), Some(2), Some(1)), "{v}");
-    assert_eq!(w["team_admins"].as_array().map(Vec::len), Some(2), "{v}");
     assert!(!v.to_string().contains("general"), "the admin list carries the workspace's channels: {v}");
     // ... and cannot join, change or delete it, nor read it.
     let members = format!("/v1/admin/workspaces/{ws}/members");
@@ -58,13 +47,8 @@ async fn a_magnus_admin_makes_team_admins_and_stays_out_of_their_workspaces() {
         assert_eq!(s.call(t, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 404, "someone outside the workspace deleted it");
     }
 
-    // Taking the role back stops mo starting another; Launch stays theirs.
-    assert_eq!(s.call(&ana, Method::PUT, grant, Some(json!({ "on": false }))).await.0, 200);
-    assert_eq!(s.post(&mo, "/v1/workspaces", json!({ "name": "Second" })).await.0, 403);
-    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}")).await.1["role"], "owner");
-
-    // A workspace's Team Admin who is its admin, not its owner, deletes it.
-    assert_eq!(s.call(&lee, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 200, "the workspace's admin could not delete it");
+    // The creator deletes the shared project.
+    assert_eq!(s.call(&mo, Method::DELETE, &format!("/v1/workspaces/{ws}"), None).await.0, 200, "the creator could not delete it");
     assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}")).await.0, 404);
     s.done().await;
 }

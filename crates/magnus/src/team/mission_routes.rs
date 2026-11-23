@@ -113,7 +113,13 @@ async fn release_lane(
     let actor = format!("person:{}", p.id);
     k.emit(
         &actor,
-        Ev::TeamMission(TeamMissionEvent::LaneReleased { workspace: ws.clone(), mission: mission.clone(), lane: lane.clone(), contribution: text, released_by: p.id.clone() }),
+        Ev::TeamMission(TeamMissionEvent::LaneReleased {
+            workspace: ws.clone(),
+            mission: mission.clone(),
+            lane: lane.clone(),
+            contribution: text.clone(),
+            released_by: p.id.clone(),
+        }),
     )
     .await
     .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
@@ -122,6 +128,7 @@ async fn release_lane(
         let _ = k.emit(&actor, Ev::TeamMission(TeamMissionEvent::StandingReleaseSet { workspace: ws.clone(), room, person: p.id.clone(), scope, active: true })).await;
     }
 
+    k.post_released_contribution(&ws, &mission, &p.id, &text, None).await;
     k.refresh_mission_deliverable(&ws, &mission).await;
     Ok(Json(json!({ "released": true })).into_response())
 }

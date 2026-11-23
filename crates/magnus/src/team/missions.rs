@@ -250,6 +250,17 @@ impl MissionLedger {
         self.hidden_apps.get(person).is_some_and(|s| s.contains(app))
     }
 
+    /// Child tasks of still-working mission lanes owned by `person` in `workspace`.
+    pub fn active_tasks_by(&self, workspace: &str, person: &str) -> Vec<String> {
+        self.missions
+            .values()
+            .filter(|m| m.workspace == workspace)
+            .flat_map(|m| m.lanes.values())
+            .filter(|l| l.status == LaneStatus::Working && l.owner.as_deref() == Some(person))
+            .filter_map(|l| l.child_task.clone())
+            .collect()
+    }
+
     /// Searches unified `workspace:<id>` memory (newest first, optional substring
     /// filter on title/body/room). Every returned entry carries `untrusted: true`.
     pub fn search_workspace_memory(&self, workspace: &str, query: &str, limit: usize) -> Vec<WorkspaceMemoryItem> {

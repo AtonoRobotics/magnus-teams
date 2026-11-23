@@ -29,9 +29,9 @@ const LANE_WATCH_POLL_MS: Duration = Duration::from_millis(250);
 /// Maximum wall-clock time a detached lane watcher waits before marking the lane failed.
 const LANE_WATCH_MAX_SECS: Duration = Duration::from_secs(15 * 60);
 /// Maximum length of a single lane objective dispatched by the Leader Agent.
-const MAX_OBJECTIVE_CHARS: usize = 2_000;
+pub(crate) const MAX_OBJECTIVE_CHARS: usize = 2_000;
 
-/// Spec for one parallel lane dispatched by the Team Leader Agent.
+/// Spec for one parallel lane dispatched by the Team Leader Agent or a member request.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LaneSpec {
     pub kind: LaneKind,
@@ -40,6 +40,10 @@ pub struct LaneSpec {
     pub objective: String,
     #[serde(default)]
     pub scope: String,
+    #[serde(default)]
+    pub model: Option<(String, String)>,
+    #[serde(default)]
+    pub thread: Option<String>,
 }
 
 impl Kernel {
@@ -69,13 +73,58 @@ impl Kernel {
         .await?;
 
         for spec in lanes {
-            self.dispatch_one_lane(workspace, room, &mission_id, requester, &actor, spec).await?;
+            self.dispatch_lane_inner(workspace, room, &mission_id, requester, &actor, spec).await?;
         }
         Ok(mission_id)
     }
 
+    /// Starts a personal-agent Mission for a single member's `@Magnus` request
+    /// in a shared conversation. The requester's own personal Magnus runs in
+    /// isolation and posts its scrubbed answer back to the room (or holds it
+    /// in their Release Airlock if `scrub_check` flags anything).
+    pub async fn start_personal_room_mission(
+        self: &Arc<Self>,
+        workspace: &str,
+        room: &str,
+        requester: &str,
+        objective: &str,
+        thread: Option<String>,
+        model: Option<(String, String)>,
+    ) -> Result<(String, String, String)> {
+        let mission_id = new_id("mission");
+        let actor = format!("person:{requester}");
+        self.emit(
+            &actor,
+            Ev::TeamMission(TeamMissionEvent::Started {
+                workspace: workspace.to_string(),
+                room: room.to_string(),
+                mission: mission_id.clone(),
+                goal: objective.to_string(),
+                requester: requester.to_string(),
+                leader_run: None,
+            }),
+        )
+        .await?;
+        let spec = LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread };
+        let (_, task, run) = self.dispatch_lane_inner(workspace, room, &mission_id, requester, &actor, spec).await?;
+        Ok((mission_id, task.unwrap_or_default(), run.unwrap_or_default()))
+    }
+
     /// Dispatches one isolated lane and spawns its detached completion watcher.
     pub async fn dispatch_one_lane(self: &Arc<Self>, workspace: &str, room: &str, mission_id: &str, requester: &str, actor: &str, spec: LaneSpec) -> Result<String> {
+        let (lane_id, _, _) = self.dispatch_lane_inner(workspace, room, mission_id, requester, actor, spec).await?;
+        Ok(lane_id)
+    }
+
+    async fn dispatch_lane_inner(
+        self: &Arc<Self>,
+        workspace: &str,
+        room: &str,
+        mission_id: &str,
+        requester: &str,
+        actor: &str,
+        spec: LaneSpec,
+    ) -> Result<(String, Option<String>, Option<String>)> {
         let lane_id = new_id("lane");
         let objective = spec.objective.trim();
         if objective.is_empty() || objective.chars().count() > MAX_OBJECTIVE_CHARS {
@@ -99,7 +148,7 @@ impl Kernel {
                 );
                 // Clean label: untrusted only when requested by someone else; private always.
                 let label = Label { untrusted: target != requester, private: true };
-                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), ..Default::default() }).await?;
+                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model: spec.model, ..Default::default() }).await?;
                 self.emit(
                     actor,
                     Ev::TeamMission(TeamMissionEvent::LaneDispatched {
@@ -111,13 +160,14 @@ impl Kernel {
                         objective: objective.to_string(),
                         scope: spec.scope.clone(),
                         auto_release,
-                        child_task: Some(child_task),
+                        child_task: Some(child_task.clone()),
                         child_run: Some(child_run.clone()),
                     }),
                 )
                 .await?;
                 self.wake(&child_run);
-                self.spawn_lane_watcher(workspace.to_string(), mission_id.to_string(), lane_id.clone(), Some(target.to_string()), child_run, auto_release);
+                self.spawn_lane_watcher(workspace.to_string(), mission_id.to_string(), lane_id.clone(), Some(target.to_string()), child_run.clone(), auto_release, spec.thread);
+                Ok((lane_id, Some(child_task), Some(child_run)))
             }
             LaneKind::OpenWeb => {
                 let tools = crate::compartment::open_web_tools(false, self.web.can_search(), self.browser.available());
@@ -129,7 +179,14 @@ impl Kernel {
                 )
                 .await?;
                 self.emit("kernel", Ev::SubAgent(SubAgent { child: child_run.clone(), parent: actor.to_string(), tools })).await?;
-                self.create_run(actor, requester, prompt, vec![], NewRun { label: None, ids: Some((child_task.clone(), child_run.clone())), ..Default::default() }).await?;
+                self.create_run(
+                    actor,
+                    requester,
+                    prompt,
+                    vec![],
+                    NewRun { label: None, ids: Some((child_task.clone(), child_run.clone())), model: spec.model, ..Default::default() },
+                )
+                .await?;
                 self.emit(
                     actor,
                     Ev::TeamMission(TeamMissionEvent::LaneDispatched {
@@ -141,13 +198,14 @@ impl Kernel {
                         objective: objective.to_string(),
                         scope: spec.scope,
                         auto_release: true,
-                        child_task: Some(child_task),
+                        child_task: Some(child_task.clone()),
                         child_run: Some(child_run.clone()),
                     }),
                 )
                 .await?;
                 self.wake(&child_run);
-                self.spawn_lane_watcher(workspace.to_string(), mission_id.to_string(), lane_id.clone(), None, child_run, true);
+                self.spawn_lane_watcher(workspace.to_string(), mission_id.to_string(), lane_id.clone(), None, child_run.clone(), true, spec.thread);
+                Ok((lane_id, Some(child_task), Some(child_run)))
             }
             LaneKind::PeerAgent => {
                 // PeerAgent lanes execute inside the target member's isolated boundary
@@ -168,15 +226,25 @@ impl Kernel {
                     }),
                 )
                 .await?;
+                Ok((lane_id, None, None))
             }
         }
-        Ok(lane_id)
     }
 
     /// Detached async watcher that routes a finished lane either straight to
     /// `LaneReleased` (when `auto_release` AND `scrub_check` passes) or into
     /// the owner's private Release Airlock (`LaneDraftReady`).
-    fn spawn_lane_watcher(self: &Arc<Self>, workspace: String, mission: String, lane: String, owner: Option<String>, child_run: String, auto_release: bool) {
+    #[allow(clippy::too_many_arguments)]
+    fn spawn_lane_watcher(
+        self: &Arc<Self>,
+        workspace: String,
+        mission: String,
+        lane: String,
+        owner: Option<String>,
+        child_run: String,
+        auto_release: bool,
+        thread: Option<String>,
+    ) {
         let k = self.clone();
         tokio::spawn(async move {
             let started = Instant::now();
@@ -206,11 +274,12 @@ impl Kernel {
                                     workspace: workspace.clone(),
                                     mission: mission.clone(),
                                     lane,
-                                    contribution: summary,
-                                    released_by,
+                                    contribution: summary.clone(),
+                                    released_by: released_by.clone(),
                                 }),
                             )
                             .await;
+                        k.post_released_contribution(&workspace, &mission, &released_by, &summary, thread).await;
                         k.refresh_mission_deliverable(&workspace, &mission).await;
                     } else if let Some(owner_id) = owner {
                         let _ =
@@ -225,6 +294,24 @@ impl Kernel {
                 tokio::time::sleep(LANE_WATCH_POLL_MS).await;
             }
         });
+    }
+
+    /// Posts a released lane's scrubbed contribution into its room's chat
+    /// stream so collaborators see the shared work inline as well as in the
+    /// Missions canvas. Attributed to `agent:<released_by>` so erasure and
+    /// message permissions stay tied to the contributor.
+    pub(crate) async fn post_released_contribution(self: &Arc<Self>, workspace: &str, mission_id: &str, released_by: &str, contribution: &str, thread: Option<String>) {
+        let Some(room) = self.read(|s| {
+            let m = s.missions.mission(mission_id)?;
+            let w = s.team.workspace(workspace)?;
+            w.channels.contains_key(&m.room).then(|| m.room.clone())
+        }) else {
+            return;
+        };
+        let sender = format!("agent:{released_by}");
+        let message = super::Message { id: new_id("msg"), sender, text: contribution.to_string(), thread, at: chrono::Utc::now() };
+        let actor = format!("person:{released_by}");
+        let _ = self.emit(&actor, Ev::Team(super::Change::Message { workspace: workspace.to_string(), channel: room, message })).await;
     }
 
     /// Re-synthesizes the Living Deliverable snapshot from all released lanes
