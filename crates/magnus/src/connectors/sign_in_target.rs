@@ -3,6 +3,7 @@
 
 use super::discovery::{asks_sign_in, discover, server_metadata};
 use crate::config::Connector;
+use crate::egress_client::Egress;
 use anyhow::{bail, Result};
 use serde_json::Value;
 
@@ -22,13 +23,13 @@ pub(crate) struct SignInTarget {
 /// (RFC 8707 names an MCP server a token is for; the provider's API takes
 /// the plain OAuth 2.0 request). A remote app signs in where its MCP
 /// server's metadata says, for that server.
-pub(crate) async fn sign_in_target(c: &Connector) -> Result<SignInTarget> {
+pub(crate) async fn sign_in_target(e: &Egress, c: &Connector) -> Result<SignInTarget> {
     if c.kind().signs_in_at_provider() {
         let Some(issuer) = &c.issuer else { bail!("{} names no authorization server to sign in at", c.name) };
-        return Ok(SignInTarget { asm: server_metadata(issuer).await?, scopes: vec![], issuer: issuer.clone(), resource: String::new() });
+        return Ok(SignInTarget { asm: server_metadata(e, issuer).await?, scopes: vec![], issuer: issuer.clone(), resource: String::new() });
     }
-    let meta = asks_sign_in(&c.url).await?.unwrap_or(None);
-    let (asm, scopes, issuer) = discover(&c.url, meta).await?;
+    let meta = asks_sign_in(e, &c.url).await?.unwrap_or(None);
+    let (asm, scopes, issuer) = discover(e, &c.url, meta).await?;
     Ok(SignInTarget { asm, scopes, issuer, resource: c.url.clone() })
 }
 
@@ -48,10 +49,11 @@ mod tests {
     /// falls back to asking its url (an image digest) where to sign in.
     #[tokio::test]
     async fn a_provider_sign_in_names_its_server_or_is_refused() {
-        let e = sign_in_target(&connector("brokered", None)).await.err().map(|e| format!("{e:#}"));
+        let egress = &crate::egress_client::Egress::new(true, std::time::Duration::from_secs(5), std::time::Duration::from_secs(5));
+        let e = sign_in_target(egress, &connector("brokered", None)).await.err().map(|e| format!("{e:#}"));
         assert_eq!(e.as_deref(), Some("mail names no authorization server to sign in at"));
         // A remote app asks its MCP server, here one that is not there.
-        let e = sign_in_target(&connector("mcp_http", None)).await.err().map(|e| format!("{e:#}")).unwrap_or_default();
+        let e = sign_in_target(egress, &connector("mcp_http", None)).await.err().map(|e| format!("{e:#}")).unwrap_or_default();
         assert!(!e.contains("names no authorization server"), "{e}");
     }
 }

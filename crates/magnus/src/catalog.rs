@@ -190,6 +190,7 @@ pub fn connector(m: &Manifest) -> Connector {
     Connector {
         owner: None,
         filter_login_codes: m.category == "email",
+        keep_login_codes: false,
         name: m.id.clone(),
         transport: if m.kind == "brokered" { crate::transport::BROKERED.into() } else { crate::transport::MCP_HTTP.into() },
         url: m.endpoint.clone(),

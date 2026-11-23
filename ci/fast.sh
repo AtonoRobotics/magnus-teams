@@ -47,6 +47,7 @@ check sh ci/strix-gc-check.sh
 check sh ci/ratchet-check.sh
 check sh ci/release-gate-check.sh
 check sh ci/toolchain-check.sh
+check sh ci/egress-check.sh
 check python3 -I sandbox/desktop/test_desktop.py
 check python3 -I sandbox/test_images.py
 for f in desktop/tests/*-check.mjs; do

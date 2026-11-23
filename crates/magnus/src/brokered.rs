@@ -492,7 +492,7 @@ async fn tunnel(mut s: UnixStream, hosts: Vec<String>, app: String, resolve: Arc
 /// Connects to a manifest host (`host:port`): at the address configured for
 /// it (`resolve`, an operator's pinned or internal address, or a test's
 /// stand-in), or else at an address DNS gives once, refused when it is
-/// private, loopback, link-local or unique-local (`web::public_addrs`), so a
+/// private, loopback, link-local or unique-local (`egress_client::public_addrs`), so a
 /// provider's name pointed inside the server's network reaches nothing
 /// there, and the connection goes to the address that was checked.
 async fn dial(to: &str, resolve: &std::collections::BTreeMap<String, String>) -> Result<TcpStream> {
@@ -501,7 +501,7 @@ async fn dial(to: &str, resolve: &std::collections::BTreeMap<String, String>) ->
     }
     let (host, port) = to.rsplit_once(':').ok_or_else(|| anyhow!("{to} names no port"))?;
     let port: u16 = port.parse().map_err(|_| anyhow!("{to} names no port"))?;
-    let addrs = crate::web::public_addrs(host, port).await?;
+    let addrs = crate::egress_client::public_addrs(host, port).await?;
     Ok(TcpStream::connect(&addrs[..]).await?)
 }
 

@@ -12,7 +12,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 const APPS: &str =
-    "[[connectors]]\nname = \"crm\"\nurl = \"https://crm.example/mcp\"\ncredential = \"connector_crm\"\nauth = \"oauth\"\naudience = \"internal\"\nlabel = \"private\"\n";
+    "[[connectors]]\nname = \"crm\"\nurl = \"https://crm.example/mcp\"\ncredential = \"connector_crm\"\nauth = \"oauth\"\naudience = \"internal\"\nlabel = \"private\"\n[web]\nallow_private_networks = true\n";
 
 /// The app's authorization server: its token endpoint answers a refresh
 /// only when let go, and its revocation endpoint counts what it revokes.

@@ -150,6 +150,7 @@ fn connector_of(person: &str, d: &Definition) -> Result<Connector> {
     Ok(Connector {
         owner: Some(person.to_string()),
         filter_login_codes: false,
+        keep_login_codes: false,
         credential: d.token.then(|| crate::connectors::credential_name(&name)),
         name,
         transport: crate::transport::MCP_HTTP.into(),
@@ -208,20 +209,13 @@ fn address(d: &Definition, t: &DefinedTool, args: &Value) -> Result<(url::Url, s
     Ok((url, rest))
 }
 
+/// A client for the connector's address alone, checked and pinned, with
+/// no redirect followed (`egress_client`).
 async fn pinned_client(url: &url::Url, allow_private: bool) -> Result<reqwest::Client, CallError> {
-    let host = url.host_str().ok_or_else(|| CallError::NotSent("no host".into()))?;
-    let port = url.port_or_known_default().unwrap_or(443);
-    let found: Vec<std::net::SocketAddr> = tokio::net::lookup_host((host, port)).await.map_err(|e| CallError::NotSent(format!("could not find {host}: {e}")))?.collect();
-    if found.is_empty() || (!allow_private && found.iter().any(|a| crate::web::private_ip(a.ip()))) {
-        return Err(CallError::NotSent(format!("{host} is not an address a connector may reach")));
-    }
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(CALL_TIMEOUT)
-        .resolve_to_addrs(host, &found)
-        .build()
-        .map_err(|e| CallError::NotSent(e.to_string()))
+    crate::egress_client::Egress::new(allow_private, CONNECT_TIMEOUT, CALL_TIMEOUT)
+        .client_for(url)
+        .await
+        .map_err(|e| CallError::NotSent(format!("{} is not an address a connector may reach: {e:#}", url.host_str().unwrap_or_default())))
 }
 
 fn failure(text: String) -> Value {

@@ -74,7 +74,7 @@ impl Kernel {
     /// sent from here.
     pub(crate) async fn relay_sign_in(&self, c: &Connector, person: &str, s: &Settings) -> Result<(String, String)> {
         let Some(provider) = c.registration.clone() else { bail!("{} has no provider registration to sign in through the relay", c.name) };
-        let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(c).await?;
+        let SignInTarget { asm, scopes, issuer, resource } = sign_in_target(&self.app_egress(), c).await?;
         let field = |k: &str| asm[k].as_str().map(String::from);
         let (Some(authorize), Some(token)) = (field("authorization_endpoint"), field("token_endpoint")) else {
             bail!("the app's authorization server names no authorization or token endpoint")

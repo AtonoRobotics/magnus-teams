@@ -1,7 +1,7 @@
 //! Where an app is signed in to: its protected-resource metadata (RFC 9728)
 //! and its authorization server's (RFC 8414, else OpenID).
 
-use super::http;
+use crate::egress_client::Egress;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 
@@ -19,9 +19,9 @@ pub(crate) fn well_known(base: &str, suffix: &str) -> Result<Vec<String>> {
     Ok(out)
 }
 
-pub(crate) async fn first_json(c: &reqwest::Client, urls: &[String]) -> Option<Value> {
+pub(crate) async fn first_json(e: &Egress, urls: &[String]) -> Option<Value> {
     for u in urls {
-        if let Ok(r) = c.get(u).header("accept", "application/json").send().await {
+        if let Ok(r) = e.get(u, |r| r.header("accept", "application/json")).await {
             if r.status().is_success() {
                 if let Ok(v) = r.json::<Value>().await {
                     return Some(v);
@@ -37,14 +37,8 @@ pub(crate) async fn first_json(c: &reqwest::Client, urls: &[String]) -> Option<V
 /// or the standard one. None when it does not say. (The name a server gives
 /// at initialize is often its software's, "StatelessServer", so it is not
 /// used.)
-pub(crate) async fn own_name(url: &str) -> Option<String> {
-    let r = http()
-        .post(url)
-        .header("accept", "application/json, text/event-stream")
-        .json(&json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "magnus", "version": env!("CARGO_PKG_VERSION") } } }))
-        .send()
-        .await
-        .ok()?;
+pub(crate) async fn own_name(e: &Egress, url: &str) -> Option<String> {
+    let r = initialize(e, url).await.ok()?;
     let named = r.headers().get("www-authenticate").and_then(|v| v.to_str().ok()).and_then(|h| {
         let i = h.find("resource_metadata=\"")? + "resource_metadata=\"".len();
         Some(h[i..].split('"').next()?.to_string())
@@ -53,19 +47,13 @@ pub(crate) async fn own_name(url: &str) -> Option<String> {
     // path under /.well-known/oauth-protected-resource.
     let standard = url::Url::parse(url).ok().map(|u| format!("{}/.well-known/oauth-protected-resource{}", u.origin().ascii_serialization(), u.path().trim_end_matches('/')));
     let urls: Vec<String> = named.into_iter().chain(standard).collect();
-    first_json(&http(), &urls).await?["resource_name"].as_str().map(String::from)
+    first_json(e, &urls).await?["resource_name"].as_str().map(String::from)
 }
 
 /// Whether an app asks for a sign-in: an unauthenticated initialize answered
 /// with 401. Its protected-resource metadata, when it says where.
-pub async fn asks_sign_in(url: &str) -> Result<Option<Option<String>>> {
-    let r = http()
-        .post(url)
-        .header("accept", "application/json, text/event-stream")
-        .json(&json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "magnus", "version": env!("CARGO_PKG_VERSION") } } }))
-        .send()
-        .await
-        .with_context(|| format!("could not reach {url}"))?;
+pub(crate) async fn asks_sign_in(e: &Egress, url: &str) -> Result<Option<Option<String>>> {
+    let r = initialize(e, url).await.with_context(|| format!("could not reach {url}"))?;
     if r.status() != reqwest::StatusCode::UNAUTHORIZED {
         return Ok(None);
     }
@@ -74,6 +62,12 @@ pub async fn asks_sign_in(url: &str) -> Result<Option<Option<String>>> {
         Some(h[i..].split('"').next()?.to_string())
     });
     Ok(Some(meta))
+}
+
+/// An unauthenticated initialize, to the app's address alone (no redirect).
+async fn initialize(e: &Egress, url: &str) -> Result<reqwest::Response> {
+    let body = json!({ "jsonrpc": "2.0", "id": 0, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "magnus", "version": env!("CARGO_PKG_VERSION") } } });
+    e.send(reqwest::Method::POST, url, |r| r.header("accept", "application/json, text/event-stream").json(&body)).await
 }
 
 pub(crate) fn same_url(a: &str, b: &str) -> bool {
@@ -85,15 +79,14 @@ pub(crate) fn same_url(a: &str, b: &str) -> bool {
 /// metadata must be for this app and that server (RFC 9728 §3.3, RFC 8414
 /// §3.3): metadata for another resource or another issuer is refused, so
 /// a sign-in never goes where the app's metadata was not about.
-pub(crate) async fn discover(app_url: &str, resource_metadata: Option<String>) -> Result<(Value, Vec<String>, String)> {
-    let c = http();
+pub(crate) async fn discover(e: &Egress, app_url: &str, resource_metadata: Option<String>) -> Result<(Value, Vec<String>, String)> {
     let prm_urls = match resource_metadata {
         Some(u) => vec![u],
         None => well_known(app_url, "oauth-protected-resource")?,
     };
-    let prm = first_json(&c, &prm_urls).await.ok_or_else(|| anyhow!("the app does not say where to sign in (no protected-resource metadata)"))?;
+    let prm = first_json(e, &prm_urls).await.ok_or_else(|| anyhow!("the app does not say where to sign in (no protected-resource metadata)"))?;
     let (issuer, scopes) = check_resource_metadata(&prm, app_url)?;
-    Ok((server_metadata(&issuer).await?, scopes, issuer))
+    Ok((server_metadata(e, &issuer).await?, scopes, issuer))
 }
 
 /// What an app's protected-resource metadata says, once it is for this
@@ -112,12 +105,11 @@ pub(crate) fn check_resource_metadata(prm: &Value, app_url: &str) -> Result<(Str
 
 /// An authorization server's metadata (RFC 8414, else OpenID), which must
 /// name that server as its issuer.
-pub(crate) async fn server_metadata(issuer: &str) -> Result<Value> {
-    let c = http();
+pub(crate) async fn server_metadata(e: &Egress, issuer: &str) -> Result<Value> {
     let mut urls = well_known(issuer, "oauth-authorization-server")?;
     urls.extend(well_known(issuer, "openid-configuration")?);
     urls.push(format!("{}/.well-known/openid-configuration", issuer.trim_end_matches('/')));
-    let asm = first_json(&c, &urls).await.ok_or_else(|| anyhow!("{issuer} publishes no authorization server metadata"))?;
+    let asm = first_json(e, &urls).await.ok_or_else(|| anyhow!("{issuer} publishes no authorization server metadata"))?;
     check_server_metadata(&asm, issuer)?;
     Ok(asm)
 }

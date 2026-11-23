@@ -4,10 +4,15 @@
 //! (`https://github.com/login/oauth/access_token`) answers a form-encoded
 //! body unless the request says it accepts JSON. Every exchange and refresh
 //! says so, and a server that follows the RFC is unaffected.
+//!
+//! The endpoint is the one the app's authorization server names, so it is
+//! reached through `egress_client`: checked, pinned, and with no redirect
+//! followed, since a 307 would replay the code or refresh token to wherever
+//! it points.
 
 /// A form POST to `endpoint` that asks for a JSON answer.
-pub(crate) fn post(client: &reqwest::Client, endpoint: &str, form: &[(&str, String)]) -> reqwest::RequestBuilder {
-    client.post(endpoint).header(reqwest::header::ACCEPT, "application/json").form(form)
+pub(crate) async fn post(e: &crate::egress_client::Egress, endpoint: &str, form: &[(&str, String)]) -> anyhow::Result<reqwest::Response> {
+    e.send(reqwest::Method::POST, endpoint, |r| r.header(reqwest::header::ACCEPT, "application/json").form(form)).await
 }
 
 #[cfg(test)]
@@ -33,7 +38,8 @@ mod tests {
         let url = format!("http://{}/login/oauth/access_token", l.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(l, app).await });
         let form = [("grant_type", "authorization_code".to_string()), ("code", "c".to_string())];
-        let v: serde_json::Value = super::post(&reqwest::Client::new(), &url, &form).send().await.unwrap().json().await.unwrap();
+        let e = crate::egress_client::Egress::new(true, std::time::Duration::from_secs(5), std::time::Duration::from_secs(5));
+        let v: serde_json::Value = super::post(&e, &url, &form).await.unwrap().json().await.unwrap();
         assert_eq!(v["access_token"], "gho_x");
     }
 }
