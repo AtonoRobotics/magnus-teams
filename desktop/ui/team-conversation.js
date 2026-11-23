@@ -1,5 +1,5 @@
-// A team channel, or one of its threads, as a conversation of the one chat
-// view (chat-view.js) and the one composer (chat-composer.js). It says only
+// A shared conversation, or one of its threads, as a source of the one
+// conversation (chat-view.js) and the one composer (chat-composer.js). It says only
 // where the items come from, what each control does there (the workspace's
 // routes, which keep its rules), and what several people add: who sent each
 // message, reactions, replies and threads, the requester named, an answer
@@ -28,11 +28,7 @@ function teamComposer(s, thread) {
       if (file.type?.startsWith("image/") && file.size <= TEAM_PREVIEW_MAX_BYTES) s.files[file.name] = await teamPreviewUrl(file);
       return { id: file.name, name: file.name, media_type: file.type, size: file.size };
     },
-    stopRun: async ids => {
-      await Promise.all(ids.map(id => Server.tasks.cancel(id)));
-      toast("Stopped.");
-      await TeamChat.refresh();
-    },
+    stopRun: ids => Conversation.stop(ids, () => TeamChat.refresh()),
     send: async ({ text, files, form, record }) => {
       if ($("[data-whisper]", form)?.checked) {
         await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined, whisper: true, model: chosenModel(form) });
@@ -50,7 +46,6 @@ function teamComposer(s, thread) {
     refresh: () => TeamChat.refresh(),
     mentions: partial => mentionChoices(Team.home, partial),
     typed: () => { if (Date.now() - s.typedAt > TEAM_TYPING_PING_MS) { s.typedAt = Date.now(); Server.channels.typing(s.ws, s.channel).catch(() => {}); } },
-    keep: text => TeamDrafts.set(s.ws, s.channel, thread, text),
   };
 }
 
@@ -107,11 +102,7 @@ function teamConversation(s, thread) {
     },
     prepare: async (entries, view) => {
       const runningIds = [...new Set(entries.filter(e => e.work?.id && e.work.status === "running").map(e => e.work.id))];
-      if (view.record) {
-        view.record.runningIds = runningIds;
-        if (runningIds.length || entries.length) view.record.pendingRun = false;
-        MessageDrafts.changed();
-      }
+      Conversation.track(view, runningIds, entries.length > 0, () => TeamChat.refresh());
       const c = channel();
       if (!c) return;
       const project = Team.home.projects.find(p => p.id === c.project);

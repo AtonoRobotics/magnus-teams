@@ -1,9 +1,10 @@
 // The one composer, for every conversation the chat view shows (chat-view.js):
-// the personal chat, a team channel and a team thread. Files added to the
-// next message upload at once and are sent with it. What is typed and
-// attached stays with its conversation while the person moves around the app
-// (#544). Enter sends; Shift+Enter and an input method's Enter do not. In a
-// conversation of several people, typing @ offers who to mention.
+// the personal chat, a shared conversation and its threads. Files added to
+// the next message upload at once and are sent with it. What is typed and
+// attached stays with its conversation while the person moves around the
+// app, in memory only (MessageDrafts, chat-view.js; #544). Enter sends;
+// Shift+Enter and an input method's Enter do not. In a conversation of
+// several people, typing @ offers who to mention.
 
 /**
  * What the composer needs from its conversation.
@@ -13,7 +14,6 @@
  * @property {() => Promise<any>} refresh after a send whose outcome is unknown
  * @property {(partial: string) => Array<{ name: string, agent?: boolean }>} [mentions]
  * @property {() => void} [typed] someone is typing here
- * @property {(text: string) => void} [keep] what is typed now, to keep beyond this session
  * @property {(f: any) => Promise<any>} [verify] whether an attached file is still there
  */
 
@@ -155,7 +155,7 @@ function wireComposer(form, record, conv) {
     }
   };
   const menu = $(".say-mentions", form);
-  const choose = name => { const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `); box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length); menu.hidden = true; read(); conv.keep?.(box.value); };
+  const choose = name => { const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `); box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length); menu.hidden = true; read(); };
   const offer = () => {
     if (!menu || !conv.mentions) return;
     const partial = mentionAt(box.value, box.selectionStart), choices = partial === null ? [] : conv.mentions(partial);
@@ -163,7 +163,7 @@ function wireComposer(form, record, conv) {
     menu.innerHTML = choices.map(p => `<button type="button" role="option" data-mention="${esc(p.name)}">${typeof avatar === "function" ? avatar(p.name, p.agent) : ""}${esc(p.name)}${p.agent ? ` <span class="small faint">team agent</span>` : ""}</button>`).join("");
   };
   if (menu) menu.onclick = e => { const b = e.target.closest("[data-mention]"); if (b) { choose(b.dataset.mention); box.focus(); } };
-  box.oninput = () => { read(); fit(); syncSend(); conv.keep?.(box.value); offer(); conv.typed?.(); };
+  box.oninput = () => { read(); fit(); syncSend(); offer(); conv.typed?.(); };
   box.onselect = selected;
   model?.addEventListener("change", read);
   box.onkeydown = e => {
@@ -187,7 +187,6 @@ function wireComposer(form, record, conv) {
         await conv.steerRun([...record.runningIds], text);
         if (epoch !== MessageDrafts.epoch()) return;
         if (record.text.trim() === text) { record.text = ""; record.selection = [0, 0]; }
-        conv.keep?.(record.text);
       } catch (err) {
         if (epoch !== MessageDrafts.epoch()) return;
         toast(err.message || "Could not steer active work.");
@@ -202,7 +201,6 @@ function wireComposer(form, record, conv) {
       // Clear what was sent; anything typed or attached meanwhile stays.
       if (record.text.trim() === text) { record.text = ""; record.selection = [0, 0]; }
       record.files = record.files.filter(f => !files.includes(f));
-      conv.keep?.(record.text);
       if (then) await then();
     } catch (err) {
       if (epoch !== MessageDrafts.epoch()) return;

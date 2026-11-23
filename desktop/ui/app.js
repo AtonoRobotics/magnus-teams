@@ -90,28 +90,6 @@ const App = {
   sessionGeneration: 0,
 };
 
-// Unsent messages, kept in memory for this session: what was typed and the
-// files attached survive redraws and moving between views. One per
-// conversation, and one for a new conversation in each project. Nothing is
-// written to the device; signing out forgets them (#544).
-const MessageDrafts = (() => {
-  let person = null, rows = {}, epoch = 0;
-  const listeners = new Set(), originals = new Map();
-  const emit = () => { for (const f of listeners) f(); };
-  const key = (thread, project) => thread ? `thread:${thread}` : `new:${project || ""}`;
-  function forThread(thread, project = null) {
-    const id = key(thread, project);
-    return rows[id] ||= {id, thread, project, text:"", files:[], selection:[0,0], anchor:null};
-  }
-  function clear() { rows = {}; originals.clear(); epoch++; emit(); }
-  // Another person signing in on this computer starts with nothing.
-  function open(appliance, who) { const next = `${appliance}/${who}`; if (next !== person) { person = next; clear(); } }
-  function discard(id) { if (!rows[id]) return; for (const f of rows[id].files) originals.delete(f.uid); delete rows[id]; emit(); }
-  return {forThread, open, clear, discard, changed:emit, uid:()=>crypto.randomUUID(),
-    get:id=>rows[id], all:()=>Object.values(rows), originals, epoch:()=>epoch,
-    subscribe:f=>{listeners.add(f);return()=>listeners.delete(f);}};
-})();
-
 // Capture an entry and its relative offset before content/layout changes.
 const ReadingAnchors = (() => {
   const state = new WeakMap();
@@ -1593,8 +1571,8 @@ function chosenModel(root) {
 
 // ---------- Chat ----------
 
-// The chat is the one chat view (chat-view.js) with the personal
-// conversation (personal-chat.js) and the one composer (chat-composer.js).
+// The chat is the one conversation (chat-view.js) with the personal
+// chat's source (personal-chat.js).
 // A conversation goes on until the person starts a new one; opening Magnus
 // returns to the latest.
 
@@ -1615,13 +1593,11 @@ async function chatLayout(main, thread, project) {
     // Dismissing the updates notice, or opening Activity from it, closes it until the next session.
     if (e.target.closest("[data-act=dismiss-updates], [data-open=activity]")) { App.feedDismissed = true; banners(); }
   };
-  const picker = await modelPicker();
-  if (seq !== App.seq) return false;
-  paint($("#composer", main), composer(thread ? "Reply, or give Magnus more to do" : "Ask anything, or give Magnus work to do", picker));
-  const record = MessageDrafts.forThread(thread,project);
-  App.draftRecord = record;
-  wireComposer($("#say", main), record, personalComposer());
-  return ChatView.mount(main, personalChat(thread), { framed: true, record });
+  const record = Conversation.draft({ thread, project });
+  const view = await Conversation.open(main, { framed: true, record, conv: personalChat(thread), side: personalComposer(), stale: () => seq !== App.seq,
+    placeholder: thread ? "Reply, or give Magnus more to do" : "Ask anything, or give Magnus work to do" });
+  if (view) App.draftRecord = record;
+  return view || false;
 }
 // Above the conversation: its project (a link to it) and its title, and
 // what can be done to the whole conversation.

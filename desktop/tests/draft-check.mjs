@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import vm from 'node:vm';
-const source=readFileSync(new URL('../ui/app.js',import.meta.url),'utf8');
+// The one conversation's drafts (chat-view.js), for the personal chat and a shared project's alike.
+const source=readFileSync(new URL('../ui/chat-view.js',import.meta.url),'utf8');
 const writes=[];
 const context={crypto:{randomUUID},setTimeout,clearTimeout,console,
   localStorage:{getItem:()=>null,setItem:(k,v)=>writes.push([k,v]),removeItem:k=>writes.push([k])},

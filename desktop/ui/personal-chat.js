@@ -1,4 +1,4 @@
-// The personal chat, as a conversation of the one chat view (chat-view.js):
+// The personal chat's source for the one conversation (chat-view.js):
 // one person and Magnus. A message is answered, or becomes a task or a
 // schedule to confirm: the model decides. What it starts shows in the thread
 // as it goes: tasks with their status, the decisions they wait on (the same
@@ -14,11 +14,7 @@ function personalComposer() {
     upload: (file, record) => upload([file], record.thread ? { thread: record.thread } : record.project ? { project: record.project } : {}).then(r => r[0]),
     verify: f => Server.files.info(f.id),
     refresh: () => refresh(),
-    stopRun: async ids => {
-      await Promise.all(ids.map(id => Server.tasks.cancel(id)));
-      toast("Stopped.");
-      await refresh();
-    },
+    stopRun: ids => Conversation.stop(ids, refresh),
     steerRun: async (ids, text) => {
       await Server.tasks.steer(ids[0], text);
       toast("Steered Magnus.");
@@ -125,17 +121,7 @@ function personalChat(thread) {
         ...entries.flatMap(e => e.kind === "tasks" ? e.tasks : []).filter(t => isActive(t.status)).map(t => t.task_id),
         ...entries.flatMap(e => e.kind === "sub_agents" ? e.agents : []).filter(a => isActive(a.status)).map(a => a.task_id),
       ].filter(Boolean))];
-      if (view.record) {
-        view.record.runningIds = runningIds;
-        if (runningIds.length || entries.some((e, i) => i > lastMessage && (e.kind === "answer" || (e.kind === "turn" && !isActive(e.status))))) {
-          view.record.pendingRun = false;
-        }
-        if (view.record.cancelRequested && runningIds.length) {
-          view.record.cancelRequested = false;
-          Promise.all(runningIds.map(id => Server.tasks.cancel(id))).then(() => { toast("Stopped."); refresh(); }).catch(() => {});
-        }
-        MessageDrafts.changed();
-      }
+      Conversation.track(view, runningIds, entries.some((e, i) => i > lastMessage && (e.kind === "answer" || (e.kind === "turn" && !isActive(e.status)))), refresh);
     },
     drawn: (el, entries, view) => {
       bindConnectorActs(el);

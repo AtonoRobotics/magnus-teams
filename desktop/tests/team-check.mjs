@@ -23,7 +23,7 @@ const sandbox = {
 };
 sandbox.globalThis = sandbox;
 const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "side-panel.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
-vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, TeamDrafts, ChatView };`, sandbox);
+vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, ChatView, Conversation };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
@@ -127,7 +127,8 @@ assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/mes
 const picked = { adapter: "a", model: "fast" };
 await sandbox.teamComposer({ ...channelState }, null).send({ text: "@Magnus plan it", files: [], form: { picked } });
 assert.deepEqual(plain(calls.at(-1)[2].model), picked, "a team request does not carry the model the composer picked");
-assert.match(TeamChat.mount.toString(), /modelPicker\(\)/, "the team composer has no model picker");
+assert.match(TeamChat.mount.toString(), /Conversation\.open\(/, "a shared conversation does not open as the one conversation");
+assert.match(sandbox.__x.Conversation.open.toString(), /modelPicker\(\)/, "the team composer has no model picker");
 reply = async () => ({});
 
 // Mentions: the agent first, then people.
@@ -136,10 +137,8 @@ assert.equal(sandbox.mentionAt("mail me@x", 9), null, "an address read as a ment
 assert.deepEqual(plain(sandbox.mentionChoices(home, "").map(p => p.name)), ["Magnus", "Dana", "Leo"]);
 assert.deepEqual(plain(sandbox.mentionChoices(home, "d").map(p => p.name)), ["Dana"]);
 
-// Drafts survive, and storage that throws breaks nothing.
-sandbox.localStorage = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); }, removeItem: () => {} };
-assert.equal(sandbox.__x.TeamDrafts.get("w", "c1"), "");
-sandbox.__x.TeamDrafts.set("w", "c1", null, "half");
+// A shared conversation's draft is the personal chat's (shared-draft-check.mjs).
+assert.equal(typeof sandbox.TeamDrafts, "undefined", "a shared conversation keeps a second draft on the device");
 
 // The board and progress.
 const board = sandbox.boardHtml([{ id: "t1", title: "Fix takeover", status: "doing", assignee: "agent", from: { channel: "c1", message: "m1" }, by: "dana" }, { id: "t2", title: "Raise budget", status: "todo", by: "leo" }], "w", id => (id === "agent" ? "Magnus" : id), true);

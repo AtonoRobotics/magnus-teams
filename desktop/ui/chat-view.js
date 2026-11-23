@@ -1,9 +1,14 @@
-// The one chat view (owner, 2026-11-13: "Teams is a multi user version of
-// the single chat interface"; "Not the same system"). Every conversation is
-// drawn here: the personal chat, a team channel and a team thread. A
-// conversation says only where its items come from and what each action does
-// there (a ChatConversation); the layout, the messages, the work cards, the
-// controls, scrolling, the status line and the composer (chat-composer.js)
+// The one conversation (owner, 2026-11-13: "Teams is a multi user version of
+// the single chat interface"; 2026-11-22: a shared project's chat is the
+// personal chat with many users, one UI, the same backend unless truly
+// needed). Every conversation opens here (Conversation.open): the personal
+// chat, a shared conversation and its threads. A conversation brings only
+// its source: where its items come from and what each action does there (a
+// ChatConversation: personal-chat.js, or a shared project's,
+// team-conversation.js), and where a message and a file go (a
+// ComposerConversation). The layout, the messages, the work cards, the
+// controls, scrolling, the status line, the composer (chat-composer.js), the
+// draft (MessageDrafts, in memory only: #544) and the Stop of running work
 // are this one code. What only a conversation of several people has (who
 // sent each message, mentions, reactions, threads, the requester named, an
 // answer only its requester sees) is drawn when the conversation names its
@@ -12,7 +17,7 @@
 /**
  * One item of a conversation, as the view draws it. The personal chat's
  * entries come as the server sends them; a team channel's items are read
- * into the same kinds (team-chat.js). Multi-user fields are absent in the
+ * into the same kinds (team-conversation.js). Multi-user fields are absent in the
  * personal chat.
  * @typedef {{ id: string, kind: string, at?: string, text?: string, files?: any[], task_id?: string, model?: { model: string }, view?: any,
  *   sender?: string, for?: string, edited?: boolean, pinned?: boolean, private?: boolean, replies?: number, work?: ChatWork, [k: string]: any }} ChatEntry
@@ -238,4 +243,100 @@ const ChatView = (() => {
 
   return { layout, head, mount, draw, item, listHtml, workRow, workCard, menuId, several };
 })();
+
+// Unsent messages, kept in memory for this session: what was typed and the
+// files attached survive redraws and moving between views. One per
+// conversation, personal or shared, and one for a new conversation in each
+// project. Nothing is written to the device; signing out forgets them, and
+// another person signing in on this computer starts with none (#544).
+const MessageDrafts = (() => {
+  let person = null, rows = {}, epoch = 0;
+  const listeners = new Set(), originals = new Map();
+  const emit = () => { for (const f of listeners) f(); };
+  const row = (id, thread = null, project = null) => rows[id] ||= {id, thread, project, text:"", files:[], selection:[0,0], anchor:null};
+  const forThread = (thread, project = null) => row(thread ? `thread:${thread}` : `new:${project || ""}`, thread, project);
+  // An earlier version kept a shared project's unsent message on the device
+  // (`team-draft:` keys), for whoever signed in next: those go.
+  function forgetDevice() {
+    try {
+      const old = [];
+      for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith("team-draft:")) old.push(k); }
+      for (const k of old) localStorage.removeItem(k);
+    } catch { /* storage blocked: nothing was kept there either */ }
+  }
+  function clear() { rows = {}; originals.clear(); epoch++; forgetDevice(); emit(); }
+  // Another person signing in on this computer starts with nothing.
+  function open(appliance, who) { const next = `${appliance}/${who}`; forgetDevice(); if (next !== person) { person = next; clear(); } }
+  function discard(id) { if (!rows[id]) return; for (const f of rows[id].files) originals.delete(f.uid); delete rows[id]; emit(); }
+  return {forThread, forKey:id=>row(id), open, clear, discard, changed:emit, uid:()=>crypto.randomUUID(),
+    get:id=>rows[id], all:()=>Object.values(rows), originals, epoch:()=>epoch,
+    subscribe:f=>{listeners.add(f);return()=>listeners.delete(f);}};
+})();
+
+/**
+ * Where a conversation is, to find its draft: a personal thread (or a
+ * project's new conversation), or a shared project's conversation or thread.
+ * @typedef {{ thread?: ?string, project?: ?string, ws?: string, channel?: string }} ConversationPlace
+ * What a conversation opens with.
+ * @typedef {Object} ConversationSpec
+ * @property {ChatConversation} conv where its items come from, and what each control does there
+ * @property {ComposerConversation} side where its messages and files go
+ * @property {any} record its draft (Conversation.draft)
+ * @property {string} placeholder what the empty box says
+ * @property {string} [label] the box's name, where it differs
+ * @property {string} [bar] what follows the model picker (Only my Magnus sees this)
+ * @property {boolean} [mentions] typing @ offers who to mention
+ * @property {string} [noModel] no model runs for this viewer here, and why: the picker shows, disabled
+ * @property {boolean} [framed] the frame is drawn already
+ * @property {() => boolean} [stale] the person moved on while the picker loaded
+ */
+
+const Conversation = {
+  /** The conversation's one draft, in memory only. @param {ConversationPlace} place */
+  draft(place) {
+    return place.ws ? MessageDrafts.forKey(`shared:${place.ws}:${place.channel}:${place.thread || ""}`) : MessageDrafts.forThread(place.thread || null, place.project || null);
+  },
+
+  /**
+   * Show a conversation in `root`: the chat view, then the composer with the
+   * model picker, on its draft. Null when the person moved on meanwhile.
+   * @param {HTMLElement} root @param {ConversationSpec} o @returns {Promise<?ChatViewState>}
+   */
+  async open(root, o) {
+    const picker = await modelPicker();
+    if (o.stale?.()) return null;
+    const view = ChatView.mount(root, o.conv, { framed: o.framed, record: o.record });
+    const slot = $(".composer-slot", view.section);
+    paint(slot, composer(o.placeholder, picker + (o.bar || ""), { label: o.label, mentions: o.mentions }));
+    const sel = $("select[data-model]", slot);
+    if (o.noModel && sel) { sel.disabled = true; sel.title = o.noModel; }
+    wireComposer($("form.say", slot), o.record, o.side);
+    return view;
+  },
+
+  /**
+   * What is running here now, after a draw, for the composer's Stop and
+   * Steer. `settled`: the conversation has answered since the last send. A
+   * Stop pressed before the work had an id stops it now that it has one.
+   * @param {ChatViewState} view @param {string[]} running @param {boolean} settled @param {() => Promise<any>} refresh
+   */
+  track(view, running, settled, refresh) {
+    const record = view.record;
+    if (!record) return;
+    record.runningIds = running;
+    if (running.length || settled) record.pendingRun = false;
+    if (record.cancelRequested && running.length) {
+      record.cancelRequested = false;
+      Conversation.stop(running, refresh).catch(() => {});
+    }
+    MessageDrafts.changed();
+  },
+
+  /** Stop the work running here. @param {string[]} ids @param {() => Promise<any>} refresh */
+  async stop(ids, refresh) {
+    await Promise.all(ids.map(id => Server.tasks.cancel(id)));
+    toast("Stopped.");
+    await refresh();
+  },
+};
 if (typeof module !== "undefined") module.exports = ChatView;

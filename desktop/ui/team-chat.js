@@ -1,12 +1,12 @@
-// A workspace channel is the one chat view (chat-view.js) with a
-// conversation of several people: this file is only where a channel's items
-// come from, what each control does there, and what only several people
-// have (who sent each message, mentions, reactions, threads, the requester
-// named on the agent's work, an answer only its requester sees, who is
-// typing, a catch-up, and one's own Magnus whispering). A thread opens in the
-// same view beside its channel. The composer is the personal chat's
-// (chat-composer.js); there is no button to ask the agent: mention it or
-// name it.
+// A shared conversation is the one conversation (chat-view.js) with several
+// people in it: this file is only where its items come from, what each
+// control does there, and what only several people have (who sent each
+// message, @Magnus mentions, reactions, threads, the requester named on the
+// agent's work, an answer only its requester sees, who is typing, a
+// catch-up, and one's own Magnus whispering). A thread opens in the same
+// view beside its conversation. The composer and the draft are the personal
+// chat's (in memory only, gone at sign-out: #544); there is no button to ask
+// the agent: mention it or name it.
 
 /**
  * A channel's items as the server sends them: the personal chat's entries
@@ -105,13 +105,6 @@ function channelTools(home, c, project) {
   return `${channelFaces(home, c, project)}${ext}${comp}${autoJoin}${membersBtn}${clearDm}`;
 }
 
-/** Drafts survive a switch of conversation and a restart, where storage allows. */
-const TeamDrafts = {
-  key: (ws, ch, th) => `team-draft:${ws}:${ch}:${th || ""}`,
-  get(ws, ch, th) { try { return localStorage.getItem(this.key(ws, ch, th)) || ""; } catch { return ""; } },
-  set(ws, ch, th, v) { try { if (v) localStorage.setItem(this.key(ws, ch, th), v); else localStorage.removeItem(this.key(ws, ch, th)); } catch { /* storage blocked: the draft lives in the box */ } },
-};
-
 const TeamChat = {
   s: null,
 
@@ -120,34 +113,29 @@ const TeamChat = {
     const c = Team.home.channels.find(x => x.id === s.channel);
     if (!c) { paint(root, `<p class="empty">This conversation is gone, or not yours to see.</p>`); return; }
     s.unreadAtOpen = c.unread;
-    s.views = [this.mount(root, s.thread)];
+    const view = await this.mount(root, s.thread);
+    if (!view) return;
+    s.views = [view];
     await this.refresh(true);
     $("textarea", root)?.focus({ preventScroll: true });
   },
 
-  /** The unified chat view of a shared conversation (or focused thread) with its composer. */
-  mount(root, thread) {
+  /** The one conversation (chat-view.js) on a shared conversation or one of its threads. */
+  async mount(root, thread) {
     const s = this.s, home = Team.home, c = home.channels.find(x => x.id === s.channel);
-    const record = MessageDrafts.forThread(`team:${s.ws}:${s.channel}:${thread || ""}`);
-    if (!record.text && !record.files.length) record.text = TeamDrafts.get(s.ws, s.channel, thread);
-    const view = ChatView.mount(root, teamConversation(s, thread), { record });
     const where = thread ? "Reply in thread" : c ? `Message ${channelTitle(home, c)}` : "Message";
     const guest = home.role === "guest";
     // The personal composer's model picker, first in the bar as there: a
     // member's request runs on their pick (decisions/2026-11-13-team-composer-model.md).
-    const bar = `<span data-picker></span>${guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`}`;
-    const slot = $(".composer-slot", view.section);
-    paint(slot, composer(`${where}. Mention @${home.agent.name} to have your Magnus help and share its output.`, bar, { label: where, mentions: true }));
-    modelPicker().then(html => {
-      const at = $("[data-picker]", slot);
-      if (!at) return;
-      at.outerHTML = html;
+    const view = await Conversation.open(root, {
+      conv: teamConversation(s, thread), side: teamComposer(s, thread), record: Conversation.draft({ ws: s.ws, channel: s.channel, thread }),
+      placeholder: `${where}. Mention @${home.agent.name} to have your Magnus help and share its output.`, label: where, mentions: true,
+      bar: guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`,
       // A guest's messages never start the agent, so there is no model to pick.
-      const sel = $("select[data-model]", slot);
-      if (guest && sel) { sel.disabled = true; sel.title = "Guests chat here; only members can ask Magnus, so no model runs for you."; }
+      noModel: guest ? "Guests chat here; only members can ask Magnus, so no model runs for you." : undefined,
+      stale: () => s !== this.s,
     });
-    wireComposer($("form.say", slot), view.record, teamComposer(s, thread));
-    $(".conv-head", view.section).onclick = e => this.headClick(e);
+    if (view) $(".conv-head", view.section).onclick = e => this.headClick(e);
     return view;
   },
 
