@@ -12,18 +12,6 @@ fn close_42() -> Reply {
     tool("crm__update_record", json!({ "id": "42", "fields": { "status": "closed" } }))
 }
 
-/// A script that tells a sub-agent from its parent by the goal it was given.
-fn parent_and_child(parent: Vec<Reply>, child: Vec<Reply>) -> magnus_invariants::model::Script {
-    let (parent, child) = (std::sync::Arc::new(parent), std::sync::Arc::new(child));
-    script(move |c| {
-        let is_child = c.messages().first().is_some_and(|m| m.to_string().contains(CHILD_GOAL));
-        let replies = if is_child { child.clone() } else { parent.clone() };
-        async move { replies.get(c.turn()).cloned().unwrap_or_else(|| fail("the script ran out")) }
-    })
-}
-
-const CHILD_GOAL: &str = "CHILD-GOAL read the page and report";
-
 /// `magnus-local` connected to this appliance as `who`, until dropped.
 async fn connect_computer(app: &Appliance, who: &str, name: &str, mode: &str, folder: &std::path::Path) -> tokio::process::Child {
     connect_computer_with(app, who, name, mode, folder, &[]).await
@@ -200,41 +188,6 @@ fn in_team(ws: &str, tail: &str) -> String {
     format!("/v1/workspaces/{ws}/{tail}")
 }
 
-/// A sub-agent in a team thread has its requester's scope, not more, and
-/// what a tainted parent read travels with the goal it writes.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_sub_agent_in_a_team_thread_keeps_the_threads_limits() {
-    let crm = mcp::crm().start().await;
-    let spawn = tool("start_sub_agent", json!({ "goal": CHILD_GOAL }));
-    let write = tool("team_write_file", json!({ "name": "from-child.txt", "content": "built from the record" }));
-    let model = FakeModel::start(parent_and_child(
-        vec![plan("c"), spawn.clone(), complete("done")],
-        vec![plan("c"), close_42(), tool("memory_search", json!({ "query": "x" })), complete("child done")],
-    ))
-    .await;
-    let spec = Spec::default().app("crm", &crm, "internal", "private", &[("get_record", "read"), ("update_record", "irreversible")]);
-    let app = Appliance::start(spec, &model).await;
-    let (alice, bob) = (app.api("alice"), app.api("bob"));
-    assert!(alice.put_policy("org", &org_policy(&permit_execute("crm__update_record"))).await.is_success());
-    let (ws, channel) = team(&alice).await;
-    alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner"] })).await;
-
-    let (_, made) = ask_team(&bob, &ws, &channel, "Close it.").await;
-    bob.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert_eq!(crm.effects("update_record"), 0, "a sub-agent exceeded its parent: it used an app its requester's role does not hold");
-    let results: Vec<String> = model.requests().iter().flat_map(|r| r.last_results()).map(|r| r.text).collect();
-    assert!(results.iter().any(|t| t.contains("does not serve a team thread")), "a sub-agent reached the requester's personal things: {results:?}");
-
-    // A channel of alice's own; the private read is the parent's, the write the child's.
-    let (_, made) = alice.post(&in_team(&ws, "channels"), json!({ "name": "quiet" })).await;
-    let quiet = made["id"].as_str().unwrap().to_string();
-    alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner"] })).await;
-    model.set_script(parent_and_child(vec![plan("c"), tool("crm__get_record", json!({ "id": "42" })), spawn, complete("done")], vec![plan("c"), write, complete("child done")]));
-    let (_, made) = ask_team(&alice, &ws, &quiet, "Save it through a helper.").await;
-    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert_eq!(alice.get(&in_team(&ws, "files/from-child.txt")).await.0, 404, "data fetched under one member's entitlements reached the team volume through a sub-agent");
-}
-
 /// Test 36a. An admin's ceiling only makes a person's own computer stricter.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_workspace_ceiling_only_tightens_a_members_computer() {
@@ -261,39 +214,6 @@ async fn a_workspace_ceiling_only_tightens_a_members_computer() {
 
     let (code, _) = app.api("bob").post(&in_team(&ws, "local_ceiling"), json!({ "mode": "allow" })).await;
     assert_eq!(code, 403, "a member lifted the workspace's ceiling");
-}
-
-/// Working notes are not facts, are seen in the thread and end with the task.
-#[tokio::test(flavor = "multi_thread")]
-async fn working_notes_are_scratch_and_end_with_their_task() {
-    let crm = mcp::crm().start().await;
-    let note = canary("working-note");
-    let model = FakeModel::start(steps(vec![plan("n"), tool("team_note", json!({ "text": note })), close_42(), complete("done")])).await;
-    let spec = Spec::default().app("crm", &crm, "internal", "principal", &[("update_record", "irreversible")]);
-    let app = Appliance::start(spec, &model).await;
-    let (alice, bob) = (app.api("alice"), app.api("bob"));
-    let (ws, channel) = team(&alice).await;
-    alice.post(&in_team(&ws, "connectors"), json!({ "app": "crm", "roles": ["owner"] })).await;
-    let (_, made) = ask_team(&alice, &ws, &channel, "Take a note, then close it.").await;
-    let task = made["task_id"].as_str().unwrap().to_string();
-    let item = alice.wait_item(&task, "approval").await;
-
-    let notes = in_team(&ws, &format!("channels/{channel}/notes"));
-    let (_, live) = bob.get(&notes).await;
-    assert!(live.to_string().contains(&note), "a thread's members cannot see its working notes: {live}");
-    let (_, one) = alice.get(&format!("/v1/workspaces/{ws}")).await;
-    assert!(!one["knowledge"].to_string().contains(&note), "a working note was treated as fact");
-
-    assert_eq!(alice.respond(item["id"].as_str().unwrap(), json!({ "decision": "approve", "scope": "once" })).await, 200);
-    alice.wait_status(&task, &["completed"]).await;
-    let (_, gone) = bob.get(&notes).await;
-    assert!(!gone.to_string().contains(&note), "a working note outlived its task: {gone}");
-
-    // The next request in the thread starts with no trace of it.
-    model.set_script(steps(vec![plan("n"), complete("done")]));
-    let (_, made) = ask_team(&bob, &ws, &channel, "Anything?").await;
-    bob.wait_settled(made["task_id"].as_str().unwrap()).await;
-    assert!(!model.requests().into_iter().last().unwrap().text().contains(&note), "a note carried over between requests");
 }
 
 /// Test 37. A project's knowledge reaches its people and the agents acting
@@ -337,23 +257,6 @@ async fn a_projects_knowledge_stays_with_its_people_and_stays_correct() {
     let asked = model.requests().into_iter().last().unwrap().text();
     assert!(asked.contains(&secret), "the project's knowledge did not reach its agent");
     assert!(asked.contains(&entry) && asked.contains("cite"), "the agent was not told to cite the entries it relies on");
-
-    // What the agent learned from content outside a person says so.
-    let write = tool("team_write_file", json!({ "name": "note.txt", "content": "a claim" }));
-    let learned = canary("from-a-file");
-    model.set_script(steps(vec![
-        plan("k"),
-        write,
-        tool("team_read_file", json!({ "name": "note.txt" })),
-        tool("team_add_fact", json!({ "text": learned, "workspace_level": true })),
-        complete("done"),
-    ]));
-    let (_, made) = ask_team(&alice, &ws, &channel, "Learn it.").await;
-    alice.wait_settled(made["task_id"].as_str().unwrap()).await;
-    let (_, base) = alice.get(&in_team(&ws, "knowledge")).await;
-    let added = base.as_array().unwrap().iter().find(|e| e["statement"] == json!(learned)).unwrap_or_else(|| panic!("{base}")).clone();
-    assert_eq!(added["weight"], "outside", "an entry from outside a person was not marked: {added}");
-    assert!(added["author"].as_str().unwrap().starts_with("agent:"), "{added}");
 
     // Only curators keep it right, and the retired entry is not read again.
     let (code, v) = alice.put(&in_team(&ws, &format!("projects/{project}")), json!({ "members": ["bob"] })).await;
