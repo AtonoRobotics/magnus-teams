@@ -212,10 +212,11 @@ fn definition(line: &str) -> Option<(String, String)> {
 
 /// A body with every link to a bundle path `hidden` names removed, its text
 /// with it, and each definition of one; a bullet whose links are all
-/// hidden is dropped (K2).
+/// hidden is dropped (K2): `hidden` is asked the path each link names
+/// (`bundle_link::link_path`), whatever section or query follows it.
 pub fn strip_hidden(body: &str, hidden: impl Fn(&str) -> bool) -> String {
     let defs: HashMap<String, String> = body.lines().filter_map(definition).collect();
-    let gone = |t: &str| t.starts_with('/') && hidden(t);
+    let gone = |t: &str| crate::bundle_link::link_path(t).is_some_and(|p| hidden(&p));
     // Each link to a bundle path: where it is, and whether it is hidden.
     let found: Vec<(usize, usize, bool)> = spans(body)
         .into_iter()
