@@ -261,6 +261,9 @@ mod tests {
         // A schedule the person set up still authorizes what it names (spec rev 140).
         let (_, _, allowed) = literal_from(&crate::run_words::tests::words("schedule"));
         assert!(allowed.contains(&Destination::parse_email("cat@corp.example").unwrap()));
+        // One a run set (`create_schedule`) is the model's words: its addresses allow nothing (2026-11-23).
+        let (prompt, _, allowed) = literal_from(&crate::run_words::tests::words("run_schedule"));
+        assert!(allowed.is_empty(), "a run's schedule allowed {allowed:?}: {prompt}");
     }
 
     #[test]

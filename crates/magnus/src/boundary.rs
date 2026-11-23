@@ -7,10 +7,12 @@
 //! leave the call.
 
 mod call;
+mod record;
 
 pub(crate) use call::memory_text;
 pub use call::{computer_command, media_type_for};
 use call::{memory_taint, CallFailure};
+use record::{err_text, Record};
 
 use crate::config::{Connector, Person};
 use crate::events::Ev;
@@ -235,76 +237,12 @@ impl Shown {
     }
 }
 
-/// Every model-facing error says what failed and whether a retry can help (K8).
-fn err_text(what: &str, retry: bool) -> String {
-    if retry {
-        format!("{what} A retry may help.")
-    } else {
-        format!("{what} A retry of the same request will not help.")
-    }
-}
-
 pub(crate) enum Gate {
     Pass,
     Stop(Verdict),
 }
 
-struct Record<'a> {
-    status: &'a str,
-    text: String,
-    is_error: bool,
-    label: Label,
-    data: Option<Value>,
-}
-
 impl Kernel {
-    async fn record(&self, a: &Action, key: Option<String>, r: Record<'_>) -> Result<Verdict> {
-        let sources = facts(self, &a.tool).map(|f| vec![f.app]).unwrap_or_default();
-        self.record_from(a, key, sources, r).await
-    }
-
-    async fn record_from(&self, a: &Action, key: Option<String>, sources: Vec<String>, r: Record<'_>) -> Result<Verdict> {
-        let (text, data) = self.screen_inbound(&a.run, &a.tool, r.text, r.data, r.label.untrusted).await;
-        let (text, data) = match self.read(|s| s.runs.get(&a.run).cloned()) {
-            Some(run) if r.label.untrusted && !r.is_error && self.run_is_quarantined(&a.run) => self.quarantine_tool_output(&run, &a.tool, &text, data).await,
-            _ => (text, data),
-        };
-        // What the verifier reads taints the run like the model's own reads:
-        // its words go back to the model.
-        self.emit(
-            "kernel",
-            Ev::ToolResult {
-                run: a.run.clone(),
-                call_id: a.call_id.clone(),
-                key,
-                status: r.status.into(),
-                text: text.clone(),
-                is_error: r.is_error,
-                label: r.label,
-                data: data.clone(),
-                sources,
-                check: a.issuer == Issuer::ReadBack,
-            },
-        )
-        .await?;
-        Ok(Verdict::Done { text, is_error: r.is_error, data })
-    }
-
-    pub(crate) async fn decision(&self, a: &Action, outcome: &str, stage: &str, reason: &str, rule: Option<String>) -> Result<()> {
-        self.emit(
-            "kernel",
-            Ev::Decision { run: a.run.clone(), call_id: a.call_id.clone(), tool: a.tool.clone(), outcome: outcome.into(), stage: stage.into(), reason: reason.into(), rule },
-        )
-        .await?;
-        Ok(())
-    }
-
-    pub(crate) async fn deny(&self, a: &Action, stage: &str, reason: &str, retry: bool, rule: Option<String>) -> Result<Verdict> {
-        self.decision(a, "deny", stage, reason, rule).await?;
-        let text = err_text(&format!("Denied ({stage}): {reason}."), retry);
-        self.record(a, None, Record { status: "denied", text, is_error: true, label: Label::PRINCIPAL, data: None }).await
-    }
-
     /// Run an action through the boundary. Errors inside any stage deny it.
     pub async fn execute(self: &Arc<Self>, a: Action) -> Result<Verdict> {
         match self.pipeline(&a).await {
@@ -382,7 +320,8 @@ impl Kernel {
         // Where it goes, read before anything is decided; none of it reaches the model.
         let shown = match self.destinations(a, &f, &run, &person).await {
             Ok(s) => s,
-            Err(why) => return self.deny(a, "destinations", &why, true, None).await,
+            // Its why may carry what the app answered the read: the app's words.
+            Err(why) => return self.deny_as(a, "destinations", &why, true, None, f.label).await,
         };
 
         // 4. Policy denials, the person's rules (block, ask first), and the kernel's asks: a payment, case 3.

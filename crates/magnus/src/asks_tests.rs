@@ -266,17 +266,6 @@ fn a_sentence_names_what_and_where() {
     );
 }
 
-/// An allowed new destination is remembered for its person.
-#[test]
-fn an_approved_destination_is_remembered() {
-    let given = vec![approval("once", "t1", Some(NEW_DESTINATION), Some("h"), Some(&["bob@corp.example"]))];
-    assert!(remembered(&given, "alice", "BOB@corp.example"));
-    assert!(!remembered(&given, "alice", "eve@evil.example"));
-    assert!(!remembered(&given, "carol", "bob@corp.example"), "one person's approval remembered for another");
-    let outside = vec![approval("task", "t1", Some(OUTSIDE_REQUEST), None, Some(&["eve@evil.example"]))];
-    assert!(!remembered(&outside, "alice", "eve@evil.example"), "an Allow on another ask released private data");
-}
-
 /// A web lookup's destination is its host.
 #[test]
 fn a_lookup_goes_to_its_host() {
@@ -303,4 +292,60 @@ fn a_sub_agent_holds_its_parents_allow() {
     assert!(covers(&parent, &q), "a sub-agent did not hold its parent's Allow");
     let alone = vec!["child".to_string()];
     assert!(!covers(&parent, &Query { tasks: &alone, ..query(&dests, Some(Reason::OutsideRequest), "h9") }), "an unrelated task held the Allow");
+}
+
+/// A chat app with no destinations set up goes to the channel its call
+/// names, so a person's rule on that channel takes it in (2026-11-23).
+#[test]
+fn a_chat_apps_channel_is_where_it_goes() {
+    let a = action("chat__post", json!({ "channel": "C0ABC123", "text": "hi" }));
+    assert_eq!(destinations(&a, &facts("chat__post", "chat", Risk::ReversibleWrite, true), None), to(&["c0abc123"]));
+}
+
+/// Whether a rule naming `named` takes in an action going to `dests`, as
+/// `Kernel::stopping_rule` matches: the sites above each site too.
+fn blocks(person: &Person, f: &Facts, named: &str, dests: &[String]) -> bool {
+    let rule = crate::rules::compile(&person.id, &f.app, "", &[named.to_string()], false, crate::rules::Effect::Block).unwrap();
+    let facts = crate::policy::ToolFacts::from(f);
+    with_parent_sites(dests).iter().any(|d| crate::policy::rule_covers(&rule.cedar, person, &facts, d).unwrap())
+}
+
+/// For every built-in tool and an app's tool, the destinations a card
+/// names are the ones the person's rules match: a block naming any of
+/// them, as the person would type it, stops the action, and an allow
+/// naming them all covers it. Before, rules read only email-style fields,
+/// so a block on a site never fired for a web fetch (2026-11-23).
+#[test]
+fn cards_and_rules_see_the_same_destinations() {
+    let alice: Person = serde_json::from_value(json!({ "id": "alice", "groups": [] })).unwrap();
+    let input = json!({ "url": "https://www.Site.example/p?q=1", "to": "Bob <Bob@Corp.example>", "channel": "#general", "host": "Data.example", "text": "hi" });
+    let mut seen = 0;
+    for b in crate::families::builtins() {
+        let f = Facts { name: b.name.into(), app: b.app.into(), risk: b.risk, label: b.label, audience: b.audience, connector: None, remote: b.name.into(), reaches_self: false };
+        let a = action(b.name, input.clone());
+        let dests = destinations(&a, &f, None);
+        for d in &dests {
+            // As the person types it in Settings > Rules: a site's address, or the address itself.
+            let typed = if matches!(b.app, "web" | "browser") { format!("https://{d}/") } else { d.to_uppercase() };
+            assert!(blocks(&alice, &f, &typed, &dests), "{}: a block on {typed} did not stop what its card names ({dests:?})", b.name);
+        }
+        if !dests.is_empty() {
+            seen += 1;
+            let allow = crate::rules::compile("alice", &f.app, b.name, &dests, false, crate::rules::Effect::Allow).unwrap();
+            let facts = crate::policy::ToolFacts::from(&f);
+            assert!(dests.iter().all(|d| crate::policy::rule_covers(&allow.cedar, &alice, &facts, d).unwrap()), "{}: an allow on its card's {dests:?} did not cover it", b.name);
+        }
+    }
+    assert!(seen > 10, "too few tools named where they go: {seen}");
+    // A web fetch goes to its site, and a block on the site above it stops it.
+    let web = facts("web_fetch", "web", Risk::Read, false);
+    let fetch = destinations(&action("web_fetch", input.clone()), &web, None);
+    assert_eq!(fetch, to(&["www.site.example"]));
+    assert!(blocks(&alice, &web, "site.example", &fetch), "a block on site.example missed www.site.example");
+    assert!(!blocks(&alice, &web, "other.example", &fetch));
+    // An app's tool with no destinations set up: its addresses and its channel.
+    let app = facts("chat__post", "chat", Risk::ReversibleWrite, true);
+    let post = destinations(&action("chat__post", input), &app, None);
+    assert_eq!(post, to(&["#general", "bob@corp.example"]));
+    assert!(blocks(&alice, &app, "#General", &post), "a block on the channel did not stop the post");
 }

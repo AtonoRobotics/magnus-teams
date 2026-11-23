@@ -49,6 +49,12 @@ pub struct Schedule {
     /// The zone its daily time is read in: its person's, kept current as
     /// they change it, else the server's (`cadence::zone_of`).
     pub zone: crate::cadence::Zone,
+    /// Whether its person set it themselves: in the app, or by accepting
+    /// a card or a suggestion. One a run set (`create_schedule`, actor
+    /// `chat:<run>`) is not, and its words are the model's
+    /// (`run_words::schedule_source`). Read from the event's actor, so an
+    /// older `ScheduleSet` reads the same.
+    pub by_person: bool,
 }
 
 /// A person's standing authority over a category of their own work
@@ -231,6 +237,7 @@ impl Arrangements {
                         resumed: None,
                         ended: None,
                         thread: thread.clone(),
+                        by_person: e.actor == format!("person:{person}"),
                     },
                 );
                 if let Some(c) = card {

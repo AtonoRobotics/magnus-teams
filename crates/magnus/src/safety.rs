@@ -3,6 +3,7 @@
 use crate::boundary::Action;
 use crate::events::Ev;
 use crate::kernel::{new_id, notice_event, Kernel};
+use crate::security_ledger::Blocked;
 use crate::state::Run;
 use magnus_adapter_proto::{Block, Message, Role, ToolSpec};
 use serde::Deserialize;
@@ -131,8 +132,8 @@ fn remember<V>(slot: &Mutex<Option<HashMap<String, V>>>, key: String, value: V) 
 static SCREENED: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
 /// By run and reply: what the monitor said about it.
 static WATCHED: Mutex<Option<HashMap<String, Watch>>> = Mutex::new(None);
-/// By run and tool: the send last blocked, and why.
-static BLOCKED: Mutex<Option<HashMap<String, (String, String)>>> = Mutex::new(None);
+/// By run and tool: every send blocked, and why.
+static BLOCKED: Mutex<Option<HashMap<String, Blocked>>> = Mutex::new(None);
 
 fn blocked_key(run: &str, tool: &str) -> String {
     format!("{run}\n{tool}")
@@ -148,33 +149,39 @@ pub(crate) enum Resubmission {
     Revised(String),
 }
 
+/// What a send is, against the sends blocked before it: one of them
+/// unchanged, a revision of them, or none was blocked.
+fn judged(all: &Blocked, hash: &str) -> Option<Resubmission> {
+    if let Some(reason) = all.reason_for(hash) {
+        return Some(Resubmission::Unchanged(format!("this is the message that was blocked, unchanged: {reason}")));
+    }
+    all.last_reason().map(|reason| Resubmission::Revised(format!("this revises a message that was blocked: {reason}")))
+}
+
 #[cfg(test)]
 fn resubmission(run: &str, tool: &str, hash: &str) -> Option<Resubmission> {
-    let (blocked, reason) = remembered(&BLOCKED, &blocked_key(run, tool))?;
-    Some(if blocked == hash {
-        Resubmission::Unchanged(format!("this is the message that was blocked, unchanged: {reason}"))
-    } else {
-        Resubmission::Revised(format!("this revises a message that was blocked: {reason}"))
-    })
+    judged(&remembered(&BLOCKED, &blocked_key(run, tool))?, hash)
 }
 
 /// A block, remembered so the same message stays blocked and a rewrite is
 /// reviewed knowing why.
 fn blocked(run: &str, tool: &str, hash: &str, reason: &str) -> String {
-    remember(&BLOCKED, blocked_key(run, tool), (hash.to_string(), reason.to_string()));
+    let mut all = remembered(&BLOCKED, &blocked_key(run, tool)).unwrap_or_default();
+    all.add(hash, reason);
+    remember(&BLOCKED, blocked_key(run, tool), all);
     format!("{reason}. {REVISE}")
 }
 
 impl Kernel {
     /// Checks both in-memory and event-log-persisted blocked sends so
-    /// resubmission enforcement survives server restarts (W1.4).
+    /// resubmission enforcement survives server restarts (W1.4). Every
+    /// message blocked for the run and tool stays blocked, not only the latest.
     pub(crate) fn resubmission_for(&self, run: &str, tool: &str, hash: &str) -> Option<Resubmission> {
-        let (blocked_hash, reason) = remembered(&BLOCKED, &blocked_key(run, tool)).or_else(|| self.read(|s| s.security.blocked(run, tool)))?;
-        Some(if blocked_hash == hash {
-            Resubmission::Unchanged(format!("this is the message that was blocked, unchanged: {reason}"))
-        } else {
-            Resubmission::Revised(format!("this revises a message that was blocked: {reason}"))
-        })
+        let mut all = self.read(|s| s.security.blocked(run, tool)).unwrap_or_default();
+        if let Some(here) = remembered(&BLOCKED, &blocked_key(run, tool)) {
+            all.merge(&here);
+        }
+        judged(&all, hash)
     }
 
     /// Persists a blocked outbound send via `Ev::SafetyBlocked` (W1.4).
@@ -515,6 +522,24 @@ mod tests {
         assert!(matches!(resubmission("run-a", "mail__send", "second"), Some(Resubmission::Revised(_))));
         assert!(resubmission("run-b", "mail__send", "second").is_none());
         assert!(resubmission("run-a", "chat__post", "second").is_none());
+    }
+
+    /// Block A, then B, then send A again: A is still the message that was
+    /// blocked. Before, only the latest block was kept, so A read as a
+    /// revision and was reviewed again, and could pass (2026-11-23).
+    #[test]
+    fn every_blocked_message_stays_blocked_not_only_the_latest() {
+        blocked("run-aba", "mail__send", "A", "it has a card number");
+        blocked("run-aba", "mail__send", "B", "it names the salary");
+        assert!(matches!(resubmission("run-aba", "mail__send", "A"), Some(Resubmission::Unchanged(r)) if r.contains("card number")), "A, B, A read A as revised");
+        assert!(matches!(resubmission("run-aba", "mail__send", "B"), Some(Resubmission::Unchanged(_))));
+        assert!(matches!(resubmission("run-aba", "mail__send", "C"), Some(Resubmission::Revised(r)) if r.contains("salary")));
+        // The same through the log, as after a restart.
+        let mut ledger = crate::security_ledger::SecurityLedger::default();
+        for (hash, reason) in [("A", "it has a card number"), ("B", "it names the salary")] {
+            ledger.apply_safety_blocked(&crate::events::SafetyBlockedPayload { run: "r".into(), tool: "mail__send".into(), hash: hash.into(), reason: reason.into() });
+        }
+        assert!(matches!(judged(&ledger.blocked("r", "mail__send").unwrap(), "A"), Some(Resubmission::Unchanged(_))), "the log kept only the latest block");
     }
 
     #[test]

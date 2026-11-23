@@ -158,9 +158,17 @@ impl Ledger {
     }
 }
 
-/// An address as a rule and an action both name it.
-fn normalized(destination: &str) -> String {
-    crate::tools::addresses_in(destination).into_iter().next().unwrap_or_else(|| destination.trim().to_lowercase())
+/// An address as a rule and an action both name it: an email address, a
+/// web address's host, or the text itself, lowercase.
+pub(crate) fn normalized(destination: &str) -> String {
+    let d = destination.trim();
+    if let Some(a) = crate::tools::addresses_in(d).into_iter().next() {
+        return a;
+    }
+    match url::Url::parse(d) {
+        Ok(u) if matches!(u.scheme(), "http" | "https") => u.host_str().map(str::to_lowercase).unwrap_or_default(),
+        _ => d.to_lowercase(),
+    }
 }
 
 /// A string as Cedar source.
@@ -194,26 +202,6 @@ pub fn compile(person: &str, connector: &str, tool: &str, destinations: &[String
     Ok(Compiled { connector: connector.to_string(), tool: tool.to_string(), destinations, once, cedar, effect })
 }
 
-/// Where an action goes, as a rule would name it. Empty means it cannot match.
-/// A new source is named by its host.
-pub(crate) fn destinations_of(a: &Action, shown: Option<&Shown>) -> Vec<String> {
-    if a.tool == crate::rule_effects::SOURCE_TOOL {
-        return a.input["host"].as_str().map(normalized).filter(|h| !h.is_empty()).into_iter().collect();
-    }
-    // Where the gate read no recipients (an app with no destinations set
-    // up), the addresses the call itself names.
-    match shown {
-        Some(s) if s.recipients.values().any(|r| !r.is_empty()) => s.recipients.values().flatten().map(|r| normalized(r)).collect(),
-        _ => ["to", "cc", "bcc", "recipient", "recipients"]
-            .iter()
-            .filter_map(|k| a.input.get(*k))
-            .flat_map(crate::tools::addresses)
-            .chain(crate::tools::addresses(&a.input))
-            .map(|r| normalized(&r))
-            .collect(),
-    }
-}
-
 fn strings<'a>(v: &'a Value, key: &'a str, out: &mut Vec<(&'a str, &'a str)>) {
     match v {
         Value::String(s) => out.push((key, s)),
@@ -239,7 +227,7 @@ fn secret_values(raw: &str) -> Vec<String> {
 impl Kernel {
     /// The accepted rule that covers this action, if one matches exactly.
     pub(crate) fn covering_rule(&self, a: &Action, run: &Run, f: &Facts, shown: Option<&Shown>) -> Option<String> {
-        let destinations = destinations_of(a, shown);
+        let destinations = self.destinations_of(a, f, shown);
         if destinations.is_empty() {
             return None;
         }
