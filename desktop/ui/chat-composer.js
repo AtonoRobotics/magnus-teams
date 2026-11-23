@@ -52,7 +52,12 @@ function wireComposer(form, record, conv) {
   const fit = () => { box.style.height = "auto"; box.style.height = `${Math.min(box.scrollHeight, innerHeight / 3)}px`; };
   const selected = () => { record.selection = [box.selectionStart, box.selectionEnd]; };
   const read = (selection = true) => { record.text = box.value; record.model = model?.value || ""; record.modelUnder = model?.dataset.default || ""; if (selection) selected(); };
-  const chips = () => record.files.map(f => `<span class="attachment-chip" data-upload="${esc(f.uid)}"><span>${esc(f.name)}</span><span class="small muted">${esc(f.state === "ready" ? "Ready" : f.state === "uploading" ? "Uploading…" : f.state === "unavailable" ? "Unavailable" : "Failed")}</span>${f.error ? `<span class="small">${esc(f.error)}</span>` : ""}${["failed", "unavailable"].includes(f.state) ? `<button type="button" data-retry-upload="${esc(f.uid)}">Retry</button>` : ""}<button type="button" class="icon-btn" data-remove-upload="${esc(f.uid)}" aria-label="Remove ${esc(f.name)} from message" title="Remove ${esc(f.name)} from message">${icon("close")}</button></span>`).join("");
+  const fmtSize = n => !Number.isFinite(n) || n <= 0 ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+  const chips = () => record.files.map(f => {
+    const status = f.state === "ready" ? "Ready" : f.state === "uploading" ? "Uploading…" : f.state === "unavailable" ? "Unavailable" : "Failed";
+    const size = fmtSize(f.size);
+    return `<span class="attachment-chip" data-upload="${esc(f.uid)}"><span>${esc(f.name)}</span><span class="small muted">${esc(size ? `${size} · ${status}` : status)}</span>${f.error ? `<span class="small">${esc(f.error)}</span>` : ""}${["failed", "unavailable"].includes(f.state) ? `<button type="button" data-retry-upload="${esc(f.uid)}">Retry</button>` : ""}<button type="button" class="icon-btn" data-remove-upload="${esc(f.uid)}" aria-label="Remove ${esc(f.name)} from message" title="Remove ${esc(f.name)} from message">${icon("close")}</button></span>`;
+  }).join("");
   // The record is shared by every composer mounted on this conversation:
   // a send that finishes after the person left and came back updates the
   // one now showing, and a send in flight stays in flight there too.
@@ -155,28 +160,83 @@ function wireComposer(form, record, conv) {
     }
   };
   const menu = $(".say-mentions", form);
-  const choose = name => { const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `); box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length); menu.hidden = true; read(); };
+  let mentionIdx = 0, mentionChoices = [];
+  if (menu) {
+    if (!menu.id) menu.id = `say-mentions-${MessageDrafts.uid()}`;
+    box.setAttribute("role", "combobox");
+    box.setAttribute("aria-autocomplete", "list");
+    box.setAttribute("aria-controls", menu.id);
+    box.setAttribute("aria-expanded", "false");
+  }
+  const closeMentions = () => {
+    if (!menu) return;
+    menu.hidden = true;
+    mentionChoices = [];
+    mentionIdx = 0;
+    box.setAttribute("aria-expanded", "false");
+    box.removeAttribute("aria-activedescendant");
+  };
+  const syncMentionActive = () => {
+    if (!menu) return;
+    const opts = [...menu.querySelectorAll("[data-mention]")];
+    opts.forEach((el, i) => {
+      const on = i === mentionIdx;
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    const cur = opts[mentionIdx];
+    if (cur) {
+      box.setAttribute("aria-activedescendant", cur.id);
+      cur.scrollIntoView?.({ block: "nearest" });
+    } else {
+      box.removeAttribute("aria-activedescendant");
+    }
+  };
+  const choose = name => { const at = box.selectionStart, before = box.value.slice(0, at).replace(/@[\w.-]*$/, `@${name} `); box.value = before + box.value.slice(at); box.setSelectionRange(before.length, before.length); closeMentions(); read(); };
   const offer = () => {
     if (!menu || !conv.mentions) return;
     const partial = mentionAt(box.value, box.selectionStart), choices = partial === null ? [] : conv.mentions(partial);
+    mentionChoices = choices;
+    mentionIdx = 0;
     menu.hidden = !choices.length;
-    menu.innerHTML = choices.map(p => `<button type="button" role="option" data-mention="${esc(p.name)}">${typeof avatar === "function" ? avatar(p.name, p.agent) : ""}${esc(p.name)}${p.agent ? ` <span class="small faint">team agent</span>` : ""}</button>`).join("");
+    box.setAttribute("aria-expanded", choices.length ? "true" : "false");
+    menu.innerHTML = choices.map((p, i) => `<button type="button" role="option" id="${esc(menu.id)}-${i}" aria-selected="${i === 0}" class="${i === 0 ? "on" : ""}" data-mention="${esc(p.name)}">${typeof avatar === "function" ? avatar(p.name, p.agent) : ""}${esc(p.name)}${p.agent ? ` <span class="small faint">personal agent</span>` : ""}</button>`).join("");
+    syncMentionActive();
   };
   if (menu) menu.onclick = e => { const b = e.target.closest("[data-mention]"); if (b) { choose(b.dataset.mention); box.focus(); } };
   box.oninput = () => { read(); fit(); syncSend(); offer(); conv.typed?.(); };
   box.onselect = selected;
+  box.onpaste = e => {
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const files = dt.files?.length ? [...dt.files] : [...(dt.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (files.length) { e.preventDefault(); attach(files); }
+  };
   model?.addEventListener("change", read);
   box.onkeydown = e => {
-    if (menu && !menu.hidden && (e.key === "Enter" || e.key === "Tab")) { const first = $("[data-mention]", menu); if (first) { e.preventDefault(); choose(first.dataset.mention); return; } }
-    if (menu && !menu.hidden && e.key === "Escape") { menu.hidden = true; return; }
+    if (menu && !menu.hidden && mentionChoices.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        mentionIdx = (mentionIdx + (e.key === "ArrowDown" ? 1 : -1) + mentionChoices.length) % mentionChoices.length;
+        syncMentionActive();
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        const picked = mentionChoices[mentionIdx] || mentionChoices[0];
+        if (picked) { e.preventDefault(); choose(picked.name); return; }
+      }
+      if (e.key === "Escape") { e.preventDefault(); closeMentions(); return; }
+    }
     if (e.key === "Escape" && stopMode && !box.value.trim()) { e.preventDefault(); triggerStop(); return; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); form.requestSubmit(); }
   };
   // Files dropped on the conversation are attached to the next message.
   const zone = form.closest("section.conv") || form;
+  let dragDepth = 0;
+  zone.ondragenter = e => { if (e.dataTransfer?.types?.includes("Files")) { dragDepth++; zone.classList.add("dropping"); } };
   zone.ondragover = e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); zone.classList.add("dropping"); } };
-  zone.ondragleave = () => zone.classList.remove("dropping");
-  zone.ondrop = e => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); zone.classList.remove("dropping"); attach(e.dataTransfer.files); };
+  zone.ondragleave = () => { dragDepth = Math.max(0, dragDepth - 1); if (dragDepth === 0) zone.classList.remove("dropping"); };
+  zone.ondrop = e => { dragDepth = 0; zone.classList.remove("dropping"); if (!e.dataTransfer?.files?.length) return; e.preventDefault(); attach(e.dataTransfer.files); };
   form.onsubmit = async e => {
     e.preventDefault(); read();
     const text = record.text.trim(); if (!text || record.sending) return;

@@ -71,60 +71,8 @@ function foundItems(found, home) {
 }
 
 const TeamCommand = {
-  dialog: null, items: [], at: 0, found: { messages: [], files: [], tasks: [], knowledge: [] }, timer: 0,
-
-  open(initial = "") {
-    if (!Team.home || !location.hash.startsWith("#/team/")) return;
-    this.close();
-    const d = this.dialog = document.createElement("dialog");
-    d.className = "team-command";
-    d.setAttribute("aria-label", "Search or run a command");
-    d.innerHTML = `<input type="text" placeholder="Search, or type a name to create" aria-label="Search or run a command" aria-controls="team-command-list" autocomplete="off"><div id="team-command-list" role="listbox"></div><p class="small faint">Up and Down to move · Enter to choose · Esc to close</p>`;
-    document.body.append(d);
-    const input = $("input", d);
-    input.value = initial;
-    input.oninput = () => { this.at = 0; this.found = { messages: [], files: [], tasks: [], knowledge: [] }; this.draw(); this.search(input.value); };
-    input.onkeydown = e => {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); this.at = (this.at + (e.key === "ArrowDown" ? 1 : -1) + this.items.length) % Math.max(1, this.items.length); this.draw(); }
-      if (e.key === "Enter") { e.preventDefault(); const it = this.items[this.at]; if (it) this.run(it.run); }
-    };
-    d.onclick = e => { const b = e.target.closest("[data-cmd]"); if (b) this.run(this.items[Number(b.dataset.cmd)].run); else if (e.target === d) this.close(); };
-    d.addEventListener("close", () => { d.remove(); if (this.dialog === d) this.dialog = null; });
-    d.showModal();
-    input.focus();
-    this.draw();
-    if (initial) this.search(initial);
-  },
-
-  close() { this.dialog?.close(); this.dialog = null; },
-
-  draw() {
-    const d = this.dialog;
-    if (!d) return;
-    const q = $("input", d).value;
-    this.items = [...commandsFor(Team.home, Team.place, q).slice(0, TEAM_COMMANDS_SHOWN), ...foundItems(this.found, Team.home)];
-    let group = "";
-    $("#team-command-list", d).innerHTML = this.items.map((it, i) => {
-      const head = it.group !== group ? `<div class="team-command-group" role="presentation">${esc(group = it.group)}</div>` : "";
-      return `${head}<button type="button" role="option" data-cmd="${i}" aria-selected="${i === this.at}" class="${i === this.at ? "on" : ""}"><span>${esc(it.label)}</span>${it.hint ? `<span class="small faint">${esc(it.hint)}</span>` : ""}</button>`;
-    }).join("") || `<p class="small faint">Nothing matches.</p>`;
-    $(`[data-cmd="${this.at}"]`, d)?.scrollIntoView?.({ block: "nearest" });
-  },
-
-  search(q) {
-    clearTimeout(this.timer);
-    if (!q.trim()) return;
-    this.timer = setTimeout(async () => {
-      try {
-        const found = await Server.workspaces.search(Team.ws, q);
-        if (this.dialog && $("input", this.dialog).value === q) { this.found = found; this.draw(); }
-      } catch { /* the typed commands still work */ }
-    }, TEAM_SEARCH_DEBOUNCE_MS);
-  },
-
   async run(r) {
     const ws = Team.ws, base = `/v1/workspaces/${enc(ws)}`, place = Team.place;
-    this.close();
     try {
       if (r.kind === "go") location.hash = teamHref(ws, r.place);
       if (r.kind === "hash") location.hash = r.hash;
@@ -156,12 +104,6 @@ const TeamCommand = {
         toast("Done.");
       }
       if (r.kind === "download") await Magnus.download(`${base}/files/${enc(r.name)}`, r.name);
-      if (r.kind === "limit") {
-        await Server.workspaces.setLimit(ws, { usd: r.usd, channel: r.channel || undefined });
-        await loadHome(ws);
-        await refreshCenter($("#main"), ws);
-        toast(r.usd == null ? "Limit lifted." : `Limited to ${teamUsd(r.usd)} a month.`);
-      }
     } catch (err) { toast(err.message); }
   },
 

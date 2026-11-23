@@ -100,7 +100,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip-menu 
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  z-index: 30;
+  z-index: var(--z-flyout);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -130,7 +130,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .model-chip-menu 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .aurora-page-bar {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: var(--z-sticky);
   display: flex;
   justify-content: flex-end;
   height: 0;

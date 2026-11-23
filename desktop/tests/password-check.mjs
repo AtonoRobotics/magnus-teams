@@ -14,7 +14,7 @@ import vm from "node:vm";
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = join(here, "../ui");
 const read = f => readFileSync(join(ui, f), "utf8");
-const page = read("index.html"), app = read("app.js"), bridge = read("bridge.js"), pw = read("password.js");
+const page = read("index.html"), app = read("app.js"), signin = read("signin.js"), bridge = read("bridge.js"), pw = read("password.js");
 const tauri = readFileSync(join(here, "../src-tauri/src/lib.rs"), "utf8");
 
 // Wiring.
@@ -22,8 +22,8 @@ const scripts = [...page.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m =>
 assert.ok(scripts.includes("password.js") && scripts.indexOf("password.js") > scripts.indexOf("app.js"), "index.html loads password.js after app.js");
 assert.match(app, /<div data-password><\/div>/, "Settings → Account has a place for the Password card");
 assert.match(app, /await passwordCard\(pw\)/, "Settings → Account draws the Password card");
-assert.match(app, /id="forgot">Forgot password\?<\/button>/, "the sign-in screen offers Forgot password?");
-assert.match(app, /stage === "forgot"\) \{\s*forgotPasswordStep\(box, data,/, "Forgot password? opens its own step");
+assert.match(signin, /id="forgot">Forgot password\?<\/button>/, "the sign-in screen offers Forgot password?");
+assert.match(signin, /stage === "forgot"\) \{\s*forgotPasswordStep\(box, data,/, "Forgot password? opens its own step");
 assert.match(bridge, /forgotPassword\(email\) \{ return this\.invoke\("forgot_password", \{ email \}\); \}/, "the app asks through its own connection");
 assert.match(bridge, /forgotPassword\(email\) \{ return this\.api\("POST", "\/v1\/password-reset\/request", \{ email \}\); \}/, "a browser asks the server directly");
 assert.match(tauri, /account::forgot_password/, "the app registers its forgot_password command");
@@ -135,10 +135,11 @@ function harness() {
   assert.ok(h.calls.some(c => c[0] === "DELETE" && c[1] === "/v1/account" && c[2]?.confirm === "DELETE"));
 }
 
+const settingsSections = read("settings-sections.js");
 assert.match(app, /typeof msg === "object" && msg !== null/, "askText in app.js accepts an options object");
-assert.match(app, /data-hours="working_hours"/, "Settings → Notifications exposes working_hours controls");
-assert.match(app, /data-hours="quiet_hours"/, "Settings → Notifications exposes quiet_hours controls");
-assert.match(app, /data-pref-num="interruptions_per_day"/, "Settings → Notifications exposes interruptions_per_day control");
+assert.match(settingsSections, /data-hours="working_hours"/, "Settings → Notifications exposes working_hours controls");
+assert.match(settingsSections, /data-hours="quiet_hours"/, "Settings → Notifications exposes quiet_hours controls");
+assert.match(settingsSections, /data-pref-num="interruptions_per_day"/, "Settings → Notifications exposes interruptions_per_day control");
 assert.match(app, /data-stop-all-work/, "Tasks view exposes a Stop my active work button");
 
 console.log("password check passed");

@@ -61,10 +61,8 @@ const AuroraRail = (() => {
 
   function show() {
     if (open || !rail()) return;
-    // app.js opens its drawer from this button, which the rail hides.
-    const opener = $("[data-open-drawer]");
-    if (!opener) return;
-    opener.click();
+    if (typeof Workspace !== "undefined" && typeof Workspace.openDrawer === "function") Workspace.openDrawer();
+    else $("[data-open-drawer]")?.click();
     if (!/** @type {HTMLDialogElement} */ ($("#navigation-drawer"))?.open) return;
     open = true;
     picked = false;

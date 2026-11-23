@@ -77,7 +77,7 @@ aside.detail[hidden] { display: none; }
 .layer > h3 { margin: 6px 0 -8px; }
 @media (max-width: 1100px) {
   body.with-detail .shell { grid-template-columns: var(--nav-width, 228px) minmax(0, 1fr); }
-  aside.detail { position: fixed; top: 0; right: 0; width: min(var(--panel-width, 360px), 100%); z-index: 20; box-shadow: var(--shadow); }
+  aside.detail { position: fixed; top: 0; right: 0; width: min(var(--panel-width, 360px), 100%); z-index: var(--z-drawer); box-shadow: var(--shadow); }
 }
 .layers { display: flex; margin: 0; }
 .layers button { flex: 1; }
@@ -85,10 +85,17 @@ aside.detail[hidden] { display: none; }
 .banner.bad { background: var(--bad-soft); border-color: var(--bad); }
 /* Toasts say what happened; they never cover what can be clicked: they sit
    at the top, in the middle, and let clicks through. */
-#toasts { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 30; pointer-events: none; }
+#toasts { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: var(--z-toast); pointer-events: none; }
 .toast { background: var(--fg); color: var(--main); padding: 10px 16px; border-radius: var(--r-md); font-weight: 550; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: inline-flex; align-items: center; gap: 12px; }
+.toast:has(.toast-act) { pointer-events: auto; }
 .toast-act { pointer-events: auto; border: 1px solid color-mix(in srgb, var(--main) 35%, transparent); background: transparent; color: var(--main); padding: 3px 10px; border-radius: var(--r-sm); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .toast-act:hover { background: color-mix(in srgb, var(--main) 14%, transparent); border-color: var(--main); }
+.shortcuts-dialog { width: min(440px, calc(100vw - 32px)); background: var(--main); color: var(--fg); }
+.shortcuts-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.shortcuts-head h2 { margin: 0; font-size: 16px; }
+.shortcuts-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.shortcuts-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+.shortcut-kbd { font-family: var(--mono); font-size: 11.5px; padding: 2px 7px; border-radius: var(--r-xs); border: 1px solid var(--line-strong); background: var(--surface); color: var(--fg); }
 .palette-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; margin: -6px 0 0; }
 .palette-list:empty { display: none; }
 .palette-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 36px; padding: 6px 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg); text-align: left; font-size: 13.5px; font-weight: 500; cursor: pointer; }
@@ -140,7 +147,7 @@ body[data-workspace=split] .shell { grid-template-columns: var(--nav-width) minm
 
 @media (any-pointer: coarse) {
   /* Keep the 16px grid track while using its empty adjacent gutters. */
-  #workspace-splitter { margin-inline: -14px; z-index: 3; }
+  #workspace-splitter { margin-inline: -14px; z-index: var(--z-base); }
   #workspace-splitter::after { left: calc(50% - 1px); }
   nav a { min-width: 44px; min-height: 44px; }
 }
@@ -162,7 +169,7 @@ body[data-navigation=drawer] .shell > main, body[data-navigation=drawer] .shell 
 .navigation-drawer nav.side { height: 100%; display: flex; }
 .navigation-drawer nav.side [data-close-drawer] { display: inline-grid; }
 .navigation-drawer nav.side [data-nav-toggle] { display: none; }
-.navigation-flyout { position: fixed; left: 68px; top: 56px; bottom: 16px; width: min(320px, calc(100vw - 84px)); z-index: 30; padding: 16px; background: var(--main); color: var(--fg); border: 1px solid var(--muted); border-radius: var(--r-lg); overflow-y: auto; box-shadow: 0 8px 32px rgb(0 0 0 / .2); }
+.navigation-flyout { position: fixed; left: 68px; top: 56px; bottom: 16px; width: min(320px, calc(100vw - 84px)); z-index: var(--z-flyout); padding: 16px; background: var(--main); color: var(--fg); border: 1px solid var(--muted); border-radius: var(--r-lg); overflow-y: auto; box-shadow: 0 8px 32px rgb(0 0 0 / .2); }
 .navigation-flyout h2 { font-size: 16px; margin-top: 0; }
 .navigation-flyout .sect { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; }
 .navigation-flyout a { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px; color: var(--fg); }
@@ -391,7 +398,7 @@ html[data-style="studio"] .panel-tabs {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
-  z-index: 30;
+  z-index: var(--z-flyout);
   min-width: 220px;
   padding: 6px;
   border-radius: var(--r-md);

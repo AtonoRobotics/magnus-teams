@@ -137,12 +137,11 @@ const AuroraStage = (() => {
       const n = said[said.length - 1];
       list.push({ key: "messages", label: "Messages", icon: "chat", tone: "talk", open: "", note: n.key, href: n.href || "#", title: n.title, desc: `${n.body || ""}${said.length > 1 ? ` · ${said.length - 1} more` : ""}`, count: said.length > 1 ? said.length : 0 });
     }
-    const sharedCompId = typeof App !== "undefined" && App.shared?.home?.computer;
-    const comp = (App.computers || []).find(x => sharedCompId ? x.id === sharedCompId : x.owner?.person === App.me?.id);
+    const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id);
     const w = comp && typeof controlWords === "function" ? controlWords(comp, false) : null;
     if (comp && w && ["working", "asks", "waking"].includes(w.key)) {
       const svg = typeof UI !== "undefined" && UI.computer ? `<svg class="ic" viewBox="0 0 24 24">${UI.computer}</svg>` : "";
-      list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: sharedCompId ? "Shared Computer" : "Cloud Computer", desc: w.pill });
+      list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: "Cloud Computer", desc: w.pill });
     }
     const due = (App.schedules || []).filter(sc => !sc.ended && !sc.paused && sc.next && -age(sc.next) < DUE_SOON_MS).sort((a, b) => String(a.next).localeCompare(String(b.next)));
     if (due.length) list.push({ key: "next", label: "Up Next", icon: "calendar", tone: "idle", open: `schedule:${due[0].id}`, href: "#/schedules", title: due[0].title, desc: `${until(due[0].next)}${due.length > 1 ? ` · ${due.length - 1} more today` : ""}` });
@@ -170,12 +169,22 @@ const AuroraStage = (() => {
    * the person can answer in one tap; otherwise the box opens it.
    * @param {any} i an inbox item
    */
+  /** @type {Map<string, { sig: string, html: string }>} */
+  const answersCache = new Map();
+  const ANSWERS_CACHE_MAX = 64;
+
   function answersOf(i) {
     if (i.kind !== "approval" || !i.can_respond || typeof askCard !== "function") return "";
+    const sig = `${i.status || ""}|${i.updated_at || ""}|${JSON.stringify(i.ask || null)}`;
+    const hit = answersCache.get(i.id);
+    if (hit && hit.sig === sig) return hit.html;
     const t = document.createElement("template");
     t.innerHTML = askCard(i, true);
     const row = t.content.querySelector(".ask-answers");
-    return row && !row.querySelector("textarea, input") ? row.outerHTML : "";
+    const out = row && !row.querySelector("textarea, input") ? row.outerHTML : "";
+    if (answersCache.size >= ANSWERS_CACHE_MAX) answersCache.clear();
+    answersCache.set(i.id, { sig, html: out });
+    return out;
   }
 
   /** A box's inside, as the mockup's small bento box. */
