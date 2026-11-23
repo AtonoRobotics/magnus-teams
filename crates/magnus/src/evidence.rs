@@ -260,6 +260,15 @@ pub fn status_line(run: &Run) -> Option<String> {
     Some(doing(&last.tool))
 }
 
+/// Lightweight count of confirmed read-backs / cited sources recorded for
+/// a run, safe to compute while already holding a `State` read lock.
+pub fn receipts_count_in_state(s: &State, run: &Run) -> usize {
+    let rb = s.evidence.read_backs(&run.id).iter().filter(|r| r.matches != Some(false)).count();
+    let src = s.evidence.sources(&run.id).len();
+    let outs = run.outputs.len();
+    rb + src + outs
+}
+
 impl crate::kernel::Kernel {
     /// A run's evidence as its card shows it: receipts with their
     /// read-backs, what was not done, the sources cited, and while it works

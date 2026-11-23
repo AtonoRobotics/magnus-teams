@@ -170,7 +170,7 @@ impl Kernel {
         let (task, child) = (new_id("task"), new_id("run"));
 
         let prompt = format!(
-            "Research the following public web question using web search, public HTTPS sites, and link-following. Return a concise summary with exact source URLs.\n\nQuery: {combined}"
+            "Research the following public web question using web search, public HTTPS sites, and link-following. Put your full concrete findings (key facts, figures, dates, quotes, and structured comparisons where relevant) with exact source URLs in your deliverable — not just a brief summary.\n\nQuery: {combined}"
         );
         let budget = self.read(|s| crate::sub_agents::child_budget_for(s, &parent, Some(RESEARCH_BUDGET_SHARE)));
         let o = NewRun {

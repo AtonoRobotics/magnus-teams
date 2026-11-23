@@ -132,12 +132,19 @@ impl Kernel {
                         let _ = k.move_lane("kernel", LaneStep::Fail, failed(reason)).await;
                         return;
                     }
-                    let summary = r
-                        .summary
-                        .clone()
-                        .or_else(|| r.replies.last().map(|m| m.text().to_string()))
-                        .filter(|s| !s.trim().is_empty())
-                        .unwrap_or_else(|| "(finished without a text summary)".to_string());
+                    let deliverable = r.outcome_view.as_ref().map(crate::sub_agents::render_deliverable).unwrap_or_default();
+                    let raw_summary = r.summary.clone().or_else(|| r.replies.last().map(|m| m.text().to_string())).unwrap_or_default();
+                    let summary = if !deliverable.is_empty() {
+                        if !raw_summary.trim().is_empty() && !deliverable.contains(raw_summary.trim()) {
+                            format!("{deliverable}\n\nSummary: {}", raw_summary.trim())
+                        } else {
+                            deliverable
+                        }
+                    } else if !raw_summary.trim().is_empty() {
+                        raw_summary
+                    } else {
+                        "(finished without a text summary)".to_string()
+                    };
                     let scrub_flagged = scrub_check(&summary).is_some();
                     if auto_release && !scrub_flagged {
                         let Some(credit) = k.read(|s| s.missions.release_credit(&mission, &lane)) else {

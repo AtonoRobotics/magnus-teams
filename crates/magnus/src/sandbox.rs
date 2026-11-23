@@ -67,6 +67,7 @@ pub struct Sandboxes {
     cfg: Option<Cfg>,
     root: PathBuf,
     vms: tokio::sync::Mutex<HashMap<String, Arc<Vm>>>,
+    run_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     inputs: Mutex<RunInputs>,
 }
 
@@ -94,7 +95,7 @@ pub fn vm_config(cfg: &Cfg, workspace: &Path, vsock: &Path, check: bool) -> Valu
 
 impl Sandboxes {
     pub fn new(cfg: Option<Cfg>, state_dir: &Path) -> Sandboxes {
-        Sandboxes { cfg, root: state_dir.join("runs"), vms: tokio::sync::Mutex::new(HashMap::new()), inputs: Mutex::new(HashMap::new()) }
+        Sandboxes { cfg, root: state_dir.join("runs"), vms: tokio::sync::Mutex::new(HashMap::new()), run_locks: Mutex::new(HashMap::new()), inputs: Mutex::new(HashMap::new()) }
     }
 
     pub fn available(&self) -> bool {
@@ -188,10 +189,17 @@ impl Sandboxes {
     }
 
     async fn vm(&self, run: &str) -> Result<Arc<Vm>> {
-        let mut vms = self.vms.lock().await;
-        if let Some(vm) = vms.get(run) {
-            if vm.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait().ok().flatten().is_none() {
-                return Ok(vm.clone());
+        let run_lock = {
+            let mut locks = self.run_locks.lock().unwrap_or_else(|e| e.into_inner());
+            locks.entry(run.to_string()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone()
+        };
+        let _guard = run_lock.lock().await;
+        {
+            let vms = self.vms.lock().await;
+            if let Some(vm) = vms.get(run) {
+                if vm.child.lock().unwrap_or_else(|e| e.into_inner()).try_wait().ok().flatten().is_none() {
+                    return Ok(vm.clone());
+                }
             }
         }
         let fresh = !self.dir(run).join("workspace.ext4").exists();
@@ -205,7 +213,7 @@ impl Sandboxes {
                 request(&vm.vsock, &GuestRequest::write(format!("/workspace/inputs/{safe}"), b64), FILE_REQUEST_TIMEOUT).await?;
             }
         }
-        vms.insert(run.to_string(), vm.clone());
+        self.vms.lock().await.insert(run.to_string(), vm.clone());
         Ok(vm)
     }
 
@@ -319,6 +327,7 @@ impl Sandboxes {
     pub async fn destroy(&self, run: &str) {
         self.release_inputs(run);
         self.stop(run).await;
+        self.run_locks.lock().unwrap_or_else(|e| e.into_inner()).remove(run);
         let _ = std::fs::remove_dir_all(self.dir(run));
     }
 }

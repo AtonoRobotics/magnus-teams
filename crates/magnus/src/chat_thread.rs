@@ -326,6 +326,11 @@ pub(crate) fn sub_agents_of(s: &State, r: &Run, w: &Words) -> Vec<Agent> {
         .filter_map(|(depth, c)| {
             let cr = s.runs.get(&c.child)?;
             let ct = s.tasks.get(&cr.task)?;
+            let outputs = cr
+                .outputs
+                .iter()
+                .map(|(id, name, media_type, size)| crate::chat_entry::EntryFile { id: id.clone(), name: name.clone(), media_type: Some(media_type.clone()), size: Some(*size) })
+                .collect();
             Some(Agent {
                 run: c.child,
                 parent: c.parent,
@@ -335,7 +340,10 @@ pub(crate) fn sub_agents_of(s: &State, r: &Run, w: &Words) -> Vec<Agent> {
                 status: crate::api::status_str(cr.status),
                 waiting_on: cr.reason.clone(),
                 waiting_item: cr.waiting_item.clone(),
+                status_line: crate::evidence::status_line(cr),
                 summary: cr.summary.clone(),
+                outcome_view: cr.outcome_view.clone(),
+                outputs,
                 tools: c.tools,
                 at: ct.created_at,
                 ended_at: cr.ended_at,

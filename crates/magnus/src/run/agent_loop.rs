@@ -207,22 +207,50 @@ impl Kernel {
             return Ok(Flow::Stop);
         }
 
-        // Finish the tool calls of the latest reply, in order.
-        if let Some((index, call_id, name, input)) = run.pending_calls().into_iter().next() {
+        // Finish the tool calls of the latest reply: consecutive delegation
+        // calls (`start_sub_agent`, `research_web`) fan out concurrently so
+        // multiple sub-agents run side by side instead of blocking each other.
+        let pending = run.pending_calls();
+        if !pending.is_empty() {
             let step = run.replies.last().map(|r| r.step).unwrap_or(0);
-            let step_id = format!("s{step}.{index}");
-            let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
-            let v = match self.watched(&run, &action).await? {
-                Some(v) => v,
-                None if crate::tools::RECORDS.contains(&action.tool.as_str()) => {
-                    return self.record_call(&run, &action.call_id, &action.step_id, &action.tool, &action.input).await
+            let parallel: Vec<_> = pending.iter().take_while(|(_, _, name, _)| matches!(name.as_str(), "start_sub_agent" | "research_web")).cloned().collect();
+            if parallel.len() > 1 {
+                let futs = parallel.into_iter().map(|(index, call_id, name, input)| {
+                    let step_id = format!("s{step}.{index}");
+                    let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
+                    let k = self.clone();
+                    let r = run.clone();
+                    async move {
+                        match k.watched(&r, &action).await? {
+                            Some(v) => Ok(v),
+                            None => k.execute(action).await,
+                        }
+                    }
+                });
+                let results = futures::future::join_all(futs).await;
+                let mut suspended = false;
+                for res in results {
+                    if matches!(res?, Verdict::Suspended) {
+                        suspended = true;
+                    }
                 }
-                None => self.execute(action).await?,
-            };
-            return Ok(match v {
-                Verdict::Done { .. } => Flow::Continue,
-                Verdict::Suspended => Flow::Stop,
-            });
+                return Ok(if suspended { Flow::Stop } else { Flow::Continue });
+            }
+            if let Some((index, call_id, name, input)) = pending.into_iter().next() {
+                let step_id = format!("s{step}.{index}");
+                let action = Action { run: run_id.into(), call_id, step_id, tool: name, input, issuer: Issuer::Model };
+                let v = match self.watched(&run, &action).await? {
+                    Some(v) => v,
+                    None if crate::tools::RECORDS.contains(&action.tool.as_str()) => {
+                        return self.record_call(&run, &action.call_id, &action.step_id, &action.tool, &action.input).await
+                    }
+                    None => self.execute(action).await?,
+                };
+                return Ok(match v {
+                    Verdict::Done { .. } => Flow::Continue,
+                    Verdict::Suspended => Flow::Stop,
+                });
+            }
         }
 
         // A removable module: a run going in circles is reset, escalated, or stopped.

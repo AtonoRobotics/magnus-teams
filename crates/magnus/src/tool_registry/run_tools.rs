@@ -220,7 +220,12 @@ pub(super) static DECLS: &[Decl] = &[
     Decl::tool("start_sub_agent", IN_SANDBOX, Exec::Core(Op::Side), ALWAYS, |_| {
         obj(
             // No grant: a sub-agent works under its parent's (owner, 2026-11-10).
-            json!({ "goal": { "type": "string" }, "tools": { "type": "array", "items": { "type": "string" } }, "budget_share": { "type": "number" } }),
+            json!({
+                "goal": { "type": "string" },
+                "tools": { "type": "array", "items": { "type": "string" } },
+                "budget_share": { "type": "number" },
+                "background": { "type": "boolean", "description": "optional: start concurrently and return immediately without blocking this reply" }
+            }),
             &["goal"],
         )
     })

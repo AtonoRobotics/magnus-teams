@@ -379,6 +379,7 @@ impl Arrangements {
             }
             Ev::ScheduleRemoved { id, .. } => {
                 self.schedules.remove(id);
+                self.quarantine_schemas.remove(id);
             }
             Ev::ScheduleEnded { id, reason, .. } => {
                 // It stays, marked with why: its card says it ended, with

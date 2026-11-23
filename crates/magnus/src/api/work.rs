@@ -45,7 +45,12 @@ fn needs(s: &crate::state::State, p: &Person, run: &Run) -> bool {
 pub(crate) fn task_row(k: &Kernel, s: &crate::state::State, p: &Person, t: &crate::state::Task, r: &Run, words: &crate::recall::Words) -> Value {
     let mut v = task_json(k, t, r, false, words);
     let mine = t.person == p.id;
+    let sub_agents_active = s.sub_agents.below(&r.id).into_iter().filter(|(_, c)| s.runs.get(&c.child).is_some_and(|cr| !cr.status.terminal())).count();
+    let receipts_count = crate::evidence::receipts_count_in_state(s, r);
     v["needs_you"] = json!(needs(s, p, r));
+    v["sub_agents_active"] = json!(sub_agents_active);
+    v["receipts_count"] = json!(receipts_count);
+    v["verified"] = json!(receipts_count > 0);
     // Another person's projects and conversations are theirs alone: the
     // owner sees that a task came from a chat, not what was said in it.
     v["project"] = if mine { crate::library::project_ref(s, &t.task_id) } else { Value::Null };
@@ -80,6 +85,7 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         "waiting_on": run.reason,
         "status_line": crate::evidence::status_line(run),
         "summary": run.summary,
+        "has_deliverable": run.outcome_view.as_ref().and_then(Value::as_array).is_some_and(|a| !a.is_empty()),
         "plan": run.plan,
         "plan_version": run.plan_version,
         "thread": task.chat.as_ref().map(|c| c.thread.clone()),

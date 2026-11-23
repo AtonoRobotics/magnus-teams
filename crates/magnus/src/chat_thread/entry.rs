@@ -125,7 +125,10 @@ pub struct Agent {
     pub status: &'static str,
     pub waiting_on: Option<String>,
     pub waiting_item: Option<String>,
+    pub status_line: Option<String>,
     pub summary: Option<String>,
+    pub outcome_view: Option<Value>,
+    pub outputs: Vec<EntryFile>,
     pub tools: Vec<String>,
     pub at: At,
     pub ended_at: Option<At>,
@@ -221,7 +224,18 @@ impl Entry {
             Body::Said(c) if self.kind == Kind::Tasks => c.tasks.iter().flatten().map(|t| format!("- {}: {}", t.title, t.text)).collect::<Vec<_>>().join("\n"),
             Body::Said(c) => c.text.clone(),
             Body::Turn(t) => t.text.clone().unwrap_or_default(),
-            Body::Result(r) => format!("{} ({})\n\n{}", r.title, r.status, r.summary.as_deref().unwrap_or_default()),
+            Body::Result(r) => {
+                let deliv = r.view.as_ref().map(crate::sub_agents::render_deliverable).unwrap_or_default();
+                let sum = r.summary.as_deref().unwrap_or_default();
+                let body = if !deliv.is_empty() && !sum.is_empty() && !deliv.contains(sum) {
+                    format!("{deliv}\n\n{sum}")
+                } else if !deliv.is_empty() {
+                    deliv
+                } else {
+                    sum.to_string()
+                };
+                format!("{} ({})\n\n{body}", r.title, r.status)
+            }
             Body::SubAgents(_) => String::new(),
             Body::Card(m) => map_text(self.kind, m),
             Body::Copied(v) => v.as_object().map(|m| map_text(self.kind, m)).unwrap_or_default(),
@@ -301,7 +315,7 @@ impl Entry {
         match &self.body {
             Body::Said(c) => Some(&c.text),
             Body::Turn(t) => t.text.as_deref(),
-            Body::Result(r) => Some(&r.text),
+            Body::Result(r) => r.summary.as_deref().filter(|s| !s.is_empty()).or(Some(&r.text)),
             Body::SubAgents(_) => None,
             Body::Card(_) | Body::Copied(_) => {
                 let m = self.map()?;
@@ -329,7 +343,18 @@ impl Entry {
                 }
                 _ => None,
             },
-            Body::Result(r) => Some(("task result", format!("{} ({}): {}", r.title, r.status, r.summary.as_deref().unwrap_or_default()))),
+            Body::Result(r) => {
+                let deliv = r.view.as_ref().map(crate::sub_agents::render_deliverable).unwrap_or_default();
+                let sum = r.summary.as_deref().unwrap_or_default();
+                let body = if !deliv.is_empty() && !sum.is_empty() && !deliv.contains(sum) {
+                    format!("{deliv}\nSummary: {sum}")
+                } else if !deliv.is_empty() {
+                    deliv
+                } else {
+                    sum.to_string()
+                };
+                Some(("task result", format!("{} ({}): {body}", r.title, r.status)))
+            }
             Body::Turn(_) | Body::SubAgents(_) => None,
             Body::Card(m) => map_line(self.kind, m),
             Body::Copied(v) => map_line(self.kind, v.as_object()?),
@@ -384,7 +409,18 @@ impl Serialize for Entry {
 fn map_text(kind: Kind, m: &Map<String, Value>) -> String {
     let s = |k: &str| m.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
     match kind {
-        Kind::Result => format!("{} ({})\n\n{}", s("title"), s("status"), s("summary")),
+        Kind::Result => {
+            let deliv = m.get("view").map(crate::sub_agents::render_deliverable).unwrap_or_default();
+            let sum = s("summary");
+            let body = if !deliv.is_empty() && !sum.is_empty() && !deliv.contains(&sum) {
+                format!("{deliv}\n\n{sum}")
+            } else if !deliv.is_empty() {
+                deliv
+            } else {
+                sum
+            };
+            format!("{} ({})\n\n{body}", s("title"), s("status"))
+        }
         Kind::Tasks => m
             .get("tasks")
             .and_then(Value::as_array)
@@ -420,7 +456,18 @@ fn map_line(kind: Kind, m: &Map<String, Value>) -> Option<(&'static str, String)
                     .join("; ")
             ),
         ),
-        Kind::Result => ("task result", format!("{} ({}): {}", text("title"), text("status"), text("summary"))),
+        Kind::Result => {
+            let deliv = m.get("view").map(crate::sub_agents::render_deliverable).unwrap_or_default();
+            let sum = text("summary");
+            let body = if !deliv.is_empty() && !sum.is_empty() && !deliv.contains(&sum) {
+                format!("{deliv}\nSummary: {sum}")
+            } else if !deliv.is_empty() {
+                deliv
+            } else {
+                sum
+            };
+            ("task result", format!("{} ({}): {body}", text("title"), text("status")))
+        }
         Kind::ScheduleCard => ("you", format!("Set up the schedule {} at their request: {}", text("schedule"), text("text"))),
         Kind::SuggestionCard => {
             let changed = e("changed").as_str().map(|c| format!(" (again: {c})")).unwrap_or_default();

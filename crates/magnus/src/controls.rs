@@ -148,6 +148,20 @@ impl Kernel {
             o.insert("cannot_be_undone".into(), json!(cannot_be_undone));
             o.insert("already_done".into(), json!(already_done));
             o.insert("possibly_done".into(), json!(possibly_done));
+            if let Some(view) = &run.outcome_view {
+                o.insert("outcome_view".into(), view.clone());
+                let rendered = crate::sub_agents::render_deliverable(view);
+                if !rendered.is_empty() {
+                    o.insert("deliverable_text".into(), json!(rendered));
+                }
+            }
+            if !run.outputs.is_empty() {
+                o.insert(
+                    "outputs".into(),
+                    json!(run.outputs.iter().map(|(id, name, mt, size)| json!({ "id": id, "name": name, "media_type": mt, "size": size })).collect::<Vec<_>>()),
+                );
+            }
+            o.insert("evidence".into(), self.evidence_of(&run));
         }
         Ok(row)
     }
