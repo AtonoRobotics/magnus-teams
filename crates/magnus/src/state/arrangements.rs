@@ -57,9 +57,9 @@ pub struct Schedule {
 }
 
 /// Why a schedule is paused (decisions/2026-11-23-a-schedule-knows-why-it-is-paused.md),
-/// read from the existing events' fields: a `SchedulePaused` with a task is
-/// a hold on that run, one marked `admin` an admin's, any other its
-/// person's. Ordered weakest first.
+/// read from the existing events' fields: a `SchedulePaused` marked `admin`
+/// is an admin's suspension, one with a task a hold on that run, any other
+/// a pause for its person. Ordered weakest first.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PauseCause {
     /// Its run (this task) waits on its person: lifted by the kernel once
@@ -391,8 +391,8 @@ impl Arrangements {
             Ev::SchedulePaused { id, reason, task, admin, .. } => {
                 if let Some(s) = self.schedules.get_mut(id) {
                     let cause = match (task, admin) {
-                        (Some(t), _) => PauseCause::Held(t.clone()),
-                        (None, true) => PauseCause::Admin,
+                        (_, true) => PauseCause::Admin,
+                        (Some(t), false) => PauseCause::Held(t.clone()),
                         (None, false) => PauseCause::Person,
                     };
                     s.pauses.insert(cause, reason.clone());
@@ -417,19 +417,21 @@ impl Arrangements {
                     // admin's suspension, the schedule's person their own
                     // pause (and a suspension, which the app lets them lift
                     // only when they administer), anyone else a suspension.
-                    let hold_ended = e.actor == "kernel" && source.is_none();
-                    if hold_ended {
-                        s.pauses.retain(|c, _| !matches!(c, PauseCause::Held(_)));
+                    let lifts: &[PauseCause] = if e.actor == "kernel" && source.is_none() {
+                        &[]
                     } else if source.as_deref() == Some("console") || e.actor != format!("person:{}", s.person) {
-                        s.pauses.remove(&PauseCause::Admin);
+                        &[PauseCause::Admin]
                     } else {
-                        s.pauses.remove(&PauseCause::Person);
-                        s.pauses.remove(&PauseCause::Admin);
+                        &[PauseCause::Person, PauseCause::Admin]
+                    };
+                    if lifts.is_empty() {
+                        s.pauses.retain(|c, _| !matches!(c, PauseCause::Held(_)));
                     }
+                    let lifted = lifts.iter().filter(|c| s.pauses.remove(*c).is_some()).count();
                     s.settle_pauses();
-                    // Failures count afresh only after a person resumes a
-                    // schedule paused for them.
-                    if !hold_ended {
+                    // Failures count afresh only after someone resumes a
+                    // schedule paused for its person or by an admin.
+                    if lifted > 0 {
                         s.resumed = Some(e.at);
                     }
                     // The next run is due from now, not from long ago.

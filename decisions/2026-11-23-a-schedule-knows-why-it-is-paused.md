@@ -11,3 +11,5 @@
 - The person may resume a schedule held on a waiting run that they also paused: their pause lifts and the hold stays until they answer. A resume of a hold alone is still refused with the old words. The admin console's resume lifts only an admin's suspension, and says so when the schedule is paused for its person or held.
 
 **Reason.** All four causes shared one flag, and each pause overwrote the last. Turning someone off skipped a schedule held on a waiting run, and when they came back and answered it, the sweep's release resumed the schedule and it fired, against this morning's decision that a turned-off person's schedules stay paused until they resume them.
+
+**Note.** A `SchedulePaused` marked `admin` is an admin's suspension even when it names a task (no release writes that pair; the pinned state sequence does). The pinned state rendering gains the `pauses` field, and that sequence's one such pause now leaves `resumed` at its resume, as any lifted suspension does.
