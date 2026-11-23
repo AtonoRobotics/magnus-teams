@@ -13,7 +13,7 @@
 //!   for someone to pass it to when there is such a workspace.
 //! - They leave every workspace.
 
-use super::mount::{audited, body_json, control, Audit};
+use super::mount::{audited, body_json, control, seg, Audit};
 use super::people::{last_owner, refuse};
 use super::Admin;
 use crate::events::Ev;
@@ -178,7 +178,7 @@ pub(super) async fn remove(State(k): State<Arc<Kernel>>, Extension(a): Extension
                 return refuse(StatusCode::INTERNAL_SERVER_ERROR, "failed", &format!("{e:#}"));
             }
         }
-        let r = control(&k, &a, Method::DELETE, &format!("/v1/admin/people/{id}"), None).await;
+        let r = control(&k, &a, Method::DELETE, &format!("/v1/admin/people/{}", seg(&id)), None).await;
         if !r.status().is_success() {
             return r;
         }

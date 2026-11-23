@@ -66,12 +66,23 @@ struct AppVisibilityBody {
     hidden: bool,
 }
 
+/// Whether `person` may see the room (a channel) a mission lives in.
+fn sees_room(k: &Kernel, ws: &str, room: &str, person: &str) -> bool {
+    k.read(|s| s.team.workspace(ws).is_some_and(|w| w.sees(room, person)))
+}
+
 async fn list_missions(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path((ws, room)): Path<(String, String)>) -> ApiResult {
+    if !sees_room(&k, &ws, &room, &p.id) {
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
+    }
     let view = k.read(|s| s.missions.view_for_room(&ws, &room, &p.id));
     Ok(Json(view).into_response())
 }
 
 async fn create_mission(State(k): K, Member { person: p, .. }: Member<at::Member>, Path((ws, room)): Path<(String, String)>, Json(b): Json<CreateMissionBody>) -> ApiResult {
+    if !sees_room(&k, &ws, &room, &p.id) {
+        return refuse(StatusCode::NOT_FOUND, "no such channel");
+    }
     let goal = b.goal.trim();
     if goal.is_empty() {
         return refuse(StatusCode::BAD_REQUEST, "mission goal is required");
@@ -91,13 +102,13 @@ async fn release_lane(
     Path((ws, mission, lane)): Path<(String, String, String)>,
     Json(b): Json<ReleaseBody>,
 ) -> ApiResult {
-    let Some((room, scope, draft)) = k.read(|s| {
+    let Some((room, scope, objective, draft)) = k.read(|s| {
         let m = s.missions.mission(&mission).filter(|m| m.workspace == ws)?;
         let l = m.lanes.get(&lane)?;
         if l.owner.as_deref() != Some(p.id.as_str()) || l.status == LaneStatus::Released {
             return None;
         }
-        Some((m.room.clone(), l.scope.clone(), l.private_draft.clone()))
+        Some((m.room.clone(), l.scope.clone(), l.objective.clone(), l.private_draft.clone()))
     }) else {
         return refuse(StatusCode::NOT_FOUND, "no releasable lane owned by you");
     };
@@ -125,6 +136,7 @@ async fn release_lane(
     .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
 
     if b.save_standing_rule && !scope.trim().is_empty() {
+        let scope = super::missions::standing_key(&scope, &objective);
         let _ = k.emit(&actor, Ev::TeamMission(TeamMissionEvent::StandingReleaseSet { workspace: ws.clone(), room, person: p.id.clone(), scope, active: true })).await;
     }
 
@@ -230,8 +242,11 @@ struct MemoryQuery {
     limit: Option<usize>,
 }
 
-async fn workspace_memory(State(k): K, Member { .. }: Member<at::Guest>, Path(ws): Path<String>, Query(mq): Query<MemoryQuery>) -> ApiResult {
+async fn workspace_memory(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path(ws): Path<String>, Query(mq): Query<MemoryQuery>) -> ApiResult {
     let limit = mq.limit.unwrap_or(DEFAULT_MEMORY_LIMIT).min(100);
-    let items = k.read(|s| s.missions.search_workspace_memory(&ws, &mq.q, limit));
+    let items = k.read(|s| {
+        let w = s.team.workspace(&ws);
+        s.missions.search_workspace_memory(&ws, &mq.q, limit, |room| w.is_some_and(|w| w.sees(room, &p.id)))
+    });
     Ok(Json(items).into_response())
 }

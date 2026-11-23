@@ -25,6 +25,7 @@ const STEP_WAIT: Duration = Duration::from_secs(1800);
 const STEP_SECONDS: u64 = 1800;
 const MAX_FIELD_CHARS: usize = 500;
 const MAX_STEPS: usize = 32;
+const MAX_APP_HOSTS: usize = 16;
 const INSTALLER_MODE: u32 = 0o600;
 
 #[derive(Deserialize)]
@@ -50,6 +51,15 @@ impl NewApp {
     pub(super) fn steps(&self) -> &[String] {
         &self.steps
     }
+}
+
+/// The hosts an app declares, each a host name (a wildcard only below a
+/// suffix someone owns), a few at most: every one stays open to the computer.
+fn checked_hosts(hosts: &[String]) -> Result<Vec<String>, Refused> {
+    if hosts.len() > MAX_APP_HOSTS {
+        return Err(Refused::Invalid(format!("an app declares at most {MAX_APP_HOSTS} hosts")));
+    }
+    hosts.iter().map(|h| super::service::checked_host(h)).collect()
 }
 
 fn checked_fields(name: &str, version: &str, source: &str, steps: &[String]) -> Result<(), Refused> {
@@ -140,6 +150,7 @@ impl Kernel {
     pub(super) async fn record_app(&self, actor: &str, id: &str, new: NewApp) -> Result<Value, Refused> {
         let NewApp { name, version, source, installer, steps, hosts } = new;
         checked_fields(&name, &version, &source, &steps)?;
+        let hosts = checked_hosts(&hosts)?;
         let socket = self.computer_socket()?;
         let c = self.read(|s| s.computers.get(id).cloned()).ok_or(Refused::NotFound("computer"))?;
         if c.status != Status::Running {
@@ -220,5 +231,10 @@ mod tests {
         assert!(checked_fields("", "1", "s", &steps).is_err());
         assert!(checked_fields("a", "1", "s", &[]).is_err());
         assert!(checked_fields("a", "1", "s", &vec!["x".to_string(); MAX_STEPS + 1]).is_err());
+        assert!(checked_hosts(&["*.com".into()]).is_err(), "a wildcard over a public suffix");
+        assert!(checked_hosts(&["*.github.io".into()]).is_err(), "a wildcard over a multi-tenant suffix");
+        assert!(checked_hosts(&["evil.example/x".into()]).is_err());
+        assert!(checked_hosts(&vec!["a.example".to_string(); MAX_APP_HOSTS + 1]).is_err());
+        assert_eq!(checked_hosts(&["API.Example.com".into(), "*.example.com".into()]).ok(), Some(vec!["api.example.com".to_string(), "*.example.com".to_string()]));
     }
 }

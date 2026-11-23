@@ -58,7 +58,13 @@ async fn a_projects_channel_messages_and_files_are_its_peoples_only() {
         assert_eq!(s.get(t, &format!("/v1/workspaces/{ws}/files/terms.txt")).await.0, 404, "{who} reads a project file");
         let (_, panel) = s.get(t, &format!("/v1/workspaces/{ws}/panel")).await;
         assert!(!panel["files"].to_string().contains("terms.txt"), "{who} sees the file on the panel: {panel}");
+        assert_eq!(s.get(t, &format!("/v1/workspaces/{ws}/rooms/{channel}/missions")).await.0, 404, "{who} lists a project channel's missions");
     }
+    // A member who owns a project of their own cannot tie the channel to it,
+    // which would make it theirs to read.
+    let own = s.post(&mo, &format!("/v1/workspaces/{ws}/projects"), json!({ "name": "Mine" })).await.1["id"].as_str().unwrap().to_string();
+    assert_eq!(s.post(&mo, &format!("/v1/workspaces/{ws}/channels/{channel}/project"), json!({ "project": own })).await.0, 404, "mo took over the channel");
+    assert_eq!(s.get(&mo, &format!("/v1/workspaces/{ws}/channels/{channel}/messages")).await.0, 404);
     s.done().await;
 }
 

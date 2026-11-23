@@ -66,7 +66,13 @@ fn matches(pattern: &str, path: &str) -> bool {
 }
 
 /// The audit action of an admin change at `method` `path`, when it is one.
+/// The organisation's and a group's policy are admin changes; a person's or
+/// a task's own layer is not. The layer is read as `put_policy` reads it.
 pub fn action_of(method: &str, path: &str) -> Option<&'static str> {
+    use crate::policy::layers::Layer;
+    if let Some(layer) = path.strip_prefix("/v1/policies/").filter(|_| method == "PUT") {
+        return matches!(Layer::parse(layer.trim_matches('/')), Some(Layer::Org | Layer::Group(_))).then_some("policy_set");
+    }
     ADMIN_CHANGES.iter().find(|(m, p, _)| *m == method && matches(p, path)).map(|(_, _, a)| *a)
 }
 
@@ -158,6 +164,9 @@ mod tests {
             ("POST", "/v1/updates/rollback"),
             ("PUT", "/v1/secrets/mail_token"),
             ("POST", "/v1/backups"),
+            ("PUT", "/v1/policies/org"),
+            ("PUT", "/v1/policies//org/"),
+            ("PUT", "/v1/policies/group/eng"),
         ] {
             assert!(action_of(m, p).is_some(), "{m} {p} changes an admin's settings with no step-up");
         }
@@ -167,6 +176,7 @@ mod tests {
             ("DELETE", "/v1/connectors/github/connection"),
             ("POST", "/v1/connectors/github/sign-in"),
             ("PUT", "/v1/preferences"),
+            ("PUT", "/v1/policies/user/mo"),
             ("POST", "/v1/adapters/claude/conformance"),
             ("PUT", "/v1/people//roles"),
         ] {

@@ -44,12 +44,18 @@ fn form(token: &str, error: Option<&str>) -> Response {
     )
 }
 
-async fn page(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn page(
+    State(k): State<Arc<Kernel>>,
+    Extension(t): Extension<Transport>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    h: axum::http::HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
         return r;
     }
     if let Some(code) = q.get("link") {
-        return crate::account_links::page(&k, peer, code);
+        return crate::account_links::page(&k, crate::devices::client_ip(peer, &h), code);
     }
     let token = q.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
     if token.is_empty() {
@@ -58,12 +64,18 @@ async fn page(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, 
     form(&token, None)
 }
 
-async fn accept(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Form(f): Form<HashMap<String, String>>) -> Response {
+async fn accept(
+    State(k): State<Arc<Kernel>>,
+    Extension(t): Extension<Transport>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    h: axum::http::HeaderMap,
+    Form(f): Form<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
         return r;
     }
     if f.contains_key("link") {
-        return crate::account_links::create(&k, t, peer, &f).await;
+        return crate::account_links::create(&k, t, crate::devices::client_ip(peer, &h), &f).await;
     }
     let token = f.get("token").map(|s| s.trim().to_string()).unwrap_or_default();
     let password = f.get("password").cloned().unwrap_or_default();

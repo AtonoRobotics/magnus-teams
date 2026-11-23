@@ -79,7 +79,31 @@ async fn cookie_guard(req: Request, next: Next) -> Response {
     if !safe && !recovery && bearer(h).is_none() && cookie(h, SESSION_COOKIE).is_some() && h.get("x-magnus-client").is_none() {
         return err(StatusCode::FORBIDDEN, "missing x-magnus-client header");
     }
+    // Those forms sign the browser in, so another site's page must not be
+    // able to submit one and sign its visitor in to an account it chose.
+    if recovery && !same_origin(h) {
+        return err(StatusCode::FORBIDDEN, "this form is sent from its own page");
+    }
     next.run(req).await
+}
+
+/// Whether a browser sent this request from one of the server's own pages:
+/// `Sec-Fetch-Site` when the browser says, else an `Origin` naming this
+/// host. A client that sends neither is no browser and is let through.
+fn same_origin(h: &HeaderMap) -> bool {
+    if let Some(site) = h.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        return matches!(site, "same-origin" | "none");
+    }
+    let Some(origin) = h.get("origin").and_then(|v| v.to_str().ok()) else { return true };
+    let host = h.get("host").and_then(|v| v.to_str().ok());
+    url::Url::parse(origin).ok().is_some_and(|o| {
+        let authority = match (o.host_str(), o.port()) {
+            (Some(name), Some(port)) => format!("{name}:{port}"),
+            (Some(name), None) => name.to_string(),
+            _ => return false,
+        };
+        host.is_some_and(|h| h.eq_ignore_ascii_case(&authority))
+    })
 }
 
 pub fn router(k: Arc<Kernel>, transport: Transport) -> Router {
@@ -310,4 +334,30 @@ async fn speak(State(k): K, _: Caller, Body(b): Body<req::Speak>) -> ApiResult {
             err(StatusCode::INTERNAL_SERVER_ERROR, "read aloud failed")
         }
     })
+}
+
+#[cfg(test)]
+mod same_origin_tests {
+    use super::same_origin;
+    use axum::http::HeaderMap;
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, v.parse().unwrap());
+        }
+        h
+    }
+
+    /// Another site's page submitting the join form is refused; the
+    /// server's own page, a typed address and a non-browser client are not.
+    #[test]
+    fn a_form_from_another_site_is_refused() {
+        assert!(!same_origin(&headers(&[("sec-fetch-site", "cross-site")])));
+        assert!(!same_origin(&headers(&[("sec-fetch-site", "same-site")])));
+        assert!(!same_origin(&headers(&[("origin", "https://evil.example"), ("host", "magnus.example")])));
+        assert!(same_origin(&headers(&[("sec-fetch-site", "same-origin")])));
+        assert!(same_origin(&headers(&[("origin", "https://magnus.example:8443"), ("host", "magnus.example:8443")])));
+        assert!(same_origin(&headers(&[])));
+    }
 }

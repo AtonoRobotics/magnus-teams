@@ -91,6 +91,20 @@ pub struct CallOutput {
     pub is_error: bool,
 }
 
+/// An app's answer is read up to this much; a longer one is refused, not cut.
+const MAX_MCP_ANSWER_BYTES: usize = 16 << 20;
+
+async fn bounded_text(mut resp: reqwest::Response) -> Result<String, CallError> {
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| CallError::Unknown(format!("response lost: {e}")))? {
+        if body.len() + chunk.len() > MAX_MCP_ANSWER_BYTES {
+            return Err(CallError::Unknown(format!("the app's answer is over {MAX_MCP_ANSWER_BYTES} bytes")));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 #[derive(Clone)]
 pub struct Mcp {
     http: reqwest::Client,
@@ -108,7 +122,11 @@ struct Session {
 
 impl Mcp {
     pub fn new() -> Result<Mcp> {
-        Ok(Mcp { allow_private: false, http: reqwest::Client::builder().connect_timeout(CONNECT_WAIT).timeout(CALL_WAIT).build()?, views: Default::default() })
+        // No redirects: an app's answer must come from the address it was
+        // given, never a hop to the server's own network (169.254.169.254, a
+        // local port) the request would otherwise follow.
+        let http = reqwest::Client::builder().connect_timeout(CONNECT_WAIT).timeout(CALL_WAIT).redirect(reqwest::redirect::Policy::none()).build()?;
+        Ok(Mcp { allow_private: false, http, views: Default::default() })
     }
 
     /// With the appliance's rule on private addresses.
@@ -153,12 +171,12 @@ impl Mcp {
                 }
             }
             let challenge = resp.headers().get(reqwest::header::WWW_AUTHENTICATE).and_then(|v| v.to_str().ok()).map(|v| format!(" (challenge: {v})")).unwrap_or_default();
-            let text = resp.text().await.unwrap_or_default();
+            let text = bounded_text(resp).await.unwrap_or_default();
             // An HTTP-level rejection means the server did not run the tool.
             return Err(CallError::NotSent(format!("app returned HTTP {status}{challenge}: {}", text.chars().take(300).collect::<String>())));
         }
         let sse = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(|v| v.starts_with("text/event-stream")).unwrap_or(false);
-        let text = resp.text().await.map_err(|e| CallError::Unknown(format!("response lost: {e}")))?;
+        let text = bounded_text(resp).await?;
         let msg: Value = if sse {
             text.split("\n\n")
                 .filter_map(|frame| {
@@ -196,7 +214,7 @@ impl Mcp {
             return Err(CallError::NotSent(format!("app refused initialize: HTTP {}", resp.status())));
         }
         s.id = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()).map(String::from);
-        let _ = resp.text().await;
+        let _ = bounded_text(resp).await;
         let _ = self.rpc(&s, None, "notifications/initialized", json!({}), &[]).await;
         Ok(s)
     }

@@ -4,6 +4,7 @@
 //! or tool credentials; approvals are made here, outside the agent's context.
 
 mod account;
+mod address;
 mod bridge;
 mod detect;
 mod display;
@@ -19,6 +20,7 @@ mod store;
 mod update;
 
 use base64::Engine;
+use address::normalize;
 use files::file_path;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -116,17 +118,6 @@ impl App {
         let token = self.store.token(&url).ok_or("signed out")?;
         Ok((url, c, token))
     }
-}
-
-/// An appliance address: scheme and host (and port), nothing else.
-fn normalize(raw: &str) -> Res<String> {
-    let raw = raw.trim();
-    let with_scheme = if raw.contains("://") { raw.to_string() } else { format!("https://{raw}") };
-    let u = url::Url::parse(&with_scheme).map_err(|_| format!("{raw} is not an address"))?;
-    if !matches!(u.scheme(), "https" | "http") || u.host_str().is_none() {
-        return Err(format!("{raw} is not an http or https address"));
-    }
-    Ok(u.origin().ascii_serialization())
 }
 
 async fn body_of(r: reqwest::Response) -> (u16, Value) {
@@ -772,6 +763,9 @@ mod tests {
         assert_eq!(normalize("magnus.local:7443").unwrap(), "https://magnus.local:7443");
         assert_eq!(normalize("https://10.0.0.5:7443/some/path").unwrap(), "https://10.0.0.5:7443");
         assert_eq!(normalize("http://127.0.0.1:7700/").unwrap(), "http://127.0.0.1:7700");
+        assert!(normalize("http://evil.example").is_err(), "plain http to another host would send the password in the clear");
+        assert!(normalize("http://192.168.0.5:7700").is_err());
+        assert_eq!(normalize("http://localhost:7700").unwrap(), "http://localhost:7700");
         assert!(normalize("file:///etc/passwd").is_err());
     }
 

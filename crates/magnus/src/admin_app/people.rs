@@ -10,7 +10,7 @@
 //! its checks (the last admin, the sessions ended on the record) are the
 //! same; what the console lacked is here.
 
-use super::mount::{audited, body_json, control, Audit};
+use super::mount::{audited, body_json, control, seg, Audit};
 use super::Admin;
 use crate::kernel::Kernel;
 use axum::extract::{Path, State};
@@ -69,7 +69,7 @@ async fn list(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -> R
 }
 
 async fn one(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>) -> Response {
-    let r = control(&k, &a, Method::GET, &format!("/v1/admin/people/{}", id_of(&id)), None).await;
+    let r = control(&k, &a, Method::GET, &format!("/v1/admin/people/{}", seg(&id_of(&id))), None).await;
     if !r.status().is_success() {
         return r;
     }
@@ -155,7 +155,7 @@ async fn resend(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Pa
     let id = id_of(&id);
     let send = body.as_ref().and_then(|b| b["send"].as_bool()).unwrap_or(false);
     let audit = Audit { action: "invite_resent".into(), target: Some(format!("people/{id}")), ..Default::default() };
-    let r = audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/admin/people/{id}/invite"), None)).await;
+    let r = audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/admin/people/{}/invite", seg(&id)), None)).await;
     if !r.status().is_success() {
         return r;
     }
@@ -184,7 +184,7 @@ async fn change(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Pa
     }
     if b.as_object().is_some_and(|o| o.contains_key("email") || o.contains_key("status")) {
         let audit = Audit { action: "user_updated".into(), target: Some(format!("people/{id}")), before: None, after: Some(b.clone()) };
-        return audited(&k, &a, audit, control(&k, &a, Method::PATCH, &format!("/v1/admin/people/{id}"), Some(b))).await;
+        return audited(&k, &a, audit, control(&k, &a, Method::PATCH, &format!("/v1/admin/people/{}", seg(&id)), Some(b))).await;
     }
     StatusCode::NO_CONTENT.into_response()
 }
@@ -203,7 +203,7 @@ async fn disable(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, P
         return r;
     }
     let audit = Audit { action: "user_disabled".into(), target: Some(format!("people/{id}")), ..Default::default() };
-    audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/admin/people/{id}/disable"), None)).await
+    audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/admin/people/{}/disable", seg(&id)), None)).await
 }
 
 /// Sign them out of every device: each session ends on the record.
@@ -213,26 +213,26 @@ async fn sign_out(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, 
         return refuse(StatusCode::NOT_FOUND, "not_found", "No such person.");
     }
     let audit = Audit { action: "sessions_ended".into(), target: Some(format!("people/{id}")), ..Default::default() };
-    audited(&k, &a, audit, control(&k, &a, Method::DELETE, &format!("/v1/people/{id}/sessions"), None)).await
+    audited(&k, &a, audit, control(&k, &a, Method::DELETE, &format!("/v1/people/{}/sessions", seg(&id)), None)).await
 }
 
 async fn sessions(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>) -> Response {
-    control(&k, &a, Method::GET, &format!("/v1/people/{}/sessions", id_of(&id)), None).await
+    control(&k, &a, Method::GET, &format!("/v1/people/{}/sessions", seg(&id_of(&id))), None).await
 }
 
 async fn end_session(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path((id, sid)): Path<(String, String)>) -> Response {
     let id = id_of(&id);
     let audit = Audit { action: "session_ended".into(), target: Some(format!("people/{id}/sessions/{sid}")), ..Default::default() };
-    audited(&k, &a, audit, control(&k, &a, Method::DELETE, &format!("/v1/people/{id}/sessions/{sid}"), None)).await
+    audited(&k, &a, audit, control(&k, &a, Method::DELETE, &format!("/v1/people/{}/sessions/{}", seg(&id), seg(&sid)), None)).await
 }
 
 async fn schedules(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(id): Path<String>) -> Response {
-    control(&k, &a, Method::GET, &format!("/v1/people/{}/schedules", id_of(&id)), None).await
+    control(&k, &a, Method::GET, &format!("/v1/people/{}/schedules", seg(&id_of(&id))), None).await
 }
 
 async fn schedule(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path((id, sid, change)): Path<(String, String, String)>) -> Response {
     let id = id_of(&id);
     let action = if change == "resume" { "schedule_resumed" } else { "schedule_suspended" };
     let audit = Audit { action: action.into(), target: Some(format!("people/{id}/schedules/{sid}")), ..Default::default() };
-    audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/people/{id}/schedules/{sid}/{change}"), Some(json!({ "name": a.name() })))).await
+    audited(&k, &a, audit, control(&k, &a, Method::POST, &format!("/v1/people/{}/schedules/{}/{}", seg(&id), seg(&sid), seg(&change)), Some(json!({ "name": a.name() })))).await
 }

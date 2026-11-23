@@ -182,8 +182,11 @@ async function totpCard(el) {
           <p class="small">Enter this key in your authenticator app or open <a href="${esc(pending.uri)}">the setup link</a>:</p>
           <input readonly class="mono" value="${esc(pending.secret)}" aria-label="Authenticator secret key" data-totp-secret>
           <label for="totp-code">6-digit code from your app</label>
+          ${st.enrolled ? `<label for="totp-password">Current password</label>
+          <input id="totp-password" type="password" autocomplete="current-password" data-totp-password>` : ""}
           <div class="row"><input id="totp-code" data-totp-code inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456"><button type="button" class="primary" data-totp-confirm>Verify and turn on</button></div>
-        </div>` : `<div class="row">
+        </div>` : `${st.enrolled && !st.code_required ? `<label for="totp-password">Current password, to remove it</label>
+        <input id="totp-password" type="password" autocomplete="current-password" data-totp-password>` : ""}<div class="row">
           <button type="button" class="${st.enrolled ? "" : "primary"}" data-totp-begin>${st.enrolled ? "Replace authenticator app" : "Set up authenticator app"}</button>
           ${st.enrolled && !st.code_required ? `<button type="button" class="danger" data-totp-remove>Remove authenticator app</button>` : ""}
         </div>`}
@@ -196,8 +199,9 @@ async function totpCard(el) {
     const confirmBtn = $("[data-totp-confirm]", el);
     if (confirmBtn) confirmBtn.onclick = async () => {
       const code = /** @type {HTMLInputElement} */ ($("[data-totp-code]", el))?.value.trim() || "";
+      const password = /** @type {HTMLInputElement} */ ($("[data-totp-password]", el))?.value || "";
       try {
-        await Server.account.confirmTotp(code);
+        await Server.account.confirmTotp(code, password);
         st.enrolled = true;
         toast("Authenticator app enrolled.");
         draw(null);
@@ -206,8 +210,10 @@ async function totpCard(el) {
     const removeBtn = $("[data-totp-remove]", el);
     if (removeBtn) removeBtn.onclick = async () => {
       if (typeof ask === "function" && !await ask("Remove your authenticator app? Your account will sign in with your password alone.", "Remove", true)) return;
+      const password = /** @type {HTMLInputElement} */ ($("[data-totp-password]", el))?.value || "";
+      if (!password) { toast("Enter your current password to remove it."); return; }
       try {
-        await Server.account.removeTotp();
+        await Server.account.removeTotp(password);
         st.enrolled = false;
         toast("Authenticator app removed.");
         draw(null);

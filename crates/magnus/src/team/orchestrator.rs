@@ -141,7 +141,7 @@ impl Kernel {
                 if !is_member || self.person(target).is_none() {
                     return Err(anyhow::anyhow!("{target} is not a member of workspace {workspace}"));
                 }
-                let auto_release = target == requester || self.read(|s| s.missions.has_standing_release(workspace, room, target, &spec.scope));
+                let auto_release = target == requester || self.read(|s| s.missions.has_standing_release(workspace, room, target, &spec.scope, objective));
                 let ws_name = self.read(|s| s.team.workspace(workspace).map(|w| w.name.clone())).unwrap_or_else(|| workspace.to_string());
                 let prompt = format!(
                     "Room \"{room}\" in workspace \"{ws_name}\" requested this scoped update from your personal apps (requested by {requester}):\n\n{objective}\n\nReturn a concise, scrubbed summary containing only the requested facts—never raw credentials, private emails, or unrelated personal records."

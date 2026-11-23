@@ -564,16 +564,27 @@ pub(super) async fn respond(State(k): K, Caller(p): Caller, Path(id): Path<Strin
 
 /// Model text for a task as it streams (server-sent events), before the
 /// turn is appended to the log (K6).
-pub(super) async fn live(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> ApiResult {
+/// The stream asks again, this often, whether its session is still signed
+/// in: one ended (sign-out, revoked, disabled) stops getting the run's text.
+const LIVE_RECHECK: std::time::Duration = std::time::Duration::from_secs(15);
+
+pub(super) async fn live(State(k): K, Caller(p): Caller, h: HeaderMap, Path(id): Path<String>) -> ApiResult {
     let Some((_, run)) = find(&k, &p, &id) else { return refuse(StatusCode::NOT_FOUND, "no such task") };
     let (so_far, mut rx) = k.live_text.subscribe(&run.id);
     let stream = async_stream(move |tx| async move {
         if !so_far.is_empty() && tx.send(format!("data: {}\n\n", json!({ "text": so_far }))).await.is_err() {
             return;
         }
+        let mut checked = std::time::Instant::now();
         loop {
             match rx.recv().await {
                 Ok((r, text)) if r == run.id => {
+                    if checked.elapsed() >= LIVE_RECHECK {
+                        if !who(&k, &h).await.is_ok_and(|q| q.id == p.id) {
+                            return;
+                        }
+                        checked = std::time::Instant::now();
+                    }
                     if tx.send(format!("data: {}\n\n", json!({ "text": text }))).await.is_err() {
                         return;
                     }

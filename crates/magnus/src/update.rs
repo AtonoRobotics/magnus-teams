@@ -598,14 +598,16 @@ async fn roll_back(AxState(k): K, Owner(p): Owner) -> ApiResult {
 
 /// The apps ask with their session if they have one; without, an app too old
 /// to sign in can still update. The appliance decides the channel.
-async fn desktop_latest(AxState(k): K, Extension(t): Extension<Transport>, h: HeaderMap) -> ApiResult {
+async fn desktop_latest(AxState(k): K, Extension(t): Extension<Transport>, peer: Option<Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>, h: HeaderMap) -> ApiResult {
     let Some(channel) = assigned_channel(&k, &h).await else {
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
     let Some(host) = h.get("host").and_then(|v| v.to_str().ok()) else {
         return refuse(StatusCode::BAD_REQUEST, "no host");
     };
-    let scheme = if t == Transport::Tls { "https" } else { "http" };
+    // The tunnel reaches the plain listener, but the app reached it by https.
+    let tunnel = peer.is_some_and(|Extension(p)| crate::devices::is_tunnel(p.0, &h));
+    let scheme = if t == Transport::Tls || tunnel { "https" } else { "http" };
     Ok(match desktop_manifest(&k.cfg, &format!("{scheme}://{host}"), channel) {
         Some(m) => Json(m).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),

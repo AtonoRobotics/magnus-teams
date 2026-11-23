@@ -100,6 +100,13 @@ pub struct MissionLedger {
     workspace_memory: BTreeMap<String, Vec<WorkspaceMemoryItem>>,
 }
 
+/// What a standing release is kept under: the lane's scope and its exact
+/// objective, so saving one for a request covers that request repeating and
+/// nothing else a requester writes under the same scope.
+pub fn standing_key(scope: &str, objective: &str) -> String {
+    format!("{}\n{}", scope.trim(), objective.trim())
+}
+
 impl crate::forget::Forget for MissionLedger {
     fn forget(&mut self, who: &crate::forget::Erased) {
         let p = who.person.as_str();
@@ -110,8 +117,16 @@ impl crate::forget::Forget for MissionLedger {
             for lane in m.lanes.values_mut() {
                 if lane.owner.as_deref() == Some(p) {
                     lane.private_draft = None;
+                    lane.contribution = None;
+                }
+                if lane.released_by.as_deref() == Some(p) {
+                    lane.contribution = None;
+                    lane.released_by = None;
                 }
             }
+        }
+        for items in self.workspace_memory.values_mut() {
+            items.retain(|i| i.released_by != p);
         }
     }
 }
@@ -235,11 +250,14 @@ impl MissionLedger {
         self.missions.get(id)
     }
 
-    pub fn has_standing_release(&self, workspace: &str, room: &str, person: &str, scope: &str) -> bool {
+    /// Whether `person` let this exact request (its scope and its objective)
+    /// in this room be released without asking them again. The scope alone
+    /// is the requester's label, so it never stands for what is asked.
+    pub fn has_standing_release(&self, workspace: &str, room: &str, person: &str, scope: &str, objective: &str) -> bool {
         if scope.trim().is_empty() {
             return false;
         }
-        self.standing_releases.contains(&(workspace.to_string(), room.to_string(), person.to_string(), scope.to_ascii_lowercase()))
+        self.standing_releases.contains(&(workspace.to_string(), room.to_string(), person.to_string(), standing_key(scope, objective).to_ascii_lowercase()))
     }
 
     pub fn avatar_of(&self, person: &str) -> ProfileAvatar {
@@ -263,7 +281,9 @@ impl MissionLedger {
 
     /// Searches unified `workspace:<id>` memory (newest first, optional substring
     /// filter on title/body/room). Every returned entry carries `untrusted: true`.
-    pub fn search_workspace_memory(&self, workspace: &str, query: &str, limit: usize) -> Vec<WorkspaceMemoryItem> {
+    /// Released entries matching `query`, from the rooms `visible` admits:
+    /// a room someone cannot see keeps its releases from them too.
+    pub fn search_workspace_memory(&self, workspace: &str, query: &str, limit: usize, visible: impl Fn(&str) -> bool) -> Vec<WorkspaceMemoryItem> {
         let q = query.trim().to_ascii_lowercase();
         let Some(items) = self.workspace_memory.get(workspace) else {
             return Vec::new();
@@ -271,6 +291,7 @@ impl MissionLedger {
         items
             .iter()
             .rev()
+            .filter(|i| visible(&i.room))
             .filter(|i| q.is_empty() || i.title.to_ascii_lowercase().contains(&q) || i.body.to_ascii_lowercase().contains(&q) || i.room.to_ascii_lowercase().contains(&q))
             .take(limit)
             .cloned()
@@ -388,9 +409,11 @@ mod tests {
     #[test]
     fn standing_release_and_profile_preferences_roundtrip() {
         let mut ledger = MissionLedger::default();
-        assert!(!ledger.has_standing_release("ws1", "q3", "bob", "weekly_blockers"));
-        ledger.apply(&TeamMissionEvent::StandingReleaseSet { workspace: "ws1".into(), room: "q3".into(), person: "bob".into(), scope: "Weekly_Blockers".into(), active: true });
-        assert!(ledger.has_standing_release("ws1", "q3", "bob", "weekly_blockers"));
+        assert!(!ledger.has_standing_release("ws1", "q3", "bob", "weekly_blockers", "List my blockers"));
+        let scope = standing_key("Weekly_Blockers", "List my blockers");
+        ledger.apply(&TeamMissionEvent::StandingReleaseSet { workspace: "ws1".into(), room: "q3".into(), person: "bob".into(), scope, active: true });
+        assert!(ledger.has_standing_release("ws1", "q3", "bob", "weekly_blockers", "list my blockers"));
+        assert!(!ledger.has_standing_release("ws1", "q3", "bob", "weekly_blockers", "Summarise my last 50 emails"), "a scope label stood for a different request");
 
         ledger.apply(&TeamMissionEvent::AvatarSet { person: "bob".into(), avatar: ProfileAvatar::Preset { id: "aurora-emerald".into() } });
         assert_eq!(ledger.avatar_of("bob"), ProfileAvatar::Preset { id: "aurora-emerald".into() });
@@ -432,7 +455,7 @@ mod tests {
             draft: "SECRET_UNRELEASED_DRAFT".into(),
             scrub_flagged: false,
         });
-        assert!(ledger.search_workspace_memory("ws1", "", 10).is_empty(), "unreleased draft must never enter workspace memory");
+        assert!(ledger.search_workspace_memory("ws1", "", 10, |_| true).is_empty(), "unreleased draft must never enter workspace memory");
 
         ledger.apply(&TeamMissionEvent::LaneReleased {
             workspace: "ws1".into(),
@@ -449,7 +472,8 @@ mod tests {
             contribution: "Stripe webhook retry timeout #418 is in review.".into(),
             released_by: "bob".into(),
         });
-        let found = ledger.search_workspace_memory("ws1", "stripe", 10);
+        assert!(ledger.search_workspace_memory("ws1", "stripe", 10, |room| room != "q3").is_empty(), "a room the reader cannot see keeps its releases");
+        let found = ledger.search_workspace_memory("ws1", "stripe", 10, |_| true);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].scope, "workspace:ws1");
         assert!(found[0].untrusted);

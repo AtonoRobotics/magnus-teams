@@ -5,6 +5,15 @@ use super::{check::counter_of, key, token_hash, Accounts, SignInError, Via};
 use anyhow::{Context, Result};
 
 impl Accounts {
+    /// Check a signed-in person's current password before a change that
+    /// could lock them out (their authenticator), counted as sign-in counts it.
+    pub async fn confirm_password(&self, person: &str, password: &str, via: Via) -> Result<std::result::Result<(), SignInError>> {
+        Ok(match self.sign_in_counted(person, password, &counter_of(via, &key(person))).await? {
+            Err(SignInError::MustChoose) => Err(SignInError::Rejected),
+            r => r,
+        })
+    }
+
     /// Change a signed-in person's password. The current one is checked as
     /// a sign-in checks it, and a wrong one counts on the counter for `via`,
     /// the same counter sign-in uses from there: guessing here locks as guessing at

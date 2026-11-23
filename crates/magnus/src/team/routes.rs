@@ -116,7 +116,7 @@ async fn one(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Pat
         Some((v.workspace().clone(), channels, v.files().cloned().collect::<Vec<File>>()))
     });
     let Some((w, channels, files)) = seen else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
-    Ok(Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines, "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response())
+    Ok(Json(json!({ "id": w.id, "name": w.name, "role": role, "members": w.members, "channels": channels, "connectors": w.connectors, "files": files, "knowledge": w.entries(None).iter().map(|e| (e.id.clone(), e.statement.clone())).collect::<BTreeMap<_, _>>(), "local_ceiling": w.local_ceiling, "routines": w.routines.iter().filter(|(_, r)| w.sees(&r.channel, &p.id)).collect::<BTreeMap<_, _>>(), "projects": w.projects.values().filter(|d| d.may_read(&p.id)).map(|d| json!({ "id": d.id, "name": d.name })).collect::<Vec<_>>(), "agent": { "id": super::conversation::AGENT_ID, "name": super::conversation::AGENT_NAME } })).into_response())
 }
 
 /// Delete the shared project: only its creator (or legacy workspace admin) may

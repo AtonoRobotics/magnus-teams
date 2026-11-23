@@ -37,17 +37,26 @@ pub fn can_update() -> Result<(), &'static str> {
     Ok(())
 }
 
-/// The manifest's address on the appliance, a client pinned to its
-/// certificate, and the session to ask with, if signed in.
-fn source(app: &crate::App) -> Result<(url::Url, Option<String>, Option<String>), String> {
+/// The manifest's address on the appliance, TLS for reaching it, and the
+/// session to ask with, if signed in. A pinned address is trusted by its pin;
+/// the public address by the public roots, presenting this computer's
+/// device certificate as the tunnel requires (it has no pin, so asking for
+/// one left every install on it without updates).
+fn source(app: &crate::App) -> Result<(url::Url, rustls::ClientConfig, Option<String>), String> {
     let cfg = app.store.config();
     let base = cfg.appliance.ok_or("not connected to a server")?;
     if !base.starts_with("https://") {
         return Err("updates come only over the server's https address".into());
     }
-    let pin = cfg.pins.get(&base).cloned().ok_or("the server's certificate is not trusted yet")?;
+    let tls = if crate::pin::is_public_appliance(&base) {
+        let (cert, key) = app.store.device(&base).ok_or("this computer is not paired with the server yet")?;
+        crate::pin::public_tls(&cert, &key)?
+    } else {
+        let pin = cfg.pins.get(&base).cloned().ok_or("the server's certificate is not trusted yet")?;
+        crate::pin::tls(Some(&pin))?
+    };
     let token = app.store.token(&base);
-    Ok((url::Url::parse(&format!("{base}/v1/updates/desktop/latest.json")).map_err(|e| e.to_string())?, Some(pin), token))
+    Ok((url::Url::parse(&format!("{base}/v1/updates/desktop/latest.json")).map_err(|e| e.to_string())?, tls, token))
 }
 
 /// Look for a newer release and download it; true when one is ready.
@@ -58,8 +67,7 @@ pub async fn look<R: Runtime>(handle: &AppHandle<R>) -> Result<bool, String> {
         return Ok(true);
     }
     can_update()?;
-    let (endpoint, pin, token) = source(&app)?;
-    let tls = crate::pin::tls(pin.as_deref())?;
+    let (endpoint, tls, token) = source(&app)?;
     let mut builder = handle
         .updater_builder()
         .endpoints(vec![endpoint])

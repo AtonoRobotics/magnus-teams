@@ -15,10 +15,23 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tower::ServiceExt;
 
-/// Call the control route at `path` (with any query) as `a`: `body` with its
-/// `actor` set to the admin, whatever the client sent. The control route's
-/// answer is the answer.
+/// Characters a path segment built from a request keeps as they are; every
+/// other byte is percent-encoded, so a decoded `/`, `?` or `#` in an id can
+/// never reach another control route.
+const SEGMENT: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'@');
+
+/// `raw` as one path segment of a control route.
+pub fn seg(raw: &str) -> String {
+    percent_encoding::utf8_percent_encode(raw, SEGMENT).to_string()
+}
+
+/// Call the control route at `path` as `a`: `body` with its `actor` set to
+/// the admin, whatever the client sent. The control route's answer is the
+/// answer. Ids in `path` go through `seg`; a query or fragment is refused.
 pub async fn control(k: &Arc<Kernel>, a: &Admin, method: Method, path: &str, body: Option<Value>) -> Response {
+    if path.contains(['?', '#']) {
+        return refuse(StatusCode::BAD_REQUEST, "not a control route");
+    }
     let mut body = body.unwrap_or_else(|| json!({}));
     let Some(fields) = body.as_object_mut() else { return refuse(StatusCode::BAD_REQUEST, "the body is not a JSON object") };
     fields.insert("actor".into(), json!(a.actor()));
@@ -130,4 +143,18 @@ pub async fn body_json(r: Response) -> Value {
 
 fn refuse(code: StatusCode, msg: &str) -> Response {
     (code, Json(json!({ "error": msg }))).into_response()
+}
+
+#[cfg(test)]
+mod seg_tests {
+    use super::seg;
+
+    /// An id that decodes to `owner/erase?` once named a different control
+    /// route (POST /v1/people/owner/erase) than the one the console meant.
+    #[test]
+    fn an_id_stays_one_segment() {
+        assert_eq!(seg("owner/erase?"), "owner%2Ferase%3F");
+        assert_eq!(seg("a#b"), "a%23b");
+        assert_eq!(seg("sam.lee@example.com"), "sam.lee@example.com");
+    }
 }

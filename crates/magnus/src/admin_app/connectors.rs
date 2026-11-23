@@ -5,7 +5,7 @@
 //! removing and the organisation's credential for one. Suspending one at
 //! once is the kill switch's connector level, in the Admin top bar.
 
-use super::mount::{audited, body_json, control, pass, Audit};
+use super::mount::{audited, body_json, control, pass, seg, Audit};
 use super::Admin;
 use crate::kernel::Kernel;
 use axum::extract::{Path, State};
@@ -72,12 +72,12 @@ async fn list(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>) -> R
 /// the audit.
 async fn set_credential(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(name): Path<String>, Json(b): Json<Value>) -> Response {
     let audit = Audit { action: "connector_credential_set".into(), target: Some(format!("connectors/{name}")), ..Default::default() };
-    audited(&k, &a, audit, control(&k, &a, Method::PUT, &format!("/v1/admin/connectors/{name}/credential"), Some(json!({ "value": b["value"] })))).await
+    audited(&k, &a, audit, control(&k, &a, Method::PUT, &format!("/v1/admin/connectors/{}/credential", seg(&name)), Some(json!({ "value": b["value"] })))).await
 }
 
 async fn revoke_credential(State(k): State<Arc<Kernel>>, Extension(a): Extension<Admin>, Path(name): Path<String>) -> Response {
     let audit = Audit { action: "connector_credential_revoked".into(), target: Some(format!("connectors/{name}")), ..Default::default() };
-    audited(&k, &a, audit, control(&k, &a, Method::DELETE, &format!("/v1/admin/connectors/{name}/credential"), None)).await
+    audited(&k, &a, audit, control(&k, &a, Method::DELETE, &format!("/v1/admin/connectors/{}/credential", seg(&name)), None)).await
 }
 
 #[cfg(test)]

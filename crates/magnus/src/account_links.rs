@@ -20,7 +20,6 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// One change to the server's invite links.
@@ -126,20 +125,20 @@ fn live(k: &Kernel, code: &str) -> Option<Link> {
 }
 
 /// The form behind a link, or why there is none.
-pub fn page(k: &Kernel, peer: SocketAddr, code: &str) -> Response {
-    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
+pub fn page(k: &Kernel, from: std::net::IpAddr, code: &str) -> Response {
+    if let Some(until) = k.accounts.guesses_locked(from) {
         return too_many(until);
     }
     if live(k, code).is_none() {
-        k.accounts.guessed_wrong(peer.ip());
+        k.accounts.guessed_wrong(from);
         return ended();
     }
     form(code, None)
 }
 
 /// Make the account a link gives, sign them in, and spend the link.
-pub async fn create(k: &Arc<Kernel>, t: Transport, peer: SocketAddr, f: &HashMap<String, String>) -> Response {
-    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
+pub async fn create(k: &Arc<Kernel>, t: Transport, from: std::net::IpAddr, f: &HashMap<String, String>) -> Response {
+    if let Some(until) = k.accounts.guesses_locked(from) {
         return too_many(until);
     }
     let code = f.get("link").map(|s| s.trim().to_string()).unwrap_or_default();
@@ -147,13 +146,13 @@ pub async fn create(k: &Arc<Kernel>, t: Transport, peer: SocketAddr, f: &HashMap
         Ok(who) => who,
         Err(why) if live(k, &code).is_some() => return form(&code, Some(&why)),
         Err(_) => {
-            k.accounts.guessed_wrong(peer.ip());
+            k.accounts.guessed_wrong(from);
             return ended();
         }
     };
     let spending = SPENDING.lock().await;
     let Some(link) = live(k, &code) else {
-        k.accounts.guessed_wrong(peer.ip());
+        k.accounts.guessed_wrong(from);
         return ended();
     };
     let wrong = || form(&code, Some("Something went wrong. Try again in a minute."));

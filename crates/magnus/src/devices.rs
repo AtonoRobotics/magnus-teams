@@ -130,6 +130,14 @@ pub fn is_tunnel(peer: SocketAddr, headers: &axum::http::HeaderMap) -> bool {
     peer.ip().to_canonical().is_loopback() && headers.contains_key("cf-connecting-ip")
 }
 
+/// The address a request comes from, for counting guesses: the tunnel's
+/// `Cf-Connecting-Ip` when it came through cloudflared (whose own address,
+/// loopback, would put everyone on one counter), else the peer.
+pub fn client_ip(peer: SocketAddr, headers: &axum::http::HeaderMap) -> std::net::IpAddr {
+    let forwarded = || headers.get("cf-connecting-ip").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<std::net::IpAddr>().ok());
+    is_tunnel(peer, headers).then(forwarded).flatten().unwrap_or_else(|| peer.ip().to_canonical())
+}
+
 pub fn presented<'a>(headers: &'a axum::http::HeaderMap) -> Option<&'a str> {
     headers.get(CERT_HEADER).and_then(|v| v.to_str().ok()).map(str::trim).filter(|s| !s.is_empty())
 }
@@ -503,5 +511,22 @@ mod tests {
         let devices = Devices::open(dir.path()).unwrap();
         let err = devices.issue(&cf("http://127.0.0.1:1".into()), "ada", "ok", "not a request").await;
         assert!(matches!(err, Err(IssueError::Rejected(_))));
+    }
+}
+
+#[cfg(test)]
+mod client_ip_tests {
+    use super::client_ip;
+    use axum::http::HeaderMap;
+
+    /// Everyone behind the tunnel arrives from loopback; their guesses count
+    /// on their own address, and a client elsewhere cannot claim another's.
+    #[test]
+    fn guesses_count_per_client_behind_the_tunnel() {
+        let mut h = HeaderMap::new();
+        h.insert("cf-connecting-ip", "203.0.113.7".parse().unwrap());
+        assert_eq!(client_ip("127.0.0.1:5000".parse().unwrap(), &h).to_string(), "203.0.113.7");
+        assert_eq!(client_ip("192.168.0.9:5000".parse().unwrap(), &h).to_string(), "192.168.0.9");
+        assert_eq!(client_ip("127.0.0.1:5000".parse().unwrap(), &HeaderMap::new()).to_string(), "127.0.0.1");
     }
 }

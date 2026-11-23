@@ -63,33 +63,45 @@ fn link_invite(k: &Kernel, code: &str) -> Option<(String, String, super::chat::I
     live(k, code).filter(|(_, _, i)| i.email.is_none())
 }
 
-async fn page(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Query(q): Query<HashMap<String, String>>) -> Response {
+async fn page(
+    State(k): State<Arc<Kernel>>,
+    Extension(t): Extension<Transport>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    h: axum::http::HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
         return r;
     }
-    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
+    if let Some(until) = k.accounts.guesses_locked(crate::devices::client_ip(peer, &h)) {
         return too_many(until);
     }
     let code = q.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
     match link_invite(&k, &code) {
         Some((_, name, _)) => form(&code, &name, None),
         None => {
-            k.accounts.guessed_wrong(peer.ip());
+            k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h));
             ended()
         }
     }
 }
 
-async fn create(State(k): State<Arc<Kernel>>, Extension(t): Extension<Transport>, ConnectInfo(peer): ConnectInfo<SocketAddr>, Form(f): Form<HashMap<String, String>>) -> Response {
+async fn create(
+    State(k): State<Arc<Kernel>>,
+    Extension(t): Extension<Transport>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    h: axum::http::HeaderMap,
+    Form(f): Form<HashMap<String, String>>,
+) -> Response {
     if let Err(r) = crate::api::over_tls(&k, t, peer) {
         return r;
     }
-    if let Some(until) = k.accounts.guesses_locked(peer.ip()) {
+    if let Some(until) = k.accounts.guesses_locked(crate::devices::client_ip(peer, &h)) {
         return too_many(until);
     }
     let code = f.get("code").map(|s| s.trim().to_string()).unwrap_or_default();
     let Some((ws, workspace, inv)) = link_invite(&k, &code) else {
-        k.accounts.guessed_wrong(peer.ip());
+        k.accounts.guessed_wrong(crate::devices::client_ip(peer, &h));
         return ended();
     };
     let again = |why: &str| form(&code, &workspace, Some(why));

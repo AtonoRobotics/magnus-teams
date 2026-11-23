@@ -189,7 +189,7 @@ const SIGN_IN_BEGIN_WINDOW: std::time::Duration = std::time::Duration::from_secs
 /// Sign-ins begun from one address in the last ten minutes: at most a
 /// quarter of the provider's waiting ones (`max_pending`), which everyone
 /// shares, so no one address can fill them and stop every first sign-in.
-fn may_begin(k: &Kernel, peer: SocketAddr) -> bool {
+fn may_begin(k: &Kernel, from: std::net::IpAddr) -> bool {
     let most = k.cfg.sign_in.oidc.as_ref().map_or(25, |o| (o.max_pending / 4).max(5));
     static BEGUN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, Vec<std::time::Instant>>>> = std::sync::OnceLock::new();
     let mut m = BEGUN.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()); // a panic elsewhere leaves counts that are still counts
@@ -197,7 +197,7 @@ fn may_begin(k: &Kernel, peer: SocketAddr) -> bool {
         v.retain(|t| t.elapsed() < SIGN_IN_BEGIN_WINDOW);
         !v.is_empty()
     });
-    let v = m.entry(peer.ip().to_canonical()).or_default();
+    let v = m.entry(from).or_default();
     if v.len() >= most {
         return false;
     }
@@ -315,7 +315,7 @@ pub(super) async fn device_start(
         return Ok(r);
     }
     let Some(o) = k.oidc.get() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
-    if !may_begin(&k, peer) {
+    if !may_begin(&k, crate::devices::client_ip(peer, &h)) {
         return Ok(too_many_begins());
     }
     Ok(match o.start(b.client.as_deref() == Some("app")).await {
@@ -409,7 +409,7 @@ pub(super) async fn browser_begin(
     }
     let Some(id) = k.identity() else { return refuse(StatusCode::NOT_FOUND, "this server signs in with a password") };
     let Some(redirect_uri) = b.redirect_uri.as_deref() else { return refuse(StatusCode::BAD_REQUEST, "name the redirect address") };
-    if !may_begin(&k, peer) {
+    if !may_begin(&k, crate::devices::client_ip(peer, &h)) {
         return Ok(too_many_begins());
     }
     if let Err(e) = crate::oauth::loopback(redirect_uri) {

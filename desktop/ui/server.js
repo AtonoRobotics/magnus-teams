@@ -258,8 +258,8 @@ const Server = (() => {
       setPassword: (/** @type {string} */ current, /** @type {string} */ next) => post("/v1/account/password", { current_password: current, new_password: next }),
       totp: () => get("/v1/account/totp"),
       beginTotp: () => post("/v1/account/totp/begin"),
-      confirmTotp: (/** @type {string} */ code) => post("/v1/account/totp/confirm", { code }),
-      removeTotp: () => del("/v1/account/totp"),
+      confirmTotp: (/** @type {string} */ code, /** @type {string} */ current_password = "") => post("/v1/account/totp/confirm", { code, current_password }),
+      removeTotp: (/** @type {string} */ current_password) => del("/v1/account/totp", { current_password }),
       exportData: () => get("/v1/account/export"),
       deleteAccount: (/** @type {string} */ confirm) => del("/v1/account", { confirm }),
       /** The server's mail settings. */

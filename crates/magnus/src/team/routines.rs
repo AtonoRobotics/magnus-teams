@@ -178,7 +178,7 @@ async fn add(State(k): K, Member { person: p, .. }: Member<at::Member>, Path(ws)
     if b.text.trim().is_empty() || b.text.chars().count() > MAX_ROUTINE_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
     }
-    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.channels.contains_key(&b.channel))) {
+    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees(&b.channel, &p.id))) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let id = new_id();
@@ -206,7 +206,7 @@ async fn update(State(k): K, Member { person: p, role, .. }: Member<at::Member>,
     if text.trim().is_empty() || text.chars().count() > MAX_ROUTINE_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "a routine needs instructions, and not too many");
     }
-    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.channels.contains_key(&channel))) {
+    if !k.read(|s| s.team.workspace(&ws).is_some_and(|w| w.sees(&channel, &p.id))) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let routine = Routine { channel, text, every_hours, by: p.id.clone(), last_at: existing.last_at, ..Default::default() };

@@ -60,6 +60,10 @@ pub(super) fn checked_host(raw: &str) -> Result<String, Refused> {
     if bare.is_empty() || bare.len() > MAX_HOST_CHARS || !bare.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') {
         return Err(Refused::Invalid(format!("{raw} is not a host name")));
     }
+    // `*.com` or `*.github.io` would open every site under a public suffix.
+    if host.starts_with("*.") && !crate::net_guard::may_grant_subdomains(bare) {
+        return Err(Refused::Invalid(format!("{raw} covers sites nobody here owns: name the host itself")));
+    }
     Ok(host)
 }
 

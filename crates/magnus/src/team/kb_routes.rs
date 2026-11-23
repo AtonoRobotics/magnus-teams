@@ -112,7 +112,9 @@ struct Link {
 /// An admin of the workspace, or the owner of the project, ties a channel to it.
 async fn link_channel(State(k): K, Member { person: p, role, .. }: Member<at::Member>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<Link>) -> ApiResult {
     let Some(w) = workspace(&k, &ws) else { return refuse(StatusCode::NOT_FOUND, "no such workspace") };
-    if !w.channels.contains_key(&channel) {
+    // Tying a channel to a project changes who sees it, so only someone who
+    // sees it now may, and a direct conversation is never tied to one.
+    if !w.sees(&channel, &p.id) || w.chat.direct.contains_key(&channel) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
     let owner = match &b.project {
