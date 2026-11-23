@@ -23,7 +23,7 @@ tint = "#0364B8"
 # itself (`contentStream`), never from the organisation's SharePoint host,
 # which differs for each organisation and so cannot be named here.
 kind = "brokered"
-endpoint = "sha256:c6a68d4219b484b0e5fe716031c2263e2a36d3e2531022364ef3de8dad42c6b5"
+endpoint = "sha256:c2e20c17260d8e3ca59716724eb287b4761b1ef1c41c5fb42a4ff2fc1c4694b8"
 hosts = ["graph.microsoft.com"]
 issuer = "https://login.microsoftonline.com/common/v2.0"
 # Its one write puts a new file in the person's own OneDrive (it cannot

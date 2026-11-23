@@ -23,7 +23,7 @@ tint = "#0F6CBD"
 # that reaches only Graph, and people sign in at Microsoft, through
 # "common": from any organisation, or with a personal account.
 kind = "brokered"
-endpoint = "sha256:ef829e70dcd6e488bb143e2076d3c2c1b9852a2680cd528e113dbb2edb6a7f89"
+endpoint = "sha256:a91e28d62ae072fb21e4ce72e2a017438d18f7816a699268c040e2079be58db3"
 hosts = ["graph.microsoft.com"]
 issuer = "https://login.microsoftonline.com/common/v2.0"
 # A draft it sends reaches anyone the person writes to. What comes back is

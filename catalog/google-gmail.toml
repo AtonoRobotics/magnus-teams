@@ -21,7 +21,7 @@ tint = "#B3261E"
 # each person's runs in a microVM of its own that reaches only Gmail's API,
 # and people sign in at Google.
 kind = "brokered"
-endpoint = "sha256:77808cf4155c1db1f456a0c5f76b8e991453c2c8f83f7899a82727e954f6a47d"
+endpoint = "sha256:bd2348e4863efd75527a44aa0b7d52b8b40ff75d1b712b9d967f82a9b96f89c7"
 hosts = ["gmail.googleapis.com"]
 issuer = "https://accounts.google.com"
 # A draft it sends reaches anyone the person writes to. What comes back is

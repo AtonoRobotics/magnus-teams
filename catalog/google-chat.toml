@@ -21,7 +21,7 @@ tint = "#1A7F64"
 # each person's runs in a microVM of its own that reaches Chat's API and
 # Google's UserInfo endpoint, used only to verify ownership before deletion.
 kind = "brokered"
-endpoint = "sha256:d856a30c82047863004709fc2bad43ee29cff002ec73be728457df36ce0a42aa"
+endpoint = "sha256:6a6c41de08d6eec3d8b7759406a255fe89aaa1312351825325055b00e7423826"
 hosts = ["chat.googleapis.com", "openidconnect.googleapis.com"]
 issuer = "https://accounts.google.com"
 # Messages reach a conversation's members, who may be outside the organisation.

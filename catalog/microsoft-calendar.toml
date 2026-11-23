@@ -21,7 +21,7 @@ tint = "#0F6CBD"
 # own that reaches only Graph, and people sign in at Microsoft, through
 # "common": from any organisation, or with a personal account.
 kind = "brokered"
-endpoint = "sha256:6f634fc7d7e1bd9e52d083c9b5c73553981e5cbc11cfffde9c70e1fb5ac81b82"
+endpoint = "sha256:17733b27db3f4af9555cd54734db3d122f66a1d1d28a7807a327cf887eef91dc"
 hosts = ["graph.microsoft.com"]
 issuer = "https://login.microsoftonline.com/common/v2.0"
 # Events and answers reach their attendees, who may be anyone.
