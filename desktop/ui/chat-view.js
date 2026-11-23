@@ -22,7 +22,7 @@
  * @typedef {{ id: string, kind: string, at?: string, text?: string, files?: any[], task_id?: string, model?: { model: string }, view?: any,
  *   sender?: string, for?: string, edited?: boolean, pinned?: boolean, private?: boolean, replies?: number, work?: ChatWork, [k: string]: any }} ChatEntry
  * A piece of work as a row: the personal chat's task, or a team request.
- * @typedef {{ id: string, status: string, icon: string, pill: string, title: string, tip?: string, sub: string, href?: string, open?: string, opened?: boolean, stop?: boolean, by?: string, after?: string }} ChatWork
+ * @typedef {{ id: string, status: string, icon: string, pill: string, title: string, tip?: string, sub: string, href?: string, open?: string, opened?: boolean, stop?: boolean, by?: string, requester?: string, after?: string }} ChatWork
  * What the view keeps between draws.
  * @typedef {{ editing: ?string, sharing: ?string, declining: ?string, people: Array<{ id: string, name: string }>, live: Object<string, string>, [k: string]: any }} ChatUi
  * A mounted view.

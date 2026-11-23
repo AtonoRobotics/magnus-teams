@@ -67,7 +67,8 @@ async fn a_team_request_runs_on_the_model_its_member_picked() {
     assert_eq!(personal_run.person, "sam", "the dispatched lane did not run as the requester's personal agent");
     assert_eq!((personal_run.config.adapter, personal_run.config.model), (adapter, model));
     let picked = ("other".to_string(), "picked-model".to_string());
-    let (_, _, picked_run_id) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, Some(picked.clone()), false).await.unwrap();
+    let (_, _, picked_run_id) =
+        s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, crate::say::Pick { model: Some(picked.clone()), reasoning: None }, false).await.unwrap();
     let picked_run = s.k.read(|st| st.runs.get(&picked_run_id).cloned().unwrap());
     assert_eq!((picked_run.config.adapter, picked_run.config.model), picked, "the picked model was not the personal lane's");
     s.done().await;
@@ -82,7 +83,7 @@ async fn a_stopped_lane_releases_nothing() {
     let (_, v) = s.post(&sam, "/v1/workspaces", json!({ "name": "Launch" })).await;
     let ws = v["id"].as_str().unwrap().to_string();
     let channel = s.k.read(|st| st.team.workspace(&ws).unwrap().channels.keys().next().unwrap().clone());
-    let (mission, _, run) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, None, false).await.unwrap();
+    let (mission, _, run) = s.k.start_personal_room_mission(&ws, &channel, "sam", "plan it", None, Default::default(), false).await.unwrap();
     s.k.emit("person:sam", crate::events::Ev::Cancelled { run: run.clone(), source: Some("button".into()), turn: None }).await.unwrap();
     for _ in 0..200 {
         let lane = s.k.read(|st| st.missions.mission(&mission).and_then(|m| m.lanes.values().next().cloned())).unwrap();

@@ -15,24 +15,52 @@ function teamReader(s, thread) {
 }
 
 /**
- * The composer's side in a channel: files go to the workspace's files and
- * are named in the message; a message goes to the channel, or only to one's
- * own Magnus.
+ * Where a shared file's preview is kept: the same name in another shared
+ * project, or another project's channel, is another file.
+ * @param {string} ws @param {?string|undefined} project @param {string} name
+ */
+function teamPreviewKey(ws, project, name) {
+  return JSON.stringify([ws, project || "", name]);
+}
+
+/**
+ * The work in a channel the viewer may stop: running, and asked by them.
+ * Another person's request is theirs to stop.
+ * @param {ChatEntry[]} entries @param {string} me
+ */
+function teamRunningIds(entries, me) {
+  return [...new Set(entries.filter(e => e.work?.id && e.work.status === "running" && e.work.requester === me).map(e => e.work.id))];
+}
+
+/**
+ * The composer's side in a channel. A file is held here until the message
+ * goes: a message to the channel puts it in the workspace's files and names
+ * it; a whisper takes it to one's own Magnus as a personal chat's file (the
+ * person's own library), so it never reaches the shared Files
+ * (decisions/2026-11-23-one-request-shape-for-shared-conversations.md).
  * @param {any} s @param {?string} thread @returns {ComposerConversation}
  */
 function teamComposer(s, thread) {
+  /** The files as the person chose them, or an error to attach one again. @param {Array<{ uid: string, name: string }>} files @returns {File[]} */
+  const originals = files => files.map(f => {
+    const file = MessageDrafts.originals.get(f.uid);
+    if (!file) throw new Error(`Attach ${f.name} again.`);
+    return file;
+  });
   return {
-    upload: async file => {
-      const c = Team.home.channels.find(x => x.id === s.channel);
-      await Magnus.putBytes(`/v1/workspaces/${enc(s.ws)}/files/${enc(file.name)}${c?.project ? `?project=${enc(c.project)}` : ""}`, new Uint8Array(await file.arrayBuffer()));
-      if (file.type?.startsWith("image/") && file.size <= TEAM_PREVIEW_MAX_BYTES) s.files[file.name] = await teamPreviewUrl(file);
-      return { id: file.name, name: file.name, media_type: file.type, size: file.size };
-    },
+    upload: async file => ({ id: file.name, name: file.name, media_type: file.type, size: file.size }),
     stopRun: ids => Conversation.stop(ids, () => TeamChat.refresh()),
     send: async ({ text, files, form, record }) => {
+      const chosen = originals(files);
       if ($("[data-whisper]", form)?.checked) {
-        await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined, whisper: true, model: chosenModel(form) });
+        const mine = await upload(chosen);
+        await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined, whisper: true, files: mine.map(f => f.id), model: chosenModel(form) });
         return async () => { toast("Your Magnus is on it. Only you will see its answer."); await TeamChat.refresh(); };
+      }
+      const project = Team.home.channels.find(x => x.id === s.channel)?.project;
+      for (const file of chosen) {
+        await Magnus.putBytes(`/v1/workspaces/${enc(s.ws)}/files/${enc(file.name)}${project ? `?project=${enc(project)}` : ""}`, new Uint8Array(await file.arrayBuffer()));
+        if (file.type?.startsWith("image/") && file.size <= TEAM_PREVIEW_MAX_BYTES) s.files[teamPreviewKey(s.ws, project, file.name)] = await teamPreviewUrl(file);
       }
       const full = [text, ...files.map(f => `📎 ${f.name}`)].join("\n");
       const r = await Server.channels.post(s.ws, s.channel, { text: full, thread: thread || undefined, model: Team.home.role === "guest" ? undefined : chosenModel(form) });
@@ -101,8 +129,7 @@ function teamConversation(s, thread) {
       return list.map(m => teamEntry(m, r));
     },
     prepare: async (entries, view) => {
-      const runningIds = [...new Set(entries.filter(e => e.work?.id && e.work.status === "running").map(e => e.work.id))];
-      Conversation.track(view, runningIds, entries.length > 0, () => TeamChat.refresh());
+      Conversation.track(view, teamRunningIds(entries, Team.home.me), entries.length > 0, () => TeamChat.refresh());
       const c = channel();
       if (!c) return;
       const project = Team.home.projects.find(p => p.id === c.project);
@@ -119,7 +146,7 @@ function teamConversation(s, thread) {
     },
     caps: () => teamCaps(s),
     file: f => {
-      const img = s.files[f.name];
+      const img = s.files[teamPreviewKey(s.ws, channel()?.project, f.name)];
       return `<div class="fprev"><span class="glimpse" aria-hidden="true">${img ? `<img alt="" src="${esc(img)}">` : icon("file")}</span><span class="fchip"><span>${esc(f.name)}</span> <button class="link small" data-file-download="${esc(f.name)}" aria-label="Download ${esc(f.name)}">Download</button></span></div>`;
     },
     lead: e => e.kind === "deleted" ? "" : teamLead(e, !!thread, teamCaps(s)),

@@ -23,7 +23,7 @@ const sandbox = {
 };
 sandbox.globalThis = sandbox;
 const files = ["server.js", "message-controls.js", "chat-view.js", "chat-composer.js", "side-panel.js", "teams.js", "team-chat.js", "team-conversation.js", "team-panel.js", "team-command.js", "team-people.js"].map(f => readFileSync(join(here, "../ui", f), "utf8"));
-vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, ChatView, Conversation };`, sandbox);
+vm.runInNewContext(`${files.join("\n")}\nglobalThis.Magnus = Object.assign(globalThis.Magnus || {}, { api: (m, p, b) => api(m, p, b) });\nglobalThis.__x = { Team, TeamChat, TeamPanel, TeamCommand, ChatView, Conversation, MessageDrafts };`, sandbox);
 
 // An item as the server sends it (crates/magnus/src/chat_entry.rs): the personal
 // chat's entry, its files as file entries, work no message carries as a `tasks` entry.
@@ -112,7 +112,8 @@ assert.match(mine, / · edited/);
 assert.match(draw({ id: "m2", sender: "sam", text: "fixed", thread: null, at: "", may: { edit: true } }, { ui: { editing: "m2" } }), /msg me editing[^]*data-msg-act="edit-send"/, "a team message is not edited as a personal one is");
 assert.doesNotMatch(draw({ id: "m3", sender: "leo", text: "hi", thread: null, at: "", may: { share: true } }), /data-msg-act="(pin|task|save)"/, "a guest is offered pins and tasks the server refuses");
 assert.match(draw({ id: "m4", sender: "leo", text: "see this\n📎 plan.pdf", thread: null, at: "" }), /class="previews"[^]*class="fprev"[^]*plan\.pdf[^]*data-file-download="plan.pdf"/, "a dropped file does not show as a personal chat's file does");
-assert.match(draw({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { s: { files: { "shot.png": "data:image/png;base64,AA" } } }), /<img alt="" src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
+assert.match(draw({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { s: { files: { [sandbox.teamPreviewKey("w", "p1", "shot.png")]: "data:image/png;base64,AA" } } }), /<img alt="" src="data:image\/png;base64,AA"/, "a dropped image shows no preview");
+assert.doesNotMatch(draw({ id: "m5", sender: "leo", text: "\n📎 shot.png", thread: null, at: "" }, { s: { files: { [sandbox.teamPreviewKey("w2", "p1", "shot.png")]: "data:image/png;base64,AA" } } }), /<img /, "another shared project's image of the same name shows here");
 
 // Sending: what the composer sends to a channel. The composer is the
 // personal chat's: the words stay in the box until the server has them.
@@ -121,7 +122,10 @@ TeamChat.refresh = async () => {};
 let then = await sandbox.teamComposer({ ...channelState }, null).send({ text: "@Magnus what is left?", files: [], form: null });
 assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/messages", { text: "@Magnus what is left?" }], "asking the agent needed more than a mention");
 await then();
-await sandbox.teamComposer({ ...channelState }, "m1").send({ text: "see", files: [{ name: "plan.pdf" }], form: null });
+sandbox.Magnus.putBytes = async path => { calls.push(["PUT", path]); };
+sandbox.__x.MessageDrafts.originals.set("u-plan", { name: "plan.pdf", type: "application/pdf", size: 3, arrayBuffer: async () => new ArrayBuffer(3) });
+await sandbox.teamComposer({ ...channelState }, "m1").send({ text: "see", files: [{ uid: "u-plan", name: "plan.pdf" }], form: null });
+assert.deepEqual(plain(calls.at(-2)), ["PUT", "/v1/workspaces/w/files/plan.pdf?project=p1"], "a file sent to a channel did not reach the shared Files");
 assert.deepEqual(plain(calls.at(-1)), ["POST", "/v1/workspaces/w/channels/c1/messages", { text: "see\n📎 plan.pdf", thread: "m1" }], "a reply in a thread lost its thread or its file");
 // The composer's model picker is the personal one: a request runs on its pick.
 const picked = { adapter: "a", model: "fast" };

@@ -48,6 +48,10 @@ pub struct LaneSpec {
     /// set when the agent was only named, not called on.
     #[serde(default)]
     pub hold: bool,
+    /// The reasoning effort the requester picked for their own agent. Set
+    /// only from a checked request (`say::Pick`), never from a lane's body.
+    #[serde(skip)]
+    pub reasoning: Option<String>,
 }
 
 impl Kernel {
@@ -101,10 +105,10 @@ impl Kernel {
         requester: &str,
         objective: &str,
         thread: Option<String>,
-        model: Option<(String, String)>,
+        pick: crate::say::Pick,
         hold: bool,
     ) -> Result<(String, String, String)> {
-        self.start_room_mission_as(&format!("person:{requester}"), workspace, room, requester, objective, thread, model, hold).await
+        self.start_room_mission_picked(&format!("person:{requester}"), workspace, room, requester, objective, thread, pick, hold).await
     }
 
     /// The same mission for a member, started by `actor`: the member, or
@@ -123,6 +127,21 @@ impl Kernel {
         model: Option<(String, String)>,
         hold: bool,
     ) -> Result<(String, String, String)> {
+        self.start_room_mission_picked(actor, workspace, room, requester, objective, thread, crate::say::Pick { model, reasoning: None }, hold).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_room_mission_picked(
+        self: &Arc<Self>,
+        actor: &str,
+        workspace: &str,
+        room: &str,
+        requester: &str,
+        objective: &str,
+        thread: Option<String>,
+        pick: crate::say::Pick,
+        hold: bool,
+    ) -> Result<(String, String, String)> {
         let mission_id = new_id("mission");
         let actor = actor.to_string();
         self.emit(
@@ -137,8 +156,16 @@ impl Kernel {
             }),
         )
         .await?;
-        let spec =
-            LaneSpec { kind: LaneKind::MemberAgent, target_member: Some(requester.to_string()), objective: objective.to_string(), scope: String::new(), model, thread, hold };
+        let spec = LaneSpec {
+            kind: LaneKind::MemberAgent,
+            target_member: Some(requester.to_string()),
+            objective: objective.to_string(),
+            scope: String::new(),
+            model: pick.model,
+            thread,
+            hold,
+            reasoning: pick.reasoning,
+        };
         let (_, task, run) = self.dispatch_lane_inner(workspace, room, &mission_id, requester, &actor, spec).await?;
         Ok((mission_id, task.unwrap_or_default(), run.unwrap_or_default()))
     }
@@ -177,7 +204,7 @@ impl Kernel {
                 if !fits || self.person(target).is_none() {
                     return Err(anyhow::anyhow!("{target} is not a member in this room of workspace {workspace}"));
                 }
-                let model = if target == requester { spec.model } else { None };
+                let (model, reasoning) = if target == requester { (spec.model, spec.reasoning) } else { (None, None) };
                 let auto_release = !spec.hold && (target == requester || self.read(|s| s.missions.has_standing_release(workspace, room, target, &spec.scope, objective)));
                 let ws_name = self.read(|s| s.team.workspace(workspace).map(|w| w.name.clone())).unwrap_or_else(|| workspace.to_string());
                 let prompt = format!(
@@ -185,7 +212,7 @@ impl Kernel {
                 );
                 // Clean label: untrusted only when requested by someone else; private always.
                 let label = Label { untrusted: target != requester, private: true };
-                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, ..Default::default() }).await?;
+                let (child_task, child_run) = self.create_run(actor, target, prompt, vec![], NewRun { label: Some(label), model, reasoning, ..Default::default() }).await?;
                 self.emit(
                     actor,
                     Ev::TeamMission(TeamMissionEvent::LaneDispatched {

@@ -30,7 +30,7 @@ type K = State<Arc<Kernel>>;
 
 pub(crate) use crate::api_error::{err, internal};
 pub(crate) use sign_in::{issue, on_this_machine, over_tls};
-pub(crate) use work::{chosen_model, end_for, status_str, task_row, terms, timeline_of, title_of};
+pub(crate) use work::{chosen_model, chosen_reasoning, end_for, status_str, task_row, terms, timeline_of, title_of};
 
 /// New work is refused while the kill switch is on, before anything about
 /// it is recorded (owner's ruling 11).

@@ -54,7 +54,7 @@ function teamWork(w, r) {
   const icon = needs ? "need" : { running: "working", suspended: "working", completed: "done" }[status] || "stopped";
   const sub = status === "running" ? statusLineSlot({ task_id: w.task_id, status_line: line }, "sub why") : `<span class="sub why">${esc(line)}</span>`;
   const thread = w.thread && !r.inThread ? teamHref(r.ws, { kind: "channel", id: r.channel, thread: w.thread }) : undefined;
-  return { id: w.task_id, status, icon, pill: needs ? `<span class="chip warn">Needs you</span>` : chip(status), title: workTitle(w.title), tip: thread ? "Open its thread" : workTitle(w.title), sub, by: who, href: thread };
+  return { id: w.task_id, status, icon, pill: needs ? `<span class="chip warn">Needs you</span>` : chip(status), title: workTitle(w.title), tip: thread ? "Open its thread" : workTitle(w.title), sub, by: who, requester: w.requester, href: thread };
 }
 
 /**
