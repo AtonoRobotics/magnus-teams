@@ -271,48 +271,17 @@ const SharedCanvas = (() => {
     }
 
     if (kind === "settings") {
-      const admin = isTeamAdmin(home);
+      const peer = canCollaborate(home);
       const [candidates, caps] = await Promise.all([
-        admin ? Server.workspaces.people(ws).catch(() => []) : Promise.resolve([]),
+        peer ? Server.workspaces.people(ws).catch(() => []) : Promise.resolve([]),
         Server.workspaces.capabilities ? Server.workspaces.capabilities(ws).catch(() => []) : Promise.resolve([]),
       ]);
-      const peopleBody = teamPeopleHtml(home, candidates).replace(/^<header class="team-head"><h1>People<\/h1><\/header>/, "");
-      const capsSec = typeof TeamRooms !== "undefined" && caps?.length ? `<section class="companion-sec"><div class="companion-sec-head"><span>Advertised personal apps</span></div>${TeamRooms.peopleCapabilitiesHtml(caps, home.me)}</section>` : "";
-      const spendSec = spendHtml(home, channel);
-      const limitForm = home.role === "owner" ? `<form class="row small" data-shared-limit style="margin-top:8px"><input type="number" min="0" step="1" name="usd" placeholder="Monthly limit ($)" value="${home.spend?.limit_usd ?? ""}" aria-label="Monthly spend limit in USD"><button type="submit">Set limit</button>${home.spend?.limit_usd != null ? `<button type="button" class="link" data-lift-limit>Lift</button>` : ""}</form>` : "";
-      const body = `${peopleBody}${capsSec}${spendSec}${limitForm}`;
+      const body = teamPeopleHtml(home, candidates, caps);
       return {
         head, body,
         after: el => {
-          bindInvite(el, ws);
-          const who = e => e.target.closest("[data-member]");
-          const app = e => e.target.closest("[data-app]");
           const again = async () => { await loadHome(ws); redraw(); };
-          el.onchange = async e => {
-            if (e.target.matches("[data-app-roles]")) { try { await Server.workspaces.grantApp(ws, app(e).dataset.app, APP_ROLES[e.target.value] || []); toast("Changed."); } catch (err) { toast(err.message); } return again(); }
-            if (e.target.matches("[data-role]")) { try { await Server.workspaces.setMember(ws, who(e).dataset.member, e.target.value); toast("Changed."); } catch (err) { toast(err.message); } return again(); }
-          };
-          el.onsubmit = async e => {
-            if (e.target.closest("[data-add-people]")) {
-              e.preventDefault();
-              const person = $("[data-add-person]", el).value, role = $("[data-add-role]", el).value;
-              try { await Server.workspaces.setMember(ws, person, role); toast("Added."); await again(); } catch (err) { toast(err.message); }
-            }
-            if (e.target.closest("[data-shared-limit]")) {
-              e.preventDefault();
-              const raw = e.target.querySelector('[name="usd"]')?.value;
-              const usd = raw === "" ? null : Number(raw);
-              try { await Server.workspaces.setLimit(ws, { usd }); toast(usd == null ? "Limit lifted." : `Limited to ${teamUsd(usd)} a month.`); await again(); } catch (err) { toast(err.message); }
-            }
-          };
-          el.onclick = async e => {
-            if (e.target.closest("[data-lift-limit]")) { try { await Server.workspaces.setLimit(ws, { usd: null }); toast("Limit lifted."); await again(); } catch (err) { toast(err.message); } }
-            if (e.target.closest("[data-remove]")) { const m = who(e); if (!(await ask(`Take ${m.dataset.name} out of ${home.name}?`, "Remove"))) return; try { await Server.workspaces.removeMember(ws, m.dataset.member); await again(); } catch (err) { toast(err.message); } }
-            if (e.target.closest("[data-leave]")) { if (!(await ask(`Leave ${home.name}?`, "Leave"))) return; try { await Server.workspaces.removeMember(ws, home.me); leftWorkspaceQuietly(ws); toast(`You left ${home.name}.`); } catch (err) { toast(err.message); } }
-            if (e.target.closest("[data-delete-workspace]")) await deleteWorkspace(home);
-            if (e.target.closest("[data-app-connect]")) { const a = app(e); await connectWorkspaceApp(ws, a.dataset.app, a.dataset.title); await again(); }
-            if (e.target.closest("[data-app-disconnect]")) { const a = app(e); if (!(await ask(`Disconnect ${a.dataset.title}?`, "Disconnect"))) return; try { await Server.workspaces.appDisconnect(ws, a.dataset.app); toast("Disconnected."); } catch (err) { toast(err.body?.message || err.message); } await again(); }
-          };
+          wirePeopleSettings(el, ws, home, candidates, again);
         },
       };
     }
@@ -406,7 +375,7 @@ const SharedCanvas = (() => {
           ${entries.length ? `<label class="room-pick small"><input type="radio" name="share_mode" value="selected"> Selected messages only</label><div class="share-msg-list" data-share-msgs hidden>${msgPicks}</div>` : ""}
         </fieldset>
         <div class="row share-actions"><button type="button" data-share-close>Cancel</button><button type="submit" class="primary" data-share-go>Share clean-room copy</button></div>
-      ` : `<p class="empty">You are not in a shared project yet. Ask a Team Admin to create one and invite you.</p><div class="row share-actions"><button type="button" data-share-close>Close</button></div>`}
+      ` : `<p class="empty">Guest accounts cannot create shared projects.</p><div class="row share-actions"><button type="button" data-share-close>Close</button></div>`}
     </form>`;
 
     const wsSel = $("[data-share-ws]", d);

@@ -62,29 +62,28 @@ const M = words => Object.fromEntries(["edit", "retry", "feedback", "share", "sa
 assert.match(messageHtml({ id: "m2", sender: "sam", text: "mine", thread: null, at: "", may: M("edit share save task pin delete") }), /data-msg-act="delete"/, "a message the server lets me delete offers no Delete");
 assert.doesNotMatch(messageHtml({ id: "m3", sender: "dana", text: "hers", thread: null, at: "", may: M("share save task pin") }), /data-msg-act="delete"/, "a message the server does not let me delete offers Delete");
 
-// The people page: an admin manages members and admins, not the owner; the
-// last owner cannot leave; people on the server are offered by name.
+// Pure peer Project Settings: no role dropdowns, creator can remove non-owners
+// and delete the project, non-sole-owners can leave from Danger Zone, and
+// server people appear as 1-click suggestion chips.
 const page = sandbox.teamPeopleHtml(home, [{ id: "kim", name: "Kim" }]);
-const of = id => page.split(`data-member="${id}"`)[1].split("</li>")[0];
-assert.doesNotMatch(of("dana"), /data-remove|data-role/, "an admin is offered to change the owner");
+const of = id => page.split(`data-member="${id}"`)[1].split("</div>")[0];
+assert.doesNotMatch(of("dana"), /data-remove|data-role/, "an admin is offered to change the creator");
 assert.match(of("leo"), /data-remove/);
-assert.doesNotMatch(of("leo"), /<option value="owner"/, "an admin is offered a role above their own");
-assert.match(of("leo"), /<option value="admin">Team Admin<\/option>/, "a workspace admin is not called a Team Admin");
-assert.match(of("sam"), /data-leave/, "a member cannot leave");
-assert.match(page, /data-add-person[^]*value="kim">Kim/, "people on the server are not offered");
-assert.match(page, /data-delete-workspace/, "a workspace admin, one of its Team Admins, cannot delete it");
+assert.doesNotMatch(page, /data-role|data-add-role|data-team-apps/, "retired role dropdowns or Shared Apps still appear");
+assert.match(page, /data-leave/, "a non-sole-owner cannot leave from Danger Zone");
+assert.match(page, /data-quick-add="kim"[^>]*>\+ Kim/, "people on the server are not offered as 1-click chips");
+assert.match(page, /data-delete-workspace/, "a creator/admin cannot delete the shared project");
 assert.doesNotMatch(page, /admin\/workspaces/);
 const owners = sandbox.teamPeopleHtml({ ...home, role: "owner", me: "dana" }, []);
-assert.match(owners, /data-delete-workspace/, "the owner cannot delete the workspace");
-assert.doesNotMatch(owners.split('data-member="dana"')[1].split("</li>")[0], /data-leave/, "the only owner is offered to leave");
-assert.doesNotMatch(sandbox.teamPeopleHtml({ ...home, role: "member", me: "sam" }, []), /data-delete-workspace/, "a member is offered to delete the workspace");
+assert.match(owners, /data-delete-workspace/, "the creator cannot delete the shared project");
+assert.doesNotMatch(owners, /data-leave/, "the only owner is offered to leave");
+assert.doesNotMatch(sandbox.teamPeopleHtml({ ...home, role: "member", me: "sam" }, []), /data-delete-workspace/, "a member is offered to delete the shared project");
 
-// Admin › People › Workspaces: names, Team Admins and counts, and the Team
-// Admin role to give; nothing to join, change or delete (the owner, 2026-11-11).
-const ws = sandbox.adminWorkspacesHtml([{ id: "w", name: "Alpha", channels: 3, members: 2, team_admins: [{ id: "dana", name: "Dana", owner: true }] }], [{ id: "kim", name: "Kim", team_admin: false }, { id: "dana", name: "Dana", team_admin: true }]);
-assert.match(ws, /Team Admins: Dana \(owner\)/);
-assert.match(ws.split('data-ws-person="dana"')[1].split("</tr>")[0], /data-team-admin checked/);
-assert.doesNotMatch(ws, /data-ws-add|data-ws-remove|data-ws-delete|data-ws-role/, "a Magnus admin is offered to change a workspace");
+// Admin › People › Shared projects: read-only names and counts only, zero Team Admin toggles or mutation controls.
+const ws = sandbox.adminWorkspacesHtml([{ id: "w", name: "Alpha", channels: 3, members: 2 }]);
+assert.match(ws, /Shared projects/);
+assert.match(ws, /Alpha[^]*2 people · 3 conversations/);
+assert.doesNotMatch(ws, /data-team-admin|data-ws-add|data-ws-remove|data-ws-delete|data-ws-role/, "a Magnus admin is offered Team Admin toggles or workspace mutation controls");
 
 // Pop-ups: who and where; the system's notification never says what a
 // message says; nothing twice; and not what the person is looking at.

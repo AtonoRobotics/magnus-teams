@@ -94,11 +94,11 @@ function channelFaces(home, c, project) {
   return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
-/** Minimal work-focused shared conversation header: faces, Shared Computer, Members chip, and quiet Auto-join toggle. */
+/** Minimal work-focused shared conversation header: faces, user's personal computer chip, Members chip, and quiet Auto-join toggle. */
 function channelTools(home, c, project) {
   const helpful = c.mode === "when_helpful";
   const ext = typeof TeamRooms !== "undefined" ? TeamRooms.renderSlot("headerActions", { ws: home.id, channel: c.id }) : "";
-  const comp = home.computer && typeof computerChip === "function" ? computerChip(App.computers, home.computer) : "";
+  const comp = typeof computerChip === "function" ? computerChip(App.computers) : "";
   const autoJoin = c.direct ? "" : `<button type="button" class="shared-autojoin-btn${helpful ? " on" : ""}" data-agent-toggle aria-pressed="${helpful}" ${home.role === "guest" ? "disabled" : ""} title="${helpful ? "Magnus auto-joins when helpful (click for @Magnus mentions only)" : "Magnus replies to @Magnus mentions (click to auto-join when helpful)"}">${helpful ? "Auto-join: On" : "Auto-join"}</button>`;
   const membersBtn = `<button type="button" class="shared-members-btn" data-open="shared:settings" aria-label="Members and project settings" title="Members and project settings">${icon("team")}<span>${home.members.length}</span></button>`;
   const clearDm = c.direct ? `<button type="button" class="icon-btn" data-clear-conversation title="Delete conversation" aria-label="Delete conversation">${icon("trash")}</button>` : "";
@@ -137,7 +137,7 @@ const TeamChat = {
     // member's request runs on their pick (decisions/2026-11-13-team-composer-model.md).
     const bar = `<span data-picker></span>${guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`}`;
     const slot = $(".composer-slot", view.section);
-    paint(slot, composer(`${where}. Mention @${home.agent.name} to ask Magnus.`, bar, { label: where, mentions: true }));
+    paint(slot, composer(`${where}. Mention @${home.agent.name} to have your Magnus help and share its output.`, bar, { label: where, mentions: true }));
     modelPicker().then(html => {
       const at = $("[data-picker]", slot);
       if (!at) return;

@@ -8,9 +8,9 @@
 UI.team = '<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5M18 14.5a6 6 0 0 1 3 5.5"/>';
 const TEAM_REFRESH_MS = 3000, TEAM_ROLES = ["guest", "member", "admin", "owner"];
 
-/** A workspace role as people read it: its owner and admins are its Team Admins.
+/** A collaborator's standing as people read it: no Admin bureaucracy.
  * @param {string} r */
-const teamRoleLabel = r => ({ owner: "Team Admin (owner)", admin: "Team Admin", member: "member", guest: "guest" })[r] || r;
+const teamRoleLabel = r => ({ owner: "Creator", admin: "Collaborator", member: "Collaborator", guest: "Guest" })[r] || r;
 
 /**
  * @typedef {{ id: string, name: string, role: string, online: boolean }} TeamMember
@@ -51,20 +51,17 @@ function teamHref(ws, place) {
   return `${base}/${place.kind}`;
 }
 
-/** Whether the signed-in person may start a workspace: the server lets only
- * a Team Admin, so nobody else is offered a form it would refuse. */
+/** Any regular signed-in user can start a shared project; only restricted guests cannot. */
 async function mayStartWorkspace() {
-  const known = typeof AdminState !== "undefined" ? AdminState.standing : null;
-  const standing = known || await Server.admin.standing().catch(() => null);
-  return !!standing?.team_admin;
+  return (typeof App !== "undefined" ? App.me?.role : null) !== "guest";
 }
 
-/** The Shared Projects page: the person's shared workspaces, and the name field
- * that starts one for those allowed to.
+/** The Shared Projects page: the person's shared projects, and the name field
+ * that starts one.
  * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
 function teamsPageHtml(list, mayStart) {
-  const none = mayStart ? "You are in no shared project yet. Type a name to start one; Magnus is in it from the start." : "You are in no shared project yet. A Team Admin starts one and invites you.";
-  return `<div class="teams-page"><h1>Shared projects</h1><p class="small faint">Projects and conversations you share with other people and Magnus. Your private conversations stay yours.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
+  const none = mayStart ? "You are in no shared project yet. Type a name to start one and invite teammates." : "You are in no shared project yet.";
+  return `<div class="teams-page"><h1>Shared projects</h1><p class="small faint">Collaborate with teammates while each person's Magnus works in private and shares scrubbed outputs.</p>${list.length ? `<ul class="team-list">${list.map(w => `<li data-workspace="${esc(w.id)}"><a href="#/team/${enc(w.id)}">${avatar(w.name)}<span><strong>${esc(w.name)}</strong><br><span class="small faint">${esc(teamRoleLabel(w.role))}</span></span></a></li>`).join("")}</ul>` : `<p class="empty">${none}</p>`}
     ${mayStart ? `<form id="new-team"><input id="team-name" placeholder="Type a name to start a shared project" aria-label="Shared project name" autocomplete="off"><button class="primary">Create</button></form>` : ""}</div>`;
 }
 

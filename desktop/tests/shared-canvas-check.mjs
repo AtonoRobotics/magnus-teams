@@ -160,8 +160,11 @@ assert.match(vKnowledge.body, /Launch Tuesday/);
 
 const vSettings = await PANELS.shared("settings");
 assert.match(vSettings.head, /Project settings/);
-assert.match(vSettings.body, /data-invite-email/);
-assert.match(vSettings.body, /data-shared-limit/);
+assert.match(vSettings.body, /data-people-input/);
+assert.match(vSettings.body, /data-quick-add="carol"/);
+assert.match(vSettings.body, /data-invite-link/);
 assert.match(vSettings.body, /Linear/);
+assert.match(vSettings.body, /Danger zone/);
+assert.doesNotMatch(vSettings.body, /data-shared-limit|data-role|data-team-apps/, "retired Shared Spend, role dropdowns, or Shared Apps leaked into Project settings");
 
 console.log("shared canvas check passed");

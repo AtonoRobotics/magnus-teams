@@ -16,26 +16,9 @@ function channelSlug(typed) {
 /** Dollars as a person reads them. */
 function teamUsd(n) { const v = Number(n || 0); return v > 0 && v < 0.01 ? "under $0.01" : `$${v.toFixed(v % 1 ? 2 : 0)}`; }
 
-/**
- * An owner's spend limits, set by typing an amount: for this channel and
- * for the whole workspace, a month at a time. With nothing typed, lifting
- * a limit that is set.
- * @param {TeamHome} home @param {?TeamChannel} here @param {string} typed
- * @returns {TeamCommandItem[]}
- */
-function limitCommands(home, here, typed) {
-  if (home.role !== "owner") return [];
-  const out = [], amount = String(typed || "").trim().match(/^\$?\s*(\d{1,7}(?:\.\d{1,2})?)$/), spend = home.spend || { channels: {} };
-  const named = here && !here.direct ? channelTitle(home, here) : null;
-  if (amount) {
-    const n = Number(amount[1]);
-    if (named) out.push({ group: "Spend limits", label: `Limit ${named} to ${teamUsd(n)} a month`, hint: "What the team agent may spend on work asked here", run: { kind: "limit", channel: here.id, usd: n } });
-    out.push({ group: "Spend limits", label: `Limit the workspace to ${teamUsd(n)} a month`, hint: "What the team agent may spend on all its work here", run: { kind: "limit", usd: n } });
-  } else if (!typed) {
-    if (named && spend.channels?.[here.id]?.limit_usd != null) out.push({ group: "Spend limits", label: `Lift the spend limit on ${named}`, run: { kind: "limit", channel: here.id, usd: null } });
-    if (spend.limit_usd != null) out.push({ group: "Spend limits", label: "Lift the workspace's spend limit", run: { kind: "limit", usd: null } });
-  }
-  return out;
+/** Shared workspace spend limits are retired — each collaborator runs on their own personal budget. */
+function limitCommands() {
+  return [];
 }
 
 /**
@@ -50,15 +33,12 @@ function commandsFor(home, place, q) {
   const here = place.kind === "channel" ? home.channels.find(c => c.id === place.id) : null;
   const project = place.kind === "project" ? place.id : here?.project;
   if (t && member) {
-    out.push({ group: "Create", label: `New project ${t}`, hint: "Gets a channel, files, a task board and Magnus", run: { kind: "start", what: "project", name: t } });
+    out.push({ group: "Create", label: `New project ${t}`, hint: "Gets a conversation, files, a task board and Magnus", run: { kind: "start", what: "project", name: t } });
     if (channelSlug(t)) out.push({ group: "Create", label: `New channel #${channelSlug(t)}`, run: { kind: "start", what: "channel", name: t } });
-    out.push({ group: "Create", label: `New task: ${t}`, hint: project ? `On ${home.projects.find(p => p.id === project)?.name || "this project"}'s board` : "On the workspace's board", run: { kind: "task", title: t, project } });
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t) && ["admin", "owner"].includes(home.role)) out.push({ group: "Create", label: `Invite ${t}`, run: { kind: "invite", email: t } });
-    out.push({ group: "Ask Magnus", label: `Ask ${home.agent.name}: ${t}`, hint: here && !here.direct?.agent ? `In ${channelTitle(home, here)}, visible to everyone there` : "In your conversation with it", run: { kind: "ask", text: t } });
+    out.push({ group: "Create", label: `New task: ${t}`, hint: project ? `On ${home.projects.find(p => p.id === project)?.name || "this project"}'s board` : "On the project's board", run: { kind: "task", title: t, project } });
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) out.push({ group: "Create", label: `Invite ${t}`, run: { kind: "invite", email: t } });
+    out.push({ group: "Ask Magnus", label: `Ask ${home.agent.name}: ${t}`, hint: here && !here.direct?.agent ? `In ${channelTitle(home, here)}, your Magnus shares its output` : "In your conversation with it", run: { kind: "ask", text: t } });
   }
-  // An amount typed by an owner is most likely a limit, so it comes first.
-  const limits = limitCommands(home, here, t);
-  if (t) out.unshift(...limits); else out.push(...limits);
   for (const p of home.projects.filter(p => match(p.name))) out.push({ group: "Go to", label: p.name, hint: `Project · ${p.progress.done}/${p.progress.total} done`, run: { kind: "go", place: { kind: "project", id: p.id } } });
   for (const c of home.channels.filter(c => match(channelTitle(home, c)))) out.push({ group: "Go to", label: channelTitle(home, c), hint: c.mentions ? `${c.mentions} mentions` : c.unread ? `${c.unread} unread` : "", run: { kind: "go", place: { kind: "channel", id: c.id } } });
   for (const m of home.members.filter(m => m.id !== home.me && match(m.name))) out.push({ group: "Go to", label: m.name, hint: "Direct message", run: { kind: "dm", person: m.id } });

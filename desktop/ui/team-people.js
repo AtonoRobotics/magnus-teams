@@ -1,152 +1,217 @@
-// A workspace's people: who is in it and with what role; adding someone the
-// server knows, or inviting someone new; taking a member out; leaving; and,
-// for its Team Admins (its owner and its admins), deleting the whole
-// workspace. A Magnus admin has no say here (the owner, 2026-11-11).
-// Nobody changes a role above their own, and a workspace keeps an owner:
-// the server holds both rules, and the page offers only what it allows.
+// Pure peer collaboration settings: any collaborator can add people on the
+// server (1-click chips or typing a name) or invite by email / copy an invite
+// link. One merged roster shows each collaborator with their advertised
+// personal apps — no workspace Admin role bureaucracy, no shared Team Agent,
+// no shared workspace apps, and no shared spend. Only the creator can delete
+// the shared project; anyone else can leave from the Danger Zone at the bottom.
 "use strict";
 
 /** @param {string} r */
 const teamRank = r => TEAM_ROLES.indexOf(r);
 
-/** Whether the viewer is one of the workspace's Team Admins (its owner or an admin). @param {TeamHome} home */
+/** Whether the viewer is the creator (or legacy admin) of the shared project. @param {TeamHome} home */
 const isTeamAdmin = home => teamRank(home.role) >= teamRank("admin");
 
-/** What the way to the people page is called: it says what a Team Admin does there. @param {TeamHome} home */
-const peopleLabel = home => isTeamAdmin(home) ? "People: add or remove" : "People";
+/** Whether the viewer is a peer collaborator (any non-guest member). @param {TeamHome} home */
+const canCollaborate = home => home.role !== "guest";
+
+/** Label for opening the People & settings view. @param {TeamHome} home */
+const peopleLabel = home => canCollaborate(home) ? "People & invites" : "People";
 
 /**
- * The page as `home` shows it to its viewer.
- * @param {TeamHome} home @param {{ id: string, name: string }[]} candidates
+ * Pure peer Project Settings: two clean cards — People (unified add/invite +
+ * 1-click suggestion chips + merged peer roster with advertised personal apps)
+ * and Danger Zone at the bottom.
+ * @param {TeamHome} home
+ * @param {{ id: string, name: string }[]} candidates
+ * @param {Array<{ id: string, name?: string, avatar?: any, apps?: Array<{ name: string, title?: string }> }>} [caps]
  */
-function teamPeopleHtml(home, candidates) {
-  const mine = home.role, admin = isTeamAdmin(home);
+function teamPeopleHtml(home, candidates, caps = []) {
+  const creator = isTeamAdmin(home), peer = canCollaborate(home);
   const owners = home.members.filter(m => m.role === "owner").length;
-  const roles = (selected, upto) => TEAM_ROLES.filter(r => teamRank(r) <= teamRank(upto)).map(r => `<option value="${r}"${r === selected ? " selected" : ""}>${esc(teamRoleLabel(r))}</option>`).join("");
+  const candList = Array.isArray(candidates) ? candidates : [];
+  const capById = new Map((Array.isArray(caps) ? caps : []).map(c => [c.id, c]));
+  const lastOwner = home.role === "owner" && owners <= 1;
+
+  const chips = candList.slice(0, 8).map(p =>
+    `<button type="button" class="people-chip" data-quick-add="${esc(p.id)}" data-quick-name="${esc(p.name)}" title="Add ${esc(p.name)} to ${esc(home.name)}">+ ${esc(p.name)}</button>`
+  ).join("");
+
+  const addBlock = peer ? `<div class="people-add-wrap" data-people-add>
+    <form class="people-add-form" data-people-invite>
+      <input type="text" data-people-input placeholder="Name or email…" aria-label="Add collaborator by name or email" autocomplete="off">
+      <button type="submit" class="primary">Add</button>
+    </form>
+    ${candList.length ? `<div class="people-chips" data-people-suggestions>${chips}</div>` : ""}
+    <p class="small faint people-status" data-invite-result aria-live="polite"></p>
+  </div>` : `<p class="small faint">Guests can view who is in this shared project.</p>`;
+
   const row = m => {
-    const me = m.id === home.me, manages = admin && !me && teamRank(m.role) <= teamRank(mine);
-    const lastOwner = m.role === "owner" && owners <= 1;
-    const tools = manages ? `<select data-role aria-label="Role of ${esc(m.name)}"${lastOwner ? " disabled" : ""}>${roles(m.role, mine)}</select>${lastOwner ? "" : `<button class="link" data-remove>Remove</button>`}`
-      : `<span class="small faint">${esc(teamRoleLabel(m.role))}</span>`;
-    const leave = me ? lastOwner ? `<span class="small faint">To leave, make someone else an owner first.</span>` : `<button class="link" data-leave>Leave</button>` : "";
-    return `<li data-member="${esc(m.id)}" data-name="${esc(m.name)}">${avatar(m.name)}<span>${esc(m.name)}${me ? " (you)" : ""}</span>${tools}${leave}</li>`;
+    const me = m.id === home.me;
+    const cap = capById.get(m.id);
+    const appNames = (cap?.apps || []).map(a => a.title || a.name).filter(Boolean);
+    const sub = appNames.length ? appNames.join(" · ") : "Personal Magnus";
+    const badge = m.role === "owner" ? `<span class="chip">Creator</span>` : m.role === "guest" ? `<span class="chip">Guest</span>` : "";
+    const canRemove = creator && !me && m.role !== "owner";
+    const action = canRemove ? `<button type="button" class="link" data-remove>Remove</button>` : "";
+    return `<div class="gbox-row people-row" data-member="${esc(m.id)}" data-name="${esc(m.name)}">
+      <span class="team-face${m.online ? " on" : ""}">${avatar(m.name, false, m.id)}</span>
+      <span class="gbox-main"><span class="gbox-lbl">${esc(m.name)}${me ? " (you)" : ""} ${badge}</span><span class="small muted">${esc(sub)}</span></span>
+      ${action}
+    </div>`;
   };
-  const add = !admin ? "" : candidates.length
-    ? `<form class="team-invite" data-add-people><label class="sr" for="team-add-person">Person to add</label><select id="team-add-person" data-add-person>${candidates.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select>
-      <select data-add-role aria-label="Their role">${roles("member", mine)}</select><button class="primary">Add</button></form>`
-    : `<p class="small faint">Everyone with an account on this server is here already.</p>`;
-  return `<header class="team-head"><h1>People</h1></header><div class="team-scroll">
-    ${admin ? `<section data-people-add><h2>Add people</h2><p class="small faint">Someone with an account on this server joins at once.</p>${add}<h3>Someone new to the server</h3><p class="small faint">Invite them by email, or copy a link to send them.</p>${inviteForm()}</section>` : ""}
-    <h2>In ${esc(home.name)}</h2>${admin ? "" : `<p class="small faint">A Team Admin adds and removes people here.</p>`}
-    <ul class="team-people">${home.members.map(row).join("")}
-      <li>${avatar(home.agent.name, true)}<span>${esc(home.agent.name)}</span><span class="small faint">team agent, in every channel</span></li></ul>
-    ${admin ? teamAppsHtml(home) : ""}
-    ${admin ? `<h2>Delete this workspace</h2><p class="small faint">Its channels, messages, files, projects and computer are deleted for everyone, from backups too within 30 days. This cannot be undone.</p><button class="danger" data-delete-workspace>Delete workspace</button>` : ""}</div>`;
+
+  const leaveBtn = !lastOwner
+    ? `<div class="gbox-row people-danger-row"><span class="gbox-main"><span class="gbox-lbl">Leave ${esc(home.name)}</span><span class="small muted">You lose access to this shared project. Your personal conversations and files stay untouched.</span></span><button type="button" data-leave>Leave</button></div>`
+    : "";
+  const deleteBtn = creator
+    ? `<div class="gbox-row people-danger-row"><span class="gbox-main"><span class="gbox-lbl">Delete ${esc(home.name)}</span><span class="small muted">Deletes shared conversations, tasks, files, and knowledge for everyone. Personal conversations and computers are never touched.</span></span><button type="button" class="danger" data-delete-workspace>Delete project</button></div>`
+    : "";
+  const dangerSec = (leaveBtn || deleteBtn)
+    ? `<section class="companion-sec people-danger"><div class="companion-sec-head"><span>Danger zone</span></div><div class="gbox">${leaveBtn}${deleteBtn}</div></section>`
+    : "";
+
+  return `<section class="companion-sec people-card">
+    <div class="companion-sec-head people-head"><span>People <span class="count">${home.members.length}</span></span>${peer ? `<button type="button" class="link" data-invite-link>Copy invite link</button>` : ""}</div>
+    ${addBlock}
+    <div class="gbox people-roster" data-peer-roster>${home.members.map(row).join("")}</div>
+  </section>${dangerSec}`;
 }
 
-/** The roles each choice of who may use an app grants it to. */
-const APP_ROLES = { off: [], members: ["member", "admin", "owner"], admins: ["admin", "owner"] };
-
-/** The workspace's apps, for its Team Admins: which the team agent may use,
- * for whom, and, for an app people sign in to, the team's own sign-in. A
- * member's own sign-in never serves a team thread. @param {TeamHome} home */
-function teamAppsHtml(home) {
-  const apps = home.apps || [];
-  if (!apps.length) return "";
-  const who = a => !a.roles.length ? "off" : a.roles.includes("member") ? "members" : "admins";
-  const choices = [["off", "Not in this workspace"], ["members", "Members and admins"], ["admins", "Team Admins only"]];
-  const row = a => {
-    const w = who(a);
-    const pick = `<select data-app-roles aria-label="Who may have the agent use ${esc(a.title)}">${choices.map(([v, l]) => `<option value="${v}"${v === w ? " selected" : ""}>${l}</option>`).join("")}</select>`;
-    const sign = !a.signs_in || w === "off" ? "" : a.signed_in
-      ? `<span class="small faint">Connected for the workspace</span><button class="link" data-app-disconnect>Disconnect</button>`
-      : `<button data-app-connect>Connect for the workspace</button>`;
-    return `<li data-app="${esc(a.name)}" data-title="${esc(a.title)}"><span>${esc(a.title)}</span>${pick}${sign}</li>`;
-  };
-  return `<section data-team-apps><h2>Apps</h2><p class="small faint">What the team agent may use here. An app people sign in to is connected with the team's own account, never a member's: whoever may use it here acts through that account.</p>
-    <ul class="team-people">${apps.map(row).join("")}</ul></section>`;
-}
-
-/** A Team Admin signs an app in for the workspace, as a person connects
- * their own from the Library: the browser, then the sign-in caught here. */
-async function connectWorkspaceApp(ws, name, title) {
-  if (!Magnus.loopbackOpen) {
-    // In a browser the sign-in comes back to the server's own address (connect-web.js).
-    const card = (Team.home?.apps || []).find(a => a.name === name), back = ConnectWeb.returnFor(card);
-    if (!back) { toast(ConnectWeb.why(card || { title }, name)); return; }
-    return ConnectWeb.go({ name, title, ws }, back, redirect => Server.workspaces.appSignIn(ws, name, redirect)).catch(err => toast(err.body?.message || err.message));
+/**
+ * Wires the unified Project Settings UI (live candidate filtering, 1-click chip
+ * add, name/email(s) submit, 1-click Copy invite link, Remove, Leave, Delete)
+ * once per host element so repeated redraws never double-fire requests.
+ * @param {HTMLElement} root @param {string} ws @param {TeamHome} home
+ * @param {{ id: string, name: string }[]} candidates @param {() => Promise<void>} onReload
+ */
+function wirePeopleSettings(root, ws, home, candidates, onReload) {
+  root._peopleCtx = { ws, home, candidates: candidates || [], onReload };
+  const input = /** @type {?HTMLInputElement} */ ($("[data-people-input]", root));
+  if (input && typeof document !== "undefined" && document.activeElement !== input) {
+    input.focus({ preventScroll: true });
   }
-  try {
-    const caught = await Magnus.loopbackOpen(null);
-    const r = await Server.workspaces.appSignIn(ws, name, caught);
-    Magnus.openExternal(r.authorize_url).catch(() => {});
-    const got = await Magnus.loopbackWait();
-    if (got.state !== r.state) throw new Error("That sign-in came back for another request. Try again.");
-    await Server.workspaces.appSignInComplete(ws, name, { state: got.state, code: got.code, iss: got.iss });
-    toast(`${title} is connected for the workspace.`);
-  } catch (err) { toast(err.body?.message || err.message); }
-}
+  if (root.dataset.peopleBound) return;
+  root.dataset.peopleBound = "1";
 
-/** Members, their roles and invites, for whoever may change them. */
-async function teamPeople(center, side, ws) {
-  const home = Team.home, admin = isTeamAdmin(home);
-  const candidates = admin ? await Server.workspaces.people(ws).catch(() => []) : [];
-  paint(center, teamPeopleHtml(home, candidates));
-  if (side?.isConnected) TeamPanel.side(side, ws, null, null);
-  bindInvite(center, ws);
-  const again = async () => { await loadHome(ws); return teamPeople(center, side, ws); };
-  const who = e => e.target.closest("[data-member]");
-  const app = e => e.target.closest("[data-app]");
-  center.onchange = async e => {
-    if (e.target.matches("[data-app-roles]")) {
-      try { await Server.workspaces.grantApp(ws, app(e).dataset.app, APP_ROLES[e.target.value] || []); toast("Changed."); } catch (err) { toast(err.message); }
-      return again();
-    }
-    if (!e.target.matches("[data-role]")) return;
-    try { await Server.workspaces.setMember(ws, who(e).dataset.member, e.target.value); toast("Changed."); } catch (err) { toast(err.message); }
-    await again();
+  const renderChips = q => {
+    const box = $("[data-people-suggestions]", root);
+    const ctx = root._peopleCtx;
+    if (!box || !ctx) return;
+    const low = String(q || "").trim().toLowerCase();
+    const list = (ctx.candidates || []).filter(p => !low || p.name.toLowerCase().includes(low) || p.id.toLowerCase().includes(low)).slice(0, 8);
+    paint(box, list.map(p => `<button type="button" class="people-chip" data-quick-add="${esc(p.id)}" data-quick-name="${esc(p.name)}" title="Add ${esc(p.name)} to ${esc(ctx.home.name)}">+ ${esc(p.name)}</button>`).join(""));
   };
-  center.onsubmit = async e => {
-    if (!e.target.closest("[data-add-people]")) return;
+
+  root.addEventListener("input", e => {
+    if (e.target.matches?.("[data-people-input]")) renderChips(e.target.value);
+  });
+
+  root.addEventListener("submit", async e => {
+    const form = e.target.closest?.("[data-people-invite]");
+    if (!form) return;
     e.preventDefault();
-    const person = $("[data-add-person]", center).value, role = $("[data-add-role]", center).value;
-    try { await Server.workspaces.setMember(ws, person, role); toast("Added. The workspace is in their app now."); await again(); } catch (err) { toast(err.message); }
-  };
-  center.onclick = async e => {
-    if (e.target.closest("[data-remove]")) {
-      const m = who(e);
-      if (!(await ask(`Take ${m.dataset.name} out of ${home.name}? They lose it at once and their running work here stops. What they wrote stays.`, "Remove"))) return;
-      try { await Server.workspaces.removeMember(ws, m.dataset.member); await again(); } catch (err) { toast(err.message); }
+    const ctx = root._peopleCtx;
+    if (!ctx) return;
+    const field = $("[data-people-input]", form);
+    const resultEl = $("[data-invite-result]", root);
+    const raw = (field?.value || "").trim();
+    if (!raw) return;
+    const parts = raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+    const emails = parts.filter(p => p.includes("@"));
+    try {
+      if (emails.length) {
+        const notes = [];
+        for (const email of emails) {
+          const r = await Server.workspaces.invite(ctx.ws, email);
+          notes.push(inviteOutcome(email, r));
+        }
+        if (field) field.value = "";
+        await ctx.onReload();
+        const afterRes = $("[data-invite-result]", root);
+        if (afterRes) afterRes.textContent = notes.join(" ");
+        else if (resultEl) resultEl.textContent = notes.join(" ");
+        return;
+      }
+      const low = raw.toLowerCase();
+      const match = (ctx.candidates || []).find(p => p.id.toLowerCase() === low || p.name.toLowerCase() === low)
+        || (ctx.candidates || []).find(p => p.name.toLowerCase().startsWith(low));
+      if (match) {
+        await Server.workspaces.setMember(ctx.ws, match.id, "member");
+        toast(`Added ${match.name}.`);
+        if (field) field.value = "";
+        await ctx.onReload();
+      } else {
+        toast("Pick a teammate below or enter an email address to invite them.");
+      }
+    } catch (err) {
+      toast(err.message);
     }
-    if (e.target.closest("[data-leave]")) {
-      if (!(await ask(`Leave ${home.name}? You lose its channels and files at once. What you wrote stays.`, "Leave"))) return;
-      try { await Server.workspaces.removeMember(ws, home.me); leftWorkspaceQuietly(ws); toast(`You left ${home.name}.`); } catch (err) { toast(err.message); }
+  });
+
+  root.addEventListener("click", async e => {
+    const ctx = root._peopleCtx;
+    if (!ctx) return;
+    const chip = e.target.closest?.("[data-quick-add]");
+    if (chip) {
+      const id = chip.dataset.quickAdd, name = chip.dataset.quickName || id;
+      try {
+        await Server.workspaces.setMember(ctx.ws, id, "member");
+        toast(`Added ${name}.`);
+        await ctx.onReload();
+      } catch (err) { toast(err.message); }
+      return;
     }
-    if (e.target.closest("[data-delete-workspace]")) await deleteWorkspace(home);
-    if (e.target.closest("[data-app-connect]")) {
-      const a = app(e);
-      await connectWorkspaceApp(ws, a.dataset.app, a.dataset.title);
-      await again();
+    if (e.target.closest?.("[data-invite-link]")) {
+      try {
+        const r = await Server.workspaces.invite(ctx.ws);
+        const link = serverLink(r);
+        try { await navigator.clipboard.writeText(link); toast("Invite link copied. It works for a week."); } catch { /* clipboard unavailable */ }
+        const res = $("[data-invite-result]", root);
+        if (res) res.textContent = `Invite link (valid 7 days): ${link}`;
+      } catch (err) { toast(err.message); }
+      return;
     }
-    if (e.target.closest("[data-app-disconnect]")) {
-      const a = app(e);
-      if (!(await ask(`Disconnect ${a.dataset.title} from ${home.name}? The team agent loses it at once. Members' own connections are not touched.`, "Disconnect"))) return;
-      try { await Server.workspaces.appDisconnect(ws, a.dataset.app); toast("Disconnected."); } catch (err) { toast(err.body?.message || err.message); }
-      await again();
+    if (e.target.closest?.("[data-remove]")) {
+      const m = e.target.closest("[data-member]");
+      if (!m || !(await ask(`Remove ${m.dataset.name} from ${ctx.home.name}? They lose access at once. What they shared stays.`, "Remove"))) return;
+      try { await Server.workspaces.removeMember(ctx.ws, m.dataset.member); await ctx.onReload(); } catch (err) { toast(err.message); }
+      return;
     }
-  };
+    if (e.target.closest?.("[data-leave]")) {
+      if (!(await ask(`Leave ${ctx.home.name}? You lose access to its shared conversations and files. Your personal space is untouched.`, "Leave"))) return;
+      try { await Server.workspaces.removeMember(ctx.ws, ctx.home.me); leftWorkspaceQuietly(ctx.ws); toast(`You left ${ctx.home.name}.`); } catch (err) { toast(err.message); }
+      return;
+    }
+    if (e.target.closest?.("[data-delete-workspace]")) {
+      await deleteWorkspace(ctx.home);
+    }
+  });
 }
 
-/** Forget a workspace the person is no longer in, and go to the list. */
+/** Legacy full-page fallback for #/team/:ws/people before SharedCanvas loads. */
+async function teamPeople(center, side, ws) {
+  const home = Team.home, peer = canCollaborate(home);
+  const [candidates, caps] = await Promise.all([
+    peer ? Server.workspaces.people(ws).catch(() => []) : Promise.resolve([]),
+    Server.workspaces.capabilities ? Server.workspaces.capabilities(ws).catch(() => []) : Promise.resolve([]),
+  ]);
+  paint(center, `<header class="team-head"><h1>People</h1></header><div class="team-scroll">${teamPeopleHtml(home, candidates, caps)}</div>`);
+  if (side?.isConnected) TeamPanel.side(side, ws, null, null);
+  const again = async () => { await loadHome(ws); return teamPeople(center, side, ws); };
+  wirePeopleSettings(center, ws, home, candidates, again);
+}
+
+/** Forget a shared project the person is no longer in, and return to the list. */
 function leftWorkspaceQuietly(ws) {
   delete Team.homes[ws];
   if (Team.ws === ws) { Team.ws = null; Team.home = null; }
   location.hash = "#/teams";
 }
 
-/** Delete it, once its name is typed: any of its Team Admins may. */
+/** Delete it, once its name is typed: only its creator may. */
 async function deleteWorkspace(home) {
-  if (!(await askTyped(`Delete ${home.name} for everyone? Its channels, messages, files, projects and computer go, and this cannot be undone.`, home.name, "Delete workspace"))) return;
+  if (!(await askTyped(`Delete ${home.name} for everyone? Its shared conversations, tasks, files, and knowledge go, and this cannot be undone.`, home.name, "Delete project"))) return;
   try {
     await Server.workspaces.remove(home.id);
     leftWorkspaceQuietly(home.id);

@@ -54,63 +54,81 @@ for (const h of [owner, admin, member]) {
 }
 assert.equal(sandbox.sharedDeepLinkPanel({ kind: "people" }), "shared:settings");
 
-// The right panel's Members: names, not just initials, and the way to add
-// or remove for a Team Admin; for anyone else, to see who is in.
+// The right panel's Members: names, not just initials, and any collaborator
+// gets the link to add or invite peers; guests see who is in.
 const panel = { project: null, channels: [], files: [], tasks: [], work: [], members: [{ id: "dana", name: "Dana" }, { id: "leo", name: "Leo" }], knowledge: 0, progress: null, computer: null };
 Team.home = owner;
 const card = sandbox.membersCardHtml(panel, "w").split("data-members-card")[1].split("</section>")[0];
-assert.match(card, /href="#\/team\/w\/people" data-members-manage>Add or remove</, "the owner's panel offers no way to add or remove members");
+assert.match(card, /href="#\/team\/w\/people" data-members-manage>Add or invite</, "the owner's panel offers no way to add or invite peers");
 assert.match(card, /title="Leo"[^]*class="sr">Leo</, "the panel's members are initials with no names");
-Team.home = admin;
-assert.match(sandbox.membersCardHtml(panel, "w"), /data-members-manage>Add or remove</, "a workspace admin's panel offers no way to add or remove members");
 Team.home = member;
-assert.match(sandbox.membersCardHtml(panel, "w"), /data-members-manage>See all</, "a member cannot see who is in");
-assert.doesNotMatch(sandbox.membersCardHtml(panel, "w"), /Add or remove/, "a member is offered to add or remove people");
+assert.match(sandbox.membersCardHtml(panel, "w"), /data-members-manage>Add or invite</, "a peer collaborator cannot add or invite teammates");
+Team.home = guest;
+assert.match(sandbox.membersCardHtml(panel, "w"), /data-members-manage>See all</, "a guest cannot see who is in");
+assert.doesNotMatch(sandbox.membersCardHtml(panel, "w"), /Add or invite/, "a guest is offered to add people");
 Team.home = owner;
 
-// The people page: a Team Admin adds a server person, invites by email or
-// link, changes roles and removes; a member or guest sees the list only.
-for (const h of [owner, admin]) {
-  const page = sandbox.teamPeopleHtml(h, [{ id: "kim", name: "Kim" }]);
-  assert.match(page, /data-add-people/, `a ${h.role} cannot add someone on the server`);
-  assert.match(page, /data-invite-email/, `a ${h.role} cannot invite by email`);
+// Pure peer Project Settings: any collaborator (creator or peer) gets ONE
+// unified Name or email input, 1-click suggestion chips, Copy invite link, and
+// a merged roster with zero role dropdowns, zero Shared Apps, and zero Team Agent row.
+const caps = [{ id: "leo", name: "Leo", apps: [{ name: "linear", title: "Linear" }] }];
+for (const h of [owner, admin, member]) {
+  const page = sandbox.teamPeopleHtml(h, [{ id: "kim", name: "Kim" }], caps);
+  assert.match(page, /data-people-input/, `a ${h.role} is missing the unified Name or email input`);
+  assert.match(page, /data-quick-add="kim"[^>]*>\+ Kim/, `a ${h.role} is missing 1-click server candidate chips`);
   assert.match(page, /data-invite-link/, `a ${h.role} cannot copy an invite link`);
-  assert.match(page.split('data-member="leo"')[1].split("</li>")[0], /data-remove/, `a ${h.role} cannot remove a member`);
-  assert.ok(page.indexOf("data-people-add") < page.indexOf('class="team-people"'), "adding people is below the whole list");
+  assert.match(page, /Linear/, `merged peer roster missing advertised personal apps for ${h.role}`);
+  assert.doesNotMatch(page, /data-role|data-add-role|data-team-apps|team agent, in every channel/, `retired admin/shared-agent UI leaked for ${h.role}`);
+  assert.ok(page.indexOf("data-people-add") < page.indexOf("data-peer-roster"), "adding people is below the roster");
 }
-for (const h of [member, guest]) {
-  const page = sandbox.teamPeopleHtml(h, []);
-  for (const id of ["dana", "sam", "leo"]) assert.match(page, new RegExp(`data-member="${id}"`), `a ${h.role} does not see who is in`);
-  assert.doesNotMatch(page, /data-add-people|data-invite|data-remove|data-role|data-delete-workspace/, `a ${h.role} is offered to change who is in`);
-  assert.match(page, /A Team Admin adds and removes people here/, `a ${h.role} is not told who changes who is in`);
-}
+assert.match(sandbox.teamPeopleHtml(owner, [], caps).split('data-member="leo"')[1].split("data-peer-roster")[0], /data-remove/, "creator cannot remove a member");
+assert.doesNotMatch(sandbox.teamPeopleHtml(member, [], caps), /data-remove|data-delete-workspace/, "a non-creator peer is offered Remove or Delete project");
+assert.match(sandbox.teamPeopleHtml(member, [], caps), /data-leave/, "a peer cannot leave from the Danger Zone");
 
-// The page at work: removing asks first and does nothing when cancelled;
-// an invite goes once, however often the page redraws.
+// Guests see the peer roster only with no add/invite/delete controls.
+const guestPage = sandbox.teamPeopleHtml(guest, [], caps);
+for (const id of ["dana", "sam", "leo"]) assert.match(guestPage, new RegExp(`data-member="${id}"`), "a guest does not see who is in");
+assert.doesNotMatch(guestPage, /data-people-input|data-quick-add|data-invite-link|data-remove|data-delete-workspace/, "a guest is offered to change who is in");
+
+// Wiring: 1-click chip add, email invite, remove confirmation, single-fire listeners across redraws.
 const listeners = [];
-const center = { dataset: {}, addEventListener: (type, fn) => listeners.push([type, fn]) };
+const field = { value: "ann@example.com", focus() {} };
+const result = { textContent: "" };
+const center = {
+  dataset: {},
+  addEventListener: (type, fn) => listeners.push([type, fn]),
+  q: sel => (sel === "[data-people-input]" ? field : sel === "[data-invite-result]" ? result : null),
+};
 await sandbox.teamPeople(center, {}, "w");
-const target = sel => ({ closest: s => (s === sel ? { dataset: { member: "leo", name: "Leo" } } : s === "[data-member]" ? { dataset: { member: "leo", name: "Leo" } } : null) });
+const fire = async (type, ev) => { for (const [t, fn] of listeners) if (t === type) await fn(ev); };
+
+// Remove cancelled vs confirmed.
+const removeEv = { target: { closest: s => (s === "[data-remove]" ? {} : s === "[data-member]" ? { dataset: { member: "leo", name: "Leo" } } : null) } };
 confirm = false; calls.length = 0;
-await center.onclick({ target: target("[data-remove]") });
+await fire("click", removeEv);
 assert.deepEqual(calls.filter(c => c[0] === "DELETE"), [], "a member was removed though the confirmation was cancelled");
 confirm = true;
-await center.onclick({ target: target("[data-remove]") });
+await fire("click", removeEv);
 assert.deepEqual(calls.filter(c => c[0] === "DELETE"), [["DELETE", "/v1/workspaces/w/members/leo", undefined]], "removing a member did not reach the server");
-assert.equal(listeners.filter(([t]) => t === "submit").length, 1, "the page listens for invites more than once after a redraw, so each invite goes twice");
-const email = { value: "ann@example.com" }, result = { textContent: "" };
-const form = { q: sel => (sel === "[data-invite-email]" ? email : sel === "[data-invite-result]" ? result : null) };
+assert.equal(listeners.filter(([t]) => t === "submit").length, 1, "repeated redraws bound multiple submit listeners");
+
+// 1-click chip immediately adds candidate as member.
 calls.length = 0;
-for (const [t, fn] of listeners) if (t === "submit") await fn({ target: { closest: s => (s === "[data-invite]" ? form : null) }, preventDefault() {} });
+await fire("click", { target: { closest: s => (s === "[data-quick-add]" ? { dataset: { quickAdd: "kim", quickName: "Kim" } } : null) } });
+assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST")), JSON.stringify([["POST", "/v1/workspaces/w/members", { person: "kim", role: "member" }]]), "1-click chip did not add candidate");
+
+// Unified input submits email once and reloads roster.
+calls.length = 0; field.value = "ann@example.com";
+const form = { q: sel => (sel === "[data-people-input]" ? field : null) };
+await fire("submit", { target: { closest: s => (s === "[data-people-invite]" ? form : null) }, preventDefault() {} });
 assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST")), JSON.stringify([["POST", "/v1/workspaces/w/invites", { email: "ann@example.com" }]]), "an invite was not sent exactly once");
 assert.match(result.textContent, /Invitation emailed to ann@example\.com/);
 
-// The same element shows another workspace's page after a switch: its
-// invites go to that workspace alone, never to the one shown before.
-sandbox.bindInvite(center, "v");
+// Switching workspaces rebinds context without adding duplicate listeners.
+sandbox.wirePeopleSettings(center, "v", { ...owner, id: "v" }, [], async () => {});
 assert.equal(listeners.filter(([t]) => t === "submit").length, 1, "switching workspaces added a second invite listener");
-calls.length = 0; email.value = "bo@example.com";
-for (const [t, fn] of listeners) if (t === "submit") await fn({ target: { closest: s => (s === "[data-invite]" ? form : null) }, preventDefault() {} });
+calls.length = 0; field.value = "bo@example.com";
+await fire("submit", { target: { closest: s => (s === "[data-people-invite]" ? form : null) }, preventDefault() {} });
 assert.equal(JSON.stringify(calls.filter(c => c[0] === "POST").map(c => c[1])), JSON.stringify(["/v1/workspaces/v/invites"]), "after a switch, an invite went to the workspace shown before");
 
 console.log("team members check passed");

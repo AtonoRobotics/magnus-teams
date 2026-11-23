@@ -2655,7 +2655,7 @@ async function drawPanel() {
   for (const [iid, view, , task] of composed) fill($(`iframe[data-view="${CSS.escape(iid)}"]`, el), view, task);
   if (after) await after(el);
   loadGlimpses(el);
-  if (Panel.focusNext && n===Panel.seq) { const heading=$("h2",el); if (heading) { heading.tabIndex=-1; heading.focus({preventScroll:true}); } Panel.focusNext=false; }
+  if (Panel.focusNext && n===Panel.seq) { if (!el.contains(document.activeElement)) { const heading=$("h2",el); if (heading) { heading.tabIndex=-1; heading.focus({preventScroll:true}); } } Panel.focusNext=false; }
 }
 
 // A view whose content is already read (App's objects) or read here.

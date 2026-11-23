@@ -37,13 +37,11 @@ assert.equal(sandbox.teamPlace("/channels/ch1").id, "ch1", "an old link no longe
 assert.equal(sandbox.teamHref("w", { kind: "channel", id: "ch1", thread: "m9" }), "#/team/w/c/ch1/t/m9");
 assert.equal(sandbox.teamHref("w", { kind: "project", id: "p1" }), "#/team/w/p/p1");
 
-// A workspace is started by typing its name, by those the server lets: a
-// Team Admin. Nobody else is offered a form the server would refuse.
-assert.match(sandbox.teamsPageHtml([], true), /<form id="new-team"><input id="team-name"/, "a Team Admin cannot type a name to start a workspace");
-assert.match(sandbox.mayStartWorkspace.toString(), /standing\?\.team_admin/, "the form follows the server admin role, not Team Admin");
-const memberPage = sandbox.teamsPageHtml([], false);
-assert.ok(!/new-team|team-name/.test(memberPage), "a member is offered a workspace form the server refuses");
-assert.match(memberPage, /A Team Admin starts one and invites you\./);
+// Any regular signed-in user can start a shared project; only guests cannot.
+assert.match(sandbox.teamsPageHtml([], true), /<form id="new-team"><input id="team-name"/, "a user cannot type a name to start a shared project");
+assert.equal(await sandbox.mayStartWorkspace(), true, "a regular user cannot start a shared project");
+const guestPage = sandbox.teamsPageHtml([], false);
+assert.ok(!/new-team|team-name/.test(guestPage), "a guest is offered a shared project form the server refuses");
 
 // Shared conversations: clean titles (no Slack # prefix), minimal header tools
 // (faces, Auto-join toggle, Members chip, no Join Call), and firstChannel selection.
@@ -169,25 +167,30 @@ for (const role of ["member", "admin", "owner"]) {
   const html = sandbox.overviewHtml(noComputer, "w");
   assert.doesNotMatch(html, /data-team-computer-new|a computer<\/button>/, `the ${role} is offered to set up a shared team computer`);
 }
-// Routines in the Team side panel: visible to members, and editable/restartable by admins.
+// Routines in the Team side panel: any collaborator can add routines and manage
+// their own; guests see them read-only; project creator can manage any routine.
 const withRoutines = {
   ...noComputer,
   channels: ["c1"],
   routines: [
     { id: "r1", channel: "c1", text: "Sum up the day", every_hours: 24, by: "dana", by_name: "Dana", last_at: null, stopped: null },
-    { id: "r2", channel: "c1", text: "Check alerts", every_hours: 1, by: "dana", by_name: "Dana", last_at: null, stopped: "its last 3 runs failed" },
+    { id: "r2", channel: "c1", text: "Check alerts", every_hours: 1, by: "sam", by_name: "Sam", last_at: null, stopped: "its last 3 runs failed" },
   ],
 };
-Team.home = { ...home, role: "member" };
+Team.home = { ...home, role: "member", me: "sam" };
 const memberRoutines = sandbox.overviewHtml(withRoutines, "w", "c1");
-assert.match(memberRoutines, /data-routines[^]*Sum up the day[^]*Daily/, "a member does not see active routines");
-assert.match(memberRoutines, /Stopped: its last 3 runs failed/, "a member does not see why a routine stopped");
-assert.doesNotMatch(memberRoutines, /data-routine-new|data-routine-restart|data-routine-remove/, "a non-admin member is offered routine management controls");
-Team.home = { ...home, role: "admin" };
-const adminRoutines = sandbox.overviewHtml(withRoutines, "w", "c1");
-assert.match(adminRoutines, /data-routine-restart="r2"/, "an admin cannot restart a stopped routine");
-assert.match(adminRoutines, /data-routine-remove="r1"/, "an admin cannot remove a routine");
-assert.match(adminRoutines, /data-routine-new/, "an admin cannot add a routine from the panel");
+assert.match(memberRoutines, /data-routines[^]*Sum up the day[^]*Daily/, "a peer does not see active routines");
+assert.match(memberRoutines, /Stopped: its last 3 runs failed/, "a peer does not see why a routine stopped");
+assert.match(memberRoutines, /data-routine-new/, "a peer cannot add a shared routine");
+assert.match(memberRoutines, /data-routine-restart="r2"/, "a peer cannot restart their own stopped routine");
+assert.doesNotMatch(memberRoutines, /data-routine-remove="r1"/, "a peer can remove someone else's routine");
+Team.home = { ...home, role: "guest", me: "leo" };
+const guestRoutines = sandbox.overviewHtml(withRoutines, "w", "c1");
+assert.doesNotMatch(guestRoutines, /data-routine-new|data-routine-restart|data-routine-remove/, "a guest is offered routine management controls");
+Team.home = { ...home, role: "owner", me: "dana" };
+const ownerRoutines = sandbox.overviewHtml(withRoutines, "w", "c1");
+assert.match(ownerRoutines, /data-routine-restart="r2"/, "the project creator cannot restart a stopped routine");
+assert.match(ownerRoutines, /data-routine-remove="r1"/, "the project creator cannot remove a routine");
 Team.home = home;
 assert.equal(sandbox.workTitle("@Magnus pull together the feedback\nmore"), "Pull together the feedback", "a work card's title keeps the mention that asked");
 assert.equal(sandbox.workTitle("Magnus, sum it up"), "Magnus, sum it up");
@@ -210,8 +213,8 @@ assert.ok(bare.includes("Notifications here: mentions only"));
 assert.ok(bare.includes("Activity: mentions, replies and asks"));
 const guest = sandbox.commandsFor({ ...home, role: "guest" }, Team.place, "Launch").map(c => c.group);
 assert.ok(!guest.includes("Create") && !guest.includes("Ask Magnus"), "a guest is offered to create or to have the agent act");
-assert.ok(!sandbox.commandsFor(home, Team.place, "ann@example.com").some(c => c.run.kind === "invite"), "a member who is not an admin is offered to invite");
-assert.ok(sandbox.commandsFor({ ...home, role: "admin" }, Team.place, "ann@example.com").some(c => c.run.kind === "invite"));
+assert.ok(sandbox.commandsFor(home, Team.place, "ann@example.com").some(c => c.run.kind === "invite"), "a peer collaborator cannot invite by email from the command menu");
+assert.ok(!sandbox.commandsFor({ ...home, role: "guest" }, Team.place, "ann@example.com").some(c => c.run.kind === "invite"), "a guest is offered to invite");
 // Inviting by email says what happened: emailed, never "send them this
 // link"; not emailed, says so and gives the link to send.
 const emailed = sandbox.inviteOutcome("ann@example.com", { invited: "ann", emailed: true, mail: true, link: "https://server/invite?token=t", path: "/invite?token=t" });
@@ -229,20 +232,13 @@ assert.equal(found[1].run.place.tab, "board");
 const groups = sandbox.commandsFor({ ...home, role: "admin" }, Team.place, "ann@example.com").map(c => c.group);
 assert.equal(groups.filter((g, i) => g !== groups[i - 1]).length, new Set(groups).size, "a group of the menu is split in two");
 
-// Spend limits: an owner types an amount; nobody else is offered it.
+// Shared workspace spend limits are retired — each collaborator runs on their own personal budget.
 const owner = { ...home, role: "owner", spend: { spent_usd: 12.5, limit_usd: 50, channels: { c1: { spent_usd: 4, limit_usd: 10 } } } };
-const fifty = sandbox.commandsFor(owner, Team.place, "$25");
-assert.equal(fifty[0].label, "Limit magnus-alpha to $25 a month", "an amount typed by an owner does not come first as a limit");
-assert.deepEqual(plain(fifty[0].run), { kind: "limit", channel: "c1", usd: 25 });
-assert.deepEqual(plain(fifty[1].run), { kind: "limit", usd: 25 });
-assert.ok(!sandbox.commandsFor({ ...owner, role: "admin" }, Team.place, "25").some(c => c.run.kind === "limit"), "an admin who is not an owner is offered a spend limit");
-const lifts = sandbox.commandsFor(owner, Team.place, "").filter(c => c.run.kind === "limit").map(c => c.label);
-assert.deepEqual(plain(lifts), ["Lift the spend limit on magnus-alpha", "Lift the workspace's spend limit"]);
-assert.equal(sandbox.limitCommands(owner, null, "lots").length, 0, "words were read as an amount");
+assert.equal(sandbox.limitCommands(owner, null, "$25").length, 0, "retired spend limit commands still appear");
+assert.ok(!sandbox.commandsFor(owner, Team.place, "$25").some(c => c.run.kind === "limit"), "retired spend limit command appeared in command menu");
 Team.home = owner;
-const spendCard = sandbox.overviewHtml({ project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null }, "w", "c1");
-assert.match(spendCard, /Workspace<\/span><span class="small faint">\$12\.50 of \$50/, "the panel does not show the month's spend against the limit");
-assert.match(spendCard, /magnus-alpha<\/span><span class="small faint">\$4 of \$10/, "the panel does not show the channel's spend");
+const overviewNoSpend = sandbox.overviewHtml({ project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null }, "w", "c1");
+assert.doesNotMatch(overviewNoSpend, /data-spend|Spend this month/, "retired Shared Spend card appeared in panel");
 Team.home = home;
 assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as nothing");
 assert.equal(sandbox.teamUsd(12), "$12");
@@ -277,10 +273,10 @@ assert.match(sandbox.kbEntryHtml(entry, [entry], name, true), /data-entry-correc
 // TeamCommand no longer hijacks global Ctrl+K; unified app.js palette owns it.
 assert.equal((listeners.keydown || []).length, 0, "TeamCommand does not hijack global Ctrl+K");
 
-// Personal agent delegations and member connector visibility in the right side panel.
+// Personal agent delegations appear in Work tab; retired workspace apps card is absent from Members tab.
 const panelWithDelegations = {
   ...noComputer,
-  computer: "pc1",
+  computer: null,
   channels: ["c1"],
   members: [{ id: "sam", name: "Sam" }, { id: "dana", name: "Dana" }],
   delegations: [
@@ -288,13 +284,11 @@ const panelWithDelegations = {
   ],
   apps: [
     { name: "github", title: "GitHub", signs_in: true, roles: ["owner", "admin", "member"] },
-    { name: "jira", title: "Jira", signs_in: false, roles: ["owner", "admin", "member"] },
   ],
 };
 const actHtml = sandbox.overviewHtml(panelWithDelegations, "w", "c1");
 assert.match(actHtml, /data-delegations[^]*Personal agent delegations[^]*Dana's Magnus[^]*Working in personal agent/, "the Activity tab does not show personal agent delegations");
 const memHtml = sandbox.teamSideHtml(panelWithDelegations, "w", "c1", "members");
-assert.match(memHtml, /data-team-apps-card[^]*Connectors &amp; agents[^]*GitHub[^]*Delegated to member's personal Magnus/, "the Members tab does not show personal agent connector availability");
-assert.match(memHtml, /Jira[^]*Workspace app/, "the Members tab does not show team connectors");
+assert.doesNotMatch(memHtml, /data-team-apps-card|Workspace app/, "retired workspace apps card still appears in Members tab");
 
 console.log("team ok");

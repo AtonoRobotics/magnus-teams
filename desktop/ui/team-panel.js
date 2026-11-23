@@ -139,7 +139,7 @@ function overviewHtml(d, ws, channel = null) {
       <div class="room-steer-row"><input name="goal" placeholder="e.g. Draft Friday's board update…" aria-label="Shared work goal" autocomplete="off"><button class="primary" type="submit">Start</button></div>
       <div class="room-picks">${memberPicks}<label class="room-pick small"><input type="checkbox" name="open_web" value="1"> Public web</label></div>
     </form></section>` : "";
-  return `${banner}${roomWork}${startMission}${active}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}${spendHtml(home, channel)}`;
+  return `${banner}${roomWork}${startMission}${active}${delegationsHtml(d, ws, where)}${routinesHtml(d, home, channel, where)}`;
 }
 
 /**
@@ -161,21 +161,22 @@ function delegationsHtml(d, ws, where) {
 }
 
 /**
- * Scheduled routines in this workspace or project, with create, restart, and
- * remove controls for workspace admins.
+ * Scheduled routines in this shared project: any collaborator can add their own
+ * routine and restart or remove routines they created (or any routine if creator).
  * @param {TeamPanelData} d @param {TeamHome} home @param {?string} channel @param {(id: string) => string} where
  */
 function routinesHtml(d, home, channel, where) {
-  const routines = d.routines || [], admin = isTeamAdmin(home);
-  if (!routines.length && !admin) return "";
+  const routines = d.routines || [], peer = home.role !== "guest", creator = isTeamAdmin(home);
+  if (!routines.length && !peer) return "";
   const targetChannel = channel || d.channels?.[0] || home.channels?.[0]?.id || "";
   const rows = routines.map(r => {
     const cadence = r.every_hours === 24 ? "Daily" : r.every_hours % 24 === 0 ? `Every ${r.every_hours / 24}d` : `Every ${r.every_hours}h`;
     const stopLine = r.stopped ? `<span class="small bad">Stopped: ${esc(r.stopped)}</span>` : `<span class="small muted">${where(r.channel)} · ${esc(cadence)}</span>`;
-    const acts = admin ? `<span class="row small">${r.stopped ? `<button class="link" data-routine-restart="${esc(r.id)}">Restart</button>` : ""}<button class="link" data-routine-remove="${esc(r.id)}">Remove</button></span>` : `<span class="small muted">${esc(cadence)}</span>`;
+    const canManage = creator || (peer && r.by === home.me);
+    const acts = canManage ? `<span class="row small">${r.stopped ? `<button class="link" data-routine-restart="${esc(r.id)}">Restart</button>` : ""}<button class="link" data-routine-remove="${esc(r.id)}">Remove</button></span>` : `<span class="small muted">${esc(cadence)}</span>`;
     return `<div class="gbox-row" data-routine="${esc(r.id)}"><span class="gbox-ic${r.stopped ? " warn" : ""}" aria-hidden="true">${icon("clock")}</span><span class="gbox-main"><span class="gbox-lbl">${esc(r.text)}</span>${stopLine}</span>${acts}</div>`;
   }).join("");
-  const form = admin && targetChannel ? `<form class="row small" data-routine-new><input name="text" placeholder="Add a scheduled routine" aria-label="Routine instructions" autocomplete="off"><select name="every_hours" aria-label="Cadence"><option value="1">Hourly</option><option value="6">Every 6h</option><option value="24" selected>Daily</option><option value="168">Weekly</option></select><input type="hidden" name="channel" value="${esc(targetChannel)}"><button class="link" type="submit">Add</button></form>` : "";
+  const form = peer && targetChannel ? `<form class="row small" data-routine-new><input name="text" placeholder="Add a scheduled routine" aria-label="Routine instructions" autocomplete="off"><select name="every_hours" aria-label="Cadence"><option value="1">Hourly</option><option value="6">Every 6h</option><option value="24" selected>Daily</option><option value="168">Weekly</option></select><input type="hidden" name="channel" value="${esc(targetChannel)}"><button class="link" type="submit">Add</button></form>` : "";
   return `<section class="companion-sec" data-routines><div class="companion-sec-head"><span>Routines</span><span class="count">${routines.length}</span></div>${routines.length ? `<div class="gbox">${rows}</div>` : `<p class="small faint">No scheduled routines.</p>`}${form}</section>`;
 }
 
@@ -201,42 +202,22 @@ function teamFilesHtml(d, ws) {
 }
 
 /**
- * The Members tab: who is here by name, and the way to the people page,
- * where a Team Admin adds and removes people and anyone sees who is in,
- * followed by how the team orchestrator delegates app requests to each
- * member's personal Magnus.
+ * The Members tab: who is here by name with their advertised personal apps,
+ * and a direct link to Project Settings to add or invite peers.
  * @param {TeamPanelData} d @param {string} ws
  */
 function membersCardHtml(d, ws) {
-  const home = Team.home, admin = isTeamAdmin(home);
+  const home = Team.home, peer = home.role !== "guest";
   const face = m => `<span class="team-face" title="${esc(m.name)}">${avatar(m.name, false, m.id)}<span class="sr">${esc(m.name)}</span></span>`;
   const caps = d.capabilities || Team.capabilities?.[ws] || [];
   const capHtml = typeof TeamRooms !== "undefined" && caps.length
-    ? `<section class="companion-sec"><div class="companion-sec-head"><span>People &amp; personal apps</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></div>${TeamRooms.peopleCapabilitiesHtml(caps, home.me)}</section>`
-    : `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${admin ? "Add or remove" : "See all"}</a></div><div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}${avatar(home.agent.name, true)}</div></div></section>`;
+    ? `<section class="companion-sec"><div class="companion-sec-head"><span>People &amp; personal apps</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${peer ? "Add or invite" : "See all"}</a></div>${TeamRooms.peopleCapabilitiesHtml(caps, home.me)}</section>`
+    : `<section class="companion-sec" data-members-card><div class="companion-sec-head"><span>Members</span><a class="small" href="${teamHref(ws, { kind: "people" })}" data-members-manage>${peer ? "Add or invite" : "See all"}</a></div><div class="gbox team-faces-box"><div class="team-faces">${d.members.map(face).join("")}</div></div></section>`;
   const myAv = Team.avatars?.[home.me] || { kind: "default" };
   const avatarSec = typeof UserAvatar !== "undefined"
     ? `<section class="companion-sec"><div class="companion-sec-head"><span>Your avatar</span></div>${UserAvatar.pickerHtml(home.me_name || home.me, myAv)}</section>`
     : "";
-  const apps = d.apps || home.apps || [];
-  const appsSec = apps.length ? `<section class="companion-sec" data-team-apps-card><div class="companion-sec-head"><span>Connectors &amp; agents</span><a class="small" href="${teamHref(ws, { kind: "people" })}">${admin ? "Configure" : "View"}</a></div>
-    <div class="gbox">${apps.map(a => `<div class="gbox-row"><span class="gbox-main"><span class="gbox-lbl">${esc(a.title || a.name)}</span><span class="small muted">${a.signs_in ? "Delegated to member's personal Magnus" : a.roles?.length ? `Workspace app (${a.roles.join(", ")})` : "Not granted"}</span></span></div>`).join("")}</div></section>` : "";
-  return `${capHtml}${avatarSec}${appsSec}`;
-}
-
-/**
- * What the team agent spent this month against the owner's limits: the
- * workspace's and this channel's. An owner sets them from the command menu.
- * @param {TeamHome} home @param {?string} channel
- */
-function spendHtml(home, channel) {
-  const s = home.spend;
-  if (!s) return "";
-  const here = channel ? s.channels?.[channel] : null;
-  const line = (what, spent, limit) => `<li><span>${what}</span><span class="small${limit != null && spent >= limit ? " bad" : " faint"}">${teamUsd(spent)}${limit != null ? ` of ${teamUsd(limit)}` : ""}</span></li>`;
-  const c = channel && home.channels.find(x => x.id === channel);
-  return `<section class="companion-sec" data-spend><div class="companion-sec-head"><span>Spend this month</span></div><div class="gbox team-spend"><ul class="team-mini">${line("Workspace", s.spent_usd, s.limit_usd)}${here ? line(c ? channelTitle(home, c) : "This channel", here.spent_usd, here.limit_usd) : ""}</ul></div>
-    ${home.role === "owner" ? `<p class="small faint">Type an amount in the command menu (Ctrl K) to set a limit.</p>` : s.limit_usd == null && here?.limit_usd == null ? `<p class="small faint">No limit set.</p>` : ""}</section>`;
+  return `${capHtml}${avatarSec}`;
 }
 
 /**
