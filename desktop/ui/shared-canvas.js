@@ -5,6 +5,10 @@
 "use strict";
 
 const SharedCanvas = (() => {
+  /** The share dialog's read of a conversation, apart from the chat's own
+   * ("Conversation"), which redraws every few seconds: only the newest read
+   * under one name answers, so sharing them left the dialog empty. */
+  const SHARE_SOURCE = "Conversation to share";
   /**
    * Native Bento tiles for an active shared conversation: private Release
    * Airlock drafts waiting on the current user (urgent `needs`) and active
@@ -333,7 +337,7 @@ const SharedCanvas = (() => {
       Server.workspaces.list().catch(() => App.workspaces || []),
       typeof mayStartWorkspace === "function" ? mayStartWorkspace().catch(() => false) : Promise.resolve(false),
       Server.directory ? Server.directory().catch(() => []) : Promise.resolve([]),
-      opts.thread && typeof Resources !== "undefined" ? Resources.read("Conversation", `/v1/chat/${enc(opts.thread)}`).catch(() => null) : Promise.resolve(null),
+      opts.thread && typeof Resources !== "undefined" ? Resources.read(SHARE_SOURCE, `/v1/chat/${enc(opts.thread)}`).catch(() => null) : Promise.resolve(null),
     ]);
     const entries = (threadData?.entries || []).filter(e => (e.kind === "message" || e.kind === "answer") && String(e.text || "").trim());
     const lastAnswer = [...entries].reverse().find(e => e.kind === "answer");

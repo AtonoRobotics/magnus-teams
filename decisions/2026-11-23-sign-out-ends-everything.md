@@ -1,0 +1,13 @@
+# Sign-out ends everything that was the person's
+
+**Choice.**
+- The desktop app keeps everything tied to the signed-in person in one place, `desktop/src-tauri/src/session.rs`: who they are (by server), the local agent, the live streams of their tasks, and the bridge's wake. Its `end()` clears the token and who they were, stops the local agent (its process is killed), stops every live stream and wakes the bridge. Sign-out calls it, and so does a session the server ended (`restore` answered 401, or 403 for an unpaired public device).
+- The app remembers who signed in at each server (`people` in `app.json`, set from the sign-in answer, or from `/v1/me` for a session from before). What the app keeps for a person is keyed by server and person (`session::key`): the saved local connection (`local-computer-<key>.json`) and the bridge's device id (`desktop-device-<key>.json`). Another person signing in finds none of it.
+- The old unkeyed `local-computer.json` is removed and never used: nothing says whose folders and "allow" mode it held. The person who had it connects the computer again.
+- The old unkeyed `desktop-device.json` id is offered to whoever signs in first; the server's answer says whose it is. Taken (2xx): it becomes that person's and the unkeyed file goes. Refused as another person's (409): this person gets a new id. A 409 or 401 for a person's own id no longer retries every 5 s: the bridge waits until the person signs in again or asks for a report.
+- `magnus-local` exits when the server refuses its session (401) instead of retrying for ever.
+- The page reloads when a session ends (sign-out, declined agreements, a 401 mid-session), after the app was told. A reload drops every in-page state (Aurora stage notes and files, shared previews, workspace homes, Programs, the panel's live stream) with no list to keep up to date. A 401's note ("Your session ended") crosses the reload in `sessionStorage`. An unsent message in memory is lost when the session ends by itself; that is the price of nothing passing to the next person.
+- Closed Aurora boxes are kept per person and server (`magnus-boxes-closed.<server>.<person>`); the old device-wide list is dropped unread, since it names another person's tasks and files.
+- Shared-file image previews are kept under workspace, shared project and name, not the bare name.
+
+**Reason.** After A signed out and B signed in, B's Magnus could work in A's folders under A's "allow" mode, B's bridge fought A's device id forever, and A's titles, files and previews stayed in the page. Each of these is the same mistake: something of A's kept per computer or per page instead of per person. One owner with one `end()` makes the next such thing hard to forget.

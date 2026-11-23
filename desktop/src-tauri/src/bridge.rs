@@ -6,15 +6,19 @@
 //! A call names a program, never an address: it goes to the loopback port
 //! registered for that program, and only when the person enabled it here.
 use crate::detect::{self, Found, LocalPrograms};
+use crate::session::Session;
 use crate::{App, Res};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 
-const DEVICE_FILE: &str = "desktop-device.json";
+/// Where an older app kept one id for the whole computer, whoever signed in.
+/// The first person whose server takes it keeps it; anyone else gets their own.
+const UNKEYED_DEVICE_FILE: &str = "desktop-device.json";
 /// How often installs are looked for again.
 const DETECT_EVERY: Duration = Duration::from_secs(60);
 /// Signed out, or with no server: how long before looking again.
@@ -175,35 +179,99 @@ pub fn enabled_of(view: &Value) -> BTreeSet<String> {
     view["programs"].as_array().map(|ps| ps.iter().filter(|p| p["allowed"] == true).filter_map(|p| p["program"].as_str().map(String::from)).collect()).unwrap_or_default()
 }
 
-/// This computer's id, made here once and kept.
-fn device_id() -> Res<String> {
-    let dir = dirs::config_dir().ok_or("this computer has no settings folder")?.join("magnus");
-    let file = dir.join(DEVICE_FILE);
-    if let Some(id) = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| v["id"].as_str().map(String::from)) {
-        return Ok(id);
-    }
+fn settings_dir() -> Res<PathBuf> {
+    Ok(dirs::config_dir().ok_or("this computer has no settings folder")?.join("magnus"))
+}
+
+fn id_in(file: &Path) -> Option<String> {
+    std::fs::read(file).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| v["id"].as_str().map(String::from))
+}
+
+fn keyed_file(dir: &Path, key: &str) -> PathBuf {
+    dir.join(format!("desktop-device-{key}.json"))
+}
+
+fn keep_id(dir: &Path, key: &str, id: &str) -> Res<()> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(keyed_file(dir, key), json!({ "id": id }).to_string()).map_err(|e| e.to_string())
+}
+
+/// A new id for this computer, for the person `key` names.
+fn new_id(dir: &Path, key: &str) -> Res<String> {
     let id = uuid::Uuid::new_v4().simple().to_string();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    std::fs::write(&file, json!({ "id": id }).to_string()).map_err(|e| e.to_string())?;
+    keep_id(dir, key, &id)?;
     Ok(id)
 }
 
-/// Shared with the page: a nudge to report again now (after a consent).
-#[derive(Default)]
-pub struct Bridge {
-    wake: tokio::sync::Notify,
+/// This computer's id for the person `key` names (each person at each
+/// server has their own, made here once and kept), and whether it is theirs
+/// for certain. Not yet when it is the id an older app kept for the whole
+/// computer: the server says whose that is (`adopt` or `new_id` after).
+fn device_id(dir: &Path, key: &str) -> Res<(String, bool)> {
+    if let Some(id) = id_in(&keyed_file(dir, key)) {
+        return Ok((id, true));
+    }
+    if let Some(id) = id_in(&dir.join(UNKEYED_DEVICE_FILE)) {
+        return Ok((id, false));
+    }
+    Ok((new_id(dir, key)?, true))
 }
 
-/// This computer as the bridge names it, for the page.
+/// The server took the older app's id for this person: it is theirs now,
+/// and no one else is offered it.
+fn adopt(dir: &Path, key: &str, id: &str) -> Res<()> {
+    keep_id(dir, key, id)?;
+    match std::fs::remove_file(dir.join(UNKEYED_DEVICE_FILE)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
+
+/// What the bridge does after reporting, by the server's answer.
+#[derive(Debug, PartialEq)]
+pub enum Next {
+    /// Taken: wait for a call.
+    Poll,
+    /// Taken, and the id was the older app's: it is this person's now.
+    Adopt,
+    /// The older app's id is another person's: make this person their own.
+    NewId,
+    /// A server from before the bridge: ask again only now and then.
+    OldServer,
+    /// The session or this id is refused, and asking again changes nothing:
+    /// wait until the person signs in again or asks for a report.
+    Wait,
+    /// Anything else: try again shortly.
+    Retry,
+}
+
+pub fn after_report(status: Option<u16>, confirmed: bool) -> Next {
+    match status {
+        Some(s) if (200..300).contains(&s) => {
+            if confirmed {
+                Next::Poll
+            } else {
+                Next::Adopt
+            }
+        }
+        Some(404) => Next::OldServer,
+        Some(409) if !confirmed => Next::NewId,
+        Some(401 | 409) => Next::Wait,
+        _ => Next::Retry,
+    }
+}
+
+/// This computer as the bridge names it for the person signed in, for the page.
 #[tauri::command]
-pub fn desktop_device() -> Res<Value> {
-    Ok(json!({ "id": device_id()?, "name": crate::machine_name() }))
+pub fn desktop_device(app: State<'_, App>) -> Res<Value> {
+    let key = Session::key_of(&app.store).ok_or("signed out")?;
+    Ok(json!({ "id": device_id(&settings_dir()?, &key)?.0, "name": crate::machine_name() }))
 }
 
 /// Report again now, so a program just enabled shows where it stands.
 #[tauri::command]
-pub fn desktop_refresh(bridge: State<'_, Bridge>) {
-    bridge.wake.notify_one();
+pub fn desktop_refresh(app: State<'_, App>) {
+    app.person.wake.notify_one();
 }
 
 pub fn start(handle: AppHandle) {
@@ -216,8 +284,14 @@ async fn run(handle: AppHandle) {
     let ports = Ports::from_catalog();
     let (mut found, mut detected_at, mut enabled): (Vec<Found>, Option<Instant>, BTreeSet<String>) = (vec![], None, BTreeSet::new());
     loop {
-        let session = handle.state::<App>().session();
-        let (Ok((url, client, token)), Ok(id)) = (session, device_id()) else {
+        let app = handle.state::<App>();
+        let session = app.session();
+        let key = Session::key_of(&app.store);
+        let (Ok((url, client, token)), Some(key), Ok(dir)) = (session, key, settings_dir()) else {
+            tokio::time::sleep(IDLE_WAIT).await;
+            continue;
+        };
+        let Ok((id, confirmed)) = device_id(&dir, &key) else {
             tokio::time::sleep(IDLE_WAIT).await;
             continue;
         };
@@ -228,18 +302,35 @@ async fn run(handle: AppHandle) {
         }
         let programs = report(&found, &enabled, &ports, &mcp).await;
         let body = json!({ "id": id, "name": crate::machine_name(), "programs": programs });
-        match client.post(format!("{url}/v1/desktop/devices")).bearer_auth(&token).timeout(REPORT_TIMEOUT).json(&body).send().await {
-            Ok(r) if r.status().is_success() => enabled = enabled_of(&r.json().await.unwrap_or_default()),
-            Ok(r) if r.status() == reqwest::StatusCode::NOT_FOUND => {
+        let r = client.post(format!("{url}/v1/desktop/devices")).bearer_auth(&token).timeout(REPORT_TIMEOUT).json(&body).send().await;
+        let wake = &app.person.wake;
+        match after_report(r.as_ref().ok().map(|r| r.status().as_u16()), confirmed) {
+            Next::Poll | Next::Adopt => {
+                if !confirmed {
+                    let _ = adopt(&dir, &key, &id);
+                }
+                enabled = match r {
+                    Ok(r) => enabled_of(&r.json().await.unwrap_or_default()),
+                    Err(_) => BTreeSet::new(),
+                };
+            }
+            Next::NewId => {
+                let _ = new_id(&dir, &key);
+                continue;
+            }
+            Next::OldServer => {
                 tokio::time::sleep(OLD_SERVER_WAIT).await;
                 continue;
             }
-            _ => {
+            Next::Wait => {
+                wake.notified().await;
+                continue;
+            }
+            Next::Retry => {
                 tokio::time::sleep(IDLE_WAIT).await;
                 continue;
             }
         }
-        let bridge = handle.state::<Bridge>().inner();
         let poll = client.get(format!("{url}/v1/desktop/devices/{id}/next")).bearer_auth(&token).timeout(POLL_TIMEOUT).send();
         let job = tokio::select! {
             r = poll => match r {
@@ -250,7 +341,7 @@ async fn run(handle: AppHandle) {
                     None
                 }
             },
-            _ = bridge.wake.notified() => None,
+            _ = wake.notified() => None,
         };
         if let Some(job) = job {
             let (ok, text) = carry_out(&job, &ports, &enabled, &mcp).await;

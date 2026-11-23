@@ -10,12 +10,14 @@ mod detect;
 mod display;
 mod files;
 mod frames;
+mod live;
 mod local;
 mod loopback;
 mod look;
 mod methods;
 mod pin;
 mod programs;
+mod session;
 mod speech;
 mod store;
 mod update;
@@ -26,7 +28,6 @@ use files::file_path;
 use loopback::redirected;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_notification::NotificationExt;
@@ -45,7 +46,8 @@ struct App {
     store: store::Store,
     /// Address, how the client was built (`pin:…` or `device:…`), and the client.
     client: Mutex<Option<(String, String, reqwest::Client)>>,
-    live: Mutex<HashMap<String, tokio::task::AbortHandle>>,
+    /// Everything that belongs to the person signed in, ended as one.
+    person: session::Session,
     speech: speech::Speech,
     /// The loopback address an app sign-in comes back to, open for one sign-in.
     loopback: Mutex<Option<tokio::net::TcpListener>>,
@@ -137,7 +139,14 @@ fn message(body: &Value, status: u16) -> String {
 async fn restore(app: State<'_, App>) -> Res<Value> {
     let Ok((url, c, token)) = app.session() else { return Ok(Value::Null) };
     match c.get(format!("{url}/v1/me")).bearer_auth(&token).send().await {
-        Ok(r) if r.status().is_success() => Ok(json!({ "person": body_of(r).await.1, "appliance": url })),
+        Ok(r) if r.status().is_success() => {
+            let person = body_of(r).await.1;
+            // A session from before people were remembered says who it is here.
+            if let Some(id) = person["id"].as_str() {
+                app.person.begin(&app.store, &url, id)?;
+            }
+            Ok(json!({ "person": person, "appliance": url }))
+        }
         Ok(r) if r.status().as_u16() == 401 => {
             let (s, b) = body_of(r).await;
             let msg = message(&b, s);
@@ -145,13 +154,13 @@ async fn restore(app: State<'_, App>) -> Res<Value> {
                 app.store.clear_device(&url);
                 return Ok(json!({ "note": msg }));
             }
-            app.store.clear_token(&url);
+            app.person.end(&app.store, &url);
             Ok(json!({ "note": "Your session ended. Sign in again." }))
         }
         Ok(r) if r.status().as_u16() == 403 && pin::is_public_appliance(&url) => {
             let _ = body_of(r).await;
             app.store.clear_device(&url);
-            app.store.clear_token(&url);
+            app.person.end(&app.store, &url);
             Ok(json!({ "note": "This computer is no longer paired with the server. Pair it again from the private address." }))
         }
         // The appliance no longer accepts this version; the updater still can reach it.
@@ -277,6 +286,8 @@ async fn sign_in(app: State<'_, App>, person: String, password: String, code: Op
         return Err(message(&body, status));
     }
     let token = body["token"].as_str().ok_or("the server sent no session")?;
+    let person = body["person"]["id"].as_str().ok_or("the server did not say who signed in")?;
+    app.person.begin(&app.store, &url, person)?;
     app.store.set_token(&url, token)?;
     Ok(body["person"].clone())
 }
@@ -293,11 +304,14 @@ async fn sign_in_method(app: State<'_, App>) -> Res<Value> {
     Ok(body)
 }
 
+/// Sign-out ends everything that was the person's here (`session::Session::end`).
 #[tauri::command]
 async fn sign_out(app: State<'_, App>) -> Res<()> {
     if let Ok((url, c, token)) = app.session() {
         let _ = c.post(format!("{url}/v1/sign-out")).bearer_auth(&token).send().await;
-        app.store.clear_token(&url);
+    }
+    if let Some(url) = app.store.config().appliance {
+        app.person.end(&app.store, &url);
     }
     Ok(())
 }
@@ -400,15 +414,25 @@ async fn download(app: State<'_, App>, path: String, name: String) -> Res<String
     Ok(target.display().to_string())
 }
 
-/// Relay a task's live text to the page as it streams.
+/// Relay a task's live text to the page as it streams: one stream per task,
+/// however many of the page's listeners follow it (`live::Streams`).
 #[tauri::command]
-async fn live_start(handle: AppHandle, app: State<'_, App>, task: String) -> Res<()> {
+async fn live_start(handle: AppHandle, app: State<'_, App>, task: String, listener: String) -> Res<()> {
     if task.is_empty() || !task.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err("not a task id".into());
     }
     let (url, c, token) = app.session()?;
+    let caught_up = |text: &str| {
+        let _ = handle.emit("live", json!({ "task": task, "text": text, "listener": listener }));
+    };
+    if app.person.live.join(&task, &listener, caught_up) == live::Joined::Following {
+        return Ok(());
+    }
     let t = task.clone();
+    let page = handle.clone();
     let job = tokio::spawn(async move {
+        use tauri::Manager;
+        let handle = page;
         let Ok(r) = c.get(format!("{url}/v1/tasks/{t}/live")).bearer_auth(&token).send().await else { return };
         let mut stream = r.bytes_stream();
         let mut buf = String::new();
@@ -418,23 +442,26 @@ async fn live_start(handle: AppHandle, app: State<'_, App>, task: String) -> Res
                 let event: String = buf.drain(..end + 2).collect();
                 for line in event.lines() {
                     if let Some(data) = line.strip_prefix("data: ") {
-                        if let Ok(v) = serde_json::from_str::<Value>(data) {
-                            let _ = handle.emit("live", json!({ "task": t, "text": v["text"] }));
+                        if let Some(text) = serde_json::from_str::<Value>(data).ok().and_then(|v| v["text"].as_str().map(String::from)) {
+                            handle.state::<App>().person.live.push(&t, &text, |text| {
+                                let _ = handle.emit("live", json!({ "task": t, "text": text }));
+                            });
                         }
                     }
                 }
             }
         }
     });
-    if let Some(old) = app.live.lock().unwrap().insert(task, job.abort_handle()) {
-        old.abort();
+    if !app.person.live.started(&task, job.abort_handle()) {
+        job.abort();
     }
     Ok(())
 }
 
+/// One of the page's listeners stops following; the stream stops with the last.
 #[tauri::command]
-fn live_stop(app: State<'_, App>, task: String) {
-    if let Some(j) = app.live.lock().unwrap().remove(&task) {
+fn live_stop(app: State<'_, App>, task: String, listener: String) {
+    if let Some(j) = app.person.live.leave(&task, &listener) {
         j.abort();
     }
 }
@@ -566,9 +593,11 @@ async fn provider_sign_in(handle: AppHandle, app: State<'_, App>, login_hint: Op
     // under one lock, so neither a Cancel nor a newer sign-in can come in
     // between. Otherwise its session is ended there and never stored, so it
     // cannot replace the one the person chose.
+    let person = body["person"]["id"].as_str().ok_or("the server did not say who signed in")?;
     let kept = {
         let mut current = app.browser_sign_in.lock().unwrap();
         if current.finish(n) {
+            app.person.begin(&app.store, &url, person)?;
             app.store.set_token(&url, token)?;
             true
         } else {
@@ -646,11 +675,9 @@ pub fn run() {
             bridge::start(app.handle().clone());
             Ok(())
         })
-        .manage(App { store: store::Store::open(), client: Mutex::new(None), live: Mutex::new(HashMap::new()), speech: speech::Speech::default(), loopback: Mutex::new(None), browser_sign_in: Mutex::new(BrowserSignIn::default()) })
+        .manage(App { store: store::Store::open(), client: Mutex::new(None), person: session::Session::default(), speech: speech::Speech::default(), loopback: Mutex::new(None), browser_sign_in: Mutex::new(BrowserSignIn::default()) })
         .manage(display::Displays::default())
         .manage(frames::Frames::default())
-        .manage(local::Local::default())
-        .manage(bridge::Bridge::default())
         .register_uri_scheme_protocol(frames::SCHEME, |ctx, request| {
             use tauri::Manager;
             frames::serve(&ctx.app_handle().state::<frames::Frames>(), request.uri().path())

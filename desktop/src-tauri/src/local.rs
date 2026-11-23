@@ -1,29 +1,48 @@
 //! This computer, connected to the person's Magnus: `magnus-local` runs
 //! beside the app while it is open, inside the folders the person granted.
+//! The connection is kept for that person at that server (`session::key`),
+//! so another person signing in here never inherits it; the running agent
+//! belongs to the session and ends with it.
+use crate::session::Session;
 use crate::{App, Res};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::Mutex;
 use tauri::State;
 
 const BINARY: &str = "magnus-local";
-const SAVED_FILE: &str = "local-computer.json";
+/// Where an older app kept one connection for the whole computer, whoever
+/// made it. It is removed, never used: nothing says whose it was.
+const UNKEYED_FILE: &str = "local-computer.json";
 const PAUSE_FILE: &str = "local-paused";
 const MAX_FOLDERS: usize = 32;
 
 #[derive(Serialize, Deserialize, Clone)]
-struct Connection {
+pub struct Connection {
     name: String,
     mode: String,
     folders: Vec<String>,
 }
 
+#[cfg(test)]
+impl Connection {
+    pub fn for_test() -> Connection {
+        Connection { name: "desk".into(), mode: "ask".into(), folders: vec![] }
+    }
+}
+
 /// The running agent. It goes when its connection does. A plain process,
 /// because the commands that start it run on the interface thread, which
 /// has no async runtime.
-struct Agent(Child);
+pub struct Agent(Child);
+
+#[cfg(test)]
+impl Agent {
+    pub fn id(&self) -> u32 {
+        self.0.id()
+    }
+}
 
 impl Drop for Agent {
     fn drop(&mut self) {
@@ -32,17 +51,31 @@ impl Drop for Agent {
     }
 }
 
-#[derive(Default)]
-pub struct Local(Mutex<Option<(Agent, Connection)>>);
-
 fn dir() -> Res<PathBuf> {
     let d = dirs::config_dir().ok_or("this computer has no settings folder")?.join("magnus");
     std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
     Ok(d)
 }
 
-fn saved() -> Option<Connection> {
-    serde_json::from_slice(&std::fs::read(dir().ok()?.join(SAVED_FILE)).ok()?).ok()
+fn saved_file(dir: &Path, key: &str) -> PathBuf {
+    dir.join(format!("local-computer-{key}.json"))
+}
+
+/// The connection kept for the person `key` names, if any.
+fn saved(dir: &Path, key: &str) -> Option<Connection> {
+    serde_json::from_slice(&std::fs::read(saved_file(dir, key)).ok()?).ok()
+}
+
+fn save(dir: &Path, key: &str, c: &Connection) -> Res<()> {
+    let body = serde_json::to_vec(c).map_err(|e| e.to_string())?;
+    std::fs::write(saved_file(dir, key), body).map_err(|e| e.to_string())
+}
+
+fn forget(file: &Path) -> Res<()> {
+    match std::fs::remove_file(file) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
 }
 
 fn check(c: &Connection) -> Res<()> {
@@ -66,7 +99,7 @@ fn binary() -> PathBuf {
     std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(BINARY))).filter(|p| p.exists()).unwrap_or_else(|| PathBuf::from(BINARY))
 }
 
-fn launch(mut command: Command) -> Res<Agent> {
+pub fn launch(mut command: Command) -> Res<Agent> {
     command.spawn().map(Agent).map_err(|e| format!("The local agent could not start: {e}"))
 }
 
@@ -95,32 +128,35 @@ fn running(slot: &mut Option<(Agent, Connection)>) -> Option<&Connection> {
     slot.as_ref().map(|(_, c)| c)
 }
 
-/// What this computer is doing. A saved connection starts again here, so
-/// it comes back with the app.
+/// What this computer is doing. The signed-in person's saved connection
+/// starts again here, so it comes back with the app.
 #[tauri::command]
-pub fn local_state(app: State<'_, App>, local: State<'_, Local>) -> Res<Value> {
-    let mut slot = local.0.lock().map_err(|e| e.to_string())?;
+pub fn local_state(app: State<'_, App>) -> Res<Value> {
+    let dir = dir()?;
+    forget(&dir.join(UNKEYED_FILE))?;
+    let key = Session::key_of(&app.store);
+    let mut slot = app.person.local();
     if running(&mut slot).is_none() {
-        if let Some(c) = saved() {
+        if let Some(c) = key.and_then(|k| saved(&dir, &k)) {
             if let Ok(child) = spawn(&app, &c) {
                 *slot = Some((child, c));
             }
         }
     }
-    let paused = dir()?.join(PAUSE_FILE).exists();
+    let paused = dir.join(PAUSE_FILE).exists();
     let name = running(&mut slot).map(|c| c.name.clone());
     let suggested = std::env::var("HOSTNAME").ok().or_else(|| std::fs::read_to_string("/etc/hostname").ok()).map(|h| h.trim().to_string()).unwrap_or_default();
     Ok(json!({ "running": name.is_some(), "name": name, "paused": paused, "suggested_name": suggested }))
 }
 
 #[tauri::command]
-pub fn local_start(app: State<'_, App>, local: State<'_, Local>, name: String, mode: String, folders: Vec<String>) -> Res<()> {
+pub fn local_start(app: State<'_, App>, name: String, mode: String, folders: Vec<String>) -> Res<()> {
     let c = Connection { name: name.trim().to_string(), mode, folders };
     check(&c)?;
+    let key = Session::key_of(&app.store).ok_or("signed out")?;
     let child = spawn(&app, &c)?;
-    let body = serde_json::to_vec(&c).map_err(|e| e.to_string())?;
-    std::fs::write(dir()?.join(SAVED_FILE), body).map_err(|e| e.to_string())?;
-    *local.0.lock().map_err(|e| e.to_string())? = Some((child, c));
+    save(&dir()?, &key, &c)?;
+    *app.person.local() = Some((child, c));
     Ok(())
 }
 
@@ -139,14 +175,11 @@ pub fn local_pause(paused: bool) -> Res<()> {
 }
 
 #[tauri::command]
-pub fn local_stop(local: State<'_, Local>) -> Res<()> {
-    let file = dir()?.join(SAVED_FILE);
-    if let Err(e) = std::fs::remove_file(file) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(e.to_string());
-        }
+pub fn local_stop(app: State<'_, App>) -> Res<()> {
+    if let Some(key) = Session::key_of(&app.store) {
+        forget(&saved_file(&dir()?, &key))?;
     }
-    *local.0.lock().map_err(|e| e.to_string())? = None;
+    *app.person.local() = None;
     Ok(())
 }
 
@@ -170,6 +203,31 @@ mod tests {
         let process = format!("/proc/{}", agent.0.id());
         drop(agent);
         assert!(!Path::new(&process).exists());
+    }
+
+    /// One person's connection is theirs at that server: another person
+    /// signing in on this computer finds none, and the old unkeyed file
+    /// goes without being used.
+    #[test]
+    fn a_saved_connection_is_one_persons() {
+        let dir = tempfile_dir();
+        let (ana, ben) = (crate::session::key("https://s", "ana"), crate::session::key("https://s", "ben"));
+        let c = Connection { name: "desk".into(), mode: "allow".into(), folders: vec!["/home/ana".into()] };
+        save(&dir, &ana, &c).unwrap();
+        assert!(saved(&dir, &ben).is_none(), "the next person inherited the last one's folders");
+        assert_eq!(saved(&dir, &ana).map(|c| c.folders), Some(vec!["/home/ana".to_string()]));
+        std::fs::write(dir.join(UNKEYED_FILE), serde_json::to_vec(&c).unwrap()).unwrap();
+        forget(&dir.join(UNKEYED_FILE)).unwrap();
+        assert!(!dir.join(UNKEYED_FILE).exists());
+        forget(&saved_file(&dir, &ana)).unwrap();
+        assert!(saved(&dir, &ana).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tempfile_dir() -> PathBuf {
+        let d = std::env::temp_dir().join(format!("magnus-local-test-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
     }
 
     #[test]

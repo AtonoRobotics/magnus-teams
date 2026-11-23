@@ -125,3 +125,54 @@ async fn a_call_reaches_the_enabled_programs_loopback_server_and_nothing_else() 
     assert!(!ok, "a program with no registered port was reached");
     assert_eq!(calls.load(Ordering::SeqCst), 1, "a refused call reached the program");
 }
+
+fn settings_for_test() -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("magnus-bridge-test-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// Each person at each server has their own id for this computer, so the
+/// server never answers one of them that it is another person's.
+#[test]
+fn each_person_has_their_own_device_id() {
+    let dir = settings_for_test();
+    let (ana, ben) = (crate::session::key("https://s", "ana"), crate::session::key("https://s", "ben"));
+    let (a, sure) = device_id(&dir, &ana).unwrap();
+    assert!(sure);
+    assert_eq!(device_id(&dir, &ana).unwrap(), (a.clone(), true), "a person's id was not kept");
+    assert_ne!(device_id(&dir, &ben).unwrap().0, a, "two people share one id for this computer");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The id an older app kept for the whole computer goes to the first person
+/// whose server takes it; the one it refuses gets their own.
+#[test]
+fn the_older_apps_id_goes_to_whoever_owns_it() {
+    let dir = settings_for_test();
+    std::fs::write(dir.join(UNKEYED_DEVICE_FILE), json!({ "id": "old" }).to_string()).unwrap();
+    let (ana, ben) = (crate::session::key("https://s", "ana"), crate::session::key("https://s", "ben"));
+    assert_eq!(device_id(&dir, &ben).unwrap(), ("old".to_string(), false));
+    assert_eq!(after_report(Some(409), false), Next::NewId);
+    let mine = new_id(&dir, &ben).unwrap();
+    assert_eq!(device_id(&dir, &ben).unwrap(), (mine, true));
+    assert_eq!(device_id(&dir, &ana).unwrap(), ("old".to_string(), false));
+    assert_eq!(after_report(Some(200), false), Next::Adopt);
+    adopt(&dir, &ana, "old").unwrap();
+    assert_eq!(device_id(&dir, &ana).unwrap(), ("old".to_string(), true));
+    assert!(!dir.join(UNKEYED_DEVICE_FILE).exists(), "the adopted id is still offered to others");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A refusal that asking again cannot change (the id is another person's,
+/// or the session ended) waits for the person instead of asking every few
+/// seconds for ever.
+#[test]
+fn a_refused_report_waits_instead_of_retrying() {
+    assert_eq!(after_report(Some(409), true), Next::Wait);
+    assert_eq!(after_report(Some(401), true), Next::Wait);
+    assert_eq!(after_report(Some(200), true), Next::Poll);
+    assert_eq!(after_report(Some(404), true), Next::OldServer);
+    assert_eq!(after_report(Some(503), true), Next::Retry);
+    assert_eq!(after_report(None, true), Next::Retry);
+}
