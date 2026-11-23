@@ -2619,7 +2619,7 @@ async function drawPanel() {
   if (n !== Panel.seq || !Panel.what) return;
   if(!failed){Panel.rendered=Panel.what;Resources.good("Work");}
   const title = kind === "search" ? `Search: ${id}` : PANEL_TITLES[kind] || kind;
-  const backTo = id || ["tasks", "schedules", "rules"].includes(kind) ? PANEL_TAB_PARENT[kind] || "activity" : null;
+  const backTo = kind === "shared" ? null : (id || ["tasks", "schedules", "rules"].includes(kind) ? PANEL_TAB_PARENT[kind] || "activity" : null);
   const backBtn = backTo ? `<button type="button" class="link small" data-panel-back="${esc(backTo)}">← Back</button>` : "";
   const isRootCompanion = !backTo && ["activity", "needs", "files", "apps"].includes(kind);
   const headHtml = isRootCompanion

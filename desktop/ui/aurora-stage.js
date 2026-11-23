@@ -52,7 +52,7 @@ const AuroraStage = (() => {
   const SHOWN_BOXES = 4;
   const PREVIEW_ROWS_MAX = 4;
   const PREVIEW_BODY_MAX_CHARS = 260;
-  const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files"]);
+  const WIDE_CANVAS = new Set(["computer", "file", "task", "schedule", "files", "shared"]);
   const PREVIEW_HEADER_RE = /^(to|recipient|recipients|cc|bcc|channel|room|destination|url|host|site|file|path|calendar|event|subject|title|summary|amount|total|price|max_usd)$/i;
   const PREVIEW_BODY_RE = /^(body|message|text|content|note|description|html|draft)$/i;
   /** After a box's time is up, so it is up when it is looked at. */
@@ -112,6 +112,7 @@ const AuroraStage = (() => {
     const run = here.filter(t => !ended(t)).find(waits) || here.find(t => !ended(t));
     const last = latest(here.filter(t => ended(t) && age(t.ended_at || t.created_at) < RECENT_MS));
     const list = [];
+    if (typeof App !== "undefined" && App.shared && typeof SharedCanvas !== "undefined") list.push(...SharedCanvas.boxes());
     const live = { key: "live", label: "Live Workspace", icon: "sparkles" };
     // A request that became several tasks says how far it has got.
     const tally = here.length > 1 ? ` · ${here.filter(t => t.status === "completed").length} of ${here.length} done` : "";
@@ -136,11 +137,12 @@ const AuroraStage = (() => {
       const n = said[said.length - 1];
       list.push({ key: "messages", label: "Messages", icon: "chat", tone: "talk", open: "", note: n.key, href: n.href || "#", title: n.title, desc: `${n.body || ""}${said.length > 1 ? ` · ${said.length - 1} more` : ""}`, count: said.length > 1 ? said.length : 0 });
     }
-    const comp = (App.computers || []).find(x => x.owner?.person === App.me?.id);
+    const sharedCompId = typeof App !== "undefined" && App.shared?.home?.computer;
+    const comp = (App.computers || []).find(x => sharedCompId ? x.id === sharedCompId : x.owner?.person === App.me?.id);
     const w = comp && typeof controlWords === "function" ? controlWords(comp, false) : null;
     if (comp && w && ["working", "asks", "waking"].includes(w.key)) {
       const svg = typeof UI !== "undefined" && UI.computer ? `<svg class="ic" viewBox="0 0 24 24">${UI.computer}</svg>` : "";
-      list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: "Cloud Computer", desc: w.pill });
+      list.push({ key: "computer", label: "Computer", icon: "globe", svg, tone: w.key === "asks" ? "needs" : "run", open: `computer:${comp.id}`, href: `#/computer/${enc(comp.id)}`, title: sharedCompId ? "Shared Computer" : "Cloud Computer", desc: w.pill });
     }
     const due = (App.schedules || []).filter(sc => !sc.ended && !sc.paused && sc.next && -age(sc.next) < DUE_SOON_MS).sort((a, b) => String(a.next).localeCompare(String(b.next)));
     if (due.length) list.push({ key: "next", label: "Up Next", icon: "calendar", tone: "idle", open: `schedule:${due[0].id}`, href: "#/schedules", title: due[0].title, desc: `${until(due[0].next)}${due.length > 1 ? ` · ${due.length - 1} more today` : ""}` });
@@ -289,16 +291,18 @@ const AuroraStage = (() => {
     requestAnimationFrame(keep);
   }
 
-  /** The conversation head's slim dock: Approvals direct, other views in one popover. */
+  /** The conversation head's slim dock: Approvals direct, other views in one popover (context-aware for shared projects). */
   function dock() {
     const n = needsMe().length;
-    const more = [
-      ["tasks", "#/tasks", "clock", "Tasks"],
-      ["schedules", "#/schedules", "calendar", "Routines"],
-      ["rules", "#/rules", "shield", "Rules"],
-      ["files", "#/files", "file", "Files"],
-      ["apps", "#/apps", "grid", "Apps"],
-    ];
+    const more = (typeof App !== "undefined" && App.shared && typeof SharedCanvas !== "undefined")
+      ? SharedCanvas.dockItems(App.shared.ws)
+      : [
+        ["tasks", "#/tasks", "clock", "Tasks"],
+        ["schedules", "#/schedules", "calendar", "Routines"],
+        ["rules", "#/rules", "shield", "Rules"],
+        ["files", "#/files", "file", "Files"],
+        ["apps", "#/apps", "grid", "Apps"],
+      ];
     const items = more.map(([open, href, ic, label]) =>
       `<a class="stage-dock-item" role="menuitem" href="${href}" data-open="${open}">${icon(ic)}<span>${label}</span></a>`
     ).join("");
