@@ -15,19 +15,12 @@ use crate::compartment::query_gate::scrub_check;
 use crate::compartment::{Change as CompChange, Compartment};
 use crate::events::{Ev, LaneKind, TeamMissionEvent};
 use crate::kernel::{new_id, Kernel, NewRun};
-use crate::state::Status;
 use crate::sub_agents::SubAgent;
 use crate::tools::Label;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-/// Poll interval for the detached lane completion watcher (runs in its own task,
-/// never blocking the Leader Agent's tool call).
-const LANE_WATCH_POLL_MS: Duration = Duration::from_millis(250);
-/// Maximum wall-clock time a detached lane watcher waits before marking the lane failed.
-const LANE_WATCH_MAX_SECS: Duration = Duration::from_secs(15 * 60);
 /// Maximum length of a single lane objective dispatched by the Leader Agent.
 pub(crate) const MAX_OBJECTIVE_CHARS: usize = 2_000;
 /// Most lanes one mission fans out to, and the longest goal and scope label.
@@ -206,6 +199,7 @@ impl Kernel {
                         auto_release,
                         child_task: Some(child_task.clone()),
                         child_run: Some(child_run.clone()),
+                        thread: spec.thread.clone(),
                     }),
                 )
                 .await?;
@@ -244,6 +238,7 @@ impl Kernel {
                         auto_release: true,
                         child_task: Some(child_task.clone()),
                         child_run: Some(child_run.clone()),
+                        thread: spec.thread.clone(),
                     }),
                 )
                 .await?;
@@ -253,74 +248,6 @@ impl Kernel {
             }
             LaneKind::PeerAgent => Err(anyhow::anyhow!("{PEER_AGENT_RETIRED}")),
         }
-    }
-
-    /// Detached async watcher that routes a finished lane either straight to
-    /// `LaneReleased` (when `auto_release` AND `scrub_check` passes) or into
-    /// the owner's private Release Airlock (`LaneDraftReady`).
-    #[allow(clippy::too_many_arguments)]
-    fn spawn_lane_watcher(
-        self: &Arc<Self>,
-        workspace: String,
-        mission: String,
-        lane: String,
-        owner: Option<String>,
-        child_run: String,
-        auto_release: bool,
-        thread: Option<String>,
-    ) {
-        let k = self.clone();
-        tokio::spawn(async move {
-            let started = Instant::now();
-            loop {
-                let Some(r) = k.read(|s| s.runs.get(&child_run).cloned()) else {
-                    let _ = k.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneFailed { workspace, mission, lane, reason: "worker run disappeared".into() })).await;
-                    return;
-                };
-                if r.status.terminal() {
-                    // Only a finished run is anything to share: a stopped
-                    // one (its person's Stop, their removal) shares nothing.
-                    if r.status != Status::Completed {
-                        let reason = if r.status == Status::Cancelled { "worker run was stopped" } else { "worker run failed" };
-                        let _ = k.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneFailed { workspace, mission, lane, reason: reason.into() })).await;
-                        return;
-                    }
-                    let summary = r
-                        .summary
-                        .clone()
-                        .or_else(|| r.replies.last().map(|m| m.text().to_string()))
-                        .filter(|s| !s.trim().is_empty())
-                        .unwrap_or_else(|| "(finished without a text summary)".to_string());
-                    let scrub_flagged = scrub_check(&summary).is_some();
-                    if auto_release && !scrub_flagged {
-                        let released_by = owner.clone().unwrap_or_else(|| "open_web".to_string());
-                        let _ = k
-                            .emit(
-                                "kernel",
-                                Ev::TeamMission(TeamMissionEvent::LaneReleased {
-                                    workspace: workspace.clone(),
-                                    mission: mission.clone(),
-                                    lane,
-                                    contribution: summary.clone(),
-                                    released_by: released_by.clone(),
-                                }),
-                            )
-                            .await;
-                        k.post_released_contribution(&workspace, &mission, &released_by, &summary, thread).await;
-                        k.refresh_mission_deliverable(&workspace, &mission).await;
-                    } else if let Some(owner_id) = owner {
-                        let _ =
-                            k.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneDraftReady { workspace, mission, lane, owner: owner_id, draft: summary, scrub_flagged })).await;
-                    }
-                    return;
-                }
-                if started.elapsed() > LANE_WATCH_MAX_SECS {
-                    let _ = k.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneFailed { workspace, mission, lane, reason: "lane timed out".into() })).await;
-                    return;
-                }
-                tokio::time::sleep(LANE_WATCH_POLL_MS).await;
-            }
-        });
     }
 
     /// Posts a released lane's scrubbed contribution into its room's chat

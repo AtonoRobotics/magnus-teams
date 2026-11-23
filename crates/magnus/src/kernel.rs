@@ -179,6 +179,8 @@ impl Kernel {
         }
         // Whoever owned a workspace when Team Admin came in is one (once).
         k.seed_team_admins().await?;
+        // A lane's watcher lived in the process before; follow its lanes again.
+        k.resume_lanes().await;
         // The search index catches up with the log (a restore, a missed
         // write, a new embedding model) without holding up the boot.
         let sync = k.clone();

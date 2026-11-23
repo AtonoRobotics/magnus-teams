@@ -2,7 +2,7 @@
 //! Capability discovery, and the user avatar.
 
 use super::caller::{at, Member};
-use super::missions::LaneStatus;
+use super::missions::LaneStep;
 use super::orchestrator::LaneSpec;
 use super::routes::K;
 use crate::api::who;
@@ -25,9 +25,6 @@ const MAX_RELEASE_CHARS: usize = 16_000;
 const MAX_STEER_CHARS: usize = 2_000;
 const STEER_POLL_MS: Duration = Duration::from_millis(250);
 const MAX_STEER_POLL_TICKS: u32 = 3600;
-/// Held from a release's check to its event, so two releases of one lane
-/// cannot both pass and post it twice.
-static RELEASING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub fn router() -> Router<Arc<Kernel>> {
     Router::new()
@@ -96,11 +93,12 @@ async fn release_lane(
     Path((ws, mission, lane)): Path<(String, String, String)>,
     Json(b): Json<ReleaseBody>,
 ) -> ApiResult {
-    let releasing = RELEASING.lock().await;
+    // A lane still working is the watcher's: the owner releases a draft
+    // (`LaneStatus::next`), and `move_lane` checks again as it writes.
     let Some((room, scope, objective, draft)) = k.read(|s| {
         let m = s.missions.mission(&mission).filter(|m| m.workspace == ws)?;
         let l = m.lanes.get(&lane)?;
-        if l.owner.as_deref() != Some(p.id.as_str()) || l.status == LaneStatus::Released {
+        if l.owner.as_deref() != Some(p.id.as_str()) || !s.missions.lane_can(&mission, &lane, LaneStep::OwnerRelease) {
             return None;
         }
         Some((m.room.clone(), l.scope.clone(), l.objective.clone(), l.private_draft.clone()))
@@ -117,19 +115,11 @@ async fn release_lane(
     }
 
     let actor = format!("person:{}", p.id);
-    k.emit(
-        &actor,
-        Ev::TeamMission(TeamMissionEvent::LaneReleased {
-            workspace: ws.clone(),
-            mission: mission.clone(),
-            lane: lane.clone(),
-            contribution: text.clone(),
-            released_by: p.id.clone(),
-        }),
-    )
-    .await
-    .map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
-    drop(releasing);
+    let released = TeamMissionEvent::LaneReleased { workspace: ws.clone(), mission: mission.clone(), lane: lane.clone(), contribution: text.clone(), released_by: p.id.clone() };
+    let moved = k.move_lane(&actor, LaneStep::OwnerRelease, released).await.map_err(|e| Box::new(crate::api::err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))))?;
+    if !moved {
+        return refuse(StatusCode::CONFLICT, "this lane was released or ended a moment ago");
+    }
 
     if b.save_standing_rule && !scope.trim().is_empty() {
         let scope = super::missions::standing_key(&scope, &objective);
@@ -151,7 +141,7 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
     let Some((objective, prev_draft, requester)) = k.read(|s| {
         let m = s.missions.mission(&mission).filter(|m| m.workspace == ws)?;
         let l = m.lanes.get(&lane)?;
-        if l.owner.as_deref() != Some(p.id.as_str()) || l.status == LaneStatus::Released {
+        if l.owner.as_deref() != Some(p.id.as_str()) || !s.missions.lane_can(&mission, &lane, LaneStep::Draft) {
             return None;
         }
         Some((l.objective.clone(), l.private_draft.clone().unwrap_or_default(), m.requester.clone()))
@@ -177,8 +167,8 @@ async fn steer_lane(State(k): K, Member { person: p, .. }: Member<at::Member>, P
                 if r.status.terminal() {
                     if let Some(text) = r.summary.or_else(|| r.replies.last().map(|m| m.text().to_string())).filter(|s| !s.trim().is_empty()) {
                         let flagged = scrub_check(&text).is_some();
-                        let _ =
-                            k2.emit("kernel", Ev::TeamMission(TeamMissionEvent::LaneDraftReady { workspace: ws, mission, lane, owner, draft: text, scrub_flagged: flagged })).await;
+                        let draft = TeamMissionEvent::LaneDraftReady { workspace: ws, mission, lane, owner, draft: text, scrub_flagged: flagged };
+                        let _ = k2.move_lane("kernel", LaneStep::Draft, draft).await;
                     }
                     return;
                 }

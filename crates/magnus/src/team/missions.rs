@@ -20,6 +20,57 @@ pub enum LaneStatus {
     Failed,
 }
 
+/// What can happen to a lane. Every writer of a lane event (the release
+/// route, the steer, the watcher, the boot) asks `LaneStatus::next` first,
+/// and the ledger applies a recorded event only when the same table admits
+/// it, so no writer keeps its own idea of which lane may do what.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaneStep {
+    /// A draft lands in the owner's Airlock: the worker's, or a steer's.
+    Draft,
+    /// The watcher shares a finished worker's result itself.
+    AutoRelease,
+    /// The owner shares what waits in their Airlock, or their own words.
+    OwnerRelease,
+    /// The worker failed, was stopped, timed out or is gone.
+    Fail,
+}
+
+impl LaneStatus {
+    /// The lane's status after `step`, or `None` when the lane cannot take
+    /// it now. A released lane takes nothing more; only a working lane's
+    /// worker can fail it or release it on its own; the owner releases a
+    /// draft, never a lane still working.
+    pub fn next(self, step: LaneStep) -> Option<LaneStatus> {
+        use LaneStatus::*;
+        use LaneStep::*;
+        match (self, step) {
+            (Working | WaitingRelease | Failed, Draft) => Some(WaitingRelease),
+            (Working, AutoRelease) | (WaitingRelease | Failed, OwnerRelease) => Some(Released),
+            (Working, Fail) => Some(Failed),
+            _ => None,
+        }
+    }
+
+    /// Whether a recorded `LaneReleased` applies: the log does not say which
+    /// of the two releases it was, and either one the table admits does.
+    fn takes_release(self) -> bool {
+        self.next(LaneStep::AutoRelease).or(self.next(LaneStep::OwnerRelease)).is_some()
+    }
+}
+
+/// A lane still working, with what a watcher needs to follow it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkingLane {
+    pub workspace: String,
+    pub mission: String,
+    pub lane: String,
+    pub owner: Option<String>,
+    pub child_run: Option<String>,
+    pub auto_release: bool,
+    pub thread: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Lane {
     pub id: String,
@@ -38,6 +89,9 @@ pub struct Lane {
     pub contribution: Option<String>,
     pub released_by: Option<String>,
     pub failure_reason: Option<String>,
+    /// The thread its result is posted to.
+    #[serde(default)]
+    pub thread: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -113,20 +167,23 @@ impl crate::forget::Forget for MissionLedger {
         self.avatars.retain(|person, _| person != p);
         self.hidden_apps.retain(|person, _| person != p);
         self.standing_releases.retain(|(_, _, person, _)| person != p);
+        // A release credited to `open_web` (before 2026-11-22) is its requester's.
+        let credited = |by: &str, requester: &str| by == p || (by == super::lanes::OPEN_WEB_CREDIT && requester == p);
         for m in self.missions.values_mut() {
             for lane in m.lanes.values_mut() {
                 if lane.owner.as_deref() == Some(p) {
                     lane.private_draft = None;
                     lane.contribution = None;
                 }
-                if lane.released_by.as_deref() == Some(p) {
+                if lane.released_by.as_deref().is_some_and(|by| credited(by, &m.requester)) {
                     lane.contribution = None;
                     lane.released_by = None;
                 }
             }
         }
+        let missions = &self.missions;
         for items in self.workspace_memory.values_mut() {
-            items.retain(|i| i.released_by != p);
+            items.retain(|i| !credited(&i.released_by, missions.get(&i.mission).map_or("", |m| m.requester.as_str())));
         }
     }
 }
@@ -150,7 +207,7 @@ impl MissionLedger {
                     },
                 );
             }
-            TeamMissionEvent::LaneDispatched { mission, lane, kind, target_member, objective, scope, auto_release, child_task, child_run, .. } => {
+            TeamMissionEvent::LaneDispatched { mission, lane, kind, target_member, objective, scope, auto_release, child_task, child_run, thread, .. } => {
                 if let Some(m) = self.missions.get_mut(mission) {
                     m.lanes.insert(
                         lane.clone(),
@@ -169,16 +226,17 @@ impl MissionLedger {
                             contribution: None,
                             released_by: None,
                             failure_reason: None,
+                            thread: thread.clone(),
                         },
                     );
                 }
             }
             TeamMissionEvent::LaneDraftReady { mission, lane, owner, draft, scrub_flagged, .. } => {
                 if let Some(l) = self.missions.get_mut(mission).and_then(|m| m.lanes.get_mut(lane)) {
-                    if l.owner.as_deref() == Some(owner.as_str()) && l.status != LaneStatus::Released {
+                    if let Some(next) = l.status.next(LaneStep::Draft).filter(|_| l.owner.as_deref() == Some(owner.as_str())) {
                         l.private_draft = Some(draft.clone());
                         l.scrub_flagged = *scrub_flagged;
-                        l.status = LaneStatus::WaitingRelease;
+                        l.status = next;
                     }
                 }
             }
@@ -186,7 +244,7 @@ impl MissionLedger {
                 let mut meta: Option<(String, String)> = None;
                 if let Some(m) = self.missions.get_mut(mission) {
                     // A lane is released once: a second release (two at once) changes nothing.
-                    if let Some(l) = m.lanes.get_mut(lane).filter(|l| l.status != LaneStatus::Released) {
+                    if let Some(l) = m.lanes.get_mut(lane).filter(|l| l.status.takes_release()) {
                         l.contribution = Some(contribution.clone());
                         l.released_by = Some(released_by.clone());
                         l.private_draft = None;
@@ -214,9 +272,13 @@ impl MissionLedger {
                 }
             }
             TeamMissionEvent::LaneFailed { mission, lane, reason, .. } => {
+                // A released lane stays released: a late failure (a watcher
+                // that lost a race to the owner) no longer overwrites it.
                 if let Some(l) = self.missions.get_mut(mission).and_then(|m| m.lanes.get_mut(lane)) {
-                    l.failure_reason = Some(reason.clone());
-                    l.status = LaneStatus::Failed;
+                    if let Some(next) = l.status.next(LaneStep::Fail) {
+                        l.failure_reason = Some(reason.clone());
+                        l.status = next;
+                    }
                 }
             }
             TeamMissionEvent::DeliverableUpdated { mission, markdown, complete, .. } => {
@@ -251,6 +313,37 @@ impl MissionLedger {
         self.missions.get(id)
     }
 
+    /// Whether this lane can take `step` now (`LaneStatus::next`).
+    pub fn lane_can(&self, mission: &str, lane: &str, step: LaneStep) -> bool {
+        self.missions.get(mission).and_then(|m| m.lanes.get(lane)).is_some_and(|l| l.status.next(step).is_some())
+    }
+
+    /// Who a lane's release is credited to: its owner, or for a lane no one
+    /// owns (the open web) the mission's requester, whose ask it answered,
+    /// so erasing them reaches what it posted.
+    pub fn release_credit(&self, mission: &str, lane: &str) -> Option<String> {
+        let m = self.missions.get(mission)?;
+        Some(m.lanes.get(lane)?.owner.clone().unwrap_or_else(|| m.requester.clone()))
+    }
+
+    /// Every lane still working, to follow again after a restart.
+    pub fn working_lanes(&self) -> Vec<WorkingLane> {
+        self.missions
+            .values()
+            .flat_map(|m| m.lanes.values().map(move |l| (m, l)))
+            .filter(|(_, l)| l.status == LaneStatus::Working)
+            .map(|(m, l)| WorkingLane {
+                workspace: m.workspace.clone(),
+                mission: m.id.clone(),
+                lane: l.id.clone(),
+                owner: l.owner.clone(),
+                child_run: l.child_run.clone(),
+                auto_release: l.auto_release,
+                thread: l.thread.clone(),
+            })
+            .collect()
+    }
+
     /// Whose a mission event's words are: the goal, the objectives and the
     /// deliverable the requester's; a draft its lane's owner's; a
     /// contribution its releaser's. Erasing that person deletes them.
@@ -260,6 +353,9 @@ impl MissionLedger {
             TeamMissionEvent::Started { requester, .. } => Some(requester.clone()),
             TeamMissionEvent::LaneDispatched { mission, .. } | TeamMissionEvent::DeliverableUpdated { mission, .. } => requester(mission),
             TeamMissionEvent::LaneDraftReady { owner, .. } => Some(owner.clone()),
+            // Before 2026-11-22 an open-web lane's release was credited to
+            // `open_web`, no one: it is its requester's.
+            TeamMissionEvent::LaneReleased { mission, released_by, .. } if released_by == super::lanes::OPEN_WEB_CREDIT => requester(mission),
             TeamMissionEvent::LaneReleased { released_by, .. } => Some(released_by.clone()),
             _ => None,
         }
@@ -338,7 +434,7 @@ impl MissionLedger {
                             "failure_reason": l.failure_reason,
                             "private_draft": if is_owner { l.private_draft.as_deref() } else { None },
                             "scrub_flagged": if is_owner { l.scrub_flagged } else { false },
-                            "can_release": is_owner && l.status == LaneStatus::WaitingRelease,
+                            "can_release": is_owner && l.private_draft.is_some() && l.status.next(LaneStep::OwnerRelease).is_some(),
                         })
                     })
                     .collect();
@@ -383,6 +479,7 @@ mod tests {
             auto_release: false,
             child_task: Some("t_bob".into()),
             child_run: None,
+            thread: None,
         };
         assert_eq!(ledger.content_owner(&lane).as_deref(), Some("alice"), "the objective is the requester's words");
         ledger.apply(&lane);
@@ -396,6 +493,75 @@ mod tests {
         assert_eq!(ledger.mission("m1").and_then(|m| m.lanes["l"].contribution.as_deref()), Some("first"), "a lane released twice");
         ledger.drop_workspace("ws1");
         assert!(ledger.mission("m1").is_none() && ledger.working_tasks("ws1").is_empty());
+    }
+
+    fn lane_events(ledger: &mut MissionLedger, kind: LaneKind, owner: Option<&str>) {
+        ledger.apply(&TeamMissionEvent::Started {
+            workspace: "ws1".into(),
+            room: "q3".into(),
+            mission: "m1".into(),
+            goal: "g".into(),
+            requester: "alice".into(),
+            leader_run: None,
+        });
+        ledger.apply(&TeamMissionEvent::LaneDispatched {
+            workspace: "ws1".into(),
+            mission: "m1".into(),
+            lane: "l".into(),
+            kind,
+            target_member: owner.map(String::from),
+            objective: "o".into(),
+            scope: String::new(),
+            auto_release: true,
+            child_task: None,
+            child_run: Some("r".into()),
+            thread: None,
+        });
+    }
+
+    /// A failure recorded after a release (a watcher that lost the race to
+    /// the owner) turned a released lane into a failed one.
+    #[test]
+    fn a_released_lane_stays_released() {
+        let mut ledger = MissionLedger::default();
+        lane_events(&mut ledger, LaneKind::MemberAgent, Some("bob"));
+        ledger.apply(&TeamMissionEvent::LaneReleased { workspace: "ws1".into(), mission: "m1".into(), lane: "l".into(), contribution: "c".into(), released_by: "bob".into() });
+        ledger.apply(&TeamMissionEvent::LaneFailed { workspace: "ws1".into(), mission: "m1".into(), lane: "l".into(), reason: "lane timed out".into() });
+        let l = &ledger.mission("m1").unwrap().lanes["l"];
+        assert_eq!((l.status, l.failure_reason.as_deref(), l.contribution.as_deref()), (LaneStatus::Released, None, Some("c")), "a late failure overwrote a release");
+    }
+
+    /// The one table every lane writer asks.
+    #[test]
+    fn the_lane_table() {
+        use LaneStatus::*;
+        use LaneStep::*;
+        let table = [
+            (Working, [Some(WaitingRelease), Some(Released), None, Some(Failed)]),
+            (WaitingRelease, [Some(WaitingRelease), None, Some(Released), None]),
+            (Failed, [Some(WaitingRelease), None, Some(Released), None]),
+            (Released, [None, None, None, None]),
+        ];
+        for (from, to) in table {
+            for (step, want) in [Draft, AutoRelease, OwnerRelease, Fail].into_iter().zip(to) {
+                assert_eq!(from.next(step), want, "{from:?} taking {step:?}");
+            }
+        }
+    }
+
+    /// An open-web lane's release, credited to `open_web` before, is its
+    /// requester's: whose its words are, and erased with them.
+    #[test]
+    fn an_open_web_release_is_its_requesters() {
+        let mut ledger = MissionLedger::default();
+        lane_events(&mut ledger, LaneKind::OpenWeb, None);
+        assert_eq!(ledger.release_credit("m1", "l").as_deref(), Some("alice"));
+        let old = TeamMissionEvent::LaneReleased { workspace: "ws1".into(), mission: "m1".into(), lane: "l".into(), contribution: "found".into(), released_by: "open_web".into() };
+        assert_eq!(ledger.content_owner(&old).as_deref(), Some("alice"), "an old open-web release is no one's");
+        ledger.apply(&old);
+        crate::forget::Forget::forget(&mut ledger, &crate::forget::Erased { person: "alice".into(), ..Default::default() });
+        assert_eq!(ledger.mission("m1").unwrap().lanes["l"].contribution, None, "erasing the requester left the open-web release");
+        assert!(ledger.search_workspace_memory("ws1", "", 10, |_| true).is_empty(), "erasing the requester left it in workspace memory");
     }
 
     #[test]
@@ -420,6 +586,7 @@ mod tests {
             auto_release: false,
             child_task: Some("t_bob".into()),
             child_run: Some("r_bob".into()),
+            thread: None,
         });
         ledger.apply(&TeamMissionEvent::LaneDraftReady {
             workspace: "ws1".into(),
@@ -494,6 +661,7 @@ mod tests {
             auto_release: false,
             child_task: None,
             child_run: None,
+            thread: None,
         });
         ledger.apply(&TeamMissionEvent::LaneDraftReady {
             workspace: "ws1".into(),

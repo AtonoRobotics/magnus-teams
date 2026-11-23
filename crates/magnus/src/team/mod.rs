@@ -30,6 +30,9 @@ mod keep;
 #[cfg(test)]
 mod keep_tests;
 pub(crate) mod knowledge;
+pub mod lanes;
+#[cfg(test)]
+mod lanes_tests;
 pub mod may;
 pub mod member_view;
 #[cfg(test)]

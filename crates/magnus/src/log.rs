@@ -207,7 +207,7 @@ async fn migrate_root(admin: &Client, root_url: &str, db: &str) -> Result<()> {
 /// events, by the same rule as `State::content_owner`.
 pub fn content_walls_sql(role: &str) -> String {
     let reader = format!("{role}_person");
-    let owners = CONTENT_OWNERS;
+    let (owners, open_web) = (CONTENT_OWNERS, crate::team::lanes::OPEN_WEB_OWNERS);
     format!(
         "ALTER TABLE public.content ADD COLUMN IF NOT EXISTS person text;
          CREATE INDEX IF NOT EXISTS content_person ON public.content (person);
@@ -223,7 +223,7 @@ pub fn content_walls_sql(role: &str) -> String {
          DROP POLICY IF EXISTS content_person ON public.content;
          CREATE POLICY content_person ON public.content FOR SELECT TO {reader}
              USING (person IS NOT NULL AND person = NULLIF(current_setting('magnus.person', true), ''));
-         {owners}"
+         {owners} {open_web}"
     )
 }
 
@@ -750,6 +750,8 @@ impl Log {
 /// kind included: serde words both "unknown variant", and skipping the
 /// second would drop part of a run's history.
 pub fn parse_event(body: &Value) -> Result<Option<Ev>> {
+    let current = crate::events::current_lane_dispatched(body);
+    let body = current.as_ref().unwrap_or(body);
     match serde_json::from_value::<Ev>(body.clone()) {
         Ok(ev) => Ok(Some(ev)),
         Err(e) => {
