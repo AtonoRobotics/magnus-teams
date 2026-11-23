@@ -128,8 +128,8 @@ async fn resend(State(k): K, Caller(p): Caller, Path((thread, entry)): Path<(Str
             .collect()
     });
     for run in stop {
-        k.emit(&format!("person:{}", p.id), Ev::Cancelled { run: run.clone(), source: Some("button".into()), turn: None }).await?;
-        k.on_stop(&run, true).await;
+        let actor = format!("person:{}", p.id);
+        k.cancel_tree(&run, vec![(actor.as_str(), Ev::Cancelled { run: run.clone(), source: Some("button".into()), turn: None })]).await?;
     }
     let project = k.read(|s| s.project_of(&thread));
     Ok(match k.chat_say(&p.id, text, Some(thread.clone()), model, None, files, project).await {

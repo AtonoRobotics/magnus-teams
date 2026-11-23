@@ -151,9 +151,8 @@ impl Kernel {
         for task in tasks {
             let run = self.read(|s| s.tasks.get(task).and_then(|t| s.runs.get(&t.run_id)).filter(|r| !r.status.terminal()).map(|r| r.id.clone()));
             let Some(run) = run else { continue };
-            match self.emit(actor, Ev::Cancelled { run: run.clone(), source: Some("team".into()), turn: None }).await {
-                Ok(_) => self.on_stop(&run, true).await,
-                Err(e) => tracing::warn!("{task}: {e:#}"),
+            if let Err(e) = self.cancel_tree(&run, vec![(actor, Ev::Cancelled { run: run.clone(), source: Some("team".into()), turn: None })]).await {
+                tracing::warn!("{task}: {e:#}");
             }
         }
     }

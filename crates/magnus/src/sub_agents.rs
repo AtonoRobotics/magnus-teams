@@ -85,6 +85,21 @@ impl Ledger {
         Some(at.clone())
     }
 
+    /// The runs above a sub-agent, its parent first, up to the top; none
+    /// for a run that is no sub-agent.
+    pub fn above(&self, run: &str) -> Vec<String> {
+        let mut out = vec![];
+        let mut at = run;
+        while let Some(s) = self.children.get(at) {
+            out.push(s.parent.clone());
+            if out.len() > MAX_DEPTH {
+                break;
+            }
+            at = &s.parent;
+        }
+        out
+    }
+
     /// Every sub-agent below a run, each after its parent, with its depth
     /// (1 for the run's own), in the order they were started.
     pub fn below(&self, run: &str) -> Vec<(usize, SubAgent)> {
@@ -325,7 +340,11 @@ impl Kernel {
             if r.status.terminal() || r.status == crate::state::Status::Suspended {
                 let taint = json!({ "untrusted": r.untrusted, "private": r.private, "child_run": child, "task": task });
                 let said = r.summary.clone().unwrap_or_else(|| "(it left no summary)".to_string());
-                let text = if r.status.terminal() { said } else { format!("The sub-agent is waiting on a person, in run {child}. It carries on once they answer.") };
+                let text = if r.status.terminal() {
+                    said
+                } else {
+                    format!("The sub-agent is waiting on a person, in run {child}. It carries on once they answer, unless this run has ended by then.")
+                };
                 return Ok((text, r.status == crate::state::Status::Failed, Some(taint)));
             }
             if started.elapsed() > CHILD_WAIT {

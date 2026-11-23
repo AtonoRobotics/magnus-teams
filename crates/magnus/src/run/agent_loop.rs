@@ -3,7 +3,8 @@
 //! step starts from the log, so a new loop resumes any run.
 //!
 //! Code here only limits: it stops where the run's allowance says
-//! (`spend::allowance`), or on a cancel, suspension or the kill switch,
+//! (`spend::allowance`), or on a cancel, suspension or the kill switch, or
+//! once a run above a sub-agent has ended (`run_end`),
 //! before each request, retries an unavailable provider a bounded number of
 //! times, and suspends with a notice.
 //! What to do next is always the model's decision.
@@ -60,6 +61,10 @@ impl Kernel {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(None) };
         // Cancelled, suspended or ended: whoever stopped it has said why.
         if run.status != Status::Running {
+            return Ok(None);
+        }
+        // A sub-agent whose parent, or a run above it, has ended asks nothing more.
+        if self.stopped_from_above(run_id).await? {
             return Ok(None);
         }
         if let Some((reason, _)) = self.halt_of(run_id, None) {
@@ -128,6 +133,10 @@ impl Kernel {
     async fn step(self: &Arc<Self>, run_id: &str) -> Result<Flow> {
         let Some(run) = self.read(|s| s.runs.get(run_id).cloned()) else { return Ok(Flow::Stop) };
         if run.status != Status::Running {
+            return Ok(Flow::Stop);
+        }
+        // Nor does it act: the backstop holds before an action as before a model call.
+        if self.stopped_from_above(run_id).await? {
             return Ok(Flow::Stop);
         }
         if let Some((reason, _)) = self.halt_of(run_id, None) {
