@@ -11,7 +11,6 @@ A review of the team missions, the tool gate and the remaining routes found hole
 - **A server guest's invitation makes a guest.** An address new to the server, invited by a server guest, gets a guest account.
 - **The computer's output is untrusted.** `computer_exec` and the desktop tools reach registries, app hosts and opened pages, so their results taint the run like a page. They are still not reviewed (spec: everything inside the computer passes without review).
 - **An install is a boundary action.** `computer_install_app` adds the app's hosts to the computer's egress, so Auto Review checks it, as `decisions/2026-11-12-the-agent-works-on-its-own-computer.md` already said.
-- **A link-following worker follows links.** An OpenWeb worker started from a tainted run opens only addresses from the person's words or what the web returned. The provenance check now applies to it, though it is never private itself.
 - **Audits keep no secrets.** A passed-through admin change records secret fields (password, token, secret, credential and similar) as "(set)".
 - **A live stream ends.** `/v1/tasks/{id}/live` stops when the client goes, the run ends or the session ends.
 - **Connector answers are bounded.** One line of a brokered connector's answer is at most 32 MiB.

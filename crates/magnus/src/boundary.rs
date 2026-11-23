@@ -651,8 +651,6 @@ impl Kernel {
         // - `web_search` passes the shared query gate (scrub + budget + mandatory
         //   classifier when private && untrusted + retry cap), never prompting the user.
         // - `research_web` runs the same gate inside `compartment::research_web`.
-        // - A link-following-only `OpenWeb` worker may only open URLs from its own
-        //   search results, loaded pages, or the user's original prompt.
         // - A tainted `Private` run silently denies model-fabricated URLs instead
         //   of interrupting the user with an approval card.
         let wr = crate::tool_registry::web_read(&a.tool);
@@ -666,10 +664,7 @@ impl Kernel {
         let public_browser = f.connector.is_none() && f.app == "browser" && !a.tool.starts_with("browser_as_");
         let web_or_browser_read = f.connector.is_none() && f.risk == Risk::Read && (f.app == "web" || public_browser);
         let mut url_cleared = false;
-        // A worker started from a tainted run follows links only: never private
-        // itself, it carries the parent's goal, which may hold private words.
-        let link_only = self.read(|s| s.compartments.of(&run.id).is_link_following_only());
-        if web_or_browser_read && !is_query_tool && ((untrusted && private) || link_only) {
+        if web_or_browser_read && !is_query_tool && untrusted && private {
             if self.plain_web_read(a, f, run).await? {
                 url_cleared = true;
             } else {
