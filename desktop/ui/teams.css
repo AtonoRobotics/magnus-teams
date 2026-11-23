@@ -1,10 +1,5 @@
-/* The team workspace: rail, conversation and project panel. Colours come
-   from theme.js's tokens, so both themes follow. */
-#main.team-main { padding: 0; max-width: none; height: 100%; }
-/* A workspace fills the window beside the folded app navigation: its own
-   rail is the left column, so the app's bar above it goes. */
-body[data-team]:not([data-navigation=drawer]) .workspace-bar, body[data-team] .shell > aside.detail, body[data-team] .shell > #workspace-splitter { display: none; }
-body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; grid-column: 2 / -1; }
+/* Shared projects and conversations: unified on the single Stage + Canvas.
+   Colours come from theme.js's tokens, so every theme follows. */
 .teams-page { max-width: 640px; margin: 24px auto; padding: 0 16px; }
 .teams-page .team-list { display: flex; flex-direction: column; gap: 8px; margin: 16px 0 24px; }
 .teams-page .team-list a { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--fg); text-decoration: none; background: var(--surface); }
@@ -12,70 +7,24 @@ body[data-team]:not([data-navigation=drawer]) .shell > main { grid-row: 1 / 3; g
 .teams-page .team-list .team-avatar { width: 36px; height: 36px; font-size: 14px; border-radius: var(--r-avatar); }
 .teams-page form { display: flex; gap: 8px; }
 .teams-page form input { flex: 1; }
-.team-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr) 6px min(var(--panel-width, 380px), 38vw); grid-template-rows: minmax(0, 1fr); height: 100%; min-height: 0; }
-.team-shell.work-closed { grid-template-columns: 224px minmax(0, 1fr) 0 0; }
-.team-shell.work-closed .team-side, .team-shell.work-closed .team-splitter { display: none; }
-.team-splitter { cursor: col-resize; touch-action: none; background: linear-gradient(to right, transparent 2px, var(--line) 2px 3px, transparent 3px); }
-.team-splitter:hover, .team-splitter:focus-visible { background: linear-gradient(to right, transparent 2px, var(--accent) 2px 4px, transparent 4px); }
-.team-rail, .team-side { overflow-y: auto; padding: 12px; border-color: var(--line); border-style: solid; border-width: 0; background: var(--side, var(--surface)); }
-.team-rail { border-right-width: 1px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.team-side { display: flex; flex-direction: column; min-width: 0; }
-.team-center { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-shell { gap: 10px; padding: 0; background: transparent; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-center,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-side { border: 1px solid var(--aurora-rim); border-radius: var(--r-xl); box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08); overflow: hidden; }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-center { background: var(--aurora-glass-strong); backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px); }
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-splitter { background: transparent; }
-@media (min-width: 861px) {
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-shell { column-gap: 0; grid-template-columns: 234px minmax(0, 1fr) 10px min(var(--panel-width, 380px), 38vw); }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail { margin-right: 10px; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .team-shell { transition: grid-template-columns var(--aurora-stage-ms, 520ms) var(--ease); }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .team-shell:has(> .team-splitter:active) { transition: none; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-shell.work-closed { grid-template-columns: 234px minmax(0, 1fr) 0 0; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"])[data-motion="full"] .team-side { transition: opacity .24s var(--ease), visibility .24s var(--ease); }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-shell.work-closed .team-side { display: flex; opacity: 0; visibility: hidden; pointer-events: none; padding: 0; border-width: 0; box-shadow: none; }
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-shell.work-closed .team-splitter { display: block; pointer-events: none; }
-}
-.team-rail-head { display: flex; align-items: center; gap: 10px; padding: 6px 8px 12px; border-bottom: 1px solid var(--hair); }
-.team-rail-head-meta { min-width: 0; display: flex; flex-direction: column; }
-.team-rail-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--hair); display: flex; flex-direction: column; gap: 4px; }
-.team-rail h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 8px 4px; }
-.team-rail nav { display: flex; flex-direction: column; gap: 2px; }
-.team-rail a { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); color: var(--fg2); text-decoration: none; }
-.team-rail a:hover, .team-rail a[aria-current="page"] { background: var(--row-sel); color: var(--fg); }
-.team-rail a.unread { color: var(--fg); font-weight: 600; }
-.team-rail a.muted { opacity: .6; }
-.team-rail [data-rail-people] .faint { margin-left: auto; }
 .team-count { margin-left: auto; min-width: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--seg); color: var(--fg2); font-size: 12px; text-align: center; }
 .team-count.loud { background: var(--accent); color: var(--accent-fg); }
 .team-avatar { width: 24px; height: 24px; border-radius: var(--r-avatar); background: var(--seg); color: var(--fg2); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .team-avatar.agent { background: var(--accent-soft); color: var(--accent-text); }
-.team-presence { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); margin-left: -12px; margin-top: 14px; flex: none; }
-.team-presence.on { background: var(--ok); border-color: var(--ok); }
-.room-call-btn { display: inline-flex; align-items: center; gap: 6px; border-color: var(--ok); color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); font-weight: 500; }
-.room-work-btn { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
-.room-work-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.shared-members-btn, .shared-autojoin-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--surface); color: var(--fg2); font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.shared-members-btn:hover, .shared-autojoin-btn:hover { background: var(--row-sel); color: var(--fg); }
+.shared-autojoin-btn.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
 .room-empty-work { padding: 14px; border-radius: var(--r-md); background: var(--raised); border: 1px dashed var(--line-strong); display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .room-empty-work p { margin: 0; }
 .room-mission-form { display: flex; flex-direction: column; gap: 8px; }
 .room-picks { display: flex; flex-wrap: wrap; gap: 8px; }
 .room-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); cursor: pointer; }
-.room-more { position: relative; }
-.room-more > summary { list-style: none; cursor: pointer; padding: 5px 10px; border-radius: var(--r-sm); border: 1px solid var(--line); color: var(--fg2); font-size: 13px; }
-.room-more > summary::-webkit-details-marker { display: none; }
-.room-more-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 220px; padding: 10px; border-radius: var(--r-md); background: var(--raised); border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 8px; }
-.room-video-stage { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--raised); display: flex; flex-direction: column; gap: 10px; }
-.room-video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
-.room-video-tile { aspect-ratio: 16 / 10; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px; }
-.room-video-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .team-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 .team-head h1 { font-size: 18px; margin: 0; }
 .team-head-faces { display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
 .team-face { position: relative; display: inline-flex; }
 .team-face.on::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); border: 1.5px solid var(--surface); }
 .team-scroll { flex: 1; overflow-y: auto; padding: 12px 20px; min-height: 0; }
-.team-side .team-scroll { padding: 0; }
 /* A post's controls sit under it, as the personal chat's do (owner, 2026-11-13). */
 .action-menu.reactions:not([hidden]) { display: flex; width: auto; gap: 2px; }
 .action-menu.reactions button { width: auto; min-width: 36px; text-align: center; padding: 6px 8px; font-size: 16px; }
@@ -115,14 +64,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-splitter { 
 .team-command-group { font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; }
 .team-command p { margin: 0; padding: 6px 16px 10px; }
 .team-search-form { display: flex; gap: 8px; padding: 12px 20px 0; }
-@media (max-width: 860px) {
-  .team-shell { grid-template-columns: 200px minmax(0, 1fr); }
-  .team-side, .team-splitter { display: none; }
-  .team-shell.threaded .team-side { display: flex; position: fixed; inset: 0 0 0 auto; width: min(420px, 100vw); z-index: 5; box-shadow: var(--shadow); }
-}
 @media (max-width: 700px) {
-  .team-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .team-rail { max-height: 34vh; border-right-width: 0; border-bottom: 1px solid var(--line); }
   .team-board { grid-template-columns: 1fr; }
 }
 
@@ -138,39 +80,14 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-splitter { 
 @keyframes notice-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .notice { animation: none; } }
 @media (max-width: 700px) { #notices { right: 16px; left: 16px; width: auto; bottom: 16px; } }
-/* A rail's archived conversations, folded away at its foot. */
-.team-archived summary { cursor: pointer; }
 
-/* A channel and its thread are the one chat view (chat-view.js): the
-   centre and the side hold its section, which scrolls its own list. */
-.team-center > section.conv { flex: 1; min-height: 0; }
-/* The side panel beside a channel, laid out as a person's own right panel. */
-.team-side:has(> .team-companion), .team-side:has(> section.conv) { padding: 0; overflow: hidden; }
 .team-companion { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .team-side-progress { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .team-faces-box, .gbox.team-screen { padding: 10px 12px; }
 .team-spend .team-mini li { padding: 8px 12px; }
-.team-side > section.conv { flex: 1; min-height: 0; }
-.team-center .conv-head { flex-wrap: nowrap; }
-.team-center .conv-title { min-width: 120px; flex: 1 1 120px; }
-.team-center .conv-head .row { flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; }
 .team-head-faces .team-avatar { width: 24px; height: 24px; }
 .team-unread-divider { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: var(--bad, #d93025); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 .team-unread-divider::before, .team-unread-divider::after { content: ""; flex: 1; height: 1px; background: currentColor; opacity: 0.35; }
-.room-orb { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 32% 28%, #ffffff 0%, #c7ceff 32%, #7c8cff 68%, #22264a 100%); box-shadow: 0 0 14px rgba(124, 140, 255, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.7); flex: none; }
-.room-orb-sm { width: 16px; height: 16px; }
-.room-rail-sec { display: flex; align-items: center; justify-content: space-between; padding: 14px 8px 4px; }
-.room-rail-sec h3 { margin: 0; }
-.room-rail-add { border: 0; background: none; color: var(--muted); font-size: 11px; cursor: pointer; padding: 2px 4px; }
-.room-rail-add:hover { color: var(--fg); }
-.room-person-link { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: var(--r-sm); color: var(--fg2); text-decoration: none; }
-.room-person-link:hover { background: var(--row-sel); color: var(--fg); }
-.room-person-top { display: flex; align-items: center; gap: 8px; }
-.room-person-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-left: auto; flex: none; }
-.room-person-apps { padding-left: 30px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.room-video-tile-name { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: var(--r-xs); background: rgba(0, 0, 0, 0.45); color: var(--fg); }
-.room-video-listening { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line); font-size: 12px; color: var(--fg2); }
-.room-video-controls { display: flex; align-items: center; gap: 6px; }
 .user-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: var(--r-avatar); background: var(--raised); border: 1px solid var(--line); color: var(--fg); font-size: 11px; font-weight: 600; flex-shrink: 0; overflow: hidden; }
 .user-avatar-sm { width: 22px; height: 22px; font-size: 10px; }
 .user-avatar-lg { width: 40px; height: 40px; font-size: 14px; }

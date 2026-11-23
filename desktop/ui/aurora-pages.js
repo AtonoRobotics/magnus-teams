@@ -10,7 +10,7 @@ const AuroraPages = (() => {
   /** The conversation last shown, to go back to. */
   let conversation = "";
 
-  const isConversationHash = (/** @type {string} */ h) => !h || /^#\/(?:chat(?:\/|$)|home$|$)/.test(h);
+  const isConversationHash = (/** @type {string} */ h) => !h || /^#\/(?:chat(?:\/|$)|team\/|home$|$)/.test(h);
   /** Where the close goes: the last conversation, else a new one. */
   const back = () => (conversation && conversation !== location.hash && isConversationHash(conversation)) ? conversation : "#/chat/new";
 
@@ -31,10 +31,9 @@ const AuroraPages = (() => {
     if (!main) return;
     const mine = main.querySelector(":scope > .aurora-page-bar");
     const talk = !!main.querySelector(":scope > section.conv, .hello-head, #thread");
-    const teamRoom = main.classList?.contains("team-main") || /^#\/team\//.test(location.hash || "");
     const modalRoute = /^#\/(?:settings|admin|models)(?:\/|$)/.test(location.hash || "") || !!document.querySelector?.("#settings-modal[open]");
     if (talk && isConversationHash(location.hash)) conversation = location.hash || "#/home";
-    const want = on() && !talk && !teamRoom && !modalRoute && !!main.firstElementChild && !ownWayOut(main);
+    const want = on() && !talk && !modalRoute && !!main.firstElementChild && !ownWayOut(main);
     if (!want) { mine?.remove(); return; }
     const title = main.querySelector("h1")?.textContent?.trim() || "this page";
     if (mine) {

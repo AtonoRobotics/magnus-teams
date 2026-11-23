@@ -254,12 +254,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) aside.aurora-deta
   animation: auroraPanelLeave var(--aurora-stage-ms) var(--ease) both;
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #main.team-main {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitter {
   background: transparent;
 }
@@ -287,8 +281,7 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) #workspace-splitt
 
 /* ---------- 2. Left Navigation Island & Living Brand Orb ---------- */
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .navigation-drawer,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .navigation-drawer {
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
   background: var(--aurora-glass);
@@ -318,14 +311,12 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side .new-cha
 }
 
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail a,
 html:is([data-style="aurora"], [data-style="obsidian-aurora"]) button.needs {
   border-radius: var(--r-sm);
   transition: background .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a:hover,
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .team-rail a:hover {
+html:is([data-style="aurora"], [data-style="obsidian-aurora"]) nav.side a:hover {
   transform: translateX(3px);
 }
 

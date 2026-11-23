@@ -76,7 +76,7 @@
 
   function detectState() {
     if (typeof AuroraCore !== "undefined") return AuroraCore.refreshState();
-    if (document.querySelector('.voice-in[aria-pressed="true"], .room-video-listening')) return "listening";
+    if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "takeover";
     if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .detail-body[data-panel="needs"] .ask-answers, .aurora-reason[data-phase="needs"]')) return "needs";
     if (document.querySelector('.st.working, .comp-dot.run, .tcard[data-status="running"], .tcard[data-status="working"], .state-pill[data-pill="working"], .state-pill[data-pill="waking"], .aurora-reason[data-phase="working"]')) return "executing";

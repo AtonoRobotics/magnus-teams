@@ -94,24 +94,18 @@ function channelFaces(home, c, project) {
   return `<span class="team-head-faces" title="${esc(names)}" aria-label="In this channel: ${esc(names)}">${shown.map(m => `<span class="team-face${m.online ? " on" : ""}">${avatar(m.name)}</span>`).join("")}${more > 0 ? `<span class="small faint">+${more}</span>` : ""}${avatar(home.agent.name, true)}</span>`;
 }
 
-/** Clean Room header: faces, Join Call, Work toggle, and a compact overflow menu for secondary controls. */
-function channelTools(home, c, project, pinsOnly) {
+/** Minimal work-focused shared conversation header: faces, Shared Computer, Members chip, and quiet Auto-join toggle. */
+function channelTools(home, c, project) {
   const helpful = c.mode === "when_helpful";
   const ext = typeof TeamRooms !== "undefined" ? TeamRooms.renderSlot("headerActions", { ws: home.id, channel: c.id }) : "";
-  const camSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`;
-  return `${channelFaces(home, c, project)}${ext}
-    <button type="button" class="room-call-btn" data-room-call>${camSvg}<span>Join Call</span></button>
-    <button type="button" class="room-work-btn" data-room-work-toggle><span class="room-work-dot" aria-hidden="true"></span><span>Work</span></button>
-    <details class="room-more"><summary aria-label="Room options">⋯</summary><div class="room-more-menu">
-      ${c.direct ? "" : `<label class="small" title="How the team agent takes part here"><span>Magnus here</span><select data-agent-mode aria-label="How Magnus takes part here" ${home.role === "guest" ? "disabled" : ""}><option value="mentions"${helpful ? "" : " selected"}>Replies to mentions</option><option value="when_helpful"${helpful ? " selected" : ""}>Joins when helpful</option></select></label>`}
-      <label class="small"><span>Notifications</span><select data-notify aria-label="Notifications for this channel">${[["all", "All messages"], ["mentions", "Mentions only"], ["off", "Off"]].map(([v, l]) => `<option value="${v}"${c.notify === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-      <button type="button" data-pins aria-pressed="${pinsOnly}">${pinsOnly ? "All messages" : "Pinned messages"}</button>
-      <button type="button" data-archive="${c.archived ? "off" : "on"}">${c.archived ? "Unarchive room" : "Archive room"}</button>
-      ${c.direct ? `<button type="button" class="danger" data-clear-conversation>Delete conversation</button>` : ""}
-    </div></details>`;
+  const comp = home.computer && typeof computerChip === "function" ? computerChip(App.computers, home.computer) : "";
+  const autoJoin = c.direct ? "" : `<button type="button" class="shared-autojoin-btn${helpful ? " on" : ""}" data-agent-toggle aria-pressed="${helpful}" ${home.role === "guest" ? "disabled" : ""} title="${helpful ? "Magnus auto-joins when helpful (click for @Magnus mentions only)" : "Magnus replies to @Magnus mentions (click to auto-join when helpful)"}">${helpful ? "Auto-join: On" : "Auto-join"}</button>`;
+  const membersBtn = `<button type="button" class="shared-members-btn" data-open="shared:settings" aria-label="Members and project settings" title="Members and project settings">${icon("team")}<span>${home.members.length}</span></button>`;
+  const clearDm = c.direct ? `<button type="button" class="icon-btn" data-clear-conversation title="Delete conversation" aria-label="Delete conversation">${icon("trash")}</button>` : "";
+  return `${channelFaces(home, c, project)}${ext}${comp}${autoJoin}${membersBtn}${clearDm}`;
 }
 
-/** Drafts survive a switch of channel and a restart, where storage allows. */
+/** Drafts survive a switch of conversation and a restart, where storage allows. */
 const TeamDrafts = {
   key: (ws, ch, th) => `team-draft:${ws}:${ch}:${th || ""}`,
   get(ws, ch, th) { try { return localStorage.getItem(this.key(ws, ch, th)) || ""; } catch { return ""; } },
@@ -121,51 +115,45 @@ const TeamDrafts = {
 const TeamChat = {
   s: null,
 
-  async open(center, side, ws, place) {
-    const s = this.s = { ws, channel: place.id, thread: place.thread, center, side, view: { messages: [], typing: [], names: {} }, files: TeamChat.s?.files || {}, pinsOnly: false, whispers: [], hidden: new Set(), lastRead: "", typedAt: 0, views: [] };
+  async open(root, ws, place) {
+    const s = this.s = { ws, channel: place.id, thread: place.thread || null, root, view: { messages: [], typing: [], names: {} }, files: TeamChat.s?.files || {}, whispers: [], hidden: new Set(), lastRead: "", typedAt: 0, views: [] };
     const c = Team.home.channels.find(x => x.id === s.channel);
-    if (!c) { paint(center, `<p class="empty">This channel is gone, or not yours to see.</p>`); paint(side, ""); return; }
+    if (!c) { paint(root, `<p class="empty">This conversation is gone, or not yours to see.</p>`); return; }
     s.unreadAtOpen = c.unread;
-    center.closest(".team-shell")?.classList.toggle("threaded", !!s.thread);
-    s.views = [this.mount(center, null)];
-    if (s.thread) s.views.push(this.mount(side, s.thread));
+    s.views = [this.mount(root, s.thread)];
     await this.refresh(true);
-    $("textarea", center)?.focus({ preventScroll: true });
+    $("textarea", root)?.focus({ preventScroll: true });
   },
 
-  /** The chat view of the channel, or of one of its threads, with its composer. */
+  /** The unified chat view of a shared conversation (or focused thread) with its composer. */
   mount(root, thread) {
     const s = this.s, home = Team.home, c = home.channels.find(x => x.id === s.channel);
     const record = MessageDrafts.forThread(`team:${s.ws}:${s.channel}:${thread || ""}`);
     if (!record.text && !record.files.length) record.text = TeamDrafts.get(s.ws, s.channel, thread);
-    const view = ChatView.mount(root, teamConversation(s, thread), { side: !!thread, record });
+    const view = ChatView.mount(root, teamConversation(s, thread), { record });
     const where = thread ? "Reply in thread" : c ? `Message ${channelTitle(home, c)}` : "Message";
     const guest = home.role === "guest";
     // The personal composer's model picker, first in the bar as there: a
     // member's request runs on their pick (decisions/2026-11-13-team-composer-model.md).
     const bar = `<span data-picker></span>${guest ? "" : `<label class="small whisper"><input type="checkbox" data-whisper> Only my Magnus sees this</label>`}`;
     const slot = $(".composer-slot", view.section);
-    paint(slot, composer(`${where}. Mention @${home.agent.name} or name it to ask the team agent.`, bar, { side: !!thread, label: where, mentions: true }));
+    paint(slot, composer(`${where}. Mention @${home.agent.name} to ask Magnus.`, bar, { label: where, mentions: true }));
     modelPicker().then(html => {
       const at = $("[data-picker]", slot);
       if (!at) return;
       at.outerHTML = html;
       // A guest's messages never start the agent, so there is no model to pick.
       const sel = $("select[data-model]", slot);
-      if (guest && sel) { sel.disabled = true; sel.title = "Guests chat here; only members can ask the team agent, so no model runs for you."; }
+      if (guest && sel) { sel.disabled = true; sel.title = "Guests chat here; only members can ask Magnus, so no model runs for you."; }
     });
     wireComposer($("form.say", slot), view.record, teamComposer(s, thread));
-    view.section.addEventListener("change", e => {
-      if (e.target.matches("[data-agent-mode]")) this.setting("agent", { mode: e.target.value }, x => { x.mode = e.target.value; });
-      if (e.target.matches("[data-notify]")) this.setting("notify", { level: e.target.value }, x => { x.notify = e.target.value; });
-    });
     $(".conv-head", view.section).onclick = e => this.headClick(e);
     return view;
   },
 
   async refresh(first = false) {
     const s = this.s;
-    if (!s || !s.center.isConnected) return;
+    if (!s || !s.root?.isConnected) return;
     const [view, whispers] = await Promise.all([Server.channels.view(s.ws, s.channel), Team.home.role === "guest" ? [] : Server.channels.whispers(s.ws, s.channel).catch(() => [])]);
     if (s !== this.s) return;
     s.view = view; s.whispers = whispers;
@@ -174,15 +162,14 @@ const TeamChat = {
     if (newest && newest !== s.lastRead) { s.lastRead = newest; Server.channels.read(s.ws, s.channel).catch(() => {}); }
   },
 
-  /** Draw the channel (and its open thread) again from what is held. */
+  /** Draw the shared conversation again from what is held. */
   async draw() {
     const s = this.s, c = s && Team.home.channels.find(x => x.id === s.channel);
     if (!c) return;
     await Promise.all(s.views.map(v => v.draw()));
-    if (!s.thread) TeamPanel.side(s.side, s.ws, c.project, s.channel);
   },
 
-  /** Ask in this channel, from outside its composer (the command menu, Catch me up). */
+  /** Ask in this conversation, from outside its composer (Catch me up). */
   async send(text, thread) {
     const s = this.s, r = await Server.channels.post(s.ws, s.channel, { text, thread: thread || undefined });
     if (r.agent) toast(`${Team.home.agent.name} is on it.`);
@@ -192,26 +179,23 @@ const TeamChat = {
 
   async headClick(e) {
     const s = this.s, t = e.target;
-    if (t.closest("[data-pins]")) { s.pinsOnly = !s.pinsOnly; await this.draw(); return; }
-    if (t.closest("[data-archive]")) { await this.archive(t.closest("[data-archive]").dataset.archive === "on"); return; }
+    if (t.closest("[data-agent-toggle]")) {
+      const c = Team.home.channels.find(x => x.id === s.channel);
+      if (!c || Team.home.role === "guest") return;
+      const next = c.mode === "when_helpful" ? "mentions" : "when_helpful";
+      await this.setting("agent", { mode: next }, x => { x.mode = next; });
+      await this.draw();
+      toast(next === "when_helpful" ? "Magnus will auto-join when helpful." : "Magnus will reply to @Magnus mentions.");
+      return;
+    }
     if (t.closest("[data-clear-conversation]")) await this.clear();
   },
 
-  /** Put this conversation away, or bring it back: the caller's list only. */
-  async archive(on) {
-    const s = this.s;
-    try {
-      await Server.channels.archive(s.ws, s.channel, on);
-      await loadHome(s.ws);
-      if (on) { toast("Archived. It comes back when someone writes in it."); this.away(); } else { toast("Back on your list."); await this.draw(); }
-    } catch (err) { toast(err.message); }
-  },
-
   /** Off this conversation, now it is off the list: to the workspace's
-   * first channel still on it, else its activity. */
+   * first conversation still on it, else Shared projects. */
   away() {
     const s = this.s, next = firstChannel(Team.home);
-    location.hash = next && next !== s.channel ? teamHref(s.ws, { kind: "channel", id: next }) : teamHref(s.ws, { kind: "activity" });
+    location.hash = next && next !== s.channel ? teamHref(s.ws, { kind: "channel", id: next }) : "#/teams";
   },
 
   /** Delete a direct conversation from the caller's own list and view. */

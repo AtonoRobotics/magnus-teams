@@ -27,7 +27,7 @@ const Team = { ws: null, /** @type {?TeamHome} */ home: null, /** @type {TeamPla
 
 route(/^#\/teams$/, main => showTeams(main));
 route(/^#\/join\/([^/]+)$/, (main, code) => joinTeam(main, code));
-route(/^#\/team\/([^/]+)(\/.*)?$/, (main, ws, rest) => showTeam(main, ws, teamPlace(rest || "")));
+route(/^#\/team\/([^/]+)(\/.*)?$/, (main, ws, rest) => showTeam(main, ws, teamPlace(rest || "")), true);
 
 /** Where a hash's tail points inside a workspace. Old links still land. */
 function teamPlace(rest) {
@@ -59,8 +59,8 @@ async function mayStartWorkspace() {
   return !!standing?.team_admin;
 }
 
-/** The Teams page: the person's workspaces, and the name field that starts
- * one for those allowed to.
+/** The Shared Projects page: the person's shared workspaces, and the name field
+ * that starts one for those allowed to.
  * @param {{id: string, name: string, role: string}[]} list @param {boolean} mayStart */
 function teamsPageHtml(list, mayStart) {
   const none = mayStart ? "You are in no shared project yet. Type a name to start one; Magnus is in it from the start." : "You are in no shared project yet. A Team Admin starts one and invites you.";
@@ -83,7 +83,7 @@ async function showTeams(main) {
 async function joinTeam(main, code) {
   paint(main, `<p class="empty">Joining…</p>`);
   try { const r = await Server.workspaces.join(code); location.hash = `#/team/${enc(r.workspace)}`; }
-  catch (err) { paint(main, `<div class="banner bad">${esc(err.message)}</div><p><a href="#/teams">Teams</a></p>`); }
+  catch (err) { paint(main, `<div class="banner bad">${esc(err.message)}</div><p><a href="#/teams">Shared projects</a></p>`); }
 }
 
 /** An avatar: UserAvatar (photo/preset/initials) for people, or the agent's mark. */
@@ -104,54 +104,19 @@ function directName(home, c) {
   return others.map(p => home.members.find(m => m.id === p)?.name || p).join(", ") || `${home.me_name} (you)`;
 }
 
-/** A channel's name as the rail and header show it. */
-function channelTitle(home, c) { return c.direct ? directName(home, c) : `#${c.name}`; }
+/** A shared conversation's title (clean name, no Slack `#` prefix). */
+function channelTitle(home, c) { return c.direct ? directName(home, c) : c.name; }
 
-/** The count beside a rail entry: mentions loud, unread quiet, muted none. */
+/** The count beside a conversation entry: mentions loud, unread quiet, muted none. */
 function railCount(c) {
   if (c.mentions) return `<span class="team-count loud" aria-label="${c.mentions} mentions">${c.mentions}</span>`;
   if (c.unread && c.notify !== "off") return `<span class="team-count" aria-label="${c.unread} unread">${c.unread}</span>`;
   return "";
 }
 
-/**
- * The left rail: Obsidian Aurora mockup layout — Orb header, Rooms (+ New),
- * and People (with online dot + advertised personal apps).
- * @param {TeamHome} home @param {TeamPlace} here
- */
-function railHtml(home, here) {
-  const at = (kind, id) => here.kind === kind && here.id === id ? ' aria-current="page"' : "";
-  const ws = home.id;
-  const listed = c => here.kind === "channel" && here.id === c.id || !(c.archived || c.deleted);
-  const away = home.channels.filter(c => c.archived && !c.deleted && !listed(c));
-  home = { ...home, channels: home.channels.filter(listed) };
-  const archived = away.length ? `<details class="team-archived"><summary class="small">Archived (${away.length})</summary><nav aria-label="Archived">${away.map(c => `<a href="${teamHref(ws, { kind: "channel", id: c.id })}" data-channel="${esc(c.id)}">${esc(channelTitle(home, c))}${railCount(c)}</a>`).join("")}</nav></details>` : "";
-  const open = home.channels.filter(c => !c.direct);
-  const rooms = open.map(c => `<a href="${teamHref(ws, { kind: "channel", id: c.id })}"${at("channel", c.id)} data-channel="${esc(c.id)}" class="${c.unread && c.notify !== "off" ? "unread" : ""}${c.notify === "off" ? " muted" : ""}">#${esc(c.name)}${railCount(c)}</a>`).join("");
-  const capsById = new Map((Team.capabilities?.[ws] || []).map(x => [x.id, (x.apps || []).map(a => a.title || a.name).join(" · ")]));
-  const dms = home.channels.filter(c => c.direct && !c.direct.agent).map(c => {
-    const other = c.direct.people.find(p => p !== home.me), on = home.members.find(m => m.id === other)?.online;
-    const apps = other ? capsById.get(other) : "";
-    return `<a class="room-person-link" href="${teamHref(ws, { kind: "channel", id: c.id })}"${at("channel", c.id)} data-channel="${esc(c.id)}"><span class="room-person-top">${avatar(directName(home, c), false, other)}<span class="team-presence${on ? " on" : ""}" aria-label="${on ? "here" : "away"}"></span><span>${esc(directName(home, c))}</span>${railCount(c)}${on ? `<span class="room-person-dot" aria-hidden="true"></span>` : ""}</span>${apps ? `<span class="room-person-apps">${esc(apps)}</span>` : ""}</a>`;
-  }).join("");
-  const people = home.members.filter(m => m.id !== home.me && !home.channels.some(c => c.direct && !c.direct.agent && c.direct.people.length === 2 && c.direct.people.includes(m.id)));
-  const peopleRows = people.map(m => {
-    const apps = capsById.get(m.id) || "";
-    return `<a class="room-person-link" href="#" data-dm="${esc(m.id)}"><span class="room-person-top">${avatar(m.name, false, m.id)}<span class="team-presence${m.online ? " on" : ""}" aria-label="${m.online ? "here" : "away"}"></span><span>${esc(m.name)}</span>${m.online ? `<span class="room-person-dot" aria-hidden="true"></span>` : ""}</span>${apps ? `<span class="room-person-apps">${esc(apps)}</span>` : ""}</a>`;
-  }).join("");
-  return `<div class="team-rail-head"><span class="room-orb" aria-hidden="true"></span><div class="team-rail-head-meta"><strong>${esc(home.name)}</strong><span class="small faint">${home.members.length} ${home.members.length === 1 ? "person" : "people"}</span></div></div>
-    <div class="room-rail-sec"><h3>Rooms</h3><button type="button" class="room-rail-add" data-command>+ New</button></div><nav aria-label="Rooms">${rooms}</nav>
-    <div class="room-rail-sec"><h3>People</h3></div><nav aria-label="People">${dms}${peopleRows}</nav>
-    ${archived}
-    <div class="team-rail-foot">
-      <a href="${teamHref(ws, { kind: "people" })}"${here.kind === "people" ? ' aria-current="page"' : ""} data-rail-people>${peopleLabel(home)} <span class="small faint">${home.members.length}</span></a>
-      <a href="#/teams" class="small faint">All teams</a>
-    </div>`;
-}
-
-/** The channel a workspace opens on: the first with mentions, else general. */
+/** The conversation a shared project opens on: the first with mentions, else general. */
 function firstChannel(home) {
-  const open = home.channels.filter(c => !c.direct && !c.archived);
+  const open = home.channels.filter(c => !c.direct && !c.archived && !c.deleted);
   return (open.find(c => c.mentions) || open.find(c => c.name === "general") || open[0] || home.channels.find(c => !c.archived && !c.deleted) || home.channels[0])?.id;
 }
 
@@ -166,146 +131,101 @@ async function loadHome(ws) {
     for (const m of caps) if (m.avatar) Team.avatars[m.id] = m.avatar;
   }
   if (Team.ws === ws) Team.home = home;
+  if (typeof App !== "undefined" && App.shared?.ws === ws) App.shared.home = home;
   return home;
+}
+
+/** Maps a legacy #/team/:ws/... deep link to the unified Canvas view id. */
+function sharedDeepLinkPanel(place) {
+  if (place.kind === "people") return "shared:settings";
+  if (place.kind === "activity") return "shared:activity";
+  if (place.kind === "search") return `shared:search:${place.q || ""}`;
+  if (place.kind === "project") {
+    const tab = place.tab || "overview";
+    if (tab === "files") return "shared:files";
+    if (tab === "knowledge") return "shared:knowledge";
+    if (tab === "members") return "shared:settings";
+    if (tab === "board") return "shared:tasks";
+    return "shared:missions";
+  }
+  return null;
 }
 
 async function showTeam(main, ws, place) {
   const hash = location.hash, loop = ++Team.loop;
   Team.ws = ws;
+  App.thread = null;
   Team.home = Team.homes[ws] || await loadHome(ws);
   if (location.hash !== hash) return;
-  if (place.kind === "channel" && !place.id) place.id = firstChannel(Team.home);
-  if (place.kind === "project" && !place.id) place = { kind: "channel", id: firstChannel(Team.home) };
-  Team.place = place;
-  main.classList.add("team-main");
-  main.innerHTML = `<div class="team-shell"><aside class="team-rail" id="team-rail"></aside><section class="team-center" id="team-center"></section><div class="team-splitter" id="team-splitter" role="separator" tabindex="0" aria-label="Side panel width" aria-orientation="vertical"></div><aside class="team-side" id="team-side" aria-label="Work"></aside></div>`;
-  const shellEl = $(".team-shell", main);
-  if (shellEl) {
-    shellEl.addEventListener("click", e => {
-      const t = /** @type {HTMLElement} */ (e.target);
-      if (t.closest("[data-room-work-toggle]")) {
-        shellEl.classList.toggle("work-closed");
-        return;
-      }
-      if (t.closest("[data-room-mute]")) {
-        const b = t.closest("[data-room-mute]");
-        b.textContent = b.textContent === "Mute" ? "Unmute" : "Mute";
-        return;
-      }
-      if (t.closest("[data-room-call]") || t.closest("[data-room-call-leave]")) {
-        const center = $("#team-center", main);
-        if (!center) return;
-        const existing = $(".room-video-stage", center);
-        if (existing) {
-          existing.remove();
-          const btn = $("[data-room-call] span", center);
-          if (btn) btn.textContent = "Join Call";
-          return;
-        }
-        const members = (Team.home?.members || []).slice(0, 4);
-        const stage = document.createElement("section");
-        stage.className = "room-video-stage";
-        stage.innerHTML = `<div class="room-video-grid">${members.map(m => `<div class="room-video-tile">${avatar(m.name, false, m.id)}<span class="room-video-tile-name">${esc(m.name)}</span></div>`).join("")}</div>
-          <div class="room-video-bar">
-            <span class="room-video-listening"><span class="room-orb room-orb-sm" aria-hidden="true"></span><span>Magnus listening · taking notes into Work</span></span>
-            <div class="room-video-controls">
-              <button type="button" data-room-mute>Mute</button>
-              <button type="button" data-room-cam>Camera</button>
-              <button type="button" data-room-screen>Share screen</button>
-              <button type="button" class="danger" data-room-call-leave>Leave</button>
-            </div>
-          </div>`;
-        center.prepend(stage);
-        const btn = $("[data-room-call] span", center);
-        if (btn) btn.textContent = "In Call";
-      }
+  const chId = (place.kind === "channel" && place.id) ? place.id : firstChannel(Team.home);
+  const chanPlace = { kind: "channel", id: chId, thread: place.kind === "channel" ? place.thread : undefined };
+  Team.place = place.kind === "channel" ? chanPlace : place;
+  App.shared = { ws, channel: chId, project: Team.home.channels.find(x => x.id === chId)?.project || place.id || null, home: Team.home, missions: [], panel: null };
+  if (typeof onLeave === "function") {
+    onLeave(() => {
+      Team.loop++;
+      if (App.shared?.ws === ws) App.shared = null;
+      App.redraw = null;
+      if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) closePanel(false);
     });
   }
-  const splitter = $("#team-splitter", main);
-  if (splitter && typeof Theme !== "undefined") {
-    const B = Theme.LAYOUT_BOUNDS || { panelMinWidthPx: 280, panelMaxWidthPx: 520, panelDefaultWidthPx: 360 };
-    const setWidth = w => {
-      const clamped = Math.max(B.panelMinWidthPx, Math.min(B.panelMaxWidthPx, Math.round(w)));
-      Theme.set({ panelWidthPx: clamped });
-      $(".shell")?.style.setProperty("--panel-width", `${clamped}px`);
-    };
-    splitter.onpointerdown = e => {
-      if (e.button !== 0) return;
-      const sideEl = $("#team-side", main), startX = e.clientX, startW = sideEl?.getBoundingClientRect().width || Theme.prefs().panelWidthPx || B.panelDefaultWidthPx;
-      splitter.setPointerCapture(e.pointerId);
-      splitter.onpointermove = mv => setWidth(startW + startX - mv.clientX);
-      splitter.onpointerup = () => { splitter.onpointermove = null; splitter.onpointerup = null; splitter.releasePointerCapture(e.pointerId); };
-    };
-    splitter.ondblclick = () => setWidth(B.panelDefaultWidthPx);
+  if (typeof sidebar === "function") sidebar();
+  const deepPanel = sharedDeepLinkPanel(place);
+  if (deepPanel && (typeof PANELS === "undefined" || !PANELS.shared)) {
+    // Fallback before shared Canvas panels are registered.
+    if (place.kind === "people") await teamPeople(main, null, ws);
+    else if (place.kind === "activity") await teamActivity(main, null, ws);
+    else if (place.kind === "search") await TeamCommand.results(main, ws, place.q || "");
+    else await TeamPanel.project(main, null, ws, place);
+    return;
   }
-  const draw = () => {
-    paint($("#team-rail", main), railHtml(Team.home, Team.place));
+  await TeamChat.open(main, ws, chanPlace);
+  const loadMissions = async () => {
+    if (!chId || !Server.workspaces.missions) return;
+    const ms = await Server.workspaces.missions(ws, chId).catch(() => []);
+    if (App.shared?.ws === ws && App.shared?.channel === chId) App.shared.missions = ms || [];
   };
-  draw();
-  bindRail(main, ws);
-  await drawCenter(main, ws, place);
-  // Keep it live: the rail, the conversation and the panel, while it is open.
+  await loadMissions();
+  if (deepPanel && typeof openPanel === "function") openPanel(deepPanel, { auto: false });
+  if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
   const tick = async () => {
     if (loop !== Team.loop || !main.isConnected || location.hash !== hash) return;
-    try { await loadHome(ws); draw(); await refreshCenter(main, ws); } catch (err) {
-      // Deleted, or the person was taken out of it: it is gone at once.
+    try {
+      await loadHome(ws);
+      await Promise.all([TeamChat.refresh(), loadMissions()]);
+      if (typeof sidebar === "function") sidebar();
+      if (typeof AuroraStage !== "undefined") AuroraStage.refresh();
+      if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) drawPanel();
+    } catch (err) {
       if (err?.status === 404 && err?.body?.error === "no such workspace") return leftWorkspace(ws);
-      /* otherwise a moment offline: the next tick tries again */
     }
     setTimeout(tick, TEAM_REFRESH_MS);
   };
   setTimeout(tick, TEAM_REFRESH_MS);
-  loadHome(ws).then(draw).catch(() => {});
 }
 
 /** The workspace is no longer the person's: back to the list, saying so. */
 function leftWorkspace(ws) {
-  toast("That workspace is no longer yours to open: it was deleted, or you are no longer in it.", 6000);
+  toast("That shared project is no longer yours to open: it was deleted, or you are no longer in it.", 6000);
   leftWorkspaceQuietly(ws);
 }
 
-/** The centre and the right panel for a place. */
-async function drawCenter(main, ws, place) {
-  const center = $("#team-center", main), side = $("#team-side", main);
-  if (place.kind === "channel") return TeamChat.open(center, side, ws, place);
-  if (place.kind === "project") return TeamPanel.project(center, side, ws, place);
-  if (place.kind === "activity") return teamActivity(center, side, ws);
-  if (place.kind === "search") return TeamCommand.results(center, ws, place.q);
-  if (place.kind === "people") return teamPeople(center, side, ws);
-}
-
+/** Refresh the active shared view (used by command helpers). */
 async function refreshCenter(main, ws) {
-  const place = Team.place, side = $("#team-side", main);
-  if (place.kind === "channel") return TeamChat.refresh();
-  if (place.kind === "project") return TeamPanel.refresh();
-  if (side) return TeamPanel.side(side, ws, null, null);
-}
-
-function bindRail(main, ws) {
-  $("#team-rail", main).onclick = async e => {
-    if (e.target.closest("[data-command]")) { TeamCommand.open(); return; }
-    const dm = e.target.closest("[data-dm]"), agent = e.target.closest("[data-direct-agent]");
-    if (!dm && !(agent && agent.getAttribute("href") === "#")) return;
-    e.preventDefault();
-    try {
-      const body = dm ? { people: [dm.dataset.dm] } : { agent: true };
-      const r = await Server.workspaces.direct(ws, body);
-      await loadHome(ws);
-      location.hash = teamHref(ws, { kind: "channel", id: r.id });
-    } catch (err) { toast(err.message); }
-  };
+  await TeamChat.refresh();
+  if (typeof Panel !== "undefined" && String(Panel.what || "").startsWith("shared:")) await drawPanel();
 }
 
 /** Mentions, replies and asks, newest first. */
 async function teamActivity(center, side, ws) {
   const a = await Server.workspaces.activity(ws), home = Team.home;
   const name = id => home.members.find(m => m.id === id)?.name || id;
-  const row = i => `<li><a href="${teamHref(ws, { kind: "channel", id: i.channel, thread: i.thread || undefined })}"><strong>${esc(name(i.sender))}</strong> in #${esc(i.channel_name || "direct")} <span class="small faint">${esc(when(i.at))}</span><div class="small">${Compose.maskedText(firstLine(i.text))}</div></a></li>`;
+  const row = i => `<li><a href="${teamHref(ws, { kind: "channel", id: i.channel, thread: i.thread || undefined })}"><strong>${esc(name(i.sender))}</strong> in ${esc(i.channel_name || "direct")} <span class="small faint">${esc(when(i.at))}</span><div class="small">${Compose.maskedText(firstLine(i.text))}</div></a></li>`;
   const section = (title, list, empty) => `<h2>${title}</h2>${list.length ? `<ul class="team-activity-list">${list.map(row).join("")}</ul>` : `<p class="small faint">${empty}</p>`}`;
   paint(center, `<header class="team-head"><h1>Activity</h1></header><div class="team-scroll">
-    ${a.asks?.length ? `<h2>Waiting on you</h2><ul class="team-activity-list">${a.asks.map(x => `<li><a href="#/inbox">The team agent needs your answer${x.reason ? `: ${esc(x.reason)}` : ""}</a></li>`).join("")}</ul>` : ""}
+    ${a.asks?.length ? `<h2>Waiting on you</h2><ul class="team-activity-list">${a.asks.map(x => `<li><a href="#/inbox">Magnus needs your answer${x.reason ? `: ${esc(x.reason)}` : ""}</a></li>`).join("")}</ul>` : ""}
     ${section("Mentions", a.mentions || [], "No one has mentioned you.")}${section("Replies", a.replies || [], "No replies to your threads.")}</div>`);
-  await TeamPanel.side(side, ws, null, null);
+  if (side?.isConnected) await TeamPanel.side(side, ws, null, null);
 }
 
 /** Invite inline: by email, or a link to copy. */

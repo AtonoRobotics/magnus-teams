@@ -129,8 +129,6 @@ const AuroraAvatar = (() => {
     nav: "aurora-avatar-nav",
     bar: "aurora-avatar-bar",
     side: "aurora-avatar-side",
-    team: "aurora-avatar-team",
-    call: "aurora-avatar-call",
     hero: "aurora-avatar-hero",
   };
 
@@ -184,16 +182,6 @@ const AuroraAvatar = (() => {
     document.querySelectorAll(".companion-avatar").forEach(slot => {
       if (slot.querySelector(":scope > .aurora-avatar")) return;
       mount(/** @type {HTMLElement} */ (slot), 30, "side");
-    });
-    document.querySelectorAll(".team-rail-head .room-orb").forEach(slot => {
-      if (slot.querySelector(":scope > .aurora-avatar")) return;
-      slot.removeAttribute("aria-hidden");
-      mount(/** @type {HTMLElement} */ (slot), 24, "team");
-    });
-    document.querySelectorAll(".room-video-listening .room-orb").forEach(slot => {
-      if (slot.querySelector(":scope > .aurora-avatar")) return;
-      slot.removeAttribute("aria-hidden");
-      mount(/** @type {HTMLElement} */ (slot), 18, "call", "listening");
     });
     const heads = document.querySelectorAll(".hello-head");
     heads.forEach(slot => {

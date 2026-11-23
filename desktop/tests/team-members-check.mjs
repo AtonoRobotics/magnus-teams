@@ -46,20 +46,13 @@ Team.home = home; Team.ws = "w"; Team.homes = { w: home };
 
 const owner = home, admin = { ...home, role: "admin", me: "sam" }, member = { ...home, role: "member", me: "leo" }, guest = { ...home, role: "guest", me: "leo" };
 
-// The rail: the people page is the second thing on it, above the projects,
-// channels and conversations that pushed it out of sight; it says what a
-// Team Admin does there.
+// The shared conversation header includes a direct Members chip opening
+// shared:settings in the unified Canvas, and legacy #/team/:ws/people resolves there.
 for (const h of [owner, admin, member]) {
-  const rail = sandbox.railHtml(h, { kind: "channel", id: "c1" });
-  const link = rail.match(/<a href="#\/team\/w\/people"[^>]*data-rail-people>([^]*?)<\/a>/);
-  assert.ok(link, `the rail has no way to the people page for a workspace ${h.role}`);
-  assert.ok(rail.includes("<h3>Rooms</h3>") && rail.includes("<h3>People</h3>"), "the redesigned rail shows Rooms and People");
-  assert.match(link[1], /3<\/span>$/, "the rail does not say how many people are in");
-  if (h.role === "member") assert.doesNotMatch(link[1], /add or remove/, "a member is told they add or remove people");
-  else assert.match(link[1], /add or remove/, `a ${h.role} is not told where to add or remove people`);
+  const tools = sandbox.channelTools(h, h.channels[0], null);
+  assert.match(tools, /data-open="shared:settings"[^]*>3<\/span>/, `header Members chip missing count for ${h.role}`);
 }
-assert.equal(sandbox.railHtml(owner, { kind: "channel", id: "c1" }).match(/#\/team\/w\/people/g).length, 1, "the rail links the people page twice");
-assert.match(sandbox.railHtml(owner, { kind: "people" }), /aria-current="page" data-rail-people/, "the rail does not mark the people page as open");
+assert.equal(sandbox.sharedDeepLinkPanel({ kind: "people" }), "shared:settings");
 
 // The right panel's Members: names, not just initials, and the way to add
 // or remove for a Team Admin; for anyone else, to see who is in.

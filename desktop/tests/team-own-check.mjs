@@ -43,15 +43,10 @@ const home = {
 };
 Team.home = home; Team.ws = "w";
 
-// The rail: an archived channel is folded away, a deleted conversation gone.
-const rail = sandbox.railHtml(home, { kind: "channel", id: "c1" });
-const main = rail.split("team-archived")[0];
-assert.doesNotMatch(main, /#random/, "an archived channel stays on the list");
-assert.match(rail, /<details class="team-archived"><summary class="small">Archived \(1\)<\/summary>[^]*#random/, "an archived channel cannot be found again");
-assert.doesNotMatch(rail, /data-channel="d1"/, "a deleted conversation stays on the list");
-assert.match(rail, /data-dm="dana"/, "with the conversation deleted, Dana cannot be written to again");
-assert.match(sandbox.railHtml(home, { kind: "channel", id: "c2" }).split("team-archived")[0], /#random/, "the archived channel open now is not on the list");
-assert.equal(sandbox.firstChannel({ ...home, channels: [home.channels[1], home.channels[0]] }), "c1", "a workspace opened on an archived channel");
+// Opening a shared project skips archived and deleted conversations.
+assert.equal(sandbox.firstChannel({ ...home, channels: [home.channels[1], home.channels[0]] }), "c1", "a shared project opened on an archived conversation");
+assert.equal(sandbox.firstChannel({ ...home, channels: [home.channels[2], home.channels[0]] }), "c1", "a shared project opened on a deleted conversation");
+assert.equal(sandbox.sharedDeepLinkPanel({ kind: "people" }), "shared:settings", "legacy #/team/:ws/people deep link opens shared settings Canvas");
 
 // A deleted message keeps its place only where it has replies; one's own
 // message can be deleted, someone else's cannot (by a member: a Team Admin

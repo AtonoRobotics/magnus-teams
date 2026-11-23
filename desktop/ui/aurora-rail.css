@@ -214,15 +214,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-navigat
   transform: translate(-50%, -50%);
 }
 
-html:is([data-style="aurora"], [data-style="obsidian-aurora"]) .room-orb:has(> .aurora-avatar) {
-  display: inline-grid;
-  place-items: center;
-  width: auto;
-  height: auto;
-  background: transparent;
-  box-shadow: none;
-}
-
 @media (any-pointer: coarse) {
   .aurora-avatar-nav::after {
     content: "";

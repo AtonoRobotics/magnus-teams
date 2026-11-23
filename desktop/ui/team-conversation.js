@@ -98,11 +98,11 @@ function teamConversation(s, thread) {
   return {
     me: Team.home.me, agentName: Team.home.agent.name, name: r.name,
     names: () => [Team.home.agent.name, ...Team.home.members.map(m => m.name)],
-    get hello() { return thread ? "This thread is empty." : s.pinsOnly ? "Nothing pinned yet." : `No messages yet. ${Team.home.agent.name} is here: mention it to ask for anything.`; },
+    get hello() { return thread ? "This thread is empty." : `No messages yet. ${Team.home.agent.name} is here: mention @${Team.home.agent.name} to ask for anything.`; },
     voice: e => `team:${e.id}`,
     load: async () => {
       const all = s.view.messages;
-      const list = thread ? [all.find(m => m.id === thread), ...replies()].filter(Boolean) : all.filter(m => !m.thread && (!s.pinsOnly || m.pinned));
+      const list = thread ? [all.find(m => m.id === thread), ...replies()].filter(Boolean) : all.filter(m => !m.thread);
       return list.map(m => teamEntry(m, r));
     },
     prepare: async (entries, view) => {
@@ -116,8 +116,8 @@ function teamConversation(s, thread) {
       if (!c) return;
       const project = Team.home.projects.find(p => p.id === c.project);
       paint($(".conv-head", view.section), thread
-        ? ChatView.head({ title: "Thread", where: esc(channelTitle(Team.home, c)), tools: `<a class="icon-btn" href="${teamHref(s.ws, { kind: "channel", id: s.channel })}" aria-label="Close thread" title="Close thread">${icon("close")}</a>` })
-        : ChatView.head({ title: channelTitle(Team.home, c), where: project ? `<a href="${teamHref(s.ws, { kind: "project", id: project.id })}">${esc(project.name)}</a>` : "", tools: channelTools(Team.home, c, project, s.pinsOnly) }));
+        ? ChatView.head({ title: "Thread", where: `<a href="${teamHref(s.ws, { kind: "channel", id: s.channel })}">← ${esc(channelTitle(Team.home, c))}</a>`, tools: channelTools(Team.home, c, project) })
+        : ChatView.head({ title: channelTitle(Team.home, c), where: c.direct ? "" : `<a href="#/team/${enc(s.ws)}" data-open="shared:missions">${esc(project ? project.name : Team.home.name)}</a>`, tools: channelTools(Team.home, c, project) }));
     },
     // Retry and Feedback are for who asked the agent; what only they may see
     // is not shared or saved for the team, and the server holds to that too.
@@ -135,7 +135,7 @@ function teamConversation(s, thread) {
     extras: e => teamExtras(teamCaps(s).reactions ? e : { ...e, reactions: {} }, r, thread && e.id === thread ? replies().length : undefined),
     note: e => e.private && e.requester === Team.home.me && e.task_id ? `<div class="small faint private-note">Only you can see this: it holds data only you may see. <button class="link small" data-share-answer="${esc(e.task_id)}">Post it to the thread</button></div>` : "",
     before: () => !thread && s.unreadAtOpen >= TEAM_CATCH_UP_AFTER && Team.home.role !== "guest" ? `<button type="button" class="chip run" data-catch-up>Catch me up: ${s.unreadAtOpen} new</button>` : "",
-    beforeItem: (_e, i, entries) => !thread && !s.pinsOnly && s.unreadAtOpen > 0 && i === Math.max(0, entries.length - s.unreadAtOpen)
+    beforeItem: (_e, i, entries) => !thread && s.unreadAtOpen > 0 && i === Math.max(0, entries.length - s.unreadAtOpen)
       ? `<div class="team-unread-divider" role="separator"><span>New messages</span></div>` : "",
     after: () => thread ? "" : s.whispers.filter(w => !w.shared && !s.hidden.has(w.task)).map(w => `<div class="entry them" data-whisper="${esc(w.task)}"><div class="msg magnus whisper"><div class="small faint byline"><strong>Your Magnus</strong> · only you can see this</div><div class="pre">${esc(w.text || "Working on it…")}</div>${w.done && w.text ? `<div class="row"><button class="primary" data-whisper-share="${esc(w.task)}">Share</button><button data-not-now="${esc(w.task)}">Not now</button></div>` : ""}</div></div>`).join(""),
     status: () => {

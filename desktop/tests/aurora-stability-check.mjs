@@ -177,7 +177,7 @@ assert.match(composerJs, /conv\.steerRun/, "composer supports steering active wo
 assert.match(personalJs, /steerRun:/, "personal chat wires Server.tasks.steer");
 assert.match(personalJs, /next\.pendingRun = carry\.pendingRun/, "new-chat handoff preserves optimistic Stop state");
 assert.match(teamConvJs, /stopRun:/, "team chat wires Stop support");
-assert.match(pagesJs, /teamRoom/, "aurora-pages.js exempts Team rooms from floating close X");
+assert.match(pagesJs, /chat\(\?:\\\/\|\$\)\|team\\\//, "aurora-pages.js treats shared conversations (#/team/) as first-class conversations");
 assert.match(pagesJs, /modalRoute/, "aurora-pages.js exempts Settings/Admin modal routes from background close X");
 assert.match(app, /\[data-close-work\]"\)\.hidden=!work \|\| m\.split \|\| region==="work"/, "workspace-bar hides duplicate Close work when panel shows its own close");
 assert.match(app, /class="icon-btn settings-close" data-settings-done/, "Settings modal uses standard X close button");

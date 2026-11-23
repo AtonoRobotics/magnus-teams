@@ -56,10 +56,6 @@ html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body .shell > mai
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     pointer-events: none;
   }
-
-  html:is([data-style="aurora"], [data-style="obsidian-aurora"]) body[data-team]:not([data-navigation=drawer]) .shell::before {
-    display: none;
-  }
 }
 
 /* What happened while the person was away is a box, not a banner over the

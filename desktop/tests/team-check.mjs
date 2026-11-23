@@ -45,7 +45,8 @@ const memberPage = sandbox.teamsPageHtml([], false);
 assert.ok(!/new-team|team-name/.test(memberPage), "a member is offered a workspace form the server refuses");
 assert.match(memberPage, /A Team Admin starts one and invites you\./);
 
-// The rail: projects with progress, channels with counts, agents, people.
+// Shared conversations: clean titles (no Slack # prefix), minimal header tools
+// (faces, Auto-join toggle, Members chip, no Join Call), and firstChannel selection.
 const home = {
   id: "w", name: "Alpha <Vector>", role: "member", me: "sam", me_name: "Sam", agent: { id: "agent", name: "Magnus" }, computer: null,
   members: [{ id: "sam", name: "Sam", role: "member", online: true }, { id: "dana", name: "Dana", role: "owner", online: true }, { id: "leo", name: "Leo", role: "member", online: false }],
@@ -58,17 +59,13 @@ const home = {
   projects: [{ id: "p1", name: "Magnus alpha", owner: "dana", members: ["dana", "sam"], progress: { done: 1, total: 3 }, channels: ["c1"] }],
 };
 Team.home = home; Team.ws = "w";
-const rail = sandbox.railHtml(home, { kind: "channel", id: "c1" });
-assert.match(rail, /Alpha &#60;Vector&#62;/, "the workspace's name was not escaped");
-assert.match(rail, /<h3>Rooms<\/h3>/, "the rail lists Rooms");
-assert.match(rail, /#magnus-alpha<span class="team-count loud" aria-label="2 mentions">2<\/span>/, "mentions are not counted in the rail");
-assert.match(rail, /data-channel="c1"[^>]*aria-current="page"|aria-current="page" data-channel="c1"/, "the open channel is not marked");
-assert.doesNotMatch(rail.match(/data-channel="c2"[^]*?<\/a>/)[0], /team-count/, "a channel with notifications off still shows a count");
-assert.match(rail, /<h3>People<\/h3>/, "the rail lists People");
-assert.match(rail, /team-presence on[^]*Dana/, "presence is not shown for a direct message");
-assert.match(rail, /data-dm="leo"/, "someone without a conversation yet cannot be messaged");
-assert.doesNotMatch(rail, /data-dm="dana"/, "someone already in a direct message is listed twice");
-assert.equal(sandbox.firstChannel(home), "c1", "a workspace does not open where the mentions are");
+assert.equal(sandbox.channelTitle(home, home.channels[0]), "magnus-alpha", "shared conversation title drops # prefix");
+assert.equal(sandbox.channelTitle(home, home.channels[3]), "Dana", "direct conversation title shows the other person");
+const tools = sandbox.channelTools(home, home.channels[0], home.projects[0]);
+assert.match(tools, /data-agent-toggle[^>]*aria-pressed="true"[^>]*>Auto-join: On/, "Auto-join toggle reflects when_helpful mode");
+assert.match(tools, /data-open="shared:settings"/, "Members chip opens shared settings in the unified Canvas");
+assert.doesNotMatch(tools, /Join Call|data-room-call|data-pins|data-archive/, "Slack/call chrome is cut from shared conversation header");
+assert.equal(sandbox.firstChannel(home), "c1", "a shared project opens where the mentions are");
 
 // A channel's items, drawn by the one chat view as the personal chat draws
 // its own: the state a channel holds, and one item drawn there.
@@ -235,17 +232,17 @@ assert.equal(groups.filter((g, i) => g !== groups[i - 1]).length, new Set(groups
 // Spend limits: an owner types an amount; nobody else is offered it.
 const owner = { ...home, role: "owner", spend: { spent_usd: 12.5, limit_usd: 50, channels: { c1: { spent_usd: 4, limit_usd: 10 } } } };
 const fifty = sandbox.commandsFor(owner, Team.place, "$25");
-assert.equal(fifty[0].label, "Limit #magnus-alpha to $25 a month", "an amount typed by an owner does not come first as a limit");
+assert.equal(fifty[0].label, "Limit magnus-alpha to $25 a month", "an amount typed by an owner does not come first as a limit");
 assert.deepEqual(plain(fifty[0].run), { kind: "limit", channel: "c1", usd: 25 });
 assert.deepEqual(plain(fifty[1].run), { kind: "limit", usd: 25 });
 assert.ok(!sandbox.commandsFor({ ...owner, role: "admin" }, Team.place, "25").some(c => c.run.kind === "limit"), "an admin who is not an owner is offered a spend limit");
 const lifts = sandbox.commandsFor(owner, Team.place, "").filter(c => c.run.kind === "limit").map(c => c.label);
-assert.deepEqual(plain(lifts), ["Lift the spend limit on #magnus-alpha", "Lift the workspace's spend limit"]);
+assert.deepEqual(plain(lifts), ["Lift the spend limit on magnus-alpha", "Lift the workspace's spend limit"]);
 assert.equal(sandbox.limitCommands(owner, null, "lots").length, 0, "words were read as an amount");
 Team.home = owner;
 const spendCard = sandbox.overviewHtml({ project: null, channels: [], files: [], tasks: [], work: [], members: [], knowledge: 0, progress: null, computer: null }, "w", "c1");
 assert.match(spendCard, /Workspace<\/span><span class="small faint">\$12\.50 of \$50/, "the panel does not show the month's spend against the limit");
-assert.match(spendCard, /#magnus-alpha<\/span><span class="small faint">\$4 of \$10/, "the panel does not show the channel's spend");
+assert.match(spendCard, /magnus-alpha<\/span><span class="small faint">\$4 of \$10/, "the panel does not show the channel's spend");
 Team.home = home;
 assert.equal(sandbox.teamUsd(0.004), "under $0.01", "a few calls' spend reads as nothing");
 assert.equal(sandbox.teamUsd(12), "$12");

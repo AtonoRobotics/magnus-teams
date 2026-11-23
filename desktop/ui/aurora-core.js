@@ -54,7 +54,7 @@ const AuroraCore = (() => {
 
   /** Reads the canonical 9-state status from the page. */
   function detect() {
-    if (document.querySelector('.voice-in[aria-pressed="true"], .room-video-listening')) return "listening";
+    if (document.querySelector('.voice-in[aria-pressed="true"]')) return "listening";
     if (document.querySelector('.state-pill[data-pill="mine"], .screen.held')) return "control";
     if (document.querySelector('.st.need, .stage-tile[data-tone="needs"], .stage-decision, .detail-body[data-panel="needs"] .ask-answers, .aurora-reason[data-phase="needs"]')) return "waiting";
 

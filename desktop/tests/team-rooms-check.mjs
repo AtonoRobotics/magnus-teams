@@ -61,14 +61,14 @@ assert.match(capsHtml, /Alice Chen/);
 assert.match(capsHtml, /Salesforce/);
 assert.match(capsHtml, /is-preset/);
 
-// 5. True 3-island Aurora Teams layout: drop outer .shell::before, animate Work Canvas, mount live AuroraAvatar in .room-orb.
+// 5. Unified Stage + Canvas architecture: 3-island .team-shell and body[data-team] are retired; #/team/:ws mounts on the unified workspace shell.
 const stageCss = readFileSync(join(here, "../ui/aurora-stage.css"), "utf8");
 const teamsCss = readFileSync(join(here, "../ui/teams.css"), "utf8");
+const teamsJs = readFileSync(join(here, "../ui/teams.js"), "utf8");
 const avatarJs = readFileSync(join(here, "../ui/aurora-avatar.js"), "utf8");
-assert.match(stageCss, /body\[data-team\]:not\(\[data-navigation=drawer\]\)\s*\.shell::before\s*\{\s*display:\s*none;/);
-assert.match(teamsCss, /\.team-shell\s*\{\s*gap:\s*10px;\s*padding:\s*0;/);
-assert.match(teamsCss, /\.team-shell\s*\{\s*transition:\s*grid-template-columns/);
-assert.match(avatarJs, /\.team-rail-head\s+\.room-orb/);
-assert.match(avatarJs, /\.room-video-listening\s+\.room-orb/);
+assert.doesNotMatch(stageCss, /body\[data-team\]/, "aurora-stage.css has no separate body[data-team] frame override");
+assert.doesNotMatch(teamsCss, /\.team-shell\b|\.team-rail\b|\.room-video-/, "teams.css has no 3-island .team-shell or call stage");
+assert.match(teamsJs, /route\(\/\^#\\\/team\\\/\(\[\^\/\]\+\)\(\\\/\.?\*\)\?\$\/,[\s\S]*?,\s*true\)/, "#/team/:ws routes mount with workspace=true on the unified Stage + Canvas");
+assert.doesNotMatch(avatarJs, /\.team-rail-head\s+\.room-orb|\.room-video-listening\s+\.room-orb/, "aurora-avatar.js has no retired .team-rail or call orb hooks");
 
 console.log("team rooms check passed");
