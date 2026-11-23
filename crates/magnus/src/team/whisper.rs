@@ -7,6 +7,7 @@ use super::{Change, Message};
 use crate::api_error::{refuse, ApiResult};
 use crate::events::Ev;
 use crate::kernel::{Kernel, NewRun};
+use crate::say::Said;
 use crate::state::{Run, Status};
 use crate::tools::Label;
 use anyhow::Result;
@@ -40,23 +41,16 @@ pub fn router() -> Router<Arc<Kernel>> {
 }
 
 impl Kernel {
-    /// A personal run, its person's own in every way, that also has the thread.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn whisper(
-        self: &Arc<Self>,
-        workspace: &str,
-        channel: &str,
-        thread: Option<String>,
-        person: &str,
-        text: String,
-        model: Option<(String, String)>,
-    ) -> Result<(String, String)> {
+    /// A personal run, its person's own in every way, that also has the
+    /// thread: on the model and reasoning they picked, with their own files.
+    pub(super) async fn whisper(self: &Arc<Self>, workspace: &str, channel: &str, thread: Option<String>, person: &str, said: Said) -> Result<(String, String)> {
         let all: Vec<Message> = self.read(|s| s.team.workspace(workspace).and_then(|w| w.channels.get(channel)).map(|c| c.messages.clone())).unwrap_or_default();
         let here: Vec<&Message> = all.iter().filter(|m| thread.is_none() || m.thread == thread || Some(&m.id) == thread.as_ref()).collect();
         let shown = &here[here.len().saturating_sub(HISTORY_MESSAGES)..];
         let others = super::owner::from_others(person, shown.iter().map(|m| m.sender.as_str()));
         let actor = format!("person:{person}");
-        let (task, run) = self.create_run(&actor, person, text, vec![], NewRun { label: Some(whisper_label(others)), model, ..Default::default() }).await?;
+        let o = NewRun { label: Some(whisper_label(others)), model: said.pick.model, reasoning: said.pick.reasoning, files: said.files, ..Default::default() };
+        let (task, run) = self.create_run(&actor, person, said.text, vec![], o).await?;
         // The thread is read from the channel when it is needed, never copied (`copies`).
         let change = Change::Whisper { workspace: workspace.into(), channel: channel.into(), thread, task: task.clone(), owner: person.into(), history: String::new() };
         self.emit(&actor, Ev::Team(change)).await?;

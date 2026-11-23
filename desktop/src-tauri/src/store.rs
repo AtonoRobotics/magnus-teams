@@ -17,6 +17,11 @@ pub struct Config {
     /// Certificate fingerprints by appliance address.
     #[serde(default)]
     pub pins: BTreeMap<String, String>,
+    /// Who is signed in at each appliance address, by their id. What this
+    /// computer keeps for a person (its local agent, its bridge name) is
+    /// kept under the address and this id, never under the computer alone.
+    #[serde(default)]
+    pub people: BTreeMap<String, String>,
 }
 
 pub struct Store {
@@ -69,6 +74,27 @@ impl Store {
         c.pins.insert(url.into(), fp.into());
         c.appliance = Some(url.into());
         self.save(&c)
+    }
+
+    /// The person signed in at `url`, as the server named them.
+    pub fn person(&self, url: &str) -> Option<String> {
+        self.config().people.get(url).cloned()
+    }
+
+    pub fn set_person(&self, url: &str, person: &str) -> Result<(), String> {
+        let mut c = self.cfg.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if c.people.get(url).map(String::as_str) == Some(person) {
+            return Ok(());
+        }
+        c.people.insert(url.into(), person.into());
+        self.save(&c)
+    }
+
+    pub fn clear_person(&self, url: &str) {
+        let mut c = self.cfg.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if c.people.remove(url).is_some() {
+            let _ = self.save(&c);
+        }
     }
 
     fn token_file(&self, url: &str) -> PathBuf {

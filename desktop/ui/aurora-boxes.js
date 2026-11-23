@@ -10,7 +10,8 @@
 // - Close (×) puts a box away until it changes: until it is another task,
 //   another decision, or the same one in another state (running, needs you,
 //   done). A new status line is not a change. Closed boxes are remembered in
-//   this browser.
+//   this browser for the person signed in, and for no one else: what a box
+//   says names their work (scope).
 "use strict";
 
 const AuroraBoxes = (() => {
@@ -20,17 +21,34 @@ const AuroraBoxes = (() => {
   const STORE = "magnus-boxes-closed";
   /** When each box, as it is now, first showed. @type {Map<string, number>} */
   const since = new Map();
+  /** Where the signed-in person's closed boxes are kept; null: for this page only. @type {?string} */
+  let key = null;
   /** @type {string[]} */
-  let closed = load();
+  let closed = [];
 
   function load() {
+    if (!key) return [];
     try {
-      const v = JSON.parse(localStorage.getItem(STORE) || "[]");
+      const v = JSON.parse(localStorage.getItem(key) || "[]");
       return Array.isArray(v) ? v.filter(s => typeof s === "string") : [];
     } catch { return []; }
   }
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify(closed)); } catch { /* Kept for this page only. */ }
+    if (!key) return;
+    try { localStorage.setItem(key, JSON.stringify(closed)); } catch { /* Kept for this page only. */ }
+  }
+
+  /**
+   * Whose closed boxes these are: the person signed in at `appliance`, or
+   * no one (null, signed out). The list an older app kept for everyone on
+   * this browser is dropped, not used: nothing says whose it was.
+   * @param {?string} appliance @param {?string} person
+   */
+  function scope(appliance, person) {
+    try { localStorage.removeItem(STORE); } catch { /* nothing kept to drop */ }
+    key = person ? `${STORE}.${appliance}.${person}` : null;
+    closed = load();
+    since.clear();
   }
 
   /** What a box is, so a change to it shows it again: not what it says. @param {{ key: string, tone: string, title: string }} c */
@@ -80,5 +98,5 @@ const AuroraBoxes = (() => {
   /** Whether a box, as it is, was closed. @param {{ key: string, tone: string, title: string }} c */
   const isClosed = c => closed.includes(sign(c));
 
-  return { SHOWN_FOR_MS, sign, stays, shown, next, left, close, isClosed };
+  return { SHOWN_FOR_MS, sign, stays, shown, next, left, close, isClosed, scope };
 })();

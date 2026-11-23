@@ -246,17 +246,18 @@ pub(super) async fn search(State(k): K, Caller(p): Caller, Query(q): Query<std::
     Ok(Json(json!({ "conversations": conversations, "tasks": tasks, "files": files })).into_response())
 }
 
-/// The person writes in chat: a new thread, or one of theirs.
+/// The person writes in chat: a new thread, or one of theirs. What they say
+/// has the shape a shared conversation's message has (`say::Say`).
 pub(super) async fn chat_post(State(k): K, Caller(p): Caller, Body(b): Body<Value>) -> ApiResult {
-    let text = b["text"].as_str().unwrap_or_default().trim().to_string();
+    let say = crate::say::Say::of(&b)?;
+    let text = say.text.trim().to_string();
     if text.is_empty() {
         return refuse(StatusCode::BAD_REQUEST, "the message has no text");
     }
-    let model = chosen_model(&k, &b).await?;
-    let reasoning = chosen_reasoning(&b)?;
-    let files = crate::library::given_files(&k, &p, &b)?;
+    let said = say.check(&k, &p).await?;
     let project = crate::library::chosen_project(&k, &p, &b)?;
-    Ok(match k.chat_say_with_reasoning(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, reasoning, None, files, project).await {
+    let (model, reasoning) = (said.pick.model, said.pick.reasoning);
+    Ok(match k.chat_say_with_reasoning(&p.id, text.clone(), b["thread"].as_str().map(String::from), model, reasoning, None, said.files, project).await {
         Ok(Some((thread, task))) => (StatusCode::CREATED, Json(json!({ "thread": thread, "task_id": task, "hidden": crate::typed_secrets::mask(&text).hidden }))).into_response(),
         Ok(None) => err(StatusCode::NOT_FOUND, "no such thread"),
         Err(e) => internal(e),

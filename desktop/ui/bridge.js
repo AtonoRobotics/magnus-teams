@@ -50,11 +50,21 @@ const appBridge = tauri && {
     if (r.status >= 400) throw errorOf(r.status, r.body);
     return r.body;
   },
+  // One stream per task in the app, however many listeners follow it (the
+  // chat and the side panel): a listener that joins late is sent what has
+  // streamed so far, addressed to it alone (`listener`), and the stream
+  // stops when its last listener leaves (desktop/src-tauri/src/live.rs).
   live(task, onText) {
+    const listener = crypto.randomUUID();
     let stop = false, unlisten = null;
-    tauri.event.listen("live", e => { if (!stop && e.payload.task === task) onText(e.payload.text); }).then(u => { unlisten = u; if (stop) u(); });
-    this.invoke("live_start", { task }).catch(() => {});
-    return () => { stop = true; if (unlisten) unlisten(); this.invoke("live_stop", { task }).catch(() => {}); };
+    const mine = p => p.task === task && (!p.listener || p.listener === listener);
+    // Listening first, so the catch-up sent on joining is not missed.
+    tauri.event.listen("live", e => { if (!stop && mine(e.payload)) onText(e.payload.text); }).then(u => {
+      unlisten = u;
+      if (stop) return u();
+      this.invoke("live_start", { task, listener }).catch(() => {});
+    });
+    return () => { stop = true; if (unlisten) unlisten(); this.invoke("live_stop", { task, listener }).catch(() => {}); };
   },
   // The system's own notifications. The desktop app may always show them;
   // a click on one is the system's to handle.

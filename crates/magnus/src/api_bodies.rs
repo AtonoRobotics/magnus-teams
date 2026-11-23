@@ -8,7 +8,8 @@
 //! Seven routes keep a `serde_json::Value`, each for its reason:
 //! - `submit` and `chat_post`: `library::given_files`, `chosen_project`,
 //!   `chosen_model` and `attachment::from_request` read it, the same keys for
-//!   a task and a chat message;
+//!   a task and a chat message (a chat message's text, files and model are
+//!   read as `say::Say`, the shape a shared conversation's message has);
 //! - `chat_card` and `respond`: each kind of card or inbox item reads its own
 //!   answer from it (`Kernel::decide_card`, `Kernel::respond`);
 //! - `sign_in_complete`: `flow` and `input` are the adapter's own sign-in

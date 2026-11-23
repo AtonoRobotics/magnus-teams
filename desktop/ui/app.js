@@ -168,7 +168,7 @@ const Resources = (()=>{
  function reset(){epoch++;states.clear();announced="";render();}
  function forget(name){states.delete(name);render();}
  function good(name){const s=states.get(name)||{};states.set(name,{...s,failed:false,at:Date.now()});render();}
- function bad(name,error){if(error?.cancelled)return;const s=states.get(name)||{};states.set(name,{...s,failed:true});render();if(error?.status===401 && App.me){stop();signInScreen("Your session ended. Sign in again.");}}
+ function bad(name,error){if(error?.cancelled)return;const s=states.get(name)||{};states.set(name,{...s,failed:true});render();if(error?.status===401 && App.me)endSession("Your session ended. Sign in again.");}
  async function read(name,path,key,cached=false){const scope=epoch,token=++serial,prior=states.get(name)||{};states.set(name,{...prior,token});
   try{const response=await Server.call("GET",path);if(scope!==epoch || states.get(name)?.token!==token)return;const value=key ? response[key] : response;states.set(name,{...states.get(name),path,value});good(name);return value;}
   catch(error){if(cached && error?.cancelled)throw error;if(!error?.cancelled && scope===epoch && states.get(name)?.token===token){bad(name,error);if(cached && prior.path===path)return prior.value;}}
@@ -639,10 +639,7 @@ function shell() {
     if (e.target.closest("[data-act=restart-update]")) return restartToUpdate();
     if (e.target.closest("[data-act=sign-out]")) {
       MessageDrafts.clear();
-      stop();
-      await Magnus.signOut();
-      location.hash = "";
-      start();
+      await endSession();
     }
   });
   $("#find").onsubmit = e => { e.preventDefault(); const q = $("#q").value.trim(); if (q) openPanel(`search:${q}`,{history:true,focus:true,opener:$("#q")}); };
@@ -1310,7 +1307,7 @@ async function pollInbox() {
   } catch (e) {
     // A dead session must land on sign-in once. Calling start() again
     // restores the same session and boots forever.
-    if (e.status === 401 && App.me) { stop(); signInScreen("Your session ended. Sign in again."); }
+    if (e.status === 401 && App.me) endSession("Your session ended. Sign in again.");
   }
 }
 
@@ -3813,13 +3810,9 @@ async function boot() {
   Resources.reset();
   App.me = await Server.me();
   // The Terms of Use first, then the usage-data question (agreements.js).
-  if (!(await agreementsGate())) {
-    stop();
-    await Magnus.signOut();
-    location.hash = "";
-    return start();
-  }
+  if (!(await agreementsGate())) return endSession();
   Theme.scope(App.appliance, App.me.id);
+  AuroraBoxes.scope(App.appliance, App.me.id);
   MessageDrafts.open(App.appliance, App.me.id);
   const host = await Magnus.systemLook().catch(() => ({}));
   const canRead = () => { App.canReadAloud = !!App.me?.read_aloud || !!host.native_speech || ("speechSynthesis" in window && speechSynthesis.getVoices().length > 0); };
@@ -3923,6 +3916,8 @@ function stop() {
   Panel.what = null; Panel.autoOpened = false; Panel.userClosed = false;
   Panel.rendered=null;Resources.forget("Work");
   Theme.scope(null, null);
+  AuroraBoxes.scope(null, null);
+  stopPanelLive();
   adminStop();
   Panel.unwatch?.(); Panel.unwatch=null; Panel.anchors={}; Panel.layers={}; Panel.opener=null; Panel.drawn=null; Panel.what=null; App.draftRecord=null;
   App.me = null; App.computers = null; App.connectors = null; App.inbox = []; App.tasks = []; App.schedules = []; App.threads = []; App.projects = []; App.workspaces = []; App.thread = null; App.feed = null; App.reported = new Set(); App.reporting = new Set();
@@ -3943,13 +3938,33 @@ function unavailableScreen(message) {
   $("[data-act=retry-start]")?.addEventListener("click", () => start(), { once: true });
 }
 
+/** What the sign-in page says after a session ended, across the reload. */
+const SESSION_NOTE = "magnus.session-note";
+
+/**
+ * The person's session here ends (sign-out, or the server ended it). The app
+ * ends what ran for them (desktop/src-tauri/src/session.rs) and the page
+ * loads afresh, so nothing one person had in it reaches whoever signs in
+ * next (decisions/2026-11-23-sign-out-ends-everything.md).
+ * @param {string} [note] said on the sign-in page that follows
+ */
+async function endSession(note = "") {
+  stop();
+  await Magnus.signOut().catch(() => {});
+  try { if (note) sessionStorage.setItem(SESSION_NOTE, note); } catch { /* the note is lost, not the sign-out */ }
+  location.hash = "";
+  location.reload();
+}
+
 async function start() {
+  let ended = "";
+  try { ended = sessionStorage.getItem(SESSION_NOTE) || ""; sessionStorage.removeItem(SESSION_NOTE); } catch { /* nothing to say */ }
   try {
     const r = await Magnus.restore();
     if (r && r.update_required) return updateRequiredScreen(r.update_required);
     if (r && r.unavailable) return unavailableScreen(r.unavailable);
     if (r && r.person) { App.me = r.person; App.appliance = r.appliance; return boot(); }
-    signInScreen(r && r.note);
+    signInScreen((r && r.note) || ended);
   } catch (e) { signInScreen(e.message || String(e)); }
 }
 

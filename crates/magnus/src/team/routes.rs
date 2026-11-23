@@ -193,39 +193,44 @@ async fn messages(State(k): K, Member { person: p, .. }: Member<at::Guest>, Path
     Ok(Json(said).into_response())
 }
 
+/// A message in a shared conversation: what is said, in the shape every
+/// place says it (`say::Say`: text, the person's own files, the model as
+/// picked with its reasoning), and where and to whom.
 #[derive(Deserialize)]
 struct NewMessage {
-    text: String,
+    #[serde(flatten)]
+    say: crate::say::Say,
     #[serde(default)]
     thread: Option<String>,
     /// Asks the sender's personal Magnus to help and share its output.
     #[serde(default)]
     agent: bool,
     /// For the sender's own agent only, and it does not reach the channel.
+    /// It alone carries the person's own files: a message to the channel
+    /// names files already in the shared Files.
     #[serde(default)]
     whisper: bool,
-    /// The model the composer's picker chose, as a personal message's
-    /// `model`: `{"adapter", "model"}`. The server's default when absent.
-    #[serde(default)]
-    model: serde_json::Value,
 }
 
 async fn post_message(State(k): K, Member { person: p, role, .. }: Member<at::Guest>, Path((ws, channel)): Path<(String, String)>, Json(b): Json<NewMessage>) -> ApiResult {
     if !has_channel(&k, &ws, &channel, &p.id) {
         return refuse(StatusCode::NOT_FOUND, "no such channel");
     }
-    if b.text.trim().is_empty() || b.text.chars().count() > MAX_MESSAGE_CHARS {
+    if b.say.text.trim().is_empty() || b.say.text.chars().count() > MAX_MESSAGE_CHARS {
         return refuse(StatusCode::BAD_REQUEST, "a message needs text, and not too much of it");
     }
     allow(role, &p.id, Act::Post { with_agent: b.agent || b.whisper })?;
-    let model = crate::api::chosen_model(&k, &json!({ "model": b.model })).await?;
+    if !b.whisper && !b.say.files.is_empty() {
+        return refuse(StatusCode::BAD_REQUEST, "a message here names files in the shared Files; only a whisper takes files of your own");
+    }
+    let said = b.say.check(&k, &p).await?;
     if b.whisper {
-        return Ok(match k.whisper(&ws, &channel, b.thread, &p.id, b.text, model).await {
+        return Ok(match k.whisper(&ws, &channel, b.thread, &p.id, said).await {
             Ok((task, run)) => Json(json!({ "task_id": task, "run_id": run })).into_response(),
             Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")),
         });
     }
-    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, b.text, b.agent, model).await)
+    Ok(post_and_ask(&k, &p, role, &ws, &channel, b.thread, said.text, b.agent, said.pick).await)
 }
 
 /// Post a message as `p`, and when asked or `@Magnus` is mentioned, dispatch
@@ -241,7 +246,7 @@ pub(super) async fn post_and_ask(
     thread: Option<String>,
     text: String,
     asked: bool,
-    model: Option<(String, String)>,
+    pick: crate::say::Pick,
 ) -> Reply {
     super::presence::sent(ws, channel, &p.id);
     let message = Message { id: new_id(), sender: p.id.clone(), text: text.clone(), thread: thread.clone(), at: chrono::Utc::now() };
@@ -256,7 +261,7 @@ pub(super) async fn post_and_ask(
     // Called on (asked, @mentioned, a direct chat) the answer goes to the
     // room; only named or cued, it waits in the sender's Airlock.
     let hold = matches!(why, Why::Named | Why::Helpful);
-    match k.start_personal_room_mission(ws, channel, &p.id, &objective, thread, model, hold).await {
+    match k.start_personal_room_mission(ws, channel, &p.id, &objective, thread, pick, hold).await {
         Ok((mission, task, run)) => {
             ok_or_return!(
                 send(k, p, Change::Chat { workspace: ws.to_string(), chat: Chat::Asked { channel: channel.to_string(), message: id.clone(), task: task.clone() } }).await
