@@ -17,6 +17,7 @@ use std::time::Duration;
 
 mod admin;
 mod discovery;
+mod gone;
 pub(crate) mod relay;
 pub(crate) mod requests;
 mod routes;

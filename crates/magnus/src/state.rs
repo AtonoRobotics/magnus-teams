@@ -171,10 +171,12 @@ impl State {
             | Ev::CredentialSet { .. }
             | Ev::RegistrationSet { .. }
             | Ev::ToolClassified { .. } => self.apps.fold(&e.ev, e.at),
-            // Its people's acceptance of its connect screen goes with it.
+            // Its tools' definitions and its people's acceptance of its
+            // connect screen go with it: another server added later under
+            // its name inherits none of them (`connectors::gone`).
             Ev::ConnectorRemoved { name } => {
                 self.apps.fold(&e.ev, e.at);
-                self.tools.consents.remove(name);
+                self.tools.forget_app(name);
             }
             Ev::ContextReset { .. }
             | Ev::Escalated { .. }

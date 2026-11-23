@@ -561,7 +561,7 @@ impl Kernel {
         if let Err(e) = self.pin(c, &f.name, t, Some(run).filter(|r| !r.is_empty())).await {
             return Err((format!("could not screen the tool definition: {e}"), true));
         }
-        self.tool_refusal(&f.name).map_or(Ok(()), |why| Err((why, false)))
+        self.tool_refusal(&f.name, person).map_or(Ok(()), |why| Err((why, false)))
     }
 
     async fn lease(&self, a: &Action, f: &Facts) -> Result<Gate> {

@@ -241,11 +241,11 @@ impl Kernel {
         Ok(n)
     }
 
-    /// Remove an added app: every sign-in to it revoked, its key deleted.
+    /// Remove an added app: every sign-in to it revoked, its key deleted,
+    /// and everything that names it gone with it (`gone.rs`).
     pub async fn remove_connector(&self, actor: &str, name: &str) -> Result<Value, Refusal> {
         let c = self.added_connector(name)?;
-        let n = self.revoke_all(&c).await?;
-        self.emit(actor, Ev::ConnectorRemoved { name: name.to_string() }).await.map_err(failed)?;
+        let n = self.app_gone(actor, &c).await?;
         Ok(json!({ "sign_ins_revoked": n }))
     }
 

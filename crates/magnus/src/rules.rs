@@ -148,6 +148,11 @@ impl Ledger {
         self.0.values().filter(|r| r.person == person).cloned().collect()
     }
 
+    /// The ids of every rule, anyone's, made for one app.
+    pub fn made_for(&self, app: &str) -> Vec<String> {
+        self.0.values().filter(|r| r.compiled.as_ref().is_some_and(|c| c.connector == app)).map(|r| r.id.clone()).collect()
+    }
+
     fn get(&self, id: &str) -> Option<&Rule> {
         self.0.get(id)
     }

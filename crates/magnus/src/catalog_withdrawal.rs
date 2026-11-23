@@ -239,6 +239,8 @@ impl Kernel {
                 self.disconnect(&m.id, &owner.key(), ACTOR).await?;
                 ended += 1;
             }
+            // What names it goes with it, as for any app gone (`connectors::gone`).
+            self.take_away_permissions(ACTOR, &m.id).await;
         }
         Ok(ended)
     }

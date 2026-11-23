@@ -16,7 +16,7 @@ use crate::halts::{self, Hold, Phase, Subject};
 use crate::kernel::Kernel;
 use crate::policy::{self, Outcome, ToolFacts};
 use crate::state::{Run, State};
-use crate::tools::Risk;
+use crate::tools::{Audience, Label, Risk};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -68,6 +68,28 @@ pub(crate) enum Refused {
     Audit(anyhow::Error),
 }
 
+impl Refused {
+    /// Why, in a word, with nothing the app said: for a log line.
+    #[allow(dead_code)]
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Refused::Unknown => "unknown",
+            Refused::NotARead => "not a read",
+            Refused::Held(_) => "held",
+            Refused::NoRights => "no rights",
+            Refused::Pin(_) => "definition not screened",
+            Refused::Denied(_) => "denied by policy",
+            Refused::Asks(_) => "policy asks",
+            Refused::Unjudged(_) => "not judged",
+            Refused::NotConnected => "not connected",
+            Refused::Secret(_) => "sign-in unreadable",
+            Refused::Failed(_) => "the app refused",
+            Refused::Call(_) => "the call failed",
+            Refused::Audit(_) => "not audited",
+        }
+    }
+}
+
 /// What policy said of a read, once the checks before it passed.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Judged {
@@ -112,8 +134,52 @@ impl Kernel {
     /// Make one read for a person, authorised as the gate authorises any
     /// call, and return its answer.
     pub(crate) async fn authorised_read(&self, r: SideRead<'_>) -> Result<Value, Refused> {
+        let rf = facts(self, &format!("{}__{}", r.app, r.read));
+        self.read_as(r, rf).await
+    }
+
+    /// The login a connected password manager holds for a site, read for
+    /// `person`'s run. A password manager's tools are the kernel's alone,
+    /// never offered to the agent (`boundary::facts` classes them
+    /// prohibited), so this one read is classed a read here; otherwise it
+    /// is authorised and audited as every other read the server makes for a
+    /// person: the switches, their groups, the screened definition, policy.
+    /// Nothing it answers is logged.
+    // Its caller, `computer::identity`'s `password_manager_login`, is
+    // switched to it with the r5-computers change (decisions/2026-11-23-
+    // app-gone-path.md); this allow goes with that switch.
+    #[allow(dead_code)]
+    pub(crate) async fn password_manager_read(&self, run: &str, person: &str, app: &str, tool: &str, args: Value) -> Result<Value, Refused> {
+        let is_manager = self.cfg.computer.as_ref().is_some_and(|c| c.password_manager.as_deref() == Some(app));
+        let (Some(p), Some(r)) = (self.person(person), self.read(|s| s.runs.get(run).cloned())) else { return Err(Refused::Unknown) };
+        let name = format!("{app}__{tool}");
+        let rf = self.connector(app).filter(|_| is_manager).and_then(|c| {
+            let label = c.tools.get(tool).and_then(|cl| cl.label.as_deref()).and_then(Label::parse).or_else(|| Label::parse(&c.label))?;
+            Some(Facts {
+                name: name.clone(),
+                app: app.into(),
+                risk: Risk::Read,
+                label,
+                audience: Audience::parse(&c.audience)?,
+                connector: Some(c),
+                remote: tool.into(),
+                reaches_self: false,
+            })
+        });
+        let action = Action {
+            run: run.into(),
+            call_id: crate::kernel::new_id("login"),
+            step_id: format!("{}.password_manager", r.replies.len()),
+            tool: name,
+            input: args.clone(),
+            issuer: Issuer::Model,
+        };
+        let within = Within { run: &r, action: &action, prefix: "password_manager", stage: "password_manager", what: "password manager read" };
+        self.read_as(SideRead { person: &p, app, read: tool, args, within: Some(within) }, rf).await
+    }
+
+    async fn read_as(&self, r: SideRead<'_>, rf: Option<Facts>) -> Result<Value, Refused> {
         let name = format!("{}__{}", r.app, r.read);
-        let rf = facts(self, &name);
         let run = r.within.as_ref().map(|w| w.run);
         self.read(|s| precheck(s, r.person, rf.as_ref(), run))?;
         let Some(rf) = rf else { return Err(Refused::Unknown) };
@@ -160,5 +226,7 @@ impl Kernel {
     }
 }
 
+#[cfg(test)]
+mod password_manager_tests;
 #[cfg(test)]
 mod tests;

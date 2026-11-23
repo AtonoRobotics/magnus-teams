@@ -454,7 +454,7 @@ impl Kernel {
                         tracing::warn!("screen {name}: {e:#}");
                     }
                 }
-                if let Ok(p) = self.usable_pin(&name) {
+                if let Ok(p) = self.usable_pin(&name, &owner) {
                     let spec = if p.shown {
                         ToolSpec { name, description: p.description, input_schema: p.input_schema }
                     } else {
