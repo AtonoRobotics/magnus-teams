@@ -14,9 +14,16 @@
 //! call cap differs by spender: the agent's steps are counted apart from the
 //! kernel's extras, which never use them up but skip themselves once the
 //! run's total calls reach the cap (2026-11-09). Actions are bounded by the
-//! action cap instead.
+//! action cap instead, and the safety checks on the run's work by dollars
+//! alone.
+//!
+//! What is left is the least of what every limit has left, less what calls
+//! in flight hold against it (`holds`): the run's budget, its grant's, the
+//! person's month and the server's, its workspace's and its channel's. A
+//! call's worst case must fit that, so no limit is passed by one call, nor
+//! by two at once (2026-11-23).
 
-use crate::boundary::{clamp_output_for_budget, estimated_input_tokens};
+use super::holds::{held_for, Hold};
 use crate::kernel::Kernel;
 use crate::state::{Run, State};
 use chrono::{DateTime, Utc};
@@ -32,13 +39,47 @@ pub enum Spender {
     Extra,
     /// An action the model asked for, bounded by the action cap.
     Action,
+    /// A safety check on the run's work (the monitor, a screen): bounded
+    /// by dollars, never by the call cap, so the run's last step is still
+    /// checked.
+    Check,
 }
 
-/// What the run may still spend.
+/// What may still be spent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Left {
-    /// The run's own dollars left, which a call's worst case must fit.
+    /// The dollars left under every limit, which a call's worst case must
+    /// fit; infinite when none applies.
     pub usd: f64,
+    /// The limit with least left: `task`, `grant`, `person`, `server`,
+    /// `workspace` or `channel`.
+    pub of: &'static str,
+}
+
+impl Left {
+    fn none() -> Left {
+        Left { usd: f64::INFINITY, of: "" }
+    }
+
+    /// The tighter of this and `usd` left of `of`.
+    fn under(self, usd: Option<f64>, of: &'static str) -> Left {
+        match usd {
+            Some(u) if u < self.usd => Left { usd: u.max(0.0), of },
+            _ => self,
+        }
+    }
+
+    /// What the person reads of the limit a call would pass.
+    pub fn named(&self) -> &'static str {
+        match self.of {
+            "grant" => "the grant's budget",
+            "person" => "your spend limit for this month",
+            "server" => "the server's spend limit for this month",
+            "workspace" => "the workspace's spend limit for this month",
+            "channel" => "the channel's spend limit for this month",
+            _ => "the task's budget",
+        }
+    }
 }
 
 /// Why the run may spend no more: the stop's reason, its cause, the notice
@@ -62,6 +103,11 @@ pub fn budget_used(run: &Run) -> String {
 /// Whether `run` may spend once more for `spender` at `now`, and what it
 /// has left; a run that is not there has nothing.
 pub fn allowance(s: &State, run_id: &str, spender: Spender, now: DateTime<Utc>) -> Result<Left, Box<Stop>> {
+    allowance_held(s, run_id, spender, now, &[])
+}
+
+/// The same, with the calls in flight holding what they may cost.
+pub fn allowance_held(s: &State, run_id: &str, spender: Spender, now: DateTime<Utc>, held: &[Hold]) -> Result<Left, Box<Stop>> {
     let Some(run) = s.runs.get(run_id) else {
         return Err(Box::new(Stop { reason: "budget", why: "the run is not there".into(), notice: String::new(), details: Value::Null }));
     };
@@ -69,7 +115,7 @@ pub fn allowance(s: &State, run_id: &str, spender: Spender, now: DateTime<Utc>) 
     let calls = match spender {
         Spender::Step => Some(run.loop_calls()),
         Spender::Extra => Some(run.model_calls),
-        Spender::Action => None,
+        Spender::Action | Spender::Check => None,
     };
     if let Some(n) = calls.filter(|n| *n >= budget.max_model_calls) {
         let why = format!("{n} of {} model calls", budget.max_model_calls);
@@ -102,63 +148,131 @@ pub fn allowance(s: &State, run_id: &str, spender: Spender, now: DateTime<Utc>) 
     if let Some((why, details)) = crate::team::spend::stop_partway(s, run_id, now) {
         return Err(Box::new(Stop { reason: "spend_limit", notice: format!("Stopped: {why}"), why, details }));
     }
-    Ok(Left { usd: budget.max_usd - run.spent_usd() })
+    let scope = scope_of_run(s, run_id);
+    let h = held_for(held, &scope);
+    let left = Left::none().under(Some(budget.max_usd - run.spent_usd() - h.run), "task");
+    let left = left.under(crate::grants::left_for_run(s, run_id, now).map(|l| l - h.grant), "grant");
+    let left = month_left(s, &run.person, now, h.person, h.server, left);
+    Ok(team_left(s, scope.workspace.as_deref(), scope.channel.as_deref(), now, h.workspace, h.channel, left))
+}
+
+/// The person's month and the server's, less what is held against them.
+fn month_left(s: &State, person: &str, now: DateTime<Utc>, held_person: f64, held_server: f64, left: Left) -> Left {
+    let m = super::month::key(now);
+    let (all, theirs) = super::month::spent_by(s, &m, person);
+    let theirs_left = (!person.is_empty()).then(|| s.spend.person_limit(person, &m)).flatten().map(|l| l - theirs - held_person);
+    left.under(s.spend.server_usd.map(|l| l - all - held_server), "server").under(theirs_left, "person")
+}
+
+/// A workspace's month and its channel's, less what is held against them.
+#[allow(clippy::too_many_arguments)]
+fn team_left(s: &State, ws: Option<&str>, channel: Option<&str>, now: DateTime<Utc>, held_ws: f64, held_channel: f64, left: Left) -> Left {
+    let Some(w) = ws.and_then(|ws| s.team.workspace(ws)) else { return left };
+    let spent = crate::team::spend::spent_this_month(s, &w.id, now);
+    let whole = w.chat.limit_usd.map(|l| l - spent.total_usd - held_ws);
+    let here = channel.and_then(|c| Some(w.chat.channel_limits_usd.get(c)? - spent.channels_usd.get(c).copied().unwrap_or_default() - held_channel));
+    left.under(whole, "workspace").under(here, "channel")
+}
+
+/// The limits a run's calls count against, as a hold names them: the run
+/// and those above it, the grant it acts under, its person, and its team's
+/// workspace and channel.
+pub fn scope_of_run(s: &State, run: &str) -> Hold {
+    let mut runs = vec![run.to_string()];
+    let mut at = run.to_string();
+    for _ in 0..crate::sub_agents::MAX_DEPTH {
+        let Some(parent) = s.sub_agents.get(&at).map(|x| x.parent.clone()) else { break };
+        runs.push(parent.clone());
+        at = parent;
+    }
+    let team = s.authority(run).and_then(|t| s.team.run_of(&t.task_id));
+    Hold {
+        runs,
+        grant: crate::grants::binding(s, run).map(|g| g.id.clone()),
+        person: s.runs.get(run).map(|r| r.person.clone()),
+        workspace: team.map(|t| t.workspace.clone()),
+        channel: team.map(|t| t.channel.clone()),
+        usd: 0.0,
+    }
+}
+
+/// Who pays for a call made for no run.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Owner {
+    Person(String),
+    Workspace(String),
+    /// The server's own: a tool definition's screen outside any run.
+    Server,
+}
+
+impl Owner {
+    /// As a `charged` change names it.
+    pub fn key(&self) -> String {
+        match self {
+            Owner::Person(p) => format!("person:{p}"),
+            Owner::Workspace(w) => format!("workspace:{w}"),
+            Owner::Server => super::book::SERVER_AGENT.to_string(),
+        }
+    }
+
+    /// From what a computer's owner or an egress names: `workspace:<id>`
+    /// or a person's id.
+    pub fn of(who: &str) -> Owner {
+        match who.strip_prefix("workspace:") {
+            Some(w) => Owner::Workspace(w.to_string()),
+            None => Owner::Person(who.to_string()),
+        }
+    }
+
+    /// The limits its calls count against.
+    pub fn scope(&self) -> Hold {
+        match self {
+            Owner::Person(p) => Hold { person: Some(p.clone()), ..Hold::default() },
+            Owner::Workspace(w) => Hold { workspace: Some(w.clone()), ..Hold::default() },
+            Owner::Server => Hold::default(),
+        }
+    }
+}
+
+/// What an owner may still spend this month: a person's month and the
+/// server's; a workspace's month and the server's; the server's.
+pub fn owner_allowance(s: &State, owner: &Owner, now: DateTime<Utc>, held: &[Hold]) -> Result<Left, Box<Stop>> {
+    let stop = |why: String, details: Value| Box::new(Stop { reason: "spend_limit", notice: format!("Stopped: {why}"), why, details });
+    let h = held_for(held, &owner.scope());
+    let person = match owner {
+        Owner::Person(p) => p.as_str(),
+        _ => "",
+    };
+    let m = super::month::key(now);
+    let (all, _) = super::month::spent_by(s, &m, person);
+    if let Some(limit) = s.spend.server_usd.filter(|l| all >= *l) {
+        let e = super::enforce::SpendLimited { which: "server", month: m.clone(), spent_usd: all, limit_usd: limit, can_ask: false, pending: false };
+        return Err(stop(e.to_string(), super::enforce::details(&e)));
+    }
+    if !person.is_empty() {
+        if let Err(e) = super::enforce::left_now(s, person, now) {
+            return Err(stop(e.to_string(), super::enforce::details(&e)));
+        }
+    }
+    let ws = match owner {
+        Owner::Workspace(w) => Some(w.as_str()),
+        _ => None,
+    };
+    if let Some(w) = ws.and_then(|w| s.team.workspace(w)) {
+        if let Some(why) = crate::team::spend::refusal(w, &crate::team::spend::spent_this_month(s, &w.id, now), "") {
+            return Err(stop(why, json!({ "which": "workspace", "workspace": w.id, "can_ask": false, "pending": false })));
+        }
+    }
+    let left = month_left(s, person, now, h.person, h.server, Left::none());
+    Ok(team_left(s, ws, None, now, h.workspace, 0.0, left))
 }
 
 impl Kernel {
-    /// The run's allowance now, read from the state as it is.
+    /// The run's allowance now, read from the state as it is, with what
+    /// the calls in flight hold.
     pub(crate) fn allowance(&self, run: &str, spender: Spender) -> Result<Left, Box<Stop>> {
-        self.read(|s| allowance(s, run, spender, Utc::now()))
-    }
-
-    /// An extra model call's output allowance: the full allowance when the
-    /// run's allowance admits an extra and the call's worst case fits what
-    /// is left, None when not — the caller skips the call. Extra calls are
-    /// optional (verdicts, memory, extractions, spoken scripts), never the
-    /// run's work, so they run whole or not at all: a truncated judgment is
-    /// worse than none, and the run is never suspended for one (#319). An
-    /// estimate the adapter cannot give falls back to the kernel's bytes; a
-    /// quote it cannot give skips: the call would fail anyway.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn aux_max_tokens(
-        &self,
-        run_id: &str,
-        purpose: &str,
-        adapter: &str,
-        model: &str,
-        system: &str,
-        messages: Vec<magnus_adapter_proto::Message>,
-        tools: Vec<magnus_adapter_proto::ToolSpec>,
-        max_tokens: u32,
-    ) -> Option<u32> {
-        let left = match self.allowance(run_id, Spender::Extra) {
-            Ok(l) => l.usd,
-            Err(stop) => {
-                tracing::info!("{purpose} for {run_id} skipped: {}", stop.why);
-                return None;
-            }
-        };
-        let input_tokens = match self.adapters.estimate_prompt(adapter, model, system, messages.clone(), tools.clone()).await {
-            Ok(n) => n,
-            Err(e) => {
-                tracing::warn!("{purpose} prompt estimate for {run_id}: {e:#}; pricing the kernel's bytes");
-                estimated_input_tokens(system, &messages, &tools)
-            }
-        };
-        let (input_usd, output_usd) = match self.adapters.quote(adapter, model, input_tokens, max_tokens).await {
-            Ok(q) => q,
-            Err(e) => {
-                tracing::warn!("{purpose} quote for {run_id}: {e:#}; skipping");
-                return None;
-            }
-        };
-        match clamp_output_for_budget(left, input_usd, output_usd, max_tokens) {
-            Some(n) if n == max_tokens => Some(n),
-            _ => {
-                tracing::info!("{purpose} for {run_id} skipped: its worst case does not fit what is left");
-                None
-            }
-        }
+        let held = self.spend_holds.now();
+        self.read(|s| allowance_held(s, run, spender, Utc::now(), &held))
     }
 }
 

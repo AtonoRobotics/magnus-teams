@@ -87,14 +87,26 @@ pub struct Spent {
 /// model call of the run checks it first, through the run's allowance
 /// (`spend::allowance`; #280, #286).
 pub fn spent_for_run(s: &Projection, run: &str, now: DateTime<Utc>) -> Option<Spent> {
-    // A sub-agent spends its parent's grant, resumed past it when the run
-    // at the top was.
+    let g = binding(s, run)?;
+    let spent = spent(s, g, now);
+    (spent >= g.max_usd).then(|| Spent { grant: g.id.clone(), spent, max: g.max_usd, period: g.period.clone() })
+}
+
+/// The grant whose budget binds this run: the one its task runs under,
+/// unless its person resumed it past that. A sub-agent spends its
+/// parent's grant, resumed past it when the run at the top was.
+pub fn binding<'a>(s: &'a Projection, run: &str) -> Option<&'a Grant> {
     s.runs.get(run).filter(|r| !r.past_grant)?;
     let top = s.authority(run)?;
     s.runs.get(&top.run_id).filter(|r| !r.past_grant)?;
-    let g = top.grant.as_ref().and_then(|g| s.arrangements.grants().get(g))?;
-    let spent = spent(s, g, now);
-    (spent >= g.max_usd).then(|| Spent { grant: g.id.clone(), spent, max: g.max_usd, period: g.period.clone() })
+    top.grant.as_ref().and_then(|g| s.arrangements.grants().get(g))
+}
+
+/// What the grant binding this run has left for its period, if one does:
+/// a call's worst case must fit it (`spend::allowance`).
+pub fn left_for_run(s: &Projection, run: &str, now: DateTime<Utc>) -> Option<f64> {
+    let g = binding(s, run)?;
+    Some(g.max_usd - spent(s, g, now))
 }
 
 /// A grant's fields, checked.

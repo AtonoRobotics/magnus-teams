@@ -346,6 +346,19 @@ impl Adapters {
     }
 }
 
+#[cfg(test)]
+impl Adapters {
+    /// Put in service an adapter a test serves itself at `socket`, with a
+    /// stand-in process for the kernel to supervise.
+    pub(crate) async fn install_served(&self, id: &str, socket: PathBuf) {
+        let mut sleep = Command::new("sleep");
+        sleep.arg("3600").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        let child = crate::spawn::spawn(sleep).unwrap();
+        let cfg = config::Adapter { id: id.into(), command: vec![], settings: Default::default() };
+        self.install(Arc::new(Running { cfg, socket, adapter: id.into(), version: "test".into(), child: Mutex::new(child) })).await;
+    }
+}
+
 /// Read one turn's events from an adapter: its reply, or the error that
 /// ended it with whatever the provider had charged by then.
 async fn read_turn(call: &mut proto::Call, id: &str, on_text: &mut impl FnMut(&str), mut store: impl FnMut(&str)) -> Result<TurnOut, AdapterError> {

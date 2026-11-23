@@ -485,21 +485,32 @@ impl Kernel {
             }],
             state: None,
         };
-        let (adapter, model) = (run.model().0.to_string(), run.model().1.to_string());
         // A paid call: only within the run's allowance for an extra (#286).
-        let Some(allowance) = self.aux_max_tokens(&run.id, "knowledge extraction", &adapter, &model, &system, vec![msg.clone()], vec![], run.config.max_tokens).await else {
-            return Ok(None);
+        let (adapter, model) = run.model();
+        let text = |blocks: &[magnus_adapter_proto::Block]| -> String {
+            let parts = blocks.iter().filter_map(|b| if let magnus_adapter_proto::Block::Text { text } = b { Some(text.as_str()) } else { None });
+            parts.collect::<Vec<_>>().join("").trim().to_string()
         };
-        let out = self.adapters.complete(&adapter, &model, &system, vec![msg], vec![], allowance, |_| {}).await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
-        let reply: String = out
-            .blocks
-            .iter()
-            .filter_map(|b| if let magnus_adapter_proto::Block::Text { text } = b { Some(text.as_str()) } else { None })
-            .collect::<Vec<_>>()
-            .join("")
-            .trim()
-            .to_string();
-        self.emit("kernel:knowledge", Ev::KnowledgeExtraction { run: run.id.clone(), model: format!("{adapter}/{model}"), reply: reply.clone(), usage: out.usage }).await?;
+        let call = crate::spend::paid::Call {
+            payer: crate::spend::paid::Payer::Run(run, crate::spend::allowance::Spender::Extra),
+            purpose: "knowledge_extraction",
+            adapter,
+            model,
+            system: &system,
+            messages: vec![msg],
+            tools: vec![],
+            max_tokens: run.config.max_tokens,
+            servers_model: false,
+            timeout: None,
+        };
+        let record = |out: &crate::adapters::TurnOut| {
+            Some(("kernel:knowledge", Ev::KnowledgeExtraction { run: run.id.clone(), model: format!("{adapter}/{model}"), reply: text(&out.blocks), usage: out.usage.clone() }))
+        };
+        let reply = match self.paid_call(call, record).await {
+            Ok(p) => text(&p.out.blocks),
+            Err(crate::spend::paid::Refused::Allowance(_) | crate::spend::paid::Refused::Model(_)) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
         let value = match kind {
             "number" => reply.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| json!(n)),
             "boolean" => match reply.as_str() {

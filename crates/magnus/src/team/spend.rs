@@ -16,7 +16,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use chrono::{DateTime, Datelike, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -36,23 +36,16 @@ pub struct Spent {
     pub channels_usd: BTreeMap<String, f64>,
 }
 
-/// The first moment of the calendar month `now` is in, in UTC.
-fn month_start(now: DateTime<Utc>) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(now.year(), now.month(), 1, 0, 0, 0).single().unwrap_or(now)
-}
-
-/// What the workspace's team runs spent since the month began. A
-/// sub-agent's spend is already in its parent's, so it is counted once.
+/// What the workspace's team agent spent in the month `now` is in, from
+/// the money ledger (`spend::book`): trashing or erasing never takes it
+/// back. A sub-agent's spend is on its top run's line, so it counts once.
 pub fn spent_this_month(s: &State, ws: &str, now: DateTime<Utc>) -> Spent {
-    let since = month_start(now);
     let mut out = Spent::default();
-    for r in s.team.runs_of(ws).into_iter().filter(|r| !r.sub) {
-        let Some(run) = s.tasks.get(&r.task).and_then(|t| s.runs.get(&t.run_id)) else { continue };
-        if run.created_at < since {
-            continue;
+    for (l, usd) in s.spend.book.month(&crate::spend::month::key(now)).filter(|(l, _)| l.workspace == ws) {
+        out.total_usd += usd;
+        if !l.channel.is_empty() {
+            *out.channels_usd.entry(l.channel.clone()).or_default() += usd;
         }
-        out.total_usd += run.spent_usd();
-        *out.channels_usd.entry(r.channel.clone()).or_default() += run.spent_usd();
     }
     out
 }
@@ -179,12 +172,6 @@ mod tests {
         let whole = refusal(&limited(Some(100.0), None), &spent(100.5, 1.0), "c").unwrap_or_default();
         assert!(whole.contains("This workspace"), "{whole}");
         assert_eq!(left_usd(&limited(Some(100.0), None), &spent(120.0, 1.0), "c"), Some(0.0), "an overrun reads as nothing left");
-    }
-
-    #[test]
-    fn a_month_starts_on_its_first_day() {
-        let now = Utc.with_ymd_and_hms(2026, 11, 10, 15, 4, 5).single().unwrap_or_default();
-        assert_eq!(month_start(now), Utc.with_ymd_and_hms(2026, 11, 1, 0, 0, 0).single().unwrap_or_default());
     }
 
     #[test]

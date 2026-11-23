@@ -601,7 +601,7 @@ impl Run {
 }
 
 impl Tokens {
-    fn add(&mut self, u: &magnus_adapter_proto::Usage) {
+    pub(crate) fn add(&mut self, u: &magnus_adapter_proto::Usage) {
         self.input += u.input_tokens;
         self.output += u.output_tokens;
         self.cache_read += u.cache_read_tokens;
@@ -707,8 +707,10 @@ impl State {
     }
 
     /// A model call's cost, charged to the grant the run acts under, if
-    /// any (#280), and to the runs above a sub-agent (`sub_agents::charge`).
-    pub(super) fn charge_grant(&mut self, run: &str, at: DateTime<Utc>, usd: f64) {
-        self.charge(run, at, usd);
+    /// any (#280), to the runs above a sub-agent (`sub_agents::charge`),
+    /// and written on the money ledger (`spend::book`).
+    pub(super) fn charge_grant(&mut self, e: &Event, run: &str, usd: f64) {
+        self.charge(run, e.at, usd);
+        self.book_run_cost(e, run, usd);
     }
 }

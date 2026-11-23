@@ -79,7 +79,11 @@ impl Kernel {
         by_person.sort_by(|a, b| b["usd"].as_f64().partial_cmp(&a["usd"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
         let ws_name = |id: &str| workspaces.iter().find(|w| w["id"] == id).and_then(|w| w["name"].as_str()).unwrap_or(id).to_string();
         let by_agent = rows(&spent.by_agent, |k, usd| {
-            let name = k.strip_prefix("team:").map(|w| format!("Team agent · {}", ws_name(w))).unwrap_or_else(|| "Personal agents".into());
+            let name = match k.strip_prefix("team:") {
+                Some(w) => format!("Team agent · {}", ws_name(w)),
+                None if k == super::book::SERVER_AGENT => "The server's own checks".into(),
+                None => "Personal agents".into(),
+            };
             json!({ "id": k, "name": name, "usd": usd })
         });
         let by_model = rows(&spent.by_model, |k, usd| json!({ "id": k, "name": k, "usd": usd }));
@@ -183,6 +187,7 @@ impl Kernel {
         let allowed = self.allowed_models(person).await;
         let lists = self.models().await.into_iter().map(|(a, ms)| (a.clone(), ms.into_iter().filter(|m| super::access::permits(&allowed, &a, m)).collect::<Vec<_>>()));
         let lists: Vec<(String, Vec<String>)> = lists.filter(|(_, ms)| !ms.is_empty()).collect();
-        (enforce::choose(&allowed, None, self.default_model()).ok(), lists)
+        let off = self.read(|s| s.org.providers_off().clone());
+        (enforce::choose(&allowed, &off, None, self.default_model()).ok(), lists)
     }
 }

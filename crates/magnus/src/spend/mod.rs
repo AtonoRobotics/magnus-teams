@@ -21,8 +21,11 @@ pub mod access;
 pub mod admin;
 pub mod alerts;
 pub mod allowance;
+pub mod book;
 pub mod enforce;
+pub mod holds;
 pub mod month;
+pub mod paid;
 pub mod requests;
 pub mod routes;
 
@@ -93,6 +96,21 @@ pub enum Change {
         person: Option<String>,
         models: Option<Vec<String>>,
     },
+    /// A model call's cost that no usage event of a run's own record
+    /// holds: a side call that failed after the provider charged for it
+    /// (`run`), or one made for no run, paid by `owner` (`person:<id>`,
+    /// `workspace:<id>` or `server`). `model` is `adapter/model`.
+    Charged {
+        #[serde(default)]
+        run: Option<String>,
+        #[serde(default)]
+        owner: Option<String>,
+        purpose: String,
+        model: String,
+        usage: magnus_adapter_proto::Usage,
+        #[serde(default)]
+        failed: bool,
+    },
 }
 
 /// A person's request for more spend.
@@ -129,11 +147,14 @@ pub struct Ledger {
     pub alerted: BTreeSet<(String, String, u8)>,
     pub requests: BTreeMap<String, Request>,
     pub access: access::Access,
+    /// What was spent, kept apart from the runs that spent it.
+    pub book: book::Book,
 }
 
 /// Their limit, increases, alerts, requests (whose reasons are their
 /// words) and model access. Decisions they made on others' requests stay
-/// with those requests.
+/// with those requests, and what they spent stays on the book under no
+/// one's name.
 impl crate::forget::Forget for Ledger {
     fn forget(&mut self, who: &crate::forget::Erased) {
         let p = &who.person;
@@ -143,6 +164,7 @@ impl crate::forget::Forget for Ledger {
         self.alerted.retain(|(l, _, _)| *l != limit);
         self.requests.retain(|_, r| r.person != *p);
         self.access.people.remove(p);
+        self.book.forget(p);
     }
 }
 
@@ -177,6 +199,8 @@ impl Ledger {
                 }
             }
             Change::ModelsAllowed { role, person, models } => self.access.set(role.as_deref(), person.as_deref(), models.clone()),
+            // On the book, by the state, which knows the run (`book::fold_spend`).
+            Change::Charged { .. } => {}
         }
     }
 
