@@ -232,7 +232,8 @@ impl Kernel {
         let mine: Vec<String> = self.vault.names().map_err(failed)?.into_iter().filter(|n| crate::forget::their_sign_in(n, person)).collect();
         let mut sign_ins = 0;
         for name in mine {
-            if let Some(s) = self.vault.remove(&name).map_err(failed)? {
+            // Through the one store, so a refresh already under way can't write it back.
+            if let Some(s) = self.connecting.store.end(&self.vault, &name).map_err(failed)? {
                 let (done, detail) = crate::connectors::revoke(self, s.expose()).await;
                 tracing::info!("erasing {person}: revoked {name} {done}: {detail}");
                 sign_ins += 1;
@@ -242,7 +243,8 @@ impl Kernel {
         let built: Vec<String> = self.read(|s| s.apps.connectors().values().filter(|c| c.owner.as_deref() == Some(person)).filter_map(|c| c.credential.clone()).collect());
         // Every backup made before now loses them too (`person_stores`).
         self.note_erased(person, &built);
-        for name in [format!("payments/card/{person}"), format!("payments/link/{person}")].into_iter().chain(built) {
+        self.connecting.store.end(&self.vault, &format!("payments/link/{person}")).map_err(failed)?;
+        for name in std::iter::once(format!("payments/card/{person}")).chain(built) {
             self.vault.remove(&name).map_err(failed)?;
         }
         // Their content: recorded as removed first (a removal cut short
