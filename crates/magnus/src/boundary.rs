@@ -669,7 +669,7 @@ impl Kernel {
                 url_cleared = true;
             } else {
                 let raw_url = a.input["url"].as_str().unwrap_or_default();
-                let crate::compartment::query_gate::UrlVerdict::Deny(why) = self.check_web_url(a, run, f, raw_url).await?;
+                let why = crate::compartment::query_gate::constructed_url_refusal(raw_url);
                 return Ok(Err(self.deny(a, "policy", &why, false, None).await?));
             }
         } else if public_browser && !web_or_browser_read && untrusted && private {

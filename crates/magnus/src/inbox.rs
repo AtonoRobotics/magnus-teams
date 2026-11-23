@@ -332,8 +332,14 @@ impl Kernel {
                     item.run.as_ref().and_then(|r| s.runs.get(r)).map(|r| (r.config.adapter.clone(), r.config.model.clone(), Label { untrusted: r.untrusted, private: r.private }))
                 });
                 let budget = crate::task_budget::approved(&self.cfg.budget, &item.details["budget"]);
-                let (adapter, model) = from.as_ref().map(|f| (f.0.clone(), f.1.clone())).unwrap_or_else(|| self.default_model());
+                // Admitted as any start is: the person's models and month limit.
+                let chosen = from.as_ref().map(|f| (f.0.clone(), f.1.clone()));
+                let ((adapter, model), budget) = match self.admit_run(&item.person, chosen, budget).await {
+                    Ok(admitted) => admitted,
+                    Err(e) => return Ok(Answer::Invalid(e.to_string())),
+                };
                 let (modules, escalate_to) = self.modules_for(&adapter, &model);
+                let escalate_to = self.escalation_for(&item.person, escalate_to).await;
                 let m = &self.cfg.model;
                 let fresh = new_id("run");
                 evs.push((&actor, resolve(None)));
