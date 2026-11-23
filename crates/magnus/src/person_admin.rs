@@ -119,7 +119,7 @@ impl Kernel {
             ("tasks", None) => json!(self.read(|s| {
                 s.tasks
                     .values()
-                    .filter(|t| t.person == target.id && !t.is_chat_turn())
+                    .filter(|t| t.person == target.id && s.listed(t))
                     .filter_map(|t| s.runs.get(&t.run_id).map(|r| crate::api::task_row(self, s, target, t, r, &words)))
                     .collect::<Vec<Value>>()
             })),

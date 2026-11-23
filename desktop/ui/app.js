@@ -2683,6 +2683,7 @@ async function taskView(id, composed) {
     <div class="row small dh-sub">${pill}${t.waiting_on ? `<span class="muted">${esc(WAITING[t.waiting_on] || "")}</span>` : running && t.status_line ? statusLineSlot(t, "muted") : ""}</div>`;
   const body = `${items.map(i => card(i, composed)).join("")}
     ${(t.app_offers || []).filter(o => o.state !== "connected").map(appOfferCard).join("")}
+    ${t.sub_agents?.length ? subAgentsCard({ id: `s:${t.task_id}`, kind: "sub_agents", task_id: t.task_id, from_run: t.run_id, agents: t.sub_agents, at: t.created_at }, { composed }) : ""}
     ${running ? `<div class="live" id="plive" aria-live="polite">${esc(Panel.liveText) || `<span class="faint">Working…</span>`}</div>` : ""}
     <div class="seg layers" role="tablist" aria-label="What to show">${[["outcome", "Result"], ["contract", "Progress"], ["trace", "Steps"]].map(([k, l]) => `<button role="tab" aria-selected="${Panel.layer === k}" class="${Panel.layer === k ? "on" : ""}" data-layer="${k}">${l}</button>`).join("")}</div>
     <section class="layer">${layers[Panel.layer]}</section>

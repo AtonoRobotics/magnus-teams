@@ -117,6 +117,8 @@ fn task_json(k: &Kernel, task: &crate::state::Task, run: &Run, full: bool, words
         v["waiting_item"] = json!(run.waiting_item);
         v["config"] = json!({ "harness": run.config.harness, "instructions": run.config.instructions, "playbook": run.config.playbook });
         v["open_items"] = json!(k.read(|s| s.inbox.open_for_run(&run.id).map(|i| i.id.clone()).collect::<Vec<_>>()));
+        // Its sub-agents are shown here, inside it, not listed as tasks.
+        v["sub_agents"] = json!(k.read(|s| crate::chat_thread::sub_agents_of(s, run, words)));
     }
     v
 }
@@ -187,7 +189,7 @@ pub(super) async fn list_tasks(State(k): K, Caller(p): Caller) -> ApiResult {
             .values()
             // Polls fire dozens a day: they stay out of the person's
             // lists, auditable by id and in the log (#406).
-            .filter(|t| visible_task(&p, t) && !s.in_chat(t) && !t.poll)
+            .filter(|t| visible_task(&p, t) && s.listed(t) && !t.poll)
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .collect()
     });
@@ -233,7 +235,7 @@ pub(super) async fn search(State(k): K, Caller(p): Caller, Query(q): Query<std::
         let tasks: Vec<Value> = s
             .tasks
             .values()
-            .filter(|t| visible_task(&p, t) && !s.in_chat(t) && !t.poll)
+            .filter(|t| visible_task(&p, t) && s.listed(t) && !t.poll)
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(&k, s, &p, t, r, &words)))
             .filter(|v| {
                 all(&format!("{} {} {}", v["title"].as_str().unwrap_or_default(), v["text"].as_str().unwrap_or_default(), v["summary"].as_str().unwrap_or_default()).to_lowercase())
@@ -468,7 +470,7 @@ pub(super) async fn home_opened(State(k): K, Caller(p): Caller) -> ApiResult {
         let mut arrived: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut decided: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
         let mut observations: Vec<(chrono::DateTime<chrono::Utc>, Value)> = vec![];
-        for t in s.tasks.values().filter(|t| visible_task(&p, t) && !s.in_chat(t) && !t.review && !t.poll) {
+        for t in s.tasks.values().filter(|t| visible_task(&p, t) && s.listed(t) && !t.review && !t.poll) {
             if let Some(r) = s.runs.get(&t.run_id) {
                 if matches!(r.status, Status::Completed | Status::Failed) {
                     if let Some(ended_at) = r.ended_at.filter(|e| *e > since) {

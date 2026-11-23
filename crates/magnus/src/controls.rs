@@ -119,7 +119,7 @@ impl Kernel {
         let mut v: Vec<Value> = self.read(|s| {
             s.tasks
                 .values()
-                .filter(|t| may_control(who, authority, &t.person) && t.chat.as_ref().is_none_or(|c| !c.turn) && !t.background())
+                .filter(|t| may_control(who, authority, &t.person) && s.listed(t) && !t.background())
                 .filter_map(|t| s.runs.get(&t.run_id).map(|r| task_row(t, r)))
                 .collect()
         });

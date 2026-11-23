@@ -266,7 +266,7 @@ fn project_json(s: &St, p: &crate::state::Project) -> Value {
     json!({
         "id": p.id, "name": p.name, "instructions": p.instructions, "created_at": p.created_at,
         "counts": {
-            "tasks": s.tasks.values().filter(|t| t.person == p.person && !t.is_chat_turn() && inside(&t.task_id)).count(),
+            "tasks": s.tasks.values().filter(|t| t.person == p.person && s.listed(t) && inside(&t.task_id)).count(),
             "files": s.library.files().values().filter(|f| f.person == p.person && inside(&f.id)).count(),
             "schedules": s.arrangements.schedules().values().filter(|x| x.person == p.person && inside(&x.id)).count(),
         },
@@ -309,7 +309,7 @@ async fn project(State(k): K, Caller(p): Caller, Path(id): Path<String>) -> Resp
         let tasks: Vec<Value> = s
             .tasks
             .values()
-            .filter(|t| t.person == p.id && !t.is_chat_turn() && inside(&t.task_id))
+            .filter(|t| t.person == p.id && s.listed(t) && inside(&t.task_id))
             .filter_map(|t| s.runs.get(&t.run_id).map(|r| crate::api::task_row(&k, s, &p, t, r, &words)))
             .collect();
         let schedules: Vec<Value> = s

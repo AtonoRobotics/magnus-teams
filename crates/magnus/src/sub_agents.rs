@@ -194,6 +194,14 @@ impl State {
         t.is_chat_turn() || self.chat_turn_above(&t.run_id).is_some()
     }
 
+    /// Listed among a person's tasks: what they asked for, never a chat
+    /// turn nor a sub-agent. A sub-agent is a child run of the task that
+    /// started it (spec, Sub-agents) and is shown inside that task, so one
+    /// request is one task however many children it starts.
+    pub fn listed(&self, t: &Task) -> bool {
+        !t.is_chat_turn() && self.sub_agents.get(&t.run_id).is_none()
+    }
+
     /// The task whose authority a run acts under: the top run's, itself
     /// when it is no sub-agent. A sub-agent carries its grant, confirmed
     /// scope (a schedule's too), project and requester, and is background
@@ -508,6 +516,21 @@ mod tests {
             s.apply(&ev(9, "kernel", json!({ "kind": "sub_agent", "child": "r3", "parent": "rj", "tools": [] })));
             assert!(s.in_chat(&s.tasks["c1"]) && s.in_chat(&s.tasks["c2"]), "a chat turn's sub-agent was listed as a task");
             assert!(!s.in_chat(&s.tasks["c3"]) && !s.in_chat(&s.tasks["job"]), "a task's sub-agent left its task");
+        }
+
+        /// One request is one task: a task's sub-agents, nested ones too,
+        /// are shown inside it and never listed beside it.
+        #[test]
+        fn a_tasks_sub_agents_are_not_listed_as_tasks() {
+            let mut s = State::default();
+            s.apply(&created(1, "job", "rj", Value::Null));
+            s.apply(&created(2, "c1", "r1", Value::Null));
+            s.apply(&ev(3, "kernel", json!({ "kind": "sub_agent", "child": "r1", "parent": "rj", "tools": [] })));
+            s.apply(&created(4, "c2", "r2", Value::Null));
+            s.apply(&ev(5, "kernel", json!({ "kind": "sub_agent", "child": "r2", "parent": "r1", "tools": [] })));
+            s.apply(&created(6, "turn", "rt", json!({ "thread": "th", "turn": true })));
+            let listed: Vec<&str> = ["job", "c1", "c2", "turn"].into_iter().filter(|t| s.listed(&s.tasks[*t])).collect();
+            assert_eq!(listed, ["job"], "one request was listed as several tasks");
         }
     }
 }

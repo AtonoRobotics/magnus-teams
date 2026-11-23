@@ -18,9 +18,14 @@ permit(principal, action == Action::"request_approval", resource);
 async fn saves_allowed(app: &Appliance, person: &Api) -> Vec<String> {
     let dev = app.api(magnus_scratch::DEVELOPER);
     let mut reasons = vec![];
+    // Each listed task's run and the sub-agents shown inside it.
+    let mut runs = vec![];
     for t in visible_tasks(person).await {
-        let id = t["task_id"].as_str().unwrap_or_default();
-        let Some(run) = person.task(id).await["run_id"].as_str().map(String::from) else { continue };
+        let v = person.task(t["task_id"].as_str().unwrap_or_default()).await;
+        runs.extend(v["run_id"].as_str().map(String::from));
+        runs.extend(v["sub_agents"].as_array().into_iter().flatten().filter_map(|a| a["run"].as_str().map(String::from)));
+    }
+    for run in runs {
         let (st, ins) = dev.get(&format!("/v1/dev/runs/{run}")).await;
         assert!(st.is_success(), "the run inspector refused: {st} {ins}");
         let actions = ins["actions"].as_array().cloned().unwrap_or_default();
@@ -155,14 +160,17 @@ async fn a_scheduled_run_uses_sub_agents() {
     let review = runs.iter().find(|c| run_of(c) == Run::Task && opening(c).contains(REVIEW) && c.turn() == 2).expect("the review went no further").last_results();
     assert!(review.len() == 1 && review[0].is_error && review[0].text.contains("notes__save"), "the review wrote past its limit: {review:?}");
 
-    // The person sees the run and its three sub-agents under the schedule,
-    // the conversation, and nothing else: no approval, notice or thread.
+    // The person sees one task, the run, under the schedule, with its three
+    // sub-agents inside it; the conversation; and nothing else: no approval,
+    // notice or thread. One request is one task, however many children it
+    // starts (owner, 2026-11-22).
     let tasks = visible_tasks(&alice).await;
-    assert_eq!(tasks.len(), 4, "the run and its three sub-agents: {tasks:?}");
-    assert!(tasks.iter().all(|t| t["group"]["kind"] == "schedule"), "a sub-agent is not grouped under its schedule: {tasks:?}");
-    let ids: Vec<String> = tasks.iter().map(|t| t["task_id"].as_str().unwrap().to_string()).collect();
-    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    only(&alice, &b, &refs, &[], &[&origin]).await;
+    assert_eq!(tasks.len(), 1, "a sub-agent was listed as a task of its own: {tasks:?}");
+    assert_eq!(tasks[0]["group"]["kind"], "schedule", "the run is not grouped under its schedule: {tasks:?}");
+    let id = tasks[0]["task_id"].as_str().unwrap_or_default().to_string();
+    let inside = alice.task(&id).await["sub_agents"].as_array().cloned().unwrap_or_default();
+    assert_eq!(inside.len(), 3, "the run does not show its three sub-agents: {inside:?}");
+    only(&alice, &b, &[&id], &[], &[&origin]).await;
 }
 
 /// 6, continued. A scheduled run that fails wakes the agent in the

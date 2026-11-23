@@ -303,15 +303,21 @@ fn fields(v: Value) -> Map<String, Value> {
 /// conversation placed when the first began: each one's goal, status, what
 /// it waits on and its result.
 pub(crate) fn sub_agents_entry(s: &State, turn: &Task, r: &Run, w: &Words) -> Option<Placed> {
-    let mut first: Option<DateTime<Utc>> = None;
-    let agents: Vec<Agent> = s
-        .sub_agents
+    let agents = sub_agents_of(s, r, w);
+    let at = agents.iter().map(|a| a.at).min()?;
+    let body = Body::SubAgents(SubAgents { from_run: r.id.clone(), agents });
+    Some((at, 1, Entry { id: format!("s:{}", turn.task_id), kind: Kind::SubAgents, at: Some(at), task_id: Some(turn.task_id.clone()), may: None, reaction: None, body }))
+}
+
+/// The sub-agents a run started, nested ones too: in a chat turn's
+/// conversation, and inside the task that started them.
+pub(crate) fn sub_agents_of(s: &State, r: &Run, w: &Words) -> Vec<Agent> {
+    s.sub_agents
         .below(&r.id)
         .into_iter()
         .filter_map(|(depth, c)| {
             let cr = s.runs.get(&c.child)?;
             let ct = s.tasks.get(&cr.task)?;
-            first = Some(first.map_or(ct.created_at, |f| f.min(ct.created_at)));
             Some(Agent {
                 run: c.child,
                 parent: c.parent,
@@ -327,10 +333,7 @@ pub(crate) fn sub_agents_entry(s: &State, turn: &Task, r: &Run, w: &Words) -> Op
                 ended_at: cr.ended_at,
             })
         })
-        .collect();
-    let at = first?;
-    let body = Body::SubAgents(SubAgents { from_run: r.id.clone(), agents });
-    Some((at, 1, Entry { id: format!("s:{}", turn.task_id), kind: Kind::SubAgents, at: Some(at), task_id: Some(turn.task_id.clone()), may: None, reaction: None, body }))
+        .collect()
 }
 
 #[cfg(test)]

@@ -7,6 +7,8 @@
 mod owner;
 mod sign_in;
 mod work;
+#[cfg(test)]
+mod work_list_tests;
 
 use crate::api_error::{refuse, session_unread, ApiResult};
 use crate::config::Person;
